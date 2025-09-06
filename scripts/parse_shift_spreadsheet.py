@@ -1,33 +1,130 @@
 #!/usr/bin/env python3
+"""
+Extract shifts and stats from the 'dh-tv-12-1.xls' style sheet.
+
+Outputs per-player:
+  - {Jersey}_{Name}_video_times.txt          -> "videoStart videoEnd"
+  - {Jersey}_{Name}_scoreboard_times.txt     -> "period scoreboardStart scoreboardEnd"
+  - {Jersey}_{Name}_stats.txt                -> scoreboard-time-based stats (TOI, #shifts, avg, etc., + plus/minus)
+
+Goals can be specified via:
+  --goal GF:2/13:45 --goal GA:1/05:12 ...
+or as a file with lines like:
+  GF:1/13:47
+  GA:2/09:15
+  # comments and blank lines allowed
+
+Install deps (for .xls):
+  pip install pandas xlrd
+
+Example:
+  python extract_shift_times.py \
+      --input dh-tv-12-1.xls \
+      --outdir player_shifts \
+      --goal GF:1/12:20 --goal GA:2/10:05 \
+      --goals-file goals.txt \
+      --keep-goalies
+"""
+
+import argparse
 import re
+import statistics
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 
+# Header labels as they appear in the sheet
 LABEL_START_SB = "Shift Start (Scoreboard Time)"
 LABEL_END_SB   = "Shift End (Scoreboard Time)"
 LABEL_START_V  = "Shift Start (Video Time)"
 LABEL_END_V    = "Shift End (Video Time)"
 
 
+# ----------------------------- utilities -----------------------------
+
 def sanitize_name(s: str) -> str:
     s = s.strip().replace(" ", "_")
-    # keep alnum, underscore, dash; drop the rest
     return re.sub(r"[^A-Za-z0-9_\-]", "", s)
-
 
 def is_period_label(x: object) -> bool:
     s = str(x).strip()
-    return bool(re.fullmatch(r"Period\s+[1-3]", s))
+    return bool(re.fullmatch(r"Period\s+[1-9]\d*", s))
 
+
+def parse_flex_time_to_seconds(s: str) -> int:
+    """
+    Accepts H:MM:SS or M:SS or MM:SS.
+    Returns total seconds (int).
+    """
+    s = s.strip()
+    parts = s.split(":")
+    if len(parts) == 3:
+        h, m, sec = parts
+        return int(h) * 3600 + int(m) * 60 + int(sec)
+    elif len(parts) == 2:
+        m, sec = parts
+        return int(m) * 60 + int(sec)
+    else:
+        raise ValueError(f"Invalid time format '{s}'. Expected M:SS or H:MM:SS.")
+
+
+def seconds_to_mmss_or_hhmmss(t: int) -> str:
+    """Pretty printer for seconds: HH:MM:SS if >= 3600 else M:SS with minutes not zero-padded."""
+    if t < 0:
+        t = 0
+    h = t // 3600
+    r = t % 3600
+    m = r // 60
+    s = r % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    else:
+        return f"{m}:{s:02d}"
+
+
+def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
+    """
+    Given a header row with merged-like cells (label then NaNs across its span),
+    forward-fill labels across columns to group column indices by label.
+    """
+    labels_by_col: List[Optional[str]] = []
+    current = None
+    for c in range(len(header_row)):
+        val = header_row.iloc[c]
+        if pd.notna(val) and str(val).strip():
+            current = str(val).strip()
+        labels_by_col.append(current)
+
+    groups: Dict[str, List[int]] = {}
+    for idx, lab in enumerate(labels_by_col):
+        if not lab:
+            continue
+        groups.setdefault(lab, []).append(idx)
+    return groups
+
+
+def extract_pairs_from_row(row: pd.Series, start_cols: List[int], end_cols: List[int]) -> List[Tuple[str, str]]:
+    """
+    From start/end column groups, collect non-empty strings and pair positionally.
+    Start/End order in the sheet can be higher->lower or lower->higher; pairing is positional only.
+    """
+    starts = [str(row[c]).strip() for c in start_cols if pd.notna(row[c]) and str(row[c]).strip()]
+    ends = [str(row[c]).strip() for c in end_cols if pd.notna(row[c]) and str(row[c]).strip()]
+    n = min(len(starts), len(ends))
+    return [(starts[i], ends[i]) for i in range(n)]
+
+
+# ----------------------------- parsing sheet -----------------------------
 
 def find_period_blocks(df: pd.DataFrame) -> List[Tuple[int, int, int]]:
     """
-    Returns a list of (period_number, start_row_idx, end_row_idx_exclusive)
-    spanning each 'Period X' section.
+    Returns a list of (period_number, start_row_idx, end_row_idx_exclusive) for each 'Period X' block.
     """
-    idxs = [i for i, v in df[0].items() if is_period_label(v)]
+    # Use position-based indexing for robustness: some Excel files may not
+    # create a column label "0" even with header=None, so df[0] can KeyError.
+    col0 = df.iloc[:, 0]
+    idxs = [i for i, v in col0.items() if is_period_label(v)]
     idxs.append(len(df))
     blocks = []
     for i in range(len(idxs) - 1):
@@ -35,87 +132,159 @@ def find_period_blocks(df: pd.DataFrame) -> List[Tuple[int, int, int]]:
         blocks.append((period_num, idxs[i], idxs[i + 1]))
     return blocks
 
-
 def find_header_row(df: pd.DataFrame, start: int, end: int) -> Optional[int]:
     """
-    Within [start, end), find the row that begins the header (contains 'Jersey No' in col 0).
-    Your file has: 'Period X' row, then a blank row, then this header row.
+    Within [start, end), locate the header row (typically the row with 'Jersey No' in col 0).
+    Often pattern is: 'Period', blank, header.
     """
-    for r in range(start, min(end, start + 8)):  # small window is enough
+    for r in range(start, min(end, start + 12)):
         if str(df.iloc[r, 0]).strip().lower() == "jersey no":
             return r
-    return None
+    # Fallback (Period + blank + header)
+    return start + 2 if start + 2 < end else None
 
 
-def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
+# ----------------------------- goals parsing -----------------------------
+
+
+class GoalEvent:
+    __slots__ = ("kind", "period", "t_str", "t_sec")
+
+    def __init__(self, kind: str, period: int, t_str: str):
+        self.kind = kind  # "GF" or "GA"
+        self.period = period
+        self.t_str = t_str.strip()
+        self.t_sec = parse_flex_time_to_seconds(self.t_str)
+
+    def __repr__(self) -> str:
+        return f"{self.kind}:{self.period}/{self.t_str}"
+
+
+def parse_goal_token(token: str) -> GoalEvent:
     """
-    The header row has merged-like labels: the key word appears once, then NaNs
-    across the span. We forward-fill across columns to learn which columns belong
-    to which label.
-    Returns a mapping: label -> list of column indices.
+    Token: GF:2/13:45 or GA:1/05:12 (case-insensitive on GF/GA).
     """
-    labels_by_col: List[str] = []
-    current_label = None
-    for c in range(len(header_row)):
-        val = header_row.iloc[c]
-        if pd.notna(val) and str(val).strip():
-            current_label = str(val).strip()
-        labels_by_col.append(current_label)
+    token = token.strip()
+    m = re.fullmatch(r"(?i)(GF|GA)\s*:\s*([1-9]\d*)\s*/\s*([0-9:]+)", token)
+    if not m:
+        raise ValueError(f"Bad goal token '{token}'. Expected GF:period/time or GA:period/time")
+    kind = m.group(1).upper()
+    period = int(m.group(2))
+    t_str = m.group(3)
+    return GoalEvent(kind, period, t_str)
 
-    groups: Dict[str, List[int]] = {}
-    for col_idx, lab in enumerate(labels_by_col):
-        if not lab:
+
+def load_goals(goals_inline: Iterable[str], goals_file: Optional[Path]) -> List[GoalEvent]:
+    events: List[GoalEvent] = []
+    # Inline
+    for tok in goals_inline or []:
+        if not tok:
             continue
-        groups.setdefault(lab, []).append(col_idx)
-    return groups
+        events.append(parse_goal_token(tok))
+    # File
+    if goals_file:
+        with goals_file.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                events.append(parse_goal_token(line))
+    return events
 
 
-def extract_pairs_from_row(row: pd.Series, start_cols: List[int], end_cols: List[int]) -> List[Tuple[str, str]]:
+# ----------------------------- core processing -----------------------------
+
+
+def compute_interval_seconds(a: str, b: str) -> Tuple[int, int]:
     """
-    Given a row and the columns for starts and ends (already separated),
-    pair them positionally. Ignore blanks/NaNs. Truncate to the min length.
+    Return (lo, hi) in seconds for a scoreboard interval defined by two times (order-agnostic).
+    Works even if the scoreboard counts down (e.g., 15:00 -> 09:21) or up (e.g., 11:27 -> 29:54).
     """
-    starts = [str(row[c]).strip() for c in start_cols if pd.notna(row[c]) and str(row[c]).strip()]
-    ends   = [str(row[c]).strip() for c in end_cols   if pd.notna(row[c]) and str(row[c]).strip()]
-    n = min(len(starts), len(ends))
-    return [(starts[i], ends[i]) for i in range(n)]
+    sa, sb = parse_flex_time_to_seconds(a), parse_flex_time_to_seconds(b)
+    return (sa, sb) if sa <= sb else (sb, sa)
 
 
-def parse_file(
+def interval_contains(t: int, lo: int, hi: int) -> bool:
+    return lo <= t <= hi
+
+
+def fmt_pairs_for_file(pairs: List[Tuple[str, str]]) -> str:
+    return "\n".join(f"{a} {b}" for a, b in pairs)
+
+
+def summarize_shift_lengths_sec(pairs: List[Tuple[str, str]]) -> Dict[str, str]:
+    """
+    Given scoreboard time string pairs, compute durations in seconds and summarize.
+    """
+    lengths = []
+    for a, b in pairs:
+        lo, hi = compute_interval_seconds(a, b)
+        lengths.append(hi - lo)
+    if not lengths:
+        return {
+            "num_shifts": "0",
+            "toi_total": "0:00",
+            "toi_avg": "0:00",
+            "toi_median": "0:00",
+            "toi_longest": "0:00",
+            "toi_shortest": "0:00",
+        }
+    return {
+        "num_shifts": str(len(lengths)),
+        "toi_total": seconds_to_mmss_or_hhmmss(sum(lengths)),
+        "toi_avg": seconds_to_mmss_or_hhmmss(int(sum(lengths) / len(lengths))),
+        "toi_median": seconds_to_mmss_or_hhmmss(int(statistics.median(lengths))),
+        "toi_longest": seconds_to_mmss_or_hhmmss(max(lengths)),
+        "toi_shortest": seconds_to_mmss_or_hhmmss(min(lengths)),
+    }
+
+
+def per_period_toi(pairs_by_period: Dict[int, List[Tuple[str, str]]]) -> Dict[int, str]:
+    out: Dict[int, str] = {}
+    for period, pairs in pairs_by_period.items():
+        total = 0
+        for a, b in pairs:
+            lo, hi = compute_interval_seconds(a, b)
+            total += hi - lo
+        out[period] = seconds_to_mmss_or_hhmmss(total)
+    return out
+
+
+def process_sheet(
     xls_path: Path,
-    output_dir: Path,
-    skip_goalies: bool = True,
+    sheet_name: Optional[str],
+    outdir: Path,
+    keep_goalies: bool,
+    goals: List[GoalEvent],
 ) -> None:
-    df = pd.read_excel(xls_path, header=None)
-
-    # Identify period blocks
+    # If sheet_name is None, pandas returns a dict of DataFrames.
+    # We want the first sheet by default, so coerce None -> 0.
+    target_sheet = 0 if sheet_name is None else sheet_name
+    df = pd.read_excel(xls_path, sheet_name=target_sheet, header=None)
     blocks = find_period_blocks(df)
     if not blocks:
-        raise ValueError("No 'Period N' sections found in column A of the sheet.")
+        raise ValueError("No 'Period N' sections found in column A.")
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    outdir.mkdir(parents=True, exist_ok=True)
 
-    # Accumulate per-player across all periods
-    per_player_video: Dict[str, List[Tuple[str, str]]] = {}
-    per_player_score: Dict[str, List[Tuple[int, str, str]]] = {}
+    # Accumulators
+    video_pairs_by_player: Dict[str, List[Tuple[str, str]]] = {}
+    sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]] = {}
 
+    # Parse each period block
     for period_num, blk_start, blk_end in blocks:
         header_row_idx = find_header_row(df, blk_start, blk_end)
         if header_row_idx is None:
-            # Fallback to the common ‘Period; blank; header’ pattern
-            header_row_idx = blk_start + 2
+            raise ValueError(f"Could not locate header row for Period {period_num}")
         data_start = header_row_idx + 1
 
         header = df.iloc[header_row_idx]
         groups = forward_fill_header_labels(header)
 
-        # Which columns belong to which label?
         start_sb_cols = groups.get(LABEL_START_SB, [])
         end_sb_cols   = groups.get(LABEL_END_SB, [])
         start_v_cols  = groups.get(LABEL_START_V, [])
         end_v_cols    = groups.get(LABEL_END_V, [])
-
-        # Required labels must exist
         for lab, cols in [
             (LABEL_START_SB, start_sb_cols),
             (LABEL_END_SB, end_sb_cols),
@@ -123,52 +292,197 @@ def parse_file(
             (LABEL_END_V, end_v_cols),
         ]:
             if not cols:
-                raise ValueError(f"Could not locate header columns for: '{lab}' in Period {period_num}")
+                raise ValueError(f"Missing header columns for '{lab}' in Period {period_num}")
 
-        # Iterate each player row
+        # Iterate rows (players) in the block
         for r in range(data_start, blk_end):
             jersey = str(df.iloc[r, 0]).strip()
             name   = str(df.iloc[r, 1]).strip()
 
-            # Stop if we hit the next period or empty tail
             if is_period_label(df.iloc[r, 0]) or (not jersey and not name):
                 break
-
-            # Skip blank lines
             if not jersey or jersey.lower() == "nan":
                 continue
-
-            # Skip goalies `(G) 37` etc.
-            if skip_goalies and "(" in jersey and ")" in jersey:
+            # Skip goalies like "(G) 37"
+            if not keep_goalies and "(" in jersey and ")" in jersey:
                 continue
 
             player_key = f"{sanitize_name(jersey)}_{sanitize_name(name)}"
 
-            # Extract and pair times
             video_pairs = extract_pairs_from_row(df.iloc[r], start_v_cols, end_v_cols)
             sb_pairs    = extract_pairs_from_row(df.iloc[r], start_sb_cols, end_sb_cols)
 
             if video_pairs:
-                per_player_video.setdefault(player_key, []).extend(video_pairs)
+                video_pairs_by_player.setdefault(player_key, []).extend(video_pairs)
             if sb_pairs:
-                per_player_score.setdefault(player_key, []).extend((period_num, s, e) for s, e in sb_pairs)
+                sb_pairs_by_player.setdefault(player_key, []).extend((period_num, a, b) for a, b in sb_pairs)
 
-    # Write files
-    for player_key, v_pairs in per_player_video.items():
-        with (output_dir / f"{player_key}_video_times.txt").open("w", encoding="utf-8") as f:
-            for s, e in v_pairs:
-                f.write(f"{s} {e}\n")
+    # Write per-player times files
+    for player_key, v_pairs in video_pairs_by_player.items():
+        p = outdir / f"{player_key}_video_times.txt"
+        p.write_text(fmt_pairs_for_file(v_pairs) + ("\n" if v_pairs else ""), encoding="utf-8")
 
-    for player_key, sb_list in per_player_score.items():
-        with (output_dir / f"{player_key}_scoreboard_times.txt").open("w", encoding="utf-8") as f:
-            for period_num, s, e in sb_list:
-                f.write(f"{period_num} {s} {e}\n")
+    for player_key, sb_list in sb_pairs_by_player.items():
+        p = outdir / f"{player_key}_scoreboard_times.txt"
+        lines = [f"{period} {a} {b}" for (period, a, b) in sb_list]
+        p.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+    # ---------- Stats & Plus/Minus ----------
+    # Index goal events by period for quick lookup
+    goals_by_period: Dict[int, List[GoalEvent]] = {}
+    for ev in goals:
+        goals_by_period.setdefault(ev.period, []).append(ev)
+
+    # For each player, compute:
+    #  - TOI (total and per period) based on scoreboard times
+    #  - #shifts, avg/median/longest/shortest shift
+    #  - Plus/Minus (GF = +1, GA = -1) if goal time ∈ any shift interval of that period
+    for player_key, sb_list in sb_pairs_by_player.items():
+        # By period grouping (for per-period TOI & goal checks)
+        sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
+        for period, a, b in sb_list:
+            sb_by_period.setdefault(period, []).append((a, b))
+
+        # Shift stats (overall, scoreboard-based)
+        all_pairs = [(a, b) for (_, a, b) in sb_list]
+        shift_summary = summarize_shift_lengths_sec(all_pairs)
+        per_period_toi_map = per_period_toi(sb_by_period)
+
+        # Plus/Minus
+        plus_minus = 0
+        counted_gf: List[str] = []
+        counted_ga: List[str] = []
+        for period, pairs in sb_by_period.items():
+            if period not in goals_by_period:
+                continue
+            # For each goal in this period, check against each shift pair using the
+            # labeled start/end times (not the normalized interval) to handle edge rules.
+            for ev in goals_by_period[period]:
+                matched = False
+                for (a, b) in pairs:
+                    a_sec = parse_flex_time_to_seconds(a)
+                    b_sec = parse_flex_time_to_seconds(b)
+                    lo, hi = (a_sec, b_sec) if a_sec <= b_sec else (b_sec, a_sec)
+                    # Inside inclusive range first
+                    if not (lo <= ev.t_sec <= hi):
+                        continue
+                    # Apply edge rules using labeled endpoints:
+                    # - GA at exact shift START (time == a) does NOT count.
+                    # - GF at exact shift END (time == b) DOES count (already covered by inclusive range).
+                    if ev.kind == "GA" and ev.t_sec == a_sec:
+                        continue
+                    matched = True
+                    break
+                if matched:
+                    if ev.kind == "GF":
+                        plus_minus += 1
+                        counted_gf.append(f"P{period}:{ev.t_str}")
+                    else:
+                        plus_minus -= 1
+                        counted_ga.append(f"P{period}:{ev.t_str}")
+
+        # Stats file
+        stats_lines = []
+        stats_lines.append(f"Player: {player_key}")
+        stats_lines.append(f"Shifts (scoreboard): {shift_summary['num_shifts']}")
+        stats_lines.append(f"TOI total (scoreboard): {shift_summary['toi_total']}")
+        stats_lines.append(f"Avg shift: {shift_summary['toi_avg']}")
+        stats_lines.append(f"Median shift: {shift_summary['toi_median']}")
+        stats_lines.append(f"Longest shift: {shift_summary['toi_longest']}")
+        stats_lines.append(f"Shortest shift: {shift_summary['toi_shortest']}")
+        # Per-period TOI
+        if per_period_toi_map:
+            stats_lines.append("Per-period TOI (scoreboard):")
+            for period in sorted(per_period_toi_map.keys()):
+                stats_lines.append(f"  Period {period}: {per_period_toi_map[period]}")
+        # Plus/Minus
+        stats_lines.append(f"Plus/Minus: {plus_minus}")
+        if counted_gf:
+            stats_lines.append("  GF counted at: " + ", ".join(sorted(counted_gf)))
+        if counted_ga:
+            stats_lines.append("  GA counted at: " + ", ".join(sorted(counted_ga)))
+
+        # (Optional) interesting extras you can glean:
+        # - Shifts per period
+        for period, pairs in sorted(sb_by_period.items()):
+            stats_lines.append(f"Shifts in Period {period}: {len(pairs)}")
+
+        # Write file
+        (outdir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
+
+    # Global summary CSV (optional quick view)
+    summary_rows = []
+    for player_key, sb_list in sb_pairs_by_player.items():
+        all_pairs = [(a, b) for (_, a, b) in sb_list]
+        shift_summary = summarize_shift_lengths_sec(all_pairs)
+        row = {
+            "player": player_key,
+            "num_shifts": int(shift_summary["num_shifts"]),
+            "toi_total_sec": (
+                parse_flex_time_to_seconds(shift_summary["toi_total"]) if ":" in shift_summary["toi_total"] else 0
+            ),
+            "toi_avg_sec": (
+                parse_flex_time_to_seconds(shift_summary["toi_avg"]) if ":" in shift_summary["toi_avg"] else 0
+            ),
+            "toi_median_sec": (
+                parse_flex_time_to_seconds(shift_summary["toi_median"]) if ":" in shift_summary["toi_median"] else 0
+            ),
+            "toi_longest_sec": (
+                parse_flex_time_to_seconds(shift_summary["toi_longest"]) if ":" in shift_summary["toi_longest"] else 0
+            ),
+            "toi_shortest_sec": (
+                parse_flex_time_to_seconds(shift_summary["toi_shortest"]) if ":" in shift_summary["toi_shortest"] else 0
+            ),
+        }
+        summary_rows.append(row)
+    if summary_rows:
+        pd.DataFrame(summary_rows).sort_values(by="player").to_csv(outdir / "summary_stats.csv", index=False)
+
+
+# ----------------------------- CLI -----------------------------
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Extract per-player shifts & stats from an Excel sheet like 'dh-tv-12-1.xls'."
+    )
+    p.add_argument("--input", "-i", type=Path, required=True, help="Path to input .xls/.xlsx file.")
+    p.add_argument("--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet).")
+    p.add_argument("--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory.")
+    p.add_argument(
+        "--keep-goalies",
+        action="store_true",
+        help="By default, rows like '(G) 37' are skipped. Use this flag to include them.",
+    )
+    # Goals
+    p.add_argument(
+        "--goal",
+        "-g",
+        action="append",
+        default=[],
+        help="Goal event token. Example: 'GF:2/13:45' or 'GA:1/05:12'. Can repeat.",
+    )
+    p.add_argument(
+        "--goals-file",
+        type=Path,
+        default=None,
+        help="Path to a text file with one goal per line (GF:period/time or GA:period/time). '#' lines ignored.",
+    )
+    return p
+
+
+def main() -> None:
+    args = build_arg_parser().parse_args()
+    goals = load_goals(args.goal, args.goals_file)
+    process_sheet(
+        xls_path=args.input,
+        sheet_name=args.sheet,
+        outdir=args.outdir,
+        keep_goalies=args.keep_goalies,
+        goals=goals,
+    )
+    print(f"✅ Done. Wrote per-player files to: {args.outdir.resolve()}")
 
 
 if __name__ == "__main__":
-    # --- Configure here or pass in via flags if you want to CLI-ify ---
-    # xls_path = Path("dh-tv-12-1.xls")   # your .xls file
-    xls_path = Path("/mnt/ripper-data/Videos/dh-tv-12-1/stats/dh-tv-12-1.xls")  # Replace with your .xls filename
-    out_dir  = Path("player_shifts")    # output folder
-    parse_file(xls_path, out_dir, skip_goalies=True)
-    print(f"✅ Done. Wrote per-player files in: {out_dir.resolve()}")
+    main()
