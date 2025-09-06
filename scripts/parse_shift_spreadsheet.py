@@ -270,6 +270,9 @@ def process_sheet(
     # Accumulators
     video_pairs_by_player: Dict[str, List[Tuple[str, str]]] = {}
     sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]] = {}
+    # For scoreboard->video conversion: collect mapping segments per period
+    # Each segment: (sb_start_sec, sb_end_sec, v_start_sec, v_end_sec)
+    conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]] = {}
 
     # Parse each period block
     for period_num, blk_start, blk_end in blocks:
@@ -316,6 +319,20 @@ def process_sheet(
                 video_pairs_by_player.setdefault(player_key, []).extend(video_pairs)
             if sb_pairs:
                 sb_pairs_by_player.setdefault(player_key, []).extend((period_num, a, b) for a, b in sb_pairs)
+
+            # Build conversion segments for this row where both SB and Video pairs exist positionally
+            nseg = min(len(video_pairs), len(sb_pairs))
+            for idx in range(nseg):
+                sva, svb = video_pairs[idx]
+                sba, sbb = sb_pairs[idx]
+                try:
+                    v1 = parse_flex_time_to_seconds(sva)
+                    v2 = parse_flex_time_to_seconds(svb)
+                    s1 = parse_flex_time_to_seconds(sba)
+                    s2 = parse_flex_time_to_seconds(sbb)
+                except Exception:
+                    continue
+                conv_segments_by_period.setdefault(period_num, []).append((s1, s2, v1, v2))
 
     # Write per-player times files
     for player_key, v_pairs in video_pairs_by_player.items():
@@ -441,18 +458,65 @@ def process_sheet(
     # ---------- Goals window files (optional) ----------
     # If any goals were provided, write goals_for.txt and goals_against.txt
     if goals:
-        gf_lines = []
-        ga_lines = []
+        # Helper: map a scoreboard second to video seconds using row-derived segments
+        def map_sb_to_video(period: int, t_sb: int) -> Optional[int]:
+            if period not in conv_segments_by_period:
+                return None
+            segs = conv_segments_by_period[period]
+            for (s1, s2, v1, v2) in segs:
+                lo, hi = (s1, s2) if s1 <= s2 else (s2, s1)
+                if lo <= t_sb <= hi and s1 != s2:
+                    # Linear interpolation using labeled endpoints (preserve direction)
+                    return int(round(v1 + (t_sb - s1) * (v2 - v1) / (s2 - s1)))
+            return None
+
+        # Determine observed scoreboard max per period for capping
+        max_sb_by_period: Dict[int, int] = {}
+        for period, segs in conv_segments_by_period.items():
+            mx = 0
+            for (s1, s2, _, _) in segs:
+                mx = max(mx, s1, s2)
+            max_sb_by_period[period] = mx
+
+        gf_lines: List[str] = []
+        ga_lines: List[str] = []
         for ev in goals:
-            start_sec = max(ev.t_sec - 30, 0)
-            end_sec = ev.t_sec + 10
-            start_str = seconds_to_mmss_or_hhmmss(start_sec)
-            end_str = seconds_to_mmss_or_hhmmss(end_sec)
-            line = f"{ev.period} {start_str} {end_str}"
+            # Cap scoreboard window to [0, max_seen_period]
+            sb_max = max_sb_by_period.get(ev.period, None)
+            start_sb = ev.t_sec - 30
+            end_sb = ev.t_sec + 10
+            if sb_max is not None:
+                start_sb = max(0, start_sb)
+                end_sb = min(sb_max, end_sb)
+            else:
+                start_sb = max(0, start_sb)
+
+            # Prefer mapping around the goal center time for robust window sizes in video space
+            v_center = map_sb_to_video(ev.period, ev.t_sec)
+            if v_center is not None:
+                v_start = max(0, v_center - 30)
+                v_end = v_center + 10
+                start_str = seconds_to_mmss_or_hhmmss(v_start)
+                end_str = seconds_to_mmss_or_hhmmss(v_end)
+            else:
+                # Fallback: attempt endpoint-wise mapping; if still not possible, leave as-is
+                v_start = map_sb_to_video(ev.period, start_sb)
+                v_end = map_sb_to_video(ev.period, end_sb)
+                if v_start is not None and v_end is not None:
+                    start_str = seconds_to_mmss_or_hhmmss(max(0, v_start))
+                    end_str = seconds_to_mmss_or_hhmmss(max(0, v_end))
+                else:
+                    # Last resort: keep scoreboard times; note these are not converted
+                    start_str = seconds_to_mmss_or_hhmmss(max(0, start_sb))
+                    end_str = seconds_to_mmss_or_hhmmss(max(0, end_sb))
+
+            # Goals files use video time format (no period prefix), matching *_video_times.txt
+            line = f"{start_str} {end_str}"
             if ev.kind == "GF":
                 gf_lines.append(line)
             else:
                 ga_lines.append(line)
+
         (outdir / "goals_for.txt").write_text("\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8")
         (outdir / "goals_against.txt").write_text("\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8")
 
