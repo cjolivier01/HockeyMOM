@@ -359,6 +359,28 @@ def process_sheet(
         p = outdir / f"{player_key}_video_times.txt"
         p.write_text("\n".join(f"{a} {b}" for a, b in norm_pairs) + ("\n" if norm_pairs else ""), encoding="utf-8")
 
+        # Create a convenience bash script to run the video clipper for this player
+        script_path = outdir / f"clip_{player_key}.sh"
+        player_label = player_key.replace("_", " ")
+        script_body = """#!/usr/bin/env bash
+set -euo pipefail
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <input_video> <opposing_team>"
+  exit 1
+fi
+INPUT="$1"
+OPP="$2"
+THIS_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
+TS_FILE="$THIS_DIR/{player_key}_video_times.txt"
+python -m hmlib.cli.video_clipper --input "$INPUT" --timestamps "$TS_FILE" --temp-dir "$THIS_DIR/temp_clips/{player_key}" "{player_label} vs $OPP"
+""".format(player_key=player_key, player_label=player_label)
+        script_path.write_text(script_body, encoding="utf-8")
+        try:
+            import os
+            os.chmod(script_path, 0o755)
+        except Exception:
+            pass
+
     for player_key, sb_list in sb_pairs_by_player.items():
         p = outdir / f"{player_key}_scoreboard_times.txt"
         lines = [f"{period} {a} {b}" for (period, a, b) in sb_list]

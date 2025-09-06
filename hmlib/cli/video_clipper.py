@@ -241,6 +241,7 @@ def main():
     parser.add_argument("--timestamps", "-t", default=None, help="File containing timestamps")
     parser.add_argument("--quick", type=int, default=0, help="Quick mode (lower quality)")
     parser.add_argument("--video-file-list", type=str, default=None, help="List of video files")
+    parser.add_argument("--temp-dir", type=str, default=None, help="Directory to store intermediate clips")
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
 
@@ -284,7 +285,7 @@ def main():
     audio_sample_rate = get_audio_sample_rate(probe_video)
 
     # Create temporary directory
-    temp_dir = "temp_clips"
+    temp_dir = args.temp_dir if args.temp_dir else "temp_clips"
     os.makedirs(temp_dir, exist_ok=True)
 
     clips: List[str] = []
