@@ -82,6 +82,16 @@ def seconds_to_mmss_or_hhmmss(t: int) -> str:
     else:
         return f"{m}:{s:02d}"
 
+def seconds_to_hhmmss(t: int) -> str:
+    """Always format seconds as HH:MM:SS with zero-padded hours."""
+    if t < 0:
+        t = 0
+    h = t // 3600
+    r = t % 3600
+    m = r // 60
+    s = r % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
 
 def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
     """
@@ -336,8 +346,18 @@ def process_sheet(
 
     # Write per-player times files
     for player_key, v_pairs in video_pairs_by_player.items():
+        # Normalize video times to HH:MM:SS
+        norm_pairs = []
+        for a, b in v_pairs:
+            try:
+                sa = parse_flex_time_to_seconds(a)
+                sb = parse_flex_time_to_seconds(b)
+            except Exception:
+                # Skip unparseable pairs
+                continue
+            norm_pairs.append((seconds_to_hhmmss(sa), seconds_to_hhmmss(sb)))
         p = outdir / f"{player_key}_video_times.txt"
-        p.write_text(fmt_pairs_for_file(v_pairs) + ("\n" if v_pairs else ""), encoding="utf-8")
+        p.write_text("\n".join(f"{a} {b}" for a, b in norm_pairs) + ("\n" if norm_pairs else ""), encoding="utf-8")
 
     for player_key, sb_list in sb_pairs_by_player.items():
         p = outdir / f"{player_key}_scoreboard_times.txt"
@@ -373,6 +393,8 @@ def process_sheet(
         plus_minus = 0
         counted_gf: List[str] = []
         counted_ga: List[str] = []
+        counted_gf_by_period: Dict[int, int] = {}
+        counted_ga_by_period: Dict[int, int] = {}
         for period, pairs in sb_by_period.items():
             if period not in goals_by_period:
                 continue
@@ -398,9 +420,11 @@ def process_sheet(
                     if ev.kind == "GF":
                         plus_minus += 1
                         counted_gf.append(f"P{period}:{ev.t_str}")
+                        counted_gf_by_period[period] = counted_gf_by_period.get(period, 0) + 1
                     else:
                         plus_minus -= 1
                         counted_ga.append(f"P{period}:{ev.t_str}")
+                        counted_ga_by_period[period] = counted_ga_by_period.get(period, 0) + 1
 
         # Stats file
         stats_lines = []
@@ -465,6 +489,12 @@ def process_sheet(
             all_periods_seen.add(period)
         for period, pairs in sb_by_period.items():
             row_map[f"P{period}_shifts"] = str(len(pairs))
+        for period, cnt in counted_gf_by_period.items():
+            row_map[f"P{period}_GF"] = str(cnt)
+            all_periods_seen.add(period)
+        for period, cnt in counted_ga_by_period.items():
+            row_map[f"P{period}_GA"] = str(cnt)
+            all_periods_seen.add(period)
 
         stats_table_rows.append(row_map)
 
@@ -499,12 +529,15 @@ def process_sheet(
     # Consolidated player stats text table
     if stats_table_rows:
         # Column groups (logical ordering)
+        periods = sorted(all_periods_seen)
         summary_cols = ["player", "shifts", "plus_minus", "gf_counted", "ga_counted"]
         sb_cols = ["sb_toi_total", "sb_avg", "sb_median", "sb_longest", "sb_shortest"]
         video_cols = ["video_toi_total"]
-        period_toi_cols = [f"P{p}_toi" for p in sorted(all_periods_seen)]
-        period_shift_cols = [f"P{p}_shifts" for p in sorted(all_periods_seen)]
-        cols = summary_cols + sb_cols + video_cols + period_toi_cols + period_shift_cols
+        period_toi_cols = [f"P{p}_toi" for p in periods]
+        period_shift_cols = [f"P{p}_shifts" for p in periods]
+        period_gf_cols = [f"P{p}_GF" for p in periods]
+        period_ga_cols = [f"P{p}_GA" for p in periods]
+        cols = summary_cols + sb_cols + video_cols + period_toi_cols + period_shift_cols + period_gf_cols + period_ga_cols
 
         # Build rows with missing period cols filled as empty
         rows_for_print: List[List[str]] = []
@@ -527,6 +560,18 @@ def process_sheet(
         for row in rows_for_print:
             lines.append(fmt_row(row))
         (outdir / "player_stats.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # CSV export with identical columns and sorting
+        import csv  # local import to avoid global
+        csv_rows = [dict(zip(cols, row)) for row in rows_for_print]
+        try:
+            pd.DataFrame(csv_rows).to_csv(outdir / "player_stats.csv", index=False, columns=cols)
+        except Exception:
+            with (outdir / "player_stats.csv").open("w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=cols)
+                w.writeheader()
+                for r in csv_rows:
+                    w.writerow(r)
 
     # ---------- Goals window files (optional) ----------
     # If any goals were provided, write goals_for.txt and goals_against.txt
@@ -569,19 +614,19 @@ def process_sheet(
             if v_center is not None:
                 v_start = max(0, v_center - 30)
                 v_end = v_center + 10
-                start_str = seconds_to_mmss_or_hhmmss(v_start)
-                end_str = seconds_to_mmss_or_hhmmss(v_end)
+                start_str = seconds_to_hhmmss(v_start)
+                end_str = seconds_to_hhmmss(v_end)
             else:
                 # Fallback: attempt endpoint-wise mapping; if still not possible, leave as-is
                 v_start = map_sb_to_video(ev.period, start_sb)
                 v_end = map_sb_to_video(ev.period, end_sb)
                 if v_start is not None and v_end is not None:
-                    start_str = seconds_to_mmss_or_hhmmss(max(0, v_start))
-                    end_str = seconds_to_mmss_or_hhmmss(max(0, v_end))
+                    start_str = seconds_to_hhmmss(max(0, v_start))
+                    end_str = seconds_to_hhmmss(max(0, v_end))
                 else:
                     # Last resort: keep scoreboard times; note these are not converted
-                    start_str = seconds_to_mmss_or_hhmmss(max(0, start_sb))
-                    end_str = seconds_to_mmss_or_hhmmss(max(0, end_sb))
+                    start_str = seconds_to_hhmmss(max(0, start_sb))
+                    end_str = seconds_to_hhmmss(max(0, end_sb))
 
             # Goals files use video time format (no period prefix), matching *_video_times.txt
             line = f"{start_str} {end_str}"
