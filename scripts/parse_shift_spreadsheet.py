@@ -434,17 +434,38 @@ def process_sheet(
         # Accumulate consolidated table row (omit explicit goal listings)
         row_map: Dict[str, str] = {
             "player": player_key,
+            # Summary
             "shifts": shift_summary["num_shifts"],
-            "toi_total": shift_summary["toi_total"],
-            "avg": shift_summary["toi_avg"],
-            "median": shift_summary["toi_median"],
-            "longest": shift_summary["toi_longest"],
-            "shortest": shift_summary["toi_shortest"],
             "plus_minus": str(plus_minus),
+            # Scoreboard-based shift stats
+            "sb_toi_total": shift_summary["toi_total"],
+            "sb_avg": shift_summary["toi_avg"],
+            "sb_median": shift_summary["toi_median"],
+            "sb_longest": shift_summary["toi_longest"],
+            "sb_shortest": shift_summary["toi_shortest"],
         }
+        # Counted goals (totals only)
+        row_map["gf_counted"] = str(len(counted_gf))
+        row_map["ga_counted"] = str(len(counted_ga))
+
+        # Video-based total TOI if available
+        v_pairs = video_pairs_by_player.get(player_key, [])
+        if v_pairs:
+            v_sum = 0
+            for a, b in v_pairs:
+                lo, hi = compute_interval_seconds(a, b)
+                v_sum += hi - lo
+            row_map["video_toi_total"] = seconds_to_mmss_or_hhmmss(v_sum)
+        else:
+            row_map["video_toi_total"] = ""
+
+        # Per-period aggregates (scoreboard)
         for period, toi in per_period_toi_map.items():
             row_map[f"P{period}_toi"] = toi
             all_periods_seen.add(period)
+        for period, pairs in sb_by_period.items():
+            row_map[f"P{period}_shifts"] = str(len(pairs))
+
         stats_table_rows.append(row_map)
 
     # Global summary CSV (optional quick view)
@@ -477,19 +498,13 @@ def process_sheet(
 
     # Consolidated player stats text table
     if stats_table_rows:
-        # Order columns
-        base_cols = [
-            "player",
-            "shifts",
-            "toi_total",
-            "avg",
-            "median",
-            "longest",
-            "shortest",
-            "plus_minus",
-        ]
-        period_cols = [f"P{p}_toi" for p in sorted(all_periods_seen)]
-        cols = base_cols + period_cols
+        # Column groups (logical ordering)
+        summary_cols = ["player", "shifts", "plus_minus", "gf_counted", "ga_counted"]
+        sb_cols = ["sb_toi_total", "sb_avg", "sb_median", "sb_longest", "sb_shortest"]
+        video_cols = ["video_toi_total"]
+        period_toi_cols = [f"P{p}_toi" for p in sorted(all_periods_seen)]
+        period_shift_cols = [f"P{p}_shifts" for p in sorted(all_periods_seen)]
+        cols = summary_cols + sb_cols + video_cols + period_toi_cols + period_shift_cols
 
         # Build rows with missing period cols filled as empty
         rows_for_print: List[List[str]] = []
