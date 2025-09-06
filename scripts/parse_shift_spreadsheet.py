@@ -458,6 +458,8 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
                     # - GF at exact shift END (time == b) DOES count (already covered by inclusive range).
                     if ev.kind == "GA" and ev.t_sec == a_sec:
                         continue
+                    elif ev.kind == "GF" and ev.t_sec == a_sec:
+                        continue
                     matched = True
                     break
                 if matched:
