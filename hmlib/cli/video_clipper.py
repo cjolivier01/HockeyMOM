@@ -135,12 +135,10 @@ def extract_clip(
             "-t",
             str(duration),
         ]
-    cmd += (
-        [
-            "-vf",
-            f"fps={dest_fps},format=nv12",
-        ],
-    )
+    cmd += [
+        "-vf",
+        f"fps={dest_fps},format=nv12",
+    ]
     cmd += (
         [
             "-c:a",
