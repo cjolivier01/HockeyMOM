@@ -1,5 +1,6 @@
 #!/bin/bash
 STAT_FILE="$HOME/RVideos/dh-tv-12-2/stats/dh-tv-12-2.xls"
+# STAT_FILE="$HOME/Videos/dh-tv-12-1/stats/dh-tv-12-1.xls"
 
 # TV-12-1
 # GOALS_FOR="-g GA:1/14:24 -g GA:1/13:49 -g GA:1/12:28 -g GA:1/4:14 -g GA:2/7:17 -g GA:2/3:04 -g GA:3/14:16 -g GA:3/11:35 -g GA:3/11:07"
