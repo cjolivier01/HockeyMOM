@@ -700,6 +700,9 @@ shift 2 || true
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for s in "$THIS_DIR"/clip_*.sh; do
   [ -x "$s" ] || continue
+  if [ "$s" = "$THIS_DIR/clip_all.sh" ]; then
+    continue
+  fi
   echo "Running $s..."
   "$s" "$INPUT" "$OPP" "$@"
 done

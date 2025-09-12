@@ -38,7 +38,8 @@ _DEBUG = True
 # IXEL_FORMAT = ""
 # ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
 # ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0".split(" ")
-ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -b:v 40M -preset p4".split(" ")
+# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -b:v 40M -preset p4".split(" ")
+ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset p4 -rc constqp -qp 0".split(" ")
 # ENCODER_ARGS_LOSSLESS = f"-c:v hevc_nvenc -preset slow {PIXEL_FORMAT}".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
 # ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23 -pix_fmt yuv444p".split(" ")
@@ -144,7 +145,8 @@ def extract_clip(
             "-c:a",
             "aac",
         ]
-        + WORKING_ENCODER_ARGS
+        # + WORKING_ENCODER_ARGS
+        + ENCODER_ARGS_LOSSLESS
         + [
             "-y",
             clip_file,
