@@ -32,7 +32,7 @@ def validate_timestamp(timestamp):
         return False
 
 
-_DEBUG = True
+_DEBUG = False
 
 # PIXEL_FORMAT = "-pix_fmt yuv444p"
 # IXEL_FORMAT = ""
