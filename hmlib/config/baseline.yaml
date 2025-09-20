@@ -152,7 +152,7 @@ model:
     checkpoint_remote: https://drive.google.com/file/d/1WgJ-u2aL1Yv6VNXF5w-0DtsxCCDXAEe7/view?usp=drive_link
 
   pose:
-    config: openmm/mmpose/configs/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus.py
+    config: ./openmm/mmhuman3d/demo/mmpose_cfg/hrnet_w48_coco_wholebody_384x288_dark_plus.py
     checkpoint: https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
     checkpoint_remote: https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
     checkpoint_local: pretrained/mmpose/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
