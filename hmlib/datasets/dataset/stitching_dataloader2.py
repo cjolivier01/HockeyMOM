@@ -21,12 +21,23 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensor,
+    copy_gpu_to_gpu_async,
+    cuda_stream_scope,
+)
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    make_visible_image,
+)
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hockeymom import show_cuda_tensor
-from hockeymom.core import CudaStitchPanoF32
+from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
 
 
 def _get_dir_name(path: Any) -> Any:
@@ -311,7 +322,7 @@ class StitchDataset:
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number + self._video_left_offset_frame,
                 original_image_only=True,
-                dtype=self._dtype,
+                dtype=torch.uint8,
                 device=remapping_device,
                 decoder_device=self._decoder_device,
                 frame_step=frame_step_1,
@@ -325,7 +336,7 @@ class StitchDataset:
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number + self._video_right_offset_frame,
                 original_image_only=True,
-                dtype=self._dtype,
+                dtype=torch.uint8,
                 device=remapping_device,
                 decoder_device=self._decoder_device,
                 frame_step=frame_step_2,
@@ -447,6 +458,44 @@ class StitchDataset:
                 images[i] *= exp
         return images
 
+    @staticmethod
+    def ensure_rgba(tensor: torch.Tensor) -> torch.Tensor:
+        """
+        Ensures that an input image tensor is in RGBA format.
+
+        Supports both:
+        - Single image: (C, H, W)
+        - Batched images: (B, C, H, W)
+
+        Adds an alpha channel with full opacity if tensor is RGB.
+
+        Args:
+            tensor (torch.Tensor): Image tensor of shape (C, H, W) or (B, C, H, W)
+
+        Returns:
+            torch.Tensor: Image tensor with 4 channels (RGBA)
+        """
+        if tensor.ndim == 3:
+            # Single image case
+            tensor = tensor.unsqueeze(0)  # Convert to (1, C, H, W)
+            squeezed = True
+        elif tensor.ndim == 4:
+            squeezed = False
+        else:
+            raise ValueError(f"Expected tensor of shape (C, H, W) or (B, C, H, W), got {tensor.shape}")
+
+        B, C, H, W = tensor.shape
+        if C == 4:
+            return tensor[0] if squeezed else tensor  # Already RGBA
+        elif C == 3:
+            alpha = torch.ones((B, 1, H, W), dtype=tensor.dtype, device=tensor.device)
+            if tensor.dtype == torch.uint8:
+                alpha *= 255
+            out = torch.cat([tensor, alpha], dim=1)
+            return out[0] if squeezed else out
+        else:
+            raise ValueError(f"Expected 3 (RGB) or 4 (RGBA) channels, got {C}")
+
     def _prepare_next_frame(self, frame_id: int):
         try:
             self._prepare_next_frame_timer.tic()
@@ -476,9 +525,9 @@ class StitchDataset:
                 with cuda_stream_scope(stream), torch.no_grad():
                     imgs_1 = to_tensor(imgs_1)
                     imgs_2 = to_tensor(imgs_2)
-                    if isinstance(self._stitcher, CudaStitchPanoF32):
-                        imgs_1 = make_channels_last(imgs_1).contiguous()
-                        imgs_2 = make_channels_last(imgs_2).contiguous()
+                    if isinstance(self._stitcher, CudaStitchPanoF32 | CudaStitchPanoU8):
+                        imgs_1 = make_channels_last(self.ensure_rgba(imgs_1)).contiguous()
+                        imgs_2 = make_channels_last(self.ensure_rgba(imgs_2)).contiguous()
                         blended_stream_tensor = torch.empty(
                             [
                                 imgs_1.shape[0],
@@ -578,7 +627,7 @@ class StitchDataset:
                     self._video_right_info.height,
                 ),
                 device=self._remapping_device,
-                dtype=self._dtype,
+                dtype=self._dtype if self._python_blender else torch.uint8,
                 python_blender=self._python_blender,
                 minimize_blend=self._minimize_blend,
                 blend_mode=self._blend_mode,
