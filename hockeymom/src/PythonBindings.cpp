@@ -1304,8 +1304,6 @@ void init_cuda_pano(::pybind11::module_& m) {
               throw std::runtime_error(
                   "All tensors must have four dimensions (B, H, W, C)");
             }
-            std::cout << "Size(3) = " << i1.size(3) << ", " << i2.size(3)
-                      << ", " << canvas.size(3) << std::endl;
             if (i1.size(3) != 4 || i2.size(3) != 4) {
               throw std::runtime_error("Tensors must have four channels");
             }
@@ -1385,6 +1383,16 @@ void init_cuda_pano(::pybind11::module_& m) {
                 !canvas.device().is_cuda()) {
               throw std::runtime_error("All tensors must be Cuda tensors");
             }
+            if (i1.dim() != 4 || i2.dim() != 4 || canvas.dim() != 4) {
+              throw std::runtime_error(
+                  "All tensors must have four dimensions (B, H, W, C)");
+            }
+            if (i1.size(3) != 4 || i2.size(3) != 4) {
+              throw std::runtime_error("Tensors must have four channels");
+            }
+            if (canvas.size(3) != 4) {
+              throw std::runtime_error("Canvas must have four channels");
+            }
             self->process(
                 i1.data_ptr(),
                 i2.data_ptr(),
@@ -1408,6 +1416,12 @@ void init_cuda_pano(::pybind11::module_& m) {
             if (canvas.device().is_cuda()) {
               throw std::runtime_error("All tensors must be Cuda tensors");
             }
+            if (canvas.dim() != 4) {
+              throw std::runtime_error("Canvas must have four dimensions");
+            }
+            if (canvas.size(3) != 4) {
+              throw std::runtime_error("Canvas must have four channels");
+            }
             std::vector<void*> data_ptrs;
             data_ptrs.reserve(inputs.size());
             for (const auto& t : inputs) {
@@ -1416,6 +1430,13 @@ void init_cuda_pano(::pybind11::module_& m) {
               }
               if (!t.device().is_cuda()) {
                 throw std::runtime_error("All tensors must be Cuda tensors");
+              }
+              if (t.dim() != 4) {
+                throw std::runtime_error(
+                    "Input tensors must have four dimensions (B, H, W, C)");
+              }
+              if (t.size(3) != 4) {
+                throw std::runtime_error("Tensors must have four channels");
               }
               data_ptrs.emplace_back(t.data_ptr());
             }
