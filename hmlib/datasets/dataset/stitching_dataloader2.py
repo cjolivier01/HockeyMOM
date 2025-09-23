@@ -546,6 +546,7 @@ class StitchDataset:
                                     # stream=int(stream.cuda_stream),
                                     enable_resizing=0.2,
                                 )
+                        stream.synchronize()
                         self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
                         if self._show_image_components:
                             for blended_image in blended_stream_tensor:
@@ -564,6 +565,7 @@ class StitchDataset:
 
                     if stream is not None:
                         blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
+                        # stream.synchronize()
 
             self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
             self._ordering_queue.put((ids_1, blended_stream_tensor))
