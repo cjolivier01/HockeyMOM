@@ -576,7 +576,6 @@ class StitchDataset:
 
                     if stream is not None:
                         blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
-                        # stream.synchronize()
 
             self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
             self._ordering_queue.put((ids_1, blended_stream_tensor))
@@ -661,6 +660,8 @@ class StitchDataset:
     def prepare_frame_for_video(image: np.array, image_roi: np.array):
         if not image_roi:
             if image.shape[-1] == 4:
+                if isinstance(image, StreamTensor):
+                    image = image.get()
                 if len(image.shape) == 4:
                     image = make_channels_last(image)[:, :, :, :3]
                 else:
@@ -763,7 +764,8 @@ class StitchDataset:
             frame_path = os.path.join(self._dir_name, "s.png")
             print(f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}")
             print(f"Saving first stitched frame to {frame_path}")
-            stitched_frame = stitched_frame.get()
+            if isinstance(stitched_frame, StreamTensor):
+                stitched_frame = stitched_frame.get()
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0], force_numpy=True))
             if self._on_first_stitched_image_callback is not None:
                 self._on_first_stitched_image_callback(stitched_frame[0])
