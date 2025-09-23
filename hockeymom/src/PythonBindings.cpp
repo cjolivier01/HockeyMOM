@@ -1304,10 +1304,12 @@ void init_cuda_pano(::pybind11::module_& m) {
               throw std::runtime_error(
                   "All tensors must have four dimensions (B, H, W, C)");
             }
-            if (!i1.size(3) != 4 || i2.size(3) != 4) {
+            std::cout << "Size(3) = " << i1.size(3) << ", " << i2.size(3)
+                      << ", " << canvas.size(3) << std::endl;
+            if (i1.size(3) != 4 || i2.size(3) != 4) {
               throw std::runtime_error("Tensors must have four channels");
             }
-            if (!canvas.size(3) != 4) {
+            if (canvas.size(3) != 4) {
               throw std::runtime_error("Canvas must have four channels");
             }
             self->process(
@@ -1336,7 +1338,7 @@ void init_cuda_pano(::pybind11::module_& m) {
             if (canvas.dim() != 4) {
               throw std::runtime_error("Canvas must have four dimensions");
             }
-            if (!canvas.size(3) != 4) {
+            if (canvas.size(3) != 4) {
               throw std::runtime_error("Canvas must have four channels");
             }
             std::vector<void*> data_ptrs;
@@ -1352,7 +1354,7 @@ void init_cuda_pano(::pybind11::module_& m) {
                 throw std::runtime_error(
                     "Input tensors must have four dimensions (B, H, W, C)");
               }
-              if (!t.size(3) != 4) {
+              if (t.size(3) != 4) {
                 throw std::runtime_error("Tensors must have four channels");
               }
               data_ptrs.emplace_back(t.data_ptr());
