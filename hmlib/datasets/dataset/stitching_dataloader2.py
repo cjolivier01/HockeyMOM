@@ -553,7 +553,7 @@ class StitchDataset:
                                 show_image(
                                     # show_cuda_tensor(
                                     "img-2",
-                                    img2.clamp(min=0, max=255).to(torch.uint8),
+                                    make_visible_image(t2),
                                     wait=False,
                                     # stream=int(stream.cuda_stream),
                                     enable_resizing=0.2,
@@ -564,7 +564,7 @@ class StitchDataset:
                                 show_image(
                                     # show_cuda_tensor(
                                     "blended",
-                                    blended_image.clamp(min=0, max=255).to(torch.uint8),
+                                    make_visible_image(blended_image),
                                     wait=False,
                                     # stream=int(stream.cuda_stream),
                                     enable_resizing=0.2,
