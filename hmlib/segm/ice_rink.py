@@ -35,7 +35,13 @@ from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
 from hmlib.ui import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
-from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    is_channels_first,
+    make_channels_first,
+    make_channels_last,
+)
 
 DEFAULT_SCORE_THRESH = 0.3
 
@@ -277,7 +283,7 @@ def find_ice_rink_masks(
 
     if device.type == "cpu":
         logger.info("Looking for the ice at the rink, this may take awhile...")
-    model = init_detector(config_file, checkpoint, device=device, weights_only=True)
+    model = init_detector(config_file, checkpoint, device=device)
     results: List[Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]] = []
     for img in image:
         results.append(detect_ice_rink_mask(image=img.to(device), model=model, show=show, scale=scale))

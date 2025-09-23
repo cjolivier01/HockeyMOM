@@ -23,6 +23,9 @@
     },
     {
       "path": "../bazel-python-package-example"
+    },
+    {
+      "path": "../hm-cupano"
     }
   ],
   "settings": {
