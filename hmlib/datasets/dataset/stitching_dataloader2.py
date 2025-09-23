@@ -21,19 +21,8 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensor,
-    copy_gpu_to_gpu_async,
-    cuda_stream_scope,
-)
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-    make_visible_image,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hockeymom import show_cuda_tensor
@@ -488,9 +477,8 @@ class StitchDataset:
         if C == 4:
             return tensor[0] if squeezed else tensor  # Already RGBA
         elif C == 3:
-            alpha = torch.ones((B, 1, H, W), dtype=tensor.dtype, device=tensor.device)
-            if tensor.dtype == torch.uint8:
-                alpha *= 255
+            alpha = torch.empty((B, 1, H, W), dtype=tensor.dtype, device=tensor.device)
+            alpha.fill_(255)
             out = torch.cat([tensor, alpha], dim=1)
             return out[0] if squeezed else out
         else:
