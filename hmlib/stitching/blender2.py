@@ -30,7 +30,12 @@ from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.gpu import GpuAllocator
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+)
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
@@ -969,6 +974,44 @@ def create_stitcher(
     return stitcher
 
 
+def ensure_rgba(tensor: torch.Tensor) -> torch.Tensor:
+    """
+    Ensures that an input image tensor is in RGBA format.
+
+    Supports both:
+      - Single image: (C, H, W)
+      - Batched images: (B, C, H, W)
+
+    Adds an alpha channel with full opacity if tensor is RGB.
+
+    Args:
+        tensor (torch.Tensor): Image tensor of shape (C, H, W) or (B, C, H, W)
+
+    Returns:
+        torch.Tensor: Image tensor with 4 channels (RGBA)
+    """
+    if tensor.ndim == 3:
+        # Single image case
+        tensor = tensor.unsqueeze(0)  # Convert to (1, C, H, W)
+        squeezed = True
+    elif tensor.ndim == 4:
+        squeezed = False
+    else:
+        raise ValueError(f"Expected tensor of shape (C, H, W) or (B, C, H, W), got {tensor.shape}")
+
+    B, C, H, W = tensor.shape
+    if C == 4:
+        return tensor[0] if squeezed else tensor  # Already RGBA
+    elif C == 3:
+        alpha = torch.ones((B, 1, H, W), dtype=tensor.dtype, device=tensor.device)
+        if tensor.dtype == torch.uint8:
+            alpha *= 255
+        out = torch.cat([tensor, alpha], dim=1)
+        return out[0] if squeezed else out
+    else:
+        raise ValueError(f"Expected 3 (RGB) or 4 (RGBA) channels, got {C}")
+
+
 def blend_video(
     opts: object,
     video_file_1: str,
@@ -1072,8 +1115,8 @@ def blend_video(
                 source_tensor_2 = torch.from_numpy(source_tensor_2).to(device, non_blocking=True)
 
             if use_cuda_pano:
-                source_tensor_1 = make_channels_last(source_tensor_1).contiguous()
-                source_tensor_2 = make_channels_last(source_tensor_2).contiguous()
+                source_tensor_1 = make_channels_last(ensure_rgba(source_tensor_1)).contiguous()
+                source_tensor_2 = make_channels_last(ensure_rgba(source_tensor_2)).contiguous()
                 canvas_width = stitcher.canvas_width()
                 canvas_height = stitcher.canvas_height()
                 blended = torch.zeros(
@@ -1221,6 +1264,7 @@ def main(args):
             draw=args.draw,
             minimize_blend=args.minimize_blend,
             blend_mode=args.blend_mode,
+            use_cuda_pano=not args.python_blender,
         )
 
 
