@@ -30,7 +30,7 @@ def validate_timestamp(timestamp):
         return False
 
 
-_DEBUG = False
+_DEBUG = True
 
 # PIXEL_FORMAT = "-pix_fmt yuv444p"
 # ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
@@ -231,7 +231,7 @@ def _process_clip_from_timestamps(
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
     create_text_video(
-        f"{label}\nClip {idx + 1}",
+        f"{label} Clip {idx + 1}",
         3.0,
         transition,
         width,
@@ -269,7 +269,7 @@ def _process_clip_from_filelist(
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
     create_text_video(
-        f"{label}\nClip {idx + 1}",
+        f"{label} Clip {idx + 1}",
         3.0,
         transition,
         width,
