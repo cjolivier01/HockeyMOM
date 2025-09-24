@@ -325,7 +325,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 raise
         # END READ NEXT IMAGE
 
-        default_stream = torch.cuda.current_stream(img0.device) if self._is_cuda() else None
+        default_stream = (
+            torch.cuda.current_stream(img0.device) if (isinstance(img0, torch.Tensor) and self._is_cuda()) else None
+        )
         cuda_stream = self._cuda_stream
 
         with cuda_stream_scope(cuda_stream), torch.no_grad():
