@@ -201,27 +201,27 @@ conda_repository(
 
 
 ################################ HockeyMOM Sub-Modules ################################
-# git_repository(
-#     name = "hm-cupano",
-#     commit = "3d198935590209e6179161a6783152a851ca6cba",
-#     remote = "ssh://git@github.com/cjolivier01/hm-cupano",
-# )
+ git_repository(
+     name = "hm-cupano",
+     commit = "53962acf77abf30f0695573b8b5f80da2435ef05",
+     remote = "ssh://git@github.com/cjolivier01/hm-cupano",
+ )
 
-# git_repository(
-#     name = "jetson-utils",
-#     branch = "colivier/hm",
-#     remote = "ssh://git@github.com/cjolivier01/jetson-utils",
-# )
-
-local_repository(
-    name = "hm-cupano",
-    path = "../hm-cupano",
+git_repository(
+     name = "jetson-utils",
+     branch = "colivier/hm",
+     remote = "ssh://git@github.com/cjolivier01/jetson-utils",
 )
 
-local_repository(
-    name = "jetson-utils",
-    path = "../jetson-utils",
-)
+#local_repository(
+#    name = "hm-cupano",
+#    path = "../hm-cupano",
+#)
+
+#local_repository(
+#    name = "jetson-utils",
+#    path = "../jetson-utils",
+#)
 
 ################################ Multiblend ################################
 git_repository(
