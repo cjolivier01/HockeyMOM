@@ -16,4 +16,8 @@ STAT_FILE="$HOME/RVideos/dh-tv-12-2_2/stats/dh-tv-12-2_2.xls"
 # GOALS_FOR="-g GF:1/1:04 -g GF:1/0:35 -g GF:2/6:39 -g GF:3/12:18 -g GF:3/9:58 -g GF:3/9:15"
 # GOALS_AGAINST="-g GA:3/4:29 -g GA:3/2:35"
 
+# TV-12-2_2
+GOALS_FOR="-g GF:1/8:05 -g GF:3/3:39 -g GF:3/2:46"
+GOALS_AGAINST="-g GA:1/11:45 -g GA:3/6:11 -g GA:3/2:55"
+
 python scripts/parse_shift_spreadsheet.py --input "${STAT_FILE}" ${GOALS_FOR} ${GOALS_AGAINST}
