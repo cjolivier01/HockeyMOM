@@ -673,15 +673,28 @@ def make_showable_type(
         assert len(img.shape) == 3
         img = make_channels_last(img)
         if img.dtype in [torch.float16, torch.bfloat16, torch.float, torch.float64]:
-            if img.dtype == torch.float or img.dtype == torch.bfloat16:
-                img = img.to(torch.float32)
+            # if img.dtype == torch.float16 or img.dtype == torch.bfloat16:
+            #     img = img.to(torch.float32)
             if scale_elements and scale_elements != 1:
                 img = img * scale_elements
-            img = torch.clamp(img, min=0, max=255.0).to(torch.uint8, non_blocking=False)
+            img = torch.clamp(img, min=0, max=255.0).to(torch.uint8)
         elif img.dtype == torch.bool:
             img = img.to(torch.uint8) * 255
         if force_numpy or img.device.type != "cuda":
             img = np.ascontiguousarray(img.cpu().numpy())
+    elif isinstance(img, np.ndarray):
+        if img.ndim == 2:
+            # 2D grayscale
+            img = np.repeat(img[:, :, np.newaxis], 3, axis=2)
+        if len(img.shape) == 4 and img.shape[0] == 1:
+            img = img[0]
+        assert len(img.shape) == 3
+        if img.shape[-1] not in [1, 3, 4]:
+            img = np.transpose(img, (1, 2, 0))
+        if img.dtype != np.uint8:
+            if scale_elements and scale_elements != 1:
+                img = img * scale_elements
+            img = np.clip(img, a_min=0, a_max=255.0).astype(np.uint8)
     return img
 
 
@@ -692,9 +705,7 @@ def make_visible_image(
     force_numpy=False,
 ):
     if enable_resizing is None:
-        if isinstance(img, torch.Tensor):
-            img = make_showable_type(img, scale_elements, force_numpy=force_numpy)
-        return img
+        return make_showable_type(img, scale_elements, force_numpy=force_numpy)
     width = image_width(img)
     if enable_resizing != 0:
         vis_w = width * enable_resizing
