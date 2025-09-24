@@ -1,16 +1,14 @@
 """
-Given a vide, timestamp file of:
+Given a video, timestamp file of:
 
-start_hh_mm_hh end_hh_mm_hh
-start_hh_mm_hh end_hh_mm_hh
-start_hh_mm_hh end_hh_mm_hh
+start_hh_mm_ss end_hh_mm_ss
+start_hh_mm_ss end_hh_mm_ss
 ...
 
 .. and a text label...
 
 Create transition text screens to separate and join all the clips into a new
 video along with text labeling of the clip number and user-designated label
-
 """
 
 import argparse
@@ -35,18 +33,13 @@ def validate_timestamp(timestamp):
 _DEBUG = False
 
 # PIXEL_FORMAT = "-pix_fmt yuv444p"
-# IXEL_FORMAT = ""
 # ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
 # ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0".split(" ")
 # ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -b:v 40M -preset p4".split(" ")
 ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset p4 -rc constqp -qp 0".split(" ")
-# ENCODER_ARGS_LOSSLESS = f"-c:v hevc_nvenc -preset slow {PIXEL_FORMAT}".split(" ")
-# ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset fast -pix_fmt yuv444p".split(" ")
-# ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23 -pix_fmt yuv444p".split(" ")
+# ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23".split(" ")
 ENCODER_ARGS_FAST = "-c:v mpeg4 -preset slow -crf 2".split(" ")
-# ENCODER_ARGS_FAST = "-c:v h264_nvenc -preset p1".split(" ")
 ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset medium -b:v 40M".split(" ")
-# ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset medium {PIXEL_FORMAT}".split(" ")
 
 FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
 
@@ -54,8 +47,6 @@ if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
     print("Using lossless encoding for intermediate clips (slow)")
     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
 else:
-    # Debugging, faster, lower quality encoding
-    # WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
     WORKING_ENCODER_ARGS = ENCODER_ARGS_HQ
 
 FFMPEG_BASE = ["ffmpeg", "-hide_banner"]
@@ -66,8 +57,17 @@ def friendly_label(label: str) -> str:
     return label.replace("_", " ")
 
 
+def escape_drawtext(text: str) -> str:
+    """
+    Escapes text for ffmpeg drawtext. Handles quotes, colons, backslashes, and newlines.
+    """
+    # ffmpeg drawtext likes: escape backslashes, colons, quotes; newlines as \n
+    t = text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    t = t.replace("\n", "\\n")
+    return t
+
+
 def hhmmss_to_duration_seconds(time_str: str) -> float:
-    # Split the time duration string into components
     h = 0
     m = 0
     s = 0
@@ -78,15 +78,12 @@ def hhmmss_to_duration_seconds(time_str: str) -> float:
         if len(tokens) > 2:
             assert len(tokens) == 3
             h = int(tokens[0])
-    # Extract seconds and milliseconds
-    # Convert hours, minutes, seconds, and milliseconds to total seconds
     total_seconds = h * 3600 + m * 60 + s
     return total_seconds
 
 
 def get_audio_sample_rate(file_path: str):
     try:
-        # Execute the ffprobe command to get the audio stream information
         result = subprocess.run(
             [
                 "ffprobe",
@@ -104,56 +101,12 @@ def get_audio_sample_rate(file_path: str):
             stderr=subprocess.PIPE,
             text=True,
         )
-
-        # Parse the JSON output
         output = json.loads(result.stdout)
         sample_rate = output["streams"][0]["sample_rate"]
         return int(sample_rate)
     except (subprocess.CalledProcessError, KeyError, IndexError, ValueError) as e:
         print(f"Error retrieving sample rate: {e}")
         return None
-
-
-def extract_clip(
-    input_video: str, start_time: str, end_time: str, clip_file: str, dest_fps: float, rate_k: int = 192
-) -> None:
-    if end_time:
-        duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
-    else:
-        duration = None
-    cmd = (
-        FFMPEG_BASE_HW
-        + FFMPEG_CUDA_DECODER
-        + [
-            "-ss",
-            start_time,
-            "-i",
-            input_video,
-        ]
-    )
-    if duration is not None:
-        cmd += [
-            "-t",
-            str(duration),
-        ]
-    cmd += [
-        "-vf",
-        f"fps={dest_fps},format=nv12",
-    ]
-    cmd += (
-        [
-            "-c:a",
-            "aac",
-        ]
-        # + WORKING_ENCODER_ARGS
-        + ENCODER_ARGS_LOSSLESS
-        + [
-            "-y",
-            clip_file,
-        ]
-    )
-
-    subprocess.run(cmd, check=True)
 
 
 def concat_video_clips(list_file: str, output_file: str) -> None:
@@ -184,56 +137,81 @@ def concat_video_clips(list_file: str, output_file: str) -> None:
 
 def create_text_video(
     text: str,
-    duration: int,
+    duration: float,
     output_file: str,
     width: int,
     height: int,
     fps: float,
-    audio_sample_rate: int,
+    audio_sample_rate: Optional[int],
 ) -> None:
     text = friendly_label(text)
+    etext = escape_drawtext(text)
     cmd = FFMPEG_BASE_HW + [
         "-f",
         "lavfi",
         "-i",
-        "color=c=black:s={}x{}:d={}".format(width, height, duration),
+        f"color=c=black:s={width}x{height}:d={duration}",
         "-f",
         "lavfi",
         "-i",
-        f"anullsrc=r={int(audio_sample_rate)}:cl=stereo",
+        f"anullsrc=r={int(audio_sample_rate) if audio_sample_rate else 48000}:cl=stereo",
         "-vf",
-        f"drawtext=text='{text}':fontsize=60:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2",
+        f"drawtext=text='{etext}':fontsize=60:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2",
         "-r",
         str(fps),
         "-shortest",
     ]
     cmd += WORKING_ENCODER_ARGS + [
+        "-c:a",
+        "aac",
         "-y",
         output_file,
     ]
     subprocess.run(cmd, check=True)
 
 
-def add_clip_number(
-    input_file: str, output_file: str, label: str, clip_number: int, width: int, height: int, dest_fps: float
+def extract_clip_with_overlay(
+    *,
+    input_video: str,
+    start_time: Optional[str],  # None means from start (filelist mode)
+    end_time: Optional[str],  # None means till end (filelist mode)
+    output_file: str,
+    dest_fps: float,
+    label: str,
+    clip_number: int,
+    top_right_margin: int = 10,
 ) -> None:
-    text = friendly_label(label) + " " + str(clip_number)
-    cmd = (
-        [
-            "ffmpeg",
-            "-i",
-            input_file,
-            "-vf",
-            f"drawtext=text='{text}':fontsize=52:fontcolor=white:x=w-tw-10:y=10,fps={dest_fps},format=nv12",
-            "-codec:a",
-            "copy",
-        ]
-        + WORKING_ENCODER_ARGS
-        + [
-            "-y",
-            output_file,
-        ]
-    )
+    """
+    Single-pass: cut (optionally), overlay clip-number text, set fps/format, encode.
+    """
+    # Compose overlay text
+    overlay_text = f"{friendly_label(label)} {clip_number}"
+    etext = escape_drawtext(overlay_text)
+
+    # Build the filter chain: fps & format before drawtext to stabilize glyph rasterization
+    vf_chain = f"fps={dest_fps},format=nv12,drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin}"
+
+    cmd = list(FFMPEG_BASE_HW)
+    # Decoding via cuvid if available (you had it globally as a list; attach per-input)
+    if start_time:
+        cmd += ["-ss", start_time]
+    cmd += FFMPEG_CUDA_DECODER + ["-i", input_video]
+    if start_time and end_time:
+        duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
+        cmd += ["-t", f"{duration}"]
+
+    cmd += [
+        "-vf",
+        vf_chain,
+    ]
+    # Encode video once; use AAC for reliable cuts across containers/codecs
+    cmd += WORKING_ENCODER_ARGS + [
+        "-c:a",
+        "aac",
+        "-y",
+        output_file,
+    ]
+
     subprocess.run(cmd, check=True)
 
 
@@ -250,9 +228,7 @@ def _process_clip_from_timestamps(
     fps: float,
     audio_sample_rate: int,
 ) -> list[str]:
-    clip_file = f"{temp_dir}/clip_{idx}.mp4"
-    extract_clip(input_video, start_time, end_time, clip_file, dest_fps=fps)
-
+    # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
     create_text_video(
         f"{label}\nClip {idx + 1}",
@@ -264,8 +240,17 @@ def _process_clip_from_timestamps(
         audio_sample_rate,
     )
 
+    # Fused extract + overlay
     numbered_clip = f"{temp_dir}/clip_{idx}_numbered.mp4"
-    add_clip_number(clip_file, numbered_clip, label, idx + 1, width, height, dest_fps=fps)
+    extract_clip_with_overlay(
+        input_video=input_video,
+        start_time=start_time,
+        end_time=end_time if end_time else None,
+        output_file=numbered_clip,
+        dest_fps=fps,
+        label=label,
+        clip_number=idx + 1,
+    )
 
     return [transition, numbered_clip]
 
@@ -281,6 +266,7 @@ def _process_clip_from_filelist(
     fps: float,
     audio_sample_rate: int,
 ) -> list[str]:
+    # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
     create_text_video(
         f"{label}\nClip {idx + 1}",
@@ -292,8 +278,17 @@ def _process_clip_from_filelist(
         audio_sample_rate,
     )
 
+    # Fused overlay-only (no trimming)
     numbered_clip = f"{temp_dir}/clip_{idx}_numbered.mp4"
-    add_clip_number(clip_file, numbered_clip, label, idx + 1, width, height, dest_fps=fps)
+    extract_clip_with_overlay(
+        input_video=clip_file,
+        start_time=None,
+        end_time=None,
+        output_file=numbered_clip,
+        dest_fps=fps,
+        label=label,
+        clip_number=idx + 1,
+    )
 
     return [transition, numbered_clip]
 
@@ -316,16 +311,15 @@ def main():
     args = parser.parse_args()
 
     # Override encoder selection based on flags/env at runtime
-    # --quick > 0 forces fast encoder; VIDEO_CLIPPER_HQ>0 forces lossless
-    global WORKING_ENCODER_ARGS
-    try:
-        q = int(args.quick) if args.quick is not None else 0
-    except Exception:
-        q = 0
-    if q > 0:
-        WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
-    elif int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
-        WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
+    # global WORKING_ENCODER_ARGS
+    # try:
+    #     q = int(args.quick) if args.quick is not None else 0
+    # except Exception:
+    #     q = 0
+    # if q > 0:
+    #     WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
+    # elif int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
+    #     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
 
     if args.video_file_list:
         if os.path.isfile(args.video_file_list):
@@ -340,7 +334,7 @@ def main():
 
     probe_video = args.input if args.input else args.video_file_list[0]
 
-    # Get video dimensions
+    # Get video dimensions and fps
     cmd = [
         "ffprobe",
         "-v",
@@ -356,12 +350,9 @@ def main():
     fprobe_output = subprocess.check_output(cmd).decode().strip()
     ffprobe_results = fprobe_output.split("x")
     assert len(ffprobe_results) >= 3
-    width = ffprobe_results[0]
-    height = ffprobe_results[1]
-    r_frame_rate = ffprobe_results[2]
-    width = int(width)
-    height = int(height)
-    frame_rate_num, frame_rate_demon = map(int, r_frame_rate.split("/"))
+    width = int(ffprobe_results[0])
+    height = int(ffprobe_results[1])
+    frame_rate_num, frame_rate_demon = map(int, ffprobe_results[2].split("/"))
     fps = float(frame_rate_num) / float(frame_rate_demon)
 
     audio_sample_rate = get_audio_sample_rate(probe_video)
@@ -416,7 +407,7 @@ def main():
                 end_time = time_tokens[1]
 
             if not all(validate_timestamp(t) for t in time_tokens):
-                raise ValueError(f"Invalid timestamp format in line {i+1}: {t=}")
+                raise ValueError(f"Invalid timestamp format in line {i+1}: {time_tokens}")
 
             ts_jobs.append((i, start_time, end_time))
 
@@ -453,7 +444,7 @@ def main():
     label = args.label.replace(" ", "_")
     concat_video_clips(f"{temp_dir}/list.txt", f"clips-{label}.mp4")
 
-    # Cleanup
+    # Cleanup (optional)
     # for file in os.listdir(temp_dir):
     #     os.remove(os.path.join(temp_dir, file))
     # os.rmdir(temp_dir)
