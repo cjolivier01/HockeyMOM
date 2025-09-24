@@ -394,7 +394,7 @@ fi
 
 python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$TS_FILE" --temp-dir "$THIS_DIR/temp_clips/{player_key}" "{player_label} vs $OPP" "${{EXTRA_FLAGS[@]}}"
 """.format(
-            nr_jobs=5, player_key=player_key, player_label=player_label
+            nr_jobs=4, player_key=player_key, player_label=player_label
         )
         script_path.write_text(script_body, encoding="utf-8")
         try:
