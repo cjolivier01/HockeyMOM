@@ -310,23 +310,28 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         ):
             raise StopIteration
 
+        # BEGIN READ NEXT IMAGE
+        while True:
+            try:
+                res, img0 = self._read_next_image()
+                if not res or img0 is None:
+                    print(f"Error loading frame: {self._count + self._start_frame_number}")
+                    raise StopIteration()
+                else:
+                    break
+            except StopIteration:
+                if self.goto_next_video():
+                    continue
+                raise
+        # END READ NEXT IMAGE
+
+        default_stream = torch.cuda.current_stream(img0.device) if self._is_cuda() else None
         cuda_stream = self._cuda_stream
 
         with cuda_stream_scope(cuda_stream), torch.no_grad():
-            # BEGIN READ NEXT IMAGE
-            while True:
-                try:
-                    res, img0 = self._read_next_image()
-                    if not res or img0 is None:
-                        print(f"Error loading frame: {self._count + self._start_frame_number}")
-                        raise StopIteration()
-                    else:
-                        break
-                except StopIteration:
-                    if self.goto_next_video():
-                        continue
-                    raise
-            # END READ NEXT IMAGE
+
+            if default_stream is not None and cuda_stream is not None:
+                cuda_stream.wait_stream(default_stream)
 
             if isinstance(img0, np.ndarray):
                 img0 = torch.from_numpy(img0)
