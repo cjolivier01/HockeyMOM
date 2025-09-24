@@ -27,12 +27,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 
 # TV_10_1_ROSTER: Set[int] = {19, 9, 87, 7, 98, 78, 43, 10, 11, 39, 66, 92, 15}
 TV_10_1_ROSTER: Set[int] = {}
@@ -180,8 +175,8 @@ class HmNumberClassifier:
                     )
                 else:
                     print("WTF")
-            # if jersey_results:
-            #     print(f"{jersey_results=}")
+            if jersey_results:
+                print(f"{jersey_results=}")
             all_jersey_results.append(jersey_results)
 
         data["jersey_results"] = all_jersey_results
