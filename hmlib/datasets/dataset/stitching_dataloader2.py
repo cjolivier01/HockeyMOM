@@ -516,6 +516,7 @@ class StitchDataset:
                     if isinstance(self._stitcher, CudaStitchPanoF32 | CudaStitchPanoU8):
                         imgs_1 = make_channels_last(self.ensure_rgba(imgs_1)).contiguous()
                         imgs_2 = make_channels_last(self.ensure_rgba(imgs_2)).contiguous()
+                        assert imgs_1.dtype == torch.uint8
                         blended_stream_tensor = torch.empty(
                             [
                                 imgs_1.shape[0],
