@@ -16,10 +16,11 @@ import concurrent.futures
 import json
 import os
 import re
+import shlex
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 def validate_timestamp(timestamp):
@@ -32,12 +33,8 @@ def validate_timestamp(timestamp):
 
 _DEBUG = True
 
-# PIXEL_FORMAT = "-pix_fmt yuv444p"
-# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0 -pix_fmt yuv444p".split(" ")
-# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset slow -qp 0".split(" ")
-# ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -b:v 40M -preset p4".split(" ")
+# Encoders
 ENCODER_ARGS_LOSSLESS = "-c:v hevc_nvenc -preset p4 -rc constqp -qp 0".split(" ")
-# ENCODER_ARGS_FAST = "-c:v hevc_nvenc -preset ultrafast -crf 23".split(" ")
 ENCODER_ARGS_FAST = "-c:v mpeg4 -preset slow -crf 2".split(" ")
 ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset medium -b:v 40M".split(" ")
 
@@ -61,7 +58,6 @@ def escape_drawtext(text: str) -> str:
     """
     Escapes text for ffmpeg drawtext. Handles quotes, colons, backslashes, and newlines.
     """
-    # ffmpeg drawtext likes: escape backslashes, colons, quotes; newlines as \n
     t = text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
     t = t.replace("\n", "\\n")
     return t
@@ -82,7 +78,25 @@ def hhmmss_to_duration_seconds(time_str: str) -> float:
     return total_seconds
 
 
-def get_audio_sample_rate(file_path: str):
+def format_cmd(cmd: List[str]) -> str:
+    # Pretty print a shell-safe string for dry-run output
+    return " ".join(shlex.quote(c) for c in cmd)
+
+
+def run_cmd(cmd: List[str], dry_run: bool) -> None:
+    if dry_run:
+        print("[DRY-RUN]", format_cmd(cmd))
+        return
+    subprocess.run(cmd, check=True)
+
+
+def get_audio_sample_rate(file_path: str, dry_run: bool = False) -> Optional[int]:
+    """
+    Returns the sample rate (Hz) of the first audio stream, or None if not found.
+    In --dry-run mode, returns a reasonable default (48000) without probing.
+    """
+    if dry_run:
+        return 48000
     try:
         result = subprocess.run(
             [
@@ -100,17 +114,76 @@ def get_audio_sample_rate(file_path: str):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            check=True,
         )
         output = json.loads(result.stdout)
         sample_rate = output["streams"][0]["sample_rate"]
         return int(sample_rate)
-    except (subprocess.CalledProcessError, KeyError, IndexError, ValueError) as e:
-        print(f"Error retrieving sample rate: {e}")
+    except (subprocess.CalledProcessError, KeyError, IndexError, ValueError):
         return None
 
 
-def concat_video_clips(list_file: str, output_file: str) -> None:
-    subprocess.run(
+def get_media_duration_seconds(file_path: str, dry_run: bool = False) -> Optional[float]:
+    """
+    Returns duration (float seconds) using ffprobe format=duration.
+    """
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=nokey=1:noprint_wrappers=1",
+        file_path,
+    ]
+    if dry_run:
+        print("[DRY-RUN]", format_cmd(cmd))
+        # In dry-run, we cannot know; return None so caller doesn't rely on it.
+        return None
+    try:
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+        if not out:
+            return None
+        return float(out)
+    except Exception:
+        return None
+
+
+def durations_close(a: Optional[float], b: Optional[float], tol: float = 0.05) -> bool:
+    if a is None or b is None:
+        return False
+    return abs(a - b) <= tol
+
+
+def should_skip_existing(
+    output_file: str, expected_duration: Optional[float], cont: bool, dry_run: bool, tol: float = 0.05
+) -> bool:
+    """
+    If --continue is enabled and output exists and duration matches expected, skip.
+    """
+    if not cont:
+        return False
+    if not os.path.exists(output_file):
+        return False
+    actual = get_media_duration_seconds(output_file, dry_run=dry_run)
+    if expected_duration is None:
+        # Without an expected duration, be conservative: don't skip.
+        return False
+    if durations_close(actual, expected_duration, tol=tol):
+        print(f"[CONTINUE] Skipping existing {output_file} (duration matches ~{expected_duration:.3f}s)")
+        return True
+    # Otherwise, remake
+    print(f"[CONTINUE] Rebuilding {output_file} (duration mismatch: have {actual}, want {expected_duration})")
+    return False
+
+
+def concat_video_clips(
+    list_file: str, output_file: str, dry_run: bool, cont: bool, expected_concat_duration: Optional[float]
+) -> None:
+    if should_skip_existing(output_file, expected_concat_duration, cont, dry_run):
+        return
+    cmd = (
         FFMPEG_BASE
         + FFMPEG_CUDA_DECODER
         + [
@@ -130,9 +203,9 @@ def concat_video_clips(list_file: str, output_file: str) -> None:
         + [
             "-y",
             output_file,
-        ],
-        check=True,
+        ]
     )
+    run_cmd(cmd, dry_run)
 
 
 def create_text_video(
@@ -143,7 +216,17 @@ def create_text_video(
     height: int,
     fps: float,
     audio_sample_rate: Optional[int],
-) -> None:
+    *,
+    dry_run: bool,
+    cont: bool,
+) -> Tuple[str, float]:
+    """
+    Creates a transition screen. Returns (path, expected_duration).
+    Applies --dry-run and --continue skip.
+    """
+    if should_skip_existing(output_file, duration, cont, dry_run):
+        return output_file, duration
+
     text = friendly_label(text)
     etext = escape_drawtext(text)
     cmd = FFMPEG_BASE_HW + [
@@ -167,7 +250,8 @@ def create_text_video(
         "-y",
         output_file,
     ]
-    subprocess.run(cmd, check=True)
+    run_cmd(cmd, dry_run)
+    return output_file, duration
 
 
 def extract_clip_with_overlay(
@@ -180,39 +264,41 @@ def extract_clip_with_overlay(
     label: str,
     clip_number: int,
     top_right_margin: int = 10,
-) -> None:
+    dry_run: bool,
+    cont: bool,
+    expected_duration: Optional[float],  # caller computes/guesses
+) -> Tuple[str, Optional[float]]:
     """
     Single-pass: cut (optionally), overlay clip-number text, set fps/format, encode.
+    Returns (path, expected_duration).
     """
-    # Compose overlay text
+    if should_skip_existing(output_file, expected_duration, cont, dry_run):
+        return output_file, expected_duration
+
     overlay_text = f"{friendly_label(label)} {clip_number}"
     etext = escape_drawtext(overlay_text)
-
-    # Build the filter chain: fps & format before drawtext to stabilize glyph rasterization
     vf_chain = f"fps={dest_fps},format=nv12,drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin}"
 
     cmd = list(FFMPEG_BASE_HW)
-    # Decoding via cuvid if available (you had it globally as a list; attach per-input)
     if start_time:
         cmd += ["-ss", start_time]
     cmd += FFMPEG_CUDA_DECODER + ["-i", input_video]
     if start_time and end_time:
-        duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
-        cmd += ["-t", f"{duration}"]
+        dur = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
+        cmd += ["-t", f"{dur}"]
 
     cmd += [
         "-vf",
         vf_chain,
     ]
-    # Encode video once; use AAC for reliable cuts across containers/codecs
     cmd += WORKING_ENCODER_ARGS + [
         "-c:a",
         "aac",
         "-y",
         output_file,
     ]
-
-    subprocess.run(cmd, check=True)
+    run_cmd(cmd, dry_run)
+    return output_file, expected_duration
 
 
 def _process_clip_from_timestamps(
@@ -227,10 +313,12 @@ def _process_clip_from_timestamps(
     height: int,
     fps: float,
     audio_sample_rate: int,
+    dry_run: bool,
+    cont: bool,
 ) -> list[str]:
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
-    create_text_video(
+    t_path, t_dur = create_text_video(
         f"{label} Clip {idx + 1}",
         3.0,
         transition,
@@ -238,11 +326,18 @@ def _process_clip_from_timestamps(
         height,
         fps,
         audio_sample_rate,
+        dry_run=dry_run,
+        cont=cont,
     )
+
+    # Expected duration for the numbered clip from timestamps
+    exp_dur = None
+    if end_time:
+        exp_dur = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
 
     # Fused extract + overlay
     numbered_clip = f"{temp_dir}/clip_{idx}_numbered.mp4"
-    extract_clip_with_overlay(
+    n_path, n_dur = extract_clip_with_overlay(
         input_video=input_video,
         start_time=start_time,
         end_time=end_time if end_time else None,
@@ -250,9 +345,12 @@ def _process_clip_from_timestamps(
         dest_fps=fps,
         label=label,
         clip_number=idx + 1,
+        dry_run=dry_run,
+        cont=cont,
+        expected_duration=exp_dur,
     )
 
-    return [transition, numbered_clip]
+    return [t_path, n_path]
 
 
 def _process_clip_from_filelist(
@@ -265,22 +363,29 @@ def _process_clip_from_filelist(
     height: int,
     fps: float,
     audio_sample_rate: int,
+    dry_run: bool,
+    cont: bool,
 ) -> list[str]:
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
-    create_text_video(
-        f"{label} Clip {idx + 1}",
+    t_path, t_dur = create_text_video(
+        f"{label}\nClip {idx + 1}",
         3.0,
         transition,
         width,
         height,
         fps,
         audio_sample_rate,
+        dry_run=dry_run,
+        cont=cont,
     )
+
+    # Expected duration for overlay-only is duration of source file
+    src_dur = get_media_duration_seconds(clip_file, dry_run=dry_run)
 
     # Fused overlay-only (no trimming)
     numbered_clip = f"{temp_dir}/clip_{idx}_numbered.mp4"
-    extract_clip_with_overlay(
+    n_path, n_dur = extract_clip_with_overlay(
         input_video=clip_file,
         start_time=None,
         end_time=None,
@@ -288,9 +393,12 @@ def _process_clip_from_filelist(
         dest_fps=fps,
         label=label,
         clip_number=idx + 1,
+        dry_run=dry_run,
+        cont=cont,
+        expected_duration=src_dur,
     )
 
-    return [transition, numbered_clip]
+    return [t_path, n_path]
 
 
 def main():
@@ -307,26 +415,34 @@ def main():
         default=1,
         help="Maximum number of clips to process in parallel",
     )
+    parser.add_argument("--dry-run", action="store_true", help="Print commands instead of executing them")
+    parser.add_argument(
+        "--continue",
+        dest="cont",
+        action="store_true",
+        help="Skip remaking mp4s that already exist when durations match",
+    )
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
 
     # Override encoder selection based on flags/env at runtime
-    # global WORKING_ENCODER_ARGS
-    # try:
-    #     q = int(args.quick) if args.quick is not None else 0
-    # except Exception:
-    #     q = 0
-    # if q > 0:
-    #     WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
-    # elif int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
-    #     WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
+    global WORKING_ENCODER_ARGS
+    try:
+        q = int(args.quick) if args.quick is not None else 0
+    except Exception:
+        q = 0
+    if q > 0:
+        WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
+    elif int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
+        WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
 
+    # Parse video file list
     if args.video_file_list:
         if os.path.isfile(args.video_file_list):
             with open(args.video_file_list, "r") as f:
                 args.video_file_list = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
         else:
-            args.video_file_list = args.video_file_list.split(",")
+            args.video_file_list = [s.strip() for s in args.video_file_list.split(",") if s.strip()]
 
     if not args.video_file_list and not (args.input and args.timestamps):
         print("--video-file-list or both --input and --timestamps must be provided")
@@ -347,26 +463,34 @@ def main():
         "csv=s=x:p=0",
         probe_video,
     ]
-    fprobe_output = subprocess.check_output(cmd).decode().strip()
-    ffprobe_results = fprobe_output.split("x")
-    assert len(ffprobe_results) >= 3
-    width = int(ffprobe_results[0])
-    height = int(ffprobe_results[1])
-    frame_rate_num, frame_rate_demon = map(int, ffprobe_results[2].split("/"))
-    fps = float(frame_rate_num) / float(frame_rate_demon)
+    if args.dry_run:
+        print("[DRY-RUN]", format_cmd(cmd))
+        # In dry-run, assume some safe defaults to let us print commands sensibly
+        width, height, fps = 1920, 1080, 30.0
+    else:
+        fprobe_output = subprocess.check_output(cmd).decode().strip()
+        ffprobe_results = fprobe_output.split("x")
+        assert len(ffprobe_results) >= 3
+        width = int(ffprobe_results[0])
+        height = int(ffprobe_results[1])
+        frame_rate_num, frame_rate_demon = map(int, ffprobe_results[2].split("/"))
+        fps = float(frame_rate_num) / float(frame_rate_demon)
 
-    audio_sample_rate = get_audio_sample_rate(probe_video)
+    audio_sample_rate = get_audio_sample_rate(probe_video) if not args.dry_run else 48000
 
     # Create temporary directory
     temp_dir = args.temp_dir if args.temp_dir else "temp_clips"
     os.makedirs(temp_dir, exist_ok=True)
 
     clips: List[str] = []
+    # We also track expected durations to decide concat skip
+    clip_expected_durations: List[Optional[float]] = []
+
     max_workers = max(1, int(args.threads)) if args.threads is not None else 1
 
     if args.video_file_list:
         jobs = [(i, clip_file) for i, clip_file in enumerate(args.video_file_list)]
-        results: dict[int, list[str]] = {}
+        results: dict[int, Tuple[list[str], list[Optional[float]]]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_map = {
                 executor.submit(
@@ -379,14 +503,19 @@ def main():
                     height=height,
                     fps=fps,
                     audio_sample_rate=audio_sample_rate,
+                    dry_run=args.dry_run,
+                    cont=args.cont,
                 ): i
                 for i, clip_file in jobs
             }
             for fut in concurrent.futures.as_completed(future_map):
                 idx = future_map[fut]
-                results[idx] = fut.result()
+                paths = fut.result()
+                results[idx] = (paths, [3.0, get_media_duration_seconds(paths[1], dry_run=args.dry_run)])
         for i in sorted(results.keys()):
-            clips.extend(results[i])
+            pths, durs = results[i]
+            clips.extend(pths)
+            clip_expected_durations.extend(durs)
     else:
         with open(args.timestamps, "r") as f:
             raw_lines = f.readlines()
@@ -411,7 +540,7 @@ def main():
 
             ts_jobs.append((i, start_time, end_time))
 
-        results: dict[int, list[str]] = {}
+        results: dict[int, Tuple[list[str], list[Optional[float]]]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_map = {
                 executor.submit(
@@ -426,23 +555,54 @@ def main():
                     height=height,
                     fps=fps,
                     audio_sample_rate=audio_sample_rate,
+                    dry_run=args.dry_run,
+                    cont=args.cont,
                 ): i
                 for (i, start_time, end_time) in ts_jobs
             }
             for fut in concurrent.futures.as_completed(future_map):
                 idx = future_map[fut]
-                results[idx] = fut.result()
+                paths = fut.result()
+                # durations: transition=3.0, numbered=expected (from timestamps)
+                start_time = ts_jobs[idx][1]
+                end_time = ts_jobs[idx][2]
+                exp_dur = None
+                if end_time:
+                    exp_dur = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
+                results[idx] = (paths, [3.0, exp_dur])
         for i in sorted(results.keys()):
-            clips.extend(results[i])
+            pths, durs = results[i]
+            clips.extend(pths)
+            clip_expected_durations.extend(durs)
 
     # Create file list for concatenation
-    with open(f"{temp_dir}/list.txt", "w") as f:
+    list_file = f"{temp_dir}/list.txt"
+    with open(list_file, "w") as f:
         for clip in clips:
             f.write(f"file '{os.path.realpath(clip)}'\n")
     print("Doing final join quietly...")
+
+    # Expected concat duration = sum of expected durations (best effort)
+    # If any unknown (None), try probing each individual file (unless dry-run).
+    if any(d is None for d in clip_expected_durations) and not args.dry_run:
+        clip_expected_durations = [
+            d if d is not None else get_media_duration_seconds(p, dry_run=False)
+            for p, d in zip(clips, clip_expected_durations)
+        ]
+    expected_concat_duration = None
+    if all(d is not None for d in clip_expected_durations) and len(clip_expected_durations) > 0:
+        expected_concat_duration = float(sum(d for d in clip_expected_durations if d is not None))
+
     # Concatenate all clips
     label = args.label.replace(" ", "_")
-    concat_video_clips(f"{temp_dir}/list.txt", f"clips-{label}.mp4")
+    final_out = f"clips-{label}.mp4"
+    concat_video_clips(
+        list_file,
+        final_out,
+        dry_run=args.dry_run,
+        cont=args.cont,
+        expected_concat_duration=expected_concat_duration,
+    )
 
     # Cleanup (optional)
     # for file in os.listdir(temp_dir):
