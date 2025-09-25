@@ -29,6 +29,7 @@ Example:
 import argparse
 import re
 import statistics
+import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -266,6 +267,7 @@ def process_sheet(
     outdir: Path,
     keep_goalies: bool,
     goals: List[GoalEvent],
+    skip_validation: bool = False,
 ) -> None:
     # If sheet_name is None, pandas returns a dict of DataFrames.
     # We want the first sheet by default, so coerce None -> 0.
@@ -283,6 +285,18 @@ def process_sheet(
     # For scoreboard->video conversion: collect mapping segments per period
     # Each segment: (sb_start_sec, sb_end_sec, v_start_sec, v_end_sec)
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]] = {}
+
+    # Validation settings
+    MAX_SHIFT_SECONDS = 30 * 60  # 30 minutes
+
+    # Simple helper to report validation issues
+    def _report_validation(kind: str, period: int, player_key: str, a: str, b: str, reason: str) -> None:
+        print(
+            f"[validation] {kind} | Player={player_key} | Period={period} | start='{a}' end='{b}' -> {reason}",
+            file=sys.stderr,
+        )
+
+    validation_errors = 0
 
     # Parse each period block
     for period_num, blk_start, blk_end in blocks:
@@ -324,6 +338,42 @@ def process_sheet(
 
             video_pairs = extract_pairs_from_row(df.iloc[r], start_v_cols, end_v_cols)
             sb_pairs    = extract_pairs_from_row(df.iloc[r], start_sb_cols, end_sb_cols)
+
+            # ---------------- Validation (per-row) ----------------
+            if not skip_validation:
+                # Video times: must be strictly increasing and not excessively long
+                for (va, vb) in video_pairs:
+                    try:
+                        vsa = parse_flex_time_to_seconds(va)
+                        vsb = parse_flex_time_to_seconds(vb)
+                    except Exception as e:
+                        _report_validation("VIDEO", period_num, player_key, va, vb, f"unparseable time: {e}")
+                        validation_errors += 1
+                        continue
+                    if vsa >= vsb:
+                        _report_validation("VIDEO", period_num, player_key, va, vb, "start must be before end (strictly increasing)")
+                        validation_errors += 1
+                    dur = vsb - vsa if vsb >= vsa else 0
+                    if dur > MAX_SHIFT_SECONDS:
+                        _report_validation("VIDEO", period_num, player_key, va, vb, f"duration {seconds_to_mmss_or_hhmmss(dur)} exceeds limit 30:00")
+                        validation_errors += 1
+
+                # Scoreboard times: allow either count-up or count-down, but must not be equal and not excessively long
+                for (sa, sb) in sb_pairs:
+                    try:
+                        ssa = parse_flex_time_to_seconds(sa)
+                        ssb = parse_flex_time_to_seconds(sb)
+                    except Exception as e:
+                        _report_validation("SCOREBOARD", period_num, player_key, sa, sb, f"unparseable time: {e}")
+                        validation_errors += 1
+                        continue
+                    if ssa == ssb:
+                        _report_validation("SCOREBOARD", period_num, player_key, sa, sb, "start equals end (zero-length shift)")
+                        validation_errors += 1
+                    dur = abs(ssb - ssa)
+                    if dur > MAX_SHIFT_SECONDS:
+                        _report_validation("SCOREBOARD", period_num, player_key, sa, sb, f"duration {seconds_to_mmss_or_hhmmss(dur)} exceeds limit 30:00")
+                        validation_errors += 1
 
             if video_pairs:
                 video_pairs_by_player.setdefault(player_key, []).extend(video_pairs)
@@ -714,6 +764,10 @@ done
     except Exception:
         pass
 
+    # Final validation summary (if any)
+    if not skip_validation and validation_errors > 0:
+        print(f"[validation] Completed with {validation_errors} issue(s). See messages above.", file=sys.stderr)
+
 
 # ----------------------------- CLI -----------------------------
 
@@ -744,6 +798,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to a text file with one goal per line (GF:period/time or GA:period/time). '#' lines ignored.",
     )
+    p.add_argument(
+        "--skip-validation",
+        action="store_true",
+        help="Skip validation checks on start/end ordering and excessive durations.",
+    )
     return p
 
 
@@ -756,6 +815,7 @@ def main() -> None:
         outdir=args.outdir,
         keep_goalies=args.keep_goalies,
         goals=goals,
+        skip_validation=args.skip_validation,
     )
     print(f"✅ Done. Wrote per-player files to: {args.outdir.resolve()}")
 
