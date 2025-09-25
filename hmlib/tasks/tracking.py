@@ -222,6 +222,8 @@ def run_mmtrack(
 
                         if not using_precalculated_tracking:
                             if pose_inferencer is not None:
+                                if isinstance(data_to_send["original_images"], StreamTensor):
+                                    data_to_send["original_images"] = data_to_send["original_images"].wait()
                                 pose_results = multi_pose_task(
                                     pose_inferencer=pose_inferencer,
                                     cur_frame=data_to_send["original_images"],
