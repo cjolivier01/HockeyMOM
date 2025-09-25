@@ -8,12 +8,7 @@ from mmdet.structures import OptTrackSampleList
 from mmengine.structures import InstanceData
 
 from hmlib.datasets.dataframe import HmDataFrameBase
-from hockeymom.core import (
-    HmByteTrackConfig,
-    HmByteTracker,
-    HmTracker,
-    HmTrackerPredictionMode,
-)
+from hockeymom.core import HmByteTrackConfig, HmByteTracker, HmTracker, HmTrackerPredictionMode
 
 
 def _use_cpp_tracker(dflt: bool = False) -> bool:
@@ -174,7 +169,12 @@ class HmEndToEnd(ByteTrack):
             det_inputs = det_inputs.contiguous()
 
         if any(not hasattr(vds, "pred_instances") for vds in track_data_sample.video_data_samples):
-            all_det_results = self.detector.predict(det_inputs, track_data_sample)
+
+            def _predict(det_inputs, track_data_sample):
+                return self.detector.predict(det_inputs, track_data_sample)
+
+            all_det_results = _predict(det_inputs, track_data_sample)
+
         del det_inputs
 
         all_frame_jersey_info = []
