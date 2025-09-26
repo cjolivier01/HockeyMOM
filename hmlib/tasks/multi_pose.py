@@ -16,7 +16,7 @@ def multi_pose_task(
 ):
     inputs = []
     for img in make_channels_last(cur_frame):
-        inputs.append(img.cpu().numpy())
+        inputs.append(img)
     all_pose_results = []
     for pose_results in pose_inferencer(inputs=inputs, visualize=show):
         all_pose_results.append(pose_results)
