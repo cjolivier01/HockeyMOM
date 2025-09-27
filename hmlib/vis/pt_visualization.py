@@ -302,11 +302,6 @@ def draw_line(
     # Slice the image to the bounding box
     image_region = image[:, y_min:y_max, x_min:x_max]
 
-    # Clone the image to avoid in-place modifications
-    if False:
-        # Why is this necessary?
-        image = image.clone()
-
     # Modify the region in the image
     image[:, y_min:y_max, x_min:x_max] = torch.where(mask, color, image_region)
 
@@ -487,8 +482,7 @@ def draw_circle(
     color = color.view(C, 1, 1)
 
     # Clone image to avoid in-place modifications
-    out = image.clone()
-    region = out[:, y_min:y_max, x_min:x_max]
-    out[:, y_min:y_max, x_min:x_max] = torch.where(mask, color, region)
+    region = image[:, y_min:y_max, x_min:x_max]
+    image[:, y_min:y_max, x_min:x_max] = torch.where(mask, color, region)
 
-    return out
+    return image
