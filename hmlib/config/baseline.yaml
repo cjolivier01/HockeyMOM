@@ -154,6 +154,7 @@ model:
   pose:
     # RTMO
     config: ./openmm/mmpose/configs/wholebody_2d_keypoint/rtmpose/coco-wholebody/rtmpose-l_8xb32-270e_coco-wholebody-384x288.py
+    # config: config/models/wholebody_2d_keypoint/rtmpose/rtmpose-l_8xb32-270e_coco-wholebody-384x288.py
     checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-coco-wholebody_pt-aic-coco_270e-384x288-eaeb96c8_20230125.pth
 
     # Previous
