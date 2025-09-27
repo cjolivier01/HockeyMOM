@@ -371,12 +371,6 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         else:
             keypoints_visible = torch.ones(keypoints.shape[:-1])
 
-        kpt_count: int = 0
-
-        kpt_thr = 0.2
-
-        print(f"Skeleton count: {len(keypoints)}")
-
         # Build color lists
         for kpts, visible in zip(keypoints, keypoints_visible):
             # Colors per keypoint
@@ -451,7 +445,6 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                     thickness=10,
                     fill=True,
                 )
-                kpt_count += 1
                 if show_kpt_idx:
                     torch_image = torch_draw_text(
                         image=torch_image,
@@ -462,7 +455,6 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                         color=color,
                         position_is_text_bottom=True,
                     )
-        print(f"Visualized {kpt_count} keypoints")
         return torch_image
 
     def _draw_instances_kpts_openpose(
