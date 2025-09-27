@@ -3,8 +3,8 @@ import math
 import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
-import cv2
-import mmcv
+import cv2  # kept for optional window display only (not used for drawing now)
+import mmcv  # kept for color parsing compatibility
 import numpy as np
 import torch
 from mmengine.dist import master_only
@@ -13,14 +13,24 @@ from mmpose.datasets.datasets.utils import parse_pose_metainfo
 from mmpose.registry import VISUALIZERS
 from mmpose.structures import PoseDataSample
 
+from hmlib.vis.pt_text import draw_text as torch_draw_text
+from hmlib.vis.pt_text import is_channels_first as _is_cf
+from hmlib.vis.pt_text import make_channels_first as _mk_cf
+from hmlib.vis.pt_text import make_channels_last as _mk_cl
+
+# New torch-only drawing utilities
+from hmlib.vis.pt_visualization import draw_box as torch_draw_box
+from hmlib.vis.pt_visualization import draw_circle as torch_draw_circle
+from hmlib.vis.pt_visualization import draw_line as torch_draw_line
+
 from .pytorch_backend_visualizer import PytorchBackendVisualizer
 
 # from .simcc_vis import SimCCVisualizer
 
 
-def _get_adaptive_scales(areas: np.ndarray,
-                         min_area: int = 800,
-                         max_area: int = 30000) -> np.ndarray:
+def _get_adaptive_scales(
+    areas: Union[np.ndarray, torch.Tensor], min_area: int = 800, max_area: int = 30000
+) -> Union[np.ndarray, torch.Tensor]:
     """Get adaptive scales according to areas.
 
     The scale range is [0.5, 1.0]. When the area is less than
@@ -38,6 +48,9 @@ def _get_adaptive_scales(areas: np.ndarray,
     Returns:
         ndarray: The adaotive scales with the shape of (n, ).
     """
+    if isinstance(areas, torch.Tensor):
+        scales = 0.5 + (areas - min_area) / (max_area - min_area)
+        return scales.clamp(0.5, 1.0)
     scales = 0.5 + (areas - min_area) / (max_area - min_area)
     scales = np.clip(scales, 0.5, 1.0)
     return scales
@@ -182,8 +195,71 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         if self.dataset_meta is None:
             self.dataset_meta = {}
 
-    def _draw_instances_bbox(self, image: np.ndarray,
-                             instances: InstanceData) -> np.ndarray:
+    # ----------------------------------------------------------------------------------
+    # Torch-only helper utilities
+    # ----------------------------------------------------------------------------------
+    def _ensure_torch_image(self, image: Union[np.ndarray, torch.Tensor]) -> torch.Tensor:
+        """Ensure image is a torch uint8 tensor on its current / default device.
+
+        Accepts (H,W,C) or (C,H,W). Returns (C,H,W) on same device (GPU if already) without copying
+        if possible.
+        """
+        if isinstance(image, torch.Tensor):
+            if image.ndim == 3:
+                # Accept (C,H,W) or (H,W,C)
+                if image.shape[0] in (1, 3, 4):
+                    # Assume channel-first already
+                    return image
+                else:
+                    # Assume channel-last
+                    return image.permute(2, 0, 1)
+            elif image.ndim == 4:
+                # Assume batch of images; take first
+                return image[0]
+            else:
+                raise ValueError("Unsupported tensor image shape")
+        # numpy -> torch
+        if image.ndim != 3 or image.shape[2] not in (3, 4):
+            raise ValueError("Expected numpy image (H,W,3|4)")
+        tensor = torch.from_numpy(image)
+        tensor = tensor.permute(2, 0, 1).contiguous()
+        return tensor
+
+    def _color_to_rgb_tuple(self, color) -> Tuple[int, int, int]:
+        """Normalize color definitions to RGB int tuple.
+
+        - Accepts str (parsed via mmcv), tuple/list of length 3.
+        - Source meta may provide BGR ordering; we detect via attribute comment
+          expectation (dataset provides BGR). If "looks like" BGR and not grayscale,
+          we reverse to RGB for internal torch drawing (which assumes RGB).
+        """
+        if isinstance(color, str):
+            bgr = mmcv.color_val(color)  # returns BGR
+            return (int(bgr[2]), int(bgr[1]), int(bgr[0]))
+        if isinstance(color, (tuple, list)) and len(color) == 3:
+            # Heuristic: assume provided in BGR as per original OpenCV usage
+            return (int(color[2]), int(color[1]), int(color[0]))
+        raise ValueError(f"Unsupported color format: {color}")
+
+    def _draw_label(self, image: torch.Tensor, text: str, x: int, y: int, scale: float, color: Tuple[int, int, int]):
+        # Calibrate font size: original used ~13 * scale in OpenCV; our torch_draw_text internally *10
+        desired = max(8, int(13 * scale))
+        font_size = max(1, desired // 10)  # inverse of *10 in implementation
+        image = torch_draw_text(
+            image=image,
+            x=int(x),
+            y=int(y),
+            text=text,
+            font_size=font_size,
+            color=color,
+            position_is_text_bottom=True,
+        )
+        return image
+
+    # ----------------------------------------------------------------------------------
+    # Torch drawing implementations
+    # ----------------------------------------------------------------------------------
+    def _draw_instances_bbox(self, image: Union[np.ndarray, torch.Tensor], instances: InstanceData) -> torch.Tensor:
         """Draw bounding boxes and corresponding labels of GT or prediction.
 
         Args:
@@ -194,58 +270,61 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         Returns:
             np.ndarray: the drawn image which channel is RGB.
         """
-        self.set_image(image)
+        torch_image = self._ensure_torch_image(image)
+        device = torch_image.device
 
-        if 'bboxes' in instances:
-            bboxes = instances.bboxes
-            self.draw_bboxes(
-                bboxes,
-                edge_colors=self.bbox_color,
-                alpha=self.alpha,
-                line_widths=self.line_width)
+        if "bboxes" not in instances:
+            return torch_image
+
+        bboxes = instances.bboxes
+        if isinstance(bboxes, np.ndarray):
+            bboxes = torch.from_numpy(bboxes).to(device)
         else:
-            return self.get_image()
+            bboxes = bboxes.to(device)
+
+        # Draw each bbox
+        for box in bboxes:
+            tlx, tly, brx, bry = [int(v.item()) if isinstance(v, torch.Tensor) else int(v) for v in box]
+            color_rgb = self._color_to_rgb_tuple(
+                self.bbox_color if not isinstance(self.bbox_color, (list, tuple)) else tuple(self.bbox_color)
+            )
+            torch_image = torch_draw_box(
+                image=torch_image,
+                tlbr=(tlx, tly, brx, bry),
+                color=color_rgb,
+                thickness=int(self.line_width),
+                alpha=int(self.alpha * 255),
+                filled=False,
+            )
 
         if 'labels' in instances and self.text_color is not None:
             classes = self.dataset_meta.get('classes', None)
             labels = instances.labels
-
+            if isinstance(labels, np.ndarray):
+                labels = torch.from_numpy(labels).to(device)
             positions = bboxes[:, :2]
-            areas = (bboxes[:, 3] - bboxes[:, 1]) * (
-                bboxes[:, 2] - bboxes[:, 0])
+            areas = (bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])
             scales = _get_adaptive_scales(areas)
-
+            txt_color = self._color_to_rgb_tuple(
+                self.text_color if not isinstance(self.text_color, (list, tuple)) else tuple(self.text_color)
+            )
             for i, (pos, label) in enumerate(zip(positions, labels)):
-                label_text = classes[
-                    label] if classes is not None else f'class {label}'
+                label_int = int(label.item() if isinstance(label, torch.Tensor) else int(label))
+                label_text = classes[label_int] if classes is not None else f"class {label_int}"
+                x, y = int(pos[0].item()), int(pos[1].item())
+                scale_val = float(scales[i].item() if isinstance(scales, torch.Tensor) else scales[i])
+                torch_image = self._draw_label(torch_image, label_text, x, y, scale_val, txt_color)
 
-                if isinstance(self.bbox_color,
-                              tuple) and max(self.bbox_color) > 1:
-                    facecolor = [c / 255.0 for c in self.bbox_color]
-                else:
-                    facecolor = self.bbox_color
+        return torch_image
 
-                self.draw_texts(
-                    label_text,
-                    pos,
-                    colors=self.text_color,
-                    font_sizes=int(13 * scales[i]),
-                    vertical_alignments='bottom',
-                    bboxes=[{
-                        'facecolor': facecolor,
-                        'alpha': 0.8,
-                        'pad': 0.7,
-                        'edgecolor': 'none'
-                    }])
-
-        return self.get_image()
-
-    def _draw_instances_kpts(self,
-                             image: np.ndarray,
-                             instances: InstanceData,
-                             kpt_thr: float = 0.3,
-                             show_kpt_idx: bool = False,
-                             skeleton_style: str = 'mmpose'):
+    def _draw_instances_kpts(
+        self,
+        image: Union[np.ndarray, torch.Tensor],
+        instances: InstanceData,
+        kpt_thr: float = 0.3,
+        show_kpt_idx: bool = False,
+        skeleton_style: str = "mmpose",
+    ):
         """Draw keypoints and skeletons (optional) of GT or prediction.
 
         Args:
@@ -264,260 +343,255 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         """
 
         if skeleton_style == 'openpose':
-            return self._draw_instances_kpts_openpose(image, instances,
-                                                      kpt_thr)
+            # (Optional) Not yet converted to torch-only; fallback (could be implemented similarly)
+            return self._draw_instances_kpts_openpose(image, instances, kpt_thr)
 
-        self.set_image(image)
-        img_h, img_w, _ = image.shape
+        torch_image = self._ensure_torch_image(image)
+        H, W = torch_image.shape[1], torch_image.shape[2]
 
-        if 'keypoints' in instances:
-            keypoints = instances.get('transformed_keypoints',
-                                      instances.keypoints)
+        if "keypoints" not in instances:
+            return torch_image
 
-            if 'keypoints_visible' in instances:
-                keypoints_visible = instances.keypoints_visible
+        keypoints = instances.get("transformed_keypoints", instances.keypoints)
+        if isinstance(keypoints, np.ndarray):
+            keypoints = torch.from_numpy(keypoints)
+        if "keypoints_visible" in instances:
+            keypoints_visible = instances.keypoints_visible
+            if isinstance(keypoints_visible, np.ndarray):
+                keypoints_visible = torch.from_numpy(keypoints_visible)
+        else:
+            keypoints_visible = torch.ones(keypoints.shape[:-1])
+
+        # Build color lists
+        for kpts, visible in zip(keypoints, keypoints_visible):
+            # Colors per keypoint
+            if self.kpt_color is None or isinstance(self.kpt_color, str):
+                kpt_color_list = [self.kpt_color] * len(kpts)
+            elif len(self.kpt_color) == len(kpts):
+                kpt_color_list = self.kpt_color
             else:
-                keypoints_visible = np.ones(keypoints.shape[:-1])
+                raise ValueError(
+                    f"the length of kpt_color ({len(self.kpt_color)}) does not match keypoints ({len(kpts)})"
+                )
 
-            for kpts, visible in zip(keypoints, keypoints_visible):
-                kpts = np.array(kpts, copy=False)
-
-                if self.kpt_color is None or isinstance(self.kpt_color, str):
-                    kpt_color = [self.kpt_color] * len(kpts)
-                elif len(self.kpt_color) == len(kpts):
-                    kpt_color = self.kpt_color
+            # Draw skeleton links
+            if self.skeleton is not None and self.link_color is not None:
+                if self.link_color is None or isinstance(self.link_color, str):
+                    link_color_list = [self.link_color] * len(self.skeleton)
+                elif len(self.link_color) == len(self.skeleton):
+                    link_color_list = self.link_color
                 else:
                     raise ValueError(
-                        f'the length of kpt_color '
-                        f'({len(self.kpt_color)}) does not matches '
-                        f'that of keypoints ({len(kpts)})')
-
-                # draw links
-                if self.skeleton is not None and self.link_color is not None:
-                    if self.link_color is None or isinstance(
-                            self.link_color, str):
-                        link_color = [self.link_color] * len(self.skeleton)
-                    elif len(self.link_color) == len(self.skeleton):
-                        link_color = self.link_color
-                    else:
-                        raise ValueError(
-                            f'the length of link_color '
-                            f'({len(self.link_color)}) does not matches '
-                            f'that of skeleton ({len(self.skeleton)})')
-
-                    for sk_id, sk in enumerate(self.skeleton):
-                        pos1 = (int(kpts[sk[0], 0]), int(kpts[sk[0], 1]))
-                        pos2 = (int(kpts[sk[1], 0]), int(kpts[sk[1], 1]))
-
-                        if (pos1[0] <= 0 or pos1[0] >= img_w or pos1[1] <= 0
-                                or pos1[1] >= img_h or pos2[0] <= 0
-                                or pos2[0] >= img_w or pos2[1] <= 0
-                                or pos2[1] >= img_h or visible[sk[0]] < kpt_thr
-                                or visible[sk[1]] < kpt_thr
-                                or link_color[sk_id] is None):
-                            # skip the link that should not be drawn
-                            continue
-
-                        X = np.array((pos1[0], pos2[0]))
-                        Y = np.array((pos1[1], pos2[1]))
-                        color = link_color[sk_id]
-                        if not isinstance(color, str):
-                            color = tuple(int(c) for c in color)
-                        transparency = self.alpha
-                        if self.show_keypoint_weight:
-                            transparency *= max(
-                                0,
-                                min(1,
-                                    0.5 * (visible[sk[0]] + visible[sk[1]])))
-
-                        self.draw_lines(
-                            X, Y, color, line_widths=self.line_width)
-
-                # draw each point on image
-                for kid, kpt in enumerate(kpts):
-                    if visible[kid] < kpt_thr or kpt_color[kid] is None:
-                        # skip the point that should not be drawn
+                        f"the length of link_color ({len(self.link_color)}) does not match skeleton ({len(self.skeleton)})"
+                    )
+                for sk_id, sk in enumerate(self.skeleton):
+                    pos1 = (int(kpts[sk[0], 0]), int(kpts[sk[0], 1]))
+                    pos2 = (int(kpts[sk[1], 0]), int(kpts[sk[1], 1]))
+                    if (
+                        pos1[0] <= 0
+                        or pos1[0] >= W
+                        or pos1[1] <= 0
+                        or pos1[1] >= H
+                        or pos2[0] <= 0
+                        or pos2[0] >= W
+                        or pos2[1] <= 0
+                        or pos2[1] >= H
+                        or visible[sk[0]] < kpt_thr
+                        or visible[sk[1]] < kpt_thr
+                        or link_color_list[sk_id] is None
+                    ):
                         continue
-
-                    color = kpt_color[kid]
+                    color = link_color_list[sk_id]
                     if not isinstance(color, str):
-                        color = tuple(int(c) for c in color)
-                    transparency = self.alpha
-                    if self.show_keypoint_weight:
-                        transparency *= max(0, min(1, visible[kid]))
-                    self.draw_circles(
-                        kpt,
-                        radius=np.array([self.radius]),
-                        face_colors=color,
-                        edge_colors=color,
-                        alpha=transparency,
-                        line_widths=self.radius)
-                    if show_kpt_idx:
-                        kpt_idx_coords = kpt + [self.radius, -self.radius]
-                        self.draw_texts(
-                            str(kid),
-                            kpt_idx_coords,
-                            colors=color,
-                            font_sizes=self.radius * 3,
-                            vertical_alignments='bottom',
-                            horizontal_alignments='center')
+                        color = self._color_to_rgb_tuple(color)
+                    else:
+                        color = self._color_to_rgb_tuple(color)
+                    # draw_line expects scalar ints & color tuple
+                    torch_image = torch_draw_line(
+                        image=torch_image,
+                        x1=pos1[0],
+                        y1=pos1[1],
+                        x2=pos2[0],
+                        y2=pos2[1],
+                        color=color,
+                        thickness=int(self.line_width),
+                    )
 
-        return self.get_image()
+            # Draw keypoints
+            for kid, kpt in enumerate(kpts):
+                if visible[kid] < kpt_thr or kpt_color_list[kid] is None:
+                    continue
+                color = kpt_color_list[kid]
+                if not isinstance(color, str):
+                    color = self._color_to_rgb_tuple(color)
+                else:
+                    color = self._color_to_rgb_tuple(color)
+                radius = int(self.radius)
+                torch_image = torch_draw_circle(
+                    image=torch_image,
+                    center_x=float(kpt[0]),
+                    center_y=float(kpt[1]),
+                    radius=float(radius),
+                    color=color,
+                    thickness=1,
+                    fill=True,
+                )
+                if show_kpt_idx:
+                    torch_image = torch_draw_text(
+                        image=torch_image,
+                        x=int(kpt[0]) + radius,
+                        y=int(kpt[1]) - radius,
+                        text=str(kid),
+                        font_size=max(1, int(self.radius)),
+                        color=color,
+                        position_is_text_bottom=True,
+                    )
 
-    def _draw_instances_kpts_openpose(self,
-                                      image: np.ndarray,
-                                      instances: InstanceData,
-                                      kpt_thr: float = 0.3):
-        """Draw keypoints and skeletons (optional) of GT or prediction in
-        openpose style.
+        return torch_image
 
-        Args:
-            image (np.ndarray): The image to draw.
-            instances (:obj:`InstanceData`): Data structure for
-                instance-level annotations or predictions.
-            kpt_thr (float, optional): Minimum threshold of keypoints
-                to be shown. Default: 0.3.
+    def _draw_instances_kpts_openpose(
+        self, image: Union[np.ndarray, torch.Tensor], instances: InstanceData, kpt_thr: float = 0.3
+    ) -> torch.Tensor:
+        """Draw keypoints with OpenPose-style skeleton rendering using torch operations."""
 
-        Returns:
-            np.ndarray: the drawn image which channel is RGB.
-        """
+        torch_image = self._ensure_torch_image(image)
+        device = torch_image.device
+        height, width = torch_image.shape[1], torch_image.shape[2]
 
-        self.set_image(image)
-        img_h, img_w, _ = image.shape
+        if "keypoints" not in instances:
+            return torch_image
 
-        if 'keypoints' in instances:
-            keypoints = instances.get('transformed_keypoints',
-                                      instances.keypoints)
+        keypoints = instances.get("transformed_keypoints", instances.keypoints)
+        if isinstance(keypoints, np.ndarray):
+            keypoints = torch.from_numpy(keypoints)
+        keypoints = keypoints.to(device=device, dtype=torch.float32)
+        if "keypoints_visible" in instances:
+            keypoints_visible = instances.keypoints_visible
+            if isinstance(keypoints_visible, np.ndarray):
+                keypoints_visible = torch.from_numpy(keypoints_visible)
+            keypoints_visible = keypoints_visible.to(device=device, dtype=torch.float32)
+        else:
+            keypoints_visible = torch.ones(keypoints.shape[:-1], device=device, dtype=torch.float32)
 
-            if 'keypoints_visible' in instances:
-                keypoints_visible = instances.keypoints_visible
+        keypoints_info = torch.cat((keypoints, keypoints_visible[..., None]), dim=-1)
+        neck = keypoints_info[:, [5, 6]].mean(dim=1)
+        neck[:, 2:3] = ((keypoints_info[:, 5, 2:3] > kpt_thr) & (keypoints_info[:, 6, 2:3] > kpt_thr)).float()
+        keypoints_info = torch.cat([keypoints_info[:, :17], neck.unsqueeze(1), keypoints_info[:, 17:]], dim=1)
+
+        mmpose_idx = torch.tensor([17, 6, 8, 10, 7, 9, 12, 14, 16, 13, 15, 2, 1, 4, 3], device=device, dtype=torch.long)
+        openpose_idx = torch.tensor(
+            [1, 2, 3, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17], device=device, dtype=torch.long
+        )
+        keypoints_info = keypoints_info.clone()
+        keypoints_info[:, openpose_idx] = keypoints_info[:, mmpose_idx]
+
+        keypoints = keypoints_info[..., :2]
+        keypoints_visible = keypoints_info[..., 2]
+
+        for kpts, visible in zip(keypoints, keypoints_visible):
+            if self.kpt_color is None or isinstance(self.kpt_color, str):
+                kpt_color_list = [self.kpt_color] * len(kpts)
+            elif len(self.kpt_color) == len(kpts):
+                kpt_color_list = self.kpt_color
             else:
-                keypoints_visible = np.ones(keypoints.shape[:-1])
+                raise ValueError(
+                    f"the length of kpt_color ({len(self.kpt_color)}) does not matches that of keypoints ({len(kpts)})"
+                )
 
-            keypoints_info = np.concatenate(
-                (keypoints, keypoints_visible[..., None]), axis=-1)
-            # compute neck joint
-            neck = np.mean(keypoints_info[:, [5, 6]], axis=1)
-            # neck score when visualizing pred
-            neck[:, 2:3] = np.logical_and(
-                keypoints_info[:, 5, 2:3] > kpt_thr,
-                keypoints_info[:, 6, 2:3] > kpt_thr).astype(int)
-            new_keypoints_info = np.insert(keypoints_info, 17, neck, axis=1)
-
-            mmpose_idx = [17, 6, 8, 10, 7, 9, 12, 14, 16, 13, 15, 2, 1, 4, 3]
-            openpose_idx = [1, 2, 3, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17]
-            new_keypoints_info[:, openpose_idx] = \
-                new_keypoints_info[:, mmpose_idx]
-            keypoints_info = new_keypoints_info
-
-            keypoints, keypoints_visible = keypoints_info[
-                ..., :2], keypoints_info[..., 2]
-
-            for kpts, visible in zip(keypoints, keypoints_visible):
-                kpts = np.array(kpts, copy=False)
-
-                if self.kpt_color is None or isinstance(self.kpt_color, str):
-                    kpt_color = [self.kpt_color] * len(kpts)
-                elif len(self.kpt_color) == len(kpts):
-                    kpt_color = self.kpt_color
+            if self.skeleton is not None and self.link_color is not None:
+                if self.link_color is None or isinstance(self.link_color, str):
+                    link_color_list = [self.link_color] * len(self.skeleton)
+                elif len(self.link_color) == len(self.skeleton):
+                    link_color_list = self.link_color
                 else:
                     raise ValueError(
-                        f'the length of kpt_color '
-                        f'({len(self.kpt_color)}) does not matches '
-                        f'that of keypoints ({len(kpts)})')
+                        f"the length of link_color ({len(self.link_color)}) does not matches that of skeleton ({len(self.skeleton)})"
+                    )
 
-                # draw links
-                if self.skeleton is not None and self.link_color is not None:
-                    if self.link_color is None or isinstance(
-                            self.link_color, str):
-                        link_color = [self.link_color] * len(self.skeleton)
-                    elif len(self.link_color) == len(self.skeleton):
-                        link_color = self.link_color
-                    else:
-                        raise ValueError(
-                            f'the length of link_color '
-                            f'({len(self.link_color)}) does not matches '
-                            f'that of skeleton ({len(self.skeleton)})')
-
-                    for sk_id, sk in enumerate(self.skeleton):
-                        pos1 = (int(kpts[sk[0], 0]), int(kpts[sk[0], 1]))
-                        pos2 = (int(kpts[sk[1], 0]), int(kpts[sk[1], 1]))
-
-                        if (pos1[0] <= 0 or pos1[0] >= img_w or pos1[1] <= 0
-                                or pos1[1] >= img_h or pos2[0] <= 0
-                                or pos2[0] >= img_w or pos2[1] <= 0
-                                or pos2[1] >= img_h or visible[sk[0]] < kpt_thr
-                                or visible[sk[1]] < kpt_thr
-                                or link_color[sk_id] is None):
-                            # skip the link that should not be drawn
-                            continue
-
-                        X = np.array((pos1[0], pos2[0]))
-                        Y = np.array((pos1[1], pos2[1]))
-                        color = link_color[sk_id]
-                        if not isinstance(color, str):
-                            color = tuple(int(c) for c in color)
-                        transparency = self.alpha
-                        if self.show_keypoint_weight:
-                            transparency *= max(
-                                0,
-                                min(1,
-                                    0.5 * (visible[sk[0]] + visible[sk[1]])))
-
-                        if sk_id <= 16:
-                            # body part
-                            mX = np.mean(X)
-                            mY = np.mean(Y)
-                            length = ((Y[0] - Y[1])**2 + (X[0] - X[1])**2)**0.5
-                            transparency = 0.6
-                            angle = math.degrees(
-                                math.atan2(Y[0] - Y[1], X[0] - X[1]))
-                            polygons = cv2.ellipse2Poly(
-                                (int(mX), int(mY)),
-                                (int(length / 2), int(self.line_width)),
-                                int(angle), 0, 360, 1)
-
-                            self.draw_polygons(
-                                polygons,
-                                edge_colors=color,
-                                face_colors=color,
-                                alpha=transparency)
-
-                        else:
-                            # hand part
-                            self.draw_lines(X, Y, color, line_widths=2)
-
-                # draw each point on image
-                for kid, kpt in enumerate(kpts):
-                    if visible[kid] < kpt_thr or kpt_color[
-                            kid] is None or kpt_color[kid].sum() == 0:
-                        # skip the point that should not be drawn
+                for sk_id, sk in enumerate(self.skeleton):
+                    pos1 = kpts[sk[0]]
+                    pos2 = kpts[sk[1]]
+                    if (
+                        pos1[0] <= 0
+                        or pos1[0] >= width
+                        or pos1[1] <= 0
+                        or pos1[1] >= height
+                        or pos2[0] <= 0
+                        or pos2[0] >= width
+                        or pos2[1] <= 0
+                        or pos2[1] >= height
+                        or visible[sk[0]] < kpt_thr
+                        or visible[sk[1]] < kpt_thr
+                        or link_color_list[sk_id] is None
+                    ):
                         continue
 
-                    color = kpt_color[kid]
-                    if not isinstance(color, str):
-                        color = tuple(int(c) for c in color)
-                    transparency = self.alpha
+                    color = link_color_list[sk_id]
+                    color_tuple = self._color_to_rgb_tuple(color)
+                    transparency = float(self.alpha)
                     if self.show_keypoint_weight:
-                        transparency *= max(0, min(1, visible[kid]))
+                        transparency *= float(0.5 * (visible[sk[0]] + visible[sk[1]]).clamp(0, 1).item())
+                    if sk_id <= 16:
+                        transparency = min(transparency, 0.6)
+                    thickness = max(1, int(self.line_width if sk_id <= 16 else 2))
 
-                    # draw smaller dots for face & hand keypoints
-                    radius = self.radius // 2 if kid > 17 else self.radius
+                    x_pair = torch.tensor([pos1[0], pos2[0]], device=device)
+                    y_pair = torch.tensor([pos1[1], pos2[1]], device=device)
 
-                    self.draw_circles(
-                        kpt,
-                        radius=np.array([radius]),
-                        face_colors=color,
-                        edge_colors=color,
-                        alpha=transparency,
-                        line_widths=radius)
+                    def _draw_line(
+                        img: torch.Tensor, x_pair=x_pair, y_pair=y_pair, color_tuple=color_tuple, thickness=thickness
+                    ) -> torch.Tensor:
+                        return torch_draw_line(
+                            image=img,
+                            x1=int(x_pair[0].item()),
+                            y1=int(y_pair[0].item()),
+                            x2=int(x_pair[1].item()),
+                            y2=int(y_pair[1].item()),
+                            color=color_tuple,
+                            thickness=thickness,
+                        )
 
-        return self.get_image()
+                    torch_image = self._apply_draw(torch_image, _draw_line, max(0.0, min(1.0, transparency)))
+
+            for kid, kpt in enumerate(kpts):
+                if visible[kid] < kpt_thr or kpt_color_list[kid] is None:
+                    continue
+                color = kpt_color_list[kid]
+                if not isinstance(color, str):
+                    if isinstance(color, torch.Tensor):
+                        if float(color.sum().item()) == 0:
+                            continue
+                    elif isinstance(color, np.ndarray):
+                        if float(color.sum()) == 0:
+                            continue
+                    else:
+                        if sum(color) == 0:
+                            continue
+                color_tuple = self._color_to_rgb_tuple(color)
+                transparency = float(self.alpha)
+                if self.show_keypoint_weight:
+                    transparency *= float(torch.clamp(visible[kid], 0, 1).item())
+                radius = self.radius // 2 if kid > 17 else self.radius
+
+                def _draw_circle(img: torch.Tensor, kpt=kpt, color_tuple=color_tuple, radius=radius) -> torch.Tensor:
+                    return torch_draw_circle(
+                        image=img,
+                        center_x=float(kpt[0].item()),
+                        center_y=float(kpt[1].item()),
+                        radius=float(radius),
+                        color=color_tuple,
+                        thickness=1,
+                        fill=True,
+                    )
+
+                torch_image = self._apply_draw(torch_image, _draw_circle, max(0.0, min(1.0, transparency)))
+
+        return torch_image
 
     def _draw_instance_heatmap(
         self,
         fields: PixelData,
-        overlaid_image: Optional[np.ndarray] = None,
+        overlaid_image: Optional[Union[np.ndarray, torch.Tensor]] = None,
     ):
         """Draw heatmaps of GT or prediction.
 
@@ -534,11 +608,28 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         heatmaps = fields.heatmaps
         if isinstance(heatmaps, np.ndarray):
             heatmaps = torch.from_numpy(heatmaps)
+        heatmaps = heatmaps.to(dtype=torch.float32)
         if heatmaps.dim() == 3:
+            # (K,H,W) -> aggregate max
             heatmaps, _ = heatmaps.max(dim=0)
-        heatmaps = heatmaps.unsqueeze(0)
-        out_image = self.draw_featmap(heatmaps, overlaid_image)
-        return out_image
+        # Normalize 0..1
+        hmin = heatmaps.min()
+        hmax = heatmaps.max()
+        if (hmax - hmin) > 1e-6:
+            norm = (heatmaps - hmin) / (hmax - hmin)
+        else:
+            norm = torch.zeros_like(heatmaps)
+        # Simple colormap: jet-like (approx) using ramps
+        r = torch.clamp(1.5 - torch.abs(4 * norm - 3), 0, 1)
+        g = torch.clamp(1.5 - torch.abs(4 * norm - 2), 0, 1)
+        b = torch.clamp(1.5 - torch.abs(4 * norm - 1), 0, 1)
+        heat_rgb = torch.stack([r, g, b], dim=0)  # (3,H,W)
+        heat_rgb = (heat_rgb * 255).to(torch.uint8)
+        if overlaid_image is not None:
+            base = self._ensure_torch_image(overlaid_image).to(torch.uint8)
+            alpha = 0.5
+            heat_rgb = (alpha * heat_rgb.to(torch.float32) + (1 - alpha) * base.to(torch.float32)).to(torch.uint8)
+        return heat_rgb
 
     def _draw_instance_xy_heatmap(
         self,
@@ -569,21 +660,23 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         return out_image
 
     @master_only
-    def add_datasample(self,
-                       name: str,
-                       image: np.ndarray,
-                       data_sample: PoseDataSample,
-                       draw_gt: bool = True,
-                       draw_pred: bool = True,
-                       draw_heatmap: bool = False,
-                       draw_bbox: bool = False,
-                       show_kpt_idx: bool = False,
-                       skeleton_style: str = 'mmpose',
-                       show: bool = False,
-                       wait_time: float = 0,
-                       out_file: Optional[str] = None,
-                       kpt_thr: float = 0.3,
-                       step: int = 0) -> None:
+    def add_datasample(
+        self,
+        name: str,
+        image: Union[np.ndarray, torch.Tensor],
+        data_sample: PoseDataSample,
+        draw_gt: bool = True,
+        draw_pred: bool = True,
+        draw_heatmap: bool = False,
+        draw_bbox: bool = False,
+        show_kpt_idx: bool = False,
+        skeleton_style: str = "mmpose",
+        show: bool = False,
+        wait_time: float = 0,
+        out_file: Optional[str] = None,
+        kpt_thr: float = 0.3,
+        step: int = 0,
+    ) -> torch.Tensor:
         """Draw datasample and save to all backends.
 
         - If GT and prediction are plotted at the same time, they are
@@ -621,81 +714,64 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
             step (int): Global step value to record. Defaults to 0
         """
 
-        gt_img_data = None
-        pred_img_data = None
+        torch_image = self._ensure_torch_image(image)
+        device = torch_image.device
+
+        gt_img_data: Optional[torch.Tensor] = None
+        pred_img_data: Optional[torch.Tensor] = None
+        gt_img_heatmap: Optional[torch.Tensor] = None
+        pred_img_heatmap: Optional[torch.Tensor] = None
 
         if draw_gt:
-            gt_img_data = image.copy()
-            gt_img_heatmap = None
-
-            # draw bboxes & keypoints
+            gt_img_data = torch_image.clone()
             if 'gt_instances' in data_sample:
                 gt_img_data = self._draw_instances_kpts(
                     gt_img_data, data_sample.gt_instances, kpt_thr,
                     show_kpt_idx, skeleton_style)
                 if draw_bbox:
-                    gt_img_data = self._draw_instances_bbox(
-                        gt_img_data, data_sample.gt_instances)
-
-            # draw heatmaps
+                    gt_img_data = self._draw_instances_bbox(gt_img_data, data_sample.gt_instances)
             if 'gt_fields' in data_sample and draw_heatmap:
-                gt_img_heatmap = self._draw_instance_heatmap(
-                    data_sample.gt_fields, image)
+                gt_img_heatmap = self._draw_instance_heatmap(data_sample.gt_fields, torch_image)
                 if gt_img_heatmap is not None:
-                    gt_img_data = np.concatenate((gt_img_data, gt_img_heatmap),
-                                                 axis=0)
+                    gt_img_data = torch.cat((gt_img_data, gt_img_heatmap), dim=1)
 
         if draw_pred:
-            pred_img_data = image.copy()
-            pred_img_heatmap = None
-
-            # draw bboxes & keypoints
+            pred_img_data = torch_image.clone()
             if 'pred_instances' in data_sample:
                 pred_img_data = self._draw_instances_kpts(
                     pred_img_data, data_sample.pred_instances, kpt_thr,
                     show_kpt_idx, skeleton_style)
                 if draw_bbox:
-                    pred_img_data = self._draw_instances_bbox(
-                        pred_img_data, data_sample.pred_instances)
-
-            # draw heatmaps
-            if 'pred_fields' in data_sample and draw_heatmap:
-                if 'keypoint_x_labels' in data_sample.pred_instances:
-                    pred_img_heatmap = self._draw_instance_xy_heatmap(
-                        data_sample.pred_fields, image)
-                else:
-                    pred_img_heatmap = self._draw_instance_heatmap(
-                        data_sample.pred_fields, image)
+                    pred_img_data = self._draw_instances_bbox(pred_img_data, data_sample.pred_instances)
+            if "pred_fields" in data_sample and draw_heatmap:
+                pred_img_heatmap = self._draw_instance_heatmap(data_sample.pred_fields, torch_image)
                 if pred_img_heatmap is not None:
-                    pred_img_data = np.concatenate(
-                        (pred_img_data, pred_img_heatmap), axis=0)
+                    pred_img_data = torch.cat((pred_img_data, pred_img_heatmap), dim=1)
 
-        # merge visualization results
         if gt_img_data is not None and pred_img_data is not None:
+            # Align heatmap presence
             if gt_img_heatmap is None and pred_img_heatmap is not None:
-                gt_img_data = np.concatenate((gt_img_data, image), axis=0)
+                gt_img_data = torch.cat((gt_img_data, torch_image), dim=1)
             elif gt_img_heatmap is not None and pred_img_heatmap is None:
-                pred_img_data = np.concatenate((pred_img_data, image), axis=0)
-
-            drawn_img = np.concatenate((gt_img_data, pred_img_data), axis=1)
-
+                pred_img_data = torch.cat((pred_img_data, torch_image), dim=1)
+            drawn_img = torch.cat((gt_img_data, pred_img_data), dim=2)
         elif gt_img_data is not None:
             drawn_img = gt_img_data
         else:
-            drawn_img = pred_img_data
+            drawn_img = pred_img_data if pred_img_data is not None else torch_image
 
-        # It is convenient for users to obtain the drawn image.
-        # For example, the user wants to obtain the drawn image and
-        # save it as a video during video inference.
         self.set_image(drawn_img)
+
+        cpu_image: Optional[np.ndarray] = None
+        if out_file is not None or bool(self._vis_backends):
+            cpu_image = self._tensor_to_numpy(drawn_img)
+
+        if out_file is not None and cpu_image is not None:
+            mmcv.imwrite(cpu_image[..., ::-1], out_file)
+        elif cpu_image is not None:
+            self.add_image(name, cpu_image, step)
 
         if show:
             self.show(drawn_img, win_name=name, wait_time=wait_time)
 
-        if out_file is not None:
-            mmcv.imwrite(drawn_img[..., ::-1], out_file)
-        else:
-            # save drawn_img to backends
-            self.add_image(name, drawn_img, step)
-
-        return self.get_image()
+        return drawn_img
