@@ -9,13 +9,7 @@ import torch
 
 from hmlib.bbox.box_functions import height, width
 
-from ..utils.image import (
-    image_height,
-    image_width,
-    is_channels_last,
-    make_channels_first,
-    make_channels_last,
-)
+from ..utils.image import image_height, image_width, is_channels_last, make_channels_first, make_channels_last
 
 
 def draw_filled_square(
@@ -429,7 +423,7 @@ def draw_circle(
 ) -> torch.Tensor:
     """
     Draws a circle on the image tensor with the given center, radius, color, and thickness,
-    optionally filling it.
+    optionally filling it. If the circle would extend outside the image, it is not drawn.
 
     Parameters:
     - image: torch.Tensor of shape (C, H, W) on the GPU or CPU.
@@ -441,69 +435,60 @@ def draw_circle(
     - fill: bool, if True, fills the circle.
 
     Returns:
-    - torch.Tensor: The image tensor with the circle drawn on it.
+    - torch.Tensor: The image tensor with the circle drawn on it, or unchanged if circle goes out of bounds.
     """
-    # Get image dimensions
+    # Validate input
+    assert image.ndim == 3, "Image must be of shape (C, H, W)"
     C, H, W = image.shape
     device = image.device
 
-    # TODO: make batchable?
-    assert image.ndim == 3
-    image = make_channels_first(image)
-
-    # Compute effective thickness
-    t: float = 0.0 if fill else float(thickness)
-    # Ensure t is non-negative
+    # Effective thickness (0 if fill)
+    t = 0.0 if fill else float(thickness)
     t = max(t, 0.0)
 
-    # Determine the bounding box of the circle with thickness
-    x_min: int = int(max(0, center_x - radius - t))
-    x_max: int = int(min(W - 1, center_x + radius + t))
-    y_min: int = int(max(0, center_y - radius - t))
-    y_max: int = int(min(H - 1, center_y + radius + t))
+    # Check if circle fits fully inside the image (with thickness margin)
+    if (
+        center_x - radius - t < 0
+        or center_x + radius + t >= W
+        or center_y - radius - t < 0
+        or center_y + radius + t >= H
+    ):
+        # Circle would go out of bounds -> return unchanged image
+        return image
 
-    # Adjust x_max and y_max to be inclusive in torch.arange
-    x_max += 1
-    y_max += 1
+    # Bounding box
+    x_min = int(center_x - radius - t)
+    x_max = int(center_x + radius + t) + 1
+    y_min = int(center_y - radius - t)
+    y_max = int(center_y + radius + t) + 1
 
-    # Create coordinate grid only within the bounding box
-    ys: torch.Tensor
-    xs: torch.Tensor
+    # Grid
     ys, xs = torch.meshgrid(
         torch.arange(y_min, y_max, device=device, dtype=torch.float32),
         torch.arange(x_min, x_max, device=device, dtype=torch.float32),
         indexing="ij",
     )
 
-    # Compute squared distance from circle center
-    distance_sq: torch.Tensor = (xs - center_x) ** 2 + (ys - center_y) ** 2
-    radius_sq: float = radius**2
+    # Distances
+    distance_sq = (xs - center_x) ** 2 + (ys - center_y) ** 2
+    radius_sq = radius**2
 
     if fill:
-        # Filled circle
-        mask: torch.Tensor = distance_sq <= radius_sq
+        mask = distance_sq <= radius_sq
     else:
-        # Circle outline with thickness
-        inner_radius_sq: float = max(0.0, (radius - thickness)) ** 2
-        outer_radius_sq: float = radius_sq
-        mask = (distance_sq >= inner_radius_sq) & (distance_sq <= outer_radius_sq)
+        inner_radius_sq = max(0.0, (radius - thickness)) ** 2
+        mask = (distance_sq >= inner_radius_sq) & (distance_sq <= radius_sq)
 
-    # Apply the mask to the image region
-    # Expand mask to (C, H', W')
+    # Expand mask to channels
     mask = mask.unsqueeze(0).expand(C, -1, -1)
 
     if not isinstance(color, torch.Tensor):
-        color = torch.tensor(color, dtype=image.dtype, device=image.device)
-
+        color = torch.tensor(color, dtype=image.dtype, device=device)
     color = color.view(C, 1, 1)
 
-    # Slice the image to the bounding box
-    image_region: torch.Tensor = image[:, y_min:y_max, x_min:x_max]
+    # Clone image to avoid in-place modifications
+    out = image.clone()
+    region = out[:, y_min:y_max, x_min:x_max]
+    out[:, y_min:y_max, x_min:x_max] = torch.where(mask, color, region)
 
-    # Clone the image to avoid in-place modifications
-    image = image.clone()
-
-    # Modify the region in the image
-    image[:, y_min:y_max, x_min:x_max] = torch.where(mask, color, image_region)
-
-    return image
+    return out
