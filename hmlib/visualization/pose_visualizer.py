@@ -191,6 +191,14 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
             self.link_color = dataset_meta.get('skeleton_link_colors',
                                                self.link_color)
             self.skeleton = dataset_meta.get('skeleton_links', self.skeleton)
+
+            if isinstance(self.bbox_color[0], np.ndarray):
+                self.bbox_color = [tuple(c.tolist()) for c in self.bbox_color]
+            if isinstance(self.kpt_color[0], np.ndarray):
+                self.kpt_color = [tuple(c.tolist()) for c in self.kpt_color]
+            if isinstance(self.link_color[0], np.ndarray):
+                self.link_color = [tuple(c.tolist()) for c in self.link_color]
+
         # sometimes self.dataset_meta is manually set, which might be None.
         # it should be converted to a dict at these times
         if self.dataset_meta is None:

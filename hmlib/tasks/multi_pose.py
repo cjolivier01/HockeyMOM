@@ -2,14 +2,13 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from typeguard import typechecked
 
 from hmlib.ui import show_image
 from hmlib.utils.image import make_channels_last
-from hmlib.visualization import PytorchPoseLocalVisualizer
+
+# from hmlib.visualization import PytorchPoseLocalVisualizer
 
 
-@typechecked
 def multi_pose_task(
     pose_inferencer,
     cur_frame: torch.Tensor,
@@ -20,18 +19,17 @@ def multi_pose_task(
     for img in make_channels_last(cur_frame):
         inputs.append(img)
 
-    if show and pose_inferencer.visualizer is None:
-        pose_inferencer.visualizer = PytorchPoseLocalVisualizer()
-
     all_pose_results = []
-    for pose_results in pose_inferencer(inputs=inputs, return_datasamples=True, visualize=show):
+    for pose_results in pose_inferencer(
+        inputs=inputs, return_datasamples=True, visualize=show, **pose_inferencer.filter_args
+    ):
         all_pose_results.append(pose_results)
 
-    if show and pose_inferencer.visualizer is not None:
+    if show and pose_inferencer.inferencer.visualizer is not None:
         for img, pose_result in zip(inputs, all_pose_results):
             data_sample = pose_result["predictions"]
             assert len(data_sample) == 1
-            pose_inferencer.visualizer.add_datasample(
+            pose_inferencer.inferencer.visualizer.add_datasample(
                 name="pose results",
                 image=img,
                 data_sample=data_sample[0],

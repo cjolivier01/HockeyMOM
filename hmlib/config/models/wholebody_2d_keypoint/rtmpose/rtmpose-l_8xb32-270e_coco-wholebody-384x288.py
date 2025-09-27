@@ -1,11 +1,18 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from mmengine.hooks import (CheckpointHook, DistSamplerSeedHook, IterTimerHook,
-                            LoggerHook, ParamSchedulerHook, SyncBuffersHook)
+from mmengine.hooks import (
+    CheckpointHook,
+    DistSamplerSeedHook,
+    IterTimerHook,
+    LoggerHook,
+    ParamSchedulerHook,
+    SyncBuffersHook,
+)
 from mmengine.runner import LogProcessor
 from mmengine.visualization import LocalVisBackend
-
 from mmpose.engine.hooks import PoseVisualizationHook
-from mmpose.visualization import PoseLocalVisualizer
+
+# from mmpose.visualization import PoseLocalVisualizer
+from hmlib.visualization import PytorchPoseLocalVisualizer
 
 default_scope = None
 
@@ -35,8 +42,7 @@ env_cfg = dict(
 
 # visualizer
 vis_backends = [dict(type=LocalVisBackend)]
-visualizer = dict(
-    type=PoseLocalVisualizer, vis_backends=vis_backends, name='visualizer')
+visualizer = dict(type=PytorchPoseLocalVisualizer, vis_backends=vis_backends, name="visualizer", line_width=2)
 
 # logger
 log_processor = dict(
