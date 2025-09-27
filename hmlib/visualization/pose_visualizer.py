@@ -116,22 +116,23 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         ...                         pred_pose_data_sample)
     """
 
-    def __init__(self,
-                 name: str = 'visualizer',
-                 image: Optional[np.ndarray] = None,
-                 vis_backends: Optional[Dict] = None,
-                 save_dir: Optional[str] = None,
-                 bbox_color: Optional[Union[str, Tuple[int]]] = 'green',
-                 kpt_color: Optional[Union[str, Tuple[Tuple[int]]]] = 'red',
-                 link_color: Optional[Union[str, Tuple[Tuple[int]]]] = None,
-                 text_color: Optional[Union[str,
-                                            Tuple[int]]] = (255, 255, 255),
-                 skeleton: Optional[Union[List, Tuple]] = None,
-                 line_width: Union[int, float] = 1,
-                 radius: Union[int, float] = 3,
-                 show_keypoint_weight: bool = False,
-                 backend: str = 'opencv',
-                 alpha: float = 1.0):
+    def __init__(
+        self,
+        name: str = "visualizer",
+        image: Optional[np.ndarray] = None,
+        vis_backends: Optional[Dict] = None,
+        save_dir: Optional[str] = None,
+        bbox_color: Optional[Union[str, Tuple[int]]] = "green",
+        kpt_color: Optional[Union[str, Tuple[Tuple[int]]]] = "red",
+        link_color: Optional[Union[str, Tuple[Tuple[int]]]] = None,
+        text_color: Optional[Union[str, Tuple[int]]] = (255, 255, 255),
+        skeleton: Optional[Union[List, Tuple]] = None,
+        line_width: Union[int, float] = 1,
+        radius: Union[int, float] = 3,
+        show_keypoint_weight: bool = False,
+        backend: str = "pytorch",
+        alpha: float = 1.0,
+    ):
 
         warnings.filterwarnings(
             'ignore',
@@ -676,6 +677,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         out_file: Optional[str] = None,
         kpt_thr: float = 0.3,
         step: int = 0,
+        clone_image: bool = True,
     ) -> torch.Tensor:
         """Draw datasample and save to all backends.
 
@@ -723,7 +725,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         pred_img_heatmap: Optional[torch.Tensor] = None
 
         if draw_gt:
-            gt_img_data = torch_image.clone()
+            gt_img_data = torch_image.clone() if clone_image else torch_image
             if 'gt_instances' in data_sample:
                 gt_img_data = self._draw_instances_kpts(
                     gt_img_data, data_sample.gt_instances, kpt_thr,
@@ -736,7 +738,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                     gt_img_data = torch.cat((gt_img_data, gt_img_heatmap), dim=1)
 
         if draw_pred:
-            pred_img_data = torch_image.clone()
+            pred_img_data = torch_image.clone() if clone_image else torch_image
             if 'pred_instances' in data_sample:
                 pred_img_data = self._draw_instances_kpts(
                     pred_img_data, data_sample.pred_instances, kpt_thr,

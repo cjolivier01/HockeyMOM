@@ -20,19 +20,25 @@ def multi_pose_task(
     for img in make_channels_last(cur_frame):
         inputs.append(img)
 
-    if show and not hasattr(pose_inferencer, "visualizer"):
+    if show and pose_inferencer.visualizer is None:
         pose_inferencer.visualizer = PytorchPoseLocalVisualizer()
 
     all_pose_results = []
-    for pose_results in pose_inferencer(inputs=inputs, visualize=show):
+    for pose_results in pose_inferencer(inputs=inputs, return_datasamples=True, visualize=show):
         all_pose_results.append(pose_results)
 
-    # if pose_inferencer.visualizer is not None:
-    #     pose_inferencer.visualizer.add_datasample(
-    #         name="pose results",
-    #         image,
-    #         data_sample=
-    #     )
+    if show and pose_inferencer.visualizer is not None:
+        for img, pose_result in zip(inputs, all_pose_results):
+            data_sample = pose_result["predictions"]
+            assert len(data_sample) == 1
+            pose_inferencer.visualizer.add_datasample(
+                name="pose results",
+                image=img,
+                data_sample=data_sample[0],
+                clone_image=False,
+                draw_bbox=True,
+            )
 
     # show_image("pose results", inputs[0], wait=False)
+
     return all_pose_results
