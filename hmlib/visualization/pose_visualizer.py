@@ -371,6 +371,12 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         else:
             keypoints_visible = torch.ones(keypoints.shape[:-1])
 
+        kpt_count: int = 0
+
+        kpt_thr = 0.2
+
+        print(f"Skeleton count: {len(keypoints)}")
+
         # Build color lists
         for kpts, visible in zip(keypoints, keypoints_visible):
             # Colors per keypoint
@@ -409,7 +415,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                         or visible[sk[1]] < kpt_thr
                         or link_color_list[sk_id] is None
                     ):
-                        continue
+                        continue  # skip the link that should not be drawn
                     color = link_color_list[sk_id]
                     if not isinstance(color, str):
                         color = self._color_to_rgb_tuple(color)
@@ -442,9 +448,10 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                     center_y=float(kpt[1]),
                     radius=float(radius),
                     color=color,
-                    thickness=1,
+                    thickness=10,
                     fill=True,
                 )
+                kpt_count += 1
                 if show_kpt_idx:
                     torch_image = torch_draw_text(
                         image=torch_image,
@@ -455,7 +462,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                         color=color,
                         position_is_text_bottom=True,
                     )
-
+        print(f"Visualized {kpt_count} keypoints")
         return torch_image
 
     def _draw_instances_kpts_openpose(
