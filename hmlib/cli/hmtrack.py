@@ -612,8 +612,13 @@ def _main(args, num_gpu):
             if not args.pose_checkpoint:
                 args.pose_checkpoint = get_nested_value(game_config, "model.pose.checkpoint")
 
+            args.pose_config = os.path.join(ROOT_DIR, args.pose_config)
+            pose_config = Config.fromfile(args.pose_config)
+
             pose_inferencer = MMPoseInferencer(
-                pose2d=args.pose_config, pose2d_weights=args.pose_checkpoint, show_progress=False
+                pose2d=pose_config,
+                pose2d_weights=args.pose_checkpoint,
+                show_progress=False,
             )
 
         postprocessor = None
