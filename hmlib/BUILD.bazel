@@ -29,6 +29,9 @@ python_library(
                 "hmvideo_clipper = hmlib.cli.video_clipper:main",
                 "hmorientation = hmlib.cli.hmorientation:main",
                 "hmconcatenate_videos = hmlib.cli.concatenate_videos:main",
+                "hmcaha_sync = hmlib.cli.caha_sync:main",
+                "hmcaha_summary = hmlib.cli.caha_summary:main",
+                "hmcaha_game = hmlib.cli.caha_game:main",
             ],
         },
         requires = [
@@ -56,4 +59,25 @@ py_binary(
     srcs = ["scripts/bdist_wheel.py"],
     data = [":hmlib.wheel"],
     tags = ["python-wheel"],
+)
+
+py_binary(
+    name = "hm_caha_sync",
+    srcs = ["cli/caha_sync.py"],
+    main = "cli/caha_sync.py",
+    deps = [":hmlib.lib"],
+)
+
+py_binary(
+    name = "hm_caha_summary",
+    srcs = ["cli/caha_summary.py"],
+    main = "cli/caha_summary.py",
+    deps = [":hmlib.lib"],
+)
+
+py_binary(
+    name = "hm_caha_game",
+    srcs = ["cli/caha_game.py"],
+    main = "cli/caha_game.py",
+    deps = [":hmlib.lib"],
 )
