@@ -141,6 +141,11 @@ def run_mmtrack(
                     tracking_dataframe=tracking_dataframe,
                     detection_dataframe=detection_dataframe,
                     plot_pose=bool(config.get("plot_pose", False)),
+                    # Boundary + identity context for trunks
+                    game_id=config.get("game_id"),
+                    original_clip_box=config.get("original_clip_box"),
+                    top_border_lines=config.get("top_border_lines"),
+                    bottom_border_lines=config.get("bottom_border_lines"),
                 )
                 aspen_net = AspenNet(aspen_cfg, shared=shared)
             for cur_iter, dataset_results in enumerate(dataloader_iterator):

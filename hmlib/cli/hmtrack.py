@@ -545,71 +545,59 @@ def _main(args, num_gpu):
 
         args.config = args.exp_file
 
-        model_config = Config.fromfile(args.config)
-        assert model_config is not None
+        # Prefer Aspen config for model + pipeline; avoid mmengine Config-based model
+        aspen_cfg_for_pipeline = None
+        if args.aspen_config and os.path.exists(args.aspen_config):
+            import yaml
 
-        if False:
-            # Development mode, print the config
-            print(model_config.pretty_text)
+            with open(args.aspen_config, "r") as f:
+                aspen_cfg_for_pipeline = yaml.safe_load(f)
 
         if args.tracking or args.multi_pose:
+            model = None  # Built by Aspen ModelFactoryTrunk
 
-            update_pipeline_item(
-                model_config.model.post_tracking_pipeline,
-                "HmNumberClassifier",
-                dict(
-                    enabled=args.detect_jersey_numbers,
-                ),
-            )
-
-            # build the model from a config file and a checkpoint file
-            if not using_precalculated_detections and not using_precalculated_tracking:
-                model_checkpoint = args.checkpoint
-                model_device = main_device
+            # Build inference pipeline from Aspen YAML if provided
+            pipeline = None
+            if aspen_cfg_for_pipeline and "inference_pipeline" in aspen_cfg_for_pipeline:
+                pipeline = aspen_cfg_for_pipeline["inference_pipeline"]
+                # first transform should be HmLoadImageFromWebcam in streaming
+                if pipeline and isinstance(pipeline[0], dict):
+                    pipeline[0]["type"] = "HmLoadImageFromWebcam"
+                # Coerce types not representable in YAML (e.g., tuple for meta_keys)
+                for step in pipeline:
+                    if not isinstance(step, dict):
+                        continue
+                    t = step.get("type")
+                    if t in ("mmdet.PackTrackInputs", "PackTrackInputs"):
+                        mk = step.get("meta_keys")
+                        if isinstance(mk, list):
+                            step["meta_keys"] = tuple(mk)
+                update_pipeline_item(
+                    pipeline,
+                    "IceRinkSegmConfig",
+                    dict(
+                        game_id=args.game_id,
+                    ),
+                )
+                # Apply clip box if present
+                orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
+                if orig_clip_box:
+                    hm_crop = get_pipeline_item(pipeline, "HmCrop")
+                    if hm_crop is not None:
+                        hm_crop["rectangle"] = orig_clip_box
+                data_pipeline = Compose(pipeline)
             else:
-                model_checkpoint = None
-                model_device = "cpu"
+                data_pipeline = None
 
-            model = init_track_model(
-                model_config,
-                model_checkpoint,
-                args.detector,
-                args.reid,
-                device=model_device,
-            )
-
-            # Maybe apply a clip box in the data pipeline
-            orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
-            if orig_clip_box:
-                hm_crop = get_pipeline_item(model.cfg.inference_pipeline, "HmCrop")
-                if hm_crop is not None:
-                    hm_crop["rectangle"] = orig_clip_box
-
-            cfg = model.cfg.copy()
-            pipeline = cfg.inference_pipeline
-            pipeline[0].type = "HmLoadImageFromWebcam"
-
-            update_pipeline_item(
-                pipeline,
-                "IceRinkSegmConfig",
-                dict(
-                    game_id=args.game_id,
-                ),
-            )
-
-            data_pipeline = Compose(pipeline)
-
-        #
-        # post-detection pipeline updates
-        #
-        configure_boundaries(
-            game_id=args.game_id,
-            model=model,
-            top_border_lines=cam_args.top_border_lines,
-            bottom_border_lines=cam_args.bottom_border_lines,
-            original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
-            plot_ice_mask=args.plot_ice_mask,
-        )
+            #
+            # post-detection pipeline updates
+            #
+            # For Aspen-built model, boundaries will be applied by BoundariesTrunk.
+            # Put boundary inputs into config dict so run_mmtrack can pass to Aspen shared.
+            args.initial_args = vars(args)
+            args.initial_args["top_border_lines"] = cam_args.top_border_lines
+            args.initial_args["bottom_border_lines"] = cam_args.bottom_border_lines
+            args.initial_args["original_clip_box"] = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
 
         pose_inferencer = None
         if args.multi_pose:
@@ -832,7 +820,17 @@ def _main(args, num_gpu):
                 #
                 # Video output pipeline
                 #
-                video_out_pipeline = getattr(model.cfg, "video_out_pipeline") if model is not None else model_config
+                video_out_pipeline = None
+                if model is not None and hasattr(model, "cfg"):
+                    video_out_pipeline = getattr(model.cfg, "video_out_pipeline")
+                else:
+                    # Pull from Aspen YAML if available
+                    if args.aspen_config and os.path.exists(args.aspen_config):
+                        import yaml
+
+                        with open(args.aspen_config, "r") as f:
+                            y = yaml.safe_load(f)
+                        video_out_pipeline = y.get("video_out_pipeline")
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
                     fixed_edge_rotation_angle = (

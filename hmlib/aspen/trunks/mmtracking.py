@@ -45,6 +45,11 @@ class MMTrackingTrunk(Trunk):
         if detect_timer is not None:
             detect_timer.tic()
 
+        # If the model is an Aspen Trunk, delegate end-to-end to it
+        if isinstance(model, Trunk):
+            # Let the model's trunk implementation handle timing and context updates
+            return model(context)
+
         with torch.no_grad():
             with autocast() if fp16 else torch.cuda.amp.autocast(enabled=False):
                 data = model(return_loss=False, rescale=True, **data)

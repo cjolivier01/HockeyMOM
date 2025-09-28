@@ -641,11 +641,22 @@ class HmResize:
         if img_scale is None:
             self.img_scale = None
         else:
+            # Accept YAML-loaded lists and normalize to a list of tuples
             if isinstance(img_scale, list):
-                self.img_scale = img_scale
-            else:
+                # if provided as [w, h], treat as single tuple
+                if len(img_scale) == 2 and all(not isinstance(x, (list, tuple)) for x in img_scale):
+                    self.img_scale = [tuple(img_scale)]
+                else:
+                    self.img_scale = [tuple(s) if isinstance(s, list) else s for s in img_scale]
+            elif isinstance(img_scale, tuple):
                 self.img_scale = [img_scale]
-            assert mmengine.is_list_of(self.img_scale, tuple)
+            else:
+                # last resort: wrap as single tuple if possible
+                try:
+                    self.img_scale = [tuple(img_scale)]
+                except Exception:
+                    self.img_scale = [img_scale]
+            assert all(isinstance(s, tuple) and len(s) == 2 for s in self.img_scale), "img_scale must be tuple(s)"
 
         if ratio_range is not None:
             # mode 1: given a scale and a range of image ratio
