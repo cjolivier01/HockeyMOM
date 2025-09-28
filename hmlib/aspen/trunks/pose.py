@@ -1,9 +1,9 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import torch
 
-from hmlib.tasks.multi_pose import multi_pose_task
 from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import make_channels_last
 
 from .base import Trunk
 
@@ -38,11 +38,33 @@ class PoseTrunk(Trunk):
             cur_frame = cur_frame.wait()
             data_to_send["original_images"] = cur_frame
 
-        pose_results = multi_pose_task(
-            pose_inferencer=pose_inferencer,
-            cur_frame=cur_frame,
-            show=bool(context.get("plot_pose", False)),
-        )
+        # Prepare inputs: iterate per-frame with channels-last layout
+        inputs: List[torch.Tensor] = []
+        for img in make_channels_last(cur_frame):
+            inputs.append(img)
+
+        all_pose_results = []
+        show = bool(context.get("plot_pose", False))
+        for pose_results in pose_inferencer(
+            inputs=inputs, return_datasamples=True, visualize=show, **pose_inferencer.filter_args
+        ):
+            all_pose_results.append(pose_results)
+
+        if show and getattr(pose_inferencer, "inferencer", None) is not None:
+            vis = pose_inferencer.inferencer.visualizer
+            if vis is not None:
+                for img, pose_result in zip(inputs, all_pose_results):
+                    data_sample = pose_result["predictions"]
+                    assert len(data_sample) == 1
+                    vis.add_datasample(
+                        name="pose results",
+                        image=img,
+                        data_sample=data_sample[0],
+                        clone_image=False,
+                        draw_gt=False,
+                        draw_bbox=True,
+                    )
+
+        pose_results = all_pose_results
         data_to_send["pose_results"] = pose_results
         return {"data_to_send": data_to_send}
-

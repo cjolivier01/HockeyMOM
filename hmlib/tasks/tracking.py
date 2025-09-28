@@ -25,7 +25,7 @@ from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
 # AspenNet graph runner
 from hmlib.aspen import AspenNet
 
-from .multi_pose import multi_pose_task
+from hmlib.aspen.trunks.pose import PoseTrunk
 
 
 def run_mmtrack(
@@ -281,16 +281,15 @@ def run_mmtrack(
                             if "img" in data_to_send:
                                 del data_to_send["img"]
 
-                            if not using_precalculated_tracking:
-                                if pose_inferencer is not None:
-                                    if isinstance(data_to_send["original_images"], StreamTensor):
-                                        data_to_send["original_images"] = data_to_send["original_images"].wait()
-                                    pose_results = multi_pose_task(
-                                        pose_inferencer=pose_inferencer,
-                                        cur_frame=data_to_send["original_images"],
-                                        show=config["plot_pose"],
-                                    )
-                                    data_to_send["pose_results"] = pose_results
+                            if not using_precalculated_tracking and pose_inferencer is not None:
+                                pose_ctx = {
+                                    "pose_inferencer": pose_inferencer,
+                                    "data_to_send": data_to_send,
+                                    "plot_pose": bool(config.get("plot_pose", False)),
+                                }
+                                data_to_send = PoseTrunk(enabled=True)(pose_ctx).get(
+                                    "data_to_send", data_to_send
+                                )
 
                             if postprocessor is not None:
                                 results = postprocessor.process_tracking(results=data_to_send)
