@@ -4,9 +4,19 @@ trunks:
     class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
     depends: []
     params: {}
+  model_cfg:
+    class: hmlib.aspen.trunks.model_config.ModelConfigTrunk
+    depends: [image_prep]
+    params:
+      post_detection_pipeline:
+        - type: IceRinkSegmBoundaries
+      post_tracking_pipeline:
+        - type: HmNumberClassifier
+          image_label: original_images
+          enabled: false
   mmtracking:
     class: hmlib.aspen.trunks.mmtracking.MMTrackingTrunk
-    depends: [image_prep]
+    depends: [model_cfg]
     params: {}
   pose:
     class: hmlib.aspen.trunks.pose.PoseTrunk

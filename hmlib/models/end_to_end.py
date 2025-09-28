@@ -1,5 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, Union
 
+import os
+
 import torch
 from mmcv.transforms import Compose
 from mmdet.models.mot.bytetrack import ByteTrack
@@ -8,6 +10,8 @@ from mmdet.structures import OptTrackSampleList
 from mmengine.structures import InstanceData
 
 from hmlib.datasets.dataframe import HmDataFrameBase
+from hmlib.aspen.trunks.base import Trunk
+from torch.cuda.amp import autocast
 from hockeymom.core import HmByteTrackConfig, HmByteTracker, HmTracker, HmTrackerPredictionMode
 
 
@@ -20,7 +24,7 @@ def _use_cpp_tracker(dflt: bool = False) -> bool:
 
 
 @MODELS.register_module()
-class HmEndToEnd(ByteTrack):
+class HmEndToEnd(ByteTrack, Trunk):
 
     def __init__(
         self,
@@ -93,14 +97,106 @@ class HmEndToEnd(ByteTrack):
 
     # @auto_fp16(apply_to=("img",))
     def forward(self, img, return_loss=True, **kwargs):
+        # Trunk-mode: if a dict is passed (AspenNet), treat it as context
+        if isinstance(img, dict):
+            context: Dict[str, Any] = img
+            return self._forward_trunk(context)
+
         if self.post_detection_pipeline and self.post_detection_composed_pipeline is None:
             self.post_detection_composed_pipeline = Compose(self.post_detection_pipeline)
         if self.post_tracking_pipeline and self.post_tracking_composed_pipeline is None:
             self.post_tracking_composed_pipeline = Compose(self.post_tracking_pipeline)
         results = super().forward(img, return_loss=return_loss, **kwargs)
-        # if self.post_detection_composed_pipeline is not None:
-        #     results = self.post_detection_composed_pipeline(results)
         return results
+
+    # AspenNet trunk interface: runs tracking + returns context updates
+    def _forward_trunk(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        if not getattr(self, "_enabled", True):
+            return {}
+
+        # Lazy build of Compose pipelines
+        if self.post_detection_pipeline and self.post_detection_composed_pipeline is None:
+            self.post_detection_composed_pipeline = Compose(self.post_detection_pipeline)
+        if self.post_tracking_pipeline and self.post_tracking_composed_pipeline is None:
+            self.post_tracking_composed_pipeline = Compose(self.post_tracking_pipeline)
+
+        data: Dict[str, Any] = context["data"]
+        fp16: bool = bool(context.get("fp16", False))
+
+        using_precalculated_tracking: bool = bool(context.get("using_precalculated_tracking", False))
+        using_precalculated_detection: bool = bool(context.get("using_precalculated_detection", False))
+        tracking_dataframe = context.get("tracking_dataframe")
+        detection_dataframe = context.get("detection_dataframe")
+        frame_id: int = int(context.get("frame_id", -1))
+
+        detect_timer = context.get("detect_timer")
+        if detect_timer is not None:
+            detect_timer.tic()
+
+        with torch.no_grad():
+            with autocast() if fp16 else torch.cuda.amp.autocast(enabled=False):
+                # Call underlying ByteTrack model forward
+                data = self(return_loss=False, rescale=True, **data)  # type: ignore[misc]
+
+        if detect_timer is not None:
+            detect_timer.toc()
+
+        track_data_sample = data["data_samples"]
+        nr_tracks = int(track_data_sample.video_data_samples[0].metainfo.get("nr_tracks", 0))
+        tracking_ids = track_data_sample.video_data_samples[-1].pred_track_instances.instances_id
+        max_tracking_id = int(torch.max(tracking_ids)) if len(tracking_ids) else 0
+
+        jersey_results = data.get("jersey_results")
+        for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
+            pred_track_instances = getattr(video_data_sample, "pred_track_instances", None)
+            if pred_track_instances is None:
+                continue
+            if not using_precalculated_tracking and tracking_dataframe is not None:
+                tracking_dataframe.add_frame_records(
+                    frame_id=frame_id + frame_index,
+                    tracking_ids=pred_track_instances.instances_id,
+                    tlbr=pred_track_instances.bboxes,
+                    scores=pred_track_instances.scores,
+                    labels=pred_track_instances.labels,
+                    jersey_info=(jersey_results[frame_index] if jersey_results is not None else None),
+                )
+            if not using_precalculated_detection and detection_dataframe is not None:
+                detection_dataframe.add_frame_records(
+                    frame_id=frame_id,
+                    scores=video_data_sample.pred_instances.scores,
+                    labels=video_data_sample.pred_instances.labels,
+                    bboxes=video_data_sample.pred_instances.bboxes,
+                )
+
+        data_to_send = data.copy()
+        # Avoid passing big tensors downstream unnecessarily
+        if "original_images" in data:
+            data_to_send["original_images"] = data["original_images"]
+        if "img" in data_to_send:
+            del data_to_send["img"]
+
+        return {
+            "data": data,
+            "data_to_send": data_to_send,
+            "nr_tracks": nr_tracks,
+            "max_tracking_id": max_tracking_id,
+        }
+
+    # Trunk introspection for AspenNet minimal_context mode
+    def input_keys(self):
+        return {
+            "data",
+            "fp16",
+            "using_precalculated_tracking",
+            "using_precalculated_detection",
+            "tracking_dataframe",
+            "detection_dataframe",
+            "frame_id",
+            "detect_timer",
+        }
+
+    def output_keys(self):
+        return {"data", "data_to_send", "nr_tracks", "max_tracking_id"}
 
     def predict(
         self,
