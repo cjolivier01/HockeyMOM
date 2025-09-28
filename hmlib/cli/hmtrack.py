@@ -198,6 +198,12 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="plot moving camera tracking boxes",
     )
+    parser.add_argument(
+        "--aspen-config",
+        type=str,
+        default=None,
+        help="Path to AspenNet YAML graph config. If not set, uses a default graph.",
+    )
     parser.add_argument("--test-size", type=str, default=None, help="WxH of test box size (format WxH)")
     parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
     parser.add_argument(
@@ -530,6 +536,12 @@ def _main(args, num_gpu):
         if not args.checkpoint:
             args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
             args.checkpoint = os.path.join(ROOT_DIR, args.checkpoint)
+
+        # Default Aspen graph if not provided
+        if args.aspen_config is None:
+            default_aspen = os.path.join(ROOT_DIR, "configs", "aspen", "tracking_pose.yaml")
+            if os.path.exists(default_aspen):
+                args.aspen_config = default_aspen
 
         args.config = args.exp_file
 

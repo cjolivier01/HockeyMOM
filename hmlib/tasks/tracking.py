@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
+import yaml
 from mmengine.structures import InstanceData
 
 # from mmcv.parallel import collate, scatter
@@ -20,6 +21,9 @@ from hmlib.utils.gpu import StreamTensor, copy_gpu_to_gpu_async, cuda_stream_sco
 from hmlib.utils.image import make_channels_first, make_channels_last
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
+
+# AspenNet graph runner
+from hmlib.aspen import AspenNet
 
 from .multi_pose import multi_pose_task
 
@@ -114,6 +118,31 @@ def run_mmtrack(
             using_precalculated_detection = (
                 detection_dataframe is not None and detection_dataframe.has_input_data()
             )
+
+            #
+            # Build AspenNet if a config is provided
+            #
+            aspen_config_path: Optional[str] = config.get("aspen_config")
+            aspen_net: Optional[AspenNet] = None
+            if aspen_config_path:
+                with open(aspen_config_path, "r") as f:
+                    aspen_cfg = yaml.safe_load(f)
+                # Dynamically disable pose trunk if not requested
+                if not bool(config.get("multi_pose", False)) and "trunks" in aspen_cfg and "pose" in aspen_cfg["trunks"]:
+                    aspen_cfg["trunks"]["pose"]["enabled"] = False
+                shared = dict(
+                    model=model,
+                    pose_inferencer=pose_inferencer,
+                    postprocessor=postprocessor,
+                    fp16=fp16,
+                    device=device,
+                    using_precalculated_tracking=using_precalculated_tracking,
+                    using_precalculated_detection=using_precalculated_detection,
+                    tracking_dataframe=tracking_dataframe,
+                    detection_dataframe=detection_dataframe,
+                    plot_pose=bool(config.get("plot_pose", False)),
+                )
+                aspen_net = AspenNet(aspen_cfg, shared=shared)
             for cur_iter, dataset_results in enumerate(dataloader_iterator):
                 origin_imgs, data, _, info_imgs, ids = dataset_results.pop("pano")
                 if fps:
@@ -134,234 +163,140 @@ def run_mmtrack(
                     if detect_timer is None:
                         detect_timer = Timer()
 
-                    # TODO: maybe make f16/bf16?
-                    # So far, tracking goes to Hell for some reason when using 16-bit,
-                    # maybe the Kalman filter. Seems like detection itself should be good
-                    # enough at 16-bit, so maybe need to modify that
-                    # ByteTrack does a "batch" of just one, but the second dim
-                    # is the # frames, so it's like a batch, but the frames of the same
-                    # video are the batch items.  This is why we unsqueeze here.
-                    detection_image = data["img"]
-                    detection_image = make_channels_first(detection_image)
-                    if isinstance(detection_image, StreamTensor):
-                        detection_image.verbose = True
-                        detection_image = detection_image.wait(cuda_stream)
+                    if aspen_net is not None:
+                        # Execute the configured DAG
+                        # Prepare per-iteration context
+                        iter_context: Dict[str, Any] = dict(
+                            origin_imgs=origin_imgs,
+                            data=data,
+                            ids=ids,
+                            info_imgs=info_imgs,
+                            frame_id=int(frame_id),
+                            device=device,
+                            cuda_stream=cuda_stream,
+                            detect_timer=detect_timer,
+                            mean_tracker=mean_tracker,
+                            using_precalculated_tracking=using_precalculated_tracking,
+                            using_precalculated_detection=using_precalculated_detection,
+                        )
+                        # Merge shared into context for trunks convenience
+                        iter_context.update(aspen_net.shared)
+                        if dataset_results:
+                            iter_context.setdefault("data", {})["dataset_results"] = dataset_results
 
-                    if detection_image.device != device:
-                        detection_image, _ = copy_gpu_to_gpu_async(tensor=detection_image, dest_device=device)
-
-                    # Make batch size of 1, but some T number of frames (prev batch size)
-                    detection_image = detection_image.unsqueeze(0)
-                    assert detection_image.ndim == 5
-
-                    if "original_images" not in data:
-                        data["original_images"] = origin_imgs
-
-                    if dataset_results:
-                        data["dataset_results"] = dataset_results
-
-                    if mean_tracker is not None:
-                        detection_image = mean_tracker.forward(detection_image)
-
-                    # forward the model
-                    detect_timer.tic()
-                    with torch.no_grad():
-                        with autocast() if fp16 else nullcontext():
-                            data["img"] = detection_image
-                            detection_image = None
-                            data = model(return_loss=False, rescale=True, **data)
-
-                    detect_timer.toc()
-                    track_data_sample = data["data_samples"]
-                    nr_tracks = int(track_data_sample.video_data_samples[0].metainfo["nr_tracks"])
-                    tracking_ids = track_data_sample.video_data_samples[-1].pred_track_instances.instances_id
-                    if len(tracking_ids):
-                        max_tracking_id = torch.max(tracking_ids)
-
-                    if True:
-                        jersey_results = data.get("jersey_results")
-                        for frame_index, video_data_sample in enumerate(
-                            track_data_sample.video_data_samples
-                        ):
-                            pred_track_instances = getattr(
-                                video_data_sample, "pred_track_instances", None
-                            )
-                            if pred_track_instances is None:
-                                # we arent tracking anything (probably a performance test)
-                                cuda_stream.synchronize()
-                                continue
-
-                            if not using_precalculated_tracking:
-                                if tracking_dataframe is not None:
-                                    tracking_dataframe.add_frame_records(
-                                        frame_id=frame_id + frame_index,
-                                        tracking_ids=pred_track_instances.instances_id,
-                                        tlbr=pred_track_instances.bboxes,
-                                        scores=pred_track_instances.scores,
-                                        labels=pred_track_instances.labels,
-                                        jersey_info=(
-                                            jersey_results[frame_index]
-                                            if jersey_results is not None
-                                            else None
-                                        ),
-                                    )
-                            if not using_precalculated_detection:
-                                if detection_dataframe is not None:
-                                    detection_dataframe.add_frame_records(
-                                        frame_id=frame_id,
-                                        scores=video_data_sample.pred_instances.scores,
-                                        labels=video_data_sample.pred_instances.labels,
-                                        bboxes=video_data_sample.pred_instances.bboxes,
-                                    )
-
-                        # Clean data to send of the batched images
-                        data_to_send = data.copy()
-                        del data["original_images"]
-                        if "img" in data_to_send:
-                            del data_to_send["img"]
-
-                        if not using_precalculated_tracking:
-                            if pose_inferencer is not None:
-                                if isinstance(data_to_send["original_images"], StreamTensor):
-                                    data_to_send["original_images"] = data_to_send["original_images"].wait()
-                                pose_results = multi_pose_task(
-                                    pose_inferencer=pose_inferencer,
-                                    cur_frame=data_to_send["original_images"],
-                                    show=config["plot_pose"],
-                                )
-                                data_to_send["pose_results"] = pose_results
-
-                        if postprocessor is not None:
-                            results = postprocessor.process_tracking(results=data_to_send)
-                            results = None
-
+                        out_context = aspen_net(iter_context)
+                        # Update stats for progress bar
+                        nr_tracks = int(out_context.get("nr_tracks", 0))
+                        max_tracking_id = out_context.get("max_tracking_id", 0)
+                        if not isinstance(max_tracking_id, (int, float)):
+                            try:
+                                max_tracking_id = int(max_tracking_id)
+                            except Exception:
+                                max_tracking_id = 0
                     else:
-                        for frame_index, frame_id in enumerate(info_imgs[2]):
+                        # Legacy linear pipeline
+                        # TODO: maybe make f16/bf16?
+                        # So far, tracking goes to Hell for some reason when using 16-bit,
+                        # maybe the Kalman filter. Seems like detection itself should be good
+                        # enough at 16-bit, so maybe need to modify that
+                        # ByteTrack does a "batch" of just one, but the second dim
+                        # is the # frames, so it's like a batch, but the frames of the same
+                        # video are the batch items.  This is why we unsqueeze here.
+                        detection_image = data["img"]
+                        detection_image = make_channels_first(detection_image)
+                        if isinstance(detection_image, StreamTensor):
+                            detection_image.verbose = True
+                            detection_image = detection_image.wait(cuda_stream)
 
-                            video_data_samples = track_data_sample.video_data_samples[frame_index]
-                            pred_track_instances = getattr(
-                                video_data_samples, "pred_track_instances", None
-                            )
-                            if pred_track_instances is None:
-                                # we arent tracking anything (probably a performance test)
-                                cuda_stream.synchronize()
-                                continue
+                        if detection_image.device != device:
+                            detection_image, _ = copy_gpu_to_gpu_async(tensor=detection_image, dest_device=device)
 
-                            if not using_precalculated_tracking:
-                                if pose_inferencer is not None:
-                                    (
-                                        tracking_results,
-                                        pose_results,
-                                        returned_outputs,
-                                        vis_frame,
-                                    ) = multi_pose_task(
-                                        config=config,
-                                        pose_inferencer=pose_inferencer,
-                                        cur_frame=make_channels_last(origin_imgs).wait().squeeze(0),
-                                        tracking_results=tracking_results,
-                                        smooth=config["smooth"],
-                                        show=config["plot_pose"],
-                                    )
-                                    if isinstance(vis_frame, np.ndarray):
-                                        vis_frame = torch.from_numpy(vis_frame)
-                                    if isinstance(origin_imgs, StreamTensor):
-                                        origin_imgs = origin_imgs.wait()
-                                    origin_imgs[frame_index] = vis_frame.to(
-                                        device=origin_imgs.device, non_blocking=True
-                                    )
-                                else:
-                                    vis_frame = None
+                        # Make batch size of 1, but some T number of frames (prev batch size)
+                        detection_image = detection_image.unsqueeze(0)
+                        assert detection_image.ndim == 5
 
-                                track_ids = pred_track_instances.instances_id
-                                bboxes = pred_track_instances.bboxes
-                                scores = pred_track_instances.scores
+                        if "original_images" not in data:
+                            data["original_images"] = origin_imgs
 
-                                if tracking_dataframe is not None:
-                                    tracking_dataframe.add_frame_records(
-                                        frame_id=frame_id,
-                                        tracking_ids=track_ids,
-                                        tlbr=bboxes,
-                                        scores=scores,
-                                    )
+                        if dataset_results:
+                            data["dataset_results"] = dataset_results
 
-                                online_tlwhs = bboxes.clone()
-                                # make boxes tlwh
-                                online_tlwhs[:, 2] = (
-                                    online_tlwhs[:, 2] - online_tlwhs[:, 0]
-                                )  # width = x2 - x1
-                                online_tlwhs[:, 3] = (
-                                    online_tlwhs[:, 3] - online_tlwhs[:, 1]
-                                )  # height = y2 - y1
-                            else:
-                                track_ids, scores, bboxes = (
-                                    tracking_dataframe.get_tracking_info_by_frame(frame_id)
+                        if mean_tracker is not None:
+                            detection_image = mean_tracker.forward(detection_image)
+
+                        # forward the model
+                        detect_timer.tic()
+                        with torch.no_grad():
+                            with autocast() if fp16 else nullcontext():
+                                data["img"] = detection_image
+                                detection_image = None
+                                data = model(return_loss=False, rescale=True, **data)
+
+                        detect_timer.toc()
+                        track_data_sample = data["data_samples"]
+                        nr_tracks = int(track_data_sample.video_data_samples[0].metainfo["nr_tracks"])
+                        tracking_ids = track_data_sample.video_data_samples[-1].pred_track_instances.instances_id
+                        if len(tracking_ids):
+                            max_tracking_id = torch.max(tracking_ids)
+
+                        if True:
+                            jersey_results = data.get("jersey_results")
+                            for frame_index, video_data_sample in enumerate(
+                                track_data_sample.video_data_samples
+                            ):
+                                pred_track_instances = getattr(
+                                    video_data_sample, "pred_track_instances", None
                                 )
-                                online_tlwhs = torch.from_numpy(bboxes)
-                                tracking_results = None
+                                if pred_track_instances is None:
+                                    # we arent tracking anything (probably a performance test)
+                                    cuda_stream.synchronize()
+                                    continue
 
-                            online_ids = track_ids.clone()
-                            online_scores = scores.clone()
+                                if not using_precalculated_tracking:
+                                    if tracking_dataframe is not None:
+                                        tracking_dataframe.add_frame_records(
+                                            frame_id=frame_id + frame_index,
+                                            tracking_ids=pred_track_instances.instances_id,
+                                            tlbr=pred_track_instances.bboxes,
+                                            scores=pred_track_instances.scores,
+                                            labels=pred_track_instances.labels,
+                                            jersey_info=(
+                                                jersey_results[frame_index]
+                                                if jersey_results is not None
+                                                else None
+                                            ),
+                                        )
+                                if not using_precalculated_detection:
+                                    if detection_dataframe is not None:
+                                        detection_dataframe.add_frame_records(
+                                            frame_id=frame_id,
+                                            scores=video_data_sample.pred_instances.scores,
+                                            labels=video_data_sample.pred_instances.labels,
+                                            bboxes=video_data_sample.pred_instances.bboxes,
+                                        )
 
                             # Clean data to send of the batched images
                             data_to_send = data.copy()
-                            del data_to_send["original_images"]
+                            del data["original_images"]
                             if "img" in data_to_send:
                                 del data_to_send["img"]
 
-                            # sanity check that no batched tensors left
-                            for _, val in data_to_send.items():
-                                if isinstance(val, torch.Tensor):
-                                    # make sure no batched tensors left
-                                    assert val.ndim <= 3
+                            if not using_precalculated_tracking:
+                                if pose_inferencer is not None:
+                                    if isinstance(data_to_send["original_images"], StreamTensor):
+                                        data_to_send["original_images"] = data_to_send["original_images"].wait()
+                                    pose_results = multi_pose_task(
+                                        pose_inferencer=pose_inferencer,
+                                        cur_frame=data_to_send["original_images"],
+                                        show=config["plot_pose"],
+                                    )
+                                    data_to_send["pose_results"] = pose_results
 
                             if postprocessor is not None:
-                                if isinstance(origin_imgs, StreamTensor):
-                                    origin_imgs = origin_imgs.get()
-                                tracking_results, detections, online_tlwhs = (
-                                    postprocessor.process_tracking(
-                                        tracking_results=tracking_results,
-                                        frame_id=frame_id,
-                                        online_tlwhs=online_tlwhs,
-                                        online_ids=online_ids,
-                                        online_scores=online_scores,
-                                        detections=video_data_samples.pred_instances.bboxes,
-                                        info_imgs=info_imgs,
-                                        letterbox_img=None,
-                                        original_img=origin_imgs[frame_index].unsqueeze(0),
-                                        data=data_to_send,
-                                    )
-                                )
+                                results = postprocessor.process_tracking(results=data_to_send)
+                                results = None
 
-                            if pose_model is not None and using_precalculated_tracking:
-                                if tracking_results is None:
-                                    # Reconstruct tracking_results
-                                    tracking_items = torch.from_numpy(
-                                        track_ids.astype(bboxes.dtype)
-                                    ).reshape(track_ids.shape[0], 1)
-                                    tracking_items = torch.cat(
-                                        [
-                                            tracking_items,
-                                            torch.from_numpy(bboxes),
-                                            torch.from_numpy(scores).reshape(scores.shape[0], 1),
-                                        ],
-                                        dim=1,
-                                    )
-                                    tracking_results = {
-                                        "track_bboxes": [tracking_items.numpy()],
-                                    }
-
-                                multi_pose_task(
-                                    config=config,
-                                    pose_model=pose_model,
-                                    cur_frame=make_channels_last(origin_imgs[frame_index]),
-                                    dataset=pose_dataset_type,
-                                    dataset_info=pose_dataset_info,
-                                    tracking_results=tracking_results,
-                                    smooth=config["smooth"],
-                                    show=config["show_image"],
-                                    # show=True,
-                                )
-                        # end frame loop
+                    # Removed legacy per-frame post-processing branch
 
                     if detect_timer is not None and cur_iter % 50 == 0:
                         # print(

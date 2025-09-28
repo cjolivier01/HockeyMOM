@@ -1,0 +1,18 @@
+trunks:
+  image_prep:
+    class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+    depends: []
+    params: {}
+  mmtracking:
+    class: hmlib.aspen.trunks.mmtracking.MMTrackingTrunk
+    depends: [image_prep]
+    params: {}
+  pose:
+    class: hmlib.aspen.trunks.pose.PoseTrunk
+    depends: [mmtracking]
+    params: {}
+  postprocess:
+    class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+    depends: [pose]
+    params: {}
+

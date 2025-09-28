@@ -1,0 +1,29 @@
+from typing import Any, Dict
+
+import torch
+
+from .base import Trunk
+
+
+class CamPostProcessTrunk(Trunk):
+    """
+    Feeds results into CamTrackHead to render/save video and produce outputs.
+
+    Expects in context:
+      - postprocessor: CamTrackHead instance
+      - data_to_send: dict from MMTrackingTrunk/PoseTrunk
+    """
+
+    def __init__(self, enabled: bool = True):
+        super().__init__(enabled=enabled)
+
+    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
+        if not self.enabled:
+            return {}
+        postprocessor = context.get("postprocessor")
+        if postprocessor is None:
+            return {}
+        data_to_send: Dict[str, Any] = context.get("data_to_send", {})
+        postprocessor.process_tracking(results=data_to_send)
+        return {}
+
