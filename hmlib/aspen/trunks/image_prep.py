@@ -60,3 +60,8 @@ class ImagePrepTrunk(Trunk):
         data["img"] = detection_image
         return {"detection_image": detection_image, "data": data}
 
+    def input_keys(self):
+        return {"data", "origin_imgs", "device", "cuda_stream", "mean_tracker"}
+
+    def output_keys(self):
+        return {"data", "detection_image"}

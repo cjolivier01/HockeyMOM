@@ -93,3 +93,18 @@ class MMTrackingTrunk(Trunk):
             "max_tracking_id": max_tracking_id,
         }
 
+    def input_keys(self):
+        return {
+            "data",
+            "model",
+            "fp16",
+            "using_precalculated_tracking",
+            "using_precalculated_detection",
+            "tracking_dataframe",
+            "detection_dataframe",
+            "frame_id",
+            "detect_timer",
+        }
+
+    def output_keys(self):
+        return {"data", "data_to_send", "nr_tracks", "max_tracking_id"}

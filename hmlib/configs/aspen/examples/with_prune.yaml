@@ -8,11 +8,17 @@ trunks:
     class: hmlib.aspen.trunks.mmtracking.MMTrackingTrunk
     depends: [image_prep]
     params: {}
+  prune:
+    class: hmlib.aspen.trunks.prune.PruneKeysTrunk
+    depends: [mmtracking]
+    params:
+      remove_keys: [detection_image]
   pose:
     class: hmlib.aspen.trunks.pose.PoseTrunk
-    depends: [mmtracking]
+    depends: [prune]
     params: {}
   postprocess:
     class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
     depends: [pose]
     params: {}
+

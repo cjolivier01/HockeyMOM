@@ -68,3 +68,9 @@ class PoseTrunk(Trunk):
         pose_results = all_pose_results
         data_to_send["pose_results"] = pose_results
         return {"data_to_send": data_to_send}
+
+    def input_keys(self):
+        return {"data_to_send", "pose_inferencer", "plot_pose"}
+
+    def output_keys(self):
+        return {"data_to_send"}

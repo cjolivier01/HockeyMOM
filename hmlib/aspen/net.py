@@ -25,10 +25,11 @@ class AspenNet(torch.nn.Module):
       shared context dict across nodes.
     """
 
-    def __init__(self, graph_cfg: Dict[str, Any], shared: Optional[Dict[str, Any]] = None):
+    def __init__(self, graph_cfg: Dict[str, Any], shared: Optional[Dict[str, Any]] = None, minimal_context: bool = False):
         super().__init__()
         self.shared: Dict[str, Any] = shared or {}
         self.nodes: List[_Node] = []
+        self.minimal_context = bool(minimal_context or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False)))
 
         # Accept either {trunks: {...}} or a flat dict
         trunks = graph_cfg.get("trunks") if isinstance(graph_cfg, dict) else None
@@ -109,11 +110,44 @@ class AspenNet(torch.nn.Module):
         context.setdefault("shared", self.shared)
         context.setdefault("trunks", {})
         for node in self.exec_order:
-            out = node.module(context)
-            if out:
-                # Merge outputs into context and under trunks[name]
-                context.update(out)
-                context["trunks"][node.name] = out
+            trunk = node.module
+            # Build a sub-context with only requested inputs, if enabled
+            if self.minimal_context:
+                req = set(getattr(trunk, "input_keys", lambda: set())())
+                subctx: Dict[str, Any] = {}
+                # pull from local context first, then shared if missing
+                for k in req:
+                    if k in context:
+                        subctx[k] = context[k]
+                    elif k in self.shared:
+                        subctx[k] = self.shared[k]
+                # Provide shared for convenience if requested
+                subctx.setdefault("shared", self.shared)
+            else:
+                subctx = context
+
+            out = trunk(subctx)
+            if not out:
+                out = {}
+
+            # Determine which keys were modified
+            declared = set(getattr(trunk, "output_keys", lambda: set())())
+            update_keys = declared if declared else set(out.keys())
+
+            # Merge into a next context: copy so trunks can delete safely
+            for k in update_keys:
+                if k in out:
+                    v = out[k]
+                    from .trunks.base import DeleteKey  # local import avoids cycle
+
+                    if isinstance(v, DeleteKey):
+                        if k in context:
+                            del context[k]
+                    else:
+                        context[k] = v
+
+            # Store trunk-local outputs for introspection
+            context["trunks"][node.name] = {k: out[k] for k in out.keys()}
         return context
 
 
@@ -125,4 +159,3 @@ class _NoOpTrunk(torch.nn.Module):
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         # Intentionally does nothing
         return {}
-
