@@ -1,35 +1,31 @@
-# Copyright (c) OpenMMLab. All rights reserved.
-from mmengine.hooks import (
-    CheckpointHook,
-    DistSamplerSeedHook,
-    IterTimerHook,
-    LoggerHook,
-    ParamSchedulerHook,
-    SyncBuffersHook,
-)
-from mmengine.runner import LogProcessor
-from mmengine.visualization import LocalVisBackend
-from mmpose.engine.hooks import PoseVisualizationHook
+#
+# BEGIN DEFAULT RUNTIME
+#
 
 from hmlib.visualization import PytorchPoseLocalVisualizer
 
-default_scope = None
+default_scope = 'mmpose'
 
 # hooks
 default_hooks = dict(
-    timer=dict(type=IterTimerHook),
-    logger=dict(type=LoggerHook, interval=50),
-    param_scheduler=dict(type=ParamSchedulerHook),
-    checkpoint=dict(type=CheckpointHook, interval=10),
-    sampler_seed=dict(type=DistSamplerSeedHook),
-    visualization=dict(type=PoseVisualizationHook, enable=False),
-)
+    timer=dict(type='IterTimerHook'),
+    logger=dict(type='LoggerHook', interval=50),
+    param_scheduler=dict(type='ParamSchedulerHook'),
+    checkpoint=dict(type='CheckpointHook', interval=10),
+    sampler_seed=dict(type='DistSamplerSeedHook'),
+    visualization=dict(type='PoseVisualizationHook', enable=False),
+    badcase=dict(
+        type='BadCaseAnalysisHook',
+        enable=False,
+        out_dir='badcase',
+        metric_type='loss',
+        badcase_thr=5))
 
 # custom hooks
 custom_hooks = [
     # Synchronize model buffers such as running_mean and running_var in BN
     # at the end of each epoch
-    dict(type=SyncBuffersHook)
+    dict(type='SyncBuffersHook')
 ]
 
 # multi-processing backend
@@ -40,12 +36,17 @@ env_cfg = dict(
 )
 
 # visualizer
-vis_backends = [dict(type=LocalVisBackend)]
-visualizer = dict(type=PytorchPoseLocalVisualizer, vis_backends=vis_backends, name="visualizer", line_width=2)
+vis_backends = [
+    dict(type='LocalVisBackend'),
+    # dict(type='TensorboardVisBackend'),
+    # dict(type='WandbVisBackend'),
+]
+visualizer = dict(
+    type='PytorchPoseLocalVisualizer', vis_backends=vis_backends, name='visualizer')
 
 # logger
 log_processor = dict(
-    type=LogProcessor, window_size=50, by_epoch=True, num_digits=6)
+    type='LogProcessor', window_size=50, by_epoch=True, num_digits=6)
 log_level = 'INFO'
 load_from = None
 resume = False
@@ -58,9 +59,12 @@ train_cfg = dict(by_epoch=True)
 val_cfg = dict()
 test_cfg = dict()
 
+#
+# END DEFAULT RUNTIME
+#
 
 # runtime
-max_epochs = 270
+max_epochs = 420
 stage2_num_epochs = 30
 base_lr = 4e-3
 
@@ -83,6 +87,7 @@ param_scheduler = [
         begin=0,
         end=1000),
     dict(
+        # use cosine lr from 210 to 420 epoch
         type='CosineAnnealingLR',
         eta_min=base_lr * 0.05,
         begin=max_epochs // 2,
@@ -93,7 +98,7 @@ param_scheduler = [
 ]
 
 # automatically scaling LR based on the actual training batch size
-auto_scale_lr = dict(base_batch_size=512)
+auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
 codec = dict(
@@ -127,12 +132,12 @@ model = dict(
             type='Pretrained',
             prefix='backbone.',
             checkpoint='https://download.openmmlab.com/mmpose/v1/projects/'
-            'rtmposev1/cspnext-l_udp-aic-coco_210e-256x192-273b7631_20230130.pth'  # noqa: E501
+            'rtmposev1/cspnext-l_udp-aic-coco_210e-256x192-273b7631_20230130.pth'  # noqa
         )),
     head=dict(
         type='RTMCCHead',
         in_channels=1024,
-        out_channels=133,
+        out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=tuple([s // 32 for s in codec['input_size']]),
         simcc_split_ratio=codec['simcc_split_ratio'],
@@ -155,16 +160,16 @@ model = dict(
     test_cfg=dict(flip_test=True, ))
 
 # base dataset settings
-dataset_type = 'CocoWholeBodyDataset'
+dataset_type = 'CocoDataset'
 data_mode = 'topdown'
-data_root = 'data/coco/'
+data_root = 'data/'
 
 backend_args = dict(backend='local')
 # backend_args = dict(
 #     backend='petrel',
 #     path_mapping=dict({
-#         f'{data_root}': 's3://openmmlab/datasets/detection/coco/',
-#         f'{data_root}': 's3://openmmlab/datasets/detection/coco/'
+#         f'{data_root}': 's3://openmmlab/datasets/',
+#         f'{data_root}': 's3://openmmlab/datasets/'
 #     }))
 
 # pipelines
@@ -233,22 +238,62 @@ train_pipeline_stage2 = [
     dict(type='PackPoseInputs')
 ]
 
-# data loaders
-train_dataloader = dict(
-    batch_size=32,
-    num_workers=10,
-    persistent_workers=True,
-    sampler=dict(type='DefaultSampler', shuffle=True),
+# train datasets
+dataset_coco = dict(
+    type='RepeatDataset',
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/coco_wholebody_train_v1.0.json',
-        data_prefix=dict(img='train2017/'),
+        ann_file='coco/annotations/person_keypoints_train2017.json',
+        data_prefix=dict(img='detection/coco/train2017/'),
+        pipeline=[],
+    ),
+    times=3)
+
+dataset_aic = dict(
+    type='AicDataset',
+    data_root=data_root,
+    data_mode=data_mode,
+    ann_file='aic/annotations/aic_train.json',
+    data_prefix=dict(img='pose/ai_challenge/ai_challenger_keypoint'
+                     '_train_20170902/keypoint_train_images_20170902/'),
+    pipeline=[
+        dict(
+            type='KeypointConverter',
+            num_keypoints=17,
+            mapping=[
+                (0, 6),
+                (1, 8),
+                (2, 10),
+                (3, 5),
+                (4, 7),
+                (5, 9),
+                (6, 12),
+                (7, 14),
+                (8, 16),
+                (9, 11),
+                (10, 13),
+                (11, 15),
+            ])
+    ],
+)
+
+# data loaders
+train_dataloader = dict(
+    batch_size=256,
+    num_workers=10,
+    persistent_workers=True,
+    sampler=dict(type='DefaultSampler', shuffle=True),
+    dataset=dict(
+        type='CombinedDataset',
+        metainfo=dict(from_file='configs/_base_/datasets/coco.py'),
+        datasets=[dataset_coco, dataset_aic],
         pipeline=train_pipeline,
+        test_mode=False,
     ))
 val_dataloader = dict(
-    batch_size=32,
+    batch_size=64,
     num_workers=10,
     persistent_workers=True,
     drop_last=False,
@@ -257,19 +302,18 @@ val_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/coco_wholebody_val_v1.0.json',
-        data_prefix=dict(img='val2017/'),
+        ann_file='coco/annotations/person_keypoints_val2017.json',
+        # bbox_file='data/coco/person_detection_results/'
+        # 'COCO_val2017_detections_AP_H_56_person.json',
+        data_prefix=dict(img='detection/coco/val2017/'),
         test_mode=True,
-        bbox_file='data/coco/person_detection_results/'
-        'COCO_val2017_detections_AP_H_56_person.json',
         pipeline=val_pipeline,
     ))
 test_dataloader = val_dataloader
 
 # hooks
 default_hooks = dict(
-    checkpoint=dict(
-        save_best='coco-wholebody/AP', rule='greater', max_keep_ckpts=1))
+    checkpoint=dict(save_best='coco/AP', rule='greater', max_keep_ckpts=1))
 
 custom_hooks = [
     dict(
@@ -286,6 +330,6 @@ custom_hooks = [
 
 # evaluators
 val_evaluator = dict(
-    type='CocoWholeBodyMetric',
-    ann_file=data_root + 'annotations/coco_wholebody_val_v1.0.json')
+    type='CocoMetric',
+    ann_file=data_root + 'coco/annotations/person_keypoints_val2017.json')
 test_evaluator = val_evaluator
