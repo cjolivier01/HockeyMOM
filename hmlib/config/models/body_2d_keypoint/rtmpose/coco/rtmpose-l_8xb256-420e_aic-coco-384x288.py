@@ -41,8 +41,7 @@ vis_backends = [
     # dict(type='TensorboardVisBackend'),
     # dict(type='WandbVisBackend'),
 ]
-visualizer = dict(
-    type='PytorchPoseLocalVisualizer', vis_backends=vis_backends, name='visualizer')
+visualizer = dict(type=PytorchPoseLocalVisualizer, vis_backends=vis_backends, name="visualizer", line_width=2)
 
 # logger
 log_processor = dict(
