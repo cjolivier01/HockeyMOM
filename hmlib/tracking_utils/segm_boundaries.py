@@ -59,7 +59,8 @@ class SegmBoundaries:
             assert self._segment_mask.ndim == 2
             assert self._segment_mask.shape[0] == image_height(img)
             assert self._segment_mask.shape[1] == image_width(img)
-            alpha = 0.05
+            # alpha = 0.05
+            alpha = 0.10
             if isinstance(img, StreamTensor):
                 img = img.wait()
             # Make sure we're all compatible tensors
