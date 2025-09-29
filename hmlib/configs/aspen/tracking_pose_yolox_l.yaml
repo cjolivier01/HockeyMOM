@@ -1,6 +1,4 @@
 minimal_context: true
-
-# Move the original mmengine inference pipeline here so the CLI can use it
 inference_pipeline:
   - type: LoadImageFromFile
   - type: HmCrop
@@ -8,7 +6,7 @@ inference_pipeline:
     save_clipped_images: true
   - type: HmImageToTensor
     keys: [img]
-    # scale_factor: 255.0
+    scale_factor: 255.0
   - type: IceRinkSegmConfig
     image_label: img
   - type: HmResize
@@ -19,8 +17,6 @@ inference_pipeline:
     size_divisor: 32
   - type: mmdet.PackTrackInputs
     meta_keys: [img_metas, rink_profile]
-
-# Default camera post-processing pipeline (was in hm_end_to_end.py)
 video_out_pipeline:
   - type: HmConfigureScoreboard
   - type: HmCaptureScoreboard
@@ -35,20 +31,17 @@ video_out_pipeline:
   - type: HmImageOverlays
     watermark_config:
       image: images/sports_ai_watermark.png
-
 trunks:
   image_prep:
     class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
     depends: []
     params: {}
-
   model_factory:
     class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
     depends: []
     params:
       model_class: hmlib.models.end_to_end.HmEndToEnd
-      # Pure YAML detector definition (converted from mmengine config)
-      detector_yaml: hmlib/configs/aspen/models/bytetrack_yolox_s.detector.yaml
+      detector_yaml: hmlib/configs/aspen/models/bytetrack_yolox_l.detector.yaml
       data_preprocessor:
         type: TrackDataPreprocessor
         pad_size_divisor: 32
@@ -72,22 +65,18 @@ trunks:
         - type: HmNumberClassifier
           image_label: original_images
           enabled: false
-
   boundaries:
     class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
     depends: [model_factory]
     params: {}
-
   mmtracking:
     class: hmlib.aspen.trunks.mmtracking.MMTrackingTrunk
     depends: [image_prep, model_factory, boundaries]
     params: {}
-
   pose:
     class: hmlib.aspen.trunks.pose.PoseTrunk
     depends: [mmtracking]
     params: {}
-
   postprocess:
     class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
     depends: [pose]

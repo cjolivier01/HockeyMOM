@@ -278,6 +278,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("--bbox-thr", type=float, default=0.3, help="Bounding box score threshold")
     parser.add_argument("--radius", type=int, default=4, help="Keypoint radius for visualization")
     parser.add_argument("--thickness", type=int, default=1, help="Link thickness for visualization")
+    parser.add_argument("--debug-play-tracker", action="store_true", help="Print per-frame play boxes and counts")
     parser.add_argument(
         "--smooth",
         action="store_true",

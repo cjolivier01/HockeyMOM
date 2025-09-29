@@ -66,7 +66,11 @@ def main():
     pipeline = extract_inference_pipeline(cfg)
 
     if args.emit == "detector":
-        out_data = model.get("detector")
+        det = model.get("detector")
+        if det is None:
+            # For plain mmdet detector configs, the whole model is the detector
+            det = _normalize(cfg.get("model"))
+        out_data = det
         suffix = ".detector.yaml"
     elif args.emit == "model":
         out_data = {"model": {"class": "hmlib.models.end_to_end.HmEndToEnd", "params": model}}

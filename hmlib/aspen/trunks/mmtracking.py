@@ -32,6 +32,8 @@ class MMTrackingTrunk(Trunk):
             return {}
 
         data: Dict[str, Any] = context["data"]
+        # Preserve original_images from input context before model overwrites data
+        preserved_original_images = data.get("original_images")
         model = context["model"]
         fp16: bool = context.get("fp16", False)
 
@@ -86,7 +88,10 @@ class MMTrackingTrunk(Trunk):
 
         data_to_send = data.copy()
         # Avoid passing big tensors downstream unnecessarily
-        if "original_images" in data:
+        # Re-attach original images from pre-model context if missing
+        if preserved_original_images is not None:
+            data_to_send["original_images"] = preserved_original_images
+        elif "original_images" in data:
             data_to_send["original_images"] = data["original_images"]
         if "img" in data_to_send:
             del data_to_send["img"]

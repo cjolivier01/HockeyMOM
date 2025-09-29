@@ -110,8 +110,10 @@ class CamTrackHead:
 
     @staticmethod
     def calculate_play_box(results: Dict[str, Any], scale: float = 1.3) -> List[int]:
-        first_data_sample = results['data_samples'][0]
-        play_box = torch.tensor(first_data_sample.metainfo['rink_profile']['combined_bbox'], dtype=torch.int64)
+        # Use the first video_data_sample's rink_profile to seed the play box
+        track_container = results["data_samples"]
+        video_data_sample = track_container.video_data_samples[0]
+        play_box = torch.tensor(video_data_sample.metainfo["rink_profile"]["combined_bbox"], dtype=torch.int64)
         ww, hh = width(play_box), height(play_box)
         cc = center(play_box)
         play_box = make_box_at_center(cc, ww * scale, hh * scale)

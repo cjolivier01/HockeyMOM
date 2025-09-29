@@ -121,6 +121,7 @@ class HmEndToEnd(ByteTrack, Trunk):
             self.post_tracking_composed_pipeline = Compose(self.post_tracking_pipeline)
 
         data: Dict[str, Any] = context["data"]
+        preserved_original_images = data.get("original_images")
         fp16: bool = bool(context.get("fp16", False))
 
         using_precalculated_tracking: bool = bool(context.get("using_precalculated_tracking", False))
@@ -170,7 +171,10 @@ class HmEndToEnd(ByteTrack, Trunk):
 
         data_to_send = data.copy()
         # Avoid passing big tensors downstream unnecessarily
-        if "original_images" in data:
+        # Re-attach original images from pre-model context if missing
+        if preserved_original_images is not None:
+            data_to_send["original_images"] = preserved_original_images
+        elif "original_images" in data:
             data_to_send["original_images"] = data["original_images"]
         if "img" in data_to_send:
             del data_to_send["img"]

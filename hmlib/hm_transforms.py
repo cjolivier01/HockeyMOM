@@ -467,13 +467,20 @@ class HmImageToTensor:
         """
         for key in self.keys:
             img = results[key]
-            if isinstance(img, torch.Tensor) and not torch.is_floating_point(img):
-                if len(img.shape) < 3:
-                    img = img.unsqueeze(0)
-                assert img.dtype == torch.uint8
-                results[key] = img.to(torch.float, non_blocking=True)
-                if self.scale_factor is not None:
-                    results[key] *= self.scale_factor
+            if isinstance(img, torch.Tensor):
+                # If uint8, convert to float and optionally scale
+                if not torch.is_floating_point(img):
+                    if len(img.shape) < 3:
+                        img = img.unsqueeze(0)
+                    assert img.dtype == torch.uint8
+                    img = img.to(torch.float, non_blocking=True)
+                    if self.scale_factor is not None:
+                        img = img * self.scale_factor
+                    results[key] = img
+                else:
+                    # Float tensors: optionally scale (e.g., 0..1 -> 0..255)
+                    if self.scale_factor is not None:
+                        results[key] = img * self.scale_factor
         return results
 
     def __repr__(self):

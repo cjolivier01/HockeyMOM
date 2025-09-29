@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import cv2
 import numpy as np
 import torch
+
 from hmlib.bbox.box_functions import (
     center,
     center_batch,
@@ -20,19 +21,18 @@ from hmlib.bbox.box_functions import (
     width,
 )
 from hmlib.builder import HM
+from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_nested_value
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
+from hmlib.tracking_utils import visualization as vis
 
 # from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-
-from hmlib.camera.camera import HockeyMOM
-from hmlib.tracking_utils import visualization as vis
 from hockeymom.core import AllLivingBoxConfig, BBox
 from hockeymom.core import PlayTracker as CppPlayTracker
 from hockeymom.core import PlayTrackerConfig
@@ -443,9 +443,11 @@ class PlayTracker(torch.nn.Module):
             original_images_list.append(original_images[i])
         del original_images
 
+        debug = getattr(self._args, 'debug_play_tracker', False)
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             scalar_frame_id = video_data_sample.frame_id
             frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
+            det_count = len(video_data_sample.pred_instances.bboxes) if hasattr(video_data_sample, 'pred_instances') and hasattr(video_data_sample.pred_instances, 'bboxes') else -1
             online_tlwhs = batch_tlbrs_to_tlwhs(video_data_sample.pred_track_instances.bboxes)
             online_ids = video_data_sample.pred_track_instances.instances_id
 
@@ -454,6 +456,13 @@ class PlayTracker(torch.nn.Module):
                 frame_id = frame_id.cpu()
                 online_tlwhs = online_tlwhs.cpu()
                 online_ids = online_ids.cpu()
+
+            if debug:
+                try:
+                    n = int(len(online_ids))
+                except Exception:
+                    n = -1
+                logger.info(f"PlayTracker frame {int(scalar_frame_id)}: det={det_count} tracks={n}")
 
             self.process_jerseys_info(frame_index=frame_index, frame_id=scalar_frame_id, data=results)
 
@@ -496,6 +505,8 @@ class PlayTracker(torch.nn.Module):
 
                 current_box = from_bbox(playtracker_results.tracking_boxes[1])
                 current_box_list.append(current_box)
+                if debug:
+                    logger.info(f"  boxes: fast={fast_roi_bounding_box.tolist()} current={current_box.tolist()}")
 
                 if self._args.plot_moving_boxes:
                     # Play box
@@ -761,6 +772,8 @@ class PlayTracker(torch.nn.Module):
         results["frame_ids"] = torch.stack(frame_ids_list)
         results["current_box"] = torch.stack(current_box_list)
         results["current_fast_box_list"] = torch.stack(current_fast_box_list)
+        print(f"FAST: {current_fast_box_list}")
+        print(f"CURRENT: {current_box_list}")
 
         # We want to track if it's slow
         img = torch.stack(online_images)

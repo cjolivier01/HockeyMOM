@@ -121,6 +121,11 @@ class ModelFactoryTrunk(Trunk):
                     return [_to_cfg(v) for v in x]
                 return x
 
+            # Strip nested data_preprocessor from detector; ByteTrack supplies its own
+            if isinstance(detector, dict) and 'data_preprocessor' in detector:
+                detector = dict(detector)
+                detector.pop('data_preprocessor', None)
+
             if self._data_preprocessor is not None:
                 kwargs["data_preprocessor"] = _to_cfg(self._data_preprocessor)
             if detector is not None:
