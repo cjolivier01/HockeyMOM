@@ -1,6 +1,5 @@
-from typing import Any, Callable, Dict, List, Optional, Union
-
 import os
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 from mmcv.transforms import Compose
@@ -8,10 +7,10 @@ from mmdet.models.mot.bytetrack import ByteTrack
 from mmdet.registry import MODELS
 from mmdet.structures import OptTrackSampleList
 from mmengine.structures import InstanceData
-
-from hmlib.datasets.dataframe import HmDataFrameBase
-from hmlib.aspen.trunks.base import Trunk
 from torch.cuda.amp import autocast
+
+from hmlib.aspen.trunks.base import Trunk
+from hmlib.datasets.dataframe import HmDataFrameBase
 from hockeymom.core import HmByteTrackConfig, HmByteTracker, HmTracker, HmTrackerPredictionMode
 
 
@@ -49,7 +48,10 @@ class HmEndToEnd(ByteTrack, Trunk):
             data_preprocessor = MODELS.build(data_preprocessor)
             kwargs["data_preprocessor"] = data_preprocessor
 
-        super().__init__(*args, **kwargs)
+        init_cfg = None
+        if "init_cfg" in kwargs["detector"]:
+            init_cfg = kwargs["detector"].pop("init_cfg")
+        super().__init__(*args, **kwargs, init_cfg=init_cfg)
         self._enabled = enabled
         self._cpp_bytetrack = cpp_bytetrack
         self.post_detection_pipeline = post_detection_pipeline

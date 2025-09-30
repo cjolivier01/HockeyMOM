@@ -2,11 +2,7 @@
 /dist
 /*.csv
 /*.db
-bazel-bin
-bazel-out
-bazel-test
-bazel-testlogs
-bazel-hm
+/bazel-*
 *.whl
 *.pyc
 /dist
