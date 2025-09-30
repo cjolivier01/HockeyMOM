@@ -38,6 +38,7 @@ class HmEndToEnd(ByteTrack, Trunk):
         dataset_meta: Dict[str, Any] = None,
         # cpp_bytetrack: bool = _use_cpp_tracker(),
         cpp_bytetrack: bool = True,
+        init_cfg: Optional[Dict[str, Any]] = None,
         # cpp_bytetrack: bool = False,
         **kwargs,
     ):
@@ -48,8 +49,7 @@ class HmEndToEnd(ByteTrack, Trunk):
             data_preprocessor = MODELS.build(data_preprocessor)
             kwargs["data_preprocessor"] = data_preprocessor
 
-        init_cfg = None
-        if "init_cfg" in kwargs["detector"]:
+        if init_cfg is None and kwargs.get("detector") and isinstance(kwargs["detector"], dict):
             init_cfg = kwargs["detector"].pop("init_cfg")
         super().__init__(*args, **kwargs, init_cfg=init_cfg)
         self._enabled = enabled
