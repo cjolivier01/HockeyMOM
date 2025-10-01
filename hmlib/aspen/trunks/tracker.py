@@ -143,8 +143,20 @@ class TrackerTrunk(Trunk):
             assert self._hm_tracker is not None
             ll1 = len(det_bboxes)
             assert len(det_labels) == ll1 and len(det_scores) == ll1
+            # Ensure tracker receives torch tensors
+            if not isinstance(det_bboxes, torch.Tensor):
+                det_bboxes = torch.as_tensor(det_bboxes)
+            if not isinstance(det_labels, torch.Tensor):
+                det_labels = torch.as_tensor(det_labels)
+            if not isinstance(det_scores, torch.Tensor):
+                det_scores = torch.as_tensor(det_scores)
             results = self._hm_tracker.track(
-                data=dict(frame_id=torch.tensor([frame_id], dtype=torch.int64), bboxes=det_bboxes, labels=det_labels, scores=det_scores)
+                data=dict(
+                    frame_id=torch.tensor([frame_id], dtype=torch.int64),
+                    bboxes=det_bboxes,
+                    labels=det_labels,
+                    scores=det_scores,
+                )
             )
             ids = results.get("user_ids", results.get("ids"))
             ll2 = len(ids)
@@ -158,6 +170,11 @@ class TrackerTrunk(Trunk):
             )
             active_track_count = max(active_track_count, len(pred_track_instances.instances_id))
             img_data_sample.pred_track_instances = pred_track_instances
+            # Provide a simple attribute for downstream postprocessors that expect it
+            try:
+                setattr(img_data_sample, "frame_id", int(frame_id))
+            except Exception:
+                pass
 
             # Logging
             if not using_precalc_track and tracking_dataframe is not None:

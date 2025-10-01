@@ -233,9 +233,9 @@ def calculate_box_heights(bboxes: torch.Tensor) -> torch.Tensor:
 
 
 def select_points(
-    y_threshold: Union[float, torch.Tensor],
-    points_when_below: torch.Tensor,
-    points_when_above: torch.Tensor,
+    y_threshold: Union[float, torch.Tensor, np.ndarray],
+    points_when_below: Union[torch.Tensor, np.ndarray],
+    points_when_above: Union[torch.Tensor, np.ndarray],
 ):
     """
     Select points from two batches based on a y-value condition.
@@ -248,6 +248,15 @@ def select_points(
     Returns:
         torch.Tensor: A tensor of selected points based on the condition.
     """
+    # Normalize inputs to torch for consistent downstream ops
+    if isinstance(points_when_below, np.ndarray):
+        points_when_below = torch.from_numpy(points_when_below)
+    if isinstance(points_when_above, np.ndarray):
+        points_when_above = torch.from_numpy(points_when_above)
+    if isinstance(y_threshold, np.ndarray):
+        # expects scalar-like value
+        y_threshold = float(y_threshold)
+
     # Check if the y-values of the center_points are above the threshold
     # Note that increasing y is down, so the comparison is reversed
     mask = points_when_below[:, 1] > y_threshold  # Assumes y-coordinate is at index 1

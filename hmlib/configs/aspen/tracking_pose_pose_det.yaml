@@ -1,0 +1,86 @@
+minimal_context: true
+
+# Mirror the standard inference pipeline used by hmtrack
+inference_pipeline:
+  - type: LoadImageFromFile
+  - type: HmCrop
+    keys: [img]
+    save_clipped_images: true
+  - type: HmImageToTensor
+    keys: [img]
+  - type: IceRinkSegmConfig
+    image_label: img
+  - type: HmResize
+    img_scale: [1312, 480]
+    keep_ratio: true
+  - type: HmPad
+    pad_val: 114.0
+    size_divisor: 32
+  - type: mmdet.PackTrackInputs
+    meta_keys: [img_metas, rink_profile]
+
+# Default camera post-processing pipeline
+video_out_pipeline:
+  - type: HmConfigureScoreboard
+  - type: HmCaptureScoreboard
+  - type: HmPerspectiveRotation
+    pre_clip: true
+  - type: HmCropToVideoFrame
+  - type: HmRenderScoreboard
+    image_labels: [img, end_zone_img]
+  - type: HmUnsharpMask
+    enabled: false
+    image_label: img
+  - type: HmImageOverlays
+    watermark_config:
+      image: images/sports_ai_watermark.png
+
+trunks:
+  image_prep:
+    class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+    depends: []
+    params: {}
+
+  model_factory:
+    class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+    depends: []
+    params:
+      model_class: hmlib.models.end_to_end.HmEndToEnd
+      # Holds post_* pipelines for BoundariesTrunk
+      post_detection_pipeline:
+        - type: IceRinkSegmBoundaries
+      post_tracking_pipeline:
+        - type: HmNumberClassifier
+          image_label: original_images
+          enabled: false
+
+  boundaries:
+    class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+    depends: [model_factory]
+    params: {}
+
+  init_send:
+    class: hmlib.aspen.trunks.pose_to_det.InitDataToSendTrunk
+    depends: [image_prep]
+    params: {}
+
+  pose:
+    class: hmlib.aspen.trunks.pose.PoseTrunk
+    depends: [init_send]
+    params: {}
+
+  pose_to_det:
+    class: hmlib.aspen.trunks.pose_to_det.PoseToDetTrunk
+    depends: [pose]
+    params: {}
+
+  tracker:
+    class: hmlib.aspen.trunks.tracker.TrackerTrunk
+    depends: [pose_to_det, model_factory, boundaries]
+    params: {}
+
+  postprocess:
+    class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+    depends: [tracker]
+    params: {}
+
