@@ -1,3 +1,12 @@
 exports_files(
     ["Pipfile", "Pipfile.lock", "pyproject.toml"]
 )
+
+
+# Aggregated docs alias: extend deps with future hmlib docs target when added.
+alias(
+    name = "all_doxygen_docs",
+    actual = "//hockeymom:doxygen_docs",
+    visibility = ["//visibility:public"],
+)
+

@@ -44,3 +44,13 @@ py_binary(
     data = [":hockeymom_wheel"],
     tags = ["python-wheel"],
 )
+
+# Local Doxygen documentation for hockeymom C++/CUDA & pybind layer
+genrule(
+  name = "doxygen_docs",
+  srcs = ["Doxyfile"] + glob(["csrc/**/*.h", "csrc/**/*.hpp", "csrc/**/*.cpp", "src/**/*.h", "src/**/*.cpp", "*.py"]),
+  cmd = "if command -v doxygen >/dev/null 2>&1; then doxygen $(location Doxyfile) && tar -czf $@ -C doxygen_out html xml; else echo 'doxygen missing' > $@; fi",
+  outs = ["hockeymom_doxygen_docs.tar.gz"],
+  visibility = ["//visibility:public"],
+  tags = ["manual"],
+)
