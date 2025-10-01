@@ -772,8 +772,8 @@ class PlayTracker(torch.nn.Module):
         results["frame_ids"] = torch.stack(frame_ids_list)
         results["current_box"] = torch.stack(current_box_list)
         results["current_fast_box_list"] = torch.stack(current_fast_box_list)
-        print(f"FAST: {current_fast_box_list}")
-        print(f"CURRENT: {current_box_list}")
+        # print(f"FAST: {current_fast_box_list}")
+        # print(f"CURRENT: {current_box_list}")
 
         # We want to track if it's slow
         img = torch.stack(online_images)
