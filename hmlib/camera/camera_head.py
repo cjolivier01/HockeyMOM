@@ -149,8 +149,11 @@ class CamTrackHead:
             arena = self.calculate_play_box(results)
 
             assert isinstance(original_shape, torch.Size)
+            frame_id = getattr(video_data_sample, "frame_id", None)
+            if frame_id is None:
+                frame_id = metainfo.get("frame_id", 0)
             self._maybe_init(
-                frame_id=video_data_sample.frame_id,
+                frame_id=frame_id,
                 img_height=original_shape[0],
                 img_width=original_shape[1],
                 arena=arena,

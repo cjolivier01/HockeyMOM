@@ -3,7 +3,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 from mmcv.transforms import Compose
-from mmdet.models.mot.bytetrack import ByteTrack
+from mmdet.models.mot.base import BaseMOTModel
 from mmdet.registry import MODELS
 from mmdet.structures import OptTrackSampleList
 from mmengine.structures import InstanceData
@@ -23,7 +23,7 @@ def _use_cpp_tracker(dflt: bool = False) -> bool:
 
 
 @MODELS.register_module()
-class HmEndToEnd(ByteTrack, Trunk):
+class HmEndToEnd(BaseMOTModel, Trunk):
 
     def __init__(
         self,
@@ -39,18 +39,18 @@ class HmEndToEnd(ByteTrack, Trunk):
         # cpp_bytetrack: bool = _use_cpp_tracker(),
         cpp_bytetrack: bool = True,
         # cpp_bytetrack: bool = False,
+        data_preprocessor: Optional[Dict[str, Any]] = None,
+        detector: Optional[Dict[str, Any]] = None,
+        tracker: Optional[Dict[str, Any]] = None,
+        init_cfg: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
-        # BaseModel tries to build it from the mmengine
-        # registry, which can't find shit
-        data_preprocessor = kwargs.get("data_preprocessor")
+        # Build data_preprocessor if provided as a dict
         if data_preprocessor and isinstance(data_preprocessor, dict):
             data_preprocessor = MODELS.build(data_preprocessor)
-            kwargs["data_preprocessor"] = data_preprocessor
 
-        # if init_cfg is None and kwargs.get("detector") and isinstance(kwargs["detector"], dict):
-        #     init_cfg = kwargs["detector"].pop("init_cfg")
-        super().__init__(*args, **kwargs)
+        # We intentionally ignore `detector` and `tracker` here to decouple from ByteTrack.
+        super().__init__(data_preprocessor=data_preprocessor, init_cfg=init_cfg)
         self._enabled = enabled
         self._cpp_bytetrack = cpp_bytetrack
         self.post_detection_pipeline = post_detection_pipeline
@@ -94,7 +94,8 @@ class HmEndToEnd(ByteTrack, Trunk):
             # self.neck = build_neck(neck)
 
     def init_weights(self):
-        super().init_weights()
+        # No-op: this container does not have submodules that require init.
+        pass
 
     def __call__(self, *args, **kwargs):
         return super().__call__(*args, **kwargs)
@@ -105,13 +106,10 @@ class HmEndToEnd(ByteTrack, Trunk):
         if isinstance(img, dict):
             context: Dict[str, Any] = img
             return self._forward_trunk(context)
-
-        if self.post_detection_pipeline and self.post_detection_composed_pipeline is None:
-            self.post_detection_composed_pipeline = Compose(self.post_detection_pipeline)
-        if self.post_tracking_pipeline and self.post_tracking_composed_pipeline is None:
-            self.post_tracking_composed_pipeline = Compose(self.post_tracking_pipeline)
-        results = super().forward(img, return_loss=return_loss, **kwargs)
-        return results
+        # When used as a model in non-trunk mode, we don't implement end-to-end forward anymore.
+        raise NotImplementedError(
+            "HmEndToEnd no longer implements ByteTrack forward; use Aspen trunks instead."
+        )
 
     # AspenNet trunk interface: runs tracking + returns context updates
     def _forward_trunk(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -138,18 +136,16 @@ class HmEndToEnd(ByteTrack, Trunk):
         if detect_timer is not None:
             detect_timer.tic()
 
-        with torch.no_grad():
-            with autocast() if fp16 else torch.cuda.amp.autocast(enabled=False):
-                # Call underlying ByteTrack model forward
-                data = self(return_loss=False, rescale=True, **data)  # type: ignore[misc]
+        # With separated detector/tracker trunks, this trunk should not be invoked.
+        # Keep a minimal no-op to avoid breaking existing graphs if enabled=false.
+        if False:
+            pass
 
         if detect_timer is not None:
             detect_timer.toc()
 
-        track_data_sample = data["data_samples"]
-        nr_tracks = int(track_data_sample.video_data_samples[0].metainfo.get("nr_tracks", 0))
-        tracking_ids = track_data_sample.video_data_samples[-1].pred_track_instances.instances_id
-        max_tracking_id = int(torch.max(tracking_ids)) if len(tracking_ids) else 0
+        nr_tracks = 0
+        max_tracking_id = 0
 
         jersey_results = data.get("jersey_results")
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
@@ -212,7 +208,17 @@ class HmEndToEnd(ByteTrack, Trunk):
         data_samples: OptTrackSampleList = None,
         **kwargs: Dict[str, Any],
     ):
+        # No longer supports end-to-end predict outside Aspen trunks.
         return self.simple_test(inputs=inputs, data_samples=data_samples, **kwargs)
+
+    # Satisfy BaseMOTModel abstract method; not used in this container.
+    def loss(
+        self,
+        inputs: Union[Dict[str, torch.Tensor], torch.Tensor],
+        data_samples: OptTrackSampleList = None,
+        **kwargs: Dict[str, Any],
+    ):
+        raise NotImplementedError("HmEndToEnd is not intended for training.")
 
     @staticmethod
     def get_dataframe(
