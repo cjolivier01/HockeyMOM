@@ -138,6 +138,9 @@ class ModelFactoryTrunk(Trunk):
                 kwargs["post_tracking_pipeline"] = self._post_track
 
             model = ModelCls(**kwargs)
+            if hasattr(model, "init_weights"):
+                model.init_weights()
+
             if self._to_device and "device" in context and isinstance(context["device"], torch.device):
                 model = model.to(context["device"])  # type: ignore[assignment]
             model.eval()
