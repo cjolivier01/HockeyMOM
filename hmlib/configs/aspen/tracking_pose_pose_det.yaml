@@ -64,9 +64,17 @@ trunks:
     depends: [image_prep]
     params: {}
 
+  pose_factory:
+    class: hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk
+    depends: []
+    params:
+      pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
+      pose_checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
+      show_progress: false
+
   pose:
     class: hmlib.aspen.trunks.pose.PoseTrunk
-    depends: [init_send]
+    depends: [init_send, pose_factory]
     params: {}
 
   pose_to_det:
@@ -83,4 +91,3 @@ trunks:
     class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
     depends: [tracker]
     params: {}
-

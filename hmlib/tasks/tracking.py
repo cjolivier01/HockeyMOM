@@ -126,9 +126,13 @@ def run_mmtrack(
             if aspen_config_path:
                 with open(aspen_config_path, "r") as f:
                     aspen_cfg = yaml.safe_load(f)
-                # Dynamically disable pose trunk if not requested
+                # Dynamically disable pose trunk if not requested, unless
+                # a downstream trunk (e.g., pose_to_det) requires it.
                 if not bool(config.get("multi_pose", False)) and "trunks" in aspen_cfg and "pose" in aspen_cfg["trunks"]:
-                    aspen_cfg["trunks"]["pose"]["enabled"] = False
+                    trunks_cfg = aspen_cfg.get("trunks", {}) or {}
+                    requires_pose = any(name in trunks_cfg for name in ("pose_to_det", "pose_bbox_adapter"))
+                    if not requires_pose:
+                        aspen_cfg["trunks"]["pose"]["enabled"] = False
                 shared = dict(
                     model=model,
                     pose_inferencer=pose_inferencer,

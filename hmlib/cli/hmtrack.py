@@ -218,7 +218,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         dest="tasks",
         type=str,
         default="tracking",
-        help="Comma-separated task list (tracking, multi_pose)",
+        help="Comma-separated task list (tracking)",
     )
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument("--min-box-area", type=float, default=100, help="filter out tiny boxes")
@@ -416,8 +416,6 @@ def _main(args, num_gpu):
 
         model = None
 
-        # args.multi_pose |= args.plot_pose
-
         # cmdline overrides
         if args.camera_name:
             set_nested_value(game_config, "camera.name", args.camera_name)
@@ -510,7 +508,7 @@ def _main(args, num_gpu):
         gpus, is_single_lowmem_gpu, gpu_allocator = select_gpus(
             allowed_gpus=args.gpus,
             is_stitching=is_stitching(args.input_video),
-            is_multipose=args.multi_pose,
+            # is_multipose=args.multi_pose,
             is_detecting=not using_precalculated_tracking and not using_precalculated_detections,
             stitch_with_fastest=not args.detect_jersey_numbers,
         )
@@ -555,7 +553,7 @@ def _main(args, num_gpu):
             with open(args.aspen_config, "r") as f:
                 aspen_cfg_for_pipeline = yaml.safe_load(f)
 
-        if args.tracking or args.multi_pose:
+        if args.tracking:
             model = None  # Built by Aspen ModelFactoryTrunk
 
             # Build inference pipeline from Aspen YAML if provided
@@ -601,8 +599,24 @@ def _main(args, num_gpu):
             args.initial_args["bottom_border_lines"] = cam_args.bottom_border_lines
             args.initial_args["original_clip_box"] = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
 
+        # If Aspen config includes a pose factory trunk, defer inferencer creation to it
+        aspen_has_pose_factory = False
+        try:
+            if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
+                trunks_cfg = aspen_cfg_for_pipeline.get("trunks", {}) or {}
+                if "pose_factory" in trunks_cfg:
+                    aspen_has_pose_factory = True
+                else:
+                    # also detect by class path if authors used a different key
+                    for tname, tspec in trunks_cfg.items():
+                        if isinstance(tspec, dict) and tspec.get("class", "").endswith("PoseInferencerFactoryTrunk"):
+                            aspen_has_pose_factory = True
+                            break
+        except Exception:
+            pass
+
         pose_inferencer = None
-        if args.multi_pose:
+        if args.multi_pose and not aspen_has_pose_factory:
             from mmpose.apis.inferencers import MMPoseInferencer
 
             if not args.pose_config:
@@ -985,7 +999,6 @@ def main():
 
     # Set up the task flags
     args.tracking = False
-    args.multi_pose = False
     tokens = args.tasks.split(",")
     for t in tokens:
         setattr(args, t, True)
