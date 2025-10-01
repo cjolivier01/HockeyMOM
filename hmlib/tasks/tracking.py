@@ -1,28 +1,20 @@
 from collections import OrderedDict
-from contextlib import nullcontext
 from typing import Any, Dict, Optional
 
-import numpy as np
 import torch
 import yaml
-from mmengine.structures import InstanceData
-
-# from mmcv.parallel import collate, scatter
-from torch.cuda.amp import autocast
 
 import hmlib.models.end_to_end  # Registers the model
 import hmlib.tracking_utils.segm_boundaries
 
 # AspenNet graph runner
 from hmlib.aspen import AspenNet
-from hmlib.aspen.trunks.pose import PoseTrunk
 from hmlib.log import logger
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils import MeanTracker
-from hmlib.utils.gpu import StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
-from hmlib.utils.image import make_channels_first, make_channels_last
+from hmlib.utils.gpu import cuda_stream_scope
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
 
@@ -202,107 +194,10 @@ def run_mmtrack(
                             except Exception:
                                 max_tracking_id = 0
                     else:
-                        assert False and "TODO: remove legacy mmtracking pipeline"
-                        # Legacy linear pipeline
-                        # TODO: maybe make f16/bf16?
-                        # So far, tracking goes to Hell for some reason when using 16-bit,
-                        # maybe the Kalman filter. Seems like detection itself should be good
-                        # enough at 16-bit, so maybe need to modify that
-                        # ByteTrack does a "batch" of just one, but the second dim
-                        # is the # frames, so it's like a batch, but the frames of the same
-                        # video are the batch items.  This is why we unsqueeze here.
-                        detection_image = data["img"]
-                        detection_image = make_channels_first(detection_image)
-                        if isinstance(detection_image, StreamTensor):
-                            detection_image.verbose = True
-                            detection_image = detection_image.wait(cuda_stream)
-
-                        if detection_image.device != device:
-                            detection_image, _ = copy_gpu_to_gpu_async(tensor=detection_image, dest_device=device)
-
-                        # Make batch size of 1, but some T number of frames (prev batch size)
-                        detection_image = detection_image.unsqueeze(0)
-                        assert detection_image.ndim == 5
-
-                        if "original_images" not in data:
-                            data["original_images"] = origin_imgs
-
-                        if dataset_results:
-                            data["dataset_results"] = dataset_results
-
-                        if mean_tracker is not None:
-                            detection_image = mean_tracker.forward(detection_image)
-
-                        # forward the model
-                        detect_timer.tic()
-                        with torch.no_grad():
-                            with autocast() if fp16 else nullcontext():
-                                data["img"] = detection_image
-                                detection_image = None
-                                data = model(return_loss=False, rescale=True, **data)
-
-                        detect_timer.toc()
-                        track_data_sample = data["data_samples"]
-                        nr_tracks = int(track_data_sample.video_data_samples[0].metainfo["nr_tracks"])
-                        tracking_ids = track_data_sample.video_data_samples[-1].pred_track_instances.instances_id
-                        if len(tracking_ids):
-                            max_tracking_id = torch.max(tracking_ids)
-
-                        if True:
-                            jersey_results = data.get("jersey_results")
-                            for frame_index, video_data_sample in enumerate(
-                                track_data_sample.video_data_samples
-                            ):
-                                pred_track_instances = getattr(
-                                    video_data_sample, "pred_track_instances", None
-                                )
-                                if pred_track_instances is None:
-                                    # we arent tracking anything (probably a performance test)
-                                    cuda_stream.synchronize()
-                                    continue
-
-                                if not using_precalculated_tracking:
-                                    if tracking_dataframe is not None:
-                                        tracking_dataframe.add_frame_records(
-                                            frame_id=frame_id + frame_index,
-                                            tracking_ids=pred_track_instances.instances_id,
-                                            tlbr=pred_track_instances.bboxes,
-                                            scores=pred_track_instances.scores,
-                                            labels=pred_track_instances.labels,
-                                            jersey_info=(
-                                                jersey_results[frame_index]
-                                                if jersey_results is not None
-                                                else None
-                                            ),
-                                        )
-                                if not using_precalculated_detection:
-                                    if detection_dataframe is not None:
-                                        detection_dataframe.add_frame_records(
-                                            frame_id=frame_id,
-                                            scores=video_data_sample.pred_instances.scores,
-                                            labels=video_data_sample.pred_instances.labels,
-                                            bboxes=video_data_sample.pred_instances.bboxes,
-                                        )
-
-                            # Clean data to send of the batched images
-                            data_to_send = data.copy()
-                            del data["original_images"]
-                            if "img" in data_to_send:
-                                del data_to_send["img"]
-
-                            if not using_precalculated_tracking and pose_inferencer is not None:
-                                pose_ctx = {
-                                    "pose_inferencer": pose_inferencer,
-                                    "data_to_send": data_to_send,
-                                    "plot_pose": bool(config.get("plot_pose", False)),
-                                }
-                                data_to_send = PoseTrunk(enabled=True)(pose_ctx).get(
-                                    "data_to_send", data_to_send
-                                )
-
-                            if postprocessor is not None:
-                                results = postprocessor.process_tracking(results=data_to_send)
-                                results = None
+                        # Legacy MMTracking path has been removed. An Aspen config is required.
+                        raise RuntimeError(
+                            "AspenNet config is required. Legacy non-Aspen pipeline has been removed."
+                        )
 
                     # Removed legacy per-frame post-processing branch
 
@@ -336,25 +231,3 @@ def run_mmtrack(
             detection_dataframe.close()
         if mean_tracker is not None:
             mean_tracker.close()
-
-
-def process_mmtracking_results(mmtracking_results):
-    """Process mmtracking results.
-
-    :param mmtracking_results:
-    :return: a list of tracked bounding boxes
-    """
-    person_results = []
-    # 'track_results' is changed to 'track_bboxes'
-    # in https://github.com/open-mmlab/mmtracking/pull/300
-    if "track_bboxes" in mmtracking_results:
-        tracking_results = mmtracking_results["track_bboxes"][0]
-    elif "track_results" in mmtracking_results:
-        tracking_results = mmtracking_results["track_results"][0]
-
-    for track in tracking_results:
-        person = {}
-        person["track_id"] = int(track[0])
-        person["bbox"] = track[1:]  # will also have the score
-        person_results.append(person)
-    return person_results

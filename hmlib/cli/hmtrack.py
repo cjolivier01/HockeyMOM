@@ -11,7 +11,6 @@ from typing import List, Tuple
 import torch
 import torch.backends.cudnn as cudnn
 from mmcv.transforms import Compose
-from mmdet.apis import init_track_model
 from mmengine.config import Config
 
 import hmlib
