@@ -416,7 +416,7 @@ def _main(args, num_gpu):
 
         model = None
 
-        args.multi_pose |= args.plot_pose
+        # args.multi_pose |= args.plot_pose
 
         # cmdline overrides
         if args.camera_name:
