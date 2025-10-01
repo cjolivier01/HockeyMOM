@@ -616,38 +616,38 @@ def _main(args, num_gpu):
             pass
 
         pose_inferencer = None
-        if args.multi_pose and not aspen_has_pose_factory:
-            from mmpose.apis.inferencers import MMPoseInferencer
+        # if args.multi_pose and not aspen_has_pose_factory:
+        #     from mmpose.apis.inferencers import MMPoseInferencer
 
-            if not args.pose_config:
-                args.pose_config = get_nested_value(game_config, "model.pose.config")
-            if not args.pose_checkpoint:
-                args.pose_checkpoint = get_nested_value(game_config, "model.pose.checkpoint")
+        #     if not args.pose_config:
+        #         args.pose_config = get_nested_value(game_config, "model.pose.config")
+        #     if not args.pose_checkpoint:
+        #         args.pose_checkpoint = get_nested_value(game_config, "model.pose.checkpoint")
 
-            args.pose_config = os.path.join(ROOT_DIR, args.pose_config)
-            pose_config = Config.fromfile(args.pose_config)
+        #     args.pose_config = os.path.join(ROOT_DIR, args.pose_config)
+        #     pose_config = Config.fromfile(args.pose_config)
 
-            filter_args = dict(bbox_thr=0.2, nms_thr=0.3, pose_based_nms=False)
-            POSE2D_SPECIFIC_ARGS = dict(
-                yoloxpose=dict(bbox_thr=0.01, nms_thr=0.65, pose_based_nms=True),
-                rtmo=dict(bbox_thr=0.1, nms_thr=0.65, pose_based_nms=True),
-                rtmp=dict(kpt_thr=0.3, pose_based_nms=False, disable_norm_pose_2d=False),
-            )
+        #     filter_args = dict(bbox_thr=0.2, nms_thr=0.3, pose_based_nms=False)
+        #     POSE2D_SPECIFIC_ARGS = dict(
+        #         yoloxpose=dict(bbox_thr=0.01, nms_thr=0.65, pose_based_nms=True),
+        #         rtmo=dict(bbox_thr=0.1, nms_thr=0.65, pose_based_nms=True),
+        #         rtmp=dict(kpt_thr=0.3, pose_based_nms=False, disable_norm_pose_2d=False),
+        #     )
 
-            # The default arguments for prediction filtering differ for top-down
-            # and bottom-up models. We assign the default arguments according to the
-            # selected pose2d model
-            for model_str in POSE2D_SPECIFIC_ARGS:
-                if model_str in args.pose_config:
-                    filter_args.update(POSE2D_SPECIFIC_ARGS[model_str])
-                    break
+        #     # The default arguments for prediction filtering differ for top-down
+        #     # and bottom-up models. We assign the default arguments according to the
+        #     # selected pose2d model
+        #     for model_str in POSE2D_SPECIFIC_ARGS:
+        #         if model_str in args.pose_config:
+        #             filter_args.update(POSE2D_SPECIFIC_ARGS[model_str])
+        #             break
 
-            pose_inferencer = MMPoseInferencer(
-                pose2d=pose_config,
-                pose2d_weights=args.pose_checkpoint,
-                show_progress=False,
-            )
-            pose_inferencer.filter_args = filter_args
+        #     pose_inferencer = MMPoseInferencer(
+        #         pose2d=pose_config,
+        #         pose2d_weights=args.pose_checkpoint,
+        #         show_progress=False,
+        #     )
+        #     pose_inferencer.filter_args = filter_args
 
         postprocessor = None
         if args.input_video:
