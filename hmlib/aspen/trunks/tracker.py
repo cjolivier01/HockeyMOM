@@ -1,12 +1,12 @@
 from typing import Any, Dict, List, Optional
 
 import torch
-from mmengine.structures import InstanceData
 from mmcv.transforms import Compose
-
-from .base import Trunk
+from mmengine.structures import InstanceData
 
 from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
+
+from .base import Trunk
 
 
 class TrackerTrunk(Trunk):
@@ -98,7 +98,7 @@ class TrackerTrunk(Trunk):
             if using_precalc_track:
                 # Keep pred_track_instances unset; logging handled below if needed
                 continue
-            # Detections should have been attached by DetectorTrunk
+            # Detections should have been attached by DetectorInferenceTrunk
             det_instances = getattr(img_data_sample, "pred_instances", None)
             if det_instances is None:
                 # No detections, skip tracking; leave pred_track_instances unset

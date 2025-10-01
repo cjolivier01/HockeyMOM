@@ -6,7 +6,7 @@ from torch.cuda.amp import autocast
 from .base import Trunk
 
 
-class DetectorTrunk(Trunk):
+class DetectorInferenceTrunk(Trunk):
     """
     Runs a pure detection model per-frame and attaches `pred_instances`.
 
