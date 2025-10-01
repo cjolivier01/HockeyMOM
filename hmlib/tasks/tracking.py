@@ -12,6 +12,10 @@ from torch.cuda.amp import autocast
 
 import hmlib.models.end_to_end  # Registers the model
 import hmlib.tracking_utils.segm_boundaries
+
+# AspenNet graph runner
+from hmlib.aspen import AspenNet
+from hmlib.aspen.trunks.pose import PoseTrunk
 from hmlib.log import logger
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.timer import Timer
@@ -21,11 +25,6 @@ from hmlib.utils.gpu import StreamTensor, copy_gpu_to_gpu_async, cuda_stream_sco
 from hmlib.utils.image import make_channels_first, make_channels_last
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
-
-# AspenNet graph runner
-from hmlib.aspen import AspenNet
-
-from hmlib.aspen.trunks.pose import PoseTrunk
 
 
 def run_mmtrack(
@@ -199,6 +198,7 @@ def run_mmtrack(
                             except Exception:
                                 max_tracking_id = 0
                     else:
+                        assert False and "TODO: remove legacy mmtracking pipeline"
                         # Legacy linear pipeline
                         # TODO: maybe make f16/bf16?
                         # So far, tracking goes to Hell for some reason when using 16-bit,
