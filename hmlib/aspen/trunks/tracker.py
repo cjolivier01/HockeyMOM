@@ -89,6 +89,23 @@ class TrackerTrunk(Trunk):
         active_track_count = 0
         all_frame_jersey_info: List[List[Any]] = []
 
+        def _to_tensor_1d(x):
+            if not isinstance(x, torch.Tensor):
+                x = torch.as_tensor(x)
+            if x.ndim == 0:
+                x = x.unsqueeze(0)
+            return x
+
+        def _to_bboxes_2d(x):
+            if not isinstance(x, torch.Tensor):
+                x = torch.as_tensor(x)
+            if x.ndim == 1:
+                # If empty, reshape to (0, 4); if size==4, make (1,4)
+                if x.numel() == 0:
+                    return x.reshape(0, 4)
+                x = x.unsqueeze(0)
+            return x
+
         for frame_index in range(video_len):
             img_data_sample = track_data_sample[frame_index]
 
@@ -123,6 +140,11 @@ class TrackerTrunk(Trunk):
                 det_labels = pd_output["labels"]
                 det_scores = pd_output["scores"]
 
+                # Normalize shapes/types for InstanceData
+                det_bboxes = _to_bboxes_2d(det_bboxes)
+                det_labels = _to_tensor_1d(det_labels).to(dtype=torch.long)
+                det_scores = _to_tensor_1d(det_scores).to(dtype=torch.float32)
+
                 # Update pred_instances with pruned results
                 new_inst = InstanceData()
                 new_inst.scores = det_scores
@@ -139,15 +161,15 @@ class TrackerTrunk(Trunk):
 
             # Use C++ tracker
             assert self._hm_tracker is not None
+            # Ensure tensors with correct dimensionality
+            det_bboxes = _to_bboxes_2d(det_bboxes)
+            det_labels = _to_tensor_1d(det_labels).to(dtype=torch.long)
+            det_scores = _to_tensor_1d(det_scores).to(dtype=torch.float32)
+
             ll1 = len(det_bboxes)
             assert len(det_labels) == ll1 and len(det_scores) == ll1
             # Ensure tracker receives torch tensors
-            if not isinstance(det_bboxes, torch.Tensor):
-                det_bboxes = torch.as_tensor(det_bboxes)
-            if not isinstance(det_labels, torch.Tensor):
-                det_labels = torch.as_tensor(det_labels)
-            if not isinstance(det_scores, torch.Tensor):
-                det_scores = torch.as_tensor(det_scores)
+            # (already tensors above)
             results = self._hm_tracker.track(
                 data=dict(
                     frame_id=torch.tensor([frame_id], dtype=torch.int64),
