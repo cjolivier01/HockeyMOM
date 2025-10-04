@@ -14,15 +14,7 @@ from torchvision.transforms import functional as F
 
 from hmlib.ui.show import show_image
 from hmlib.utils.gpu import StreamTensor, tensor_call
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    is_channels_first,
-    make_channels_first,
-    make_channels_last,
-)
-
-from .cv2_to_torch import warp_affine_pytorch
+from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
 
 try:
     from PIL import Image
