@@ -124,7 +124,6 @@ class AspenNet(torch.nn.Module):
         context.setdefault("trunks", {})
         for node in self.exec_order:
             trunk = node.module
-            print(f"AspenNet: Executing trunk '{node.name}' ({node.cls_path})")
             # Build a sub-context with only requested inputs, if enabled
             if self.minimal_context:
                 req = set(getattr(trunk, "input_keys", lambda: set())())
