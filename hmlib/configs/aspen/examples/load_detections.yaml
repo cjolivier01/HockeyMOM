@@ -1,0 +1,53 @@
+minimal_context: true
+
+trunks:
+  image_prep:
+    class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+    depends: []
+    params: {}
+
+  model_factory:
+    class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+    depends: []
+    params:
+      model_class: hmlib.models.end_to_end.HmEndToEnd
+      post_detection_pipeline:
+        - type: IceRinkSegmBoundaries
+
+  boundaries:
+    class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+    depends: [model_factory]
+    params: {}
+
+  load_detections:
+    class: hmlib.aspen.trunks.load.LoadDetectionsTrunk
+    depends: [image_prep]
+    params: {}
+
+  # Optional: save detections to disk when running with inferred detections
+  save_detections:
+    class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+    depends: [load_detections]
+    params: {}
+
+  tracker:
+    class: hmlib.aspen.trunks.tracker.TrackerTrunk
+    depends: [load_detections, model_factory, boundaries]
+    params: {}
+
+  # Optional: split-out saver for tracking
+  save_tracking:
+    class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+    depends: [tracker]
+    params: {}
+
+  pose:
+    class: hmlib.aspen.trunks.pose.PoseTrunk
+    depends: [tracker]
+    params: {}
+
+  postprocess:
+    class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+    depends: [pose]
+    params: {}
+

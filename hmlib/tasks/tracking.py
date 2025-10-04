@@ -13,6 +13,7 @@ from hmlib.log import logger
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
+from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import cuda_stream_scope
 from hmlib.utils.iterators import CachedIterator
@@ -28,6 +29,7 @@ def run_mmtrack(
     progress_bar: Optional[ProgressBar] = None,
     tracking_dataframe: TrackingDataFrame = None,
     detection_dataframe: DetectionDataFrame = None,
+    pose_dataframe: PoseDataFrame = None,
     device: torch.device = None,
     input_cache_size: int = 2,
     fp16: bool = False,
@@ -109,6 +111,7 @@ def run_mmtrack(
             using_precalculated_detection = (
                 detection_dataframe is not None and detection_dataframe.has_input_data()
             )
+            using_precalculated_pose = pose_dataframe is not None and pose_dataframe.has_input_data()
 
             #
             # Build AspenNet if a config is provided
@@ -118,13 +121,56 @@ def run_mmtrack(
             if aspen_config_path:
                 with open(aspen_config_path, "r") as f:
                     aspen_cfg = yaml.safe_load(f)
-                # Dynamically disable pose trunk if not requested, unless
+                trunks_cfg = aspen_cfg.get("trunks", {}) or {}
+
+                # Dynamically disable pose trunk if not requested, unless loading pose or
                 # a downstream trunk (e.g., pose_to_det) requires it.
-                if not bool(config.get("multi_pose", False)) and "trunks" in aspen_cfg and "pose" in aspen_cfg["trunks"]:
-                    trunks_cfg = aspen_cfg.get("trunks", {}) or {}
+                if not bool(config.get("multi_pose", False)) and "pose" in trunks_cfg and not using_precalculated_pose:
                     requires_pose = any(name in trunks_cfg for name in ("pose_to_det", "pose_bbox_adapter"))
                     if not requires_pose:
-                        aspen_cfg["trunks"]["pose"]["enabled"] = False
+                        trunks_cfg["pose"]["enabled"] = False
+
+                # Replace compute trunks with loader variants if using precomputed data
+                changes = []
+                if "detector" in trunks_cfg and using_precalculated_detection:
+                    trunks_cfg["detector"]["class"] = "hmlib.aspen.trunks.load.LoadDetectionsTrunk"
+                    if "detector_factory" in trunks_cfg:
+                        trunks_cfg["detector_factory"]["enabled"] = False
+                    changes.append("swap detector->LoadDetectionsTrunk; disable detector_factory")
+                if "tracker" in trunks_cfg and using_precalculated_tracking:
+                    trunks_cfg["tracker"]["class"] = "hmlib.aspen.trunks.load.LoadTrackingTrunk"
+                    if "model_factory" in trunks_cfg:
+                        trunks_cfg["model_factory"]["enabled"] = False
+                    if "boundaries" in trunks_cfg:
+                        trunks_cfg["boundaries"]["enabled"] = False
+                    changes.append("swap tracker->LoadTrackingTrunk; disable model_factory,boundaries")
+                if "pose" in trunks_cfg and using_precalculated_pose:
+                    trunks_cfg["pose"]["class"] = "hmlib.aspen.trunks.load.LoadPoseTrunk"
+                    changes.append("swap pose->LoadPoseTrunk")
+
+                # Default to saving when not loading; explicit flags still honored by presence of dataframes
+                save_detection = not using_precalculated_detection
+                save_tracking = not using_precalculated_tracking
+                save_pose = not using_precalculated_pose
+
+                def _append_trunk(name: str, cls: str, depends_on: str):
+                    if name not in trunks_cfg:
+                        trunks_cfg[name] = {"class": cls, "depends": [depends_on], "params": {}}
+
+                if "detector" in trunks_cfg and save_detection and trunks_cfg.get("detector", {}).get("enabled", True):
+                    _append_trunk("save_detections", "hmlib.aspen.trunks.save.SaveDetectionsTrunk", "detector")
+                    changes.append("append save_detections")
+                if "tracker" in trunks_cfg and save_tracking and trunks_cfg.get("tracker", {}).get("enabled", True):
+                    _append_trunk("save_tracking", "hmlib.aspen.trunks.save.SaveTrackingTrunk", "tracker")
+                    changes.append("append save_tracking")
+                if "pose" in trunks_cfg and save_pose and trunks_cfg.get("pose", {}).get("enabled", True):
+                    _append_trunk("save_pose", "hmlib.aspen.trunks.save.SavePoseTrunk", "pose")
+                    changes.append("append save_pose")
+
+                if changes:
+                    logger.info("Aspen trunk patch: " + ", ".join(changes))
+
+                aspen_cfg["trunks"] = trunks_cfg
                 shared = dict(
                     model=model,
                     pose_inferencer=pose_inferencer,
@@ -135,6 +181,7 @@ def run_mmtrack(
                     using_precalculated_detection=using_precalculated_detection,
                     tracking_dataframe=tracking_dataframe,
                     detection_dataframe=detection_dataframe,
+                    pose_dataframe=pose_dataframe,
                     plot_pose=bool(config.get("plot_pose", False)),
                     # Boundary + identity context for trunks
                     game_id=config.get("game_id"),
@@ -229,5 +276,7 @@ def run_mmtrack(
             tracking_dataframe.close()
         if detection_dataframe is not None:
             detection_dataframe.close()
+        if pose_dataframe is not None:
+            pose_dataframe.close()
         if mean_tracker is not None:
             mean_tracker.close()

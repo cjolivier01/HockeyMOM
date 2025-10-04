@@ -38,6 +38,7 @@ from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
+from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import GpuAllocator, select_gpus
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
@@ -258,6 +259,17 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Save detection data to results.csv",
     )
     parser.add_argument(
+        "--input-pose-data",
+        type=str,
+        default=None,
+        help="Input pose data file and use instead of running pose inference",
+    )
+    parser.add_argument(
+        "--save-pose-data",
+        action="store_true",
+        help="Save pose data to results.csv",
+    )
+    parser.add_argument(
         "--save-camera-data",
         action="store_true",
         help="Save tracking data to camera.csv",
@@ -387,6 +399,8 @@ def _main(args, num_gpu):
     tracking_dataframe_ds = None
     detection_dataframe = None
     detection_dataframe_ds = None
+    pose_dataframe = None
+    pose_dataframe_ds = None
 
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
@@ -466,7 +480,7 @@ def _main(args, num_gpu):
         results_folder = os.path.join(".", "output_workdirs", args.game_id)
         os.makedirs(results_folder, exist_ok=True)
 
-        if args.save_tracking_data or args.input_tracking_data:
+        if args.save_tracking_data or args.input_tracking_data or not args.input_tracking_data:
             if args.input_tracking_data:
                 args.input_tracking_data = args.input_tracking_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
             tracking_dataframe = TrackingDataFrame(
@@ -484,7 +498,7 @@ def _main(args, num_gpu):
                     dataset=tracking_dataframe_ds,
                 )
 
-        if args.save_detection_data or args.input_detection_data:
+        if args.save_detection_data or args.input_detection_data or not args.input_detection_data:
             if args.input_detection_data:
                 args.input_detection_data = args.input_detection_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
             detection_dataframe = DetectionDataFrame(
@@ -502,8 +516,28 @@ def _main(args, num_gpu):
                     dataset=detection_dataframe_ds,
                 )
 
+        # Pose dataframe wiring
+        if args.save_pose_data or args.input_pose_data or not args.input_pose_data:
+            if args.input_pose_data:
+                args.input_pose_data = args.input_pose_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
+            pose_dataframe = PoseDataFrame(
+                input_file=args.input_pose_data,
+                output_file=(
+                    os.path.join(results_folder, "pose.csv") if args.input_pose_data is None else None
+                ),
+                input_batch_size=args.batch_size,
+                write_interval=100,
+            )
+            if args.input_pose_data:
+                pose_dataframe_ds = DataFrameDataset(dataframe=pose_dataframe)
+                dataloader.append_dataset(
+                    name="pose_dataframe",
+                    dataset=pose_dataframe_ds,
+                )
+
         using_precalculated_tracking = tracking_dataframe is not None and tracking_dataframe.has_input_data()
         using_precalculated_detections = detection_dataframe is not None and detection_dataframe.has_input_data()
+        using_precalculated_pose = pose_dataframe is not None and pose_dataframe.has_input_data()
 
         actual_device_count = torch.cuda.device_count()
         if not actual_device_count:
@@ -937,6 +971,7 @@ def _main(args, num_gpu):
                 device=main_device,
                 tracking_dataframe=tracking_dataframe,
                 detection_dataframe=detection_dataframe,
+                pose_dataframe=pose_dataframe,
                 fp16=args.fp16,
                 input_cache_size=args.cache_size,
                 progress_bar=progress_bar,
@@ -974,6 +1009,16 @@ def _main(args, num_gpu):
             if tracking_dataframe is not None:
                 try:
                     tracking_dataframe.flush()
+                except:
+                    traceback.print_exc()
+            if detection_dataframe is not None:
+                try:
+                    detection_dataframe.flush()
+                except:
+                    traceback.print_exc()
+            if pose_dataframe is not None:
+                try:
+                    pose_dataframe.flush()
                 except:
                     traceback.print_exc()
         except Exception as ex:

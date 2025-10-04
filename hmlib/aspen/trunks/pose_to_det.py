@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -79,7 +80,21 @@ class PoseToDetTrunk(Trunk):
             if isinstance(preds, list) and len(preds) >= 1:
                 ds = preds[0]
                 inst = getattr(ds, "pred_instances", None)
-                return inst
+                if inst is not None:
+                    return inst
+                # Support simplified dict predictions loaded from PoseDataFrame
+                if isinstance(ds, dict):
+                    keys = [
+                        "bboxes",
+                        "scores",
+                        "bbox_scores",
+                        "labels",
+                        "keypoints",
+                        "keypoint_scores",
+                    ]
+                    attrs = {k: ds[k] for k in keys if k in ds}
+                    if attrs:
+                        return SimpleNamespace(**attrs)
         except Exception:
             pass
         return None

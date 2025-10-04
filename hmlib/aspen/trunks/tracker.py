@@ -72,8 +72,6 @@ class TrackerTrunk(Trunk):
 
         using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
         using_precalc_det: bool = bool(context.get("using_precalculated_detection", False))
-        tracking_dataframe = context.get("tracking_dataframe")
-        detection_dataframe = context.get("detection_dataframe")
 
         self._ensure_tracker()
         self._ensure_post_det_pipeline(context.get("model"))
@@ -176,24 +174,7 @@ class TrackerTrunk(Trunk):
             except Exception:
                 pass
 
-            # Logging
-            if not using_precalc_track and tracking_dataframe is not None:
-                jersey_results = None
-                tracking_dataframe.add_frame_records(
-                    frame_id=frame_id0 + frame_index,
-                    tracking_ids=pred_track_instances.instances_id,
-                    tlbr=pred_track_instances.bboxes,
-                    scores=pred_track_instances.scores,
-                    labels=pred_track_instances.labels,
-                    jersey_info=(jersey_results),
-                )
-            if not using_precalc_det and detection_dataframe is not None:
-                detection_dataframe.add_frame_records(
-                    frame_id=frame_id0,
-                    scores=img_data_sample.pred_instances.scores,
-                    labels=img_data_sample.pred_instances.labels,
-                    bboxes=img_data_sample.pred_instances.bboxes,
-                )
+            # Saving to dataframes is now handled by dedicated Save* trunks.
 
             # For performance: record current active tracks
             img_data_sample.set_metainfo({"nr_tracks": active_track_count})
@@ -222,8 +203,6 @@ class TrackerTrunk(Trunk):
         return {
             "data",
             "frame_id",
-            "tracking_dataframe",
-            "detection_dataframe",
             "using_precalculated_tracking",
             "using_precalculated_detection",
             "model",

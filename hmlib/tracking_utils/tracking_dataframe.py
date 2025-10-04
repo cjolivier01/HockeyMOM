@@ -98,7 +98,6 @@ class TrackingDataFrame(HmDataFrameBase):
             return None
 
     def get_data_dict_by_frame(self, frame_id: int) -> Dict[str, Any]:
-        assert self.batch_size == 1
         frame_id = int(frame_id)
         # Filter the DataFrame for the specified frame
         frame_data = self.data[self.data["Frame"] == frame_id]
