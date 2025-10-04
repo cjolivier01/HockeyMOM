@@ -59,7 +59,14 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         reid_enabled: bool = False,
         reid_threshold: float = 3.0,
         reid_backbone: str = "resnet18",
+        reid_backend: str = "resnet",  # 'resnet' (default) or 'centroid'
+        centroid_reid_path: Optional[str] = None,  # optional path to centroid-reid model or package
+        centroid_reid_device: Optional[str] = None,
         roi_mode: str = "bbox",  # one of: bbox, pose, sam
+        # STR backend: 'mmocr' (default) or 'parseq'
+        str_backend: str = "mmocr",
+        parseq_weights: Optional[str] = None,
+        parseq_device: Optional[str] = None,
         sam_enabled: bool = False,
         sam_checkpoint: Optional[str] = None,
         sam_model_type: str = "vit_b",
@@ -81,11 +88,18 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         self._reid_enabled = bool(reid_enabled)
         self._reid_threshold = float(reid_threshold)
         self._reid_backbone = reid_backbone
+        self._reid_backend = reid_backend
+        self._centroid_reid_path = centroid_reid_path
+        self._centroid_reid_device = centroid_reid_device
         self._roi_mode = roi_mode
         self._sam_enabled = bool(sam_enabled or roi_mode == "sam")
         self._sam_checkpoint = sam_checkpoint
         self._sam_model_type = sam_model_type
         self._sam_device = sam_device
+        self._str_backend = str_backend
+        self._parseq_weights = parseq_weights
+        self._parseq_device = parseq_device
+        self._parseq_model = None
         self._agg_counts: Dict[int, Dict[int, int]] = defaultdict(lambda: defaultdict(int))
         self._agg_max_score: Dict[int, float] = defaultdict(float)
         self._current_number: Dict[int, int] = {}
@@ -122,18 +136,72 @@ class KoshkinaJerseyNumberTrunk(Trunk):
     def _ensure_reid(self, device: torch.device):
         if not self._reid_enabled or self._reid_model is not None:
             return
+        if self._reid_backend == "centroid":
+            # Try to initialize centroid-reid from a user-provided path or env var
+            import os, sys
+            path = self._centroid_reid_path or os.environ.get("HM_CENTROID_REID_PATH")
+            try:
+                if path and path not in sys.path:
+                    sys.path.insert(0, path)
+                # Try common entry points
+                try:
+                    import centroid_reid as cr  # type: ignore
+                except Exception:
+                    try:
+                        import centroids_reid as cr  # type: ignore
+                    except Exception:
+                        cr = None
+                model = None
+                if cr is not None and hasattr(cr, "load_model"):
+                    model = cr.load_model(path=path)
+                elif cr is not None and hasattr(cr, "build_model"):
+                    model = cr.build_model()
+                if model is not None and isinstance(model, nn.Module):
+                    dev = self._centroid_reid_device or str(device)
+                    model.to(dev)
+                    model.eval()
+                    self._reid_model = model
+                    logger.info("Using centroid-reid backend for embeddings")
+                    return
+            except Exception as ex:
+                logger.info(f"Failed to initialize centroid-reid backend ({ex}); falling back to resnet embeddings")
+            # Fall through to resnet
         try:
             from torchvision import models
             if self._reid_backbone == "resnet34":
                 m = models.resnet34(weights=models.ResNet34_Weights.DEFAULT)
             else:
                 m = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-            # Remove classifier head; use global avg pool output
             m.fc = nn.Identity()
             m.eval()
             self._reid_model = m.to(device=device)
-        except Exception:
+            logger.info("Using resnet embeddings for re-id")
+        except Exception as ex:
+            logger.info(f"Re-id embeddings not available ({ex}); disabling re-id filtering")
             self._reid_model = None
+
+    def _ensure_parseq(self, device_str: str):
+        if self._str_backend != "parseq" or self._parseq_model is not None:
+            return
+        try:
+            # Attempt to import PARSeq from strhub if installed
+            from strhub.models.parseq.system import parseq  # type: ignore
+            # Some distributions provide a convenience builder
+            if self._parseq_weights:
+                # Expecting a lightning checkpoint; fall back if load fails
+                try:
+                    self._parseq_model = parseq.load_from_checkpoint(self._parseq_weights)
+                except Exception as ex:
+                    logger.info(f"PARSeq load_from_checkpoint failed ({ex}); using default builder")
+                    self._parseq_model = parseq(pretrained=True)
+            else:
+                self._parseq_model = parseq(pretrained=True)
+            dev = self._parseq_device or device_str
+            self._parseq_model.to(dev)
+            self._parseq_model.eval()
+        except Exception as ex:
+            logger.info(f"PARSeq not available ({ex}); falling back to MMOCR rec backend")
+            self._parseq_model = None
 
     @staticmethod
     def _preprocess_imagenet(x: torch.Tensor) -> torch.Tensor:
@@ -391,6 +459,57 @@ class KoshkinaJerseyNumberTrunk(Trunk):
             out.append((str(t), cx, cy, bw, float(rs)))
         return out
 
+    def _recognize_with_parseq(self, image_np: np.ndarray, det_polygons: List[Any]) -> Optional[List[Tuple[str, float]]]:
+        # Minimal wrapper: attempt to crop bbox from polygon, apply parseq model, greedy decode
+        if self._parseq_model is None:
+            return None
+        try:
+            import cv2  # for resize
+        except Exception:
+            return None
+        results: List[Tuple[str, float]] = []
+        for poly in det_polygons:
+            try:
+                xs = poly[0::2]
+                ys = poly[1::2]
+                x1, y1, x2, y2 = int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))
+                crop = image_np[max(0,y1):max(0,y2), max(0,x1):max(0,x2), :]
+                if crop.size == 0:
+                    results.append(("", 0.0))
+                    continue
+                gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
+                # Resize to a common STR size (H=32, keep aspect)
+                target_h = 32
+                h, w = gray.shape[:2]
+                if h <= 1 or w <= 1:
+                    results.append(("", 0.0))
+                    continue
+                new_w = int(w * (target_h / float(h)))
+                gray = cv2.resize(gray, (new_w, target_h))
+                # To 3-channel and tensor
+                img_t = torch.from_numpy(gray).float().unsqueeze(0).unsqueeze(0) / 255.0
+                # Some PARSeq cuts expect 3 channels; replicate
+                img_t = img_t.repeat(1, 3, 1, 1)
+                dev = next(self._parseq_model.parameters()).device
+                with torch.no_grad():
+                    pred = self._parseq_model(img_t.to(dev))
+                # Best-effort decoding: if pred is logits [B,T,C], take argmax per step and filter non-digits
+                if isinstance(pred, (list, tuple)):
+                    pred = pred[0]
+                if torch.is_tensor(pred):
+                    seq = pred.argmax(dim=-1).squeeze(0).tolist()
+                    # Map to digits if model provides mapping; otherwise fallback
+                    text = ''.join(str(min(9, max(0, int(i)))) for i in seq)
+                    score = 0.9
+                else:
+                    text, score = "", 0.0
+                # Keep only digit strings per the jersey task
+                text_digits = ''.join(ch for ch in text if ch.isdigit())
+                results.append((text_digits, score))
+            except Exception:
+                results.append(("", 0.0))
+        return results
+
     def _consolidate(self, tid: int, number: int, score: float) -> Tuple[int, float]:
         self._agg_counts[tid][number] += 1
         if score > self._agg_max_score[tid]:
@@ -429,6 +548,7 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         self._ensure_legibility(device=device)
         self._ensure_reid(device=device)
         self._ensure_sam(device_str=str(device))
+        self._ensure_parseq(device_str=str(device))
 
         W = int(image_width(original_images))
         H = int(image_height(original_images))
@@ -489,6 +609,33 @@ class KoshkinaJerseyNumberTrunk(Trunk):
             np_image = self._to_numpy_uint8(packed_image)
             results = self._mmocr(np_image)
             centers = self._parse_mmocr(results, det_thresh=self._det_thresh, rec_thresh=self._rec_thresh)
+            # Optionally swap recognition with PARSeq: reuse detected polygons and replace rec_texts/scores
+            if self._str_backend == "parseq" and self._parseq_model is not None:
+                try:
+                    preds = results.get("predictions")
+                    if isinstance(preds, list) and preds:
+                        pred0 = preds[0]
+                        det_polys = pred0.get("det_polygons", [])
+                        parseq_recs = self._recognize_with_parseq(np_image, det_polys) or []
+                        # Rebuild centers with PARSeq texts/scores where available
+                        from mmocr.utils import poly2bbox
+                        centers = []
+                        for i, poly in enumerate(det_polys):
+                            try:
+                                bbox = poly2bbox(poly)
+                                cx = int((bbox[0] + bbox[2]) / 2)
+                                cy = int((bbox[1] + bbox[3]) / 2)
+                                bw = int(bbox[2] - bbox[0])
+                            except Exception:
+                                continue
+                            text, score = ("", 0.0)
+                            if i < len(parseq_recs):
+                                text, score = parseq_recs[i]
+                            if text and all(ch.isdigit() for ch in text):
+                                centers.append((text, cx, cy, bw, float(score)))
+                    # else: keep MMOCR centers
+                except Exception as ex:
+                    logger.info(f"PARSeq substitution failed ({ex}); using MMOCR rec results")
 
             jersey_results: List[TrackJerseyInfo] = []
             seen = set()

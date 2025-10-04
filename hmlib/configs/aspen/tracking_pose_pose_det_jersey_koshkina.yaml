@@ -85,7 +85,35 @@ trunks:
     class: hmlib.aspen.trunks.jersey_koshkina.KoshkinaJerseyNumberTrunk
     depends: [tracker]
     params:
+      # ROI selection: bbox (default), pose, or sam
+      roi_mode: bbox
+
+      # STR backend: 'mmocr' (default) or 'parseq'
+      str_backend: mmocr
+      # parseq_weights: /abs/path/to/parseq.ckpt   # optional; if omitted, tries pretrained
+      # parseq_device: cuda                        # optional; defaults to image device
+
+      # Legibility filtering
       legibility_enabled: false
+      # legibility_weights: /abs/path/to/hockey_legibility.pth
+      legibility_threshold: 0.5
+
+      # ReID occlusion/outlier removal
+      reid_enabled: false
+      reid_backend: resnet   # 'resnet' or 'centroid'
+      reid_backbone: resnet34
+      reid_threshold: 3.0
+      # centroid_reid_path: /abs/path/to/centroid-reid  # optional; or set env HM_CENTROID_REID_PATH
+      # centroid_reid_device: cuda
+
+      # SAM refinement (optional; requires segment_anything)
+      sam_enabled: false
+      # roi_mode: sam
+      # sam_checkpoint: /abs/path/to/sam_vit_b.pth
+      # sam_model_type: vit_b
+      # sam_device: cuda
+
+      # OCR thresholds when using MMOCR
       det_thresh: 0.5
       rec_thresh: 0.8
 
@@ -93,4 +121,3 @@ trunks:
     class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
     depends: [jersey_numbers]
     params: {}
-

@@ -171,6 +171,40 @@ def run_mmtrack(
                     logger.info("Aspen trunk patch: " + ", ".join(changes))
 
                 aspen_cfg["trunks"] = trunks_cfg
+                # Apply jersey trunk CLI overrides if present
+                if "jersey_numbers" in trunks_cfg:
+                    j = trunks_cfg["jersey_numbers"]
+                    j_params = j.setdefault("params", {}) or {}
+                    def set_if(name_cfg: str, name_arg: str, allow_false: bool = False):
+                        val = config.get(name_arg)
+                        if val is None:
+                            return
+                        if isinstance(val, bool) and not val and not allow_false:
+                            # Only set booleans when True unless explicitly allowed
+                            return
+                        j_params[name_cfg] = val
+                    # ROI / SAM
+                    set_if("roi_mode", "jersey_roi_mode")
+                    set_if("sam_enabled", "jersey_sam_enabled")
+                    set_if("sam_checkpoint", "jersey_sam_checkpoint")
+                    set_if("sam_model_type", "jersey_sam_model_type")
+                    set_if("sam_device", "jersey_sam_device")
+                    # STR
+                    set_if("str_backend", "jersey_str_backend")
+                    set_if("parseq_weights", "jersey_parseq_weights")
+                    set_if("parseq_device", "jersey_parseq_device")
+                    # Legibility
+                    set_if("legibility_enabled", "jersey_legibility_enabled")
+                    set_if("legibility_weights", "jersey_legibility_weights")
+                    set_if("legibility_threshold", "jersey_legibility_threshold", allow_false=True)
+                    # ReID
+                    set_if("reid_enabled", "jersey_reid_enabled")
+                    set_if("reid_backend", "jersey_reid_backend")
+                    set_if("reid_backbone", "jersey_reid_backbone")
+                    set_if("reid_threshold", "jersey_reid_threshold", allow_false=True)
+                    set_if("centroid_reid_path", "jersey_centroid_reid_path")
+                    set_if("centroid_reid_device", "jersey_centroid_reid_device")
+                    j["params"] = j_params
                 shared = dict(
                     model=model,
                     pose_inferencer=pose_inferencer,

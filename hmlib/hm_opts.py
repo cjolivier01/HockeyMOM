@@ -355,6 +355,29 @@ class hm_opts(object):
             help="Output video bit-rate",
         )
 
+        # Jersey framework toggles (Koshkina trunk) for reuse across CLIs
+        parser.add_argument("--jersey-roi-mode", type=str, choices=["bbox", "pose", "sam"], default=None,
+                            help="ROI mode for jersey trunk: bbox|pose|sam")
+        parser.add_argument("--jersey-str-backend", type=str, choices=["mmocr", "parseq"], default=None,
+                            help="STR backend: mmocr (default) or parseq")
+        parser.add_argument("--jersey-parseq-weights", type=str, default=None, help="PARSeq weights path")
+        parser.add_argument("--jersey-parseq-device", type=str, default=None, help="PARSeq device (e.g., cuda)")
+        parser.add_argument("--jersey-legibility-enabled", action="store_true", help="Enable legibility filter")
+        parser.add_argument("--jersey-legibility-weights", type=str, default=None, help="Legibility weights path")
+        parser.add_argument("--jersey-legibility-threshold", type=float, default=None, help="Legibility score threshold")
+        parser.add_argument("--jersey-reid-enabled", action="store_true", help="Enable ReID outlier removal")
+        parser.add_argument("--jersey-reid-backend", type=str, choices=["resnet", "centroid"], default=None,
+                            help="ReID backend: resnet (default) or centroid")
+        parser.add_argument("--jersey-reid-backbone", type=str, choices=["resnet18", "resnet34"], default=None,
+                            help="ReID resnet backbone")
+        parser.add_argument("--jersey-reid-threshold", type=float, default=None, help="ReID Mahalanobis threshold")
+        parser.add_argument("--jersey-centroid-reid-path", type=str, default=None, help="Path to centroid-reid repo/model")
+        parser.add_argument("--jersey-centroid-reid-device", type=str, default=None, help="Device for centroid-reid")
+        parser.add_argument("--jersey-sam-enabled", action="store_true", help="Enable SAM ROI refinement")
+        parser.add_argument("--jersey-sam-checkpoint", type=str, default=None, help="Path to SAM checkpoint")
+        parser.add_argument("--jersey-sam-model-type", type=str, default=None, help="SAM model type (e.g., vit_b)")
+        parser.add_argument("--jersey-sam-device", type=str, default=None, help="SAM device")
+
         return parser
 
     def parse(self, args=""):

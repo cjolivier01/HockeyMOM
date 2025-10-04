@@ -200,6 +200,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=None,
         help="plot all detections above this given accuracy",
     )
+    # Jersey options are defined in hm_opts to be reusable across CLIs
     parser.add_argument(
         "--plot-moving-boxes",
         action="store_true",

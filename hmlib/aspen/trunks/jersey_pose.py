@@ -161,11 +161,12 @@ class JerseyNumberFromPoseTrunk(Trunk):
             # Pack ROIs into a tiled image
             frame_img = original_images[frame_index]
             packed_image, index_map = pack_bounding_boxes_as_tiles(frame_img, rois_t)
-            show_image("packed_image", packed_image)
-            np_image = self._to_numpy_uint8(packed_image)
+            # show_image("packed_image", packed_image)
+            # np_image = self._to_numpy_uint8(packed_image)
 
             # Run OCR
-            results = self._inferencer(np_image, progress_bar=False)
+            results = self._inferencer(packed_image, progress_bar=False)
+            # results = self._inferencer(np_image, progress_bar=False)
             text_and_centers = self._process_mmocr_results(results)
 
             jersey_results: List[TrackJerseyInfo] = []
