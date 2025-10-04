@@ -1,7 +1,8 @@
 from typing import Any, Dict, Optional
 
-from .base import Trunk
 from hmlib.utils.pipeline import update_pipeline_item
+
+from .base import Trunk
 
 
 class BoundariesTrunk(Trunk):
@@ -19,9 +20,10 @@ class BoundariesTrunk(Trunk):
 
     def __init__(self, enabled: bool = True):
         super().__init__(enabled=enabled)
+        self.factory_complete: bool = False
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
-        if not self.enabled:
+        if not self.enabled or self.factory_complete:
             return {}
         model = context.get("model")
         if model is None or not hasattr(model, "post_detection_pipeline"):
@@ -55,6 +57,7 @@ class BoundariesTrunk(Trunk):
                     draw=plot_ice_mask,
                 ),
             )
+        self.factory_complete = True
         return {}
 
     def input_keys(self):
@@ -62,4 +65,3 @@ class BoundariesTrunk(Trunk):
 
     def output_keys(self):
         return set()
-

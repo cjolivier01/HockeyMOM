@@ -1,8 +1,9 @@
 import importlib
-from collections import deque
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional
 
+import networkx as nx
 import torch
 
 
@@ -29,6 +30,8 @@ class AspenNet(torch.nn.Module):
         super().__init__()
         self.shared: Dict[str, Any] = shared or {}
         self.nodes: List[_Node] = []
+        # NetworkX DiGraph storing the trunks graph and attributes
+        self.graph: nx.DiGraph = nx.DiGraph()
         self.minimal_context = bool(minimal_context or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False)))
 
         # Accept either {trunks: {...}} or a flat dict
@@ -37,7 +40,9 @@ class AspenNet(torch.nn.Module):
             raise ValueError("AspenNet expects a dict with a 'trunks' mapping.")
 
         self._build_nodes(trunks)
+        self._build_graph(trunks)
         self.exec_order = self._toposort()
+        # self.display_graphviz()
 
     # region build
     def _build_nodes(self, trunks: Dict[str, Any]):
@@ -47,7 +52,7 @@ class AspenNet(torch.nn.Module):
             cls_path = spec.get("class")
             if not cls_path:
                 raise ValueError(f"Trunk '{name}' missing 'class'")
-            depends = spec.get("depends", []) or []
+            depends = list(spec.get("depends", []) or [])
             params = spec.get("params", {}) or {}
             enabled = spec.get("enabled", True)
             if not enabled:
@@ -58,6 +63,30 @@ class AspenNet(torch.nn.Module):
             node = _Node(name=name, cls_path=cls_path, depends=depends, params=params, module=module)
             setattr(self, f"trunk_{name}", module)
             self.nodes.append(node)
+
+    def _build_graph(self, trunks: Dict[str, Any]):
+        # Add all nodes with attributes
+        for node in self.nodes:
+            self.graph.add_node(
+                node.name,
+                cls_path=node.cls_path,
+                params=node.params,
+                module=node.module,
+            )
+
+        # Add all edges (dep -> node)
+        unknown_deps: Dict[str, List[str]] = {}
+        all_names = {n.name for n in self.nodes}
+        for node in self.nodes:
+            for dep in node.depends:
+                if dep not in all_names:
+                    unknown_deps.setdefault(node.name, []).append(dep)
+                    continue
+                self.graph.add_edge(dep, node.name)
+
+        if unknown_deps:
+            details = ", ".join(f"{k}: {v}" for k, v in unknown_deps.items())
+            raise ValueError(f"Unknown dependencies referenced in trunks: {details}")
 
     @staticmethod
     def _instantiate(cls_path: str, params: Dict[str, Any]) -> torch.nn.Module:
@@ -71,32 +100,16 @@ class AspenNet(torch.nn.Module):
         return cls(**params)
 
     def _toposort(self) -> List[_Node]:
-        # Kahn's algorithm
-        deps: Dict[str, Set[str]] = {}
-        rev: Dict[str, Set[str]] = {}
+        if not nx.is_directed_acyclic_graph(self.graph):
+            try:
+                cycle_nodes = nx.find_cycle(self.graph)  # type: ignore[arg-type]
+            except Exception:
+                cycle_nodes = []
+            raise ValueError(f"Cycle detected in trunks graph: {cycle_nodes}")
+
         name2node: Dict[str, _Node] = {n.name: n for n in self.nodes}
-
-        for n in self.nodes:
-            deps[n.name] = set(n.depends)
-            for d in n.depends:
-                rev.setdefault(d, set()).add(n.name)
-
-        q: deque[str] = deque([n.name for n in self.nodes if not deps[n.name]])
-        order: List[str] = []
-        while q:
-            u = q.popleft()
-            order.append(u)
-            for v in list(rev.get(u, [])):
-                deps[v].discard(u)
-                if not deps[v]:
-                    q.append(v)
-            rev.pop(u, None)
-
-        if len(order) != len(self.nodes):
-            remaining = {k: list(v) for k, v in deps.items() if v}
-            raise ValueError(f"Cycle detected in trunks graph: {remaining}")
-
-        return [name2node[n] for n in order]
+        order_names: List[str] = list(nx.topological_sort(self.graph))
+        return [name2node[n] for n in order_names]
     # endregion
 
     def forward(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -111,6 +124,7 @@ class AspenNet(torch.nn.Module):
         context.setdefault("trunks", {})
         for node in self.exec_order:
             trunk = node.module
+            print(f"AspenNet: Executing trunk '{node.name}' ({node.cls_path})")
             # Build a sub-context with only requested inputs, if enabled
             if self.minimal_context:
                 req = set(getattr(trunk, "input_keys", lambda: set())())
@@ -149,6 +163,91 @@ class AspenNet(torch.nn.Module):
             # Store trunk-local outputs for introspection
             context["trunks"][node.name] = {k: out[k] for k in out.keys()}
         return context
+
+    # region graph export/visualization
+    def to_networkx(self) -> nx.DiGraph:
+        """Return a shallow copy of the internal NetworkX DiGraph."""
+        return self.graph.copy()
+
+    def _dot_lines(self) -> Iterable[str]:
+        # Simple DOT writer without extra deps
+        yield "digraph AspenNet {"
+        yield "  rankdir=LR;"
+        yield "  node [shape=box, style=rounded];"
+        # Nodes with labels
+        for n, data in self.graph.nodes(data=True):
+            label = f"{n}\n{data.get('cls_path', '')}"
+            yield f'  "{n}" [label="{label}"];'
+        # Edges
+        for u, v in self.graph.edges():
+            yield f'  "{u}" -> "{v}";'
+        yield "}"
+
+    def to_dot(self) -> str:
+        """Return the Graphviz DOT string for the trunks graph."""
+        return "\n".join(self._dot_lines())
+
+    def save_graphviz(self, path: str) -> None:
+        """
+        Save the trunks graph as a Graphviz DOT file.
+
+        Args:
+            path: Destination file path (e.g., "graph.dot").
+        """
+        dot = self.to_dot()
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(dot)
+
+    def display_graphviz(self) -> None:
+        """
+        Display the trunks graph.
+
+        Tries, in order:
+        - graphviz.Source (if `graphviz` python package is installed)
+        - matplotlib via networkx (if matplotlib is available)
+        - Prints DOT to stdout as a fallback
+        """
+        dot = self.to_dot()
+
+        # Try graphviz Python package
+        try:
+            from graphviz import Source  # type: ignore
+
+            src = Source(dot)
+            src.view(cleanup=True)
+            return
+        except Exception as ex:
+            print(f"AspenNet: graphviz display failed: {ex}")
+
+        # Try matplotlib networkx draw
+        try:
+            import matplotlib.pyplot as plt  # type: ignore
+
+            pos = (
+                nx.nx_agraph.graphviz_layout(self.graph, prog="dot")
+                if self._has_pygraphviz()
+                else nx.spring_layout(self.graph)
+            )
+            nx.draw(self.graph, pos, with_labels=True, node_size=1500, node_color="#DDEEFF", font_size=8, arrows=True)
+            plt.title("AspenNet Trunks Graph")
+            plt.show()
+            return
+        except Exception as e:
+            print(f"AspenNet: matplotlib display failed: {e}")
+
+        # Fallback: print DOT to stdout
+        print(dot)
+
+    @staticmethod
+    def _has_pygraphviz() -> bool:
+        try:
+            import pygraphviz  # type: ignore  # noqa: F401
+
+            return True
+        except Exception:
+            return False
+
+    # endregion
 
 
 class _NoOpTrunk(torch.nn.Module):

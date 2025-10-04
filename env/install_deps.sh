@@ -17,6 +17,7 @@ sudo apt install -y \
   libilmbase-dev \
   liblcms2-dev \
   libsqlite3-dev \
+  graphviz \
   graphviz-dev \
   gettext \
   libyaml-cpp-dev \

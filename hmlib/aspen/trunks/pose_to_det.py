@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
@@ -54,11 +55,18 @@ class PoseToDetTrunk(Trunk):
               Also mirrors pose_results into data for downstream preservation.
     """
 
-    def __init__(self, enabled: bool = True, default_label: int = 0, score_key: Optional[str] = None):
+    def __init__(
+        self,
+        enabled: bool = True,
+        default_label: int = 0,
+        score_key: Optional[str] = None,
+        score_adder: Optional[float] = None,
+    ):
         super().__init__(enabled=enabled)
         self._default_label = int(default_label)
         # Prefer 'bbox_scores'; fall back to provided or common alternatives
         self._score_key = score_key
+        self._score_adder = float(score_adder) if score_adder is not None else 0.25
 
     def _extract_instances(self, pose_result_item: Any):
         """Return InstanceData-like fields (bboxes, scores) from a pose result item.
@@ -168,6 +176,12 @@ class PoseToDetTrunk(Trunk):
             # labels: assign default category (e.g., person=0)
             labels = torch.full((bboxes.shape[0],), int(self._default_label), dtype=torch.long, device=bboxes.device)
 
+            if self._score_adder is not None and self._score_adder != 0.0:
+                scores += self._score_adder
+                scores = (
+                    torch.clamp(scores, 0.0, 1.0) if isinstance(scores, torch.Tensor) else np.clip(scores, 0.0, 1.0)
+                )
+
             new_inst = InstanceData()
             new_inst.bboxes = bboxes
             new_inst.scores = scores
@@ -186,4 +200,3 @@ class PoseToDetTrunk(Trunk):
 
     def output_keys(self):
         return {"data"}
-
