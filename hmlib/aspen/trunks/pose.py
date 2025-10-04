@@ -62,7 +62,7 @@ class PoseTrunk(Trunk):
                         data_sample=data_sample[0],
                         clone_image=False,
                         draw_gt=False,
-                        draw_bbox=True,
+                        draw_bbox=False,
                     )
 
         pose_results = all_pose_results
