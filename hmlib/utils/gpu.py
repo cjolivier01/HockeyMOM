@@ -254,7 +254,6 @@ class StreamTensor(StreamTensorBase):
             assert self._stream is None
         self._clear_stream()
         t = self._tensor
-        # self._tensor = None
         return t
 
     def cpu(self) -> torch.Tensor:

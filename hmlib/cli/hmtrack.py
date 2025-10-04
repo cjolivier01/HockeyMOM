@@ -37,8 +37,8 @@ from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
-from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
+from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import GpuAllocator, select_gpus
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
@@ -1086,4 +1086,3 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Exception during processing: {e}")
         traceback.print_exc()
-        sys.exit(1)
