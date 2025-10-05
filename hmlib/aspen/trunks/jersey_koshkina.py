@@ -16,6 +16,7 @@ from hmlib.bbox.tiling import (
 )
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
+from hmlib.ui import show_image  # noqa: F401 (for debugging
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 
