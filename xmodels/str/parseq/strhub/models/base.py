@@ -22,7 +22,12 @@ import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 from nltk import edit_distance
-from pytorch_lightning.utilities.types import EPOCH_OUTPUT, STEP_OUTPUT
+try:
+    from pytorch_lightning.utilities.types import EPOCH_OUTPUT, STEP_OUTPUT
+except Exception:  # Compatibility with newer PL where types may be renamed/moved
+    from typing import Any as _Any  # type: ignore
+    EPOCH_OUTPUT = _Any  # type: ignore
+    STEP_OUTPUT = _Any  # type: ignore
 from timm.optim import create_optimizer_v2
 from torch import Tensor
 from torch.optim import Optimizer

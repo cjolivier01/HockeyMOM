@@ -86,13 +86,13 @@ trunks:
     depends: [tracker]
     params:
       # ROI selection: bbox (default), pose, or sam
-      roi_mode: bbox
+      roi_mode: pose
 
-      # STR backend: 'mmocr' (default) or 'parseq'
-      str_backend: mmocr
-      # str_backend: parseq
-      # parseq_weights: "pretrained/parseq/jersey/hockey/epoch=3-step=95-val_accuracy=98.7903-val_NED=99.3952.ckpt"
-      # parseq_device: cuda
+      # Configure PARSeq STR (jersey-number pipeline)
+      parseq_weights: "pretrained/parseq/jersey/hockey/epoch=3-step=95-val_accuracy=98.7903-val_NED=99.3952.ckpt"
+      parseq_device: cuda
+      # Legacy STR fields are ignored by this trunk but kept for compatibility
+      str_backend: parseq
       # parseq_weights: /abs/path/to/parseq.ckpt   # optional; if omitted, tries pretrained
       # parseq_device: cuda                        # optional; defaults to image device
 

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
+
+import os
+import sys
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -10,16 +15,15 @@ import torch.nn.functional as F
 from mmengine.structures import InstanceData
 
 from hmlib.aspen.trunks.base import Trunk
-from hmlib.bbox.tiling import (
-    clamp_boxes_to_image,
-    get_original_bbox_index_from_tiled_image,
-    pack_bounding_boxes_as_tiles,
-)
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
-from hmlib.ui import show_image  # noqa: F401 (for debugging
 from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
+from hmlib.utils.image import image_height, image_width, make_channels_first
+
+
+# Jersey-number-pipeline inspired torso crop parameters
+_PADDING = 5
+_CONFIDENCE_THRESHOLD = 0.4
 
 
 def _to_tensor(x: Any) -> torch.Tensor:
@@ -31,27 +35,34 @@ def _to_tensor(x: Any) -> torch.Tensor:
     return torch.from_numpy(x)
 
 
+def _is_valid_number(s: str) -> bool:
+    if not s or len(s) > 2 or not s.isdigit():
+        return False
+    try:
+        v = int(s)
+    except Exception:
+        return False
+    return 0 < v < 100
+
+
 class _IdentityLegibility(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # returns prob legible
         if x.ndim == 3:
             x = x.unsqueeze(0)
-        # everything legible by default
         return torch.ones((x.size(0),), dtype=torch.float32, device=x.device)
 
 
 class KoshkinaJerseyNumberTrunk(Trunk):
     """
-    Jersey number recognition trunk inspired by Koshkina et al.'s framework.
-
-    Pipeline:
-      1) Pose-guided ROI cropping using our pose/tracking outputs
-      2) Optional legibility classifier to filter poor crops
-      3) OCR recognition using MMOCR (det+rec) over tiled ROIs
-      4) Tracklet-level consolidation: majority vote with score weighting
+    Jersey number recognition trunk using the jersey-number-pipeline approach:
+      - Pose-guided torso crops (shoulders + hips)
+      - Optional legibility gating
+      - PARSeq STR inference (via local xmodels/str/parseq)
+      - Track-level aggregation with double-digit bias
 
     Inputs in context:
       - data: dict with 'data_samples' (TrackDataSample) and 'original_images' (T,C,H,W or T,H,W,C)
-      - data_to_send may also carry 'original_images'
+      - data_to_send may also carry 'original_images' and 'pose_results'
 
     Outputs in context:
       - data['jersey_results']: List[List[TrackJerseyInfo]] per frame
@@ -60,490 +71,317 @@ class KoshkinaJerseyNumberTrunk(Trunk):
     def __init__(
         self,
         enabled: bool = True,
+        # Legibility
         legibility_enabled: bool = False,
         legibility_weights: Optional[str] = None,
         legibility_threshold: float = 0.5,
-        roi_top: float = 0.25,
-        roi_bottom: float = 0.95,
-        roi_side: float = 0.2,
-        det_thresh: float = 0.5,
-        rec_thresh: float = 0.8,
-        reid_enabled: bool = False,
-        reid_threshold: float = 3.0,
-        reid_backbone: str = "resnet18",
-        reid_backend: str = "resnet",  # 'resnet' (default) or 'centroid'
-        centroid_reid_path: Optional[str] = None,  # optional path to centroid-reid model or package
-        centroid_reid_device: Optional[str] = None,
-        roi_mode: str = "bbox",  # one of: bbox, pose, sam
-        # STR backend: 'mmocr' (default) or 'parseq'
-        str_backend: str = "mmocr",
+        # ROI selection
+        roi_mode: str = "pose",  # 'pose' (default) or 'bbox'
+        # STR / PARSeq
         parseq_weights: Optional[str] = None,
         parseq_device: Optional[str] = None,
-        sam_enabled: bool = False,
-        sam_checkpoint: Optional[str] = None,
-        sam_model_type: str = "vit_b",
-        sam_device: Optional[str] = None,
+        # Accept and ignore additional params for compatibility with legacy config
+        **kwargs: Any,
     ):
         super().__init__(enabled=enabled)
+        # Legibility
         self._legibility_enabled = bool(legibility_enabled)
         self._legibility_weights = legibility_weights
         self._legibility_threshold = float(legibility_threshold)
-        self._roi_top = float(roi_top)
-        self._roi_bottom = float(roi_bottom)
-        self._roi_side = float(roi_side)
-        self._det_thresh = float(det_thresh)
-        self._rec_thresh = float(rec_thresh)
-
-        self._mmocr = None
         self._legibility_model: nn.Module = _IdentityLegibility()
-        self._reid_model: Optional[nn.Module] = None
-        self._reid_enabled = bool(reid_enabled)
-        self._reid_threshold = float(reid_threshold)
-        self._reid_backbone = reid_backbone
-        self._reid_backend = reid_backend
-        self._centroid_reid_path = centroid_reid_path
-        self._centroid_reid_device = centroid_reid_device
-        self._roi_mode = roi_mode
-        self._sam_enabled = bool(sam_enabled or roi_mode == "sam")
-        self._sam_checkpoint = sam_checkpoint
-        self._sam_model_type = sam_model_type
-        self._sam_device = sam_device
-        self._str_backend = str_backend
+
+        # ROI
+        self._roi_mode = str(roi_mode)
+
+        # STR
         self._parseq_weights = parseq_weights
         self._parseq_device = parseq_device
         self._parseq_model = None
-        self._legibility_crop_size: Tuple[int, int] = (128, 128)
-        self._agg_counts: Dict[int, Dict[int, int]] = defaultdict(lambda: defaultdict(int))
-        self._agg_max_score: Dict[int, float] = defaultdict(float)
-        self._current_number: Dict[int, int] = {}
-        # Per-track embedding stats for Gaussian outlier removal (diagonal covariance)
-        self._reid_count: Dict[int, int] = defaultdict(int)
-        self._reid_mean: Dict[int, torch.Tensor] = {}
-        self._reid_M2: Dict[int, torch.Tensor] = {}
-        self._sam_predictor = None
+        self._str_transform = None  # filled by SceneTextDataModule.get_transform
 
-    def _ensure_mmocr(self):
-        if self._mmocr is not None:
-            return
-        from hmlib.jersey.number_classifier import HmNumberClassifier
+        # Track-level accumulator: track_id -> List[(number, weight)]
+        self._votes: Dict[int, List[Tuple[int, float]]] = defaultdict(list)
 
-        self._mmocr = HmNumberClassifier.create_inferencer()
-
+    # ----------------------- Model setup -----------------------
     def _ensure_legibility(self, device: torch.device):
         if not self._legibility_enabled:
             return
         if isinstance(self._legibility_model, _IdentityLegibility):
             try:
-                from torchvision.models import resnet34
-                m = resnet34(weights=None)
-                m.fc = nn.Linear(m.fc.in_features, 1)
-                if self._legibility_weights and torch.cuda.is_available():
-                    state = torch.load(self._legibility_weights, map_location=device)
-                    m.load_state_dict(state, strict=False)
-                self._legibility_model = m.to(device=device)
-                self._legibility_model.eval()
-            except Exception:
-                # fallback to identity
+                # Prefer jersey-number-pipeline's LegibilityClassifier34 wrapper for state_dict compatibility
+                import sys as _sys
+                pipeline_path = os.environ.get("HM_JERSEY_PIPELINE_PATH", "/mnt/monster-data/colivier/src/jersey-number-pipeline")
+                if os.path.isdir(pipeline_path) and pipeline_path not in _sys.path:
+                    _sys.path.insert(0, pipeline_path)
+                try:
+                    from networks import LegibilityClassifier34  # type: ignore
+                    leg_model = LegibilityClassifier34()
+                except Exception:
+                    # Fallback to torchvision if import fails
+                    from torchvision.models import resnet34
+                    leg_model = resnet34(weights=None)
+                    leg_model.fc = nn.Linear(leg_model.fc.in_features, 1)
+
+                if self._legibility_weights:
+                    state = None
+                    try:
+                        state = torch.load(self._legibility_weights, map_location=device)
+                    except Exception:
+                        try:
+                            state = torch.load(self._legibility_weights, map_location=device, weights_only=False)  # type: ignore[call-arg]
+                        except Exception:
+                            state = None
+                    if state is not None:
+                        try:
+                            leg_model.load_state_dict(state, strict=False)
+                        except Exception:
+                            pass
+                self._legibility_model = leg_model.to(device=device).eval()
+            except Exception as ex:
+                logger.info(f"Legibility model unavailable ({ex}); using identity.")
                 self._legibility_model = _IdentityLegibility().to(device=device)
 
-    def _ensure_reid(self, device: torch.device):
-        if not self._reid_enabled or self._reid_model is not None:
-            return
-        if self._reid_backend == "centroid":
-            # Try to initialize centroid-reid from a user-provided path or env var
-            import os
-            import sys
-
-            path = self._centroid_reid_path or os.environ.get("HM_CENTROID_REID_PATH")
-            try:
-                if path and path not in sys.path:
-                    sys.path.insert(0, path)
-                # Try common entry points
-                try:
-                    import centroid_reid as cr  # type: ignore
-                except Exception:
-                    try:
-                        import centroids_reid as cr  # type: ignore
-                    except Exception:
-                        cr = None
-                model = None
-                if cr is not None and hasattr(cr, "load_model"):
-                    model = cr.load_model(path=path)
-                elif cr is not None and hasattr(cr, "build_model"):
-                    model = cr.build_model()
-                if model is not None and isinstance(model, nn.Module):
-                    dev = self._centroid_reid_device or str(device)
-                    model.to(dev)
-                    model.eval()
-                    self._reid_model = model
-                    logger.info("Using centroid-reid backend for embeddings")
-                    return
-            except Exception as ex:
-                logger.info(f"Failed to initialize centroid-reid backend ({ex}); falling back to resnet embeddings")
-            # Fall through to resnet
-        try:
-            from torchvision import models
-            if self._reid_backbone == "resnet34":
-                m = models.resnet34(weights=models.ResNet34_Weights.DEFAULT)
-            else:
-                m = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
-            m.fc = nn.Identity()
-            m.eval()
-            self._reid_model = m.to(device=device)
-            logger.info("Using resnet embeddings for re-id")
-        except Exception as ex:
-            logger.info(f"Re-id embeddings not available ({ex}); disabling re-id filtering")
-            self._reid_model = None
-
     def _ensure_parseq(self, device_str: str):
-        if self._str_backend != "parseq" or self._parseq_model is not None:
+        if self._parseq_model is not None:
             return
+        # Prefer local copy at xmodels/str/parseq (contains strhub)
         try:
-            # Attempt to import PARSeq from strhub if installed
-            from strhub.models.parseq.system import parseq  # type: ignore
-
-            # Some distributions provide a convenience builder
-            if self._parseq_weights:
-                # Expecting a lightning checkpoint; fall back if load fails
-                try:
-                    self._parseq_model = parseq.load_from_checkpoint(self._parseq_weights)
-                except Exception as ex:
-                    logger.info(f"PARSeq load_from_checkpoint failed ({ex}); using default builder")
-                    self._parseq_model = parseq(pretrained=True)
-            else:
-                self._parseq_model = parseq(pretrained=True)
-            dev = self._parseq_device or device_str
-            self._parseq_model.to(dev)
-            self._parseq_model.eval()
-        except Exception as ex:
-            logger.info(f"PARSeq not available ({ex}); falling back to MMOCR rec backend")
-            self._parseq_model = None
-        self._legibility_crop_size: Tuple[int, int] = (128, 128)
-
-    @staticmethod
-    def _preprocess_imagenet(x: torch.Tensor) -> torch.Tensor:
-        # x: (C,H,W) in [0,255] uint8 or float
-        if x.dtype != torch.float32:
-            x = x.to(torch.float32)
-        x = x / 255.0
-        mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32, device=x.device).view(3,1,1)
-        std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32, device=x.device).view(3,1,1)
-        x = (x - mean) / std
-        return x
-
-    def _extract_reid_embeddings(self, frame_img: torch.Tensor, rois: torch.Tensor) -> Optional[List[torch.Tensor]]:
-        if not self._reid_enabled or self._reid_model is None or rois.numel() == 0:
-            return None
-        embs: List[torch.Tensor] = []
-        for r in rois:
-            x1,y1,x2,y2 = r.tolist()
-            crop = frame_img[:, y1:y2, x1:x2]
-            if crop.numel() == 0:
-                embs.append(None)
-                continue
-            # resize to 224x224
-            crop = torch.nn.functional.interpolate(crop.unsqueeze(0), size=(224,224), mode='bilinear', align_corners=False).squeeze(0)
-            crop = self._preprocess_imagenet(crop)
-            with torch.no_grad():
-                feat = self._reid_model(crop.unsqueeze(0)).squeeze(0)
-            embs.append(feat)
-        return embs
-
-    def _reid_accept(self, tid: int, emb: Optional[torch.Tensor]) -> bool:
-        if not self._reid_enabled or emb is None:
-            return True
-        # Welford online update for mean/variance (diagonal)
-        n = self._reid_count[tid]
-        if n == 0:
-            self._reid_mean[tid] = emb.detach()
-            self._reid_M2[tid] = torch.zeros_like(emb)
-            self._reid_count[tid] = 1
-            return True
-        mean = self._reid_mean[tid]
-        M2 = self._reid_M2[tid]
-        delta = emb - mean
-        new_mean = mean + delta / (n + 1)
-        delta2 = emb - new_mean
-        new_M2 = M2 + delta * delta2
-        # Compute diagonal std (add epsilon)
-        var = (new_M2 / max(1, n)).clamp_min(1e-6)
-        z = torch.sqrt(((emb - new_mean) ** 2 / var).sum())
-        accept = bool(z.item() <= self._reid_threshold)
-        # Update only on accept
-        if accept:
-            self._reid_mean[tid] = new_mean
-            self._reid_M2[tid] = new_M2
-            self._reid_count[tid] = n + 1
-        return accept
-
-    def _ensure_sam(self, device_str: str):
-        if not self._sam_enabled or self._sam_predictor is not None:
-            return
-        try:
-            from segment_anything import SamPredictor, sam_model_registry  # type: ignore
-
-            if not self._sam_checkpoint:
-                logger.info("SAM enabled but no checkpoint provided; skipping SAM and using bbox/pose ROIs")
-                return
-            sam = sam_model_registry[self._sam_model_type](checkpoint=self._sam_checkpoint)
-            dev = self._sam_device or device_str
-            sam.to(device=dev)
-            self._sam_predictor = SamPredictor(sam)
-        except Exception as ex:
-            logger.info(f"SAM not available ({ex}); using bbox/pose ROIs")
-            self._sam_predictor = None
-
-    def _sam_refine_rois(self, frame_np: np.ndarray, rois: torch.Tensor) -> torch.Tensor:
-        # frame_np: HxWxC uint8 RGB
-        if not self._sam_enabled or self._sam_predictor is None or rois.numel() == 0:
-            return rois
-        try:
-            self._sam_predictor.set_image(frame_np)
-            refined: List[torch.Tensor] = []
-            H, W, _ = frame_np.shape
-            for r in rois:
-                x1, y1, x2, y2 = [int(v) for v in r.tolist()]
-                box_np = np.array([x1, y1, x2, y2])
-                masks, _, _ = self._sam_predictor.predict(point_coords=None, point_labels=None, box=box_np, multimask_output=False)
-                if masks is None or len(masks) == 0:
-                    refined.append(r)
-                    continue
-                mask = masks[0]
-                ys, xs = np.where(mask)
-                if len(xs) == 0 or len(ys) == 0:
-                    refined.append(r)
-                    continue
-                rx1, ry1, rx2, ry2 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
-                # Slightly expand within original box for OCR context
-                pad = 2
-                rx1 = max(0, rx1 - pad)
-                ry1 = max(0, ry1 - pad)
-                rx2 = min(W - 1, rx2 + pad)
-                ry2 = min(H - 1, ry2 + pad)
-                refined.append(torch.tensor([rx1, ry1, rx2, ry2], dtype=torch.int64, device=rois.device))
-            return torch.stack(refined, dim=0)
-        except Exception as ex:
-            logger.info(f"SAM refine error: {ex}; using original ROIs")
-            return rois
-
-    def _to_numpy_uint8(self, img: torch.Tensor) -> np.ndarray:
-        img = make_channels_last(img)
-        if img.dtype != torch.uint8:
-            if torch.max(img) <= 1.0:
-                img = (img * 255.0).clamp(0, 255)
-            img = img.to(dtype=torch.uint8, non_blocking=True)
-        return img.cpu().numpy()
-
-    def _roi_from_box(self, box: torch.Tensor) -> torch.Tensor:
-        x1, y1, x2, y2 = box
-        w = x2 - x1
-        h = y2 - y1
-        rr_top = y1 + self._roi_top * h
-        rr_bot = y1 + self._roi_bottom * h
-        rr_left = x1 + self._roi_side * w
-        rr_right = x2 - self._roi_side * w
-        coords = torch.tensor([rr_left, rr_top, rr_right, rr_bot], dtype=torch.float32, device=box.device)
-        return torch.round(coords).to(dtype=torch.int64)
-
-    @staticmethod
-    def _bbox_from_keypoints(kpts: torch.Tensor) -> Optional[torch.Tensor]:
-        # kpts: (K,2) or (K, >=2) [x,y,(score...)]
-        if kpts is None or (isinstance(kpts, torch.Tensor) and kpts.numel() == 0):
-            return None
-        if not isinstance(kpts, torch.Tensor):
-            kpts = torch.as_tensor(kpts)
-        xs = kpts[..., 0]
-        ys = kpts[..., 1]
-        if xs.numel() == 0 or ys.numel() == 0:
-            return None
-        x1, y1 = torch.min(xs), torch.min(ys)
-        x2, y2 = torch.max(xs), torch.max(ys)
-        return torch.stack([x1, y1, x2, y2], dim=0)
-
-    def _roi_from_keypoints(self, kpts: torch.Tensor) -> Optional[torch.Tensor]:
-        # Prefer shoulders+hips if present (COCO indices: LShoulder=5, RShoulder=6, LHip=11, RHip=12)
-        try:
-            if isinstance(kpts, np.ndarray):
-                k = torch.from_numpy(kpts)
-            else:
-                k = kpts
-            sel_idx = []
-            for idx in (5, 6, 11, 12):
-                if idx < k.shape[-2]:
-                    sel_idx.append(idx)
-            if sel_idx:
-                subset = k[sel_idx]
-                bb = self._bbox_from_keypoints(subset)
-                if bb is not None:
-                    return self._roi_from_box(bb)
+            here = Path(__file__).resolve()
+            repo_root = here.parents[3]
+            parseq_root = repo_root / "xmodels" / "str" / "parseq"
+            if parseq_root.exists() and str(parseq_root) not in sys.path:
+                sys.path.insert(0, str(parseq_root))
         except Exception:
             pass
-        # Fallback: use all keypoints bbox
-        bb = self._bbox_from_keypoints(kpts)
-        return self._roi_from_box(bb) if bb is not None else None
+        try:
+            from strhub.models.utils import create_model  # type: ignore
+            from strhub.data.module import SceneTextDataModule  # type: ignore
+            import string as _string
+
+            dev = self._parseq_device or device_str
+            charset = _string.digits  # restrict to digits
+            weights = self._parseq_weights
+            model = None
+            if weights:
+                # Attempt manual state_dict load to avoid Lightning dependency
+                state = None
+                # First try default torch.load (may use weights_only=True on torch>=2.6 and fail)
+                try:
+                    state_raw = torch.load(weights, map_location='cpu')
+                    state = state_raw.get('state_dict', state_raw) if isinstance(state_raw, dict) else state_raw
+                except Exception as ex_default:
+                    # Retry with weights_only=False (trusted local ckpt)
+                    try:
+                        state_raw = torch.load(weights, map_location='cpu', weights_only=False)  # type: ignore[call-arg]
+                        state = state_raw.get('state_dict', state_raw) if isinstance(state_raw, dict) else state_raw
+                        logger.info("PARSeq checkpoint loaded with weights_only=False.")
+                    except TypeError:
+                        # Older torch may not accept weights_only; rethrow original
+                        raise ex_default
+                    except Exception as ex2:
+                        logger.info(f"PARSeq checkpoint manual load failed ({ex2}); using uninitialized model.")
+                        state = None
+                if state is not None:
+                    try:
+                        # Derive max_label_length from checkpoint if possible (pos_queries shape = [1, L, C])
+                        ml = 25
+                        try:
+                            for k, v in state.items():
+                                if isinstance(k, str) and k.endswith('pos_queries') and hasattr(v, 'shape'):
+                                    if len(v.shape) >= 2:
+                                        ml = int(v.shape[1] - 1)
+                                        break
+                        except Exception:
+                            pass
+                        model = create_model('parseq', pretrained=False, charset_test=charset, max_label_length=ml)
+                        missing, unexpected = model.load_state_dict(state, strict=False)
+                        if missing:
+                            logger.info(f"PARSeq load: missing keys: {len(missing)}")
+                        if unexpected:
+                            logger.info(f"PARSeq load: unexpected keys: {len(unexpected)}")
+                    except Exception as ex_load:
+                        logger.info(f"PARSeq load_state_dict failed ({ex_load}); proceeding with uninitialized model.")
+            if model is None:
+                # Use a default max_label_length compatible with typical PARSeq checkpoints
+                model = create_model('parseq', pretrained=False, charset_test=charset, max_label_length=25)
+            self._parseq_model = model.eval().to(dev)
+            hp = getattr(self._parseq_model, "hparams", None)
+            img_size = hp.img_size if hp is not None else (32, 128)
+            self._str_transform = SceneTextDataModule.get_transform(img_size)
+        except Exception as ex:
+            self._parseq_model = None
+            self._str_transform = None
+            logger.error(f"Failed to initialize PARSeq STR ({ex}).")
+
+    # ----------------------- Pose/ROI helpers -----------------------
+    @staticmethod
+    def _bbox_from_keypoints(kpts: torch.Tensor) -> Optional[torch.Tensor]:
+        # kpts: (K,2)
+        if kpts is None or not torch.is_tensor(kpts) or kpts.numel() == 0:
+            return None
+        x = kpts[..., 0]
+        y = kpts[..., 1]
+        if x.numel() == 0 or y.numel() == 0:
+            return None
+        x1 = torch.min(x)
+        y1 = torch.min(y)
+        x2 = torch.max(x)
+        y2 = torch.max(y)
+        return torch.stack([x1, y1, x2, y2]).to(dtype=torch.int64)
 
     @staticmethod
-    def _extract_pose_instances(pose_item: Any) -> List[Dict[str, Any]]:
-        """Return list of {keypoints: Tensor} from a pose result item."""
-        out: List[Dict[str, Any]] = []
+    def _iou(a: torch.Tensor, b: torch.Tensor) -> float:
+        # a,b: (4,) xyxy
+        ax1, ay1, ax2, ay2 = a.float()
+        bx1, by1, bx2, by2 = b.float()
+        ix1 = torch.max(ax1, bx1)
+        iy1 = torch.max(ay1, by1)
+        ix2 = torch.min(ax2, bx2)
+        iy2 = torch.min(ay2, by2)
+        iw = torch.clamp(ix2 - ix1, min=0)
+        ih = torch.clamp(iy2 - iy1, min=0)
+        inter = iw * ih
+        area_a = torch.clamp(ax2 - ax1, min=0) * torch.clamp(ay2 - ay1, min=0)
+        area_b = torch.clamp(bx2 - bx1, min=0) * torch.clamp(by2 - by1, min=0)
+        union = area_a + area_b - inter + 1e-6
+        val = float((inter / union).item())
+        return val
+
+    @staticmethod
+    def _extract_pose_instances(pose_result_item: Any) -> Optional[SimpleNamespace]:
         try:
-            preds = pose_item.get("predictions")
+            preds = pose_result_item.get("predictions")
             if isinstance(preds, list) and preds:
                 ds = preds[0]
                 inst = getattr(ds, "pred_instances", None)
-                if inst is not None and hasattr(inst, "keypoints"):
-                    kpts = inst.keypoints
-                    if isinstance(kpts, torch.Tensor):
-                        for i in range(kpts.shape[0]):
-                            out.append({"keypoints": kpts[i]})
-                    else:
-                        # array/list
-                        for kp in kpts:
-                            out.append({"keypoints": torch.as_tensor(kp)})
-                elif isinstance(ds, dict) and "keypoints" in ds:
-                    kpts = ds["keypoints"]
-                    if isinstance(kpts, list):
-                        for kp in kpts:
-                            out.append({"keypoints": torch.as_tensor(kp)})
+                if inst is not None:
+                    return inst
+                if isinstance(ds, dict):
+                    keys = ["bboxes", "scores", "bbox_scores", "labels", "keypoints", "keypoint_scores"]
+                    attrs = {k: ds[k] for k in keys if k in ds}
+                    if attrs:
+                        return SimpleNamespace(**attrs)
         except Exception:
             pass
-        return out
-
-    def _rois_from_pose_matching(self, frame_pose: Any, track_boxes: torch.Tensor) -> Optional[torch.Tensor]:
-        # Build pose bboxes
-        pose_insts = self._extract_pose_instances(frame_pose)
-        if not pose_insts:
-            return None
-        pose_bboxes: List[torch.Tensor] = []
-        pose_rois: List[Optional[torch.Tensor]] = []
-        for p in pose_insts:
-            bb = self._bbox_from_keypoints(p["keypoints"]) or torch.tensor([0,0,0,0], dtype=torch.float32)
-            pose_bboxes.append(bb)
-            pose_rois.append(self._roi_from_keypoints(p["keypoints"]))
-
-        if not pose_bboxes:
-            return None
-        PB = torch.stack(pose_bboxes, dim=0)
-        # IoU match track_boxes (N,4) to pose PB (M,4)
-        N = track_boxes.size(0)
-        M = PB.size(0)
-        rois_out: List[torch.Tensor] = []
-        for i in range(N):
-            tb = track_boxes[i]
-            # Compute IoU with all pose bboxes
-            x1 = torch.max(tb[0], PB[:,0]); y1 = torch.max(tb[1], PB[:,1])
-            x2 = torch.min(tb[2], PB[:,2]); y2 = torch.min(tb[3], PB[:,3])
-            inter = (x2 - x1).clamp_min(0)*(y2 - y1).clamp_min(0)
-            area_tb = (tb[2]-tb[0])*(tb[3]-tb[1])
-            area_pb = (PB[:,2]-PB[:,0])*(PB[:,3]-PB[:,1])
-            union = area_tb + area_pb - inter + 1e-6
-            iou = inter/union
-            j = int(torch.argmax(iou).item())
-            roi = pose_rois[j] if iou[j] > 0.1 and pose_rois[j] is not None else None
-            if roi is None:
-                roi = self._roi_from_box(tb)
-            rois_out.append(roi)
-        return torch.stack(rois_out, dim=0)
+        return None
 
     @staticmethod
-    def _parse_mmocr(results: Dict[str, Any], det_thresh: float, rec_thresh: float) -> List[Tuple[str, int, int, int, float]]:
-        from mmocr.utils import poly2bbox
-        predictions = results.get("predictions")
-        if isinstance(predictions, list) and predictions:
-            predictions = predictions[0]
-        if not isinstance(predictions, dict):
-            return []
-        rec_texts = predictions.get("rec_texts", [])
-        rec_scores = predictions.get("rec_scores", [])
-        det_scores = predictions.get("det_scores", [])
-        det_polygons = predictions.get("det_polygons", [])
-        out: List[Tuple[str, int, int, int, float]] = []
-        N = len(rec_texts)
-        for i in range(N):
-            t = rec_texts[i]
-            if not t or not str(t).isdigit():
-                continue
-            ds = det_scores[i] if i < len(det_scores) else 1.0
-            rs = rec_scores[i] if i < len(rec_scores) else 0.0
-            if ds < det_thresh or rs < rec_thresh:
-                continue
-            try:
-                bbox = poly2bbox(det_polygons[i])
-                cx = int((bbox[0] + bbox[2]) / 2)
-                cy = int((bbox[1] + bbox[3]) / 2)
-                bw = int(bbox[2] - bbox[0])
-            except Exception:
-                continue
-            out.append((str(t), cx, cy, bw, float(rs)))
-        return out
+    def _torso_roi_from_pose(kpts: torch.Tensor, kps: Optional[torch.Tensor], img_w: int, img_h: int) -> Optional[Tuple[int, int, int, int]]:
+        # Use COCO indices: 5=LS, 6=RS, 11=LH, 12=RH
+        try:
+            px = kpts.clone().detach()
+            scores = None
+            if kps is not None and torch.is_tensor(kps) and kps.shape[0] == kpts.shape[0]:
+                scores = kps
+            idxs = [6, 5, 11, 12]
+            pts: List[Tuple[float, float, float]] = []
+            for i in idxs:
+                x = float(px[i, 0].item())
+                y = float(px[i, 1].item())
+                s = float(scores[i].item()) if scores is not None else 1.0
+                pts.append((x, y, s))
+            # Confidence gate
+            if any(p[2] < _CONFIDENCE_THRESHOLD for p in pts):
+                return None
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            x_min = int(max(0, min(xs) - _PADDING))
+            x_max = int(min(img_w - 1, max(xs) + _PADDING))
+            y_min = int(max(0, min(ys) - _PADDING))
+            y_max = int(min(img_h - 1, max(ys)))
+            if x_max <= x_min or y_max <= y_min:
+                return None
+            return (x_min, y_min, x_max, y_max)
+        except Exception:
+            return None
 
-    def _recognize_with_parseq(self, image_np: np.ndarray, det_polygons: List[Any]) -> Optional[List[Tuple[str, float]]]:
-        # Minimal wrapper: attempt to crop bbox from polygon, apply parseq model, greedy decode
+    @staticmethod
+    def _bbox_torso_fallback(box: torch.Tensor, img_w: int, img_h: int) -> Tuple[int, int, int, int]:
+        # Fallback: heuristic torso crop from bbox (top->bottom and slight side margin)
+        x1, y1, x2, y2 = [int(v) for v in box.tolist()]
+        w = x2 - x1
+        # Keep middle vertical band [25%, 95%] and shrink sides by 20%
+        new_x1 = max(0, x1 + int(0.2 * w))
+        new_x2 = min(img_w - 1, x2 - int(0.2 * w))
+        new_y1 = max(0, y1 + int(0.25 * (y2 - y1)))
+        new_y2 = min(img_h - 1, y1 + int(0.95 * (y2 - y1)))
+        if new_x2 <= new_x1 or new_y2 <= new_y1:
+            return (x1, y1, x2, y2)
+        return (new_x1, new_y1, new_x2, new_y2)
+
+    # ----------------------- STR helpers -----------------------
+    @staticmethod
+    def _preprocess_imagenet(x: torch.Tensor) -> torch.Tensor:
+        # x: (C,H,W) in [0,255]
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        x = x / 255.0
+        mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32, device=x.device).view(3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32, device=x.device).view(3, 1, 1)
+        x = (x - mean) / std
+        return x
+
+    def _run_parseq_on_crop(self, crop_chw: torch.Tensor) -> Optional[Tuple[str, List[float]]]:
+        # crop_chw: (3,H,W) uint8 on any device
         if self._parseq_model is None:
             return None
         try:
-            import cv2  # for resize
-        except Exception:
+            from PIL import Image
+
+            # Move to CPU for PIL transform if needed
+            img = crop_chw.detach().to(device="cpu").permute(1, 2, 0).numpy().astype(np.uint8)
+            pil = Image.fromarray(img, mode="RGB")
+            if self._str_transform is None:
+                # Minimal fallback: resize height to 32 while preserving aspect
+                pil = pil.resize((max(16, int(pil.width * 32 / max(1, pil.height))), 32))
+                t = torch.from_numpy(np.asarray(pil)).permute(2, 0, 1).float() / 255.0
+                t = t.unsqueeze(0)
+            else:
+                t = self._str_transform(pil).unsqueeze(0)
+            dev = next(self._parseq_model.parameters()).device
+            with torch.no_grad():
+                logits = self._parseq_model.forward(t.to(dev))
+            # Limit to first 3 positions, tokens up to 10 (E + digits)
+            probs_full = logits[:, :3, :11].softmax(-1)
+            preds, probs = self._parseq_model.tokenizer.decode(probs_full)
+            label = preds[0]
+            conf = probs[0].detach().cpu().numpy().squeeze().tolist()
+            if not isinstance(conf, list):
+                conf = [float(conf)]
+            return str(label), [float(c) for c in conf]
+        except Exception as ex:
+            logger.info(f"PARSeq decode failed: {ex}")
             return None
-        results: List[Tuple[str, float]] = []
-        for poly in det_polygons:
-            try:
-                xs = poly[0::2]
-                ys = poly[1::2]
-                x1, y1, x2, y2 = int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))
-                crop = image_np[max(0,y1):max(0,y2), max(0,x1):max(0,x2), :]
-                if crop.size == 0:
-                    results.append(("", 0.0))
-                    continue
-                gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY)
-                # Resize to a common STR size (H=32, keep aspect)
-                target_h = 32
-                h, w = gray.shape[:2]
-                if h <= 1 or w <= 1:
-                    results.append(("", 0.0))
-                    continue
-                new_w = int(w * (target_h / float(h)))
-                gray = cv2.resize(gray, (new_w, target_h))
-                # To 3-channel and tensor
-                img_t = torch.from_numpy(gray).float().unsqueeze(0).unsqueeze(0) / 255.0
-                # Some PARSeq cuts expect 3 channels; replicate
-                img_t = img_t.repeat(1, 3, 1, 1)
-                dev = next(self._parseq_model.parameters()).device
-                with torch.no_grad():
-                    pred = self._parseq_model(img_t.to(dev))
-                # Best-effort decoding: if pred is logits [B,T,C], take argmax per step and filter non-digits
-                if isinstance(pred, (list, tuple)):
-                    pred = pred[0]
-                if torch.is_tensor(pred):
-                    seq = pred.argmax(dim=-1).squeeze(0).tolist()
-                    # Map to digits if model provides mapping; otherwise fallback
-                    text = ''.join(str(min(9, max(0, int(i)))) for i in seq)
-                    score = 0.9
-                else:
-                    text, score = "", 0.0
-                # Keep only digit strings per the jersey task
-                text_digits = ''.join(ch for ch in text if ch.isdigit())
-                results.append((text_digits, score))
-            except Exception:
-                results.append(("", 0.0))
-        return results
 
-    def _consolidate(self, tid: int, number: int, score: float) -> Tuple[int, float]:
-        self._agg_counts[tid][number] += 1
-        if score > self._agg_max_score[tid]:
-            self._agg_max_score[tid] = score
-        # choose current by highest count; break ties by max score
-        counts = self._agg_counts[tid]
-        best_num = max(counts.items(), key=lambda kv: (kv[1], self._agg_max_score[tid] if kv[0] == self._current_number.get(tid, -1) else 0.0))[0]
-        self._current_number[tid] = best_num
-        return best_num, self._agg_max_score[tid]
+    # ----------------------- Aggregation -----------------------
+    @staticmethod
+    def _double_digit_bias(v: int) -> float:
+        return 0.61 if v > 9 else 0.39
 
+    @staticmethod
+    def _aggregate_track(votes: List[Tuple[int, float]], filter_thresh: float = 0.2, sum_thresh: float = 1.0) -> Tuple[int, float]:
+        if not votes:
+            return -1, 0.0
+        # Filter weak
+        filtered = [(v, w if w >= filter_thresh else 0.0) for (v, w) in votes]
+        # Sum with bias
+        totals: Dict[int, float] = defaultdict(float)
+        for v, w in filtered:
+            totals[v] += w * KoshkinaJerseyNumberTrunk._double_digit_bias(v)
+        best_v = -1
+        best_w = 0.0
+        for k, tot in totals.items():
+            if tot > best_w:
+                best_w = tot
+                best_v = k
+        if best_w < sum_thresh:
+            return -1, best_w
+        return best_v, best_w
+
+    # ----------------------- Main -----------------------
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
-        # Allow dependency injection for tests
-        self._mmocr = context.get("mmocr_inferencer", self._mmocr)
-        self._ensure_mmocr()
 
         data: Dict[str, Any] = context.get("data", {})
         track_samples = data.get("data_samples")
@@ -560,148 +398,152 @@ class KoshkinaJerseyNumberTrunk(Trunk):
             original_images = context.get("data_to_send", {}).get("original_images")
         if original_images is None:
             return {}
-        original_images = make_channels_first(original_images)
+        original_images = make_channels_first(_to_tensor(original_images))
         device = original_images.device
 
-        original_images = _to_tensor(original_images)
-
         self._ensure_legibility(device=device)
-        self._ensure_reid(device=device)
-        self._ensure_sam(device_str=str(device))
         self._ensure_parseq(device_str=str(device))
 
         W = int(image_width(original_images))
         H = int(image_height(original_images))
-        img_size = torch.tensor([W, H], dtype=torch.int64, device=device)
+
+        pose_results: Optional[List[Any]] = data.get("pose_results") or context.get("data_to_send", {}).get("pose_results")
 
         all_jersey_results: List[List[TrackJerseyInfo]] = []
-        pose_results: Optional[List[Any]] = data.get("pose_results") or context.get("data_to_send", {}).get("pose_results")
         for frame_index, img_data_sample in enumerate(track_data_sample.video_data_samples):
             pred_tracks: Optional[InstanceData] = getattr(img_data_sample, "pred_track_instances", None)
-            if pred_tracks is None or (hasattr(pred_tracks, 'bboxes') and len(pred_tracks.bboxes) == 0):
+            if pred_tracks is None or (hasattr(pred_tracks, "bboxes") and len(pred_tracks.bboxes) == 0):
                 all_jersey_results.append([])
                 continue
 
+            # Prepare per-frame inputs
             bboxes_xyxy = pred_tracks.bboxes
             if not isinstance(bboxes_xyxy, torch.Tensor):
                 bboxes_xyxy = torch.as_tensor(bboxes_xyxy, device=device)
-            rois = None
+            tracking_ids = pred_tracks.instances_id
+
+            # Pose matching if requested
+            pose_inst = None
             if self._roi_mode == "pose" and pose_results and frame_index < len(pose_results):
-                try:
-                    rois = self._rois_from_pose_matching(pose_results[frame_index], bboxes_xyxy)
-                except Exception as ex:
-                    logger.info(f"pose ROI matching failed, fallback to bbox: {ex}")
-            elif self._roi_mode == "sam":
-                # Optional SAM-based ROI (not bundled); gracefully fallback
-                logger.info("SAM ROI mode requested but not available; falling back to bbox")
-            if rois is None:
-                rois = torch.stack([self._roi_from_box(bb) for bb in bboxes_xyxy], dim=0)
-            rois = clamp_boxes_to_image(rois, image_size=img_size)
+                pose_inst = self._extract_pose_instances(pose_results[frame_index])
 
-            # Optional SAM refinement
-            if self._sam_enabled and self._sam_predictor is not None:
-                frame_np = self._to_numpy_uint8(original_images[frame_index])
-                rois = self._sam_refine_rois(frame_np, rois)
+            frame_img = original_images[frame_index]  # (C,H,W)
 
-            # Optional legibility filter on individual crops
+            # Build ROIs per track
+            rois: List[Tuple[int, Tuple[int, int, int, int]]] = []  # (index in tracks, (x1,y1,x2,y2))
+            if pose_inst is not None and hasattr(pose_inst, "keypoints"):
+                kpts_all = pose_inst.keypoints  # (N,K,2)
+                kps_all = getattr(pose_inst, "keypoint_scores", None)
+                # Build pose-derived bboxes for IoU
+                pose_bboxes: List[Optional[torch.Tensor]] = []
+                for i in range(kpts_all.shape[0]):
+                    bb = self._bbox_from_keypoints(kpts_all[i])
+                    pose_bboxes.append(bb)
+                # Match each track bbox to best pose
+                for ti in range(bboxes_xyxy.shape[0]):
+                    tb = bboxes_xyxy[ti]
+                    best_iou = 0.0
+                    best_j = -1
+                    for pj, pb in enumerate(pose_bboxes):
+                        if pb is None:
+                            continue
+                        iou = self._iou(tb, pb)
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_j = pj
+                    roi: Optional[Tuple[int, int, int, int]] = None
+                    if best_j >= 0 and best_iou > 0.1:
+                        roi = self._torso_roi_from_pose(kpts_all[best_j], None if kps_all is None else kps_all[best_j], W, H)
+                    if roi is None:
+                        roi = self._bbox_torso_fallback(tb.to(dtype=torch.int64), W, H)
+                    rois.append((ti, roi))
+            else:
+                # Fallback: bbox-based torso crops
+                for ti in range(bboxes_xyxy.shape[0]):
+                    bb = bboxes_xyxy[ti].to(dtype=torch.int64)
+                    rois.append((ti, self._bbox_torso_fallback(bb, W, H)))
+
+            # Optional legibility filtering per-crop
+            keep_indices = list(range(len(rois)))
             if self._legibility_enabled and not isinstance(self._legibility_model, _IdentityLegibility):
-                crops: List[torch.Tensor] = []
-                valid_indices: List[int] = []
-                frame_img = original_images[frame_index]
-                resized_crops: List[torch.Tensor] = []
-                h_target, w_target = self._legibility_crop_size
-                for idx, r in enumerate(rois):
-                    x1, y1, x2, y2 = r.tolist()
+                crops_for_leg: List[torch.Tensor] = []
+                map_idx: List[int] = []
+                for idx, (_, r) in enumerate(rois):
+                    x1, y1, x2, y2 = r
                     crop = frame_img[:, y1:y2, x1:x2]
                     if crop.numel() == 0:
                         continue
-                    crop_resized = F.interpolate(
-                        crop.unsqueeze(0).to(dtype=torch.float32),
-                        size=(h_target, w_target),
-                        mode="bilinear",
-                        align_corners=False,
-                    ).squeeze(0)
-                    resized_crops.append(crop_resized)
-                    valid_indices.append(idx)
-                if not resized_crops:
-                    all_jersey_results.append([])
-                    continue
-                legibility_batch = torch.stack(resized_crops, dim=0)
-                scores = self._legibility_model.forward(legibility_batch)
-                scores = scores.flatten()
-                mask = scores >= self._legibility_threshold
-                if mask.numel() and not torch.all(mask):
-                    keep_positions = mask.nonzero(as_tuple=False).squeeze(-1).tolist()
-                    keep_indices = [valid_indices[i] for i in keep_positions]
-                    rois = rois[keep_indices] if keep_indices else rois[:0]
-                    if rois.numel() == 0:
-                        all_jersey_results.append([])
-                        continue
-                elif mask.numel() == 0:
-                    rois = rois[:0]
-                    all_jersey_results.append([])
-                    continue
-                if len(valid_indices) != rois.shape[0]:
-                    rois = rois[valid_indices] if valid_indices else rois[:0]
-                    if rois.numel() == 0:
-                        all_jersey_results.append([])
-                        continue
+                    crop = F.interpolate(crop.unsqueeze(0).to(dtype=torch.float32), size=(128, 128), mode="bilinear", align_corners=False).squeeze(0)
+                    crop = self._preprocess_imagenet(crop)
+                    crops_for_leg.append(crop)
+                    map_idx.append(idx)
+                if crops_for_leg:
+                    leg_dev = next(self._legibility_model.parameters()).device
+                    batch = torch.stack(crops_for_leg, dim=0).to(device=leg_dev)
+                    with torch.no_grad():
+                        raw = self._legibility_model(batch).flatten()
+                        # Convert to probabilities if model returns logits
+                        if raw.min() < -1e-3 or raw.max() > 1.0 + 1e-3:
+                            raw = torch.sigmoid(raw)
+                        leg_scores = raw.detach().cpu()
+                    # Log a few sample probabilities for early frames to verify values
+                    try:
+                        if frame_index < 2 and leg_scores.numel() > 0:
+                            vals = leg_scores.tolist()
+                            nshow = min(5, len(vals))
+                            samples = [(int(map_idx[i]), float(vals[i])) for i in range(nshow)]
+                            logger.info(
+                                f"Legibility samples (frame {frame_index}): first {nshow} crops idx->prob: {samples}; "
+                                f"stats min={min(vals):.3f} max={max(vals):.3f} mean={float(sum(vals)/len(vals)):.3f}"
+                            )
+                    except Exception:
+                        pass
+                    keep_mask = leg_scores >= self._legibility_threshold
+                    keep_indices = [map_idx[i] for i in keep_mask.nonzero(as_tuple=False).squeeze(-1).tolist()]
+                else:
+                    keep_indices = []
 
-            # (Optional) REID embeddings for occlusion/outlier removal
-            reid_embs = self._extract_reid_embeddings(original_images[frame_index], rois)
+            # STR inference per kept ROI
+            for local_idx in keep_indices:
+                ti, r = rois[local_idx]
+                x1, y1, x2, y2 = r
+                crop = frame_img[:, y1:y2, x1:x2]
+                if crop.numel() == 0 or (y2 - y1) < 4 or (x2 - x1) < 4:
+                    continue
+                # Ensure 3-channel uint8 CHW
+                crop_u8 = crop.detach().to(device="cpu")
+                if crop_u8.dtype != torch.uint8:
+                    crop_u8 = crop_u8.clamp(0, 255).to(torch.uint8)
+                if crop_u8.shape[0] == 1:
+                    crop_u8 = crop_u8.repeat(3, 1, 1)
+                elif crop_u8.shape[0] == 2:
+                    crop_u8 = torch.cat([crop_u8, crop_u8[:1]], dim=0)
 
-            # Pack ROIs into a single image and OCR
-            frame_img = original_images[frame_index]
-            packed_image, index_map = pack_bounding_boxes_as_tiles(frame_img, rois)
-            np_image = self._to_numpy_uint8(packed_image)
-            results = self._mmocr(np_image, progress_bar=False)
-            # results = self._mmocr(packed_image)
-            centers = self._parse_mmocr(results, det_thresh=self._det_thresh, rec_thresh=self._rec_thresh)
-            # Optionally swap recognition with PARSeq: reuse detected polygons and replace rec_texts/scores
-            if self._str_backend == "parseq" and self._parseq_model is not None:
+                res = self._run_parseq_on_crop(crop_u8)
+                if res is None:
+                    continue
+                label, conf_list = res
+                if not _is_valid_number(label):
+                    continue
+                # Multiply token probabilities except the last end token if present
+                if len(conf_list) > 1:
+                    total_prob = float(np.prod(conf_list[:-1]))
+                else:
+                    total_prob = float(np.prod(conf_list))
                 try:
-                    preds = results.get("predictions")
-                    if isinstance(preds, list) and preds:
-                        pred0 = preds[0]
-                        det_polys = pred0.get("det_polygons", [])
-                        parseq_recs = self._recognize_with_parseq(np_image, det_polys) or []
-                        # Rebuild centers with PARSeq texts/scores where available
-                        from mmocr.utils import poly2bbox
-                        centers = []
-                        for i, poly in enumerate(det_polys):
-                            try:
-                                bbox = poly2bbox(poly)
-                                cx = int((bbox[0] + bbox[2]) / 2)
-                                cy = int((bbox[1] + bbox[3]) / 2)
-                                bw = int(bbox[2] - bbox[0])
-                            except Exception:
-                                continue
-                            text, score = ("", 0.0)
-                            if i < len(parseq_recs):
-                                text, score = parseq_recs[i]
-                            if text and all(ch.isdigit() for ch in text):
-                                centers.append((text, cx, cy, bw, float(score)))
-                    # else: keep MMOCR centers
-                except Exception as ex:
-                    logger.info(f"PARSeq substitution failed ({ex}); using MMOCR rec results")
+                    number_val = int(label)
+                except Exception:
+                    continue
+                tid = int(tracking_ids[ti])
+                self._votes[tid].append((number_val, total_prob))
 
+            # Consolidate for visible tracks this frame
             jersey_results: List[TrackJerseyInfo] = []
-            seen = set()
-            tracking_ids = pred_tracks.instances_id
-            for text, x, y, w, score in centers:
-                roi_idx = int(get_original_bbox_index_from_tiled_image(index_map, y=y, x=x))
-                if roi_idx < 0 or roi_idx >= len(tracking_ids):
-                    continue
-                tid = int(tracking_ids[roi_idx])
-                if tid in seen:
-                    continue
-                seen.add(tid)
-                number = int(text)
-                emb = reid_embs[roi_idx] if reid_embs is not None and roi_idx < len(reid_embs) else None
-                if self._reid_accept(tid, emb):
-                    consolidated_num, best_score = self._consolidate(tid, number, float(score))
-                    jersey_results.append(TrackJerseyInfo(tracking_id=tid, number=consolidated_num, score=best_score))
-
+            for ti in range(bboxes_xyxy.shape[0]):
+                tid = int(tracking_ids[ti])
+                best_num, best_w = self._aggregate_track(self._votes.get(tid, []))
+                if best_num > 0:
+                    jersey_results.append(TrackJerseyInfo(tracking_id=tid, number=best_num, score=float(best_w)))
             all_jersey_results.append(jersey_results)
 
         data["jersey_results"] = all_jersey_results
