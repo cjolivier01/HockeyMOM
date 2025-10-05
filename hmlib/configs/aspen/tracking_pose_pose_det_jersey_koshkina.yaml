@@ -89,10 +89,10 @@ trunks:
       roi_mode: bbox
 
       # STR backend: 'mmocr' (default) or 'parseq'
-      # str_backend: mmocr
-      str_backend: parseq
-      parseq_weights: "pretrained/parseq/jersey/hockey/epoch=3-step=95-val_accuracy=98.7903-val_NED=99.3952.ckpt"
-      parseq_device: cuda
+      str_backend: mmocr
+      # str_backend: parseq
+      # parseq_weights: "pretrained/parseq/jersey/hockey/epoch=3-step=95-val_accuracy=98.7903-val_NED=99.3952.ckpt"
+      # parseq_device: cuda
       # parseq_weights: /abs/path/to/parseq.ckpt   # optional; if omitted, tries pretrained
       # parseq_device: cuda                        # optional; defaults to image device
 

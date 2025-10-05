@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from mmengine.structures import InstanceData
 
 from hmlib.aspen.trunks.base import Trunk
@@ -111,6 +112,7 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         self._parseq_weights = parseq_weights
         self._parseq_device = parseq_device
         self._parseq_model = None
+        self._legibility_crop_size: Tuple[int, int] = (128, 128)
         self._agg_counts: Dict[int, Dict[int, int]] = defaultdict(lambda: defaultdict(int))
         self._agg_max_score: Dict[int, float] = defaultdict(float)
         self._current_number: Dict[int, int] = {}
@@ -216,6 +218,7 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         except Exception as ex:
             logger.info(f"PARSeq not available ({ex}); falling back to MMOCR rec backend")
             self._parseq_model = None
+        self._legibility_crop_size: Tuple[int, int] = (128, 128)
 
     @staticmethod
     def _preprocess_imagenet(x: torch.Tensor) -> torch.Tensor:
@@ -603,16 +606,43 @@ class KoshkinaJerseyNumberTrunk(Trunk):
             # Optional legibility filter on individual crops
             if self._legibility_enabled and not isinstance(self._legibility_model, _IdentityLegibility):
                 crops: List[torch.Tensor] = []
+                valid_indices: List[int] = []
                 frame_img = original_images[frame_index]
-                for r in rois:
+                resized_crops: List[torch.Tensor] = []
+                h_target, w_target = self._legibility_crop_size
+                for idx, r in enumerate(rois):
                     x1, y1, x2, y2 = r.tolist()
-                    crops.append(frame_img[:, y1:y2, x1:x2])
-                # Simple resize/pad as needed could be added here
-                scores = self._legibility_model.forward(torch.stack([c for c in crops if c.numel() > 0], dim=0))
-                mask = scores.squeeze(-1) >= self._legibility_threshold
+                    crop = frame_img[:, y1:y2, x1:x2]
+                    if crop.numel() == 0:
+                        continue
+                    crop_resized = F.interpolate(
+                        crop.unsqueeze(0).to(dtype=torch.float32),
+                        size=(h_target, w_target),
+                        mode="bilinear",
+                        align_corners=False,
+                    ).squeeze(0)
+                    resized_crops.append(crop_resized)
+                    valid_indices.append(idx)
+                if not resized_crops:
+                    all_jersey_results.append([])
+                    continue
+                legibility_batch = torch.stack(resized_crops, dim=0)
+                scores = self._legibility_model.forward(legibility_batch)
+                scores = scores.flatten()
+                mask = scores >= self._legibility_threshold
                 if mask.numel() and not torch.all(mask):
-                    idxs = torch.nonzero(mask, as_tuple=False).squeeze(1).tolist()
-                    rois = rois[idxs] if len(idxs) else rois[:0]
+                    keep_positions = mask.nonzero(as_tuple=False).squeeze(-1).tolist()
+                    keep_indices = [valid_indices[i] for i in keep_positions]
+                    rois = rois[keep_indices] if keep_indices else rois[:0]
+                    if rois.numel() == 0:
+                        all_jersey_results.append([])
+                        continue
+                elif mask.numel() == 0:
+                    rois = rois[:0]
+                    all_jersey_results.append([])
+                    continue
+                if len(valid_indices) != rois.shape[0]:
+                    rois = rois[valid_indices] if valid_indices else rois[:0]
                     if rois.numel() == 0:
                         all_jersey_results.append([])
                         continue
