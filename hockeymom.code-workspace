@@ -26,6 +26,9 @@
     },
     {
       "path": "../hm-cupano"
+    },
+    {
+      "path": "../jersey-number-pipeline"
     }
   ],
   "settings": {
