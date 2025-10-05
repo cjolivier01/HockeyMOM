@@ -15,8 +15,18 @@ from hmlib.bbox.tiling import (
     pack_bounding_boxes_as_tiles,
 )
 from hmlib.jersey.number_classifier import TrackJerseyInfo
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.log import logger
+from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
+
+
+def _to_tensor(x: Any) -> torch.Tensor:
+    if isinstance(x, torch.Tensor):
+        return x
+    if isinstance(x, StreamTensor):
+        return x.wait()
+    assert isinstance(x, np.ndarray)
+    return torch.from_numpy(x)
 
 
 class _IdentityLegibility(nn.Module):
@@ -138,7 +148,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
             return
         if self._reid_backend == "centroid":
             # Try to initialize centroid-reid from a user-provided path or env var
-            import os, sys
+            import os
+            import sys
+
             path = self._centroid_reid_path or os.environ.get("HM_CENTROID_REID_PATH")
             try:
                 if path and path not in sys.path:
@@ -186,6 +198,7 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         try:
             # Attempt to import PARSeq from strhub if installed
             from strhub.models.parseq.system import parseq  # type: ignore
+
             # Some distributions provide a convenience builder
             if self._parseq_weights:
                 # Expecting a lightning checkpoint; fall back if load fails
@@ -263,7 +276,8 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         if not self._sam_enabled or self._sam_predictor is not None:
             return
         try:
-            from segment_anything import sam_model_registry, SamPredictor  # type: ignore
+            from segment_anything import SamPredictor, sam_model_registry  # type: ignore
+
             if not self._sam_checkpoint:
                 logger.info("SAM enabled but no checkpoint provided; skipping SAM and using bbox/pose ROIs")
                 return
@@ -545,6 +559,8 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         original_images = make_channels_first(original_images)
         device = original_images.device
 
+        original_images = _to_tensor(original_images)
+
         self._ensure_legibility(device=device)
         self._ensure_reid(device=device)
         self._ensure_sam(device_str=str(device))
@@ -607,7 +623,8 @@ class KoshkinaJerseyNumberTrunk(Trunk):
             frame_img = original_images[frame_index]
             packed_image, index_map = pack_bounding_boxes_as_tiles(frame_img, rois)
             np_image = self._to_numpy_uint8(packed_image)
-            results = self._mmocr(np_image)
+            results = self._mmocr(np_image, progress_bar=False)
+            # results = self._mmocr(packed_image)
             centers = self._parse_mmocr(results, det_thresh=self._det_thresh, rec_thresh=self._rec_thresh)
             # Optionally swap recognition with PARSeq: reuse detected polygons and replace rec_texts/scores
             if self._str_backend == "parseq" and self._parseq_model is not None:
