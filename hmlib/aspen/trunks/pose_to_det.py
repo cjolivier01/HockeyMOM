@@ -129,6 +129,33 @@ class PoseToDetTrunk(Trunk):
             # Best-effort: clip to min length
             video_len = min(video_len, len(pose_results))
 
+        def _to_bboxes_2d(x):
+            if not isinstance(x, torch.Tensor):
+                x = torch.as_tensor(x)
+            if x.ndim == 1:
+                # If empty, reshape to (0, 4); if size==4, make (1,4)
+                if x.numel() == 0:
+                    return x.reshape(0, 4)
+                x = x.unsqueeze(0)
+            # Only keep xyxy if extra cols are present
+            if x.size(-1) > 4:
+                x = x[..., :4]
+            return x
+
+        def _to_tensor_1d(x, dtype=None, device=None):
+            if not isinstance(x, torch.Tensor):
+                x = torch.as_tensor(x, device=device)
+            if x.ndim > 1:
+                # squeeze trailing dims like (N,1)->(N)
+                x = x.view(x.shape[0])
+            if x.ndim == 0:
+                x = x.unsqueeze(0)
+            if dtype is not None:
+                x = x.to(dtype=dtype)
+            if device is not None and x.device != device:
+                x = x.to(device=device)
+            return x
+
         for frame_index in range(video_len):
             img_data_sample = track_data_sample[frame_index]
             inst = self._extract_instances(pose_results[frame_index])
@@ -160,24 +187,13 @@ class PoseToDetTrunk(Trunk):
                 # Nothing to attach for this frame
                 continue
 
-            # scores: prefer bbox_scores, then provided score_key, then 'scores',
-            # else fallback to mean keypoint score or ones.
+            # scores: prefer bbox_scores; if missing, derive from keypoint_scores; fallback to ones.
             scores = None
             try:
                 if hasattr(inst, "bbox_scores"):
-                    scores = inst.bbox_scores
+                    scores = getattr(inst, "bbox_scores")
             except Exception:
                 scores = None
-            if scores is None and self._score_key and hasattr(inst, self._score_key):
-                try:
-                    scores = getattr(inst, self._score_key)
-                except Exception:
-                    scores = None
-            if scores is None and hasattr(inst, "scores"):
-                try:
-                    scores = inst.scores
-                except Exception:
-                    scores = None
             if scores is None and hasattr(inst, "keypoint_scores"):
                 try:
                     kps = inst.keypoint_scores  # (N, K)
@@ -185,11 +201,21 @@ class PoseToDetTrunk(Trunk):
                         scores = torch.mean(kps, dim=1)
                 except Exception:
                     scores = None
+            # Normalize shapes and lengths
+            bboxes = _to_bboxes_2d(bboxes)
+            N = int(bboxes.shape[0])
             if scores is None:
-                scores = torch.ones((bboxes.shape[0],), dtype=torch.float32, device=bboxes.device)
+                scores = torch.ones((N,), dtype=torch.float32, device=bboxes.device)
+            scores = _to_tensor_1d(scores, dtype=torch.float32, device=bboxes.device)
+            if len(scores) != N:
+                # If a single score is provided, broadcast it; otherwise fallback to ones
+                if len(scores) == 1 and N > 1:
+                    scores = scores.expand(N).clone()
+                else:
+                    scores = torch.ones((N,), dtype=torch.float32, device=bboxes.device)
 
             # labels: assign default category (e.g., person=0)
-            labels = torch.full((bboxes.shape[0],), int(self._default_label), dtype=torch.long, device=bboxes.device)
+            labels = torch.full((N,), int(self._default_label), dtype=torch.long, device=bboxes.device)
 
             if self._score_adder is not None and self._score_adder != 0.0:
                 scores += self._score_adder

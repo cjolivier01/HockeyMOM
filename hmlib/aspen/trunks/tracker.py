@@ -144,12 +144,26 @@ class TrackerTrunk(Trunk):
                 det_bboxes = _to_bboxes_2d(det_bboxes)
                 det_labels = _to_tensor_1d(det_labels).to(dtype=torch.long)
                 det_scores = _to_tensor_1d(det_scores).to(dtype=torch.float32)
+                # Ensure aligned lengths to bbox count
+                N = int(det_bboxes.shape[0])
+                if len(det_labels) != N:
+                    if len(det_labels) == 1 and N > 1:
+                        det_labels = det_labels.expand(N).clone()
+                    else:
+                        det_labels = torch.full((N,), int(det_labels[0].item()) if len(det_labels) else 0,
+                                                dtype=torch.long, device=det_bboxes.device)
+                if len(det_scores) != N:
+                    if len(det_scores) == 1 and N > 1:
+                        det_scores = det_scores.expand(N).clone()
+                    else:
+                        det_scores = torch.ones((N,), dtype=torch.float32, device=det_bboxes.device)
 
                 # Update pred_instances with pruned results
                 new_inst = InstanceData()
-                new_inst.scores = det_scores
-                new_inst.labels = det_labels
+                # Set bboxes first to define the authoritative length
                 new_inst.bboxes = det_bboxes
+                new_inst.labels = det_labels
+                new_inst.scores = det_scores
                 img_data_sample.pred_instances = new_inst
 
             # Provide frame id for tracker aging
@@ -165,6 +179,19 @@ class TrackerTrunk(Trunk):
             det_bboxes = _to_bboxes_2d(det_bboxes)
             det_labels = _to_tensor_1d(det_labels).to(dtype=torch.long)
             det_scores = _to_tensor_1d(det_scores).to(dtype=torch.float32)
+            # Align lengths defensively
+            N = int(det_bboxes.shape[0])
+            if len(det_labels) != N:
+                if len(det_labels) == 1 and N > 1:
+                    det_labels = det_labels.expand(N).clone()
+                else:
+                    det_labels = torch.full((N,), int(det_labels[0].item()) if len(det_labels) else 0,
+                                            dtype=torch.long, device=det_bboxes.device)
+            if len(det_scores) != N:
+                if len(det_scores) == 1 and N > 1:
+                    det_scores = det_scores.expand(N).clone()
+                else:
+                    det_scores = torch.ones((N,), dtype=torch.float32, device=det_bboxes.device)
 
             ll1 = len(det_bboxes)
             assert len(det_labels) == ll1 and len(det_scores) == ll1
