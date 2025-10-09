@@ -227,6 +227,12 @@ class PoseToDetTrunk(Trunk):
             new_inst.bboxes = bboxes
             new_inst.scores = scores
             new_inst.labels = labels
+            # Frame-local source indices into the pose instances for this frame
+            try:
+                N = int(bboxes.shape[0])
+                new_inst.source_pose_index = torch.arange(N, dtype=torch.int64, device=bboxes.device)
+            except Exception:
+                pass
 
             img_data_sample.pred_instances = new_inst
 

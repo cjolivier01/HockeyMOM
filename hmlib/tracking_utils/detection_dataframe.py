@@ -17,6 +17,7 @@ class DetectionDataFrame(HmDataFrameBase):
             "BBox_Y2",
             "Scores",
             "Labels",
+            "PoseIndex",
         ]
         super().__init__(*args, fields=fields, **kwargs)
 
@@ -32,9 +33,16 @@ class DetectionDataFrame(HmDataFrameBase):
         scores: np.ndarray,
         labels: np.ndarray,
         bboxes: np.ndarray,
+        pose_indices: np.ndarray | None = None,
     ):
         frame_id = int(frame_id)
         bboxes = self._make_array(bboxes)
+        if pose_indices is None:
+            pose_indices = -np.ones((len(bboxes),), dtype=np.int64)
+        else:
+            if isinstance(pose_indices, torch.Tensor):
+                pose_indices = pose_indices.to("cpu").numpy()
+            pose_indices = pose_indices.astype(np.int64, copy=False)
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(bboxes))],
@@ -44,6 +52,7 @@ class DetectionDataFrame(HmDataFrameBase):
                 "BBox_Y2": bboxes[:, 3],
                 "Scores": self._make_array(scores),
                 "Labels": self._make_array(labels),
+                "PoseIndex": pose_indices,
             }
         )
         self._dataframe_list.append(new_record)
@@ -80,8 +89,12 @@ class DetectionDataFrame(HmDataFrameBase):
         scores = frame_data["Scores"].to_numpy()
         labels = frame_data["Labels"].to_numpy()
         bboxes = frame_data[["BBox_X1", "BBox_Y1", "BBox_X2", "BBox_Y2"]].to_numpy()
+        pose_indices = (
+            frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
+        )
         return dict(
             scores=self._to_outgoing_array(scores),
             labels=self._to_outgoing_array(labels),
             bboxes=self._to_outgoing_array(bboxes),
+            pose_indices=pose_indices,
         )

@@ -53,6 +53,7 @@ class SaveDetectionsTrunk(Trunk):
                     scores=np.empty((0,), dtype=np.float32),
                     labels=np.empty((0,), dtype=np.int64),
                     bboxes=np.empty((0, 4), dtype=np.float32),
+                    pose_indices=np.empty((0,), dtype=np.int64),
                 )
                 continue
             # Determine frame id
@@ -65,11 +66,13 @@ class SaveDetectionsTrunk(Trunk):
             if fid is None:
                 fid = frame_id0 + i
 
+            pose_indices = getattr(inst, "source_pose_index", None)
             df.add_frame_records(
                 frame_id=int(fid),
                 scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
                 labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
                 bboxes=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
+                pose_indices=pose_indices,
             )
 
         return {}
@@ -92,8 +95,10 @@ class SaveTrackingTrunk(Trunk):
       - jersey_results: Optional per-frame jersey info list
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, pose_iou_thresh: float = 0.3):
         super().__init__(enabled=enabled)
+        # Default fallback IoU threshold if we must infer mapping
+        self._pose_iou_thresh = float(pose_iou_thresh)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -106,6 +111,7 @@ class SaveTrackingTrunk(Trunk):
         data: Dict[str, Any] = context.get("data", {})
         jersey_results_all = data.get("jersey_results") or context.get("jersey_results")
         frame_id0: int = int(context.get("frame_id", -1))
+        pose_results_all = data.get("pose_results")  # mirrored by PoseToDetTrunk
 
         track_samples = data.get("data_samples")
         if track_samples is None:
@@ -117,6 +123,55 @@ class SaveTrackingTrunk(Trunk):
             track_data_sample = track_samples
 
         video_len = len(track_data_sample)
+        def _extract_pose_bboxes(pose_item: Any):
+            # Borrow the logic from PoseToDetTrunk for deriving bboxes
+            try:
+                preds = pose_item.get("predictions")
+            except Exception:
+                preds = None
+            if not isinstance(preds, list) or not preds:
+                return torch.empty((0, 4), dtype=torch.float32)
+            ds = preds[0]
+            inst = getattr(ds, "pred_instances", None)
+            # Helper to ensure (N,4) xyxy
+            def _to_bboxes_2d(x):
+                if not isinstance(x, torch.Tensor):
+                    x = torch.as_tensor(x)
+                if x.ndim == 1:
+                    if x.numel() == 0:
+                        return x.reshape(0, 4)
+                    x = x.unsqueeze(0)
+                if x.size(-1) > 4:
+                    x = x[..., :4]
+                return x.to(dtype=torch.float32)
+            # Prefer explicit bboxes
+            if inst is not None and hasattr(inst, "bboxes"):
+                try:
+                    return _to_bboxes_2d(inst.bboxes)
+                except Exception:
+                    pass
+            # Fallback: compute from keypoints
+            kpts = None
+            if inst is not None and hasattr(inst, "keypoints"):
+                kpts = inst.keypoints
+            elif isinstance(ds, dict) and "keypoints" in ds:
+                kpts = ds["keypoints"]
+            if isinstance(kpts, torch.Tensor) and kpts.ndim >= 3 and kpts.shape[-1] >= 2:
+                x = kpts[..., 0]
+                y = kpts[..., 1]
+                x1 = torch.min(x, dim=1).values
+                y1 = torch.min(y, dim=1).values
+                x2 = torch.max(x, dim=1).values
+                y2 = torch.max(y, dim=1).values
+                return torch.stack([x1, y1, x2, y2], dim=1).to(dtype=torch.float32)
+            return torch.empty((0, 4), dtype=torch.float32)
+
+        # IoU util expects xyxy if flag set
+        try:
+            from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
+        except Exception:
+            from hmlib.utils.utils import bbox_iou as _bbox_iou
+
         for i in range(video_len):
             img_data_sample = track_data_sample[i]
             inst = getattr(img_data_sample, "pred_track_instances", None)
@@ -129,11 +184,43 @@ class SaveTrackingTrunk(Trunk):
                     scores=np.empty((0,), dtype=np.float32),
                     labels=np.empty((0,), dtype=np.int64),
                     jersey_info=None,
+                    pose_indices=np.empty((0,), dtype=np.int64),
                 )
                 continue
             jersey_results = (
                 jersey_results_all[i] if isinstance(jersey_results_all, list) and i < len(jersey_results_all) else None
             )
+
+            # Prefer direct propagation if tracker attached source indices
+            pose_indices = getattr(inst, "source_pose_index", None)
+            if pose_indices is None:
+                # Fallback: infer by IoU if pose results exist in context
+                try:
+                    if isinstance(pose_results_all, list) and i < len(pose_results_all):
+                        track_bboxes = getattr(inst, "bboxes", None)
+                        if track_bboxes is not None:
+                            tb = track_bboxes
+                            if not isinstance(tb, torch.Tensor):
+                                tb = torch.as_tensor(tb)
+                            if tb.ndim == 1:
+                                if tb.numel() == 0:
+                                    tb = tb.reshape(0, 4)
+                                else:
+                                    tb = tb.unsqueeze(0)
+                            tb = tb.to(dtype=torch.float32)
+                            pb = _extract_pose_bboxes(pose_results_all[i])
+                            if pb is not None and len(pb) and len(tb):
+                                iou = _bbox_iou(tb, pb, x1y1x2y2=True)  # (Nt, Np)
+                                best_iou, best_idx = torch.max(iou, dim=1)
+                                pose_indices = torch.where(
+                                    best_iou >= self._pose_iou_thresh,
+                                    best_idx.to(dtype=torch.int64),
+                                    torch.full_like(best_idx, fill_value=-1, dtype=torch.int64),
+                                )
+                            else:
+                                pose_indices = torch.full((len(tb),), -1, dtype=torch.int64)
+                except Exception:
+                    pose_indices = None
             df.add_frame_records(
                 frame_id=frame_id0 + i,
                 tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
@@ -141,6 +228,7 @@ class SaveTrackingTrunk(Trunk):
                 scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
                 labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
                 jersey_info=jersey_results,
+                pose_indices=pose_indices,
             )
         return {}
 

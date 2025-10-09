@@ -25,6 +25,7 @@ class TrackingDataFrame(HmDataFrameBase):
             "Labels",
             "Visibility",
             "JerseyInfo",
+            "PoseIndex",
         ]
         super().__init__(*args, fields=fields, input_batch_size=input_batch_size, **kwargs)
 
@@ -37,6 +38,7 @@ class TrackingDataFrame(HmDataFrameBase):
         jersey_info: List[TrackJerseyInfo] = None,
         tlbr: Optional[np.ndarray] = None,
         tlwh: Optional[np.ndarray] = None,
+        pose_indices: Optional[np.ndarray] = None,
     ):
         if tlwh is None:
             assert tlbr is not None
@@ -48,6 +50,13 @@ class TrackingDataFrame(HmDataFrameBase):
         tlwh = self._make_array(tlwh)
         scores = self._make_array(scores)
         labels = self._make_array(labels)
+        # Pose index cross-reference (per track in this frame); -1 if unknown
+        if pose_indices is None:
+            pose_indices = -np.ones((len(tracking_ids),), dtype=np.int64)
+        else:
+            if isinstance(pose_indices, torch.Tensor):
+                pose_indices = pose_indices.to("cpu").numpy()
+            pose_indices = pose_indices.astype(np.int64, copy=False)
         jersey_dict: Dict[int, TrackJerseyInfo] = {}
         if jersey_info is not None:
             for j_info in jersey_info:
@@ -75,6 +84,7 @@ class TrackingDataFrame(HmDataFrameBase):
                 "Labels": labels,
                 "Visibility": [-1 for _ in range(len(tracking_ids))],
                 "JerseyInfo": [_jersey_item(t_id) for t_id in tracking_ids],
+                "PoseIndex": pose_indices,
             }
         )
         self._dataframe_list.append(new_record)
@@ -107,6 +117,7 @@ class TrackingDataFrame(HmDataFrameBase):
         labels = frame_data["Labels"].to_numpy()
         tlwh = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
         jersey_info = frame_data["JerseyInfo"]
+        pose_indices = frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
 
         all_track_jersey_info: List[Optional[TrackJerseyInfo]] = []
         for tid, jersey in zip(tracking_ids, jersey_info):
@@ -122,4 +133,5 @@ class TrackingDataFrame(HmDataFrameBase):
             bboxes=tlwh,
             labels=labels,
             jersey_info=all_track_jersey_info,
+            pose_indices=pose_indices,
         )

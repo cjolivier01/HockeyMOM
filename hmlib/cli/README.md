@@ -44,6 +44,12 @@ hmtrack --input-video path/to/stitched_output-with-audio.mp4 --output tracking.m
 - `--output-video <file>` and `--no-save-video` — Control rendered output
 - `--checkpoint` / `--detector` / `--reid` — Override model weights
 
+### Data artifacts and cross‑references
+- `tracking.csv` now includes a `PoseIndex` column per row. In pose→det mode this is a direct mapping from track to the corresponding pose instance index for that frame (−1 if unavailable). If post‑det filters changed boxes, a conservative IoU fallback is used.
+- `detections.csv` also includes `PoseIndex`, mapping each detection back to the frame‑local pose instance index when available.
+- `pose.csv` stores `PoseJSON` with a `predictions` list; the `PoseIndex` refers to the 0‑based index within that list for the frame.
+- Default IoU threshold for linking is 0.3 and can be adjusted in Aspen configs by setting `save_tracking.params.pose_iou_thresh`.
+
 ---
 
 ## hmstitch — Stitch left/right camera videos

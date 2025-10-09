@@ -122,6 +122,7 @@ class TrackerTrunk(Trunk):
             det_bboxes = det_instances.bboxes
             det_labels = det_instances.labels
             det_scores = det_instances.scores
+            det_src_pose_idx = getattr(det_instances, "source_pose_index", None)
 
             # Prepare optional post-detection pipeline input
             if self._post_det_compose is not None:
@@ -136,14 +137,62 @@ class TrackerTrunk(Trunk):
                 if dataset_results:
                     pd_input["dataset_results"] = dataset_results
                 pd_output = self._post_det_compose(pd_input)
-                det_bboxes = pd_output["det_bboxes"]
-                det_labels = pd_output["labels"]
-                det_scores = pd_output["scores"]
+                new_bboxes = pd_output["det_bboxes"]
+                new_labels = pd_output["labels"]
+                new_scores = pd_output["scores"]
+
+                # Try to propagate source pose indices through post-det filtering
+                new_src_pose_idx = None
+                try:
+                    if det_src_pose_idx is not None:
+                        ob = det_bboxes
+                        nb = new_bboxes
+                        # Normalize to tensors
+                        if not isinstance(ob, torch.Tensor):
+                            ob = torch.as_tensor(ob)
+                        if not isinstance(nb, torch.Tensor):
+                            nb = torch.as_tensor(nb)
+                        if ob.ndim == 1:
+                            ob = ob.reshape(-1, 4)
+                        if nb.ndim == 1:
+                            nb = nb.reshape(-1, 4)
+                        # If counts unchanged, assume order preserved
+                        if len(nb) == len(ob):
+                            new_src_pose_idx = det_src_pose_idx
+                        else:
+                            new_src_pose_idx = torch.full((len(nb),), -1, dtype=torch.int64, device=nb.device)
+                            if len(ob) and len(nb):
+                                # First exact match (with tolerance)
+                                for j in range(len(nb)):
+                                    eq = torch.isclose(nb[j], ob).all(dim=1) if len(ob) else torch.zeros((0,), dtype=torch.bool)
+                                    match_idx = torch.nonzero(eq).reshape(-1)
+                                    if len(match_idx) == 1:
+                                        k = int(match_idx[0].item())
+                                        try:
+                                            new_src_pose_idx[j] = det_src_pose_idx[k]
+                                        except Exception:
+                                            pass
+                                # If some remain -1, map by IoU best
+                                if (new_src_pose_idx < 0).any():
+                                    try:
+                                        from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
+                                    except Exception:
+                                        from hmlib.utils.utils import bbox_iou as _bbox_iou
+                                    iou = _bbox_iou(nb.to(dtype=torch.float32), ob.to(dtype=torch.float32), x1y1x2y2=True)
+                                    best_iou, best_idx = torch.max(iou, dim=1)
+                                    for j in range(len(nb)):
+                                        if new_src_pose_idx[j] < 0 and best_iou[j] > 0:
+                                            try:
+                                                new_src_pose_idx[j] = det_src_pose_idx[int(best_idx[j].item())]
+                                            except Exception:
+                                                pass
+                except Exception:
+                    new_src_pose_idx = None
 
                 # Normalize shapes/types for InstanceData
-                det_bboxes = _to_bboxes_2d(det_bboxes)
-                det_labels = _to_tensor_1d(det_labels).to(dtype=torch.long)
-                det_scores = _to_tensor_1d(det_scores).to(dtype=torch.float32)
+                det_bboxes = _to_bboxes_2d(new_bboxes)
+                det_labels = _to_tensor_1d(new_labels).to(dtype=torch.long)
+                det_scores = _to_tensor_1d(new_scores).to(dtype=torch.float32)
                 # Ensure aligned lengths to bbox count
                 N = int(det_bboxes.shape[0])
                 if len(det_labels) != N:
@@ -164,6 +213,15 @@ class TrackerTrunk(Trunk):
                 new_inst.bboxes = det_bboxes
                 new_inst.labels = det_labels
                 new_inst.scores = det_scores
+                if new_src_pose_idx is not None:
+                    try:
+                        if not isinstance(new_src_pose_idx, torch.Tensor):
+                            new_src_pose_idx = torch.as_tensor(new_src_pose_idx, device=det_bboxes.device)
+                        if len(new_src_pose_idx) != N:
+                            new_src_pose_idx = torch.full((N,), -1, dtype=torch.int64, device=det_bboxes.device)
+                        new_inst.source_pose_index = new_src_pose_idx.to(dtype=torch.int64)
+                    except Exception:
+                        pass
                 img_data_sample.pred_instances = new_inst
 
             # Provide frame id for tracker aging
@@ -215,6 +273,47 @@ class TrackerTrunk(Trunk):
                 scores=results["scores"].cpu(),
                 labels=results["labels"].cpu(),
             )
+            # Propagate source pose indices from detections to per-frame tracks
+            try:
+                src_idx = getattr(img_data_sample.pred_instances, "source_pose_index", None)
+                if src_idx is not None:
+                    tb = pred_track_instances.bboxes
+                    db = img_data_sample.pred_instances.bboxes
+                    if not isinstance(tb, torch.Tensor):
+                        tb = torch.as_tensor(tb)
+                    if not isinstance(db, torch.Tensor):
+                        db = torch.as_tensor(db)
+                    if tb.ndim == 1:
+                        tb = tb.reshape(-1, 4)
+                    if db.ndim == 1:
+                        db = db.reshape(-1, 4)
+                    mapped = torch.full((len(tb),), -1, dtype=torch.int64)
+                    # Try exact match first
+                    for j in range(len(tb)):
+                        eq = torch.isclose(tb[j], db).all(dim=1) if len(db) else torch.zeros((0,), dtype=torch.bool)
+                        match_idx = torch.nonzero(eq).reshape(-1)
+                        if len(match_idx) == 1:
+                            k = int(match_idx[0].item())
+                            try:
+                                mapped[j] = int(src_idx[k])
+                            except Exception:
+                                pass
+                    if (mapped < 0).any() and len(tb) and len(db):
+                        try:
+                            from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
+                        except Exception:
+                            from hmlib.utils.utils import bbox_iou as _bbox_iou
+                        iou = _bbox_iou(tb.to(dtype=torch.float32), db.to(dtype=torch.float32), x1y1x2y2=True)
+                        best_iou, best_idx = torch.max(iou, dim=1)
+                        for j in range(len(tb)):
+                            if mapped[j] < 0 and best_iou[j] > 0:
+                                try:
+                                    mapped[j] = int(src_idx[int(best_idx[j].item())])
+                                except Exception:
+                                    pass
+                    pred_track_instances.source_pose_index = mapped
+            except Exception:
+                pass
             active_track_count = max(active_track_count, len(pred_track_instances.instances_id))
             img_data_sample.pred_track_instances = pred_track_instances
             # Provide a simple attribute for downstream postprocessors that expect it
