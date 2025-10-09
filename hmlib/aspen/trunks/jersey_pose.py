@@ -127,7 +127,7 @@ class JerseyNumberFromPoseTrunk(Trunk):
 
         original_images = data.get("original_images")
         if original_images is None:
-            original_images = context.get("data_to_send", {}).get("original_images")
+            original_images = context.get("data", {}).get("original_images")
         if original_images is None:
             return {}
         original_images = make_channels_first(original_images)

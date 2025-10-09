@@ -23,12 +23,12 @@ class CamPostProcessTrunk(Trunk):
         postprocessor = context.get("postprocessor")
         if postprocessor is None:
             return {}
-        data_to_send: Dict[str, Any] = context.get("data_to_send", {})
+        data_to_send: Dict[str, Any] = context.get("data", {})
         postprocessor.process_tracking(results=data_to_send)
         return {}
 
     def input_keys(self):
-        return {"postprocessor", "data_to_send"}
+        return {"postprocessor", "data"}
 
     def output_keys(self):
         return set()

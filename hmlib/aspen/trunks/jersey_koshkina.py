@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
-
 import os
 import sys
+from collections import defaultdict
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -19,7 +18,6 @@ from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_height, image_width, make_channels_first
-
 
 # Jersey-number-pipeline inspired torso crop parameters
 _PADDING = 5
@@ -154,9 +152,10 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         except Exception:
             pass
         try:
-            from strhub.models.utils import create_model  # type: ignore
-            from strhub.data.module import SceneTextDataModule  # type: ignore
             import string as _string
+
+            from strhub.data.module import SceneTextDataModule  # type: ignore
+            from strhub.models.utils import create_model  # type: ignore
 
             dev = self._parseq_device or device_str
             charset = _string.digits  # restrict to digits
@@ -395,7 +394,7 @@ class KoshkinaJerseyNumberTrunk(Trunk):
 
         original_images = data.get("original_images")
         if original_images is None:
-            original_images = context.get("data_to_send", {}).get("original_images")
+            original_images = context.get("data", {}).get("original_images")
         if original_images is None:
             return {}
         original_images = make_channels_first(_to_tensor(original_images))
@@ -407,7 +406,7 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         W = int(image_width(original_images))
         H = int(image_height(original_images))
 
-        pose_results: Optional[List[Any]] = data.get("pose_results") or context.get("data_to_send", {}).get("pose_results")
+        pose_results: Optional[List[Any]] = data.get("pose_results") or context.get("data", {}).get("pose_results")
 
         all_jersey_results: List[List[TrackJerseyInfo]] = []
         for frame_index, img_data_sample in enumerate(track_data_sample.video_data_samples):

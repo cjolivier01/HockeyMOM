@@ -7,6 +7,7 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.bbox.box_functions import tlwh_to_tlbr_multiple
+
 from .base import Trunk
 
 
@@ -159,17 +160,8 @@ class LoadTrackingTrunk(Trunk):
                 max_id = int(torch.max(inst.instances_id))
                 max_tracking_id = max(max_tracking_id, max_id)
 
-        data_to_send = data.copy()
-        if preserved_original_images is not None:
-            data_to_send["original_images"] = preserved_original_images
-        elif "original_images" in data:
-            data_to_send["original_images"] = data["original_images"]
-        if "img" in data_to_send:
-            del data_to_send["img"]
-
         return {
             "data": data,
-            "data_to_send": data_to_send,
             "nr_tracks": active_track_count,
             "max_tracking_id": max_tracking_id,
         }
@@ -178,7 +170,7 @@ class LoadTrackingTrunk(Trunk):
         return {"data", "frame_id", "tracking_dataframe"}
 
     def output_keys(self):
-        return {"data", "data_to_send", "nr_tracks", "max_tracking_id"}
+        return {"data", "nr_tracks", "max_tracking_id"}
 
 
 class LoadPoseTrunk(Trunk):
@@ -224,14 +216,11 @@ class LoadPoseTrunk(Trunk):
             else:
                 pose_results.append(rec.get("pose", {"predictions": []}))
 
-        data_to_send = context.get("data_to_send", {}).copy()
-        data_to_send["pose_results"] = pose_results
-        # Also mirror into data for compatibility with PoseToDetTrunk
         data["pose_results"] = pose_results
-        return {"data_to_send": data_to_send, "data": data}
+        return {"data": data}
 
     def input_keys(self):
-        return {"data", "frame_id", "pose_dataframe", "data_to_send"}
+        return {"data", "frame_id", "pose_dataframe"}
 
     def output_keys(self):
-        return {"data", "data_to_send"}
+        return {"data"}
