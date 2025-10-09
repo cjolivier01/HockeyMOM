@@ -93,6 +93,7 @@ class SaveTrackingTrunk(Trunk):
       - frame_id: int for first frame in batch
       - tracking_dataframe: TrackingDataFrame
       - jersey_results: Optional per-frame jersey info list
+      - action_results: Optional per-frame action result list (from ActionFromPoseTrunk)
     """
 
     def __init__(self, enabled: bool = True, pose_iou_thresh: float = 0.3):
@@ -110,6 +111,7 @@ class SaveTrackingTrunk(Trunk):
 
         data: Dict[str, Any] = context.get("data", {})
         jersey_results_all = data.get("jersey_results") or context.get("jersey_results")
+        action_results_all = data.get("action_results") or context.get("action_results")
         frame_id0: int = int(context.get("frame_id", -1))
         pose_results_all = data.get("pose_results")  # mirrored by PoseToDetTrunk
 
@@ -190,6 +192,9 @@ class SaveTrackingTrunk(Trunk):
             jersey_results = (
                 jersey_results_all[i] if isinstance(jersey_results_all, list) and i < len(jersey_results_all) else None
             )
+            action_results = (
+                action_results_all[i] if isinstance(action_results_all, list) and i < len(action_results_all) else None
+            )
 
             # Prefer direct propagation if tracker attached source indices
             pose_indices = getattr(inst, "source_pose_index", None)
@@ -229,11 +234,12 @@ class SaveTrackingTrunk(Trunk):
                 labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
                 jersey_info=jersey_results,
                 pose_indices=pose_indices,
+                action_info=action_results,
             )
         return {}
 
     def input_keys(self):
-        return {"data", "frame_id", "tracking_dataframe", "jersey_results"}
+        return {"data", "frame_id", "tracking_dataframe", "jersey_results", "action_results"}
 
     def output_keys(self):
         return set()
@@ -314,6 +320,73 @@ class SavePoseTrunk(Trunk):
 
     def input_keys(self):
         return {"data_to_send", "frame_id", "pose_dataframe"}
+
+    def output_keys(self):
+        return set()
+
+
+class SaveActionsTrunk(Trunk):
+    """
+    Saves per-frame action results. By default, writes into the `tracking_dataframe`
+    action columns, if a TrackingDataFrame is provided in context. This trunk is
+    optional since SaveTrackingTrunk already persists action results when placed
+    after the `actions` trunk; include this only if you need a dedicated action
+    saving pass.
+
+    Expects in context:
+      - data: dict with 'action_results' per frame
+      - frame_id: int for first frame in batch
+      - tracking_dataframe: TrackingDataFrame (will update action columns)
+    """
+
+    def __init__(self, enabled: bool = True):
+        super().__init__(enabled=enabled)
+
+    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
+        if not self.enabled:
+            return {}
+
+        df = context.get("tracking_dataframe")
+        if df is None:
+            return {}
+        data: Dict[str, Any] = context.get("data", {})
+        action_results_all = data.get("action_results") or context.get("action_results")
+        if not action_results_all:
+            return {}
+        frame_id0: int = int(context.get("frame_id", -1))
+
+        track_samples = data.get("data_samples")
+        if track_samples is None:
+            return {}
+        if isinstance(track_samples, list):
+            assert len(track_samples) == 1
+            track_data_sample = track_samples[0]
+        else:
+            track_data_sample = track_samples
+
+        video_len = len(track_data_sample)
+        for i in range(video_len):
+            img_data_sample = track_data_sample[i]
+            inst = getattr(img_data_sample, "pred_track_instances", None)
+            if inst is None:
+                continue
+            actions = action_results_all[i] if i < len(action_results_all) else None
+            # Update action columns by appending a tiny row-set that aligns by ID
+            # Note: To avoid duplicate rows, prefer using SaveTrackingTrunk placed after the actions trunk.
+            df.add_frame_records(
+                frame_id=frame_id0 + i,
+                tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
+                tlbr=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
+                scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
+                labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
+                jersey_info=None,
+                pose_indices=getattr(inst, "source_pose_index", None),
+                action_info=actions,
+            )
+        return {}
+
+    def input_keys(self):
+        return {"data", "frame_id", "tracking_dataframe", "action_results"}
 
     def output_keys(self):
         return set()

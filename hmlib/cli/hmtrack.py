@@ -193,6 +193,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("--plot-trajectories", action="store_true", help="plot individual track trajectories")
     parser.add_argument("--detect-jersey-numbers", action="store_true", help="Detect jersey numbers")
     parser.add_argument("--plot-jersey-numbers", action="store_true", help="plot individual jersey numbers")
+    parser.add_argument("--plot-actions", action="store_true", help="plot action labels per tracked player")
     parser.add_argument("--plot-pose", action="store_true", help="plot individual pose skeletons")
     parser.add_argument(
         "--plot-all-detections",

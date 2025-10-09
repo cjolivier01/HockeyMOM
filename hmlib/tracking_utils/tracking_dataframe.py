@@ -26,6 +26,10 @@ class TrackingDataFrame(HmDataFrameBase):
             "Visibility",
             "JerseyInfo",
             "PoseIndex",
+            # Optional per-track action annotations (if available)
+            "ActionLabel",
+            "ActionScore",
+            "ActionIndex",
         ]
         super().__init__(*args, fields=fields, input_batch_size=input_batch_size, **kwargs)
 
@@ -39,6 +43,7 @@ class TrackingDataFrame(HmDataFrameBase):
         tlbr: Optional[np.ndarray] = None,
         tlwh: Optional[np.ndarray] = None,
         pose_indices: Optional[np.ndarray] = None,
+        action_info: Optional[List[Dict[str, Any]]] = None,
     ):
         if tlwh is None:
             assert tlbr is not None
@@ -72,6 +77,29 @@ class TrackingDataFrame(HmDataFrameBase):
             if v is None:
                 return "{}"
             return v
+
+        # Prepare optional action annotations (string label, float score, int index)
+        action_label_map: Dict[int, str] = {}
+        action_score_map: Dict[int, float] = {}
+        action_index_map: Dict[int, int] = {}
+        if action_info is not None:
+            try:
+                for a in action_info:
+                    tid = int(a.get("tracking_id", -1))
+                    if tid < 0:
+                        continue
+                    action_label_map[tid] = str(a.get("label", ""))
+                    # Coerce to python floats/ints for pandas
+                    action_score_map[tid] = float(a.get("score", 0.0))
+                    action_index_map[tid] = int(a.get("label_index", -1))
+            except Exception:
+                pass
+        def _action_label_item(id: int) -> str:
+            return action_label_map.get(id, "")
+        def _action_score_item(id: int) -> float:
+            return float(action_score_map.get(id, 0.0))
+        def _action_index_item(id: int) -> int:
+            return int(action_index_map.get(id, -1))
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(tracking_ids))],
@@ -85,6 +113,9 @@ class TrackingDataFrame(HmDataFrameBase):
                 "Visibility": [-1 for _ in range(len(tracking_ids))],
                 "JerseyInfo": [_jersey_item(t_id) for t_id in tracking_ids],
                 "PoseIndex": pose_indices,
+                "ActionLabel": [_action_label_item(t_id) for t_id in tracking_ids],
+                "ActionScore": [_action_score_item(t_id) for t_id in tracking_ids],
+                "ActionIndex": [_action_index_item(t_id) for t_id in tracking_ids],
             }
         )
         self._dataframe_list.append(new_record)

@@ -26,6 +26,7 @@ from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_nested_value
 from hmlib.jersey.jersey_tracker import JerseyTracker
+from hmlib.actions.action_tracker import ActionTracker, TrackingIdActionInfo
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 
@@ -109,6 +110,7 @@ class PlayTracker(torch.nn.Module):
         self._progress_bar = progress_bar
 
         self._jersey_tracker = JerseyTracker(show=args.plot_jersey_numbers)
+        self._action_tracker = ActionTracker(show=getattr(args, 'plot_actions', False))
 
         # Tracking specific ids
         self._track_ids: Set[int] = set()
@@ -413,6 +415,16 @@ class PlayTracker(torch.nn.Module):
         for current_info in jersey_results:
             self._jersey_tracker.observe_tracking_id_number_info(frame_id=frame_id, info=current_info)
 
+    def process_actions_info(self, frame_index: int, frame_id: int, data: Dict[str, Any]) -> None:
+        action_results = data.get("action_results")
+        if not action_results:
+            return
+        action_results = action_results[frame_index]
+        if not action_results:
+            return
+        # action_results is a list of dicts per frame
+        self._action_tracker.observe(frame_id=frame_id, infos=action_results)
+
     # @torch.jit.script
     def forward(self, results: Dict[str, Any]):
         track_data_sample = results["data_samples"]
@@ -702,7 +714,10 @@ class PlayTracker(torch.nn.Module):
             # END Clusters and Cluster Boxes
             #
 
+            # Update trackers with per-frame metrics
+            self.process_actions_info(frame_index=frame_index, frame_id=frame_id.item() if torch.is_tensor(frame_id) else int(frame_id), data=results)
             online_im = self._jersey_tracker.draw(image=online_im, tracking_ids=online_ids, bboxes=online_tlwhs)
+            online_im = self._action_tracker.draw(image=online_im, tracking_ids=online_ids, bboxes_tlwh=online_tlwhs)
 
             if self._playtracker is None:
                 current_box, online_im = self.calculate_breakaway(
