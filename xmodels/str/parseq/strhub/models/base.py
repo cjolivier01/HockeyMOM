@@ -16,24 +16,24 @@
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from typing import List, Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 from nltk import edit_distance
+
 try:
     from pytorch_lightning.utilities.types import EPOCH_OUTPUT, STEP_OUTPUT
 except Exception:  # Compatibility with newer PL where types may be renamed/moved
     from typing import Any as _Any  # type: ignore
     EPOCH_OUTPUT = _Any  # type: ignore
     STEP_OUTPUT = _Any  # type: ignore
+from strhub.data.utils import BaseTokenizer, CharsetAdapter, CTCTokenizer, Tokenizer
 from timm.optim import create_optimizer_v2
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import OneCycleLR
-
-from strhub.data.utils import CharsetAdapter, CTCTokenizer, Tokenizer, BaseTokenizer
 
 
 @dataclass

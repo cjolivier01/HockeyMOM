@@ -70,11 +70,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
             #
             # Low threshold Needs to be low in case through glass/poles
             #
-            # config.obj_score_thrs_low=0.05,
             config.obj_score_thrs_low = 0.1
-            # config.obj_score_thrs_low = 0.3
-            # config.obj_score_thrs_high = 0.6
-            # config.obj_score_thrs_high = 0.5
             config.obj_score_thrs_high = 0.3
 
             config.match_iou_thrs_high = 0.1

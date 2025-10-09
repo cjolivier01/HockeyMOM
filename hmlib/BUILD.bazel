@@ -27,6 +27,8 @@ python_library(
                 "hmplayers = hmlib.cli.players:main",
                 "hmfind_ice_rink = hmlib.cli.find_ice_rink:main",
                 "hmvideo_clipper = hmlib.cli.video_clipper:main",
+                "hmanalyze_shifts = hmlib.cli.analyze_shifts:main",
+                "hmpostprocess_shifts = hmlib.cli.postprocess_shifts:main",
                 "hmorientation = hmlib.cli.hmorientation:main",
                 "hmconcatenate_videos = hmlib.cli.concatenate_videos:main",
                 "hmcaha_sync = hmlib.cli.caha_sync:main",
