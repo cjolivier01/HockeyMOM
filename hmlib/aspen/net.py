@@ -42,7 +42,20 @@ class AspenNet(torch.nn.Module):
         self._build_nodes(trunks)
         self._build_graph(trunks)
         self.exec_order = self._toposort()
+        self.training: bool = False
         # self.display_graphviz()
+
+    def train(self, mode: bool = True):
+        self.training = mode
+        for module in self.nodes:
+            module.module.train(mode)
+        return super().train(mode)
+
+    def eval(self, mode: bool = True):
+        self.training = not mode
+        for module in self.nodes:
+            module.module.eval(mode)
+        return super().eval(mode)
 
     # region build
     def _build_nodes(self, trunks: Dict[str, Any]):
@@ -122,45 +135,46 @@ class AspenNet(torch.nn.Module):
         # Ensure trunks can access shared resources
         context.setdefault("shared", self.shared)
         context.setdefault("trunks", {})
-        for node in self.exec_order:
-            trunk = node.module
-            # Build a sub-context with only requested inputs, if enabled
-            if self.minimal_context:
-                req = set(getattr(trunk, "input_keys", lambda: set())())
-                subctx: Dict[str, Any] = {}
-                # pull from local context first, then shared if missing
-                for k in req:
-                    if k in context:
-                        subctx[k] = context[k]
-                    elif k in self.shared:
-                        subctx[k] = self.shared[k]
-                # Provide shared for convenience if requested
-                subctx.setdefault("shared", self.shared)
-            else:
-                subctx = context
-
-            out = trunk(subctx)
-            if not out:
-                out = {}
-
-            # Determine which keys were modified
-            declared = set(getattr(trunk, "output_keys", lambda: set())())
-            update_keys = declared if declared else set(out.keys())
-
-            # Merge into a next context: copy so trunks can delete safely
-            for k in update_keys:
-                if k in out:
-                    v = out[k]
-                    from .trunks.base import DeleteKey  # local import avoids cycle
-
-                    if isinstance(v, DeleteKey):
+        with torch.no_grad() if not self.training else torch.enable_grad():
+            for node in self.exec_order:
+                trunk = node.module
+                # Build a sub-context with only requested inputs, if enabled
+                if self.minimal_context:
+                    req = set(getattr(trunk, "input_keys", lambda: set())())
+                    subctx: Dict[str, Any] = {}
+                    # pull from local context first, then shared if missing
+                    for k in req:
                         if k in context:
-                            del context[k]
-                    else:
-                        context[k] = v
+                            subctx[k] = context[k]
+                        elif k in self.shared:
+                            subctx[k] = self.shared[k]
+                    # Provide shared for convenience if requested
+                    subctx.setdefault("shared", self.shared)
+                else:
+                    subctx = context
 
-            # Store trunk-local outputs for introspection
-            context["trunks"][node.name] = {k: out[k] for k in out.keys()}
+                out = trunk(subctx)
+                if not out:
+                    out = {}
+
+                # Determine which keys were modified
+                declared = set(getattr(trunk, "output_keys", lambda: set())())
+                update_keys = declared if declared else set(out.keys())
+
+                # Merge into a next context: copy so trunks can delete safely
+                for k in update_keys:
+                    if k in out:
+                        v = out[k]
+                        from .trunks.base import DeleteKey  # local import avoids cycle
+
+                        if isinstance(v, DeleteKey):
+                            if k in context:
+                                del context[k]
+                        else:
+                            context[k] = v
+
+                # Store trunk-local outputs for introspection
+                context["trunks"][node.name] = {k: out[k] for k in out.keys()}
         return context
 
     # region graph export/visualization

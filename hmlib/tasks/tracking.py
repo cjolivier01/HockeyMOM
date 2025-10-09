@@ -11,9 +11,9 @@ import hmlib.tracking_utils.segm_boundaries
 from hmlib.aspen import AspenNet
 from hmlib.log import logger
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
+from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
-from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import cuda_stream_scope
 from hmlib.utils.iterators import CachedIterator
