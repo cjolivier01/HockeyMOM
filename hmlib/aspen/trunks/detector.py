@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 import torch
-from torch.cuda.amp import autocast
+from contextlib import nullcontext
 
 from .base import Trunk
 
@@ -51,7 +51,14 @@ class DetectorInferenceTrunk(Trunk):
         video_len = len(track_data_sample)
 
         with torch.no_grad():
-            with autocast() if fp16 else torch.cuda.amp.autocast(enabled=False):
+            det_device = detection_image.device if isinstance(detection_image, torch.Tensor) else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            use_autocast = bool(fp16 and det_device.type == "cuda")
+            amp_ctx = (
+                torch.amp.autocast("cuda", dtype=torch.float16, enabled=True)
+                if use_autocast
+                else nullcontext()
+            )
+            with amp_ctx:
                 for frame_id in range(video_len):
                     img_data_sample = track_data_sample[frame_id]
                     # Ensure frame_id metainfo is present for downstream postprocessing

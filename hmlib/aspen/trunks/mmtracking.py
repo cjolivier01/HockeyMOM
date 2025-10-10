@@ -1,7 +1,6 @@
 from typing import Any, Dict, Optional
 
 import torch
-from torch.cuda.amp import autocast
 
 from .base import Trunk
 
@@ -53,7 +52,13 @@ class MMTrackingTrunk(Trunk):
             return model(context)
 
         with torch.no_grad():
-            with autocast() if fp16 else torch.cuda.amp.autocast(enabled=False):
+            # Enable AMP only if requested and model runs on CUDA
+            try:
+                use_cuda = any(p.is_cuda for p in model.parameters())  # type: ignore[attr-defined]
+            except Exception:
+                use_cuda = torch.cuda.is_available()
+            enabled = bool(fp16 and use_cuda)
+            with torch.amp.autocast("cuda", dtype=torch.float16, enabled=enabled):
                 data = model(return_loss=False, rescale=True, **data)
 
         if detect_timer is not None:
