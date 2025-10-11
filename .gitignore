@@ -9,6 +9,7 @@
 *.whl
 *.pyc
 /dist
+/aspennet.dot
 /*.log
 /my_env
 /*.tif

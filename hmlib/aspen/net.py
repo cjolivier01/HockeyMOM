@@ -43,6 +43,7 @@ class AspenNet(torch.nn.Module):
         self._build_graph(trunks)
         self.exec_order = self._toposort()
         self.training: bool = False
+        self.save_graphviz("aspennet.dot")
         # self.display_graphviz()
 
     def train(self, mode: bool = True):
