@@ -1,8 +1,11 @@
 .idea
 /dist
 /*.csv
+/venv
+/.venv
 /*.db
 /bazel-*
+/work_dirs
 *.whl
 *.pyc
 /dist
