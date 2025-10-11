@@ -22,6 +22,7 @@ class PoseInferencerFactoryTrunk(Trunk):
         device: Optional[str] = None,
         show_progress: bool = False,
         filter_args: Optional[Dict[str, Any]] = None,
+        disable_internal_detector: bool = False,
         enabled: bool = True,
     ):
         super().__init__(enabled=enabled)
@@ -30,6 +31,7 @@ class PoseInferencerFactoryTrunk(Trunk):
         self._device = device
         self._show_progress = bool(show_progress)
         self._filter_args = dict(filter_args or {})
+        self._disable_internal_detector = bool(disable_internal_detector)
         self._inferencer = None
 
     def _default_filter_args(self, pose_config: Optional[str]) -> Dict[str, Any]:
@@ -62,10 +64,22 @@ class PoseInferencerFactoryTrunk(Trunk):
                 device_obj = context.get("device")
                 if device_obj is not None:
                     dev = str(device_obj)
+            # Skip initializing MMPose's own detector when requested or when
+            # detections are already provided upstream.
+            det_model = None
+            try:
+                if self._disable_internal_detector or bool(
+                    context.get("using_precalculated_detection", False)
+                ):
+                    det_model = "whole_image"
+            except Exception:
+                det_model = None
+
             inferencer = MMPoseInferencer(
                 pose2d=cfg,
                 pose2d_weights=ckpt,
                 device=dev,
+                det_model=det_model,
                 show_progress=self._show_progress,
             )
             # Merge default + provided filter args
@@ -82,4 +96,3 @@ class PoseInferencerFactoryTrunk(Trunk):
 
     def output_keys(self):
         return {"pose_inferencer"}
-
