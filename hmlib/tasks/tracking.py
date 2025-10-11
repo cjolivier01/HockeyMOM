@@ -125,10 +125,10 @@ def run_mmtrack(
 
                 # Dynamically disable pose trunk if not requested, unless loading pose or
                 # a downstream trunk (e.g., pose_to_det) requires it.
-                if not bool(config.get("multi_pose", False)) and "pose" in trunks_cfg and not using_precalculated_pose:
-                    requires_pose = any(name in trunks_cfg for name in ("pose_to_det", "pose_bbox_adapter"))
-                    if not requires_pose:
-                        trunks_cfg["pose"]["enabled"] = False
+                # if "pose" in trunks_cfg and not using_precalculated_pose:
+                #     requires_pose = any(name in trunks_cfg for name in ("pose_to_det", "pose_bbox_adapter"))
+                #     if not requires_pose:
+                #         trunks_cfg["pose"]["enabled"] = False
 
                 # Replace compute trunks with loader variants if using precomputed data
                 changes = []
