@@ -19,7 +19,7 @@ class MMTrackingTrunk(Trunk):
 
     Produces in context:
       - data: model outputs merged
-      - data_to_send: pruned dict for downstream post-processing
+      - data: pruned dict for downstream post-processing
       - nr_tracks, max_tracking_id
     """
 
@@ -91,19 +91,19 @@ class MMTrackingTrunk(Trunk):
                     bboxes=video_data_sample.pred_instances.bboxes,
                 )
 
-        # data_to_send = data.copy()
+        # data = data.copy()
         # # Avoid passing big tensors downstream unnecessarily
         # # Re-attach original images from pre-model context if missing
         # if preserved_original_images is not None:
-        #     data_to_send["original_images"] = preserved_original_images
+        #     data["original_images"] = preserved_original_images
         # elif "original_images" in data:
-        #     data_to_send["original_images"] = data["original_images"]
-        # if "img" in data_to_send:
-        #     del data_to_send["img"]
+        #     data["original_images"] = data["original_images"]
+        # if "img" in data:
+        #     del data["img"]
 
         return {
             "data": data,
-            # "data": data_to_send,
+            # "data": data,
             "nr_tracks": nr_tracks,
             "max_tracking_id": max_tracking_id,
         }

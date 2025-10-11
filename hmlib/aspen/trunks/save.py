@@ -247,12 +247,12 @@ class SaveTrackingTrunk(Trunk):
 
 class SavePoseTrunk(Trunk):
     """
-    Saves per-frame pose results from `data_to_send['pose_results']` into `pose_dataframe`.
+    Saves per-frame pose results from `data['pose_results']` into `pose_dataframe`.
 
     We serialize a simplified structure capturing keypoints/bboxes/scores to JSON.
 
     Expects in context:
-      - data_to_send: dict with 'pose_results' list
+      - data: dict with 'pose_results' list
       - frame_id: int for first frame in batch
       - pose_dataframe: PoseDataFrame
     """
@@ -297,8 +297,8 @@ class SavePoseTrunk(Trunk):
         if df is None:
             return {}
 
-        data_to_send: Dict[str, Any] = context.get("data_to_send", {})
-        pose_results: Optional[List[Any]] = data_to_send.get("pose_results")
+        data: Dict[str, Any] = context.get("data", {})
+        pose_results: Optional[List[Any]] = data.get("pose_results")
 
         frame_id0: int = int(context.get("frame_id", -1))
         # If pose_results is missing, write empty entries for each frame
@@ -319,7 +319,7 @@ class SavePoseTrunk(Trunk):
         return {}
 
     def input_keys(self):
-        return {"data_to_send", "frame_id", "pose_dataframe"}
+        return {"data", "frame_id", "pose_dataframe"}
 
     def output_keys(self):
         return set()

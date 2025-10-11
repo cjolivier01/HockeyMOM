@@ -38,11 +38,6 @@ trunks:
     depends: [model_factory]
     params: {}
 
-  init_send:
-    class: hmlib.aspen.trunks.pose_to_det.InitDataToSendTrunk
-    depends: [image_prep]
-    params: {}
-
   pose_factory:
     class: hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk
     depends: []
@@ -53,7 +48,7 @@ trunks:
 
   pose:
     class: hmlib.aspen.trunks.pose.PoseTrunk
-    depends: [init_send, pose_factory]
+    depends: [image_prep, pose_factory]
     params: {}
 
   pose_to_det:

@@ -27,7 +27,7 @@ class TrackerTrunk(Trunk):
 
     Produces in context:
       - data: unchanged reference (with `pred_track_instances` filled)
-      - data_to_send: pruned copy without heavy tensors
+      - data: pruned copy without heavy tensors
       - nr_tracks: int (active track count)
       - max_tracking_id: int
     """
@@ -66,7 +66,7 @@ class TrackerTrunk(Trunk):
             return {}
 
         data: Dict[str, Any] = context["data"]
-        preserved_original_images = data.get("original_images")
+        # preserved_original_images = data.get("original_images")
         dataset_results = data.get("dataset_results") or context.get("dataset_results")
         frame_id0: int = int(context.get("frame_id", -1))
 
@@ -109,7 +109,7 @@ class TrackerTrunk(Trunk):
         for frame_index in range(video_len):
             img_data_sample = track_data_sample[frame_index]
 
-            # If precomputed tracking is used, skip tracker and only log data_to_send
+            # If precomputed tracking is used, skip tracker and only log data
             if using_precalc_track:
                 # Keep pred_track_instances unset; logging handled below if needed
                 continue
@@ -332,17 +332,15 @@ class TrackerTrunk(Trunk):
                 if max_id > max_tracking_id:
                     max_tracking_id = max_id
 
-        data_to_send = data.copy()
-        if preserved_original_images is not None:
-            data_to_send["original_images"] = preserved_original_images
-        elif "original_images" in data:
-            data_to_send["original_images"] = data["original_images"]
-        if "img" in data_to_send:
-            del data_to_send["img"]
+        # if preserved_original_images is not None:
+        #     data["original_images"] = preserved_original_images
+        # elif "original_images" in data:
+        #     data["original_images"] = data["original_images"]
+        # if "img" in data:
+        #     del data["img"]
 
         return {
             "data": data,
-            "data_to_send": data_to_send,
             "nr_tracks": active_track_count,
             "max_tracking_id": max_tracking_id,
         }
@@ -357,4 +355,4 @@ class TrackerTrunk(Trunk):
         }
 
     def output_keys(self):
-        return {"data", "data_to_send", "nr_tracks", "max_tracking_id"}
+        return {"data", "nr_tracks", "max_tracking_id"}

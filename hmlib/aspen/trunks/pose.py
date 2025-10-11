@@ -13,12 +13,12 @@ class PoseTrunk(Trunk):
     Runs multi-pose inference using an MMPose inferencer.
 
     Expects in context:
-      - data_to_send: dict containing 'original_images'
+      - data: dict containing 'original_images'
       - pose_inferencer: initialized MMPoseInferencer
       - plot_pose: bool (optional)
 
     Produces in context:
-      - data_to_send: updated with 'pose_results'
+      - data: updated with 'pose_results'
     """
 
     def __init__(self, enabled: bool = True):
@@ -32,11 +32,11 @@ class PoseTrunk(Trunk):
         if pose_inferencer is None:
             return {}
 
-        data_to_send: Dict[str, Any] = context["data_to_send"]
-        cur_frame = data_to_send.get("original_images")
+        data: Dict[str, Any] = context["data"]
+        cur_frame = data.get("original_images")
         if isinstance(cur_frame, StreamTensor):
             cur_frame = cur_frame.wait()
-            data_to_send["original_images"] = cur_frame
+            data["original_images"] = cur_frame
 
         # Prepare inputs: iterate per-frame with channels-last layout
         inputs: List[torch.Tensor] = []
@@ -66,11 +66,11 @@ class PoseTrunk(Trunk):
                     )
 
         pose_results = all_pose_results
-        data_to_send["pose_results"] = pose_results
-        return {"data_to_send": data_to_send}
+        data["pose_results"] = pose_results
+        return {"data": data}
 
     def input_keys(self):
-        return {"data_to_send", "pose_inferencer", "plot_pose"}
+        return {"data", "pose_inferencer", "plot_pose"}
 
     def output_keys(self):
-        return {"data_to_send"}
+        return {"data"}

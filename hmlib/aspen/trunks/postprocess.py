@@ -11,7 +11,7 @@ class CamPostProcessTrunk(Trunk):
 
     Expects in context:
       - postprocessor: CamTrackHead instance
-      - data_to_send: dict from MMTrackingTrunk/PoseTrunk
+      - data: dict from MMTrackingTrunk/PoseTrunk
     """
 
     def __init__(self, enabled: bool = True):
@@ -23,8 +23,8 @@ class CamPostProcessTrunk(Trunk):
         postprocessor = context.get("postprocessor")
         if postprocessor is None:
             return {}
-        data_to_send: Dict[str, Any] = context.get("data", {})
-        postprocessor.process_tracking(results=data_to_send)
+        data: Dict[str, Any] = context.get("data", {})
+        postprocessor.process_tracking(results=data)
         return {}
 
     def input_keys(self):

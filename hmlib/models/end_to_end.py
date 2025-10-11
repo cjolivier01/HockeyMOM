@@ -165,19 +165,18 @@ class HmEndToEnd(BaseMOTModel, Trunk):
                     bboxes=video_data_sample.pred_instances.bboxes,
                 )
 
-        data_to_send = data.copy()
+        # data = data.copy()
         # Avoid passing big tensors downstream unnecessarily
         # Re-attach original images from pre-model context if missing
-        if preserved_original_images is not None:
-            data_to_send["original_images"] = preserved_original_images
-        elif "original_images" in data:
-            data_to_send["original_images"] = data["original_images"]
-        if "img" in data_to_send:
-            del data_to_send["img"]
+        # if preserved_original_images is not None:
+        #     data["original_images"] = preserved_original_images
+        # elif "original_images" in data:
+        #     data["original_images"] = data["original_images"]
+        # if "img" in data:
+        #     del data["img"]
 
         return {
             "data": data,
-            "data_to_send": data_to_send,
             "nr_tracks": nr_tracks,
             "max_tracking_id": max_tracking_id,
         }
@@ -196,7 +195,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
         }
 
     def output_keys(self):
-        return {"data", "data_to_send", "nr_tracks", "max_tracking_id"}
+        return {"data", "nr_tracks", "max_tracking_id"}
 
     def predict(
         self,

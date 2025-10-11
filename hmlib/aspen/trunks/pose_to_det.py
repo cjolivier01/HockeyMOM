@@ -8,38 +8,6 @@ from mmengine.structures import InstanceData
 from .base import Trunk
 
 
-class InitDataToSendTrunk(Trunk):
-    """
-    Initializes a minimal `data_to_send` dict from `data` so upstream trunks
-    (e.g., PoseTrunk) can read `original_images` before tracking occurs.
-
-    Expects in context:
-      - data: dict that may contain 'original_images'
-
-    Produces in context:
-      - data_to_send: dict with at least 'original_images' populated if available
-    """
-
-    def __init__(self, enabled: bool = True):
-        super().__init__(enabled=enabled)
-
-    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
-        if not self.enabled:
-            return {}
-        data: Dict[str, Any] = context.get("data", {})
-        existing: Dict[str, Any] = context.get("data_to_send", {})
-        out: Dict[str, Any] = dict(existing)
-        if "original_images" in data and "original_images" not in out:
-            out["original_images"] = data["original_images"]
-        return {"data_to_send": out}
-
-    def input_keys(self):
-        return {"data", "data_to_send"}
-
-    def output_keys(self):
-        return {"data_to_send"}
-
-
 class PoseToDetTrunk(Trunk):
     """
     Converts pose inferencer outputs into detection `pred_instances` for each
@@ -47,7 +15,7 @@ class PoseToDetTrunk(Trunk):
 
     Expects in context:
       - data: dict with 'data_samples' (TrackDataSample or [TrackDataSample])
-      - data_to_send: dict with 'pose_results' produced by PoseTrunk
+      - data: dict with 'pose_results' produced by PoseTrunk
       - using_precalculated_detection: bool (optional)
 
     Produces in context:
@@ -107,8 +75,7 @@ class PoseToDetTrunk(Trunk):
             return {}
 
         data: Dict[str, Any] = context.get("data", {})
-        data_to_send: Dict[str, Any] = context.get("data_to_send", {})
-        pose_results: Optional[List[Any]] = data_to_send.get("pose_results")
+        pose_results: Optional[List[Any]] = data.get("pose_results")
         if not pose_results:
             # Nothing to convert
             return {}
@@ -237,13 +204,13 @@ class PoseToDetTrunk(Trunk):
             img_data_sample.pred_instances = new_inst
 
         # Preserve pose_results for downstream consumers by mirroring into `data`.
-        # TrackerTrunk will copy `data` into `data_to_send`, so pose_results survive.
+        # TrackerTrunk will copy `data` into `data`, so pose_results survive.
         data["pose_results"] = pose_results
 
         return {"data": data}
 
     def input_keys(self):
-        return {"data", "data_to_send", "using_precalculated_detection"}
+        return {"data", "using_precalculated_detection"}
 
     def output_keys(self):
         return {"data"}

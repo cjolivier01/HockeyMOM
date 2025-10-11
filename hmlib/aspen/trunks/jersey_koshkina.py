@@ -60,7 +60,7 @@ class KoshkinaJerseyNumberTrunk(Trunk):
 
     Inputs in context:
       - data: dict with 'data_samples' (TrackDataSample) and 'original_images' (T,C,H,W or T,H,W,C)
-      - data_to_send may also carry 'original_images' and 'pose_results'
+      - data may also carry 'original_images' and 'pose_results'
 
     Outputs in context:
       - data['jersey_results']: List[List[TrackJerseyInfo]] per frame

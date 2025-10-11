@@ -78,7 +78,7 @@ class LoadTrackingTrunk(Trunk):
     """
     Loads tracks from `tracking_dataframe` and attaches `pred_track_instances`.
 
-    Produces `data_to_send`, `nr_tracks`, and `max_tracking_id` analogous to TrackerTrunk.
+    Produces `data`, `nr_tracks`, and `max_tracking_id` analogous to TrackerTrunk.
 
     Expects in context:
       - data: dict with 'data_samples'
@@ -175,7 +175,7 @@ class LoadTrackingTrunk(Trunk):
 
 class LoadPoseTrunk(Trunk):
     """
-    Loads per-frame pose JSON from `pose_dataframe` and sets data_to_send['pose_results'].
+    Loads per-frame pose JSON from `pose_dataframe` and sets data['pose_results'].
 
     The stored format is a simplified structure, but PoseToDetTrunk tolerates dict predictions
     if extended accordingly. Downstream postprocess uses pose results only if required.

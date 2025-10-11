@@ -185,7 +185,7 @@ class ActionFromPoseTrunk(Trunk):
         original_images = data.get("original_images")
         if original_images is None:
             return {}
-        pose_results_all = data.get("pose_results") or context.get("data_to_send", {}).get("pose_results")
+        pose_results_all = data.get("pose_results") or context.get("data", {}).get("pose_results")
         if not pose_results_all:
             return {}
 
@@ -313,8 +313,7 @@ class ActionFromPoseTrunk(Trunk):
         return {"data": data}
 
     def input_keys(self):
-        return {"data", "data_to_send", "action_recognizer", "action_label_map"}
+        return {"data", "action_recognizer", "action_label_map"}
 
     def output_keys(self):
         return {"data"}
-
