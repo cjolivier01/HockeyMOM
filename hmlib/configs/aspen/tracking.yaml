@@ -1,0 +1,92 @@
+minimal_context: true
+
+# Move the original mmengine inference pipeline here so the CLI can use it
+inference_pipeline:
+  - type: LoadImageFromFile
+  - type: HmCrop
+    keys: [img]
+    save_clipped_images: true
+  - type: HmImageToTensor
+    keys: [img]
+    # scale_factor: 255.0
+  - type: IceRinkSegmConfig
+    image_label: img
+  - type: HmResize
+    img_scale: [1312, 480]
+    keep_ratio: true
+  - type: HmPad
+    pad_val: 114.0
+    size_divisor: 32
+  - type: mmdet.PackTrackInputs
+    meta_keys: [img_metas, rink_profile]
+
+# Default camera post-processing pipeline (was in hm_end_to_end.py)
+video_out_pipeline:
+  - type: HmConfigureScoreboard
+  - type: HmCaptureScoreboard
+  - type: HmPerspectiveRotation
+    pre_clip: true
+  - type: HmCropToVideoFrame
+  - type: HmRenderScoreboard
+    image_labels: [img, end_zone_img]
+  - type: HmUnsharpMask
+    enabled: false
+    image_label: img
+  - type: HmImageOverlays
+    watermark_config:
+      image: images/sports_ai_watermark.png
+
+trunks:
+  image_prep:
+    class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+    depends: []
+    params: {}
+
+  model_factory:
+    class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+    depends: []
+    params:
+      model_class: hmlib.models.end_to_end.HmEndToEnd
+      # Pure YAML detector definition (converted from mmengine config)
+      # No detector/tracker coupling here; only holds post_* pipelines for BoundariesTrunk
+      post_detection_pipeline:
+        - type: IceRinkSegmBoundaries
+      post_tracking_pipeline:
+        - type: HmNumberClassifier
+          image_label: original_images
+          enabled: false
+
+  detector_factory:
+    class: hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk
+    depends: []
+    params:
+      detector_yaml: hmlib/configs/aspen/models/bytetrack_yolox_s.detector.yaml
+      data_preprocessor:
+        type: TrackDataPreprocessor
+        pad_size_divisor: 32
+        use_det_processor: true
+        batch_augments:
+          - type: BatchSyncRandomResize
+            random_size_range: [576, 1024]
+            size_divisor: 32
+            interval: 10
+
+  boundaries:
+    class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+    depends: [model_factory]
+    params: {}
+
+  detector:
+    class: hmlib.aspen.trunks.detector.DetectorInferenceTrunk
+    depends: [image_prep, detector_factory]
+    params: {}
+
+  tracker:
+    class: hmlib.aspen.trunks.tracker.TrackerTrunk
+    depends: [detector, model_factory, boundaries]
+    params: {}
+
+  postprocess:
+    class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+    depends: [tracker]
+    params: {}

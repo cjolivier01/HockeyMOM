@@ -581,7 +581,7 @@ def _main(args, num_gpu):
         # Default Aspen graph if not provided
         if args.aspen_config is None:
             # Prefer in-repo default Aspen config under hmlib/configs
-            default_aspen = os.path.join(ROOT_DIR, "configs", "aspen", "tracking_pose.yaml")
+            default_aspen = os.path.join(ROOT_DIR, "configs", "aspen", "tracking.yaml")
             if os.path.exists(default_aspen):
                 args.aspen_config = default_aspen
 
