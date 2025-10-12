@@ -36,6 +36,7 @@ hmtrack --input-video path/to/stitched_output-with-audio.mp4 --output tracking.m
 - `--game-id <id>` — Use `$HOME/Videos/<id>` and its config
 - `--input-video <file|dir|left,right>` — Override inputs (two files or a dir implies stitching)
 - `--stitch` / `--force-stitching` — Force stitching phase
+- `--stitch-rotate-degrees <float>` — After stitching, rotate the panorama about its center by the given degrees; keeps same dimensions (use small values to level the horizon)
 - `--detect-jersey-numbers`, `--plot-jersey-numbers` — Jersey number detection and overlay
 - `--plot-pose` — Pose skeletons overlay
 - `--plot-tracking`, `--plot-trajectories` — Visualize boxes and paths
@@ -69,6 +70,7 @@ hmstitch --game-id ev-stockton-1 --configure-only
 - `--game-id <id>` — Scan `$HOME/Videos/<id>` for left/right files and chapters
 - `--lfo` / `--rfo <frames>` — Frame offsets (if sync known)
 - `--stitch-frame-time HH:MM:SS` — Choose reference frame for alignment; `--start-frame-time` to start processing at a time
+- `--stitch-rotate-degrees <float>` — Rotate the stitched output about its center by the given degrees; keeps same dimensions (use small values to level the horizon)
 - `--max-control-points N` — Control points for homography
 - `--blend-mode laplacian|multiblend|gpu-hard-seam` — Blending mode
 - `--batch-size`, `--stitch-cache-size`, `--multi-gpu` — Performance tuning
@@ -197,6 +199,7 @@ Some commands accept these shared flags:
 - `--output <file>` — Output artifact path
 - `--lfo` / `--rfo` — Frame offsets for left/right
 - `--start-frame-time HH:MM:SS` and `--stitch-frame-time HH:MM:SS` — Time selection
+- `--stitch-rotate-degrees <float>` — Optional post-stitch rotation (stitching-enabled flows)
 - `--fp16` — Mixed precision in some stages
 - `--show` / `--show-scaled` — Preview frames
 - `--cache-size`, `--stitch-cache-size` — Pipeline buffering

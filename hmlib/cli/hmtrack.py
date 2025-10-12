@@ -767,6 +767,7 @@ def _main(args, num_gpu):
                     python_blender=args.python_blender,
                     minimize_blend=not args.no_minimize_blend,
                     no_cuda_streams=args.no_cuda_streams,
+                    post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source

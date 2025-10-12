@@ -92,6 +92,7 @@ def stitch_videos(
     async_output: bool = False,
     configure_only: bool = False,
     lowmem: bool = False,
+    post_stitch_rotate_degrees: Optional[float] = None,
 ):
     if configure_only:
         cache_size = 0
@@ -154,6 +155,7 @@ def stitch_videos(
         auto_adjust_exposure=auto_adjust_exposure,
         minimize_blend=minimize_blend,
         python_blender=python_blender,
+        post_stitch_rotate_degrees=post_stitch_rotate_degrees,
     )
 
     data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
@@ -334,6 +336,7 @@ def _main(args) -> None:
             max_control_points=args.max_control_points,
             configure_only=args.configure_only,
             lowmem=gpu_allocator.is_single_lowmem_gpu(),
+            post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
         )
 
     if args.configure_only:

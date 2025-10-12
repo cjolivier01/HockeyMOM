@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 import cv2
+import math
 import numpy as np
 import torch
 
@@ -23,6 +24,7 @@ from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
+import torch.nn.functional as F
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hockeymom import show_cuda_tensor
@@ -172,6 +174,7 @@ class StitchDataset:
         python_blender: bool = True,
         no_cuda_streams: bool = False,
         show_image_components: bool = False,
+        post_stitch_rotate_degrees: Optional[float] = None,
     ):
         # max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -201,6 +204,8 @@ class StitchDataset:
         self._show_image_components = show_image_components
         self._remapping_cuda = self._remapping_device.type == "cuda"
         self._remapping_stream = None
+        # Optional rotation after stitching (degrees, about image center)
+        self._post_stitch_rotate_degrees: Optional[float] = post_stitch_rotate_degrees
 
         # Optimize the roi box
         if image_roi is not None:
@@ -549,6 +554,11 @@ class StitchDataset:
                                 )
                         stream.synchronize()
                         self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
+                        # Optional rotation (keep same size)
+                        if self._post_stitch_rotate_degrees is not None and abs(self._post_stitch_rotate_degrees) > 1e-6:
+                            blended_stream_tensor = self._rotate_tensor_keep_size(
+                                blended_stream_tensor, self._post_stitch_rotate_degrees
+                            )
                         if self._show_image_components:
                             for blended_image in blended_stream_tensor:
                                 show_image(
@@ -563,6 +573,11 @@ class StitchDataset:
                         if self._auto_adjust_exposure:
                             imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
                         blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
+                        # Optional rotation (keep same size)
+                        if self._post_stitch_rotate_degrees is not None and abs(self._post_stitch_rotate_degrees) > 1e-6:
+                            blended_stream_tensor = self._rotate_tensor_keep_size(
+                                blended_stream_tensor, self._post_stitch_rotate_degrees
+                            )
 
                     if stream is not None:
                         blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
@@ -780,6 +795,94 @@ class StitchDataset:
 
     def __len__(self):
         return self._total_number_of_frames // self._batch_size
+
+    def _rotate_tensor_keep_size(self, tensor: torch.Tensor, degrees: float) -> torch.Tensor:
+        """
+        Rotate a batched image tensor about its center by `degrees` while keeping dimensions.
+
+        Supports tensors of shape (B, H, W, C) or (B, C, H, W) with any C>=1.
+        Operates on CUDA tensors without host roundtrips.
+        """
+        if tensor is None:
+            return tensor
+        if degrees is None or abs(degrees) < 1e-6:
+            return tensor
+
+        # Determine layout
+        assert tensor.ndim == 4, f"Expected 4D tensor, got {tensor.shape}"
+        was_channels_last = tensor.shape[-1] in (1, 3, 4)
+        orig_dtype = tensor.dtype
+        device = tensor.device
+
+        # Convert to NCHW
+        if was_channels_last:
+            x = tensor.permute(0, 3, 1, 2)
+        else:
+            x = tensor
+
+        B, C, H, W = x.shape
+
+        # Use float32 for grid_sample math
+        x_work = x.to(dtype=torch.float32, non_blocking=True)
+
+        angle = torch.tensor(degrees * math.pi / 180.0, device=device, dtype=torch.float32)
+        cos_a = torch.cos(angle)
+        sin_a = torch.sin(angle)
+
+        cx = torch.tensor((W - 1) / 2.0, device=device, dtype=torch.float32)
+        cy = torch.tensor((H - 1) / 2.0, device=device, dtype=torch.float32)
+
+        # Inverse rotation (output -> input) around center, in pixel coords
+        # x_in = cos*x_out + sin*y_out + tx
+        # y_in = -sin*x_out + cos*y_out + ty
+        tx = (1.0 - cos_a) * cx - sin_a * cy
+        ty = sin_a * cx + (1.0 - cos_a) * cy
+
+        M_inv = torch.stack(
+            [
+                torch.stack([cos_a, sin_a, tx]),
+                torch.stack([-sin_a, cos_a, ty]),
+                torch.tensor([0.0, 0.0, 1.0], device=device, dtype=torch.float32),
+            ]
+        )  # 3x3
+
+        # Normalized coord transform: [-1,1] <-> pixel coords with align_corners=True
+        S = torch.tensor(
+            [
+                [(W - 1) / 2.0, 0.0, (W - 1) / 2.0],
+                [0.0, (H - 1) / 2.0, (H - 1) / 2.0],
+                [0.0, 0.0, 1.0],
+            ],
+            device=device,
+            dtype=torch.float32,
+        )
+        S_inv = torch.tensor(
+            [
+                [2.0 / (W - 1), 0.0, -1.0],
+                [0.0, 2.0 / (H - 1), -1.0],
+                [0.0, 0.0, 1.0],
+            ],
+            device=device,
+            dtype=torch.float32,
+        )
+
+        A = S_inv @ M_inv @ S  # 3x3
+        theta = A[:2, :].unsqueeze(0).repeat(B, 1, 1).contiguous()  # Bx2x3
+
+        grid = F.affine_grid(theta, size=(B, C, H, W), align_corners=True)
+        # Use black padding outside the image
+        y = F.grid_sample(x_work, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
+
+        # Convert back to original dtype/layout
+        if orig_dtype == torch.uint8:
+            y = y.clamp(min=0.0, max=255.0).to(dtype=torch.uint8)
+        else:
+            y = y.to(dtype=orig_dtype)
+
+        if was_channels_last:
+            y = y.permute(0, 2, 3, 1).contiguous()
+
+        return y
 
 
 def is_none(val: Any) -> bool:

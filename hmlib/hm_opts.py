@@ -317,6 +317,14 @@ class hm_opts(object):
             help="Use the pythonb lending code (should be identical to C++, but may have performance differences)",
         )
         parser.add_argument(
+            "--stitch-rotate-degrees",
+            dest="stitch_rotate_degrees",
+            type=float,
+            default=None,
+            help=
+            "Optional rotation (degrees) applied after stitching, about image center; keeps same dimensions.",
+        )
+        parser.add_argument(
             "--max-control-points",
             type=int,
             default=240,
