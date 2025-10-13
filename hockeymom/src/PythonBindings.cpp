@@ -1021,7 +1021,10 @@ void init_living_boxes(::pybind11::module_& m) {
           &TranslatingBoxConfig::sticky_translation_gaussian_mult)
       .def_readwrite(
           "unsticky_translation_size_ratio",
-          &TranslatingBoxConfig::unsticky_translation_size_ratio);
+          &TranslatingBoxConfig::unsticky_translation_size_ratio)
+      .def_readwrite(
+          "pan_smoothing_alpha",
+          &TranslatingBoxConfig::pan_smoothing_alpha);
 
   py::class_<TranslationState>(m, "TranslationState")
       .def(py::init<>())

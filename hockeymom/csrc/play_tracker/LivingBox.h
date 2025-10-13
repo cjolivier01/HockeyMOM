@@ -159,6 +159,8 @@ struct TranslatingBoxConfig {
   FloatValue sticky_size_ratio_to_frame_width{10.0};
   FloatValue sticky_translation_gaussian_mult{5.0};
   FloatValue unsticky_translation_size_ratio{0.75};
+  // Smooth the target center before computing velocity (0 disables)
+  FloatValue pan_smoothing_alpha{0.18};
 };
 
 struct LivingBoxConfig {

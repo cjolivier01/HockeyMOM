@@ -315,6 +315,7 @@ class MovingBox(ResizingBox):
         sticky_size_ratio_to_frame_width: float = 10.0,
         sticky_translation_gaussian_mult: float = 5.0,
         unsticky_translation_size_ratio: float = 0.75,
+        pan_smoothing_alpha: float = 0.18,
         sticky_sizing: bool = False,
         color: Tuple[int, int, int] = (255, 0, 0),
         frozen_color: Tuple[int, int, int] = (64, 64, 64),
@@ -344,6 +345,8 @@ class MovingBox(ResizingBox):
         self._sticky_translation_gaussian_mult = sticky_translation_gaussian_mult
         self._sticky_size_ratio_to_frame_width = sticky_size_ratio_to_frame_width
         self._unsticky_translation_size_ratio = unsticky_translation_size_ratio
+        self._pan_smoothing_alpha = float(pan_smoothing_alpha)
+        self._filtered_target_center: Optional[torch.Tensor] = None
         self._clamp_scaled_input_box = clamp_scaled_input_box
 
         self._line_thickness_tensor = torch.tensor(
@@ -515,7 +518,11 @@ class MovingBox(ResizingBox):
         sticky_size = width(self.bounding_box()) / self._sticky_size_ratio_to_frame_width
         sticky_size = min(sticky_size, max_sticky_size)
 
-        unsticky_size = sticky_size * self._unsticky_translation_size_ratio
+        ratio = float(self._unsticky_translation_size_ratio)
+        if ratio < 1.0:
+            # Interpret values <1 as inverted to enforce proper hysteresis
+            ratio = 1.0 / max(ratio, 1e-3)
+        unsticky_size = sticky_size * ratio
 
         return sticky_size, unsticky_size
 
@@ -591,6 +598,16 @@ class MovingBox(ResizingBox):
         bbox = self.bounding_box()
         center_current = center(bbox)
         center_dest = center(dest_box)
+        # Low-pass filter the destination center to smooth panning.
+        if self._pan_smoothing_alpha > 0.0:
+            if self._filtered_target_center is None:
+                self._filtered_target_center = center_dest.clone()
+            else:
+                a = min(max(self._pan_smoothing_alpha, 0.0), 1.0)
+                self._filtered_target_center = self._filtered_target_center + a * (
+                    center_dest - self._filtered_target_center
+                )
+            center_dest = self._filtered_target_center
         total_diff = center_dest - center_current
         # print(f"{self._label}: {total_diff=}")
         # If both the dest box and our current box are on an edge, we zero-out
@@ -649,7 +666,7 @@ class MovingBox(ResizingBox):
                 )
 
                 if self._stop_on_dir_change:
-                    total_diff[0] = self._zero.clone()
+                    total_diff[0] *= 0.25
             if different_directions(total_diff[1], self._current_speed_y):
                 self._current_speed_y = torch.where(
                     torch.abs(self._current_speed_y) < self._max_speed_y / 6,
@@ -658,7 +675,7 @@ class MovingBox(ResizingBox):
                 )
 
                 if self._stop_on_dir_change:
-                    total_diff[1] = self._zero.clone()
+                    total_diff[1] *= 0.25
         self.adjust_speed(
             accel_x=total_diff[0],
             accel_y=total_diff[1],

@@ -4,7 +4,7 @@ import os
 import time
 import traceback
 from threading import Thread
-from typing import Any, Dict, List, Set, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -23,12 +23,7 @@ from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.exceptions import raise_exception_in_thread
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensor,
-    cuda_stream_scope,
-    get_gpu_capabilities,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope, get_gpu_capabilities
 from hmlib.utils.image import (
     ImageColorScaler,
     image_height,
@@ -44,11 +39,7 @@ from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import to_tensor_scalar
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
-from .video_stream import (
-    VideoStreamWriterInterface,
-    clamp_max_video_dimensions,
-    create_output_video_stream,
-)
+from .video_stream import VideoStreamWriterInterface, clamp_max_video_dimensions, create_output_video_stream
 
 
 def get_and_pop(map: Dict[str, Any], key: str) -> Any:
@@ -99,9 +90,11 @@ def get_best_codec(
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
     if compute >= 7 and (width <= MAX_NEVC_VIDEO_WIDTH or allow_scaling):
-        return "hevc_nvenc", True
+        # return "hevc_nvenc", True
+        return "h264_nvenc", True
     elif compute >= 6 and width <= 4096:
-        return "hevc_nvenc", True
+        # return "hevc_nvenc", True
+        return "h264_nvenc", True
     else:
         return "XVID", False
     # return "XVID", False
@@ -177,7 +170,8 @@ class VideoOutput:
         output_frame_height = to_tensor_scalar(output_frame_height, device=device)
 
         if fourcc == "auto" and device.type == "cuda":
-            fourcc = "hevc_nvenc"
+            # fourcc = "hevc_nvenc"
+            fourcc = "h264_nvenc"
 
         if simple_save and self._clip_to_max_dimensions:
             original_width = int(output_frame_width)
@@ -317,9 +311,6 @@ class VideoOutput:
         if self._shower is not None:
             self._shower.close()
             self._shower = None
-
-    # def is_cuda_encoder(self):
-    #     return "nvenc" in self._fourcc
 
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if not self._async_output:

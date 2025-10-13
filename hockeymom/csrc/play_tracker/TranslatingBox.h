@@ -4,6 +4,7 @@
 #include "hockeymom/csrc/play_tracker/LivingBox.h"
 
 #include <cassert>
+#include <optional>
 
 namespace hm {
 namespace play_tracker {
@@ -16,6 +17,8 @@ struct TranslationState {
   // Nonstop stuff
   std::optional<IntValue> nonstop_delay{0};
   IntValue nonstop_delay_counter{0};
+  // Low-pass filtered target center for smooth panning
+  std::optional<Point> filtered_target_center{std::nullopt};
 };
 
 class TranslatingBox : virtual public IBasicLivingBox {

@@ -42,6 +42,19 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   BBox bbox = bounding_box();
   Point center_current = bbox.center();
   Point center_dest = dest_box.center();
+  // Apply simple low-pass filtering to the target to avoid jerky pans.
+  if (config_.pan_smoothing_alpha > 0.0f) {
+    if (!state_.filtered_target_center.has_value()) {
+      state_.filtered_target_center = center_dest;
+    } else {
+      Point f = *state_.filtered_target_center;
+      const FloatValue a = clamp(config_.pan_smoothing_alpha, 0.0f, 1.0f);
+      f.x = f.x + a * (center_dest.x - f.x);
+      f.y = f.y + a * (center_dest.y - f.y);
+      state_.filtered_target_center = f;
+    }
+    center_dest = *state_.filtered_target_center;
+  }
   PointDiff total_diff = center_dest - center_current;
 
   std::optional<FloatValue> x_gaussian;
@@ -137,8 +150,9 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
       } else {
         state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
       }
+      // Instead of hard-stopping on direction change, gently damp desired accel.
       if (config_.stop_translation_on_dir_change) {
-        total_diff.dx = 0.0;
+        total_diff.dx *= 0.25; // soften abrupt direction reversals
       }
     }
 
@@ -150,7 +164,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
         state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
       }
       if (config_.stop_translation_on_dir_change) {
-        total_diff.dy = 0.0;
+        total_diff.dy *= 0.25;
       }
     }
   } // end of is_nonstop()
@@ -323,8 +337,12 @@ std::tuple<FloatValue, FloatValue> TranslatingBox::
       bbox.width() / config_.sticky_size_ratio_to_frame_width;
   sticky_size = std::min(sticky_size, max_sticky_size);
 
-  FloatValue unsticky_size =
-      sticky_size * config_.unsticky_translation_size_ratio;
+  // Ensure proper hysteresis: unsticky threshold should be >= sticky.
+  FloatValue ratio = config_.unsticky_translation_size_ratio;
+  if (ratio < 1.0f) {
+    ratio = 1.0f / std::max(ratio, 1e-3f);
+  }
+  FloatValue unsticky_size = sticky_size * ratio;
   return std::make_tuple(sticky_size, unsticky_size);
 }
 
