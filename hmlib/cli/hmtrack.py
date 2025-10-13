@@ -7,6 +7,7 @@ import traceback
 from collections import OrderedDict
 from pathlib import Path
 from typing import List, Tuple
+import shutil
 
 # We need this to get registered
 import mmdet.models.data_preprocessors.track_data_preprocessor
@@ -1003,15 +1004,54 @@ def _main(args, num_gpu):
             )
 
         #
-        # Now add the audio
+        # Now add the audio and copy CSVs alongside with matching -x suffix
         #
         if output_video_path and os.path.exists(output_video_path):
-            transfer_audio(
+            dest_path = transfer_audio(
                 game_id=args.game_id,
                 input_av_files=input_video_files,
                 video_source_file=output_video_path,
                 output_av_path=args.output_video,
             )
+
+            # Mirror CSVs into the same game directory with the same index suffix
+            try:
+                game_video_dir = get_game_dir(args.game_id)
+                if game_video_dir and os.path.isdir(game_video_dir):
+                    # Determine numeric suffix used for the video filename (e.g., -3)
+                    dest_name = os.path.basename(str(dest_path))
+                    base, ext = os.path.splitext(dest_name)
+                    suffix_num = None
+                    # Extract trailing -N if present
+                    dash_idx = base.rfind("-")
+                    if dash_idx != -1:
+                        tail = base[dash_idx + 1 :]
+                        if tail.isdigit():
+                            suffix_num = int(tail)
+
+                    def with_index(name: str) -> str:
+                        root, cext = os.path.splitext(name)
+                        if suffix_num is None or suffix_num == 0:
+                            return f"{root}{cext}"
+                        return f"{root}-{suffix_num}{cext}"
+
+                    candidates = [
+                        (args.save_tracking_data, os.path.join(results_folder, "tracking.csv"), with_index("tracking.csv")),
+                        (args.save_detection_data, os.path.join(results_folder, "detections.csv"), with_index("detections.csv")),
+                        (args.save_pose_data, os.path.join(results_folder, "pose.csv"), with_index("pose.csv")),
+                        (args.save_camera_data, os.path.join(results_folder, "camera.csv"), with_index("camera.csv")),
+                    ]
+                    for enabled, src, dst_name in candidates:
+                        if enabled and os.path.exists(src):
+                            dst = os.path.join(game_video_dir, dst_name)
+                            try:
+                                shutil.copy2(src, dst)
+                            except Exception:
+                                traceback.print_exc()
+                else:
+                    logger.info("Game directory not found; skipping CSV mirroring.")
+            except Exception:
+                traceback.print_exc()
         logger.info("Completed")
     except Exception as ex:
         print(ex)
