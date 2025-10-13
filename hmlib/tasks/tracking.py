@@ -37,6 +37,8 @@ def run_mmtrack(
     track_mean_mode: Optional[str] = None,
 ):
     mean_tracker: Optional[MeanTracker] = None
+    if config is None:
+        config = {}
     try:
         if track_mean_mode:
             mean_tracker = MeanTracker(
@@ -171,6 +173,40 @@ def run_mmtrack(
                     logger.info("Aspen trunk patch: " + ", ".join(changes))
 
                 aspen_cfg["trunks"] = trunks_cfg
+                # Apply camera controller CLI overrides if present
+                if "camera_controller" in trunks_cfg:
+                    cc = trunks_cfg["camera_controller"]
+                    cc_params = cc.setdefault("params", {}) or {}
+                    ia = config.get("initial_args", {}) or {}
+                    ctrl = ia.get("camera_controller")
+                    if ctrl:
+                        cc_params["controller"] = ctrl
+                    model_path = ia.get("camera_model")
+                    if model_path:
+                        cc_params["model_path"] = model_path
+                    win = ia.get("camera_window")
+                    if win:
+                        try:
+                            cc_params["window"] = int(win)
+                        except Exception:
+                            pass
+                    # If CLI overrides not provided, pull from rink.camera config
+                    if not cc_params.get("controller"):
+                        cam_ctrl = (config.get("rink") or {}).get("camera", {}).get("controller")
+                        if cam_ctrl:
+                            cc_params["controller"] = cam_ctrl
+                    if not cc_params.get("model_path"):
+                        cam_model = (config.get("rink") or {}).get("camera", {}).get("camera_model")
+                        if cam_model:
+                            cc_params["model_path"] = cam_model
+                    if not cc_params.get("window"):
+                        cam_win = (config.get("rink") or {}).get("camera", {}).get("camera_window")
+                        if cam_win:
+                            try:
+                                cc_params["window"] = int(cam_win)
+                            except Exception:
+                                pass
+                    cc["params"] = cc_params
                 # Apply jersey trunk CLI overrides if present
                 if "jersey_numbers" in trunks_cfg:
                     j = trunks_cfg["jersey_numbers"]

@@ -39,6 +39,14 @@ from hockeymom.core import PlayTracker as CppPlayTracker
 from hockeymom.core import PlayTrackerConfig
 
 from .living_box import PyLivingBox, from_bbox, to_bbox
+from .camera_transformer import (
+    CameraPanZoomTransformer,
+    CameraNorm,
+    build_frame_features,
+    make_box_from_center_h,
+    unpack_checkpoint,
+)
+from collections import deque
 
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
@@ -156,6 +164,10 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.max_speed_y = self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale
             current_roi_config.max_accel_x = self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
             current_roi_config.max_accel_y = self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
+            # Smooth target following to reduce jerky pans
+            current_roi_config.pan_smoothing_alpha = args.game_config["rink"]["camera"].get(
+                "pan_smoothing_alpha", 0.18
+            )
 
             # Resizing
             current_roi_config.max_speed_w = self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale / 1.8
@@ -217,6 +229,9 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.unsticky_translation_size_ratio = args.game_config["rink"]["camera"][
                 "unsticky_translation_size_ratio"
             ]
+            current_roi_aspect_config.pan_smoothing_alpha = args.game_config["rink"]["camera"].get(
+                "pan_smoothing_alpha", 0.18
+            )
             current_roi_aspect_config.sticky_sizing = True
             current_roi_aspect_config.scale_dest_width = args.game_config["rink"]["camera"]["follower_box_scale_width"]
             current_roi_aspect_config.scale_dest_height = args.game_config["rink"]["camera"][
@@ -224,7 +239,9 @@ class PlayTracker(torch.nn.Module):
             ]
             current_roi_aspect_config.fixed_aspect_ratio = self._final_aspect_ratio
 
-            if not self._cpp_playtracker:
+            # If we are not using the C++ PlayTracker, or if the controller is the transformer,
+            # initialize Python-side movers without creating the C++ PlayTracker.
+            if (not self._cpp_playtracker) or (getattr(args, "camera_controller", None) == "transformer"):
                 self._breakaway_detection = BreakawayDetection(args.game_config)
                 #
                 # Initialize `_current_roi` MovingBox with `current_roi_config`
@@ -269,8 +286,55 @@ class PlayTracker(torch.nn.Module):
                 self._breakaway_detection = None
 
                 self._playtracker = CppPlayTracker(BBox(0, 0, play_width, play_height), pt_config)
-                self._current_roi = None
-                self._current_roi_aspect = None
+                # Also create Python ROI movers so external camera boxes can flow through smoothing
+                self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
+                    label="Current ROI",
+                    bbox=start_box.clone(),
+                    arena_box=self.get_arena_box(),
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale,
+                    max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale,
+                    max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale,
+                    max_width=play_width,
+                    max_height=play_height,
+                    stop_on_dir_change=False,
+                    pan_smoothing_alpha=args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
+                    color=(255, 128, 64),
+                    thickness=5,
+                    device=self._device,
+                )
+
+                self._current_roi_aspect: Union[MovingBox, PyLivingBox] = MovingBox(
+                    label="AspectRatio",
+                    bbox=start_box.clone(),
+                    arena_box=self.get_arena_box(),
+                    max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale,
+                    max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale,
+                    max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone() / speed_scale,
+                    max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone() / speed_scale,
+                    max_width=play_width,
+                    max_height=play_height,
+                    stop_on_dir_change=True,
+                    sticky_translation=True,
+                    sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
+                        "sticky_size_ratio_to_frame_width"
+                    ],
+                    sticky_translation_gaussian_mult=self._args.game_config["rink"]["camera"][
+                        "sticky_translation_gaussian_mult"
+                    ],
+                    unsticky_translation_size_ratio=self._args.game_config["rink"]["camera"][
+                        "unsticky_translation_size_ratio"
+                    ],
+                    pan_smoothing_alpha=self._args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
+                    sticky_sizing=True,
+                    scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
+                    scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
+                    fixed_aspect_ratio=self._final_aspect_ratio,
+                    color=(255, 0, 255),
+                    thickness=5,
+                    device=self._device,
+                    min_height=play_height / 5,
+                )
         else:
             assert not self._cpp_playtracker
 
@@ -287,6 +351,7 @@ class PlayTracker(torch.nn.Module):
                 max_width=play_width,
                 max_height=play_height,
                 stop_on_dir_change=False,
+                pan_smoothing_alpha=args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
                 color=(255, 128, 64),
                 thickness=5,
                 device=self._device,
@@ -313,6 +378,7 @@ class PlayTracker(torch.nn.Module):
                 unsticky_translation_size_ratio=self._args.game_config["rink"]["camera"][
                     "unsticky_translation_size_ratio"
                 ],
+                pan_smoothing_alpha=self._args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
                 sticky_sizing=True,
                 scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
                 scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
@@ -322,6 +388,34 @@ class PlayTracker(torch.nn.Module):
                 device=self._device,
                 min_height=play_height / 5,
             )
+
+        # Optional transformer-based camera controller
+        self._camera_controller = getattr(args, "camera_controller", "rule")
+        self._camera_model: Optional[CameraPanZoomTransformer] = None
+        self._camera_norm: Optional[CameraNorm] = None
+        self._camera_window: int = int(getattr(args, "camera_window", 8))
+        self._camera_feat_buf: deque = deque(maxlen=self._camera_window)
+        self._camera_prev_center: Optional[Tuple[float, float]] = None
+        self._camera_prev_h: Optional[float] = None
+        self._camera_aspect = float(self._final_aspect_ratio)
+        cm_path = getattr(args, "camera_model", None)
+        if self._camera_controller == "transformer" and cm_path:
+            try:
+                ckpt = torch.load(cm_path, map_location="cpu")
+                sd, norm, window = unpack_checkpoint(ckpt)
+                d_in = 11  # must match build_frame_features
+                self._camera_model = CameraPanZoomTransformer(d_in=d_in)
+                self._camera_model.load_state_dict(sd)
+                self._camera_model.to(self._device)
+                self._camera_model.eval()
+                self._camera_norm = norm
+                # Override window if checkpoint carries its own
+                self._camera_window = int(getattr(args, "camera_window", window))
+                self._camera_feat_buf = deque(maxlen=self._camera_window)
+                logger.info(f"Loaded camera transformer from {cm_path} (window={self._camera_window})")
+            except Exception as ex:
+                logger.warning(f"Failed to load camera model at {cm_path}: {ex}. Falling back to rule controller.")
+                self._camera_controller = "rule"
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
@@ -491,7 +585,7 @@ class PlayTracker(torch.nn.Module):
 
             vis_ignored_tracking_ids: Union[Set[int], None] = set()
 
-            if self._playtracker is not None:
+            if self._playtracker is not None and results.get("camera_boxes") is None:
                 online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
                 playtracker_results = self._playtracker.forward(online_ids.cpu().tolist(), online_bboxes)
 
@@ -591,21 +685,67 @@ class PlayTracker(torch.nn.Module):
 
                 self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
 
-                #
-                # BEGIN Clusters and Cluster Boxes
-                #
-                cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
-                    online_tlwhs, online_ids, cluster_counts=cluster_counts
+                # Prefer external camera boxes provided by an upstream trunk
+                external_cam_boxes = results.get("camera_boxes", None)
+                current_box = None
+                if external_cam_boxes is not None and frame_index < len(external_cam_boxes):
+                    cb = external_cam_boxes[frame_index]
+                    if not isinstance(cb, torch.Tensor):
+                        cb = torch.as_tensor(cb, dtype=torch.float32)
+                    # Keep on same device as play_box to avoid clamp device mismatch
+                    current_box = cb.to(device=self._play_box.device, dtype=torch.float32)
+
+                # Optionally use transformer-based controller
+                use_transformer = (
+                    self._camera_controller == "transformer"
+                    and self._camera_model is not None
                 )
-
-                if cluster_boxes_map:
-                    cluster_enclosing_box = get_enclosing_box(cluster_boxes)
-                elif self._previous_cluster_union_box is not None:
-                    cluster_enclosing_box = self._previous_cluster_union_box.clone()
-                else:
-                    cluster_enclosing_box = self.get_arena_box()
-
-                current_box = cluster_enclosing_box
+                if current_box is None and use_transformer:
+                    tlwh_np = (
+                        online_tlwhs.numpy() if isinstance(online_tlwhs, torch.Tensor) else online_tlwhs
+                    )
+                    # Build and append features
+                    feat_np = build_frame_features(
+                        tlwh=tlwh_np,
+                        norm=self._camera_norm,
+                        prev_cam_center=self._camera_prev_center,
+                        prev_cam_h=self._camera_prev_h,
+                    ) if self._camera_norm is not None else None
+                    if feat_np is not None:
+                        self._camera_feat_buf.append(torch.from_numpy(feat_np).to(self._device))
+                    if len(self._camera_feat_buf) >= self._camera_window:
+                        x = torch.stack(list(self._camera_feat_buf), dim=0).unsqueeze(0)
+                        with torch.no_grad():
+                            pred = self._camera_model(x).squeeze(0).detach().cpu().numpy()
+                        cx, cy, hr = float(pred[0]), float(pred[1]), float(pred[2])
+                        self._camera_prev_center = (cx, cy)
+                        self._camera_prev_h = hr
+                        # Map to current arena box
+                        arena_box = self.get_arena_box()
+                        W = float(width(arena_box))
+                        H = float(height(arena_box))
+                        w_px = max(1.0, hr * H * float(self._final_aspect_ratio))
+                        h_px = max(1.0, hr * H)
+                        cx_px = float(arena_box[0] + cx * W)
+                        cy_px = float(arena_box[1] + cy * H)
+                        left = cx_px - w_px / 2.0
+                        top = cy_px - h_px / 2.0
+                        right = left + w_px
+                        bottom = top + h_px
+                        current_box = torch.tensor([left, top, right, bottom], dtype=torch.float, device=image_device)
+                        current_box = clamp_box(current_box, self._play_box)
+                if current_box is None:
+                    # BEGIN Clusters and Cluster Boxes (rule-based default)
+                    cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
+                        online_tlwhs, online_ids, cluster_counts=cluster_counts
+                    )
+                    if cluster_boxes_map:
+                        cluster_enclosing_box = get_enclosing_box(cluster_boxes)
+                    elif self._previous_cluster_union_box is not None:
+                        cluster_enclosing_box = self._previous_cluster_union_box.clone()
+                    else:
+                        cluster_enclosing_box = self.get_arena_box()
+                    current_box = cluster_enclosing_box
 
             if self._args.plot_boundaries and self._boundaries is not None:
                 online_im = self._boundaries.draw(online_im)
@@ -719,31 +859,35 @@ class PlayTracker(torch.nn.Module):
             online_im = self._jersey_tracker.draw(image=online_im, tracking_ids=online_ids, bboxes=online_tlwhs)
             online_im = self._action_tracker.draw(image=online_im, tracking_ids=online_ids, bboxes_tlwh=online_tlwhs)
 
-            if self._playtracker is None:
-                current_box, online_im = self.calculate_breakaway(
-                    current_box=current_box,
-                    online_im=online_im,
-                    speed_adjust_box=self._current_roi,
-                    average_current_box=True,
-                )
+            # Run ROI mover when using Python-only path; skip breakaway when C++ tracker or external cam boxes are used
+            use_external_cam = results.get("camera_boxes") is not None
+            if (self._playtracker is None) or use_external_cam:
+                # Only apply Python breakaway if no C++ tracker and no external camera controller and not transformer
+                if (self._playtracker is None) and (not use_external_cam) and (self._camera_controller != "transformer"):
+                    current_box, online_im = self.calculate_breakaway(
+                        current_box=current_box,
+                        online_im=online_im,
+                        speed_adjust_box=self._current_roi,
+                        average_current_box=True,
+                    )
 
-                #
                 # Backup the last calculated box
-                #
                 self._previous_cluster_union_box = current_box.clone()
 
-                # Some players may be off-screen, so their box may go over an edge
+                # Clamp to arena
                 current_box = clamp_box(current_box, self._play_box)
 
                 # Maybe set initial box sizes if we aren't starting with a wide frame
                 if self._frame_counter == 1 and self._args.no_wide_start:
                     self.set_initial_tracking_box(current_box)
 
-                #
-                # Apply the new calculated play
-                #
-                fast_roi_bounding_box = self._current_roi.forward(to_bbox(current_box, self._cpp_boxes))
-
+                # Apply through ROI moving boxes (fast follower + aspect follower)
+                roi_input_box = (
+                    to_bbox(current_box, self._cpp_boxes)
+                    if isinstance(self._current_roi, PyLivingBox)
+                    else current_box
+                )
+                fast_roi_bounding_box = self._current_roi.forward(roi_input_box)
                 current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
 
                 fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)

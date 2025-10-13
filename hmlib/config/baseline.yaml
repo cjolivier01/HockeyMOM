@@ -80,6 +80,11 @@ rink:
     sticky_translation_gaussian_mult: 5.0
     unsticky_translation_size_ratio: 0.75
 
+    # Camera controller (trunk) defaults
+    controller: rule         # or 'transformer'
+    camera_model: null       # path to transformer checkpoint (.pt)
+    camera_window: 8
+
     #
     # Configuration for breakaways
     #

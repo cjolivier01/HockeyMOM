@@ -201,6 +201,26 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=None,
         help="plot all detections above this given accuracy",
     )
+    # Camera controller options
+    parser.add_argument(
+        "--camera-controller",
+        type=str,
+        choices=["rule", "transformer"],
+        default="rule",
+        help="Select camera controller: rule-based PlayTracker or transformer model",
+    )
+    parser.add_argument(
+        "--camera-model",
+        type=str,
+        default=None,
+        help="Path to transformer camera model checkpoint (.pt) produced by camtrain.py",
+    )
+    parser.add_argument(
+        "--camera-window",
+        type=int,
+        default=8,
+        help="Temporal window length to feed the transformer controller",
+    )
     # Jersey options are defined in hm_opts to be reusable across CLIs
     parser.add_argument(
         "--plot-moving-boxes",

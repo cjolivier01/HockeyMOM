@@ -86,7 +86,17 @@ trunks:
     depends: [detector, model_factory, boundaries]
     params: {}
 
+  # Optional camera controller (rule-based by default). Enable transformer by
+  # setting controller: transformer and model_path to your checkpoint.
+  camera_controller:
+    class: hmlib.aspen.trunks.camera_controller.CameraControllerTrunk
+    depends: [tracker]
+    params:
+      controller: rule
+      model_path: null
+      window: 8
+
   postprocess:
     class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
-    depends: [tracker]
+    depends: [tracker, camera_controller]
     params: {}
