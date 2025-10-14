@@ -14,15 +14,18 @@ or as a file with lines like:
   GA:2/09:15
   # comments and blank lines allowed
 
+Alternatively, provide a TimeToScore game id to auto-fill goals:
+  --t2s 51602 --home   # Your team is home (home scoring = GF)
+  --t2s 51602 --away   # Your team is away (away scoring = GF)
+
 Install deps (for .xls):
   pip install pandas xlrd
 
 Example:
-  python extract_shift_times.py \
+  python scripts/parse_shift_spreadsheet.py \
       --input dh-tv-12-1.xls \
       --outdir player_shifts \
-      --goal GF:1/12:20 --goal GA:2/10:05 \
-      --goals-file goals.txt \
+      --t2s 51602 --away \
       --keep-goalies
 """
 
@@ -34,6 +37,12 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
+
+# Optional import of TimeToScore API (available in this repo)
+try:  # pragma: no cover - optional at runtime
+    from hmlib.time2score import api as t2s_api
+except Exception:  # noqa: BLE001
+    t2s_api = None  # type: ignore[assignment]
 
 # Header labels as they appear in the sheet
 LABEL_START_SB = "Shift Start (Scoreboard Time)"
@@ -55,19 +64,30 @@ def is_period_label(x: object) -> bool:
     return bool(re.fullmatch(r"Period\s+[1-9]\d*", s))
 
 
+def _int_floor_seconds_component(sec_str: str) -> int:
+    """Return integer seconds, flooring if fractional (e.g., '12.7' -> 12)."""
+    try:
+        return int(float(sec_str))
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"Invalid seconds component '{sec_str}': {e}")
+
+
 def parse_flex_time_to_seconds(s: str) -> int:
     """
-    Accepts H:MM:SS or M:SS or MM:SS.
-    Returns total seconds (int).
+    Accepts H:MM:SS(.fff) or M:SS(.fff) or MM:SS(.fff).
+    Returns total seconds (int), flooring fractional seconds.
     """
     s = s.strip()
     parts = s.split(":")
     if len(parts) == 3:
         h, m, sec = parts
-        return int(h) * 3600 + int(m) * 60 + int(sec)
+        return int(h) * 3600 + int(m) * 60 + _int_floor_seconds_component(sec)
     elif len(parts) == 2:
         m, sec = parts
-        return int(m) * 60 + int(sec)
+        return int(m) * 60 + _int_floor_seconds_component(sec)
+    elif len(parts) == 1:
+        # Support 'SS(.fff)' format (e.g., '58.2' -> 0:58)
+        return _int_floor_seconds_component(parts[0])
     else:
         raise ValueError(f"Invalid time format '{s}'. Expected M:SS or H:MM:SS.")
 
@@ -205,6 +225,61 @@ def load_goals(goals_inline: Iterable[str], goals_file: Optional[Path]) -> List[
                 if not line or line.startswith("#"):
                     continue
                 events.append(parse_goal_token(line))
+    return events
+
+
+def goals_from_t2s(game_id: int, *, side: str) -> List[GoalEvent]:
+    """
+    Retrieve goals from TimeToScore for a game id and map them to GF/GA based on
+    the selected side (home/away).
+    """
+    if t2s_api is None:
+        raise RuntimeError("TimeToScore API not available in this environment")
+
+    info = t2s_api.get_game_details(game_id)
+    stats = info.get("stats") or {}
+    if not stats:
+        print(
+            f"Warning: no stats available for game {game_id}; proceeding without T2S goals.",
+            file=sys.stderr,
+        )
+        return []
+
+    home_sc = stats.get("homeScoring") or []
+    away_sc = stats.get("awayScoring") or []
+
+    events: List[GoalEvent] = []
+
+    def _mk_event(kind: str, period_val, time_val) -> Optional[GoalEvent]:
+        if period_val is None or time_val is None:
+            return None
+        try:
+            per = int(str(period_val).strip())
+        except Exception:
+            return None
+        t_str = str(time_val).strip()
+        # Normalize fractional seconds by flooring
+        try:
+            sec = parse_flex_time_to_seconds(t_str)
+        except Exception:
+            return None
+        mm = sec // 60
+        ss = sec % 60
+        return GoalEvent(kind, per, f"{mm}:{ss:02d}")
+
+    # Home goals are GF if side == home else GA
+    for row in home_sc:
+        ev = _mk_event("GF" if side == "home" else "GA", row.get("period"), row.get("time"))
+        if ev:
+            events.append(ev)
+    # Away goals are GF if side == away else GA
+    for row in away_sc:
+        ev = _mk_event("GF" if side == "away" else "GA", row.get("period"), row.get("time"))
+        if ev:
+            events.append(ev)
+
+    # Sort by period then time for determinism
+    events.sort(key=lambda e: (e.period, e.t_sec))
     return events
 
 
@@ -826,6 +901,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to a text file with one goal per line (GF:period/time or GA:period/time). '#' lines ignored.",
     )
+    # TimeToScore integration
+    p.add_argument(
+        "--t2s",
+        type=int,
+        default=None,
+        help=("TimeToScore game id. If set and no --goal/--goals-file provided, fetch goals from T2S."),
+    )
+    side_group = p.add_mutually_exclusive_group()
+    side_group.add_argument(
+        "--home",
+        action="store_true",
+        help="Your team is the home team (with --t2s).",
+    )
+    side_group.add_argument(
+        "--away",
+        action="store_true",
+        help="Your team is the away team (with --t2s).",
+    )
     p.add_argument(
         "--skip-validation",
         action="store_true",
@@ -837,6 +930,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_arg_parser().parse_args()
     goals = load_goals(args.goal, args.goals_file)
+
+    # If no manual goals provided, but a T2S game id is given, use T2S.
+    if not goals and args.t2s is not None:
+        side: Optional[str]
+        if args.home:
+            side = "home"
+        elif args.away:
+            side = "away"
+        else:
+            print(
+                "Error: --t2s was provided but neither --home nor --away was specified.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        try:
+            goals = goals_from_t2s(int(args.t2s), side=side)
+            if not goals:
+                print(
+                    f"[t2s] No goals found for game {args.t2s}; continuing without GF/GA.",
+                    file=sys.stderr,
+                )
+        except Exception as e:  # noqa: BLE001
+            print(f"[t2s] Failed to fetch goals for game {args.t2s}: {e}", file=sys.stderr)
+            # proceed with empty goals
     process_sheet(
         xls_path=args.input,
         sheet_name=args.sheet,
