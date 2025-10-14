@@ -33,10 +33,10 @@ def validate_timestamp(timestamp):
 
 _DEBUG = True
 
-# ENCODER_CODEC = "hevc_nvenc"
+ENCODER_CODEC = "hevc_nvenc"
 
 # TV's tend to have better h264 hardware decode support than hevc
-ENCODER_CODEC = "h264_nvenc"
+# ENCODER_CODEC = "h264_nvenc"
 
 # Encoders
 ENCODER_ARGS_LOSSLESS = f"-c:v hevc_nvenc -preset p4 -rc constqp -qp 0".split(" ")
