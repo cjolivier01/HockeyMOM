@@ -229,10 +229,13 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="plot moving camera tracking boxes",
     )
     parser.add_argument(
-        "--aspen-config",
-        type=str,
+        "--config",
+        action="append",
         default=None,
-        help="Path to AspenNet YAML graph config. If not set, uses a default graph.",
+        help=(
+            "Additional YAML config file(s) to merge in order. "
+            "Repeat --config to provide multiple files; later ones override earlier ones."
+        ),
     )
     parser.add_argument("--test-size", type=str, default=None, help="WxH of test box size (format WxH)")
     parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
@@ -599,22 +602,12 @@ def _main(args, num_gpu):
             args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
             args.checkpoint = os.path.join(ROOT_DIR, args.checkpoint)
 
-        # Default Aspen graph if not provided
-        if args.aspen_config is None:
-            # Prefer in-repo default Aspen config under hmlib/configs
-            default_aspen = os.path.join(ROOT_DIR, "configs", "aspen", "tracking.yaml")
-            if os.path.exists(default_aspen):
-                args.aspen_config = default_aspen
+        # Keep mmengine config path in args.exp_file; do not override --config list
 
-        args.config = args.exp_file
-
-        # Prefer Aspen config for model + pipeline; avoid mmengine Config-based model
-        aspen_cfg_for_pipeline = None
-        if args.aspen_config and os.path.exists(args.aspen_config):
-            import yaml
-
-            with open(args.aspen_config, "r") as f:
-                aspen_cfg_for_pipeline = yaml.safe_load(f)
+        # Prefer unified Aspen config (namespaced under 'aspen') for model + pipeline
+        aspen_cfg_for_pipeline = game_config.get("aspen") if isinstance(game_config, dict) else None
+        # Expose to downstream run_mmtrack() via args dict
+        args.aspen = aspen_cfg_for_pipeline
 
         if args.tracking:
             model = None  # Built by Aspen ModelFactoryTrunk
@@ -904,13 +897,9 @@ def _main(args, num_gpu):
                 if model is not None and hasattr(model, "cfg"):
                     video_out_pipeline = getattr(model.cfg, "video_out_pipeline")
                 else:
-                    # Pull from Aspen YAML if available
-                    if args.aspen_config and os.path.exists(args.aspen_config):
-                        import yaml
-
-                        with open(args.aspen_config, "r") as f:
-                            y = yaml.safe_load(f)
-                        video_out_pipeline = y.get("video_out_pipeline")
+                    # Pull from unified Aspen config if available
+                    if aspen_cfg_for_pipeline:
+                        video_out_pipeline = aspen_cfg_for_pipeline.get("video_out_pipeline")
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
                     fixed_edge_rotation_angle = (
@@ -1110,6 +1099,31 @@ def main():
     args = parser.parse_args()
 
     game_config = get_config(game_id=args.game_id, rink=args.rink, camera=args.camera_name, root_dir=args.root_dir)
+
+    # Merge user-provided YAML configs in order (--config can be repeated).
+    # Later files override earlier values.
+    from hmlib.config import load_yaml_files_ordered, recursive_update
+
+    def _split_and_strip(items):
+        paths = []
+        if not items:
+            return paths
+        for it in items:
+            if not it:
+                continue
+            parts = [p.strip() for p in str(it).split(",") if p.strip()]
+            paths.extend(parts)
+        return paths
+
+    additional_cfg_paths = _split_and_strip(args.config)
+    if not additional_cfg_paths:
+        default_aspen = os.path.join(ROOT_DIR, "config", "aspen", "tracking.yaml")
+        if os.path.exists(default_aspen):
+            additional_cfg_paths.append(default_aspen)
+    if additional_cfg_paths:
+        merged_extra = load_yaml_files_ordered(additional_cfg_paths)
+        if merged_extra:
+            game_config = recursive_update(game_config, merged_extra)
 
     # Set up the task flags
     args.tracking = False

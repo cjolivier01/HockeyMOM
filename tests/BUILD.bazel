@@ -11,3 +11,11 @@ py_test(
         # "//hmlib:hmlib",
     ],
 )
+
+py_test(
+    name = "test_unified_config",
+    srcs = ["test_unified_config.py"],
+    data = [
+        "//hmlib:wheel_data_files",  # include YAMLs under hmlib/**
+    ],
+)

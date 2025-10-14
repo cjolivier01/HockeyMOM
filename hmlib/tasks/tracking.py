@@ -115,14 +115,13 @@ def run_mmtrack(
             )
             using_precalculated_pose = pose_dataframe is not None and pose_dataframe.has_input_data()
 
-            #
-            # Build AspenNet if a config is provided
-            #
-            aspen_config_path: Optional[str] = config.get("aspen_config")
+            # Build AspenNet if a config is provided under config['aspen']
             aspen_net: Optional[AspenNet] = None
-            if aspen_config_path:
-                with open(aspen_config_path, "r") as f:
-                    aspen_cfg = yaml.safe_load(f)
+            aspen_cfg: Optional[Dict[str, Any]] = None
+            cfg_aspen = config.get("aspen")
+            if isinstance(cfg_aspen, dict):
+                aspen_cfg = dict(cfg_aspen)
+            if aspen_cfg:
                 trunks_cfg = aspen_cfg.get("trunks", {}) or {}
 
                 # Dynamically disable pose trunk if not requested, unless loading pose or
