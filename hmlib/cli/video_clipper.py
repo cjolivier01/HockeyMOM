@@ -47,12 +47,6 @@ ENCODER_ARGS_FAST = "-c:v mpeg4 -preset slow -crf 2".split(" ")
 # Default working encoder (overridden in main based on --codec/flags)
 WORKING_ENCODER_ARGS = ENCODER_ARGS_HQ_HEVC
 
-if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
-    print("Using lossless encoding for intermediate clips (slow)")
-    WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
-else:
-    WORKING_ENCODER_ARGS = ENCODER_ARGS_HQ
-
 FFMPEG_BASE = ["ffmpeg", "-hide_banner"]
 FFMPEG_BASE_HW: List[str] = FFMPEG_BASE + ["-hwaccel", "cuda"]
 
