@@ -1,3 +1,4 @@
+# moved from hmlib/configs/aspen/models
 type: YOLOX
 data_preprocessor:
   type: DetDataPreprocessor
@@ -5,14 +6,14 @@ data_preprocessor:
   batch_augments:
   - type: BatchSyncRandomResize
     random_size_range:
-    - 480
-    - 800
+    - 320
+    - 640
     size_divisor: 32
     interval: 10
 backbone:
   type: CSPDarknet
-  deepen_factor: 1.0
-  widen_factor: 1.0
+  deepen_factor: 0.33
+  widen_factor: 0.375
   out_indices:
   - 2
   - 3
@@ -31,11 +32,11 @@ backbone:
 neck:
   type: YOLOXPAFPN
   in_channels:
-  - 256
-  - 512
-  - 1024
-  out_channels: 256
-  num_csp_blocks: 3
+  - 96
+  - 192
+  - 384
+  out_channels: 96
+  num_csp_blocks: 1
   use_depthwise: false
   upsample_cfg:
     scale_factor: 2
@@ -49,8 +50,8 @@ neck:
 bbox_head:
   type: YOLOXHead
   num_classes: 80
-  in_channels: 256
-  feat_channels: 256
+  in_channels: 96
+  feat_channels: 96
   stacked_convs: 2
   strides:
   - 8
@@ -66,7 +67,7 @@ bbox_head:
 init_cfg:
   type: Pretrained
   prefix: detector.
-  checkpoint: https://download.openmmlab.com/mmdetection/v2.0/yolox/yolox_l_8x8_300e_coco/yolox_l_8x8_300e_coco_20211126_140236-d3bd2b23.pth
+  checkpoint: https://download.openmmlab.com/mmdetection/v2.0/yolox/yolox_tiny_8x8_300e_coco/yolox_tiny_8x8_300e_coco_20211124_171234-b4047906.pth
   loss_cls:
     type: CrossEntropyLoss
     use_sigmoid: true

@@ -5,9 +5,12 @@ Overview
   - Simple ROI + MMOCR: `hmlib/aspen/trunks/jersey_pose.py`
   - Koshkina-style framework: `hmlib/aspen/trunks/jersey_koshkina.py`
 
-Configs
-- Simple: `hmlib/configs/aspen/tracking_pose_pose_det_jersey.yaml`
-- Koshkina: `hmlib/configs/aspen/tracking_pose_pose_det_jersey_koshkina.yaml`
+Configs (aspen-namespaced)
+- Simple: `hmlib/config/aspen/tracking_pose_pose_det_jersey.yaml`
+- Koshkina: `hmlib/config/aspen/tracking_pose_pose_det_jersey_koshkina.yaml`
+
+All Aspen YAMLs are nested under a top-level `aspen:` key. Use them via hmtrack `--config` (repeatable), e.g.:
+- `./hm_run.sh --config hmlib/config/aspen/tracking_pose_pose_det_jersey.yaml`
 
 Koshkina Trunk Parameters (jersey_numbers.params)
 - ROI selection
@@ -65,4 +68,3 @@ Examples
 
 Fallbacks
 - If any optional backend (SAM, PARSeq, centroid-reid) is missing or fails to initialize, the trunk logs a single INFO line and falls back to the default behavior without interrupting the pipeline.
-

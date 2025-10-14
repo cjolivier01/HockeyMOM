@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import yaml
 
@@ -76,6 +76,36 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
                 print(exc)
                 raise
     return {} if not merge_into_config else merge_into_config
+
+
+def load_yaml_files_ordered(paths: Sequence[str], base: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Load multiple YAML files in order and merge them into a single dictionary.
+    Later files override earlier values and add new fields.
+
+    - paths: list/sequence of YAML file paths (absolute or relative)
+    - base: optional starting dictionary to merge into
+
+    Returns: merged dictionary.
+    """
+    merged: Dict[str, Any] = {} if base is None else dict(base)
+    for p in paths:
+        if not p:
+            continue
+        try:
+            # Allow both absolute and ROOT_DIR-relative paths
+            yaml_path = p
+            if not os.path.isabs(yaml_path):
+                candidate = os.path.join(ROOT_DIR, yaml_path)
+                if os.path.exists(candidate):
+                    yaml_path = candidate
+            y = load_config_file_yaml(yaml_path)
+            if y:
+                merged = recursive_update(merged, y)
+        except Exception:
+            # Re-raise with additional context
+            raise
+    return merged
 
 
 def load_config_file(

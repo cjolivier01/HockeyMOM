@@ -1,13 +1,24 @@
+# moved from hmlib/configs/aspen/models
 type: YOLOX
+data_preprocessor:
+  type: DetDataPreprocessor
+  pad_size_divisor: 32
+  batch_augments:
+  - type: BatchSyncRandomResize
+    random_size_range:
+    - 320
+    - 640
+    size_divisor: 32
+    interval: 10
 backbone:
   type: CSPDarknet
   deepen_factor: 0.33
-  widen_factor: 0.5
+  widen_factor: 0.25
   out_indices:
   - 2
   - 3
   - 4
-  use_depthwise: false
+  use_depthwise: true
   spp_kernal_sizes:
   - 5
   - 9
@@ -21,12 +32,12 @@ backbone:
 neck:
   type: YOLOXPAFPN
   in_channels:
+  - 64
   - 128
   - 256
-  - 512
-  out_channels: 128
+  out_channels: 64
   num_csp_blocks: 1
-  use_depthwise: false
+  use_depthwise: true
   upsample_cfg:
     scale_factor: 2
     mode: nearest
@@ -39,14 +50,14 @@ neck:
 bbox_head:
   type: YOLOXHead
   num_classes: 80
-  in_channels: 128
-  feat_channels: 128
+  in_channels: 64
+  feat_channels: 64
   stacked_convs: 2
   strides:
   - 8
   - 16
   - 32
-  use_depthwise: false
+  use_depthwise: true
   norm_cfg:
     type: BN
     momentum: 0.03
@@ -81,9 +92,4 @@ test_cfg:
   score_thr: 0.01
   nms:
     type: nms
-    iou_threshold: 0.7
-init_cfg:
-  type: Pretrained
-  prefix: detector.
-  # checkpoint: https://download.openmmlab.com/mmdetection/v2.0/yolox/yolox_s_8x8_300e_coco/yolox_s_8x8_300e_coco_20211121_095711-4592a793.pth
-  checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
+    iou_threshold: 0.65
