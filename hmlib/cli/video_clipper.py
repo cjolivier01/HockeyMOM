@@ -33,12 +33,19 @@ def validate_timestamp(timestamp):
 
 _DEBUG = True
 
-# Encoders
-ENCODER_ARGS_LOSSLESS = f"-c:v hevc_nvenc -preset p4 -rc constqp -qp 0".split(" ")
-ENCODER_ARGS_FAST = "-c:v mpeg4 -preset slow -crf 2".split(" ")
-ENCODER_ARGS_HQ = f"-c:v hevc_nvenc -preset medium -b:v 40M".split(" ")
+# Encoder presets for HEVC and H.264. We keep the same quality tiers where possible.
+ENCODER_ARGS_LOSSLESS_HEVC = "-c:v hevc_nvenc -preset p4 -rc constqp -qp 0".split(" ")
+ENCODER_ARGS_HQ_HEVC = "-c:v hevc_nvenc -preset medium -b:v 40M".split(" ")
 
-FFMPEG_CUDA_DECODER = ["-c:v", "hevc_cuvid"]
+# H.264 NVENC: mirror HEVC quality tiers as closely as possible
+ENCODER_ARGS_LOSSLESS_H264 = "-c:v h264_nvenc -preset p4 -rc constqp -qp 0".split(" ")
+ENCODER_ARGS_HQ_H264 = "-c:v h264_nvenc -preset medium -b:v 40M".split(" ")
+
+# "Fast" mode kept as-is for backwards-compat (intended for quick iteration)
+ENCODER_ARGS_FAST = "-c:v mpeg4 -preset slow -crf 2".split(" ")
+
+# Default working encoder (overridden in main based on --codec/flags)
+WORKING_ENCODER_ARGS = ENCODER_ARGS_HQ_HEVC
 
 if not _DEBUG or int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
     print("Using lossless encoding for intermediate clips (slow)")
@@ -48,6 +55,53 @@ else:
 
 FFMPEG_BASE = ["ffmpeg", "-hide_banner"]
 FFMPEG_BASE_HW: List[str] = FFMPEG_BASE + ["-hwaccel", "cuda"]
+
+
+def get_video_codec(file_path: str, dry_run: bool = False) -> Optional[str]:
+    """
+    Returns codec_name (e.g., "hevc", "h264") of the first video stream.
+    In --dry-run mode, returns None (no assumption).
+    """
+    if dry_run:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name",
+                "-of",
+                "json",
+                file_path,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+        data = json.loads(result.stdout)
+        return data.get("streams", [{}])[0].get("codec_name")
+    except Exception:
+        return None
+
+
+def get_decoder_args_for_video(file_path: str, dry_run: bool = False) -> List[str]:
+    """
+    Choose CUDA decoder based on detected codec. If unknown, return [].
+    """
+    codec = get_video_codec(file_path, dry_run=dry_run)
+    if not codec:
+        return []
+    codec = codec.lower()
+    if codec in ("hevc", "h265"):  # common names for H.265
+        return ["-c:v", "hevc_cuvid"]
+    if codec in ("h264", "avc1", "avc"):  # common names for H.264
+        return ["-c:v", "h264_cuvid"]
+    return []
 
 
 def friendly_label(label: str) -> str:
@@ -183,9 +237,9 @@ def concat_video_clips(
 ) -> None:
     if should_skip_existing(output_file, expected_concat_duration, cont, dry_run):
         return
+    # Concatenation uses stream copy; no decode needed from list file.
     cmd = (
         FFMPEG_BASE
-        + FFMPEG_CUDA_DECODER
         + [
             "-f",
             "concat",
@@ -282,7 +336,8 @@ def extract_clip_with_overlay(
     cmd = list(FFMPEG_BASE_HW)
     if start_time:
         cmd += ["-ss", start_time]
-    cmd += FFMPEG_CUDA_DECODER + ["-i", input_video]
+    # Detect and select the appropriate CUDA decoder (H.264 or HEVC) per input
+    cmd += get_decoder_args_for_video(input_video, dry_run=dry_run) + ["-i", input_video]
     if start_time and end_time:
         dur = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
         cmd += ["-t", f"{dur}"]
@@ -406,6 +461,12 @@ def main():
     parser.add_argument("--input", "-i", default=None, help="Input video file")
     parser.add_argument("--timestamps", "-t", default=None, help="File containing timestamps")
     parser.add_argument("--quick", type=int, default=0, help="Quick mode (lower quality)")
+    parser.add_argument(
+        "--codec",
+        choices=["hevc", "h264"],
+        default="hevc",
+        help="Output codec: hevc (H.265) or h264 (H.264). Default: hevc",
+    )
     parser.add_argument("--video-file-list", type=str, default=None, help="List of video files")
     parser.add_argument("--temp-dir", type=str, default=None, help="Directory to store intermediate clips")
     parser.add_argument(
@@ -425,7 +486,7 @@ def main():
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
 
-    # Override encoder selection based on flags/env at runtime
+    # Encoder selection based on codec + flags/env
     global WORKING_ENCODER_ARGS
     try:
         q = int(args.quick) if args.quick is not None else 0
@@ -433,8 +494,14 @@ def main():
         q = 0
     if q > 0:
         WORKING_ENCODER_ARGS = ENCODER_ARGS_FAST
-    elif int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
-        WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS
+    else:
+        # VIDEO_CLIPPER_HQ>0 means use lossless for intermediates (existing behavior)
+        if int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
+            WORKING_ENCODER_ARGS = (
+                ENCODER_ARGS_LOSSLESS_H264 if args.codec == "h264" else ENCODER_ARGS_LOSSLESS_HEVC
+            )
+        else:
+            WORKING_ENCODER_ARGS = ENCODER_ARGS_HQ_H264 if args.codec == "h264" else ENCODER_ARGS_HQ_HEVC
 
     # Parse video file list
     if args.video_file_list:
