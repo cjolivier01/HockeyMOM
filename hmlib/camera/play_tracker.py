@@ -119,6 +119,8 @@ class PlayTracker(torch.nn.Module):
 
         self._jersey_tracker = JerseyTracker(show=args.plot_jersey_numbers)
         self._action_tracker = ActionTracker(show=getattr(args, 'plot_actions', False))
+        # Cache for rink_profile (combined_mask, centroid, etc.) pulled from data samples meta
+        self._rink_profile_cache = None
 
         # Tracking specific ids
         self._track_ids: Set[int] = set()
@@ -542,6 +544,9 @@ class PlayTracker(torch.nn.Module):
         current_box_list: List[torch.Tensor] = []
         current_fast_box_list: List[torch.Tensor] = []
         online_images: List[torch.Tensor] = []
+        # Per-frame player footprint centers (bottom of bbox midpoints) and ids
+        player_bottom_points_list: List[torch.Tensor] = []
+        player_ids_list: List[torch.Tensor] = []
 
         # Make the original images into a list so that we can release the batched one
         original_images_list: List[Optional[torch.Tensor]] = []
@@ -571,6 +576,15 @@ class PlayTracker(torch.nn.Module):
                 logger.info(f"PlayTracker frame {int(scalar_frame_id)}: det={det_count} tracks={n}")
 
             self.process_jerseys_info(frame_index=frame_index, frame_id=scalar_frame_id, data=results)
+
+            # Cache rink_profile once if available in metainfo
+            try:
+                if self._rink_profile_cache is None and hasattr(video_data_sample, 'metainfo'):
+                    rp = video_data_sample.metainfo.get("rink_profile", None)
+                    if rp is not None:
+                        self._rink_profile_cache = rp
+            except Exception:
+                pass
 
             self._frame_counter += 1
 
@@ -746,6 +760,31 @@ class PlayTracker(torch.nn.Module):
                     else:
                         cluster_enclosing_box = self.get_arena_box()
                     current_box = cluster_enclosing_box
+
+            # Compute per-player representative points for minimap
+            if isinstance(online_tlwhs, torch.Tensor) and online_tlwhs.numel() > 0:
+                # centers and bottoms
+                cx = online_tlwhs[:, 0] + online_tlwhs[:, 2] / 2.0
+                cy = online_tlwhs[:, 1] + online_tlwhs[:, 3] / 2.0
+                by = online_tlwhs[:, 1] + online_tlwhs[:, 3]
+                # Default to bottom points
+                rep_x = cx
+                rep_y = by
+                # If rink centroid known, choose center vs bottom based on half of rink
+                try:
+                    if self._rink_profile_cache is not None and "centroid" in self._rink_profile_cache:
+                        ry = float(self._rink_profile_cache["centroid"][1])
+                        # For near half (y > ry), prefer centers (skates off-ice / occlusion by boards)
+                        mask = cy > ry
+                        rep_y = torch.where(mask, cy, by)
+                        rep_x = cx
+                except Exception:
+                    pass
+                foot_points = torch.stack([rep_x, rep_y], dim=1).to(torch.float32)
+            else:
+                foot_points = torch.empty((0, 2), dtype=torch.float32)
+            player_bottom_points_list.append(foot_points)
+            player_ids_list.append(online_ids.clone() if isinstance(online_ids, torch.Tensor) else torch.tensor([]))
 
             if self._args.plot_boundaries and self._boundaries is not None:
                 online_im = self._boundaries.draw(online_im)
@@ -931,6 +970,11 @@ class PlayTracker(torch.nn.Module):
         results["frame_ids"] = torch.stack(frame_ids_list)
         results["current_box"] = torch.stack(current_box_list)
         results["current_fast_box_list"] = torch.stack(current_fast_box_list)
+        # Attach per-frame player bottom points and ids for downstream overlays
+        results["player_bottom_points"] = player_bottom_points_list
+        results["player_ids"] = player_ids_list
+        if self._rink_profile_cache is not None:
+            results["rink_profile"] = self._rink_profile_cache
         # print(f"FAST: {current_fast_box_list}")
         # print(f"CURRENT: {current_box_list}")
 

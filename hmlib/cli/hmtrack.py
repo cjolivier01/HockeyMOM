@@ -197,6 +197,11 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("--plot-actions", action="store_true", help="plot action labels per tracked player")
     parser.add_argument("--plot-pose", action="store_true", help="plot individual pose skeletons")
     parser.add_argument(
+        "--plot-overhead-rink",
+        action="store_true",
+        help="Draw an overhead rink minimap with player positions",
+    )
+    parser.add_argument(
         "--plot-all-detections",
         type=float,
         default=None,
@@ -946,6 +951,7 @@ def _main(args, num_gpu):
                         dict(
                             frame_number=bool(args.plot_frame_number),
                             frame_time=bool(args.plot_frame_time),
+                            overhead_rink=bool(args.plot_overhead_rink),
                             device=gpus["encoder"],
                         ),
                     )
