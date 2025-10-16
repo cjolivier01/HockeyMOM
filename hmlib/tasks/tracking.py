@@ -123,6 +123,7 @@ def run_mmtrack(
                 aspen_cfg = dict(cfg_aspen)
             if aspen_cfg:
                 trunks_cfg = aspen_cfg.get("trunks", {}) or {}
+                initial_args = config.get("initial_args", {}) or {}
 
                 # Dynamically disable pose trunk if not requested, unless loading pose or
                 # a downstream trunk (e.g., pose_to_det) requires it.
@@ -172,18 +173,40 @@ def run_mmtrack(
                     logger.info("Aspen trunk patch: " + ", ".join(changes))
 
                 aspen_cfg["trunks"] = trunks_cfg
+
+                pipeline_cfg = dict(aspen_cfg.get("pipeline", {}) or {})
+                pipeline_modified = bool(pipeline_cfg)
+                threaded_cli = initial_args.get("aspen_threaded")
+                if threaded_cli is not None:
+                    threaded_bool = bool(threaded_cli)
+                    pipeline_cfg["threaded"] = threaded_bool
+                    aspen_cfg["threaded_trunks"] = threaded_bool
+                    pipeline_modified = True
+                queue_cli = initial_args.get("aspen_thread_queue_size")
+                if queue_cli is not None:
+                    try:
+                        pipeline_cfg["queue_size"] = max(1, int(queue_cli))
+                        pipeline_modified = True
+                    except Exception:
+                        logger.warning("Invalid Aspen queue size override: %r", queue_cli)
+                stream_cli = initial_args.get("aspen_thread_cuda_streams")
+                if stream_cli is not None:
+                    pipeline_cfg["cuda_streams"] = bool(stream_cli)
+                    pipeline_modified = True
+                if pipeline_modified:
+                    aspen_cfg["pipeline"] = pipeline_cfg
+
                 # Apply camera controller CLI overrides if present
                 if "camera_controller" in trunks_cfg:
                     cc = trunks_cfg["camera_controller"]
                     cc_params = cc.setdefault("params", {}) or {}
-                    ia = config.get("initial_args", {}) or {}
-                    ctrl = ia.get("camera_controller")
+                    ctrl = initial_args.get("camera_controller")
                     if ctrl:
                         cc_params["controller"] = ctrl
-                    model_path = ia.get("camera_model")
+                    model_path = initial_args.get("camera_model")
                     if model_path:
                         cc_params["model_path"] = model_path
-                    win = ia.get("camera_window")
+                    win = initial_args.get("camera_window")
                     if win:
                         try:
                             cc_params["window"] = int(win)

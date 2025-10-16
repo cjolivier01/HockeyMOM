@@ -101,6 +101,41 @@ class hm_opts(object):
             action="store_true",
             help="Don't use CUDA streams",
         )
+        aspen_thread_group = parser.add_mutually_exclusive_group()
+        aspen_thread_group.add_argument(
+            "--aspen-threaded",
+            dest="aspen_threaded",
+            action="store_true",
+            help="Run Aspen trunks in threaded pipeline mode",
+        )
+        aspen_thread_group.add_argument(
+            "--no-aspen-threaded",
+            dest="aspen_threaded",
+            action="store_false",
+            help="Disable threaded Aspen pipeline mode",
+        )
+        parser.set_defaults(aspen_threaded=None)
+        parser.add_argument(
+            "--aspen-thread-queue-size",
+            dest="aspen_thread_queue_size",
+            type=int,
+            default=None,
+            help="Queue size between threaded Aspen trunks (defaults to 1)",
+        )
+        aspen_stream_group = parser.add_mutually_exclusive_group()
+        aspen_stream_group.add_argument(
+            "--aspen-thread-cuda-streams",
+            dest="aspen_thread_cuda_streams",
+            action="store_true",
+            help="Give each threaded Aspen trunk its own CUDA stream",
+        )
+        aspen_stream_group.add_argument(
+            "--no-aspen-thread-cuda-streams",
+            dest="aspen_thread_cuda_streams",
+            action="store_false",
+            help="Disable per-trunk CUDA streams in threaded Aspen mode",
+        )
+        parser.set_defaults(aspen_thread_cuda_streams=None)
         parser.add_argument(
             "--stitch-cache-size",
             type=int,

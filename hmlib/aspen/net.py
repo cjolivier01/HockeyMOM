@@ -1,6 +1,8 @@
 import importlib
 import os
+import threading
 from dataclasses import dataclass
+from queue import Queue
 from typing import Any, Dict, Iterable, List, Optional
 
 import networkx as nx
@@ -33,6 +35,22 @@ class AspenNet(torch.nn.Module):
         # NetworkX DiGraph storing the trunks graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
         self.minimal_context = bool(minimal_context or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False)))
+        pipeline_cfg: Dict[str, Any] = {}
+        if isinstance(graph_cfg, dict):
+            pipeline_cfg = graph_cfg.get("pipeline", {}) or {}
+        if not isinstance(pipeline_cfg, dict):
+            raise ValueError("AspenNet 'pipeline' configuration must be a mapping if provided.")
+        threaded_flag = pipeline_cfg.get("threaded")
+        if threaded_flag is None and isinstance(graph_cfg, dict):
+            threaded_flag = graph_cfg.get("threaded_trunks", False)
+        self.threaded_trunks: bool = bool(threaded_flag)
+        queue_size_cfg = pipeline_cfg.get("queue_size", 1)
+        try:
+            self.thread_queue_size: int = max(1, int(queue_size_cfg))
+        except Exception as exc:
+            raise ValueError(f"AspenNet pipeline queue_size must be an integer, got {queue_size_cfg!r}") from exc
+        cuda_streams_flag = pipeline_cfg.get("cuda_streams", True)
+        self.thread_cuda_streams: bool = bool(cuda_streams_flag)
 
         # Accept either {trunks: {...}} or a flat dict
         trunks = graph_cfg.get("trunks") if isinstance(graph_cfg, dict) else None
@@ -44,7 +62,6 @@ class AspenNet(torch.nn.Module):
         self.exec_order = self._toposort()
         self.training: bool = False
         self.save_graphviz("aspennet.dot")
-        # self.display_graphviz()
 
     def train(self, mode: bool = True):
         self.training = mode
@@ -136,46 +153,12 @@ class AspenNet(torch.nn.Module):
         # Ensure trunks can access shared resources
         context.setdefault("shared", self.shared)
         context.setdefault("trunks", {})
-        with torch.no_grad() if not self.training else torch.enable_grad():
+        if self.threaded_trunks:
+            return self._forward_threaded(context)
+        grad_ctx = torch.enable_grad() if self.training else torch.no_grad()
+        with grad_ctx:
             for node in self.exec_order:
-                trunk = node.module
-                # Build a sub-context with only requested inputs, if enabled
-                if self.minimal_context:
-                    req = set(getattr(trunk, "input_keys", lambda: set())())
-                    subctx: Dict[str, Any] = {}
-                    # pull from local context first, then shared if missing
-                    for k in req:
-                        if k in context:
-                            subctx[k] = context[k]
-                        elif k in self.shared:
-                            subctx[k] = self.shared[k]
-                    # Provide shared for convenience if requested
-                    subctx.setdefault("shared", self.shared)
-                else:
-                    subctx = context
-
-                out = trunk(subctx)
-                if not out:
-                    out = {}
-
-                # Determine which keys were modified
-                declared = set(getattr(trunk, "output_keys", lambda: set())())
-                update_keys = declared if declared else set(out.keys())
-
-                # Merge into a next context: copy so trunks can delete safely
-                for k in update_keys:
-                    if k in out:
-                        v = out[k]
-                        from .trunks.base import DeleteKey  # local import avoids cycle
-
-                        if isinstance(v, DeleteKey):
-                            if k in context:
-                                del context[k]
-                        else:
-                            context[k] = v
-
-                # Store trunk-local outputs for introspection
-                context["trunks"][node.name] = {k: out[k] for k in out.keys()}
+                self._execute_node(node, context)
         return context
 
     # region graph export/visualization
@@ -262,6 +245,140 @@ class AspenNet(torch.nn.Module):
             return False
 
     # endregion
+
+    def _execute_node(self, node: _Node, context: Dict[str, Any]) -> None:
+        trunk = node.module
+        subctx = self._make_subcontext(trunk, context) if self.minimal_context else context
+        out = trunk(subctx) or {}
+
+        declared = set(getattr(trunk, "output_keys", lambda: set())())
+        update_keys = declared if declared else set(out.keys())
+
+        from .trunks.base import DeleteKey  # local import avoids cycle
+
+        for key in update_keys:
+            if key in out:
+                value = out[key]
+                if isinstance(value, DeleteKey):
+                    if key in context:
+                        del context[key]
+                else:
+                    context[key] = value
+
+        context["trunks"][node.name] = {k: out[k] for k in out.keys()}
+
+    def _make_subcontext(self, trunk: torch.nn.Module, context: Dict[str, Any]) -> Dict[str, Any]:
+        req_keys = set(getattr(trunk, "input_keys", lambda: set())())
+        if not req_keys:
+            subctx: Dict[str, Any] = {}
+        else:
+            subctx = {k: context[k] for k in req_keys if k in context}
+            for key in req_keys:
+                if key not in subctx and key in self.shared:
+                    subctx[key] = self.shared[key]
+        subctx.setdefault("shared", self.shared)
+        return subctx
+
+    def _forward_threaded(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        stop_token = object()
+
+        class _ExceptionWrapper:
+            __slots__ = ("exc", "tb")
+
+            def __init__(self, exc: BaseException):
+                self.exc = exc
+                self.tb = exc.__traceback__
+
+            def reraise(self) -> None:
+                raise self.exc.with_traceback(self.tb)
+
+        def make_grad_ctx():
+            return torch.enable_grad() if self.training else torch.no_grad()
+
+        def worker(index: int, node: _Node) -> None:
+            in_queue = queues[index]
+            out_queue = queues[index + 1]
+            while True:
+                item = in_queue.get()
+                if item is stop_token:
+                    out_queue.put(stop_token)
+                    break
+                if isinstance(item, _ExceptionWrapper):
+                    out_queue.put(item)
+                    break
+                grad_ctx = make_grad_ctx()
+                try:
+                    with grad_ctx:
+                        self._execute_with_stream(node, item)
+                    out_queue.put(item)
+                except BaseException as exc:
+                    out_queue.put(_ExceptionWrapper(exc))
+                    break
+
+        queues: List[Queue] = [Queue(maxsize=self.thread_queue_size) for _ in range(len(self.exec_order) + 1)]
+        threads = []
+        for idx, node in enumerate(self.exec_order):
+            thread = threading.Thread(target=worker, args=(idx, node), daemon=True)
+            thread.start()
+            threads.append(thread)
+
+        queues[0].put(context)
+        result = queues[-1].get()
+        try:
+            if isinstance(result, _ExceptionWrapper):
+                result.reraise()
+            return result
+        finally:
+            if threads:
+                queues[0].put(stop_token)
+            for thread in threads:
+                thread.join()
+
+    def _execute_with_stream(self, node: _Node, context: Dict[str, Any]) -> None:
+        device = self._infer_device(context)
+        use_cuda_stream = self.thread_cuda_streams and torch.cuda.is_available() and device is not None
+        if use_cuda_stream:
+            stream = torch.cuda.Stream(device=device)
+            with torch.cuda.stream(stream):
+                self._execute_node(node, context)
+            stream.synchronize()
+        else:
+            self._execute_node(node, context)
+
+    def _infer_device(self, context: Dict[str, Any]) -> Optional[torch.device]:
+        device = context.get("device")
+        if isinstance(device, torch.device):
+            return device
+        if isinstance(device, str):
+            try:
+                return torch.device(device)
+            except Exception:
+                pass
+        cuda_stream = context.get("cuda_stream")
+        if hasattr(cuda_stream, "device"):
+            try:
+                return torch.device(cuda_stream.device)  # type: ignore[arg-type]
+            except Exception:
+                pass
+        data = context.get("data")
+        if isinstance(data, dict):
+            img = data.get("img")
+            if isinstance(img, torch.Tensor):
+                return img.device
+        shared_device = self.shared.get("device")
+        if isinstance(shared_device, torch.device):
+            return shared_device
+        if isinstance(shared_device, str):
+            try:
+                return torch.device(shared_device)
+            except Exception:
+                pass
+        if torch.cuda.is_available():
+            try:
+                return torch.device(f"cuda:{torch.cuda.current_device()}")
+            except Exception:
+                pass
+        return None
 
 
 class _NoOpTrunk(torch.nn.Module):
