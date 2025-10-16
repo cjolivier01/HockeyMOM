@@ -30,11 +30,12 @@ python_library(
                 "hmanalyze_shifts = hmlib.cli.analyze_shifts:main",
                 "hmpostprocess_shifts = hmlib.cli.postprocess_shifts:main",
                 "hmorientation = hmlib.cli.hmorientation:main",
-                "hmconcatenate_videos = hmlib.cli.concatenate_videos:main",
-                "hmcaha_sync = hmlib.cli.caha_sync:main",
-                "hmcaha_summary = hmlib.cli.caha_summary:main",
-                "hmcaha_game = hmlib.cli.caha_game:main",
-            ],
+            "hmconcatenate_videos = hmlib.cli.concatenate_videos:main",
+            "hmcaha_sync = hmlib.cli.caha_sync:main",
+            "hmcaha_summary = hmlib.cli.caha_summary:main",
+            "hmcaha_game = hmlib.cli.caha_game:main",
+            "hmcamera_annotate = hmlib.cli.camera_annotate:main",
+        ],
         },
         requires = [
         ],
@@ -81,5 +82,12 @@ py_binary(
     name = "hm_caha_game",
     srcs = ["cli/caha_game.py"],
     main = "cli/caha_game.py",
+    deps = [":hmlib.lib"],
+)
+
+py_binary(
+    name = "hm_camera_annotate",
+    srcs = ["cli/camera_annotate.py"],
+    main = "cli/camera_annotate.py",
     deps = [":hmlib.lib"],
 )
