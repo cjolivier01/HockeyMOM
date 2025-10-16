@@ -38,77 +38,70 @@ class PoseTrunk(Trunk):
         if isinstance(cur_frame, StreamTensor):
             cur_frame = cur_frame.wait()
             data["original_images"] = cur_frame
+        if cur_frame is None:
+            return {}
+        if not isinstance(cur_frame, torch.Tensor):
+            cur_frame = torch.as_tensor(cur_frame)
+            data["original_images"] = cur_frame
 
-        # Prepare inputs: iterate per-frame with channels-last layout
+        track_data_sample = self._get_track_data_sample(data.get("data_samples"))
+        frame_count = None
+        if isinstance(cur_frame, torch.Tensor):
+            frame_count = cur_frame.shape[0]
+        elif hasattr(cur_frame, "__len__"):
+            frame_count = len(cur_frame)
+
+        per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
+
+        det_imgs_tensor = data.get("img")
+        if isinstance(det_imgs_tensor, StreamTensor):
+            det_imgs_tensor = det_imgs_tensor.wait()
+            data["img"] = det_imgs_tensor
+        det_inputs_tensor = self._normalize_det_images(det_imgs_tensor, frame_count)
+
+        use_det_imgs = False
+        scale_factors: List[torch.Tensor] = []
+        inv_scale_factors: List[torch.Tensor] = []
+        if (
+            det_inputs_tensor is not None
+            and frame_metas is not None
+            and frame_count is not None
+            and len(frame_metas) == frame_count
+        ):
+            use_det_imgs = True
+            for idx in range(frame_count):
+                meta = frame_metas[idx]
+                scale_tensor = self._extract_scale_tensor(meta, det_inputs_tensor.device)
+                if scale_tensor is None or not torch.isfinite(scale_tensor).all() or (scale_tensor <= 0).any():
+                    use_det_imgs = False
+                    break
+                frame_hw = self._extract_img_hw(meta)
+                det_frame = det_inputs_tensor[idx]
+                if frame_hw is not None:
+                    if det_frame.shape[-2] != frame_hw[0] or det_frame.shape[-1] != frame_hw[1]:
+                        use_det_imgs = False
+                        break
+                scale_cpu = scale_tensor.detach().cpu()
+                scale_factors.append(scale_cpu)
+                inv_scale_factors.append(torch.reciprocal(scale_cpu))
+            if not use_det_imgs:
+                scale_factors.clear()
+                inv_scale_factors.clear()
+                det_inputs_tensor = None
+
+        if use_det_imgs and per_frame_bboxes is not None:
+            per_frame_bboxes = self._scale_bboxes_for_detection(per_frame_bboxes, scale_factors)
+
+        if not use_det_imgs or det_inputs_tensor is None:
+            inputs_tensor = cur_frame
+            scale_factors = []
+            inv_scale_factors = []
+        else:
+            inputs_tensor = det_inputs_tensor
+
         inputs: List[torch.Tensor] = []
-        for img in make_channels_last(cur_frame):
+        for img in make_channels_last(inputs_tensor):
             inputs.append(img)
-
-        # If upstream detection already produced bounding boxes per-frame,
-        # reuse them for pose inference to avoid running MMPose's detector.
-        # We look for `pred_instances` on each frame's TrackDataSample.
-        def _collect_frame_bboxes() -> Optional[List[List[List[float]]]]:
-            track_samples = data.get("data_samples")
-            if track_samples is None:
-                return None
-            if isinstance(track_samples, list):
-                if len(track_samples) != 1:
-                    return None
-                track_data_sample = track_samples[0]
-            else:
-                track_data_sample = track_samples
-            try:
-                video_len = len(track_data_sample)
-            except Exception:
-                return None
-
-            # Build per-frame list of [x1,y1,x2,y2,score]
-            out: List[List[List[float]]] = []
-            any_found = False
-            for frame_index in range(video_len):
-                vds = track_data_sample[frame_index]
-                inst = getattr(vds, "pred_instances", None)
-                if inst is None:
-                    # No detections for this frame; record an explicit empty list
-                    out.append([])
-                    continue
-                b = getattr(inst, "bboxes", None)
-                s = getattr(inst, "scores", None)
-                if b is None:
-                    out.append([])
-                    continue
-                # Normalize to tensors then to CPU numpy
-                if not isinstance(b, torch.Tensor):
-                    b = torch.as_tensor(b)
-                if b.ndim == 1:
-                    b = b.reshape(-1, 4)
-                N = int(b.shape[0])
-                if s is None:
-                    s = torch.ones((N,), dtype=torch.float32, device=b.device)
-                elif not isinstance(s, torch.Tensor):
-                    s = torch.as_tensor(s, dtype=torch.float32, device=b.device)
-                if s.ndim == 0:
-                    s = s.unsqueeze(0)
-                if len(s) != N:
-                    if len(s) == 1 and N > 1:
-                        s = s.expand(N).clone()
-                    else:
-                        s = torch.ones((N,), dtype=torch.float32, device=b.device)
-                # Compose Nx5 arrays and convert to python lists of lists
-                if N == 0:
-                    out.append([])
-                else:
-                    any_found = True
-                    bb = torch.cat([b.to(dtype=torch.float32), s.to(dtype=torch.float32).reshape(-1, 1)], dim=1)
-                    out.append(bb.detach().cpu().tolist())
-            # We only return a list if its length matches inputs
-            if len(out) != len(inputs):
-                return None
-            # Even if no frames had dets, we return the empty lists to prevent
-            # re-running a detector; downstream will handle empty cases.
-            return out if (any_found or True) else None
-
-        per_frame_bboxes = _collect_frame_bboxes()
 
         all_pose_results = []
         show = bool(context.get("plot_pose", False))
@@ -117,6 +110,7 @@ class PoseTrunk(Trunk):
         pose_impl = getattr(pose_inferencer, "inferencer", None)
         can_bypass = (
             per_frame_bboxes is not None
+            and len(per_frame_bboxes) == len(inputs)
             and pose_impl is not None
             and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown"
         )
@@ -138,13 +132,14 @@ class PoseTrunk(Trunk):
             for i, (img, bxs) in enumerate(zip(inputs, per_frame_bboxes)):
                 # Build per-bbox data_infos similar to preprocess_single
                 data_infos = []
-                if len(bxs) > 0:
-                    for bbox in bxs:
-                        # bbox is [x1,y1,x2,y2,score]
+                if bxs.numel() > 0:
+                    b_cpu = bxs.detach().cpu()
+                    for bbox in b_cpu:
+                        # bbox is tensor containing [x1,y1,x2,y2,score]
                         # Create an instance dict expected by pipeline
                         inst = dict(img=img, img_path=str(i).rjust(10, "0") + ".jpg")
                         inst.update(dataset_meta)
-                        arr = np.asarray(bbox, dtype=np.float32)
+                        arr = bbox.numpy().astype(np.float32, copy=True)
                         inst["bbox"] = arr[None, :4]
                         inst["bbox_score"] = arr[4:5]
                         data_infos.append(pipeline(inst))
@@ -219,9 +214,193 @@ class PoseTrunk(Trunk):
                             draw_bbox=False,
                         )
 
+        if use_det_imgs and inv_scale_factors:
+            self._restore_pose_outputs(all_pose_results, inv_scale_factors)
+
         pose_results = all_pose_results
         data["pose_results"] = pose_results
         return {"data": data}
+
+    @staticmethod
+    def _get_track_data_sample(track_samples):
+        if track_samples is None:
+            return None
+        if isinstance(track_samples, list):
+            if len(track_samples) == 0:
+                return None
+            if len(track_samples) == 1:
+                return track_samples[0]
+            return track_samples[0]
+        return track_samples
+
+    @staticmethod
+    def _collect_bboxes(track_data_sample, expected_len: Optional[int]):
+        if track_data_sample is None:
+            return None, None
+        try:
+            sample_len = len(track_data_sample)
+        except Exception:
+            return None, None
+        bboxes: List[torch.Tensor] = []
+        metas: List[Dict[str, Any]] = []
+        for frame_index in range(sample_len):
+            ds = track_data_sample[frame_index]
+            meta = getattr(ds, "metainfo", {}) or {}
+            if not isinstance(meta, dict):
+                try:
+                    meta = dict(meta)
+                except Exception:
+                    meta = {}
+            metas.append(meta)
+            inst = getattr(ds, "pred_instances", None)
+            if inst is None or not hasattr(inst, "bboxes"):
+                bboxes.append(torch.empty((0, 5), dtype=torch.float32))
+                continue
+            box_tensor = inst.bboxes
+            if not isinstance(box_tensor, torch.Tensor):
+                box_tensor = torch.as_tensor(box_tensor)
+            box_tensor = box_tensor.to(dtype=torch.float32)
+            if box_tensor.ndim == 1:
+                box_tensor = box_tensor.reshape(-1, 4)
+            score_tensor = getattr(inst, "scores", None)
+            if score_tensor is None:
+                score_tensor = torch.ones((box_tensor.shape[0],), dtype=torch.float32, device=box_tensor.device)
+            elif not isinstance(score_tensor, torch.Tensor):
+                score_tensor = torch.as_tensor(score_tensor, dtype=torch.float32, device=box_tensor.device)
+            if score_tensor.ndim == 0:
+                score_tensor = score_tensor.unsqueeze(0)
+            if score_tensor.shape[0] != box_tensor.shape[0]:
+                if score_tensor.shape[0] == 1 and box_tensor.shape[0] > 1:
+                    score_tensor = score_tensor.expand(box_tensor.shape[0]).clone()
+                else:
+                    score_tensor = torch.ones((box_tensor.shape[0],), dtype=torch.float32, device=box_tensor.device)
+            combined = torch.cat([box_tensor, score_tensor.reshape(-1, 1)], dim=1)
+            bboxes.append(combined.detach().cpu())
+        if expected_len is not None and sample_len != expected_len:
+            return None, metas
+        return bboxes, metas
+
+    @staticmethod
+    def _normalize_det_images(det_imgs, expected_len: Optional[int]):
+        if det_imgs is None:
+            return None
+        if not isinstance(det_imgs, torch.Tensor):
+            return None
+        if det_imgs.ndim == 5:
+            if det_imgs.size(0) != 1:
+                return None
+            det_imgs = det_imgs[0]
+        if det_imgs.ndim != 4:
+            return None
+        if expected_len is not None and det_imgs.size(0) != expected_len:
+            return None
+        return det_imgs
+
+    @staticmethod
+    def _extract_scale_tensor(meta: Dict[str, Any], device: torch.device) -> Optional[torch.Tensor]:
+        if not meta:
+            return None
+        scale_val = None
+        for key in ("scale_factor", "scale_factors", "scale", "scale_factor_tensor"):
+            if key in meta:
+                scale_val = meta[key]
+                break
+        if scale_val is None:
+            return None
+        scale_tensor = torch.as_tensor(scale_val, dtype=torch.float32, device=device).flatten()
+        if scale_tensor.numel() == 1:
+            scale_tensor = scale_tensor.repeat(4)
+        elif scale_tensor.numel() == 2:
+            scale_tensor = torch.tensor(
+                [scale_tensor[0], scale_tensor[1], scale_tensor[0], scale_tensor[1]],
+                dtype=torch.float32,
+                device=device,
+            )
+        elif scale_tensor.numel() != 4:
+            return None
+        return scale_tensor
+
+    @staticmethod
+    def _extract_img_hw(meta: Dict[str, Any]) -> Optional[tuple]:
+        if not meta:
+            return None
+        for key in ("img_shape", "batch_input_shape", "pad_shape"):
+            if key in meta:
+                shape_val = meta[key]
+                if hasattr(shape_val, "tolist"):
+                    shape_val = shape_val.tolist()
+                if isinstance(shape_val, (list, tuple)) and len(shape_val) >= 2:
+                    return int(shape_val[0]), int(shape_val[1])
+        return None
+
+    @staticmethod
+    def _scale_bboxes_for_detection(bboxes: List[torch.Tensor], scale_list: List[torch.Tensor]) -> List[torch.Tensor]:
+        scaled: List[torch.Tensor] = []
+        for boxes, scale in zip(bboxes, scale_list):
+            if boxes.numel() == 0:
+                scaled.append(boxes)
+                continue
+            s = scale.to(dtype=boxes.dtype)
+            new_boxes = boxes.clone()
+            new_boxes[:, 0] *= s[0]
+            new_boxes[:, 1] *= s[1]
+            new_boxes[:, 2] *= s[2]
+            new_boxes[:, 3] *= s[3]
+            scaled.append(new_boxes)
+        return scaled
+
+    def _restore_pose_outputs(self, pose_results: List[Dict[str, Any]], inv_scale_list: List[torch.Tensor]) -> None:
+        if not pose_results or not inv_scale_list:
+            return
+        count = min(len(pose_results), len(inv_scale_list))
+        for idx in range(count):
+            pose_result = pose_results[idx]
+            inv_scale = inv_scale_list[idx]
+            predictions = pose_result.get("predictions")
+            if not predictions:
+                continue
+            for data_sample in predictions:
+                inst = getattr(data_sample, "pred_instances", None)
+                if inst is None:
+                    continue
+                if hasattr(inst, "keypoints") and inst.keypoints is not None:
+                    inst.keypoints = self._apply_scale(inst.keypoints, inv_scale[:2], keypoints=True)
+                if hasattr(inst, "bboxes") and inst.bboxes is not None:
+                    inst.bboxes = self._apply_scale(inst.bboxes, inv_scale, keypoints=False)
+
+    @staticmethod
+    def _apply_scale(value, scale, *, keypoints: bool):
+        if value is None:
+            return value
+        if isinstance(value, torch.Tensor):
+            tensor = value.to(dtype=torch.float32)
+            target_device = value.device
+            return_tensor = True
+        else:
+            tensor = torch.as_tensor(value, dtype=torch.float32)
+            target_device = tensor.device
+            return_tensor = False
+        if tensor.numel() == 0:
+            return value
+        if keypoints:
+            scale_tensor = torch.as_tensor(scale, dtype=torch.float32, device=target_device)
+            if scale_tensor.numel() >= 4:
+                scale_tensor = scale_tensor[:2]
+            scale_tensor = scale_tensor.view(1, 1, 2)
+            tensor = tensor * scale_tensor
+        else:
+            scale_tensor = torch.as_tensor(scale, dtype=torch.float32, device=target_device)
+            if scale_tensor.numel() == 2:
+                scale_tensor = torch.tensor(
+                    [scale_tensor[0], scale_tensor[1], scale_tensor[0], scale_tensor[1]],
+                    dtype=torch.float32,
+                    device=target_device,
+                )
+            scale_tensor = scale_tensor.view(1, 4)
+            tensor = tensor * scale_tensor
+        if return_tensor:
+            return tensor.to(dtype=value.dtype, device=value.device)
+        return tensor.cpu().numpy()
 
     def input_keys(self):
         return {"data", "pose_inferencer", "plot_pose"}
