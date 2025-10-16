@@ -876,6 +876,7 @@ def _main(args, num_gpu):
                 scroll_output=ScrollOutput(lines=args.progress_bar_lines).register_logger(logger),
                 update_rate=args.print_interval,
                 table_map=table_map,
+                use_curses=not getattr(args, "no_curses_progress", False),
             )
         else:
             progress_bar = None

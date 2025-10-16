@@ -193,6 +193,7 @@ def stitch_videos(
             scroll_output=scroll_output,
             update_rate=20,
             table_callback=_table_callback,
+            use_curses=True,
         )
         data_loader_iter = progress_bar
 
