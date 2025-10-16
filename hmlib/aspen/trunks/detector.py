@@ -59,9 +59,9 @@ class DetectorInferenceTrunk(Trunk):
                 else nullcontext()
             )
             with amp_ctx:
+                batch_samples = []
                 for frame_id in range(video_len):
                     img_data_sample = track_data_sample[frame_id]
-                    # Ensure frame_id metainfo is present for downstream postprocessing
                     fid = img_data_sample.metainfo.get("img_id")
                     try:
                         if isinstance(fid, torch.Tensor):
@@ -71,14 +71,16 @@ class DetectorInferenceTrunk(Trunk):
                     except Exception:
                         fid = frame_id
                     img_data_sample.set_metainfo({"frame_id": int(fid)})
-                    single_img = detection_image[:, frame_id].contiguous()
-                    # Use TrackDataSample as a DetDataSample-like container; metadata is compatible
-                    det_results = detector.predict(single_img, [img_data_sample])
-                    assert (
-                        isinstance(det_results, (list, tuple)) and len(det_results) == 1
-                    ), "Batch inference not supported here"
-                    det_sample = det_results[0]
-                    # Attach detections to the video data sample for downstream tracker
+                    batch_samples.append(img_data_sample)
+                batch_imgs = detection_image.squeeze(0).contiguous()
+                assert (
+                    batch_imgs.ndim == 4 and batch_imgs.size(0) == video_len
+                ), "Expected batch of frames matching data samples"
+                det_results = detector.predict(batch_imgs, batch_samples)
+                assert (
+                    isinstance(det_results, (list, tuple)) and len(det_results) == video_len
+                ), "Batch inference must return one result per frame"
+                for img_data_sample, det_sample in zip(batch_samples, det_results):
                     img_data_sample.pred_instances = det_sample.pred_instances
 
         if detect_timer is not None:

@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 
+import time
 import torch
 import numpy as np
 
@@ -112,8 +113,6 @@ class PoseTrunk(Trunk):
 
         all_pose_results = []
         show = bool(context.get("plot_pose", False))
-        # If we have per-frame bboxes and a Pose2D inferencer available, run a
-        # custom forward that bypasses MMPose's internal detector.
         pose_impl = getattr(pose_inferencer, "inferencer", None)
         can_bypass = (
             per_frame_bboxes is not None
@@ -121,13 +120,21 @@ class PoseTrunk(Trunk):
             and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown"
         )
 
+        def _make_empty_pose_result():
+            try:
+                from mmpose.structures import PoseDataSample
+                from mmengine.structures import InstanceData
+
+                empty_ds = PoseDataSample()
+                empty_ds.pred_instances = InstanceData()
+                return {"predictions": [empty_ds]}
+            except Exception:
+                return {"predictions": []}
+
         if can_bypass:
-            # Use the underlying Pose2DInferencer building blocks directly.
-            # Respect key filter args where sensible.
             filter_args = getattr(pose_inferencer, "filter_args", {}) or {}
             pose_based_nms = bool(filter_args.get("pose_based_nms", False))
             bbox_thr = float(filter_args.get("bbox_thr", -1))
-            # For visualization, read kpt_thr if present
             kpt_thr = filter_args.get("kpt_thr", None)
 
             model = pose_impl.model
@@ -135,49 +142,78 @@ class PoseTrunk(Trunk):
             collate_fn = pose_impl.collate_fn
             dataset_meta = getattr(model, "dataset_meta", {}) or {}
 
-            for i, (img, bxs) in enumerate(zip(inputs, per_frame_bboxes)):
-                # Build per-bbox data_infos similar to preprocess_single
-                data_infos = []
-                if len(bxs) > 0:
-                    for bbox in bxs:
-                        # bbox is [x1,y1,x2,y2,score]
-                        # Create an instance dict expected by pipeline
-                        inst = dict(img=img, img_path=str(i).rjust(10, "0") + ".jpg")
-                        inst.update(dataset_meta)
-                        arr = np.asarray(bbox, dtype=np.float32)
-                        inst["bbox"] = arr[None, :4]
-                        inst["bbox_score"] = arr[4:5]
-                        data_infos.append(pipeline(inst))
+            frame_key = "{:010d}.jpg"
+            batch_data_infos = []
+            frame_order: List[int] = []
+            frame_seen = set()
+            for frame_idx, (img, bxs) in enumerate(zip(inputs, per_frame_bboxes or [])):
+                if len(bxs) > 0 and frame_idx not in frame_seen:
+                    frame_order.append(frame_idx)
+                    frame_seen.add(frame_idx)
+                for bbox in bxs:
+                    inst = dict(img=img, img_path=frame_key.format(frame_idx))
+                    inst.update(dataset_meta)
+                    arr = np.asarray(bbox, dtype=np.float32)
+                    inst["bbox"] = arr[None, :4]
+                    inst["bbox_score"] = arr[4:5]
+                    batch_data_infos.append(pipeline(inst))
+
+            frame_results_map: Dict[int, Dict[str, Any]] = {}
+            if batch_data_infos:
+                proc_inputs = collate_fn(batch_data_infos)
+                t_start: float = time.time()
+                preds = pose_impl.forward(
+                    proc_inputs,
+                    merge_results=True,
+                    bbox_thr=bbox_thr,
+                    pose_based_nms=pose_based_nms,
+                )
+                t_duration: float = time.time() - t_start
+                print(f"Pose estimation took {t_duration} seconds")
+
+                if not isinstance(preds, (list, tuple)):
+                    preds = [preds]
+                preds_list = list(preds)
+
+                frame_key_lookup = {frame_key.format(i): i for i in range(len(inputs))}
+                assigned_pred_indices = set()
+
+                for idx, pred in enumerate(preds_list):
+                    meta = getattr(pred, "metainfo", {}) or {}
+                    candidate_keys = [
+                        meta.get("img_path"),
+                        meta.get("img_id"),
+                        meta.get("image_file"),
+                        meta.get("image_id"),
+                    ]
+                    frame_idx: Optional[int] = None
+                    for key in candidate_keys:
+                        if isinstance(key, str):
+                            if key in frame_key_lookup:
+                                frame_idx = frame_key_lookup[key]
+                                break
+                            try:
+                                frame_idx = int(key)
+                                break
+                            except ValueError:
+                                continue
+                    if frame_idx is not None:
+                        frame_results_map[frame_idx] = {"predictions": [pred]}
+                        assigned_pred_indices.add(idx)
+
+                remaining_preds = [preds_list[i] for i in range(len(preds_list)) if i not in assigned_pred_indices]
+                for frame_idx in frame_order:
+                    if frame_idx in frame_results_map:
+                        continue
+                    if remaining_preds:
+                        frame_results_map[frame_idx] = {"predictions": [remaining_preds.pop(0)]}
+
+            for frame_idx in range(len(inputs)):
+                if frame_idx in frame_results_map:
+                    all_pose_results.append(frame_results_map[frame_idx])
                 else:
-                    # No bboxes provided; skip inference and produce an empty result later
-                    data_infos = []
+                    all_pose_results.append(_make_empty_pose_result())
 
-                if data_infos:
-                    proc_inputs = collate_fn(data_infos)
-                    preds = pose_impl.forward(
-                        proc_inputs,
-                        merge_results=True,
-                        bbox_thr=bbox_thr,
-                        pose_based_nms=pose_based_nms,
-                    )
-                    # `preds` is a list of PoseDataSample; wrap to match inferencer output
-                    results = {"predictions": preds}
-                else:
-                    # Create an empty PoseDataSample to keep downstream visualization logic intact
-                    try:
-                        from mmpose.structures import PoseDataSample
-                        from mmengine.structures import InstanceData
-
-                        empty_ds = PoseDataSample()
-                        empty_ds.pred_instances = InstanceData()
-                        results = {"predictions": [empty_ds]}
-                    except Exception:
-                        # Fallback: no structured result
-                        results = {"predictions": []}
-
-                all_pose_results.append(results)
-
-            # Manual visualization to match original behavior
             if show and getattr(pose_inferencer, "inferencer", None) is not None:
                 vis = pose_inferencer.inferencer.visualizer
                 if vis is not None:
