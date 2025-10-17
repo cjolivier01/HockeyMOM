@@ -3,7 +3,8 @@ import copy
 import logging
 import os
 import shutil
-import sys
+
+# import sys
 import traceback
 from collections import OrderedDict
 from pathlib import Path
@@ -14,24 +15,32 @@ import mmdet.models.data_preprocessors.track_data_preprocessor
 import torch
 import torch.backends.cudnn as cudnn
 from mmcv.transforms import Compose
-from mmdet.apis import init_track_model
-from mmengine.config import Config
-from torch.nn.parallel import DistributedDataParallel as DDP
 
+# from mmdet.apis import init_track_model
+# from mmengine.config import Config
+# from torch.nn.parallel import DistributedDataParallel as DDP
 import hmlib
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.camera.camera_head import CamTrackHead
-from hmlib.config import get_clip_box, get_config, get_game_dir, get_nested_value, set_nested_value, update_config
+from hmlib.config import (
+    get_clip_box,
+    get_config,
+    get_game_dir,
+    get_nested_value,
+    set_nested_value,
+    update_config,
+)
 from hmlib.datasets.dataframe import DataFrameDataset
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
-from hmlib.hm_transforms import update_data_pipeline
+
+# from hmlib.hm_transforms import update_data_pipeline
 from hmlib.log import get_root_logger, logger
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
@@ -39,8 +48,9 @@ from hmlib.tasks.tracking import run_mmtrack
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
-from hmlib.utils.checkpoint import load_checkpoint_to_model
-from hmlib.utils.gpu import GpuAllocator, select_gpus
+
+# from hmlib.utils.checkpoint import load_checkpoint_to_model
+from hmlib.utils.gpu import select_gpus
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -304,6 +314,47 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="Save tracking data to camera.csv",
     )
+    # ONNX detector export/inference options
+    parser.add_argument(
+        "--detector-onnx",
+        dest="detector_onnx_path",
+        type=str,
+        default=None,
+        help=(
+            "Export the detector to ONNX at this path and run inference with ONNX Runtime. "
+            "If a path is not provided here, a default under output_workdirs/<GAME_ID>/detector.onnx is used."
+        ),
+    )
+    parser.add_argument(
+        "--detector-onnx-enable",
+        dest="detector_onnx_enable",
+        action="store_true",
+        help=(
+            "Enable ONNX Runtime detector inference. If --detector-onnx is provided, enablement is implied."
+        ),
+    )
+    parser.add_argument(
+        "--detector-onnx-quantize-int8",
+        dest="detector_onnx_quantize_int8",
+        action="store_true",
+        help=(
+            "After exporting the float32 model, quantize to INT8. "
+            "Calibration samples are gathered on-the-fly from early frames."
+        ),
+    )
+    parser.add_argument(
+        "--detector-onnx-calib-frames",
+        dest="detector_onnx_calib_frames",
+        type=int,
+        default=200,
+        help="Number of frames to collect for INT8 calibration (default: 200)",
+    )
+    parser.add_argument(
+        "--detector-onnx-force-export",
+        dest="detector_onnx_force_export",
+        action="store_true",
+        help="Force re-exporting ONNX even if the file already exists",
+    )
     parser.add_argument(
         "--audio-only",
         action="store_true",
@@ -387,7 +438,6 @@ def is_stitching(input_video: str) -> bool:
         raise AttributeError("No valid input video specified")
     input_video_files = input_video.split(",")
     return len(input_video_files) == 2 or os.path.isdir(input_video)
-
 
 
 def _main(args, num_gpu):
@@ -579,6 +629,30 @@ def _main(args, num_gpu):
         aspen_cfg_for_pipeline = game_config.get("aspen") if isinstance(game_config, dict) else None
         # Expose to downstream run_mmtrack() via args dict
         args.aspen = aspen_cfg_for_pipeline
+
+        # If ONNX detector flags are provided, thread them into Aspen trunks.detector_factory.params
+        if args.aspen and isinstance(args.aspen, dict):
+            try:
+                trunks_cfg = args.aspen.setdefault("trunks", {}) or {}
+                df = trunks_cfg.setdefault("detector_factory", {"class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk", "depends": [], "params": {}})
+                df_params = df.setdefault("params", {}) or {}
+                onnx_cfg = df_params.setdefault("onnx", {}) or {}
+                # Determine if ONNX should be enabled
+                onnx_enable = bool(args.detector_onnx_enable or args.detector_onnx_path or args.detector_onnx_quantize_int8)
+                if onnx_enable:
+                    onnx_cfg["enable"] = True
+                    # Default path under results folder if not provided
+                    default_onnx_path = os.path.join(results_folder, "detector.onnx")
+                    onnx_cfg["path"] = args.detector_onnx_path or default_onnx_path
+                    onnx_cfg["force_export"] = bool(args.detector_onnx_force_export)
+                    onnx_cfg["quantize_int8"] = bool(args.detector_onnx_quantize_int8)
+                    onnx_cfg["calib_frames"] = int(args.detector_onnx_calib_frames or 0)
+                df_params["onnx"] = onnx_cfg
+                df["params"] = df_params
+                trunks_cfg["detector_factory"] = df
+                args.aspen["trunks"] = trunks_cfg
+            except Exception:
+                traceback.print_exc()
 
         if args.tracking:
             model = None  # Built by Aspen ModelFactoryTrunk
