@@ -389,39 +389,6 @@ def is_stitching(input_video: str) -> bool:
     return len(input_video_files) == 2 or os.path.isdir(input_video)
 
 
-def configure_boundaries(
-    game_id: str,
-    model: torch.nn.Module,
-    top_border_lines,
-    bottom_border_lines,
-    original_clip_box,
-    plot_ice_mask: bool,
-):
-    if hasattr(model, "post_detection_pipeline"):
-        has_boundaries = False
-        if top_border_lines or bottom_border_lines:
-            # Manual boundaries
-            has_boundaries = update_pipeline_item(
-                model.post_detection_pipeline,
-                "BoundaryLines",
-                dict(
-                    upper_border_lines=top_border_lines,
-                    lower_border_lines=bottom_border_lines,
-                    original_clip_box=original_clip_box,
-                ),
-            )
-        if not has_boundaries:
-            # Try auto-boundaries
-            has_boundaries = update_pipeline_item(
-                model.post_detection_pipeline,
-                "IceRinkSegmBoundaries",
-                dict(
-                    game_id=game_id,
-                    original_clip_box=original_clip_box,
-                    draw=plot_ice_mask,
-                ),
-            )
-
 
 def _main(args, num_gpu):
     dataloader = None

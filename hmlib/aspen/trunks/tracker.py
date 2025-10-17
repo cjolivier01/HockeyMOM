@@ -12,16 +12,13 @@ class TrackerTrunk(Trunk):
     """
     Tracker trunk that consumes per-frame detections and produces tracks.
 
-    It wraps the C++ `HmTracker` with configurable thresholds. Optionally
-    applies a post-detection pipeline before tracking (read from `model`
-    if present in context).
+    It wraps the C++ `HmTracker` with configurable thresholds.
 
     Expects in context:
       - data: dict with 'data_samples' list[TrackDataSample], possibly 'dataset_results'
       - frame_id: int for first frame in the current batch
       - tracking_dataframe, detection_dataframe: optional sinks
       - using_precalculated_tracking, using_precalculated_detection: bools
-      - model: optional object with attribute `post_detection_pipeline` (list of transforms)
       - detect_timer: optional timer (already handled by detector trunk)
 
     Produces in context:

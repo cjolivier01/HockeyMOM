@@ -57,7 +57,6 @@ inference_pipeline = [
         ],
         type="HmImageToTensor",
     ),
-    dict(image_label="img", type="IceRinkSegmConfig"),
     dict(
         img_scale=(
             1312,
@@ -70,7 +69,6 @@ inference_pipeline = [
     dict(
         meta_keys=(
             "img_metas",
-            "rink_profile",
         ),
         type="mmdet.PackTrackInputs",
     ),
@@ -160,9 +158,6 @@ model = dict(
         type="YOLOX",
     ),
     num_classes_override=1,
-    post_detection_pipeline=[
-        dict(type="IceRinkSegmBoundaries"),
-    ],
     post_tracking_pipeline=[
         dict(enabled=False, image_label="original_images", type="HmNumberClassifier"),
     ],
@@ -194,9 +189,6 @@ param_scheduler = [
         T_max=70, begin=1, by_epoch=True, convert_to_iter_based=True, end=70, eta_min=2.5e-05, type="CosineAnnealingLR"
     ),
     dict(begin=70, by_epoch=True, end=80, factor=1, type="ConstantLR"),
-]
-post_detection_pipeline = [
-    dict(type="IceRinkSegmBoundaries"),
 ]
 post_tracking_pipeline = [
     dict(enabled=False, image_label="original_images", type="HmNumberClassifier"),

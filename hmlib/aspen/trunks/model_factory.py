@@ -33,7 +33,6 @@ class ModelFactoryTrunk(Trunk):
       - detector_mmconfig: str path to an mmengine-style config that contains a 'model.detector' field (optional)
       - detector_overrides: dict to update the detector dict after loading from mmconfig (optional)
       - tracker: dict (optional)
-      - post_detection_pipeline: List[dict] (optional)
       - post_tracking_pipeline: List[dict] (optional)
       - to_device: bool (default True) — move model to context['device'] if present
 
@@ -50,7 +49,6 @@ class ModelFactoryTrunk(Trunk):
         detector_yaml: Optional[str] = None,
         detector_overrides: Optional[Dict[str, Any]] = None,
         tracker: Optional[Dict[str, Any]] = None,
-        post_detection_pipeline: Optional[List[Dict[str, Any]]] = None,
         post_tracking_pipeline: Optional[List[Dict[str, Any]]] = None,
         to_device: bool = True,
         enabled: bool = True,
@@ -62,7 +60,6 @@ class ModelFactoryTrunk(Trunk):
         self._detector_mmconfig = detector_mmconfig
         self._detector_overrides = detector_overrides or {}
         self._tracker_dict = tracker
-        self._post_det = post_detection_pipeline
         self._post_track = post_tracking_pipeline
         self._to_device = to_device
         self._model = None
@@ -132,8 +129,6 @@ class ModelFactoryTrunk(Trunk):
                 kwargs["detector"] = _to_cfg(detector)
             if self._tracker_dict is not None:
                 kwargs["tracker"] = _to_cfg(self._tracker_dict)
-            if self._post_det is not None:
-                kwargs["post_detection_pipeline"] = self._post_det
             if self._post_track is not None:
                 kwargs["post_tracking_pipeline"] = self._post_track
 

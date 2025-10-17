@@ -11,7 +11,6 @@ class ModelConfigTrunk(Trunk):
       - model: instantiated model (e.g., HmEndToEnd)
 
     Params:
-      - post_detection_pipeline: Optional[List[Dict]] (mmcv Compose-style specs)
       - post_tracking_pipeline: Optional[List[Dict]] (mmcv Compose-style specs)
       - other attributes present on model can be set by providing matching keys
         (e.g., `enabled`, `cpp_bytetrack`, etc.)
@@ -19,13 +18,11 @@ class ModelConfigTrunk(Trunk):
 
     def __init__(
         self,
-        post_detection_pipeline: Optional[List[Dict[str, Any]]] = None,
         post_tracking_pipeline: Optional[List[Dict[str, Any]]] = None,
         enabled: Optional[bool] = None,
         **extra: Any,
     ):
         super().__init__(enabled=True)
-        self._post_det = post_detection_pipeline
         self._post_track = post_tracking_pipeline
         self._enabled_flag = enabled
         self._extra = extra
@@ -35,13 +32,7 @@ class ModelConfigTrunk(Trunk):
         if model is None:
             return {}
 
-        # Set pipelines if provided
-        if self._post_det is not None:
-            setattr(model, "post_detection_pipeline", self._post_det)
-            # Reset composed pipeline to force rebuild lazily in model
-            if hasattr(model, "post_detection_composed_pipeline"):
-                setattr(model, "post_detection_composed_pipeline", None)
-
+        # Set post-tracking pipeline if provided
         if self._post_track is not None:
             setattr(model, "post_tracking_pipeline", self._post_track)
             if hasattr(model, "post_tracking_composed_pipeline"):
@@ -66,4 +57,3 @@ class ModelConfigTrunk(Trunk):
 
     def output_keys(self):
         return set()
-

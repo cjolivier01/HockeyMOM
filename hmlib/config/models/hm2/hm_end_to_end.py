@@ -2,10 +2,6 @@ _base_ = [
     "./hm_bytetrack.py",
 ]
 
-post_detection_pipeline = [
-#     dict(type="IceRinkSegmBoundaries"),
-]
-``
 post_tracking_pipeline = [
     dict(type="HmNumberClassifier", image_label="original_images", enabled=False),
 ]
@@ -39,7 +35,6 @@ video_out_pipeline = [
 
 model = dict(
     type="HmEndToEnd",
-    post_detection_pipeline=post_detection_pipeline,
     post_tracking_pipeline=post_tracking_pipeline,
     num_classes_override=1,
     dataset_meta=dict(classes=None),  # stop a warning
