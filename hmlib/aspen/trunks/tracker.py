@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional
 
 import torch
-from mmcv.transforms import Compose
 from mmengine.structures import InstanceData
 
 from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
@@ -36,7 +35,6 @@ class TrackerTrunk(Trunk):
         super().__init__(enabled=enabled)
         self._cpp_tracker = bool(cpp_tracker)
         self._hm_tracker: Optional[HmTracker] = None
-        self._post_det_compose: Optional[Compose] = None
 
     def _ensure_tracker(self):
         if self._hm_tracker is not None:
@@ -54,12 +52,7 @@ class TrackerTrunk(Trunk):
         config.prediction_mode = HmTrackerPredictionMode.BoundingBox
         self._hm_tracker = HmTracker(config)
 
-    def _ensure_post_det_pipeline(self, model_like: Optional[object]):
-        if self._post_det_compose is not None:
-            return
-        pipeline = getattr(model_like, "post_detection_pipeline", None)
-        if pipeline:
-            self._post_det_compose = Compose(pipeline)
+    # post-detection pipeline deprecated; pruning handled by a dedicated trunk
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -74,7 +67,6 @@ class TrackerTrunk(Trunk):
         using_precalc_det: bool = bool(context.get("using_precalculated_detection", False))
 
         self._ensure_tracker()
-        self._ensure_post_det_pipeline(context.get("model"))
 
         # Access TrackDataSample list
         track_samples = data.get("data_samples")
@@ -124,105 +116,7 @@ class TrackerTrunk(Trunk):
             det_scores = det_instances.scores
             det_src_pose_idx = getattr(det_instances, "source_pose_index", None)
 
-            # Prepare optional post-detection pipeline input
-            if self._post_det_compose is not None:
-                pd_input: Dict[str, Any] = {
-                    "det_bboxes": det_bboxes,
-                    "labels": det_labels,
-                    "scores": det_scores,
-                    "prune_list": ["det_bboxes", "labels", "scores"],
-                    "ori_shape": img_data_sample.metainfo.get("ori_shape"),
-                    "data_samples": data.get("data_samples"),
-                }
-                if dataset_results:
-                    pd_input["dataset_results"] = dataset_results
-                pd_output = self._post_det_compose(pd_input)
-                new_bboxes = pd_output["det_bboxes"]
-                new_labels = pd_output["labels"]
-                new_scores = pd_output["scores"]
-
-                # Try to propagate source pose indices through post-det filtering
-                new_src_pose_idx = None
-                try:
-                    if det_src_pose_idx is not None:
-                        ob = det_bboxes
-                        nb = new_bboxes
-                        # Normalize to tensors
-                        if not isinstance(ob, torch.Tensor):
-                            ob = torch.as_tensor(ob)
-                        if not isinstance(nb, torch.Tensor):
-                            nb = torch.as_tensor(nb)
-                        if ob.ndim == 1:
-                            ob = ob.reshape(-1, 4)
-                        if nb.ndim == 1:
-                            nb = nb.reshape(-1, 4)
-                        # If counts unchanged, assume order preserved
-                        if len(nb) == len(ob):
-                            new_src_pose_idx = det_src_pose_idx
-                        else:
-                            new_src_pose_idx = torch.full((len(nb),), -1, dtype=torch.int64, device=nb.device)
-                            if len(ob) and len(nb):
-                                # First exact match (with tolerance)
-                                for j in range(len(nb)):
-                                    eq = torch.isclose(nb[j], ob).all(dim=1) if len(ob) else torch.zeros((0,), dtype=torch.bool)
-                                    match_idx = torch.nonzero(eq).reshape(-1)
-                                    if len(match_idx) == 1:
-                                        k = int(match_idx[0].item())
-                                        try:
-                                            new_src_pose_idx[j] = det_src_pose_idx[k]
-                                        except Exception:
-                                            pass
-                                # If some remain -1, map by IoU best
-                                if (new_src_pose_idx < 0).any():
-                                    try:
-                                        from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
-                                    except Exception:
-                                        from hmlib.utils.utils import bbox_iou as _bbox_iou
-                                    iou = _bbox_iou(nb.to(dtype=torch.float32), ob.to(dtype=torch.float32), x1y1x2y2=True)
-                                    best_iou, best_idx = torch.max(iou, dim=1)
-                                    for j in range(len(nb)):
-                                        if new_src_pose_idx[j] < 0 and best_iou[j] > 0:
-                                            try:
-                                                new_src_pose_idx[j] = det_src_pose_idx[int(best_idx[j].item())]
-                                            except Exception:
-                                                pass
-                except Exception:
-                    new_src_pose_idx = None
-
-                # Normalize shapes/types for InstanceData
-                det_bboxes = _to_bboxes_2d(new_bboxes)
-                det_labels = _to_tensor_1d(new_labels).to(dtype=torch.long)
-                det_scores = _to_tensor_1d(new_scores).to(dtype=torch.float32)
-                # Ensure aligned lengths to bbox count
-                N = int(det_bboxes.shape[0])
-                if len(det_labels) != N:
-                    if len(det_labels) == 1 and N > 1:
-                        det_labels = det_labels.expand(N).clone()
-                    else:
-                        det_labels = torch.full((N,), int(det_labels[0].item()) if len(det_labels) else 0,
-                                                dtype=torch.long, device=det_bboxes.device)
-                if len(det_scores) != N:
-                    if len(det_scores) == 1 and N > 1:
-                        det_scores = det_scores.expand(N).clone()
-                    else:
-                        det_scores = torch.ones((N,), dtype=torch.float32, device=det_bboxes.device)
-
-                # Update pred_instances with pruned results
-                new_inst = InstanceData()
-                # Set bboxes first to define the authoritative length
-                new_inst.bboxes = det_bboxes
-                new_inst.labels = det_labels
-                new_inst.scores = det_scores
-                if new_src_pose_idx is not None:
-                    try:
-                        if not isinstance(new_src_pose_idx, torch.Tensor):
-                            new_src_pose_idx = torch.as_tensor(new_src_pose_idx, device=det_bboxes.device)
-                        if len(new_src_pose_idx) != N:
-                            new_src_pose_idx = torch.full((N,), -1, dtype=torch.int64, device=det_bboxes.device)
-                        new_inst.source_pose_index = new_src_pose_idx.to(dtype=torch.int64)
-                    except Exception:
-                        pass
-                img_data_sample.pred_instances = new_inst
+            # Post-detection pruning is handled by a dedicated trunk upstream
 
             # Provide frame id for tracker aging
             frame_id = img_data_sample.metainfo.get("img_id")
@@ -351,7 +245,7 @@ class TrackerTrunk(Trunk):
             "frame_id",
             "using_precalculated_tracking",
             "using_precalculated_detection",
-            "model",
+            # no longer depends on model's post-detection pipeline
         }
 
     def output_keys(self):

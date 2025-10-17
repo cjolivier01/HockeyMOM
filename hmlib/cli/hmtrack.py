@@ -2,12 +2,12 @@ import argparse
 import copy
 import logging
 import os
+import shutil
 import sys
 import traceback
 from collections import OrderedDict
 from pathlib import Path
 from typing import List, Tuple
-import shutil
 
 # We need this to get registered
 import mmdet.models.data_preprocessors.track_data_preprocessor
@@ -19,7 +19,6 @@ from mmengine.config import Config
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 import hmlib
-import hmlib.tracking_utils.ice_rink_segm_boundaries
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
 from hmlib.camera.cam_post_process import DefaultArguments

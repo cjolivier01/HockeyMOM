@@ -12,8 +12,7 @@ aspen:
       depends: []
       params:
         model_class: hmlib.models.end_to_end.HmEndToEnd
-        post_detection_pipeline:
-          - type: IceRinkSegmBoundaries
+        # post_* pipelines not used for rink mask
 
     boundaries:
       class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
@@ -25,15 +24,25 @@ aspen:
       depends: [image_prep]
       params: {}
 
+    ice_config:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      depends: [image_prep]
+      params: {}
+
     # Optional: save detections to disk when running with inferred detections
     save_detections:
       class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
       depends: [load_detections]
       params: {}
 
+    ice_boundaries:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      depends: [load_detections, ice_config]
+      params: {}
+
     tracker:
       class: hmlib.aspen.trunks.tracker.TrackerTrunk
-      depends: [load_detections, model_factory, boundaries]
+      depends: [load_detections, ice_boundaries, model_factory, boundaries]
       params: {}
 
     # Optional: split-out saver for tracking

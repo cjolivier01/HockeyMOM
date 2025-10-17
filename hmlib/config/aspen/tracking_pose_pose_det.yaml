@@ -9,8 +9,6 @@ aspen:
       save_clipped_images: true
     - type: HmImageToTensor
       keys: [img]
-    - type: IceRinkSegmConfig
-      image_label: img
     - type: HmResize
       img_scale: [1312, 480]
       keep_ratio: true
@@ -18,7 +16,7 @@ aspen:
       pad_val: 114.0
       size_divisor: 32
     - type: mmdet.PackTrackInputs
-      meta_keys: [img_metas, rink_profile]
+      meta_keys: [img_metas]
 
   # Default camera post-processing pipeline
   video_out_pipeline:
@@ -47,13 +45,11 @@ aspen:
       depends: []
       params:
         model_class: hmlib.models.end_to_end.HmEndToEnd
-        # Holds post_* pipelines for BoundariesTrunk
-        post_detection_pipeline:
-          - type: IceRinkSegmBoundaries
+        # post_* pipelines not used for rink mask
         post_tracking_pipeline:
           - type: HmNumberClassifier
             image_label: original_images
-          enabled: false
+            enabled: false
 
     boundaries:
       class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
@@ -78,9 +74,19 @@ aspen:
       depends: [pose]
       params: {}
 
+    ice_config:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      depends: [image_prep]
+      params: {}
+
+    ice_boundaries:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      depends: [pose_to_det, ice_config]
+      params: {}
+
     tracker:
       class: hmlib.aspen.trunks.tracker.TrackerTrunk
-      depends: [pose_to_det, model_factory, boundaries]
+      depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
       params: {}
 
     postprocess:

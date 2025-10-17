@@ -28,6 +28,11 @@ class BoundariesTrunk(Trunk):
         model = context.get("model")
         if model is None or not hasattr(model, "post_detection_pipeline"):
             return {}
+        pipeline = getattr(model, "post_detection_pipeline", None)
+        if not pipeline:
+            # No post-detection pipeline to update; nothing to do
+            self.factory_complete = True
+            return {}
         game_id: Optional[str] = context.get("game_id") or context.get("shared", {}).get("game_id")
         original_clip_box = context.get("original_clip_box") or context.get("shared", {}).get("original_clip_box")
         top_border_lines = context.get("top_border_lines") or context.get("shared", {}).get("top_border_lines")
@@ -36,7 +41,7 @@ class BoundariesTrunk(Trunk):
 
         if top_border_lines or bottom_border_lines:
             updated = update_pipeline_item(
-                model.post_detection_pipeline,
+                pipeline,
                 "BoundaryLines",
                 dict(
                     upper_border_lines=top_border_lines,
@@ -49,7 +54,7 @@ class BoundariesTrunk(Trunk):
 
         if game_id:
             update_pipeline_item(
-                model.post_detection_pipeline,
+                pipeline,
                 "IceRinkSegmBoundaries",
                 dict(
                     game_id=game_id,

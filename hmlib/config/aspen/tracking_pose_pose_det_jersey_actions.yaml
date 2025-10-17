@@ -8,8 +8,6 @@ aspen:
       save_clipped_images: true
     - type: HmImageToTensor
       keys: [img]
-    - type: IceRinkSegmConfig
-      image_label: img
     - type: HmResize
       img_scale: [1312, 480]
       keep_ratio: true
@@ -17,7 +15,7 @@ aspen:
       pad_val: 114.0
       size_divisor: 32
     - type: mmdet.PackTrackInputs
-      meta_keys: [img_metas, rink_profile]
+      meta_keys: [img_metas]
 
   video_out_pipeline:
     - type: HmConfigureScoreboard
@@ -45,8 +43,7 @@ aspen:
       depends: []
       params:
         model_class: hmlib.models.end_to_end.HmEndToEnd
-        post_detection_pipeline:
-          - type: IceRinkSegmBoundaries
+        # post_* pipelines not used for rink mask
         post_tracking_pipeline: []
 
     boundaries:
@@ -72,9 +69,19 @@ aspen:
       depends: [pose]
       params: {}
 
+    ice_config:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      depends: [image_prep]
+      params: {}
+
+    ice_boundaries:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      depends: [pose_to_det, ice_config]
+      params: {}
+
     tracker:
       class: hmlib.aspen.trunks.tracker.TrackerTrunk
-      depends: [pose_to_det, model_factory, boundaries]
+      depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
       params: {}
 
     # New: MMAction2 action recognition from poses per tracked player

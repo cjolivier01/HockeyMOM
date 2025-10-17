@@ -3,9 +3,9 @@ _base_ = [
 ]
 
 post_detection_pipeline = [
-    dict(type="IceRinkSegmBoundaries"),
+#     dict(type="IceRinkSegmBoundaries"),
 ]
-
+``
 post_tracking_pipeline = [
     dict(type="HmNumberClassifier", image_label="original_images", enabled=False),
 ]
