@@ -355,6 +355,46 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="Force re-exporting ONNX even if the file already exists",
     )
+    # ONNX pose export/inference options
+    parser.add_argument(
+        "--pose-onnx",
+        dest="pose_onnx_path",
+        type=str,
+        default=None,
+        help=(
+            "Export the pose model's feature extractor (backbone+neck) to ONNX and run with ONNX Runtime. "
+            "If a path is not provided, a default under output_workdirs/<GAME_ID>/pose.onnx is used."
+        ),
+    )
+    parser.add_argument(
+        "--pose-onnx-enable",
+        dest="pose_onnx_enable",
+        action="store_true",
+        help=(
+            "Enable ONNX Runtime for pose (backbone+neck). If --pose-onnx is provided, enablement is implied."
+        ),
+    )
+    parser.add_argument(
+        "--pose-onnx-quantize-int8",
+        dest="pose_onnx_quantize_int8",
+        action="store_true",
+        help=(
+            "After exporting the float32 pose model, quantize to INT8 using calibration frames."
+        ),
+    )
+    parser.add_argument(
+        "--pose-onnx-calib-frames",
+        dest="pose_onnx_calib_frames",
+        type=int,
+        default=200,
+        help="Number of frames to collect for pose INT8 calibration (default: 200)",
+    )
+    parser.add_argument(
+        "--pose-onnx-force-export",
+        dest="pose_onnx_force_export",
+        action="store_true",
+        help="Force re-exporting ONNX for pose even if the file already exists",
+    )
     parser.add_argument(
         "--audio-only",
         action="store_true",
@@ -650,6 +690,21 @@ def _main(args, num_gpu):
                 df_params["onnx"] = onnx_cfg
                 df["params"] = df_params
                 trunks_cfg["detector_factory"] = df
+                # Pose ONNX integration (pose_factory)
+                pf = trunks_cfg.setdefault("pose_factory", {"class": "hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk", "depends": [], "params": {}})
+                pf_params = pf.setdefault("params", {}) or {}
+                ponnx_cfg = pf_params.setdefault("onnx", {}) or {}
+                pose_onnx_enable = bool(args.pose_onnx_enable or args.pose_onnx_path or args.pose_onnx_quantize_int8)
+                if pose_onnx_enable:
+                    ponnx_cfg["enable"] = True
+                    default_pose_onnx = os.path.join(results_folder, "pose.onnx")
+                    ponnx_cfg["path"] = args.pose_onnx_path or default_pose_onnx
+                    ponnx_cfg["force_export"] = bool(args.pose_onnx_force_export)
+                    ponnx_cfg["quantize_int8"] = bool(args.pose_onnx_quantize_int8)
+                    ponnx_cfg["calib_frames"] = int(args.pose_onnx_calib_frames or 0)
+                pf_params["onnx"] = ponnx_cfg
+                pf["params"] = pf_params
+                trunks_cfg["pose_factory"] = pf
                 args.aspen["trunks"] = trunks_cfg
             except Exception:
                 traceback.print_exc()

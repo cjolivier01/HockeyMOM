@@ -149,12 +149,23 @@ class PoseTrunk(Trunk):
 
                 if data_infos:
                     proc_inputs = collate_fn(data_infos)
-                    preds = pose_impl.forward(
-                        proc_inputs,
-                        merge_results=True,
-                        bbox_thr=bbox_thr,
-                        pose_based_nms=pose_based_nms,
-                    )
+                    # Optional ONNX-backed forward via factory-initialized runner
+                    preds = None
+                    onnx_runner = getattr(getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None), "forward", None)
+                    if callable(onnx_runner):
+                        try:
+                            pr = onnx_runner(proc_inputs)
+                            if isinstance(pr, (list, tuple)):
+                                preds = list(pr)
+                        except Exception:
+                            preds = None
+                    if preds is None:
+                        preds = pose_impl.forward(
+                            proc_inputs,
+                            merge_results=True,
+                            bbox_thr=bbox_thr,
+                            pose_based_nms=pose_based_nms,
+                        )
                     # `preds` is a list of PoseDataSample; wrap to match inferencer output
                     results = {"predictions": preds}
                 else:

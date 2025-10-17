@@ -1,4 +1,6 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
+
+import torch
 
 from .base import Trunk
 
@@ -24,6 +26,7 @@ class PoseInferencerFactoryTrunk(Trunk):
         filter_args: Optional[Dict[str, Any]] = None,
         disable_internal_detector: bool = False,
         enabled: bool = True,
+        onnx: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(enabled=enabled)
         self._pose_config = pose_config
@@ -33,6 +36,9 @@ class PoseInferencerFactoryTrunk(Trunk):
         self._filter_args = dict(filter_args or {})
         self._disable_internal_detector = bool(disable_internal_detector)
         self._inferencer = None
+        # ONNX runtime/export options for pose (backbone+neck)
+        self._onnx_cfg: Dict[str, Any] = dict(onnx or {})
+        self._onnx_runner: Optional[_OnnxPoseRunner] = None
 
     def _default_filter_args(self, pose_config: Optional[str]) -> Dict[str, Any]:
         # Defaults taken from hmtrack CLI logic
@@ -88,6 +94,24 @@ class PoseInferencerFactoryTrunk(Trunk):
             inferencer.filter_args = fa
             self._inferencer = inferencer
 
+            # Initialize optional ONNX runner using underlying inferencer's model
+            try:
+                if bool(self._onnx_cfg.get("enable", False)):
+                    pose_impl = getattr(self._inferencer, "inferencer", None)
+                    if pose_impl is not None and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown":
+                        self._onnx_runner = _OnnxPoseRunner(
+                            model=pose_impl.model,
+                            onnx_path=str(self._onnx_cfg.get("path", "pose.onnx")),
+                            force_export=bool(self._onnx_cfg.get("force_export", False)),
+                            quantize_int8=bool(self._onnx_cfg.get("quantize_int8", False)),
+                            calib_frames=int(self._onnx_cfg.get("calib_frames", 0)),
+                        )
+                        # Attach for PoseTrunk to pick up
+                        setattr(self._inferencer, "_hm_onnx_runner", self._onnx_runner)
+            except Exception:
+                # Non-fatal; fall back to PyTorch model
+                self._onnx_runner = None
+
         context["pose_inferencer"] = self._inferencer
         return {"pose_inferencer": self._inferencer}
 
@@ -96,3 +120,163 @@ class PoseInferencerFactoryTrunk(Trunk):
 
     def output_keys(self):
         return {"pose_inferencer"}
+
+
+class _BackboneNeckWrapper(torch.nn.Module):
+    """Expose backbone+neck forward for pose export.
+
+    Returns a single feature map tensor or a tuple of tensors, depending on the model.
+    """
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.backbone = model.backbone
+        self.neck = getattr(model, "neck", None)
+
+    def forward(self, x: torch.Tensor):  # type: ignore[override]
+        feats = self.backbone(x)
+        if self.neck is not None:
+            feats = self.neck(feats)
+        return feats
+
+
+class _OnnxPoseRunner:
+    """Run pose model with ONNX Runtime for backbone+neck, then decode with PyTorch head.
+
+    This integrates with PoseTrunk's bypass path by attaching to the inferencer
+    as `._hm_onnx_runner` so PoseTrunk can optionally use it.
+    """
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        onnx_path: str,
+        force_export: bool = False,
+        quantize_int8: bool = False,
+        calib_frames: int = 0,
+    ):
+        self.model = model
+        self.onnx_path = onnx_path
+        self.force_export = force_export
+        self.quantize_int8 = bool(quantize_int8)
+        self.calib_target = int(calib_frames or 0)
+        self._calib_inputs: List[Any] = []
+        self._quantized = False
+        self._ort_sess = None
+        self._providers = None
+        self._export_and_create_session()
+
+    def _export_and_create_session(self) -> None:
+        import os
+        export_needed = self.force_export or (not os.path.exists(self.onnx_path))
+        if export_needed:
+            wrapper = _BackboneNeckWrapper(self.model).eval()
+            try:
+                device = next(self.model.parameters()).device
+            except StopIteration:
+                device = torch.device("cpu")
+            wrapper.to(device)
+            # Use a typical person crop size; dynamic H/W enabled
+            sample = torch.randn(1, 3, 256, 192, device=device, dtype=torch.float32)
+            with torch.no_grad():
+                torch.onnx.export(
+                    wrapper,
+                    sample,
+                    self.onnx_path,
+                    export_params=True,
+                    opset_version=13,
+                    do_constant_folding=True,
+                    input_names=["images"],
+                    output_names=["feats"],
+                    dynamic_axes={
+                        "images": {0: "batch", 2: "height", 3: "width"},
+                        "feats": {0: "batch"},
+                    },
+                )
+        import onnxruntime as ort  # type: ignore
+        avail = ort.get_available_providers()
+        if "CUDAExecutionProvider" in avail:
+            self._providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        else:
+            self._providers = ["CPUExecutionProvider"]
+        self._ort_sess = ort.InferenceSession(self.onnx_path, providers=self._providers)  # type: ignore
+
+    def _run_feats(self, x: torch.Tensor) -> Any:
+        x = x.to(torch.float32)
+        x_np = x.detach().to("cpu").numpy()
+        # Save for calibration if needed
+        if self.quantize_int8 and not self._quantized and self.calib_target > 0:
+            try:
+                self._calib_inputs.append(x_np.copy())
+            except Exception:
+                pass
+        outputs = self._ort_sess.run(None, {self._ort_sess.get_inputs()[0].name: x_np})
+        if len(outputs) == 1:
+            out = torch.from_numpy(outputs[0]).to(device=next(self.model.parameters()).device)
+            return out
+        # If multiple outputs, convert to list of tensors
+        return [torch.from_numpy(o).to(device=next(self.model.parameters()).device) for o in outputs]
+
+    def _maybe_quantize_after_calib(self) -> None:
+        if not self.quantize_int8 or self._quantized:
+            return
+        if self.calib_target <= 0 or len(self._calib_inputs) < self.calib_target:
+            return
+        try:
+            from onnxruntime.quantization import CalibrationDataReader, QuantType, QuantFormat, quantize_static  # type: ignore
+        except Exception:
+            self._calib_inputs = []
+            return
+        input_name = self._ort_sess.get_inputs()[0].name
+        class _Reader(CalibrationDataReader):  # type: ignore
+            def __init__(self, name, samples): self.name, self._it = name, iter(samples)
+            def get_next(self):
+                try:
+                    x = next(self._it)
+                    return {self.name: x}
+                except StopIteration:
+                    return None
+        q_path = self.onnx_path.replace('.onnx', '.int8.onnx')
+        try:
+            quantize_static(
+                model_input=self.onnx_path,
+                model_output=q_path,
+                calibration_data_reader=_Reader(input_name, self._calib_inputs),
+                quant_format=QuantFormat.QDQ,
+                activation_type=QuantType.QUInt8,
+                weight_type=QuantType.QInt8,
+                per_channel=True,
+            )
+            import onnxruntime as ort  # type: ignore
+            self._ort_sess = ort.InferenceSession(q_path, providers=self._providers)
+            self._quantized = True
+        except Exception:
+            pass
+        finally:
+            self._calib_inputs = []
+
+    def forward(self, proc_inputs: Dict[str, Any]):
+        """Best-effort ONNX-backed forward. Falls back to model if decoding fails."""
+        try:
+            inputs = proc_inputs["inputs"]  # Tensor (N,C,H,W)
+            datas = proc_inputs.get("data_samples", None)
+            feats = self._run_feats(inputs)
+            # Decode with model head if available
+            head = getattr(self.model, "head", None)
+            if head is not None and hasattr(head, "predict") and datas is not None:
+                with torch.no_grad():
+                    preds = head.predict(feats, datas)
+                # Quantize after gathering calibration frames
+                self._maybe_quantize_after_calib()
+                return preds
+        except Exception:
+            pass
+        # Fallback: run model directly
+        with torch.no_grad():
+            try:
+                return self.model.test_step(proc_inputs)
+            except Exception:
+                try:
+                    return self.model(**proc_inputs)
+                except Exception:
+                    return []
