@@ -624,7 +624,7 @@ def _main(args, num_gpu):
 
         using_precalculated_tracking = tracking_dataframe is not None and tracking_dataframe.has_input_data()
         using_precalculated_detections = detection_dataframe is not None and detection_dataframe.has_input_data()
-        using_precalculated_pose = pose_dataframe is not None and pose_dataframe.has_input_data()
+        # using_precalculated_pose = pose_dataframe is not None and pose_dataframe.has_input_data()
 
         actual_device_count = torch.cuda.device_count()
         if not actual_device_count:
@@ -673,13 +673,22 @@ def _main(args, num_gpu):
         # If ONNX detector flags are provided, thread them into Aspen trunks.detector_factory.params
         if args.aspen and isinstance(args.aspen, dict):
             try:
+                onnx_enable = bool(
+                    args.detector_onnx_enable or args.detector_onnx_path or args.detector_onnx_quantize_int8
+                )
                 trunks_cfg = args.aspen.setdefault("trunks", {}) or {}
-                df = trunks_cfg.setdefault("detector_factory", {"class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk", "depends": [], "params": {}})
-                df_params = df.setdefault("params", {}) or {}
-                onnx_cfg = df_params.setdefault("onnx", {}) or {}
-                # Determine if ONNX should be enabled
-                onnx_enable = bool(args.detector_onnx_enable or args.detector_onnx_path or args.detector_onnx_quantize_int8)
-                if onnx_enable:
+                if onnx_enable and "detector" in trunks_cfg:
+                    df = trunks_cfg.setdefault(
+                        "detector_factory",
+                        {
+                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk",
+                            "depends": [],
+                            "params": {},
+                        },
+                    )
+                    df_params = df.setdefault("params", {}) or {}
+                    onnx_cfg = df_params.setdefault("onnx", {}) or {}
+                    # Determine if ONNX should be enabled
                     onnx_cfg["enable"] = True
                     # Default path under results folder if not provided
                     default_onnx_path = os.path.join(results_folder, "detector.onnx")
@@ -687,24 +696,31 @@ def _main(args, num_gpu):
                     onnx_cfg["force_export"] = bool(args.detector_onnx_force_export)
                     onnx_cfg["quantize_int8"] = bool(args.detector_onnx_quantize_int8)
                     onnx_cfg["calib_frames"] = int(args.detector_onnx_calib_frames or 0)
-                df_params["onnx"] = onnx_cfg
-                df["params"] = df_params
-                trunks_cfg["detector_factory"] = df
+                    df_params["onnx"] = onnx_cfg
+                    df["params"] = df_params
+                    trunks_cfg["detector_factory"] = df
                 # Pose ONNX integration (pose_factory)
-                pf = trunks_cfg.setdefault("pose_factory", {"class": "hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk", "depends": [], "params": {}})
-                pf_params = pf.setdefault("params", {}) or {}
-                ponnx_cfg = pf_params.setdefault("onnx", {}) or {}
                 pose_onnx_enable = bool(args.pose_onnx_enable or args.pose_onnx_path or args.pose_onnx_quantize_int8)
-                if pose_onnx_enable:
+                if pose_onnx_enable and "pose" in trunks_cfg:
+                    pf = trunks_cfg.setdefault(
+                        "pose_factory",
+                        {
+                            "class": "hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk",
+                            "depends": [],
+                            "params": {},
+                        },
+                    )
+                    pf_params = pf.setdefault("params", {}) or {}
+                    ponnx_cfg = pf_params.setdefault("onnx", {}) or {}
                     ponnx_cfg["enable"] = True
                     default_pose_onnx = os.path.join(results_folder, "pose.onnx")
                     ponnx_cfg["path"] = args.pose_onnx_path or default_pose_onnx
                     ponnx_cfg["force_export"] = bool(args.pose_onnx_force_export)
                     ponnx_cfg["quantize_int8"] = bool(args.pose_onnx_quantize_int8)
                     ponnx_cfg["calib_frames"] = int(args.pose_onnx_calib_frames or 0)
-                pf_params["onnx"] = ponnx_cfg
-                pf["params"] = pf_params
-                trunks_cfg["pose_factory"] = pf
+                    pf_params["onnx"] = ponnx_cfg
+                    pf["params"] = pf_params
+                    trunks_cfg["pose_factory"] = pf
                 args.aspen["trunks"] = trunks_cfg
             except Exception:
                 traceback.print_exc()
