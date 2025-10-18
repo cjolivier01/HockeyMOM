@@ -260,6 +260,8 @@ class StreamTensor(StreamTensorBase):
         return self.get().cpu()
 
     def get(self) -> torch.Tensor:
+        return self.wait()
+
         assert self._tensor is not None
         if self._stream is not None:
             if self._event is not None:

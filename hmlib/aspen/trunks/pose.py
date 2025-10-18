@@ -279,7 +279,7 @@ class PoseTrunk(Trunk):
                                 data_sample=data_sample[0],
                                 clone_image=False,
                                 draw_gt=False,
-                                draw_bbox=True,
+                                draw_bbox=False,
                                 kpt_thr=kpt_thr if kpt_thr is not None else 0.3,
                             )
                             # show_image("pose", img, wait=False)
@@ -310,7 +310,7 @@ class PoseTrunk(Trunk):
                             data_sample=data_sample[0],
                             clone_image=False,
                             draw_gt=False,
-                            draw_bbox=True,
+                            draw_bbox=False,
                         )
                         # show_image("pose", img, wait=False)
 
