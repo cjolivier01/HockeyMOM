@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import torch
 
+from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last
 
@@ -34,22 +35,22 @@ class PoseTrunk(Trunk):
             return {}
 
         data: Dict[str, Any] = context["data"]
-        cur_frame = data.get("original_images")
-        if isinstance(cur_frame, StreamTensor):
-            cur_frame = cur_frame.wait()
-            data["original_images"] = cur_frame
-        if cur_frame is None:
+        original_images = data.get("original_images")
+        if isinstance(original_images, StreamTensor):
+            original_images = original_images.wait()
+            data["original_images"] = original_images
+        if original_images is None:
             return {}
-        if not isinstance(cur_frame, torch.Tensor):
-            cur_frame = torch.as_tensor(cur_frame)
-            data["original_images"] = cur_frame
+        if not isinstance(original_images, torch.Tensor):
+            original_images = torch.as_tensor(original_images)
+            data["original_images"] = original_images
 
         track_data_sample = self._get_track_data_sample(data.get("data_samples"))
         frame_count = None
-        if isinstance(cur_frame, torch.Tensor):
-            frame_count = cur_frame.shape[0]
-        elif hasattr(cur_frame, "__len__"):
-            frame_count = len(cur_frame)
+        if isinstance(original_images, torch.Tensor):
+            frame_count = original_images.shape[0]
+        elif hasattr(original_images, "__len__"):
+            frame_count = len(original_images)
 
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
 
@@ -95,8 +96,11 @@ class PoseTrunk(Trunk):
             inputs_tensor = det_inputs_tensor
 
         inputs: List[torch.Tensor] = []
-        for img in make_channels_last(inputs_tensor):
+        for img in inputs_tensor:
             inputs.append(img)
+        inputs = make_channels_last(torch.stack(inputs))
+
+        inputs = inputs.contiguous()
 
         all_pose_results = []
         show = bool(context.get("plot_pose", False))
@@ -179,11 +183,15 @@ class PoseTrunk(Trunk):
 
                 all_pose_results.append(results)
 
+            if use_det_imgs and inv_scale_factors:
+                self._restore_pose_outputs(all_pose_results, inv_scale_factors)
+
             # Manual visualization to match original behavior
             if show and getattr(pose_inferencer, "inferencer", None) is not None:
                 vis = pose_inferencer.inferencer.visualizer
                 if vis is not None:
-                    for img, pose_result in zip(inputs, all_pose_results):
+                    for img, pose_result in zip(original_images, all_pose_results):
+                        # for img, pose_result in zip(inputs, all_pose_results):
                         data_sample = pose_result.get("predictions", [])
                         if not data_sample:
                             continue
@@ -194,22 +202,29 @@ class PoseTrunk(Trunk):
                                 data_sample=data_sample[0],
                                 clone_image=False,
                                 draw_gt=False,
-                                draw_bbox=False,
+                                draw_bbox=True,
                                 kpt_thr=kpt_thr if kpt_thr is not None else 0.3,
                             )
+                            # show_image("pose", img, wait=False)
                         except Exception:
                             pass
         else:
             # Fallback: let MMPose handle detection internally
+            # if True:
+            #     inputs = make_channels_last(original_images)
             for pose_results in pose_inferencer(
                 inputs=inputs, return_datasamples=True, visualize=show, **pose_inferencer.filter_args
             ):
                 all_pose_results.append(pose_results)
 
+            if use_det_imgs and inv_scale_factors:
+                self._restore_pose_outputs(all_pose_results, inv_scale_factors)
+
             if show and getattr(pose_inferencer, "inferencer", None) is not None:
                 vis = pose_inferencer.inferencer.visualizer
                 if vis is not None:
-                    for img, pose_result in zip(inputs, all_pose_results):
+                    for img, pose_result in zip(original_images, all_pose_results):
+                        # for img, pose_result in zip(inputs, all_pose_results):
                         data_sample = pose_result["predictions"]
                         assert len(data_sample) == 1
                         vis.add_datasample(
@@ -218,11 +233,12 @@ class PoseTrunk(Trunk):
                             data_sample=data_sample[0],
                             clone_image=False,
                             draw_gt=False,
-                            draw_bbox=False,
+                            draw_bbox=True,
                         )
+                        # show_image("pose", img, wait=False)
 
-        if use_det_imgs and inv_scale_factors:
-            self._restore_pose_outputs(all_pose_results, inv_scale_factors)
+        # if use_det_imgs and inv_scale_factors:
+        #     self._restore_pose_outputs(all_pose_results, inv_scale_factors)
 
         pose_results = all_pose_results
         data["pose_results"] = pose_results
