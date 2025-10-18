@@ -29,7 +29,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
         self,
         *args,
         neck: Optional[Callable] = None,
-        post_detection_pipeline: List[Dict[str, Any]] = None,
+        # post-detection pipeline removed; use dedicated trunks instead
         post_tracking_pipeline: List[Dict[str, Any]] = None,
         pose_model: str = None,
         pose_weights: str = None,
@@ -53,8 +53,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
         super().__init__(data_preprocessor=data_preprocessor, init_cfg=init_cfg)
         self._enabled = enabled
         self._cpp_bytetrack = cpp_bytetrack
-        self.post_detection_pipeline = post_detection_pipeline
-        self.post_detection_composed_pipeline = None
+        # legacy post-detection pipeline removed
         self.post_tracking_pipeline = post_tracking_pipeline
         self.post_tracking_composed_pipeline = None
         self.neck = None
@@ -113,8 +112,6 @@ class HmEndToEnd(BaseMOTModel, Trunk):
             return {}
 
         # Lazy build of Compose pipelines
-        if self.post_detection_pipeline and self.post_detection_composed_pipeline is None:
-            self.post_detection_composed_pipeline = Compose(self.post_detection_pipeline)
         if self.post_tracking_pipeline and self.post_tracking_composed_pipeline is None:
             self.post_tracking_composed_pipeline = Compose(self.post_tracking_pipeline)
 

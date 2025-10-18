@@ -7,10 +7,13 @@ from .base import Trunk
 
 class BoundariesTrunk(Trunk):
     """
-    Updates the model's post_detection_pipeline with boundary info.
+    Legacy trunk for updating boundary-related transforms on legacy models.
 
-    Expects in context/shared:
-      - model
+    If a model exposes a legacy post-detection pipeline, this trunk updates it
+    with manual boundary lines or auto rink boundaries. Otherwise it is a no-op.
+
+    Expects in context/shared (for legacy path only):
+      - model (with optional attribute `post_detection_pipeline`)
       - game_id: str
       - original_clip_box: Optional[list|tuple]
       - top_border_lines: Optional
