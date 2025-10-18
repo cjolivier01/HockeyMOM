@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import torch
@@ -53,6 +54,8 @@ class PoseTrunk(Trunk):
             frame_count = len(original_images)
 
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
+        if per_frame_bboxes.device != original_images.device:
+            per_frame_bboxes = per_frame_bboxes.to(device=original_images.device, non_blocking=True)
 
         det_imgs_tensor = data.get("img")
         if isinstance(det_imgs_tensor, StreamTensor):
@@ -76,7 +79,6 @@ class PoseTrunk(Trunk):
                 if scale_tensor is None or not torch.isfinite(scale_tensor).all() or (scale_tensor <= 0).any():
                     use_det_imgs = False
                     break
-                det_frame = det_inputs_tensor[idx]
                 scale_gpu = scale_tensor.detach()
                 scale_factors.append(scale_gpu)
                 inv_scale_factors.append(torch.reciprocal(scale_gpu))
@@ -89,7 +91,7 @@ class PoseTrunk(Trunk):
             per_frame_bboxes = self._scale_bboxes_for_detection(per_frame_bboxes, scale_factors)
 
         if not use_det_imgs or det_inputs_tensor is None:
-            inputs_tensor = cur_frame
+            inputs_tensor = original_images
             scale_factors = []
             inv_scale_factors = []
         else:
@@ -127,61 +129,119 @@ class PoseTrunk(Trunk):
             pipeline = pose_impl.pipeline
             collate_fn = pose_impl.collate_fn
             dataset_meta = getattr(model, "dataset_meta", {}) or {}
+            try:
+                from mmpose.structures import merge_data_samples
+            except Exception:
+                merge_data_samples = None
 
+            def _build_empty_predictions() -> List[Any]:
+                try:
+                    from mmengine.structures import InstanceData
+                    from mmpose.structures import PoseDataSample
+
+                    empty_ds = PoseDataSample()
+                    empty_ds.pred_instances = InstanceData()
+                    return [empty_ds]
+                except Exception:
+                    return []
+
+            batched_data_infos: List[Any] = []
+            frame_batch_indices: List[int] = []
+            empty_frame_indices: Set[int] = set()
             for i, (img, bxs) in enumerate(zip(inputs, per_frame_bboxes)):
-                # Build per-bbox data_infos similar to preprocess_single
-                data_infos = []
-                if bxs.numel() > 0:
-                    b_cpu = bxs.detach()
-                    for bbox in b_cpu:
-                        # bbox is tensor containing [x1,y1,x2,y2,score]
-                        # Create an instance dict expected by pipeline
-                        inst = dict(img=img, img_path=str(i).rjust(10, "0") + ".jpg")
-                        inst.update(dataset_meta)
-                        # arr = bbox.numpy().astype(np.float32, copy=True)
-                        arr = bbox
-                        inst["bbox"] = arr[None, :4]
-                        inst["bbox_score"] = arr[4:5]
-                        data_infos.append(pipeline(inst))
-                else:
-                    # No bboxes provided; skip inference and produce an empty result later
-                    data_infos = []
+                if bxs.numel() == 0:
+                    empty_frame_indices.add(i)
+                    continue
 
-                if data_infos:
-                    proc_inputs = collate_fn(data_infos)
-                    # Optional ONNX-backed forward via factory-initialized runner
-                    preds = None
-                    onnx_runner = getattr(getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None), "forward", None)
-                    if callable(onnx_runner):
-                        try:
-                            pr = onnx_runner(proc_inputs)
-                            if isinstance(pr, (list, tuple)):
-                                preds = list(pr)
-                        except Exception:
-                            preds = None
-                    if preds is None:
-                        preds = pose_impl.forward(
-                            proc_inputs,
-                            merge_results=True,
-                            bbox_thr=bbox_thr,
-                            pose_based_nms=pose_based_nms,
-                        )
-                    # `preds` is a list of PoseDataSample; wrap to match inferencer output
-                    results = {"predictions": preds}
-                else:
-                    # Create an empty PoseDataSample to keep downstream visualization logic intact
+                img_cpu = img.detach().cpu()
+                img_np = np.ascontiguousarray(img_cpu.numpy())
+                b_cpu = bxs.detach().cpu()
+                b_np = np.ascontiguousarray(b_cpu.numpy())
+
+                for bbox in b_np:
+                    inst: Dict[str, Any] = {
+                        "img": img_np,
+                        "img_path": str(i).rjust(10, "0") + ".jpg",
+                        "hm_frame_index": i,
+                    }
+                    inst.update(dataset_meta)
+                    inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
+                    inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
+                    batched_data_infos.append(pipeline(inst))
+                    frame_batch_indices.append(i)
+
+            frame_predictions: List[Optional[List[Any]]] = [None] * len(inputs)
+
+            if batched_data_infos:
+                proc_inputs = collate_fn(batched_data_infos)
+                preds: Optional[List[Any]] = None
+                onnx_runner = getattr(
+                    getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None),
+                    "forward",
+                    None,
+                )
+                if callable(onnx_runner):
                     try:
-                        from mmengine.structures import InstanceData
-                        from mmpose.structures import PoseDataSample
-
-                        empty_ds = PoseDataSample()
-                        empty_ds.pred_instances = InstanceData()
-                        results = {"predictions": [empty_ds]}
+                        pr = onnx_runner(proc_inputs)
+                        if isinstance(pr, (list, tuple)):
+                            preds = list(pr)
                     except Exception:
-                        # Fallback: no structured result
-                        results = {"predictions": []}
+                        preds = None
+                if preds is None:
+                    start_t = time.time()
+                    forward_outputs = pose_impl.forward(
+                        proc_inputs,
+                        merge_results=False,
+                        bbox_thr=bbox_thr,
+                        pose_based_nms=pose_based_nms,
+                    )
+                    duration = time.time() - start_t
+                    # print(f"Pose time: {duration} seconds")
+                    if isinstance(forward_outputs, (list, tuple)):
+                        preds = list(forward_outputs)
+                    elif forward_outputs is not None:
+                        preds = [forward_outputs]
 
-                all_pose_results.append(results)
+                if preds:
+                    batch_index_iter = iter(frame_batch_indices)
+                    for data_sample in preds:
+                        frame_idx: Optional[int] = None
+                        meta = getattr(data_sample, "metainfo", {}) or {}
+                        if isinstance(meta, dict):
+                            frame_idx = meta.get("hm_frame_index")
+                        else:
+                            try:
+                                frame_idx = meta.get("hm_frame_index")  # type: ignore[attr-defined]
+                            except Exception:
+                                frame_idx = None
+                        if isinstance(frame_idx, np.ndarray):
+                            if frame_idx.size == 1:
+                                frame_idx = int(frame_idx.reshape(-1)[0])
+                            else:
+                                frame_idx = None
+                        elif frame_idx is not None:
+                            frame_idx = int(frame_idx)
+                        if frame_idx is None:
+                            frame_idx = next(batch_index_iter, None)
+                        if frame_idx is None or frame_idx < 0 or frame_idx >= len(inputs):
+                            continue
+                        if frame_predictions[frame_idx] is None:
+                            frame_predictions[frame_idx] = []
+                        frame_predictions[frame_idx].append(data_sample)
+
+            for idx in range(len(inputs)):
+                if idx in empty_frame_indices:
+                    all_pose_results.append({"predictions": _build_empty_predictions()})
+                    continue
+                predictions = frame_predictions[idx]
+                if predictions is None:
+                    predictions = []
+                elif predictions and merge_data_samples is not None:
+                    try:
+                        predictions = [merge_data_samples(predictions)]
+                    except Exception:
+                        pass
+                all_pose_results.append({"predictions": predictions})
 
             if use_det_imgs and inv_scale_factors:
                 self._restore_pose_outputs(all_pose_results, inv_scale_factors)
@@ -209,10 +269,13 @@ class PoseTrunk(Trunk):
                             pass
         else:
             # Fallback: let MMPose handle detection internally
+            start_t = time.time()
             for pose_results in pose_inferencer(
                 inputs=inputs, return_datasamples=True, visualize=show, **pose_inferencer.filter_args
             ):
                 all_pose_results.append(pose_results)
+            duration = time.time() - start_t
+            # print(f"Pose time: {duration} seconds")
 
             if use_det_imgs and inv_scale_factors:
                 self._restore_pose_outputs(all_pose_results, inv_scale_factors)
@@ -268,7 +331,9 @@ class PoseTrunk(Trunk):
                 except Exception:
                     meta = {}
             metas.append(meta)
-            inst = getattr(ds, "pred_instances", None)
+            inst = getattr(ds, "pred_track_instances", None)
+            if inst is None or not hasattr(inst, "bboxes"):
+                inst = getattr(ds, "pred_instances", None)
             if inst is None or not hasattr(inst, "bboxes"):
                 bboxes.append(torch.empty((0, 5), dtype=torch.float32))
                 continue
@@ -294,7 +359,7 @@ class PoseTrunk(Trunk):
             bboxes.append(combined.detach())
         if expected_len is not None and sample_len != expected_len:
             return None, metas
-        return bboxes, metas
+        return torch.stack(bboxes), metas
 
     @staticmethod
     def _normalize_det_images(det_imgs, expected_len: Optional[int]):
@@ -363,7 +428,7 @@ class PoseTrunk(Trunk):
             new_boxes[:, 2] *= s[2]
             new_boxes[:, 3] *= s[3]
             scaled.append(new_boxes)
-        return scaled
+        return torch.stack(scaled)
 
     def _restore_pose_outputs(self, pose_results: List[Dict[str, Any]], inv_scale_list: List[torch.Tensor]) -> None:
         if not pose_results or not inv_scale_list:
