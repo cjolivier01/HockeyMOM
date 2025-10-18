@@ -170,8 +170,8 @@ class VideoOutput:
         output_frame_height = to_tensor_scalar(output_frame_height, device=device)
 
         if fourcc == "auto" and device.type == "cuda":
-            # fourcc = "hevc_nvenc"
-            fourcc = "h264_nvenc"
+            fourcc = "hevc_nvenc"
+            # fourcc = "h264_nvenc"
 
         if simple_save and self._clip_to_max_dimensions:
             original_width = int(output_frame_width)

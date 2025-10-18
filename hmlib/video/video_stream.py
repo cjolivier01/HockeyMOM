@@ -215,7 +215,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         self._timer = Timer()
         if self._filename.startswith("rtmp://"):
             self._format = format
-            self._codec = "h264_nvenc"
+            self._codec = "hevc_nvenc"
             self._container_type = "flv"
             self._streaming = True
         elif self._filename.startswith("udp://"):
