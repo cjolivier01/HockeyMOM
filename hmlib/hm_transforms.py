@@ -543,6 +543,11 @@ class HmPad:
                 padded_img = hm_impad(results[key], shape=self.size, pad_val=pad_val)
             elif self.size_divisor is not None:
                 padded_img = hm_impad_to_multiple(results[key], self.size_divisor, pad_val=pad_val)
+            else:
+                continue
+            # Currently only support one for this padding stuff
+            assert "pre_pad_shape" not in results
+            results["pre_pad_shape"] = [image_height(results[key]), image_width(results[key])]
             results[key] = padded_img
         results["pad_shape"] = [image_height(padded_img), image_width(padded_img)]
         results["pad_fixed_size"] = self.size
