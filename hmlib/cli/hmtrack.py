@@ -25,14 +25,7 @@ import hmlib.transforms
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.camera.camera_head import CamTrackHead
-from hmlib.config import (
-    get_clip_box,
-    get_config,
-    get_game_dir,
-    get_nested_value,
-    set_nested_value,
-    update_config,
-)
+from hmlib.config import get_clip_box, get_config, get_game_dir, get_nested_value, set_nested_value, update_config
 from hmlib.datasets.dataframe import DataFrameDataset
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
@@ -987,7 +980,7 @@ def _main(args, num_gpu):
                 scroll_output=ScrollOutput(lines=args.progress_bar_lines).register_logger(logger),
                 update_rate=args.print_interval,
                 table_map=table_map,
-                use_curses=not getattr(args, "no_curses_progress", False),
+                use_curses=getattr(args, "curses_progress", False),
             )
         else:
             progress_bar = None

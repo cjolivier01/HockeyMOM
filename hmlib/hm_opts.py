@@ -380,7 +380,8 @@ class hm_opts(object):
             help="Don't use the progress bar",
         )
         parser.add_argument(
-            "--no-curses-progress",
+            "--curses-progress",
+            "--curses",
             action="store_true",
             help="Disable curses-based progress UI (use legacy printing)",
         )
