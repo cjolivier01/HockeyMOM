@@ -442,9 +442,10 @@ class HmImageToTensor:
         keys (Sequence[str]): Key of images to be converted to Tensor.
     """
 
-    def __init__(self, keys, scale_factor=None):
+    def __init__(self, keys, scale_factor=None, dtype: torch.dtype = torch.float):
         self.keys = keys
         self.scale_factor = scale_factor
+        self.dtype = dtype
 
     def __call__(self, results):
         """Call function to convert image in results to :obj:`torch.Tensor` and
@@ -459,20 +460,24 @@ class HmImageToTensor:
         """
         for key in self.keys:
             img = results[key]
-            if isinstance(img, torch.Tensor):
+            if len(img.shape) < 3:
+                img = img.unsqueeze(0)
+            if isinstance(img, torch.Tensor) and self.dtype is not None:
                 # If uint8, convert to float and optionally scale
                 if not torch.is_floating_point(img):
-                    if len(img.shape) < 3:
-                        img = img.unsqueeze(0)
                     assert img.dtype == torch.uint8
-                    img = img.to(torch.float, non_blocking=True)
+                    img = img.to(self.dtype)
+                    assert (
+                        torch.is_floating_point(img)
+                        and "When converting uint8 Tensor to float, please specify the dtype in ToTensor"
+                    )
                     if self.scale_factor is not None:
-                        img = img * self.scale_factor
-                    results[key] = img
+                        img *= self.scale_factor
                 else:
                     # Float tensors: optionally scale (e.g., 0..1 -> 0..255)
                     if self.scale_factor is not None:
-                        results[key] = img * self.scale_factor
+                        img * self.scale_factor
+            results[key] = img
         return results
 
     def __repr__(self):
