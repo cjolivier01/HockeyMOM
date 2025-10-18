@@ -322,9 +322,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--detector-onnx-enable",
         dest="detector_onnx_enable",
         action="store_true",
-        help=(
-            "Enable ONNX Runtime detector inference. If --detector-onnx is provided, enablement is implied."
-        ),
+        help=("Enable ONNX Runtime detector inference. If --detector-onnx is provided, enablement is implied."),
     )
     parser.add_argument(
         "--detector-onnx-quantize-int8",
@@ -363,17 +361,13 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--pose-onnx-enable",
         dest="pose_onnx_enable",
         action="store_true",
-        help=(
-            "Enable ONNX Runtime for pose (backbone+neck). If --pose-onnx is provided, enablement is implied."
-        ),
+        help=("Enable ONNX Runtime for pose (backbone+neck). If --pose-onnx is provided, enablement is implied."),
     )
     parser.add_argument(
         "--pose-onnx-quantize-int8",
         dest="pose_onnx_quantize_int8",
         action="store_true",
-        help=(
-            "After exporting the float32 pose model, quantize to INT8 using calibration frames."
-        ),
+        help=("After exporting the float32 pose model, quantize to INT8 using calibration frames."),
     )
     parser.add_argument(
         "--pose-onnx-calib-frames",
@@ -453,10 +447,10 @@ def configure_model(config: dict, args: argparse.Namespace):
 def find_stitched_file(dir_name: str, game_id: str):
     exts = ["mp4", "mkv", "avi"]
     basenames = [
-        "stitched_output",
+        # "stitched_output",
         "stitched_output-with-audio",
-        "stitched_output-" + game_id,
-        "stitched_output-with-audio-" + game_id,
+        # "stitched_output-" + game_id,
+        # "stitched_output-with-audio-" + game_id,
     ]
     for basename in basenames:
         for ext in exts:
@@ -602,9 +596,7 @@ def _main(args, num_gpu):
                 args.input_pose_data = args.input_pose_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
             pose_dataframe = PoseDataFrame(
                 input_file=args.input_pose_data,
-                output_file=(
-                    os.path.join(results_folder, "pose.csv") if args.input_pose_data is None else None
-                ),
+                output_file=(os.path.join(results_folder, "pose.csv") if args.input_pose_data is None else None),
                 input_batch_size=args.batch_size,
                 write_interval=100,
             )
@@ -1136,8 +1128,16 @@ def _main(args, num_gpu):
                         return f"{root}-{suffix_num}{cext}"
 
                     candidates = [
-                        (args.save_tracking_data, os.path.join(results_folder, "tracking.csv"), with_index("tracking.csv")),
-                        (args.save_detection_data, os.path.join(results_folder, "detections.csv"), with_index("detections.csv")),
+                        (
+                            args.save_tracking_data,
+                            os.path.join(results_folder, "tracking.csv"),
+                            with_index("tracking.csv"),
+                        ),
+                        (
+                            args.save_detection_data,
+                            os.path.join(results_folder, "detections.csv"),
+                            with_index("detections.csv"),
+                        ),
                         (args.save_pose_data, os.path.join(results_folder, "pose.csv"), with_index("pose.csv")),
                         (args.save_camera_data, os.path.join(results_folder, "camera.csv"), with_index("camera.csv")),
                     ]
@@ -1267,6 +1267,7 @@ def main():
 
     _main(args, num_gpus)
     print("Done.")
+
 
 if __name__ == "__main__":
     try:
