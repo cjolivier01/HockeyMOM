@@ -54,8 +54,9 @@ class PoseTrunk(Trunk):
             frame_count = len(original_images)
 
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
-        if per_frame_bboxes.device != original_images.device:
-            per_frame_bboxes = per_frame_bboxes.to(device=original_images.device, non_blocking=True)
+        for i, bxs in enumerate(per_frame_bboxes):
+            if bxs.device != original_images.device:
+                per_frame_bboxes[i] = bxs.to(device=original_images.device, non_blocking=True)
 
         det_imgs_tensor = data.get("img")
         if isinstance(det_imgs_tensor, StreamTensor):
@@ -153,22 +154,39 @@ class PoseTrunk(Trunk):
                     empty_frame_indices.add(i)
                     continue
 
-                img_cpu = img.detach().cpu()
-                img_np = np.ascontiguousarray(img_cpu.numpy())
-                b_cpu = bxs.detach().cpu()
-                b_np = np.ascontiguousarray(b_cpu.numpy())
+                # b_cpu = bxs.detach().cpu()
+                # b_np = np.ascontiguousarray(b_cpu.numpy())
 
-                for bbox in b_np:
+                for bbox in bxs:
                     inst: Dict[str, Any] = {
-                        "img": img_np,
+                        "img": img,
                         "img_path": str(i).rjust(10, "0") + ".jpg",
                         "hm_frame_index": i,
                     }
                     inst.update(dataset_meta)
-                    inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
-                    inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
+                    # inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
+                    # inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
+                    inst["bbox"] = bbox[None, :4].to(torch.float32)
+                    inst["bbox_score"] = bbox[4:5].to(torch.float32)
                     batched_data_infos.append(pipeline(inst))
                     frame_batch_indices.append(i)
+
+                # img_cpu = img.detach().cpu()
+                # img_np = np.ascontiguousarray(img_cpu.numpy())
+                # b_cpu = bxs.detach().cpu()
+                # b_np = np.ascontiguousarray(b_cpu.numpy())
+
+                # for bbox in b_np:
+                #     inst: Dict[str, Any] = {
+                #         "img": img_np,
+                #         "img_path": str(i).rjust(10, "0") + ".jpg",
+                #         "hm_frame_index": i,
+                #     }
+                #     inst.update(dataset_meta)
+                #     inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
+                #     inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
+                #     batched_data_infos.append(pipeline(inst))
+                #     frame_batch_indices.append(i)
 
             frame_predictions: List[Optional[List[Any]]] = [None] * len(inputs)
 
@@ -359,7 +377,7 @@ class PoseTrunk(Trunk):
             bboxes.append(combined.detach())
         if expected_len is not None and sample_len != expected_len:
             return None, metas
-        return torch.stack(bboxes), metas
+        return bboxes, metas
 
     @staticmethod
     def _normalize_det_images(det_imgs, expected_len: Optional[int]):
@@ -428,7 +446,7 @@ class PoseTrunk(Trunk):
             new_boxes[:, 2] *= s[2]
             new_boxes[:, 3] *= s[3]
             scaled.append(new_boxes)
-        return torch.stack(scaled)
+        return scaled
 
     def _restore_pose_outputs(self, pose_results: List[Dict[str, Any]], inv_scale_list: List[torch.Tensor]) -> None:
         if not pose_results or not inv_scale_list:
