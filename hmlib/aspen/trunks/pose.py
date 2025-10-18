@@ -75,15 +75,10 @@ class PoseTrunk(Trunk):
                 if scale_tensor is None or not torch.isfinite(scale_tensor).all() or (scale_tensor <= 0).any():
                     use_det_imgs = False
                     break
-                frame_hw = self._extract_img_hw(meta)
                 det_frame = det_inputs_tensor[idx]
-                if frame_hw is not None:
-                    if det_frame.shape[-2] != frame_hw[0] or det_frame.shape[-1] != frame_hw[1]:
-                        use_det_imgs = False
-                        break
-                scale_cpu = scale_tensor.detach().cpu()
-                scale_factors.append(scale_cpu)
-                inv_scale_factors.append(torch.reciprocal(scale_cpu))
+                scale_gpu = scale_tensor.detach()
+                scale_factors.append(scale_gpu)
+                inv_scale_factors.append(torch.reciprocal(scale_gpu))
             if not use_det_imgs:
                 scale_factors.clear()
                 inv_scale_factors.clear()
@@ -133,13 +128,14 @@ class PoseTrunk(Trunk):
                 # Build per-bbox data_infos similar to preprocess_single
                 data_infos = []
                 if bxs.numel() > 0:
-                    b_cpu = bxs.detach().cpu()
+                    b_cpu = bxs.detach()
                     for bbox in b_cpu:
                         # bbox is tensor containing [x1,y1,x2,y2,score]
                         # Create an instance dict expected by pipeline
                         inst = dict(img=img, img_path=str(i).rjust(10, "0") + ".jpg")
                         inst.update(dataset_meta)
-                        arr = bbox.numpy().astype(np.float32, copy=True)
+                        # arr = bbox.numpy().astype(np.float32, copy=True)
+                        arr = bbox
                         inst["bbox"] = arr[None, :4]
                         inst["bbox_score"] = arr[4:5]
                         data_infos.append(pipeline(inst))
@@ -286,7 +282,7 @@ class PoseTrunk(Trunk):
                 else:
                     score_tensor = torch.ones((box_tensor.shape[0],), dtype=torch.float32, device=box_tensor.device)
             combined = torch.cat([box_tensor, score_tensor.reshape(-1, 1)], dim=1)
-            bboxes.append(combined.detach().cpu())
+            bboxes.append(combined.detach())
         if expected_len is not None and sample_len != expected_len:
             return None, metas
         return bboxes, metas
@@ -380,7 +376,7 @@ class PoseTrunk(Trunk):
                     inst.bboxes = self._apply_scale(inst.bboxes, inv_scale, keypoints=False)
 
     @staticmethod
-    def _apply_scale(value, scale, *, keypoints: bool):
+    def _apply_scale(value, scale, *, keypoints: bool) -> torch.Tensor | None:
         if value is None:
             return value
         if isinstance(value, torch.Tensor):
@@ -411,7 +407,7 @@ class PoseTrunk(Trunk):
             tensor = tensor * scale_tensor
         if return_tensor:
             return tensor.to(dtype=value.dtype, device=value.device)
-        return tensor.cpu().numpy()
+        return tensor
 
     def input_keys(self):
         return {"data", "pose_inferencer", "plot_pose"}
