@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 
-import torch
 import numpy as np
+import torch
 
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last
@@ -171,8 +171,8 @@ class PoseTrunk(Trunk):
                 else:
                     # Create an empty PoseDataSample to keep downstream visualization logic intact
                     try:
-                        from mmpose.structures import PoseDataSample
                         from mmengine.structures import InstanceData
+                        from mmpose.structures import PoseDataSample
 
                         empty_ds = PoseDataSample()
                         empty_ds.pred_instances = InstanceData()
@@ -300,7 +300,7 @@ class PoseTrunk(Trunk):
         if det_imgs.ndim == 5:
             if det_imgs.size(0) != 1:
                 return None
-            det_imgs = det_imgs[0]
+            det_imgs = det_imgs.squeeze(0)
         if det_imgs.ndim != 4:
             return None
         if expected_len is not None and det_imgs.size(0) != expected_len:
