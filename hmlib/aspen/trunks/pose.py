@@ -191,7 +191,6 @@ class PoseTrunk(Trunk):
                 vis = pose_inferencer.inferencer.visualizer
                 if vis is not None:
                     for img, pose_result in zip(original_images, all_pose_results):
-                        # for img, pose_result in zip(inputs, all_pose_results):
                         data_sample = pose_result.get("predictions", [])
                         if not data_sample:
                             continue
@@ -210,8 +209,6 @@ class PoseTrunk(Trunk):
                             pass
         else:
             # Fallback: let MMPose handle detection internally
-            # if True:
-            #     inputs = make_channels_last(original_images)
             for pose_results in pose_inferencer(
                 inputs=inputs, return_datasamples=True, visualize=show, **pose_inferencer.filter_args
             ):
@@ -224,7 +221,6 @@ class PoseTrunk(Trunk):
                 vis = pose_inferencer.inferencer.visualizer
                 if vis is not None:
                     for img, pose_result in zip(original_images, all_pose_results):
-                        # for img, pose_result in zip(inputs, all_pose_results):
                         data_sample = pose_result["predictions"]
                         assert len(data_sample) == 1
                         vis.add_datasample(
@@ -236,9 +232,6 @@ class PoseTrunk(Trunk):
                             draw_bbox=True,
                         )
                         # show_image("pose", img, wait=False)
-
-        # if use_det_imgs and inv_scale_factors:
-        #     self._restore_pose_outputs(all_pose_results, inv_scale_factors)
 
         pose_results = all_pose_results
         data["pose_results"] = pose_results
