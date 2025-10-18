@@ -91,19 +91,8 @@ class MMTrackingTrunk(Trunk):
                     bboxes=video_data_sample.pred_instances.bboxes,
                 )
 
-        # data = data.copy()
-        # # Avoid passing big tensors downstream unnecessarily
-        # # Re-attach original images from pre-model context if missing
-        # if preserved_original_images is not None:
-        #     data["original_images"] = preserved_original_images
-        # elif "original_images" in data:
-        #     data["original_images"] = data["original_images"]
-        # if "img" in data:
-        #     del data["img"]
-
         return {
             "data": data,
-            # "data": data,
             "nr_tracks": nr_tracks,
             "max_tracking_id": max_tracking_id,
         }
