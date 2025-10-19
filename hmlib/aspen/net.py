@@ -318,7 +318,7 @@ class AspenNet(torch.nn.Module):
         queues: List[Queue] = [Queue(maxsize=self.thread_queue_size) for _ in range(len(self.exec_order) + 1)]
         threads = []
         for idx, node in enumerate(self.exec_order):
-            thread = threading.Thread(target=worker, args=(idx, node), daemon=True)
+            thread = threading.Thread(target=worker, args=(idx, node), daemon=True, name=node.name)
             thread.start()
             threads.append(thread)
 
