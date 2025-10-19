@@ -54,9 +54,9 @@ class PoseTrunk(Trunk):
             frame_count = len(original_images)
 
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
-        for i, bxs in enumerate(per_frame_bboxes):
-            if bxs.device != original_images.device:
-                per_frame_bboxes[i] = bxs.to(device=original_images.device, non_blocking=True)
+        # for i, bxs in enumerate(per_frame_bboxes):
+        #     if bxs.device != original_images.device:
+        #         per_frame_bboxes[i] = bxs.to(device=original_images.device, non_blocking=True)
 
         det_imgs_tensor = data.get("img")
         if isinstance(det_imgs_tensor, StreamTensor):
@@ -76,7 +76,7 @@ class PoseTrunk(Trunk):
             use_det_imgs = True
             for idx in range(frame_count):
                 meta = frame_metas[idx]
-                scale_tensor = self._extract_scale_tensor(meta, det_inputs_tensor.device)
+                scale_tensor = self._extract_scale_tensor(meta, per_frame_bboxes[0].device)
                 if scale_tensor is None or not torch.isfinite(scale_tensor).all() or (scale_tensor <= 0).any():
                     use_det_imgs = False
                     break
@@ -154,20 +154,21 @@ class PoseTrunk(Trunk):
                     empty_frame_indices.add(i)
                     continue
 
-                # b_cpu = bxs.detach().cpu()
-                # b_np = np.ascontiguousarray(b_cpu.numpy())
+                b_cpu = bxs.detach().cpu()
+                b_np = np.ascontiguousarray(b_cpu.numpy())
 
-                for bbox in bxs:
+                for bbox in b_np:
                     inst: Dict[str, Any] = {
                         "img": img,
-                        "img_path": str(i).rjust(10, "0") + ".jpg",
+                        # "img_path": str(i).rjust(10, "0") + ".jpg",
+                        "img_path": None,
                         "hm_frame_index": i,
                     }
                     inst.update(dataset_meta)
-                    # inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
-                    # inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
-                    inst["bbox"] = bbox[None, :4].to(torch.float32)
-                    inst["bbox_score"] = bbox[4:5].to(torch.float32)
+                    inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
+                    inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
+                    # inst["bbox"] = bbox[None, :4].to(torch.float32)
+                    # inst["bbox_score"] = bbox[4:5].to(torch.float32)
                     batched_data_infos.append(pipeline(inst))
                     frame_batch_indices.append(i)
 
