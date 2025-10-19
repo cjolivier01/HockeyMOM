@@ -56,19 +56,26 @@ def should_cli_load_tracking_smoke_runs():
         cmd = [
             sys.executable, '-m', 'hmlib.cli.hmtrack',
             '-b=1', f'--input-video={video}', f'--game-id={game_id}',
-            '--config=hmlib/config/aspen/tracking_pose_load_tracking.yaml',
+            '--config=hmlib/config/aspen/tracking_pose.yaml',
             '--no-wide-start', '--no-crop', '--skip-final-video-save', '--no-play-tracking',
-            f'--input-tracking-data={tracking_csv}', '-t', '0.5', '--no-save-video', '--plot-pose'
+            f'--input-tracking-data={tracking_csv}', '-t', '0.5', '--no-save-video', '--plot-pose', '--save-pose-data'
         ]
-        subprocess.check_call(cmd, env=env, cwd=td)
+        subprocess.check_call(cmd, env=env)
 
-        # Verify pose.csv was saved under output_workdirs/<game_id>
-        out_pose = os.path.join(td, 'output_workdirs', game_id, 'pose.csv')
+        # Verify pose.csv was saved under repo output_workdirs/<game_id>
+        out_pose_dir = os.path.join(REPO_ROOT, 'output_workdirs', game_id)
+        out_pose = os.path.join(out_pose_dir, 'pose.csv')
         assert os.path.isfile(out_pose)
         from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
         pose_df = PoseDataFrame(input_file=out_pose, input_batch_size=1)
         # Either empty or with entries; ensure call path works
         _ = pose_df.get_samples()
+        # Cleanup outputs to keep repo tree tidy
+        try:
+            import shutil
+            shutil.rmtree(out_pose_dir, ignore_errors=True)
+        except Exception:
+            pass
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
