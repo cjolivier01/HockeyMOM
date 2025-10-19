@@ -30,6 +30,7 @@ def run_mmtrack(
     tracking_dataframe: TrackingDataFrame = None,
     detection_dataframe: DetectionDataFrame = None,
     pose_dataframe: PoseDataFrame = None,
+    action_dataframe: Any = None,
     device: torch.device = None,
     input_cache_size: int = 2,
     fp16: bool = False,
@@ -274,6 +275,7 @@ def run_mmtrack(
                     tracking_dataframe=tracking_dataframe,
                     detection_dataframe=detection_dataframe,
                     pose_dataframe=pose_dataframe,
+                    action_dataframe=action_dataframe,
                     plot_pose=bool(config.get("plot_pose", False)),
                     # Propagate CLI flag to BoundariesTrunk -> IceRinkSegmBoundaries(draw)
                     plot_ice_mask=bool(config.get("plot_ice_mask", False)),

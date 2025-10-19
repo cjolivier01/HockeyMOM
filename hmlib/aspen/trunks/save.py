@@ -48,13 +48,16 @@ class SaveDetectionsTrunk(Trunk):
             inst = getattr(img_data_sample, "pred_instances", None)
             if inst is None:
                 # No detections: still record an empty frame
-                df.add_frame_records(
-                    frame_id=int(frame_id0 + i),
-                    scores=np.empty((0,), dtype=np.float32),
-                    labels=np.empty((0,), dtype=np.int64),
-                    bboxes=np.empty((0, 4), dtype=np.float32),
-                    pose_indices=np.empty((0,), dtype=np.int64),
-                )
+                try:
+                    df.add_frame_sample(frame_id=int(frame_id0 + i), data_sample=img_data_sample)
+                except Exception:
+                    df.add_frame_records(
+                        frame_id=int(frame_id0 + i),
+                        scores=np.empty((0,), dtype=np.float32),
+                        labels=np.empty((0,), dtype=np.int64),
+                        bboxes=np.empty((0, 4), dtype=np.float32),
+                        pose_indices=np.empty((0,), dtype=np.int64),
+                    )
                 continue
             # Determine frame id
             fid = img_data_sample.metainfo.get("frame_id", None)
@@ -66,14 +69,17 @@ class SaveDetectionsTrunk(Trunk):
             if fid is None:
                 fid = frame_id0 + i
 
-            pose_indices = getattr(inst, "source_pose_index", None)
-            df.add_frame_records(
-                frame_id=int(fid),
-                scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
-                labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
-                bboxes=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
-                pose_indices=pose_indices,
-            )
+            try:
+                df.add_frame_sample(frame_id=int(fid), data_sample=img_data_sample)
+            except Exception:
+                pose_indices = getattr(inst, "source_pose_index", None)
+                df.add_frame_records(
+                    frame_id=int(fid),
+                    scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
+                    labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
+                    bboxes=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
+                    pose_indices=pose_indices,
+                )
 
         return {}
 
@@ -179,15 +185,24 @@ class SaveTrackingTrunk(Trunk):
             inst = getattr(img_data_sample, "pred_track_instances", None)
             if inst is None:
                 # No tracks: still record an empty frame
-                df.add_frame_records(
-                    frame_id=frame_id0 + i,
-                    tracking_ids=np.empty((0,), dtype=np.int64),
-                    tlbr=np.empty((0, 4), dtype=np.float32),
-                    scores=np.empty((0,), dtype=np.float32),
-                    labels=np.empty((0,), dtype=np.int64),
-                    jersey_info=None,
-                    pose_indices=np.empty((0,), dtype=np.int64),
-                )
+                try:
+                    df.add_frame_sample(
+                        frame_id=frame_id0 + i,
+                        data_sample=img_data_sample,
+                        jersey_info=None,
+                        pose_indices=None,
+                        action_info=None,
+                    )
+                except Exception:
+                    df.add_frame_records(
+                        frame_id=frame_id0 + i,
+                        tracking_ids=np.empty((0,), dtype=np.int64),
+                        tlbr=np.empty((0, 4), dtype=np.float32),
+                        scores=np.empty((0,), dtype=np.float32),
+                        labels=np.empty((0,), dtype=np.int64),
+                        jersey_info=None,
+                        pose_indices=np.empty((0,), dtype=np.int64),
+                    )
                 continue
             jersey_results = (
                 jersey_results_all[i] if isinstance(jersey_results_all, list) and i < len(jersey_results_all) else None
@@ -226,16 +241,25 @@ class SaveTrackingTrunk(Trunk):
                                 pose_indices = torch.full((len(tb),), -1, dtype=torch.int64)
                 except Exception:
                     pose_indices = None
-            df.add_frame_records(
-                frame_id=frame_id0 + i,
-                tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
-                tlbr=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
-                scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
-                labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
-                jersey_info=jersey_results,
-                pose_indices=pose_indices,
-                action_info=action_results,
-            )
+            try:
+                df.add_frame_sample(
+                    frame_id=frame_id0 + i,
+                    data_sample=img_data_sample,
+                    jersey_info=jersey_results,
+                    pose_indices=pose_indices,
+                    action_info=action_results,
+                )
+            except Exception:
+                df.add_frame_records(
+                    frame_id=frame_id0 + i,
+                    tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
+                    tlbr=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
+                    scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
+                    labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
+                    jersey_info=jersey_results,
+                    pose_indices=pose_indices,
+                    action_info=action_results,
+                )
         return {}
 
     def input_keys(self):
@@ -314,8 +338,12 @@ class SavePoseTrunk(Trunk):
                 df.add_frame_records(frame_id=frame_id0 + i, pose_json=json.dumps({"predictions": []}))
         else:
             for i, item in enumerate(pose_results):
-                simp = self._simplify_pose_item(item)
-                df.add_frame_records(frame_id=frame_id0 + i, pose_json=json.dumps(simp))
+                # Prefer direct PoseDataSample storage
+                try:
+                    df.add_frame_sample(frame_id=frame_id0 + i, pose_item=item)
+                except Exception:
+                    simp = self._simplify_pose_item(item)
+                    df.add_frame_records(frame_id=frame_id0 + i, pose_json=json.dumps(simp))
         return {}
 
     def input_keys(self):
@@ -347,7 +375,8 @@ class SaveActionsTrunk(Trunk):
             return {}
 
         df = context.get("tracking_dataframe")
-        if df is None:
+        action_df = context.get("action_dataframe")
+        if df is None and action_df is None:
             return {}
         data: Dict[str, Any] = context.get("data", {})
         action_results_all = data.get("action_results") or context.get("action_results")
@@ -371,22 +400,29 @@ class SaveActionsTrunk(Trunk):
             if inst is None:
                 continue
             actions = action_results_all[i] if i < len(action_results_all) else None
-            # Update action columns by appending a tiny row-set that aligns by ID
-            # Note: To avoid duplicate rows, prefer using SaveTrackingTrunk placed after the actions trunk.
-            df.add_frame_records(
-                frame_id=frame_id0 + i,
-                tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
-                tlbr=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
-                scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
-                labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
-                jersey_info=None,
-                pose_indices=getattr(inst, "source_pose_index", None),
-                action_info=actions,
-            )
+            # Update tracking with action columns if tracking df present
+            if df is not None:
+                df.add_frame_records(
+                    frame_id=frame_id0 + i,
+                    tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
+                    tlbr=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
+                    scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
+                    labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
+                    jersey_info=None,
+                    pose_indices=getattr(inst, "source_pose_index", None),
+                    action_info=actions,
+                )
+            # Optionally write dedicated action dataframe
+            if action_df is not None and actions is not None:
+                try:
+                    # Build list of ActionDataSample-like dicts (tracking_id, label_index/label, score)
+                    action_df.add_frame_sample(frame_id=frame_id0 + i, data_samples=actions)
+                except Exception:
+                    action_df.add_frame_records(frame_id=frame_id0 + i, action_json=json.dumps(actions))
         return {}
 
     def input_keys(self):
-        return {"data", "frame_id", "tracking_dataframe", "action_results"}
+        return {"data", "frame_id", "tracking_dataframe", "action_results", "action_dataframe"}
 
     def output_keys(self):
         return set()

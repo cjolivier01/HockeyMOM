@@ -1,0 +1,11 @@
+aspen:
+  minimal_context: true
+
+  trunks:
+    # Assumes an existing pipeline already defines 'actions' trunk producing
+    # per-frame action_results. This example only wires a saver.
+    save_actions:
+      class: hmlib.aspen.trunks.save.SaveActionsTrunk
+      depends: [actions]
+      params: {}
+

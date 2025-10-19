@@ -41,6 +41,7 @@ from hmlib.tasks.tracking import run_mmtrack
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
+from hmlib.tracking_utils.action_dataframe import ActionDataFrame
 
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
@@ -303,6 +304,17 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Save pose data to results.csv",
     )
     parser.add_argument(
+        "--input-action-data",
+        type=str,
+        default=None,
+        help="Input per-frame action data file and use instead of running action inference",
+    )
+    parser.add_argument(
+        "--save-action-data",
+        action="store_true",
+        help="Save action data to actions.csv",
+    )
+    parser.add_argument(
         "--save-camera-data",
         action="store_true",
         help="Save tracking data to camera.csv",
@@ -475,6 +487,8 @@ def _main(args, num_gpu):
     detection_dataframe_ds = None
     pose_dataframe = None
     pose_dataframe_ds = None
+    action_dataframe = None
+    action_dataframe_ds = None
 
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
@@ -605,6 +619,23 @@ def _main(args, num_gpu):
                 dataloader.append_dataset(
                     name="pose_dataframe",
                     dataset=pose_dataframe_ds,
+                )
+
+        # Action dataframe wiring (optional)
+        if args.save_action_data or args.input_action_data:
+            if args.input_action_data:
+                args.input_action_data = args.input_action_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
+            action_dataframe = ActionDataFrame(
+                input_file=args.input_action_data,
+                output_file=(os.path.join(results_folder, "actions.csv") if args.input_action_data is None else None),
+                input_batch_size=args.batch_size,
+                write_interval=100,
+            )
+            if args.input_action_data:
+                action_dataframe_ds = DataFrameDataset(dataframe=action_dataframe)
+                dataloader.append_dataset(
+                    name="action_dataframe",
+                    dataset=action_dataframe_ds,
                 )
 
         using_precalculated_tracking = tracking_dataframe is not None and tracking_dataframe.has_input_data()
@@ -1088,6 +1119,7 @@ def _main(args, num_gpu):
                 tracking_dataframe=tracking_dataframe,
                 detection_dataframe=detection_dataframe,
                 pose_dataframe=pose_dataframe,
+                action_dataframe=action_dataframe,
                 fp16=args.fp16,
                 input_cache_size=args.cache_size,
                 progress_bar=progress_bar,
@@ -1139,6 +1171,7 @@ def _main(args, num_gpu):
                             with_index("detections.csv"),
                         ),
                         (args.save_pose_data, os.path.join(results_folder, "pose.csv"), with_index("pose.csv")),
+                        (args.save_action_data, os.path.join(results_folder, "actions.csv"), with_index("actions.csv")),
                         (args.save_camera_data, os.path.join(results_folder, "camera.csv"), with_index("camera.csv")),
                     ]
                     for enabled, src, dst_name in candidates:
@@ -1182,6 +1215,11 @@ def _main(args, num_gpu):
             if pose_dataframe is not None:
                 try:
                     pose_dataframe.flush()
+                except:
+                    traceback.print_exc()
+            if action_dataframe is not None:
+                try:
+                    action_dataframe.flush()
                 except:
                     traceback.print_exc()
         except Exception as ex:

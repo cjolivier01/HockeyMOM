@@ -46,8 +46,9 @@ class LoadDetectionsTrunk(Trunk):
         video_len = len(track_data_sample)
         for i in range(video_len):
             img_data_sample = track_data_sample[i]
-            rec = df.get_data_dict_by_frame(frame_id=frame_id0 + i)
-            if rec is None:
+            ds = getattr(df, "get_sample_by_frame", None)
+            det_ds = ds(frame_id=frame_id0 + i) if callable(ds) else None
+            if det_ds is None:
                 # Attach empty detections to mirror detector behavior
                 inst = InstanceData()
                 inst.scores = torch.empty((0,), dtype=torch.float32)
@@ -55,14 +56,20 @@ class LoadDetectionsTrunk(Trunk):
                 inst.bboxes = torch.empty((0, 4), dtype=torch.float32)
                 img_data_sample.pred_instances = inst
             else:
-                # Convert to torch tensors for consistency
-                scores = rec.get("scores", np.empty((0,), dtype=np.float32))
-                labels = rec.get("labels", np.empty((0,), dtype=np.int64))
-                bboxes = rec.get("bboxes", np.empty((0, 4), dtype=np.float32))
-                inst = InstanceData()
-                inst.scores = torch.as_tensor(scores)
-                inst.labels = torch.as_tensor(labels)
-                inst.bboxes = torch.as_tensor(bboxes)
+                inst = getattr(det_ds, "pred_instances", None)
+                if inst is None:
+                    # fall back to dict-based path
+                    rec = df.get_data_dict_by_frame(frame_id=frame_id0 + i)
+                    if rec is None:
+                        inst = InstanceData()
+                        inst.scores = torch.empty((0,), dtype=torch.float32)
+                        inst.labels = torch.empty((0,), dtype=torch.long)
+                        inst.bboxes = torch.empty((0, 4), dtype=torch.float32)
+                    else:
+                        inst = InstanceData()
+                        inst.scores = torch.as_tensor(rec.get("scores", np.empty((0,), dtype=np.float32)))
+                        inst.labels = torch.as_tensor(rec.get("labels", np.empty((0,), dtype=np.int64)))
+                        inst.bboxes = torch.as_tensor(rec.get("bboxes", np.empty((0, 4), dtype=np.float32)))
                 img_data_sample.pred_instances = inst
 
         return {"data": data}
@@ -115,8 +122,9 @@ class LoadTrackingTrunk(Trunk):
 
         for i in range(video_len):
             img_data_sample = track_data_sample[i]
-            rec = df.get_data_dict_by_frame(frame_id=frame_id0 + i)
-            if rec is None:
+            ds = getattr(df, "get_sample_by_frame", None)
+            track_ds = ds(frame_id=frame_id0 + i) if callable(ds) else None
+            if track_ds is None:
                 # attach empty tracks instance
                 inst = InstanceData(
                     instances_id=torch.empty((0,), dtype=torch.long),
@@ -130,25 +138,33 @@ class LoadTrackingTrunk(Trunk):
                 except Exception:
                     pass
                 continue
-            # Convert tlwh->tlbr for downstream consumers
-            tlwh = rec.get("bboxes", np.empty((0, 4), dtype=np.float32))
-            if isinstance(tlwh, np.ndarray):
-                tlwh_t = torch.as_tensor(tlwh)
-                tlbr_t = tlwh_to_tlbr_multiple(tlwh_t)
-                bboxes = tlbr_t
-            else:
-                bboxes = tlwh_to_tlbr_multiple(tlwh)
-
-            ids = rec.get("tracking_ids", np.empty((0,), dtype=np.int64))
-            scores = rec.get("scores", np.empty((0,), dtype=np.float32))
-            labels = rec.get("labels", np.empty((0,), dtype=np.int64))
-
-            inst = InstanceData(
-                instances_id=torch.as_tensor(ids),
-                bboxes=bboxes,
-                scores=torch.as_tensor(scores),
-                labels=torch.as_tensor(labels),
-            )
+            inst = getattr(track_ds[0] if hasattr(track_ds, "__getitem__") else track_ds, "pred_track_instances", None)
+            if inst is None:
+                # Fallback to dict-based reconstruction
+                rec = df.get_data_dict_by_frame(frame_id=frame_id0 + i)
+                if rec is None:
+                    inst = InstanceData(
+                        instances_id=torch.empty((0,), dtype=torch.long),
+                        bboxes=torch.empty((0, 4), dtype=torch.float32),
+                        scores=torch.empty((0,), dtype=torch.float32),
+                        labels=torch.empty((0,), dtype=torch.long),
+                    )
+                else:
+                    tlwh = rec.get("bboxes", np.empty((0, 4), dtype=np.float32))
+                    if isinstance(tlwh, np.ndarray):
+                        tlwh_t = torch.as_tensor(tlwh)
+                        bboxes = tlwh_to_tlbr_multiple(tlwh_t)
+                    else:
+                        bboxes = tlwh_to_tlbr_multiple(tlwh)
+                    ids = rec.get("tracking_ids", np.empty((0,), dtype=np.int64))
+                    scores = rec.get("scores", np.empty((0,), dtype=np.float32))
+                    labels = rec.get("labels", np.empty((0,), dtype=np.int64))
+                    inst = InstanceData(
+                        instances_id=torch.as_tensor(ids),
+                        bboxes=bboxes,
+                        scores=torch.as_tensor(scores),
+                        labels=torch.as_tensor(labels),
+                    )
             img_data_sample.pred_track_instances = inst
             try:
                 img_data_sample.set_metainfo({"nr_tracks": len(inst.instances_id)})
@@ -210,11 +226,17 @@ class LoadPoseTrunk(Trunk):
 
         pose_results: List[Any] = []
         for i in range(video_len):
-            rec = df.get_data_dict_by_frame(frame_id=frame_id0 + i)
-            if rec is None:
-                pose_results.append({"predictions": []})
+            get_s = getattr(df, "get_sample_by_frame", None)
+            pose_ds = get_s(frame_id=frame_id0 + i) if callable(get_s) else None
+            if pose_ds is None:
+                rec = df.get_data_dict_by_frame(frame_id=frame_id0 + i)
+                if rec is None:
+                    pose_results.append({"predictions": []})
+                else:
+                    pose_results.append(rec.get("pose", {"predictions": []}))
             else:
-                pose_results.append(rec.get("pose", {"predictions": []}))
+                # Wrap PoseDataSample to match downstream expectations: {'predictions':[PoseDataSample]}
+                pose_results.append({"predictions": [pose_ds]})
 
         data["pose_results"] = pose_results
         return {"data": data}

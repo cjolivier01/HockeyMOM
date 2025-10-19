@@ -1,10 +1,20 @@
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, Optional, List, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import torch
 
 from hmlib.datasets.dataframe import HmDataFrameBase
+from mmengine.structures import InstanceData
+try:  # Prefer vendored OpenMMLab structures
+    from mmdet.structures import DetDataSample
+except Exception:  # pragma: no cover
+    DetDataSample = None  # type: ignore
+
+if TYPE_CHECKING:
+    from mmdet.structures import DetDataSample as _DetDataSample  # precise type for mypy
+else:
+    _DetDataSample = Any  # type: ignore
 
 
 class DetectionDataFrame(HmDataFrameBase):
@@ -63,13 +73,38 @@ class DetectionDataFrame(HmDataFrameBase):
             self.first_write = False
             self.counter = 0  # Reset the counter after writing
 
-    def __getitem__(self, idx: int) -> Union[Dict[str, Any], None]:
-        # Frame id's start at 1
-        return self.get_data_dict_by_frame(frame_id=idx + 1)
+    def __getitem__(self, idx: int) -> Optional[_DetDataSample]:
+        # Frame id's start at 1; return a DetDataSample (preferred)
+        return self.get_sample_by_frame(frame_id=idx + 1)
+
+    def add_frame_sample(self, frame_id: int, data_sample: Any):
+        """Persist a per-frame DetDataSample.
+
+        Accepts any object exposing a ``pred_instances`` with
+        ``scores``, ``labels``, and ``bboxes``.
+        """
+        inst = getattr(data_sample, "pred_instances", None)
+        if inst is None:
+            # Record an empty frame
+            self.add_frame_records(
+                frame_id=int(frame_id),
+                scores=np.empty((0,), dtype=np.float32),
+                labels=np.empty((0,), dtype=np.int64),
+                bboxes=np.empty((0, 4), dtype=np.float32),
+                pose_indices=None,
+            )
+            return
+        self.add_frame_records(
+            frame_id=int(frame_id),
+            scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
+            labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
+            bboxes=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
+            pose_indices=getattr(inst, "source_pose_index", None),
+        )
 
     def get_data_by_frame(self, frame_number: int):
         """Get all tracking data for a specific frame."""
-        if not self.data.empty:
+        if self.data is not None and not self.data.empty:
             return self.data[self.data["Frame"] == frame_number]
         else:
             print("No data loaded.")
@@ -80,11 +115,15 @@ class DetectionDataFrame(HmDataFrameBase):
             array = array.astype(np.float32)
         return array
 
-    # Function to extract tracking info by frame
-    def get_data_dict_by_frame(self, frame_id: int):
+    # Function to extract detection info by frame
+    def get_data_dict_by_frame(self, frame_id: int) -> Optional[Dict[str, Any]]:
         frame_id = int(frame_id)
+        if self.data is None or self.data.empty:
+            return None
         # Filter the DataFrame for the specified frame
         frame_data = self.data[self.data["Frame"] == frame_id]
+        if frame_data.empty:
+            return None
         # Extract columns as NumPy arrays
         scores = frame_data["Scores"].to_numpy()
         labels = frame_data["Labels"].to_numpy()
@@ -98,3 +137,47 @@ class DetectionDataFrame(HmDataFrameBase):
             bboxes=self._to_outgoing_array(bboxes),
             pose_indices=pose_indices,
         )
+
+    def get_sample_by_frame(self, frame_id: int) -> Optional[_DetDataSample]:
+        """Reconstruct a DetDataSample for a frame (preferred).
+
+        Falls back to returning an InstanceData if DetDataSample is unavailable.
+        """
+        rec = self.get_data_dict_by_frame(frame_id)
+        if rec is None:
+            return None
+        inst = InstanceData()
+        inst.scores = torch.as_tensor(rec.get("scores", np.empty((0,), dtype=np.float32)))
+        inst.labels = torch.as_tensor(rec.get("labels", np.empty((0,), dtype=np.int64)))
+        inst.bboxes = torch.as_tensor(rec.get("bboxes", np.empty((0, 4), dtype=np.float32)))
+        pose_idx = rec.get("pose_indices", None)
+        if pose_idx is not None:
+            try:
+                inst.source_pose_index = torch.as_tensor(pose_idx, dtype=torch.long)
+            except Exception:
+                pass
+        if DetDataSample is not None:
+            ds = DetDataSample()
+            ds.pred_instances = inst
+            try:
+                ds.set_metainfo({"frame_id": int(frame_id)})
+            except Exception:
+                pass
+            return ds
+        return inst
+
+    def get_samples(self, start_frame: Optional[int] = None, end_frame: Optional[int] = None) -> List[_DetDataSample]:
+        """Return a list of DetDataSample objects for a frame range (inclusive)."""
+        if self.data is None or self.data.empty:
+            return []
+        frames = sorted(set(int(f) for f in self.data["Frame"].tolist()))
+        if start_frame is not None or end_frame is not None:
+            lo = int(start_frame) if start_frame is not None else frames[0]
+            hi = int(end_frame) if end_frame is not None else frames[-1]
+            frames = [f for f in frames if lo <= f <= hi]
+        out: List[_DetDataSample] = []
+        for f in frames:
+            ds = self.get_sample_by_frame(f)
+            if ds is not None:
+                out.append(ds)
+        return out

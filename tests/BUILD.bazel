@@ -19,3 +19,19 @@ py_test(
         "//hmlib:wheel_data_files",  # include YAMLs under hmlib/**
     ],
 )
+
+py_test(
+    name = "test_dataframe_samples",
+    srcs = ["test_dataframe_samples.py"],
+    data = [
+        "//hmlib:wheel_data_files",
+    ],
+)
+
+py_test(
+    name = "test_tracking_pose_load_tracking",
+    srcs = ["test_tracking_pose_load_tracking.py"],
+    data = [
+        "//hmlib:wheel_data_files",
+    ],
+)

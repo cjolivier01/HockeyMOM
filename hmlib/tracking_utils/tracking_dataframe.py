@@ -1,14 +1,27 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from hmlib.bbox.box_functions import convert_tlbr_to_tlwh
+from hmlib.bbox.box_functions import convert_tlbr_to_tlwh, tlwh_to_tlbr_multiple
 from hmlib.datasets.dataframe import HmDataFrameBase, dataclass_to_json, json_to_dataclass
 from hmlib.jersey.number_classifier import TrackJerseyInfo
+from mmengine.structures import InstanceData
+try:
+    from mmdet.structures import DetDataSample, TrackDataSample
+except Exception:  # pragma: no cover
+    DetDataSample = None  # type: ignore
+    TrackDataSample = None  # type: ignore
+
+if TYPE_CHECKING:
+    from mmdet.structures import TrackDataSample as _TrackDataSample
+    from mmdet.structures import DetDataSample as _DetDataSample
+else:
+    _TrackDataSample = Any  # type: ignore
+    _DetDataSample = Any  # type: ignore
 
 
 class TrackingDataFrame(HmDataFrameBase):
@@ -126,9 +139,9 @@ class TrackingDataFrame(HmDataFrameBase):
             self.first_write = False
             self.counter = 0  # Reset the counter after writing
 
-    def __getitem__(self, idx: int) -> Union[Dict[str, Any], None]:
-        # Frame id's start at 1
-        return self.get_data_dict_by_frame(frame_id=idx + 1)
+    def __getitem__(self, idx: int) -> Optional[_TrackDataSample]:
+        # Frame id's start at 1; return a TrackDataSample for this frame if possible
+        return self.get_sample_by_frame(frame_id=idx + 1)
 
     def get_data_by_frame(self, frame_number: int) -> Union[Dict[str, Any], None]:
         """Get all tracking data for a specific frame."""
@@ -166,3 +179,152 @@ class TrackingDataFrame(HmDataFrameBase):
             jersey_info=all_track_jersey_info,
             pose_indices=pose_indices,
         )
+
+    def add_frame_sample(
+        self,
+        frame_id: int,
+        data_sample: Any,
+        jersey_info: Optional[List[TrackJerseyInfo]] = None,
+        pose_indices: Optional[Any] = None,
+        action_info: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """Persist a tracking result provided as a per-frame DetDataSample.
+
+        Expects ``pred_track_instances`` on the provided sample.
+        """
+        ds = data_sample
+        inst = getattr(ds, "pred_track_instances", None)
+        if inst is None:
+            # Empty frame
+            self.add_frame_records(
+                frame_id=int(frame_id),
+                tracking_ids=np.empty((0,), dtype=np.int64),
+                tlbr=np.empty((0, 4), dtype=np.float32),
+                scores=np.empty((0,), dtype=np.float32),
+                labels=np.empty((0,), dtype=np.int64),
+                jersey_info=None,
+                pose_indices=None,
+                action_info=None,
+            )
+            return
+        tids = getattr(inst, "instances_id", np.empty((0,), dtype=np.int64))
+        tlbr = getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32))
+        scores = getattr(inst, "scores", np.empty((0,), dtype=np.float32))
+        labels = getattr(inst, "labels", np.empty((0,), dtype=np.int64))
+        if pose_indices is None:
+            pose_indices = getattr(inst, "source_pose_index", None)
+        self.add_frame_records(
+            frame_id=int(frame_id),
+            tracking_ids=tids,
+            tlbr=tlbr,
+            scores=scores,
+            labels=labels,
+            jersey_info=jersey_info,
+            pose_indices=pose_indices,
+            action_info=action_info,
+        )
+
+    def get_sample_by_frame(self, frame_id: int) -> Optional[_TrackDataSample]:
+        """Reconstruct a TrackDataSample (length=1) for the given frame."""
+        rec = self.get_data_dict_by_frame(frame_id)
+        if not rec:
+            return None
+        # Convert TLWH to TLBR for pred_track_instances
+        tlwh = rec.get("bboxes", np.empty((0, 4), dtype=np.float32))
+        if isinstance(tlwh, np.ndarray):
+            tlwh_t = torch.as_tensor(tlwh)
+            tlbr_t = tlwh_to_tlbr_multiple(tlwh_t)
+        else:
+            tlbr_t = tlwh_to_tlbr_multiple(tlwh)
+        inst = InstanceData(
+            instances_id=torch.as_tensor(rec.get("tracking_ids", np.empty((0,), dtype=np.int64))),
+            bboxes=tlbr_t,
+            scores=torch.as_tensor(rec.get("scores", np.empty((0,), dtype=np.float32))),
+            labels=torch.as_tensor(rec.get("labels", np.empty((0,), dtype=np.int64))),
+        )
+        pi = rec.get("pose_indices", None)
+        if pi is not None:
+            try:
+                inst.source_pose_index = torch.as_tensor(pi, dtype=torch.long)
+            except Exception:
+                pass
+
+        # Build a one-frame DetDataSample to wrap pred_track_instances
+        if DetDataSample is None or TrackDataSample is None:
+            return None
+        img_ds = DetDataSample()
+        img_ds.pred_track_instances = inst
+        try:
+            # Attach auxiliary info into metainfo
+            meta: Dict[str, Any] = {"frame_id": int(frame_id)}
+            # jersey info as json-serializable list of dicts
+            jerseys: List[Optional[TrackJerseyInfo]] = rec.get("jersey_info", [])
+            if jerseys:
+                meta["jersey_info"] = [
+                    dataclass_to_json(j) if j is not None else None for j in jerseys
+                ]
+            # action info reconstructed from columns if present
+            try:
+                df = self.data[self.data["Frame"] == int(frame_id)]
+                if not df.empty and "ActionIndex" in df.columns:
+                    actions: List[Dict[str, Any]] = []
+                    for _, row in df.iterrows():
+                        tid = int(row.get("ID", -1))
+                        if tid < 0:
+                            continue
+                        actions.append(
+                            dict(
+                                tracking_id=tid,
+                                label=str(row.get("ActionLabel", "")),
+                                label_index=int(row.get("ActionIndex", -1)),
+                                score=float(row.get("ActionScore", 0.0)),
+                            )
+                        )
+                    meta["action_results"] = actions
+            except Exception:
+                pass
+            img_ds.set_metainfo(meta)
+        except Exception:
+            pass
+
+        vds = TrackDataSample()
+        vds.video_data_samples = [img_ds]
+        try:
+            vds.set_metainfo({"key_frames_inds": [0]})
+        except Exception:
+            pass
+        return vds
+
+    def get_samples(self, start_frame: Optional[int] = None, end_frame: Optional[int] = None) -> Optional[_TrackDataSample]:
+        """Reconstruct a multi-frame TrackDataSample for a frame range (inclusive)."""
+        if self.data is None or self.data.empty or TrackDataSample is None or DetDataSample is None:
+            return None
+        frames = sorted(set(int(f) for f in self.data["Frame"].tolist()))
+        if not frames:
+            return None
+        if start_frame is not None or end_frame is not None:
+            lo = int(start_frame) if start_frame is not None else frames[0]
+            hi = int(end_frame) if end_frame is not None else frames[-1]
+            frames = [f for f in frames if lo <= f <= hi]
+        video_samples: List[_DetDataSample] = []
+        for f in frames:
+            ts = self.get_sample_by_frame(f)
+            if ts is None:
+                # Empty per-frame container
+                inst = InstanceData(
+                    instances_id=torch.empty((0,), dtype=torch.long),
+                    bboxes=torch.empty((0, 4), dtype=torch.float32),
+                    scores=torch.empty((0,), dtype=torch.float32),
+                    labels=torch.empty((0,), dtype=torch.long),
+                )
+                img_ds = DetDataSample(); img_ds.pred_track_instances = inst
+            else:
+                img_ds = ts[0]  # type: ignore[index]
+            video_samples.append(img_ds)
+        vds = TrackDataSample()
+        vds.video_data_samples = video_samples
+        try:
+            vds.set_metainfo({"key_frames_inds": list(range(len(video_samples)))})
+        except Exception:
+            pass
+        return vds

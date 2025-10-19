@@ -85,6 +85,12 @@ aspen:
         top_k: 3
         score_threshold: 0.0
 
+    # Optional: write a dedicated actions.csv when enabled in CLI
+    save_actions:
+      class: hmlib.aspen.trunks.save.SaveActionsTrunk
+      depends: [actions]
+      params: {}
+
     save_detections:
       class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
       depends: [pose_to_det]
