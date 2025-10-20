@@ -10,9 +10,10 @@ from typing import Any, Callable, Iterator, List, Optional
 
 # Optional curses support
 try:
-    import curses  # type: ignore
-    import queue
-    import threading
+    # import curses  # type: ignore
+    # import queue
+    # import threading
+    raise Exception()
 except Exception:  # pragma: no cover - curses may not be available
     curses = None  # type: ignore
     queue = None  # type: ignore
