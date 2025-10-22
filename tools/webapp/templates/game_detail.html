@@ -1,8 +1,11 @@
 {% extends 'layout.html' %}
 {% block content %}
-<h2>Game: {{ game['name'] }}</h2>
-<p>Directory: <code>{{ game['dir_path'] }}</code></p>
-<p>Status: {{ status or game['status'] }}</p>
+<div class="card">
+  <h2 style="margin:0 0 .25rem">{{ game['name'] }}</h2>
+  <p class="muted" style="margin:.25rem 0 .75rem"><small>Directory:</small> <code>{{ game['dir_path'] }}</code></p>
+  {% set st = (status or game['status']) %}
+<p>Status: <span class="status-badge status-{{ (st or '')|upper }}">{{ st or '' }}</span></p>
+</div>
 
 <h3>Upload Files</h3>
 {% if not is_locked %}
@@ -15,13 +18,15 @@
 {% endif %}
 
 <h3>Files</h3>
-<ul>
-  {% for f in files %}
-    <li>{{ f }}</li>
-  {% else %}
-    <li>No files yet.</li>
-  {% endfor %}
+<div class="card">
+  <ul>
+    {% for f in files %}
+      <li>{{ f }}</li>
+    {% else %}
+      <li class="muted">No files yet.</li>
+    {% endfor %}
   </ul>
+</div>
 
 {% if not is_locked %}
 <form method="post" action="/games/{{ game['id'] }}/run">
@@ -31,5 +36,11 @@
 <p>Run disabled: job already submitted or finished.</p>
 {% endif %}
 
-<p><a href="/games">Back</a></p>
+<p><a class="btn" href="/games">Back</a></p>
+<div class="spacer"></div>
+<div class="card">
+  <h3>Danger Zone</h3>
+  <p class="muted">Permanently delete this game and its files. This cannot be undone.</p>
+  <p><a class="btn danger" href="/games/{{ game['id'] }}/delete">Delete game</a></p>
+</div>
 {% endblock %}

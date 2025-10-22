@@ -1,20 +1,22 @@
 {% extends 'layout.html' %}
 {% block content %}
-<h2>Your Games</h2>
-<p><a href="/games/new">Create new game</a></p>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+  <h2>Your Games</h2>
+  <a class="btn primary" href="/games/new">Create new game</a>
+  </div>
 
 <table>
   <thead><tr><th>Name</th><th>Directory</th><th>Status</th><th>Created</th></tr></thead>
   <tbody>
     {% for g in games %}
+      {% set st = state.get('processed', {}).get(g['dir_path'], {}).get('status') or g['status'] %}
       <tr>
-        <td><a href="/games/{{ g['id'] }}">{{ g['name'] }}</a></td>
+        <td><a class="btn secondary" href="/games/{{ g['id'] }}">{{ g['name'] }}</a></td>
         <td><code>{{ g['dir_path'] }}</code></td>
-        <td>{{ state.get('processed', {}).get(g['dir_path'], {}).get('status') or g['status'] }}</td>
+        <td><span class="status-badge status-{{ (st or '')|upper }}">{{ st or '' }}</span></td>
         <td>{{ g['created_at'] }}</td>
       </tr>
     {% endfor %}
   </tbody>
   </table>
 {% endblock %}
-

@@ -225,7 +225,19 @@ def create_app() -> Flask:
             return redirect(url_for("games"))
         files = []
         try:
-            files = os.listdir(game["dir_path"]) if os.path.isdir(game["dir_path"]) else []
+            all_files = os.listdir(game["dir_path"]) if os.path.isdir(game["dir_path"]) else []
+            def _is_user_file(fname: str) -> bool:
+                # Hide control/meta files: dotfiles, sentinels, slurm outputs
+                if not fname:
+                    return False
+                if fname.startswith('.'):
+                    return False
+                if fname.startswith('_'):
+                    return False
+                if fname.startswith('slurm-'):
+                    return False
+                return True
+            files = [f for f in sorted(all_files) if _is_user_file(f)]
         except Exception:
             files = []
         # Determine latest status from DB if present, else dirwatcher state, else game.status
@@ -246,6 +258,97 @@ def create_app() -> Flask:
         if latest_status and str(latest_status).upper() in final_states:
             is_locked = True
         return render_template("game_detail.html", game=game, files=files, status=latest_status, is_locked=is_locked)
+
+    @app.route("/games/<int:gid>/delete", methods=["GET", "POST"])
+    def delete_game(gid: int):
+        r = require_login()
+        if r:
+            return r
+        # Load game
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT * FROM games WHERE id=%s AND user_id=%s", (gid, session["user_id"]))
+            game = cur.fetchone()
+        if not game:
+            flash("Not found", "error")
+            return redirect(url_for("games"))
+
+        # Check latest job state for potential cancellation on delete
+        latest = None
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT id, slurm_job_id, status FROM jobs WHERE game_id=%s ORDER BY id DESC LIMIT 1", (gid,))
+            latest = cur.fetchone()
+
+        if request.method == "POST":
+            token = request.form.get("confirm", "").strip().upper()
+            if token != "DELETE":
+                flash("Type DELETE to confirm permanent deletion.", "error")
+                return render_template("confirm_delete.html", game=game)
+            # If job is active, attempt scancel first (best-effort) and wait briefly
+            try:
+                active_states = ("SUBMITTED", "RUNNING", "PENDING")
+                if latest and str(latest.get("status", "")).upper() in active_states:
+                    import subprocess as _sp, time as _time
+                    dir_leaf = Path(game["dir_path"]).name
+                    job_name = f"dirwatch-{dir_leaf}"
+                    job_ids = []
+                    jid = latest.get("slurm_job_id")
+                    if jid:
+                        job_ids.append(str(jid))
+                    else:
+                        # Fallback: discover job ids by job name prefix
+                        try:
+                            out = _sp.check_output(["squeue", "-h", "-o", "%i %j"]) .decode()
+                            for line in out.splitlines():
+                                parts = line.strip().split(maxsplit=1)
+                                if len(parts) == 2 and parts[1] == job_name:
+                                    job_ids.append(parts[0])
+                        except Exception:
+                            pass
+                    # Issue scancel and wait until jobs disappear from squeue or timeout
+                    for jid_ in job_ids:
+                        _sp.run(["scancel", str(jid_)], check=False)
+                    deadline = _time.time() + 20.0
+                    while _time.time() < deadline:
+                        try:
+                            out = _sp.check_output(["squeue", "-h", "-o", "%i %j"]).decode()
+                            still = False
+                            for line in out.splitlines():
+                                parts = line.strip().split(maxsplit=1)
+                                if not parts:
+                                    continue
+                                if parts[0] in job_ids or (len(parts) == 2 and parts[1] == job_name):
+                                    still = True
+                                    break
+                            if not still:
+                                break
+                        except Exception:
+                            break
+                        _time.sleep(1.0)
+            except Exception:
+                pass
+
+            # Delete from DB (jobs first), then remove directory
+            with g.db.cursor() as cur:
+                cur.execute("DELETE FROM jobs WHERE game_id=%s", (gid,))
+                cur.execute("DELETE FROM games WHERE id=%s AND user_id=%s", (gid, session["user_id"]))
+            g.db.commit()
+            # Remove directory if under our watch root
+            try:
+                d = Path(game["dir_path"]).resolve()
+                wr = Path(WATCH_ROOT).resolve()
+                try:
+                    # Python 3.9-compatible relative check
+                    if str(d).startswith(str(wr)):
+                        import shutil
+                        shutil.rmtree(d, ignore_errors=True)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            flash("Game deleted.", "success")
+            return redirect(url_for("games"))
+
+        return render_template("confirm_delete.html", game=game)
 
     @app.route("/games/<int:gid>/upload", methods=["POST"])
     def upload(gid: int):
