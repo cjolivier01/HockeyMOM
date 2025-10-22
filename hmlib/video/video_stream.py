@@ -186,7 +186,8 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         format: str = "bgr24",
         batch_size: int = 3,
         cache_size: int = 4,
-        bit_rate: int = int(55e6),
+        # bit_rate: int = int(55e6),
+        bit_rate: int = int(35e6),
         device: torch.device = None,
         lossless: bool = int(os.environ.get("HM_LOSSLESS_OUT", "0")) != 0,
         container_type: str = "matroska",
@@ -194,6 +195,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         streaming_drop_frame_interval: int = 3,
         stream_fps: int = 15,
     ):
+        bit_rate = int(35e6)
         self._filename = filename
         self._container_type = container_type
         self._fps = fps
@@ -238,6 +240,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         self._batch_count = 0
         self._batch_items = []
         self._in_flush = False
+        self._bit_rate = bit_rate
         self._codec_config = torchaudio.io.CodecConfig(
             bit_rate=bit_rate,
         )
@@ -270,17 +273,15 @@ class VideoStreamWriter(VideoStreamWriterInterface):
 
     def _add_stream(self):
         if self._lossless:
-            preset = "lossless"
             rate_control = "constqp"
         else:
-            preset = "p7"
             rate_control = "cbr"
+        rate_m = self._bit_rate // 1_000_000
         options = {
             "rc": rate_control,
-            "minrate": "55M",
-            "maxrate": "55M",
-            "bufsize": "55M",
-            # "preset": preset,
+            "minrate": f"{rate_m}M",
+            "maxrate": f"{rate_m}M",
+            "bufsize": f"{rate_m}M",
         }
         if self._lossless:
             options["qp"] = "0"

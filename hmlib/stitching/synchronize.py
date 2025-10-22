@@ -1,24 +1,19 @@
 import os
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict
 
 import numpy as np
 import scipy
-import tifffile
 import torch
 import torch.nn.functional as F
+
 from hmlib.config import (
     get_game_config_private,
-    get_game_dir,
     get_nested_value,
     save_private_config,
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
-from hmlib.stitching.control_points import calculate_control_points
-from hmlib.stitching.hugin import configure_control_points, load_pto_file, save_pto_file
 from hmlib.utils.audio import load_audio_as_tensor
-from hmlib.utils.path import add_suffix_to_filename
 from hmlib.video.ffmpeg import BasicVideoInfo
 
 
@@ -128,28 +123,11 @@ def configure_synchronization(
     return frame_offsets
 
 
-# def find_sitched_roi(image):
-#     w = image.shape[1]
-#     h = image.shape[0]
-
-#     minus_w = int(w / 18)
-#     minus_h = int(h / 15)
-#     roi = [
-#         minus_w,
-#         int(minus_h * 1.5),
-#         image.shape[1] - minus_w,
-#         image.shape[0] - minus_h,
-#     ]
-#     return roi
-
-
 if __name__ == "__main__":
-    # Currently, expects files to be named like
-    # "left-0.mp4", "right-0.mp4" and in /home/Videos directory
     opts = hm_opts()
     args = opts.parse()
-    args.game_id = "ev-ducks-bb"
     synchronize_by_audio(
-        file1_path=f"{os.environ['HOME']}/Videos/{args.game_id}/GX010092.MP4",
-        file2_path=f"{os.environ['HOME']}/Videos/{args.game_id}/GX010011.MP4",
+        file1_path=f"{os.environ['HOME']}/Videos/{args.game_id}/left.mp4",
+        file2_path=f"{os.environ['HOME']}/Videos/{args.game_id}/right.mp4",
+        device=torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
     )
