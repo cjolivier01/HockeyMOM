@@ -34,7 +34,7 @@ import re
 import statistics
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Any
 
 import pandas as pd
 
@@ -147,6 +147,18 @@ def extract_pairs_from_row(row: pd.Series, start_cols: List[int], end_cols: List
     ends = [str(row[c]).strip() for c in end_cols if pd.notna(row[c]) and str(row[c]).strip()]
     n = min(len(starts), len(ends))
     return [(starts[i], ends[i]) for i in range(n)]
+
+# Treat period end as 0:00 on the scoreboard when sheets encode it as the period start time.
+_PERIOD_START_TIMES = {"12:00", "15:00", "20:00"}
+
+def _normalize_sb_end_time(t: str) -> str:
+    try:
+        ts = str(t).strip()
+    except Exception:
+        return t
+    if ts in _PERIOD_START_TIMES:
+        return "0:00"
+    return t
 
 
 # ----------------------------- parsing sheet -----------------------------
@@ -348,149 +360,614 @@ def process_sheet(
     keep_goalies: bool,
     goals: List[GoalEvent],
     skip_validation: bool = False,
-) -> None:
+) -> Path:
     # If sheet_name is None, pandas returns a dict of DataFrames.
     # We want the first sheet by default, so coerce None -> 0.
     target_sheet = 0 if sheet_name is None else sheet_name
     df = pd.read_excel(xls_path, sheet_name=target_sheet, header=None)
-    blocks = find_period_blocks(df)
-    if not blocks:
-        raise ValueError("No 'Period N' sections found in column A.")
-
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Accumulators
+    # Accumulators (used by both formats)
     video_pairs_by_player: Dict[str, List[Tuple[str, str]]] = {}
     sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]] = {}
     # For scoreboard->video conversion: collect mapping segments per period
     # Each segment: (sb_start_sec, sb_end_sec, v_start_sec, v_end_sec)
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]] = {}
 
-    # Validation settings
-    MAX_SHIFT_SECONDS = 30 * 60  # 30 minutes
+    # -------- Attempt to parse "Shifts (Blue)/(white)" event-log layout --------
+    used_event_log = False
 
-    # Simple helper to report validation issues
-    def _report_validation(kind: str, period: int, player_key: str, a: str, b: str, reason: str) -> None:
-        print(
-            f"[validation] {kind} | Player={player_key} | Period={period} | start='{a}' end='{b}' -> {reason}",
-            file=sys.stderr,
-        )
-
-    validation_errors = 0
-
-    # Parse each period block
-    for period_num, blk_start, blk_end in blocks:
-        header_row_idx = find_header_row(df, blk_start, blk_end)
-        if header_row_idx is None:
-            raise ValueError(f"Could not locate header row for Period {period_num}")
-        data_start = header_row_idx + 1
-
-        header = df.iloc[header_row_idx]
-        groups = forward_fill_header_labels(header)
-
-        start_sb_cols = groups.get(LABEL_START_SB, [])
-        end_sb_cols = groups.get(LABEL_END_SB, [])
-        start_v_cols = groups.get(LABEL_START_V, [])
-        end_v_cols = groups.get(LABEL_END_V, [])
-        for lab, cols in [
-            (LABEL_START_SB, start_sb_cols),
-            (LABEL_END_SB, end_sb_cols),
-            (LABEL_START_V, start_v_cols),
-            (LABEL_END_V, end_v_cols),
-        ]:
-            if not cols:
-                raise ValueError(f"Missing header columns for '{lab}' in Period {period_num}")
-
-        # Iterate rows (players) in the block
-        for r in range(data_start, blk_end):
-            jersey = str(df.iloc[r, 0]).strip()
-            name = str(df.iloc[r, 1]).strip()
-
-            if is_period_label(df.iloc[r, 0]) or (not jersey and not name):
-                break
-            if not jersey or jersey.lower() == "nan":
-                continue
-            # Skip goalies like "(G) 37"
-            if not keep_goalies and "(" in jersey and ")" in jersey:
-                continue
-
-            player_key = f"{sanitize_name(jersey)}_{sanitize_name(name)}"
-
-            video_pairs = extract_pairs_from_row(df.iloc[r], start_v_cols, end_v_cols)
-            sb_pairs = extract_pairs_from_row(df.iloc[r], start_sb_cols, end_sb_cols)
-
-            # ---------------- Validation (per-row) ----------------
-            if not skip_validation:
-                # Video times: must be strictly increasing and not excessively long
-                for va, vb in video_pairs:
-                    try:
-                        vsa = parse_flex_time_to_seconds(va)
-                        vsb = parse_flex_time_to_seconds(vb)
-                    except Exception as e:
-                        _report_validation("VIDEO", period_num, player_key, va, vb, f"unparseable time: {e}")
-                        validation_errors += 1
-                        continue
-                    if vsa >= vsb:
-                        _report_validation(
-                            "VIDEO", period_num, player_key, va, vb, "start must be before end (strictly increasing)"
-                        )
-                        validation_errors += 1
-                    dur = vsb - vsa if vsb >= vsa else 0
-                    if dur > MAX_SHIFT_SECONDS:
-                        _report_validation(
-                            "VIDEO",
-                            period_num,
-                            player_key,
-                            va,
-                            vb,
-                            f"duration {seconds_to_mmss_or_hhmmss(dur)} exceeds limit 30:00",
-                        )
-                        validation_errors += 1
-
-                # Scoreboard times: allow either count-up or count-down, but must not be equal and not excessively long
-                for sa, sb in sb_pairs:
-                    try:
-                        ssa = parse_flex_time_to_seconds(sa)
-                        ssb = parse_flex_time_to_seconds(sb)
-                    except Exception as e:
-                        _report_validation("SCOREBOARD", period_num, player_key, sa, sb, f"unparseable time: {e}")
-                        validation_errors += 1
-                        continue
-                    if ssa == ssb:
-                        _report_validation(
-                            "SCOREBOARD", period_num, player_key, sa, sb, "start equals end (zero-length shift)"
-                        )
-                        validation_errors += 1
-                    dur = abs(ssb - ssa)
-                    if dur > MAX_SHIFT_SECONDS:
-                        _report_validation(
-                            "SCOREBOARD",
-                            period_num,
-                            player_key,
-                            sa,
-                            sb,
-                            f"duration {seconds_to_mmss_or_hhmmss(dur)} exceeds limit 30:00",
-                        )
-                        validation_errors += 1
-
-            if video_pairs:
-                video_pairs_by_player.setdefault(player_key, []).extend(video_pairs)
-            if sb_pairs:
-                sb_pairs_by_player.setdefault(player_key, []).extend((period_num, a, b) for a, b in sb_pairs)
-
-            # Build conversion segments for this row where both SB and Video pairs exist positionally
-            nseg = min(len(video_pairs), len(sb_pairs))
-            for idx in range(nseg):
-                sva, svb = video_pairs[idx]
-                sba, sbb = sb_pairs[idx]
+    def _find_cell(value: str) -> Optional[Tuple[int, int]]:
+        needle = value.strip().lower()
+        for rr in range(df.shape[0]):
+            for cc in range(df.shape[1]):
                 try:
-                    v1 = parse_flex_time_to_seconds(sva)
-                    v2 = parse_flex_time_to_seconds(svb)
-                    s1 = parse_flex_time_to_seconds(sba)
-                    s2 = parse_flex_time_to_seconds(sbb)
+                    v = df.iat[rr, cc]
                 except Exception:
                     continue
-                conv_segments_by_period.setdefault(period_num, []).append((s1, s2, v1, v2))
+                if pd.isna(v):
+                    continue
+                if str(v).strip().lower() == needle:
+                    return (rr, cc)
+        return None
+
+    blue_hdr = _find_cell("Shifts (Blue)") or _find_cell("Shifts (blue)")
+    white_hdr = _find_cell("Shifts (white)")
+
+    if blue_hdr or white_hdr:
+        used_event_log = True
+        # Roster cap: at most 20 unique jerseys per team
+        MAX_TEAM_PLAYERS = 20
+        team_roster: Dict[str, List[int]] = {}
+        team_excluded: Dict[str, List[int]] = {}
+
+        def _register_and_flag(team: str, jerseys: List[int]) -> List[int]:
+            if not team:
+                return []
+            # de-dup preserve order
+            seen_local = set()
+            ordered = []
+            for j in jerseys:
+                if j in seen_local:
+                    continue
+                seen_local.add(j)
+                ordered.append(j)
+            roster = team_roster.setdefault(team, [])
+            excluded = team_excluded.setdefault(team, [])
+            for j in ordered:
+                if j in roster:
+                    continue
+                if len(roster) < MAX_TEAM_PLAYERS:
+                    roster.append(j)
+                else:
+                    if j not in excluded:
+                        excluded.append(j)
+            # Return all jerseys (data kept), only flagged if beyond 20
+            return ordered
+
+        def _parse_event_time(cell: Any) -> Optional[int]:
+            if cell is None or (isinstance(cell, str) and not cell.strip()):
+                return None
+            # Accept values like 01:43:00 (H:MM:SS) or 24:45 (M:SS) or 1:02
+            s = str(cell).strip()
+            parts = s.split(":")
+            try:
+                if len(parts) == 3:
+                    h, m, _s = parts
+                    return int(h) * 60 + int(m)
+                if len(parts) == 2:
+                    m, sec = parts
+                    return int(m) * 60 + int(sec)
+                if len(parts) == 1:
+                    return int(float(parts[0]))
+            except Exception:
+                return None
+            return None
+
+        def _period_num_from_label(lbl: Optional[str]) -> Optional[int]:
+            if not lbl:
+                return None
+            s = str(lbl).strip().lower()
+            m = re.search(r"(\d+)", s)
+            return int(m.group(1)) if m else None
+
+        def _parse_event_block(header_rc: Tuple[int, int], team_prefix: str) -> None:
+            base_r, base_c = header_rc
+            # Locate columns for video/game time near header
+            video_col = None
+            game_col = None
+            period_col = None
+            for r in range(base_r + 1, min(df.shape[0], base_r + 4)):
+                for c in range(max(0, base_c - 4), min(df.shape[1], base_c + 6)):
+                    val = df.iat[r, c]
+                    if pd.notna(val) and isinstance(val, str):
+                        s = val.strip().lower()
+                        if s == "video time":
+                            video_col = c
+                        elif s == "game time":
+                            game_col = c
+                        elif "period" in s:
+                            period_col = c
+                if video_col is not None and game_col is not None:
+                    break
+            if video_col is None:
+                video_col = max(0, base_c - 2)
+            if game_col is None:
+                game_col = max(0, base_c - 1)
+            if period_col is None:
+                period_col = base_c + 2
+
+            players_start = base_c
+            players_width = 12
+
+            # Build events
+            current_period_label: Optional[str] = None
+            events: List[Dict[str, Any]] = []
+            for r in range(base_r + 1, df.shape[0]):
+                vcell = df.iat[r, video_col] if video_col < df.shape[1] else None
+                if isinstance(vcell, str) and vcell.strip().lower() == "video time":
+                    plbl = df.iat[r, period_col] if period_col < df.shape[1] else None
+                    current_period_label = str(plbl).strip() if pd.notna(plbl) else current_period_label
+                    continue
+                gcell = df.iat[r, game_col] if game_col < df.shape[1] else None
+                vsec = _parse_event_time(vcell)
+                gsec = _parse_event_time(gcell)
+                players: List[int] = []
+                for k in range(players_width):
+                    c = players_start + k
+                    if c >= df.shape[1]:
+                        break
+                    val = df.iat[r, c]
+                    if pd.isna(val):
+                        continue
+                    # Accept only jersey-like values 1..98
+                    if isinstance(val, (int, float)):
+                        n = int(val)
+                        if 1 <= n <= 98:
+                            players.append(n)
+                        continue
+                    if hasattr(val, "hour") and hasattr(val, "minute"):
+                        # datetime.time -> ignore
+                        continue
+                    s = str(val).strip()
+                    if not s:
+                        continue
+                    if s.upper() in {"PP", "SH"}:
+                        continue
+                    # Ignore time-like strings
+                    if re.match(r"^\d{1,2}:\d{2}(?::\d{2})?$", s):
+                        continue
+                    for m in re.finditer(r"#?(\d{1,2})(?!\d)", s):
+                        try:
+                            n = int(m.group(1))
+                        except Exception:
+                            continue
+                        if 1 <= n <= 98:
+                            players.append(n)
+                # Deduplicate
+                if players:
+                    players = sorted(set(players))
+                if vsec is None and gsec is None and not players:
+                    continue
+                # Register and flag if team exceeds 20, but keep all players
+                players = _register_and_flag(team_prefix, players)
+                events.append({
+                    "period": _period_num_from_label(current_period_label),
+                    "v": vsec,
+                    "g": gsec,
+                    "players": players,
+                })
+
+            # Walk events to generate per-player shifts
+            open_shift: Dict[int, Dict[str, Any]] = {}
+            last_period: Optional[int] = None
+            for ev in events:
+                cur_p = ev.get("period")
+                # Close open shifts at period change (scoreboard end -> 0:00)
+                if last_period is not None and cur_p is not None and cur_p != last_period:
+                    for pid, sh in list(open_shift.items()):
+                        sv, sg = sh.get("sv"), sh.get("sg")
+                        evv, egg = ev.get("v"), 0
+                        key = f"{team_prefix}_{pid}"
+                        if sv is not None and evv is not None:
+                            video_pairs_by_player.setdefault(key, []).append(
+                                (seconds_to_hhmmss(int(sv)), seconds_to_hhmmss(int(evv)))
+                            )
+                        if sg is not None:
+                            sb_pairs_by_player.setdefault(key, []).append(
+                                (last_period, seconds_to_mmss_or_hhmmss(int(sg)), seconds_to_mmss_or_hhmmss(int(egg)))
+                            )
+                            if sv is not None and evv is not None:
+                                conv_segments_by_period.setdefault(last_period, []).append(
+                                    (int(sg), int(egg), int(sv), int(evv))
+                                )
+                        del open_shift[pid]
+                if cur_p is not None:
+                    last_period = cur_p
+
+                on_ice = set(ev.get("players") or [])
+                # Close shifts for players no longer on ice
+                for pid, sh in list(open_shift.items()):
+                    if pid not in on_ice:
+                        sv, sg = sh.get("sv"), sh.get("sg")
+                        evv, egg = ev.get("v"), ev.get("g")
+                        key = f"{team_prefix}_{pid}"
+                        if sv is not None and evv is not None:
+                            video_pairs_by_player.setdefault(key, []).append(
+                                (seconds_to_hhmmss(int(sv)), seconds_to_hhmmss(int(evv)))
+                            )
+                        if sg is not None and cur_p is not None:
+                            end_g = egg if egg is not None else 0
+                            sb_pairs_by_player.setdefault(key, []).append(
+                                (cur_p, seconds_to_mmss_or_hhmmss(int(sg)), seconds_to_mmss_or_hhmmss(int(end_g)))
+                            )
+                            if sv is not None and evv is not None:
+                                conv_segments_by_period.setdefault(cur_p, []).append(
+                                    (int(sg), int(end_g), int(sv), int(evv))
+                                )
+                        del open_shift[pid]
+
+                # Open shifts for players now on
+                for pid in on_ice:
+                    if pid not in open_shift:
+                        open_shift[pid] = {"sv": ev.get("v"), "sg": ev.get("g"), "period": ev.get("period")}
+
+            # Close any remaining open shifts at last event, scoreboard -> 0:00
+            if events and open_shift:
+                last_ev = events[-1]
+                for pid, sh in list(open_shift.items()):
+                    key = f"{team_prefix}_{pid}"
+                    sv, sg = sh.get("sv"), sh.get("sg")
+                    evv, egg = last_ev.get("v"), 0
+                    per = sh.get("period") or last_ev.get("period")
+                    if sv is not None and evv is not None:
+                        video_pairs_by_player.setdefault(key, []).append(
+                            (seconds_to_hhmmss(int(sv)), seconds_to_hhmmss(int(evv)))
+                        )
+                    if sg is not None and per is not None:
+                        sb_pairs_by_player.setdefault(key, []).append(
+                            (per, seconds_to_mmss_or_hhmmss(int(sg)), seconds_to_mmss_or_hhmmss(int(egg)))
+                        )
+                        if sv is not None and evv is not None:
+                            conv_segments_by_period.setdefault(int(per), []).append(
+                                (int(sg), int(egg), int(sv), int(evv))
+                            )
+
+        if blue_hdr:
+            _parse_event_block(blue_hdr, "Blue")
+        if white_hdr:
+            _parse_event_block(white_hdr, "White")
+
+        # ---- Parse left-side event columns (shots, goals, assists, entries, exits, expected goal) ----
+        event_counts_by_player: Dict[str, Dict[str, int]] = {}
+        event_counts_by_type_team: Dict[Tuple[str, str], int] = {}
+        event_instances: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+        event_player_rows: List[Dict[str, Any]] = []
+
+        def _record_event(kind: str, team: Optional[str], jersey_list: List[int], period_label: Optional[str], vsec: Optional[int], gsec: Optional[int]) -> None:
+            if not team:
+                return
+            # team/type count
+            event_counts_by_type_team[(kind, team)] = event_counts_by_type_team.get((kind, team), 0) + 1
+            # cap jerseys per team and update per-player stats
+            filtered = _register_and_flag(team, jersey_list)
+            period_num = None
+            if period_label is not None:
+                m = re.search(r"(\d+)", str(period_label))
+                if m:
+                    period_num = int(m.group(1))
+            for j in filtered:
+                pk = f"{team}_{int(j)}"
+                d = event_counts_by_player.setdefault(pk, {})
+                d[kind] = d.get(kind, 0) + 1
+                event_player_rows.append({
+                    'event_type': kind,
+                    'team': team,
+                    'player': pk,
+                    'jersey': int(j),
+                    'period': period_num,
+                    'video_s': vsec,
+                    'game_s': gsec,
+                })
+            # instance for windowing (one per row event)
+            event_instances.setdefault((kind, team), []).append({
+                'period': period_num,
+                'video_s': vsec,
+                'game_s': gsec,
+            })
+
+        # Find left header row and relevant columns up to the Blue/White shifts header column
+        limit_col = (blue_hdr[1] if blue_hdr else df.shape[1])
+        left_header_row = None
+        for r in range(min(8, df.shape[0])):
+            for c in range(min(limit_col, df.shape[1])):
+                v = df.iat[r, c]
+                if pd.notna(v) and isinstance(v, str) and v.strip().lower() == "video time":
+                    left_header_row = r
+                    break
+            if left_header_row is not None:
+                break
+        if left_header_row is not None:
+            # Map labels -> columns from the header row
+            label_to_col: Dict[str, int] = {}
+            for c in range(min(limit_col, df.shape[1])):
+                v = df.iat[left_header_row, c]
+                if pd.notna(v) and isinstance(v, str) and v.strip():
+                    label_to_col[v.strip().lower()] = c
+
+            vt_col = label_to_col.get("video time")
+            gt_col = label_to_col.get("scoreboard")
+            shots_col = label_to_col.get("shots")
+            goals_col = label_to_col.get("goals")
+            assists_col = label_to_col.get("assist")
+            # tolerate wording variations and capitalization
+            entries_col = None
+            exits_col = None
+            for k, c in label_to_col.items():
+                kl = k.lower()
+                if "controlled" in kl and "blue" in kl and "entr" in kl:
+                    entries_col = c
+                if "controlled" in kl and "exit" in kl:
+                    exits_col = c
+
+            # Guess team column: choose the col in [0, limit_col) with most exact 'Blue'/'White'
+            team_col = None
+            best_count = 0
+            for c in range(min(limit_col, df.shape[1])):
+                cnt = 0
+                for r in range(left_header_row + 1, min(df.shape[0], left_header_row + 80)):
+                    v = df.iat[r, c]
+                    if isinstance(v, str) and v.strip() in ("Blue", "White"):
+                        cnt += 1
+                if cnt > best_count:
+                    best_count = cnt
+                    team_col = c
+
+            def _parse_team_from_text(s: Optional[str]) -> Optional[str]:
+                if not s:
+                    return None
+                t = s.lower()
+                if "blue" in t:
+                    return "Blue"
+                if "white" in t:
+                    return "White"
+                return None
+
+            def _extract_nums(s: Optional[str]) -> List[int]:
+                if not s:
+                    return []
+                s = s.strip()
+                # Ignore time-like strings wholesale
+                if re.match(r"^\d{1,2}:\d{2}(?::\d{2})?$", s):
+                    return []
+                nums: List[int] = []
+                # Prefer patterns like '#59' or '59' with 1-2 digits
+                for m in re.finditer(r"#?(\d{1,2})(?!\d)", s):
+                    try:
+                        n = int(m.group(1))
+                    except Exception:
+                        continue
+                    if 1 <= n <= 98:
+                        nums.append(n)
+                # Dedup while preserving order
+                seen = set()
+                out: List[int] = []
+                for n in nums:
+                    if n in seen:
+                        continue
+                    seen.add(n)
+                    out.append(n)
+                return out
+
+            # Walk data rows to collect events
+            current_period = None
+            for r in range(left_header_row + 1, df.shape[0]):
+                # Update period if any cell contains 'Period'
+                row_vals = [df.iat[r, c] for c in range(min(limit_col, df.shape[1]))]
+                for v in row_vals:
+                    if isinstance(v, str) and "period" in v.lower():
+                        current_period = v.strip()
+                        break
+
+                # Team value for this row, if present
+                team_val = None
+                if team_col is not None:
+                    tv = df.iat[r, team_col]
+                    if isinstance(tv, str) and tv.strip() in ("Blue", "White"):
+                        team_val = tv.strip()
+                # Row times (center)
+                row_vsec = _parse_event_time(df.iat[r, vt_col]) if vt_col is not None else None
+                row_gsec = _parse_event_time(df.iat[r, gt_col]) if gt_col is not None else None
+
+                # Shots
+                if shots_col is not None:
+                    sv = df.iat[r, shots_col]
+                    if isinstance(sv, str) and sv.strip():
+                        t = team_val or _parse_team_from_text(sv)
+                        jerseys = _extract_nums(sv)
+                        _record_event("Shot", t, jerseys, current_period, row_vsec, row_gsec)
+
+                # Goals
+                if goals_col is not None:
+                    gv = df.iat[r, goals_col]
+                    if isinstance(gv, str) and gv.strip():
+                        t = team_val or _parse_team_from_text(gv)
+                        jerseys = _extract_nums(gv)
+                        _record_event("Goal", t, jerseys, current_period, row_vsec, row_gsec)
+
+                # Assists (may list multiple jerseys)
+                if assists_col is not None:
+                    av = df.iat[r, assists_col]
+                    if isinstance(av, str) and av.strip():
+                        t = team_val or _parse_team_from_text(av)
+                        jerseys = _extract_nums(av)
+                        _record_event("Assist", t, jerseys, current_period, row_vsec, row_gsec)
+
+                # Controlled entries
+                if entries_col is not None:
+                    ev = df.iat[r, entries_col]
+                    if isinstance(ev, str) and ev.strip():
+                        t = team_val or _parse_team_from_text(ev)
+                        jerseys = _extract_nums(ev)
+                        _record_event("ControlledEntry", t, jerseys, current_period, row_vsec, row_gsec)
+
+                # Controlled exits
+                if exits_col is not None:
+                    xv = df.iat[r, exits_col]
+                    if isinstance(xv, str) and xv.strip():
+                        t = team_val or _parse_team_from_text(xv)
+                        jerseys = _extract_nums(xv)
+                        _record_event("ControlledExit", t, jerseys, current_period, row_vsec, row_gsec)
+
+                # Expected Goal from event label (fallback), often lists a player in the 'Shots' column
+                label = df.iat[r, 0]
+                if isinstance(label, str) and label.strip().lower() == "expected goal":
+                    # Try to parse from shots/col4 or goals col if present
+                    text_cell = None
+                    if shots_col is not None:
+                        text_cell = df.iat[r, shots_col]
+                    if not (isinstance(text_cell, str) and text_cell.strip()) and goals_col is not None:
+                        text_cell = df.iat[r, goals_col]
+                    t = None
+                    jerseys: List[int] = []
+                    if isinstance(text_cell, str) and text_cell.strip():
+                        t = team_val or _parse_team_from_text(text_cell)
+                        jerseys = _extract_nums(text_cell)
+                    _record_event("ExpectedGoal", t, jerseys, current_period, row_vsec, row_gsec)
+
+        # Save event summaries under the output directory (selected later)
+        event_log_context = {
+            "event_counts_by_player": event_counts_by_player,
+            "event_counts_by_type_team": event_counts_by_type_team,
+            "event_instances": event_instances,
+            "event_player_rows": event_player_rows,
+            "team_roster": team_roster,
+            "team_excluded": team_excluded,
+        }
+    else:
+        event_log_context = None
+
+    # If not event-log format, fall back to per-player Start/End columns
+    if not used_event_log:
+        blocks = find_period_blocks(df)
+        if not blocks:
+            raise ValueError("No 'Period N' sections found in column A.")
+
+        # Validation settings
+        MAX_SHIFT_SECONDS = 30 * 60  # 30 minutes
+
+        # Simple helper to report validation issues
+        def _report_validation(kind: str, period: int, player_key: str, a: str, b: str, reason: str) -> None:
+            print(
+                f"[validation] {kind} | Player={player_key} | Period={period} | start='{a}' end='{b}' -> {reason}",
+                file=sys.stderr,
+            )
+
+        validation_errors = 0
+
+        # Parse each period block
+        for period_num, blk_start, blk_end in blocks:
+            header_row_idx = find_header_row(df, blk_start, blk_end)
+            if header_row_idx is None:
+                raise ValueError(f"Could not locate header row for Period {period_num}")
+            data_start = header_row_idx + 1
+
+            header = df.iloc[header_row_idx]
+            groups = forward_fill_header_labels(header)
+
+            start_sb_cols = groups.get(LABEL_START_SB, [])
+            end_sb_cols = groups.get(LABEL_END_SB, [])
+            start_v_cols = groups.get(LABEL_START_V, [])
+            end_v_cols = groups.get(LABEL_END_V, [])
+            for lab, cols in [
+                (LABEL_START_SB, start_sb_cols),
+                (LABEL_END_SB, end_sb_cols),
+                (LABEL_START_V, start_v_cols),
+                (LABEL_END_V, end_v_cols),
+            ]:
+                if not cols:
+                    raise ValueError(f"Missing header columns for '{lab}' in Period {period_num}")
+
+            # Iterate rows (players) in the block
+            for r in range(data_start, blk_end):
+                jersey = str(df.iloc[r, 0]).strip()
+                name = str(df.iloc[r, 1]).strip()
+
+                if is_period_label(df.iloc[r, 0]) or (not jersey and not name):
+                    break
+                if not jersey or jersey.lower() == "nan":
+                    continue
+                # Skip goalies like "(G) 37"
+                if not keep_goalies and "(" in jersey and ")" in jersey:
+                    continue
+
+                player_key = f"{sanitize_name(jersey)}_{sanitize_name(name)}"
+
+                video_pairs = extract_pairs_from_row(df.iloc[r], start_v_cols, end_v_cols)
+                sb_pairs = extract_pairs_from_row(df.iloc[r], start_sb_cols, end_sb_cols)
+                # Normalize scoreboard end times that incorrectly use the period start
+                # time (e.g., 12:00/15:00/20:00) to represent end-of-period. Treat as 0:00.
+                if sb_pairs:
+                    sb_pairs = [(a, _normalize_sb_end_time(b)) for a, b in sb_pairs]
+
+                # ---------------- Validation (per-row) ----------------
+                if not skip_validation:
+                    # Video times: must be strictly increasing and not excessively long
+                    for va, vb in video_pairs:
+                        try:
+                            vsa = parse_flex_time_to_seconds(va)
+                            vsb = parse_flex_time_to_seconds(vb)
+                        except Exception as e:
+                            _report_validation("VIDEO", period_num, player_key, va, vb, f"unparseable time: {e}")
+                            validation_errors += 1
+                            continue
+                        if vsa >= vsb:
+                            _report_validation(
+                                "VIDEO", period_num, player_key, va, vb, "start must be before end (strictly increasing)"
+                            )
+                            validation_errors += 1
+                        dur = vsb - vsa if vsb >= vsa else 0
+                        if dur > MAX_SHIFT_SECONDS:
+                            _report_validation(
+                                "VIDEO",
+                                period_num,
+                                player_key,
+                                va,
+                                vb,
+                                f"duration {seconds_to_mmss_or_hhmmss(dur)} exceeds limit 30:00",
+                            )
+                            validation_errors += 1
+
+                    # Scoreboard times: allow either count-up or count-down, but must not be equal and not excessively long
+                    for sa, sb in sb_pairs:
+                        try:
+                            ssa = parse_flex_time_to_seconds(sa)
+                            ssb = parse_flex_time_to_seconds(sb)
+                        except Exception as e:
+                            _report_validation("SCOREBOARD", period_num, player_key, sa, sb, f"unparseable time: {e}")
+                            validation_errors += 1
+                            continue
+                        if ssa == ssb:
+                            _report_validation(
+                                "SCOREBOARD", period_num, player_key, sa, sb, "start equals end (zero-length shift)"
+                            )
+                            validation_errors += 1
+                        dur = abs(ssb - ssa)
+                        if dur > MAX_SHIFT_SECONDS:
+                            _report_validation(
+                                "SCOREBOARD",
+                                period_num,
+                                player_key,
+                                sa,
+                                sb,
+                                f"duration {seconds_to_mmss_or_hhmmss(dur)} exceeds limit 30:00",
+                            )
+                            validation_errors += 1
+
+                if video_pairs:
+                    video_pairs_by_player.setdefault(player_key, []).extend(video_pairs)
+                if sb_pairs:
+                    sb_pairs_by_player.setdefault(player_key, []).extend((period_num, a, b) for a, b in sb_pairs)
+
+                # Build conversion segments for this row where both SB and Video pairs exist positionally
+                nseg = min(len(video_pairs), len(sb_pairs))
+                for idx in range(nseg):
+                    sva, svb = video_pairs[idx]
+                    sba, sbb = sb_pairs[idx]
+                    try:
+                        v1 = parse_flex_time_to_seconds(sva)
+                        v2 = parse_flex_time_to_seconds(svb)
+                        s1 = parse_flex_time_to_seconds(sba)
+                        s2 = parse_flex_time_to_seconds(sbb)
+                    except Exception:
+                        continue
+                    conv_segments_by_period.setdefault(period_num, []).append((s1, s2, v1, v2))
+
+
+    # Select subdirectory by detected format
+    format_dir = "event_log" if ('used_event_log' in locals() and used_event_log) else "per_player"
+    outdir = outdir / format_dir
+    outdir.mkdir(parents=True, exist_ok=True)
 
     # Write per-player times files
     for player_key, v_pairs in video_pairs_by_player.items():
@@ -642,6 +1119,31 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
         if counted_ga:
             stats_lines.append("  GA counted at: " + ", ".join(sorted(counted_ga)))
 
+        # Add event counts (event-log format only)
+        if event_log_context is not None:
+            per_player_events = event_log_context.get("event_counts_by_player", {})
+            ev_counts = per_player_events.get(player_key, {})
+            if ev_counts:
+                stats_lines.append("")
+                stats_lines.append("Event Counts:")
+                # Order common events first
+                order = [
+                    "Shot",
+                    "Goal",
+                    "Assist",
+                    "ControlledEntry",
+                    "ControlledExit",
+                    "ExpectedGoal",
+                ]
+                for kind in order:
+                    if kind in ev_counts and ev_counts[kind] > 0:
+                        stats_lines.append(f"  {kind}: {ev_counts[kind]}")
+                # Any other events
+                for kind, cnt in sorted(ev_counts.items()):
+                    if kind in order:
+                        continue
+                    stats_lines.append(f"  {kind}: {cnt}")
+
         # (Optional) interesting extras you can glean:
         # - Shifts per period
         for period, pairs in sorted(sb_by_period.items()):
@@ -720,6 +1222,190 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
         summary_rows.append(row)
     if summary_rows:
         pd.DataFrame(summary_rows).sort_values(by="player").to_csv(outdir / "summary_stats.csv", index=False)
+
+    # Event summaries for event-log sheets
+    if event_log_context is not None:
+        evt_by_team = event_log_context.get("event_counts_by_type_team", {})
+        rows_evt = [
+            {"event_type": et, "team": tm, "count": cnt}
+            for (et, tm), cnt in sorted(evt_by_team.items())
+        ]
+        if rows_evt:
+            pd.DataFrame(rows_evt).to_csv(outdir / "event_summary.csv", index=False)
+
+        # Per-instance event rows with timestamps
+        player_event_rows = event_log_context.get("event_player_rows", []) or []
+        if player_event_rows:
+            # Add formatted time strings
+            def _fmt_v(x):
+                return seconds_to_hhmmss(int(x)) if isinstance(x, int) else (seconds_to_hhmmss(int(x)) if isinstance(x, float) else "")
+            def _fmt_g(x):
+                return seconds_to_mmss_or_hhmmss(int(x)) if isinstance(x, int) else (seconds_to_mmss_or_hhmmss(int(x)) if isinstance(x, float) else "")
+            rows = []
+            for r in player_event_rows:
+                rows.append({
+                    'event_type': r.get('event_type'),
+                    'team': r.get('team'),
+                    'player': r.get('player'),
+                    'jersey': r.get('jersey'),
+                    'period': r.get('period'),
+                    'video_time': _fmt_v(r.get('video_s')),
+                    'game_time': _fmt_g(r.get('game_s')),
+                })
+            pd.DataFrame(rows).to_csv(outdir / "event_players.csv", index=False)
+
+        # Build clip windows per (event_type, team)
+        instances = event_log_context.get("event_instances", {}) or {}
+        # Helper: map scoreboard sec -> video sec using conv segments
+        def map_sb_to_video(period: int, t_sb: int) -> Optional[int]:
+            segs = conv_segments_by_period.get(period)
+            if not segs:
+                return None
+            for s1, s2, v1, v2 in segs:
+                lo, hi = (s1, s2) if s1 <= s2 else (s2, s1)
+                if lo <= t_sb <= hi and s1 != s2:
+                    return int(round(v1 + (t_sb - s1) * (v2 - v1) / (s2 - s1)))
+            return None
+
+        # Determine observed scoreboard max per period for capping
+        max_sb_by_period: Dict[int, int] = {}
+        for period, segs in conv_segments_by_period.items():
+            mx = 0
+            for s1, s2, _, _ in segs:
+                mx = max(mx, s1, s2)
+            if mx > 0:
+                max_sb_by_period[period] = mx
+        # Also incorporate event-side scoreboard times
+        for key, lst in instances.items():
+            for it in lst:
+                p = it.get('period')
+                gs = it.get('game_s')
+                if isinstance(p, int) and isinstance(gs, (int, float)):
+                    v = int(gs)
+                    max_sb_by_period[p] = max(max_sb_by_period.get(p, 0), v)
+
+        def merge_windows(win: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+            if not win:
+                return []
+            win = sorted(win)
+            out = [list(win[0])]
+            for a, b in win[1:]:
+                la, lb = out[-1]
+                if a <= lb + 10:  # merge if overlap or <=10s gap
+                    out[-1][1] = max(lb, b)
+                else:
+                    out.append([a, b])
+            return [(a, b) for a, b in out]
+
+        # Generate files and scripts
+        clip_scripts = []
+        for (etype, team), lst in sorted(instances.items()):
+            # Build video windows centered at event time
+            v_windows: List[Tuple[int, int]] = []
+            sb_windows_by_period: Dict[int, List[Tuple[int, int]]] = {}
+            for it in lst:
+                p = it.get('period')
+                v = it.get('video_s')
+                g = it.get('game_s')
+                vsec = None
+                if isinstance(v, (int, float)):
+                    vsec = int(v)
+                elif isinstance(g, (int, float)) and isinstance(p, int):
+                    vsec = map_sb_to_video(int(p), int(g))
+                if vsec is not None:
+                    start = max(0, vsec - 15)
+                    end = vsec + 15
+                    v_windows.append((start, end))
+                # Scoreboard window
+                if isinstance(g, (int, float)) and isinstance(p, int):
+                    gsec = int(g)
+                    sb_max = max_sb_by_period.get(int(p), None)
+                    sb_start = gsec + 15
+                    if sb_max is not None:
+                        sb_start = min(sb_max, sb_start)
+                    sb_end = max(0, gsec - 15)
+                    lo, hi = (sb_end, sb_start) if sb_end <= sb_start else (sb_start, sb_end)
+                    sb_windows_by_period.setdefault(int(p), []).append((lo, hi))
+
+            v_windows = merge_windows(v_windows)
+            # Write video times file
+            if v_windows:
+                vfile = outdir / f"events_{etype}_{team}_video_times.txt"
+                v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
+                vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
+                # Create clip script
+                script = outdir / f"clip_events_{etype}_{team}.sh"
+                label = f"{etype} ({team})"
+                body = f"""#!/usr/bin/env bash
+set -euo pipefail
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
+  exit 1
+fi
+INPUT="$1"
+OPP="$2"
+THIS_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
+TS_FILE="$THIS_DIR/{vfile.name}"
+shift 2 || true
+python -m hmlib.cli.video_clipper -j 4 --input "$INPUT" --timestamps "$TS_FILE" --temp-dir "$THIS_DIR/temp_clips/{etype}_{team}" "{label} vs $OPP" "$@"
+"""
+                script.write_text(body, encoding="utf-8")
+                try:
+                    import os as _os
+                    _os.chmod(script, 0o755)
+                except Exception:
+                    pass
+                clip_scripts.append(script.name)
+
+            # Write scoreboard windows per period
+            if sb_windows_by_period:
+                sfile = outdir / f"events_{etype}_{team}_scoreboard_times.txt"
+                s_lines = []
+                for p, wins in sorted(sb_windows_by_period.items()):
+                    wins = merge_windows(wins)
+                    for lo, hi in wins:
+                        # For display, use hi (larger) as start then lo as end
+                        s_lines.append(f"{p} {seconds_to_mmss_or_hhmmss(hi)} {seconds_to_mmss_or_hhmmss(lo)}")
+                if s_lines:
+                    sfile.write_text("\n".join(s_lines) + "\n", encoding="utf-8")
+
+        # Aggregate runner for all event clips
+        if clip_scripts:
+            all_script = outdir / "clip_events_all.sh"
+            all_body = """#!/usr/bin/env bash
+set -euo pipefail
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
+  exit 1
+fi
+INPUT="$1"
+OPP="$2"
+shift 2 || true
+THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for s in {scripts}; do
+  echo "Running $s..."
+  "$THIS_DIR/$s" "$INPUT" "$OPP" "$@"
+done
+""".replace("{scripts}", " ".join(sorted(clip_scripts)))
+            all_script.write_text(all_body, encoding="utf-8")
+            try:
+                import os as _os
+                _os.chmod(all_script, 0o755)
+            except Exception:
+                pass
+
+        # Roster cap warnings
+        team_excluded = event_log_context.get("team_excluded", {}) or {}
+        if any(v for v in team_excluded.values()):
+            import sys as _sys
+            for team, excl in team_excluded.items():
+                if not excl:
+                    continue
+                excl_str = ", ".join(str(x) for x in excl[:20])
+                print(
+                    f"[warning] Team {team} exceeded 20 unique jerseys; additional jerseys seen: {excl_str} (data kept)",
+                    file=_sys.stderr,
+                )
 
     # Consolidated player stats text table
     if stats_table_rows:
@@ -867,9 +1553,11 @@ done
     except Exception:
         pass
 
-    # Final validation summary (if any)
-    if not skip_validation and validation_errors > 0:
+    # Final validation summary (if any) — only relevant for per-player format
+    if ('used_event_log' in locals()) and (not used_event_log) and (not skip_validation) and ('validation_errors' in locals()) and validation_errors > 0:
         print(f"[validation] Completed with {validation_errors} issue(s). See messages above.", file=sys.stderr)
+
+    return outdir
 
 
 # ----------------------------- CLI -----------------------------
@@ -954,7 +1642,7 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             print(f"[t2s] Failed to fetch goals for game {args.t2s}: {e}", file=sys.stderr)
             # proceed with empty goals
-    process_sheet(
+    final_outdir = process_sheet(
         xls_path=args.input,
         sheet_name=args.sheet,
         outdir=args.outdir,
@@ -962,7 +1650,10 @@ def main() -> None:
         goals=goals,
         skip_validation=args.skip_validation,
     )
-    print(f"✅ Done. Wrote per-player files to: {args.outdir.resolve()}")
+    try:
+        print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
+    except Exception:
+        print("✅ Done.")
 
 
 if __name__ == "__main__":
