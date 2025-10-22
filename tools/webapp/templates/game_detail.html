@@ -1,0 +1,28 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h2>Game: {{ game['name'] }}</h2>
+<p>Directory: <code>{{ game['dir_path'] }}</code></p>
+<p>Status: {{ status or game['status'] }}</p>
+
+<h3>Upload Files</h3>
+<form method="post" action="/games/{{ game['id'] }}/upload" enctype="multipart/form-data">
+  <input type="file" name="files" multiple>
+  <button type="submit">Upload</button>
+</form>
+
+<h3>Files</h3>
+<ul>
+  {% for f in files %}
+    <li>{{ f }}</li>
+  {% else %}
+    <li>No files yet.</li>
+  {% endfor %}
+  </ul>
+
+<form method="post" action="/games/{{ game['id'] }}/run">
+  <button type="submit">Run</button>
+</form>
+
+<p><a href="/games">Back</a></p>
+{% endblock %}
+

@@ -1,0 +1,20 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h2>Your Games</h2>
+<p><a href="/games/new">Create new game</a></p>
+
+<table>
+  <thead><tr><th>Name</th><th>Directory</th><th>Status</th><th>Created</th></tr></thead>
+  <tbody>
+    {% for g in games %}
+      <tr>
+        <td><a href="/games/{{ g['id'] }}">{{ g['name'] }}</a></td>
+        <td><code>{{ g['dir_path'] }}</code></td>
+        <td>{{ state.get('processed', {}).get(g['dir_path'], {}).get('status') or g['status'] }}</td>
+        <td>{{ g['created_at'] }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+  </table>
+{% endblock %}
+
