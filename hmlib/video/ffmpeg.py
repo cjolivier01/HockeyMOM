@@ -57,9 +57,13 @@ class BasicVideoInfo:
                 if not probe.video:
                     raise AssertionError(f"Unable to get video stream from file: {video_file}")
                 elif len(probe.video) > 1:
-                    raise AssertionError(
-                        f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
+                    # DJI camera has other weird streams, so just warn and use the first one
+                    print(
+                        f"Found too many ({len(probe.video)}) video streams in file: {video_file}, using the first one only"
                     )
+                    # raise AssertionError(
+                    #     f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
+                    # )
                 self._ffstream = probe.video[0]
                 # self.frame_count = self._ffstream.frames()
                 self.frame_count = int(
@@ -472,7 +476,8 @@ class FFStream:
 
     def __init__(self, datalines):
         for a in datalines:
-            (key, val) = a.strip().split("=")
+            if "=" in a:
+                (key, val) = a.strip().split("=")
             self.__dict__[key] = val
 
     def isAudio(self):
