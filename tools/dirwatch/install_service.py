@@ -66,6 +66,8 @@ Type=simple
 User={user}
 Group={user}
 Environment=PYTHONUNBUFFERED=1
+Environment=MSMTP_CONFIG=/etc/msmtprc
+Environment=MSMTPRC=/etc/msmtprc
 ExecStart={python_bin} {install_root}/dirwatcher_service.py --config {config_path}
 Restart=on-failure
 RestartSec=3
@@ -103,7 +105,7 @@ def configure_msmtp(user: str, from_email: str, smtp_host: str, smtp_port: int, 
         auth_lines = ["auth off"]
     lines = [
         "defaults",
-        "  logfile /var/log/msmtp.log",
+        "  logfile /var/log/dirwatcher/msmtp.log",
         "account default",
         f"  host {smtp_host or 'localhost'}",
         f"  port {smtp_port or 25}",
@@ -116,8 +118,15 @@ def configure_msmtp(user: str, from_email: str, smtp_host: str, smtp_port: int, 
     lines.extend(["  " + ln for ln in auth_lines])
     conf = "\n".join(lines) + "\n"
     msmtprc.write_text(conf)
-    subprocess.check_call(["sudo", "chown", "root:root", str(msmtprc)])
-    subprocess.check_call(["sudo", "chmod", "600", str(msmtprc)])
+    # Ensure log directory exists and is writeable by the service user
+    subprocess.run(["sudo", "mkdir", "-p", "/var/log/dirwatcher"], check=False)
+    subprocess.run(["sudo", "chown", f"{user}:{user}", "/var/log/dirwatcher"], check=False)
+    # Restrict to root owner and service user group for read access (contains credentials)
+    try:
+        subprocess.check_call(["sudo", "chown", f"root:{user}", str(msmtprc)])
+    except Exception:
+        subprocess.check_call(["sudo", "chown", "root:root", str(msmtprc)])
+    subprocess.check_call(["sudo", "chmod", "640", str(msmtprc)])
     # Mark stamp so we can uninstall later
     stamp = Path("/var/lib/dirwatcher/.installed_msmtp")
     stamp.parent.mkdir(parents=True, exist_ok=True)

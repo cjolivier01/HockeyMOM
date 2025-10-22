@@ -471,7 +471,7 @@ def send_email(to_addr: str, subject: str, body: str, bcfg: BehaviorConfig) -> N
         f"Content-Type: text/plain; charset=utf-8\n\n"
         f"{body}\n"
     )
-    # Prefer local sendmail if available
+    # Prefer system sendmail (msmtp-mta) with config path pinned via environment
     import shutil as _sh
     sendmail = _sh.which("sendmail")
     if sendmail:
