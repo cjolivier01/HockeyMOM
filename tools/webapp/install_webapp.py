@@ -30,6 +30,7 @@ def main():
     install_root = Path(args.install_root)
     app_dir = install_root / "app"
     templates_dir = app_dir / "templates"
+    static_dir = app_dir / "static"
 
     print("Installing OS packages (nginx)...")
     subprocess.check_call(["sudo", "apt-get", "update", "-y"]) 
@@ -42,6 +43,11 @@ def main():
     subprocess.check_call(["sudo", "mkdir", "-p", str(templates_dir)])
     for t in (repo_root / "tools/webapp/templates").glob("*.html"):
         shutil.copy2(t, templates_dir / t.name)
+    # Copy static assets
+    subprocess.check_call(["sudo", "mkdir", "-p", str(static_dir)])
+    for s in (repo_root / "tools/webapp/static").glob("*"):
+        if s.is_file():
+            shutil.copy2(s, static_dir / s.name)
     # Ensure instance dir is present and owned by service user
     subprocess.check_call(["sudo", "mkdir", "-p", str(app_dir / "instance")])
 

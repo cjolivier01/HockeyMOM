@@ -54,7 +54,7 @@ body {
 
 form { margin: 1rem 0; }
 .form-row { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .75rem; }
-input[type=text], input[type=password], input[type=email], input[type=file] {
+input[type=text], input[type=password], input[type=email], input[type=file], select, input[type=number], input[type=datetime-local] {
   background: #12151c; color: var(--text);
   border: 1px solid var(--border); border-radius: 8px; padding: .6rem .75rem; width: 100%;
 }

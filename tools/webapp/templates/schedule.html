@@ -1,0 +1,35 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+  <h2>Games Schedule</h2>
+  <a class="btn primary" href="/schedule/new">Add game</a>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Matchup</th>
+      <th>Type</th>
+      <th>Location</th>
+      <th>Score</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for g in games %}
+      <tr>
+        <td>{{ g['starts_at'] or '' }}</td>
+        <td>{{ g['team1_name'] }} vs {{ g['team2_name'] }}</td>
+        <td>{{ g['game_type_name'] or '' }}</td>
+        <td>{{ g['location'] or '' }}</td>
+        <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td><a class="btn" href="/hky/games/{{ g['id'] }}">Edit</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">No games yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+

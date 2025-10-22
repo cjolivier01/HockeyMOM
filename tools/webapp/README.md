@@ -5,9 +5,8 @@ Overview
 --------
 Flask-based web app that lets users:
 - Create an account and log in
-- Create a new "game" (project)
-- Upload files to a dedicated subdirectory under the dirwatcher root
-- Click "Run" to create the ready-file, triggering the Slurm job
+- Create a new "game" (project) directory for uploads and trigger Slurm jobs via DirWatcher
+- NEW: Manage hockey teams and players, create games, and track stats
 
 It integrates with the DirWatcher service which submits Slurm jobs and tracks completion. DirWatcher optionally emails the user on job completion and logs failures.
 
@@ -43,6 +42,27 @@ sudo python3 tools/webapp/uninstall_webapp.py
 Usage
 -----
 - Open `http://<server>/`
+- Upload/Run jobs: use the Jobs section as before
+- Teams/Players: create teams (with logo), add/edit/delete players, view player and team stats
+- Schedule: create games between one or two of your teams
+  - If you select only one of your teams, enter an opponent name to auto-create an external team that is hidden from your team list by default
+  - Edit a game to set scores and enter per-player stats (goals, assists, shots, PIM, +/-). Team standings are computed automatically from game results.
+
+Demo Data
+---------
+To quickly demo the Teams/Schedule features, seed sample data into your configured DB:
+
+```
+python3 tools/webapp/seed_demo.py --config /opt/hm-webapp/app/config.json \
+  --email demo@example.com --name "Demo User"
+```
+
+This creates a demo user, two teams, 10 players per team, default game types, two games (one completed with random per-player stats), and an external opponent team.
+
+Testing
+-------
+- Route/logic smoke tests for the new hockey features are in `tests/test_webapp_hockey.py`.
+- They do not require a database. Tests import the app with `HM_WEBAPP_SKIP_DB_INIT=1` to avoid DB initialization and use fake cursors to validate stat computations.
 - Register a new account and log in
 - Create a game
 - Upload files
@@ -68,4 +88,3 @@ Failures
 --------
 - Slurm job errors are appended to `/var/log/dirwatcher/failed_jobs.log` by DirWatcher.
 - Web app logs go to `journalctl -u hm-webapp` and Nginx error logs.
-
