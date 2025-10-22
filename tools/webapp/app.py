@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import json
+import secrets
 import pymysql
 import secrets
 import datetime as dt
@@ -106,6 +107,77 @@ def create_app() -> Flask:
                 return redirect(url_for("games"))
         return render_template("login.html")
 
+    @app.route("/forgot", methods=["GET", "POST"])
+    def forgot():
+        if request.method == "POST":
+            email = request.form.get("email", "").strip().lower()
+            # Always say we sent an email to avoid user enumeration
+            try:
+                u = get_user_by_email(email)
+                if u:
+                    token = secrets.token_urlsafe(32)
+                    exp = (dt.datetime.now() + dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+                    with g.db.cursor() as cur:
+                        cur.execute(
+                            """
+                            INSERT INTO resets(user_id, token, expires_at, created_at)
+                            VALUES(%s,%s,%s,%s)
+                            """,
+                            (u["id"], token, exp, dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                        )
+                    g.db.commit()
+                    # Compose link
+                    base = request.url_root.rstrip("/")
+                    link = f"{base}/reset/{token}"
+                    send_email(
+                        to_addr=email,
+                        subject="Password reset",
+                        body=(
+                            "We received a request to reset your password.\n\n"
+                            f"Use this link within 1 hour: {link}\n\n"
+                            "If you did not request this, you can ignore this message."
+                        ),
+                    )
+            except Exception:
+                pass
+            flash("If the account exists, a reset email has been sent.", "success")
+            return redirect(url_for("login"))
+        return render_template("forgot_password.html")
+
+    @app.route("/reset/<token>", methods=["GET", "POST"])
+    def reset(token: str):
+        # Validate token
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                "SELECT r.id, r.user_id, r.token, r.expires_at, r.used_at, u.email FROM resets r JOIN users u ON r.user_id=u.id WHERE r.token=%s",
+                (token,),
+            )
+            row = cur.fetchone()
+        if not row:
+            flash("Invalid or expired token", "error")
+            return redirect(url_for("login"))
+        # Check expiry and used
+        now = dt.datetime.now()
+        expires = row["expires_at"] if isinstance(row["expires_at"], dt.datetime) else dt.datetime.fromisoformat(str(row["expires_at"]))
+        if row.get("used_at") or now > expires:
+            flash("Invalid or expired token", "error")
+            return redirect(url_for("login"))
+        if request.method == "POST":
+            pw1 = request.form.get("password", "")
+            pw2 = request.form.get("password2", "")
+            if not pw1 or pw1 != pw2:
+                flash("Passwords do not match", "error")
+                return render_template("reset_password.html")
+            # Update password and mark token used
+            newhash = generate_password_hash(pw1)
+            with g.db.cursor() as cur:
+                cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (newhash, row["user_id"]))
+                cur.execute("UPDATE resets SET used_at=%s WHERE id=%s", (dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), row["id"]))
+            g.db.commit()
+            flash("Password updated. Please log in.", "success")
+            return redirect(url_for("login"))
+        return render_template("reset_password.html")
+
     @app.route("/logout")
     def logout():
         session.clear()
@@ -156,20 +228,43 @@ def create_app() -> Flask:
             files = os.listdir(game["dir_path"]) if os.path.isdir(game["dir_path"]) else []
         except Exception:
             files = []
-        dw_state = read_dirwatch_state()
-        status = dw_state.get("processed", {}).get(game["dir_path"], {}).get("status")
-        return render_template("game_detail.html", game=game, files=files, status=status)
+        # Determine latest status from DB if present, else dirwatcher state, else game.status
+        latest_status = None
+        with g.db.cursor() as cur:
+            cur.execute("SELECT status FROM jobs WHERE game_id=%s ORDER BY id DESC LIMIT 1", (gid,))
+            row = cur.fetchone()
+            if row:
+                latest_status = str(row[0]) if row[0] is not None else None
+        if not latest_status:
+            dw_state = read_dirwatch_state()
+            latest_status = dw_state.get("processed", {}).get(game["dir_path"], {}).get("status") or game.get("status")
+        # Lock interactions once a job has been requested (any job row exists) or after completion
+        is_locked = False
+        if row:
+            is_locked = True
+        final_states = {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"}
+        if latest_status and str(latest_status).upper() in final_states:
+            is_locked = True
+        return render_template("game_detail.html", game=game, files=files, status=latest_status, is_locked=is_locked)
 
     @app.route("/games/<int:gid>/upload", methods=["POST"])
     def upload(gid: int):
         r = require_login()
         if r:
             return r
-        game = g.db.execute("SELECT * FROM games WHERE id=? AND user_id=?", (gid, session["user_id"]))
-        game = game.fetchone()
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT * FROM games WHERE id=%s AND user_id=%s", (gid, session["user_id"]))
+            game = cur.fetchone()
         if not game:
             flash("Not found", "error")
             return redirect(url_for("games"))
+        # Block uploads if a job has been requested or finished
+        with g.db.cursor() as cur:
+            cur.execute("SELECT status FROM jobs WHERE game_id=%s ORDER BY id DESC LIMIT 1", (gid,))
+            row = cur.fetchone()
+        if row:
+            flash("Job already submitted; uploads disabled.", "error")
+            return redirect(url_for("game_detail", gid=gid))
         # Save uploaded files
         updir = Path(game["dir_path"])
         updir.mkdir(parents=True, exist_ok=True)
@@ -189,11 +284,19 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
-        game = g.db.execute("SELECT * FROM games WHERE id=? AND user_id=?", (gid, session["user_id"]))
-        game = game.fetchone()
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT * FROM games WHERE id=%s AND user_id=%s", (gid, session["user_id"]))
+            game = cur.fetchone()
         if not game:
             flash("Not found", "error")
             return redirect(url_for("games"))
+        # Prevent duplicate submissions
+        with g.db.cursor() as cur:
+            cur.execute("SELECT id,status FROM jobs WHERE game_id=%s ORDER BY id DESC LIMIT 1", (gid,))
+            row = cur.fetchone()
+        if row:
+            flash("Job already submitted.", "error")
+            return redirect(url_for("game_detail", gid=gid))
         dir_path = Path(game["dir_path"])
         try:
             meta = dir_path / ".dirwatch_meta.json"
@@ -290,6 +393,21 @@ def init_db():
               finished_at DATETIME NULL,
               user_email VARCHAR(255) NULL,
               INDEX(user_id), INDEX(game_id), INDEX(slurm_job_id), INDEX(status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS resets (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              token VARCHAR(128) UNIQUE NOT NULL,
+              expires_at DATETIME NOT NULL,
+              used_at DATETIME NULL,
+              created_at DATETIME NOT NULL,
+              INDEX(user_id), INDEX(token), INDEX(expires_at),
+              FOREIGN KEY(user_id) REFERENCES users(id)
+                ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )

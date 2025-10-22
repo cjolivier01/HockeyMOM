@@ -19,5 +19,26 @@
   {% endfor %}
   </tbody>
 </table>
+<script>
+  (function () {
+    var finalStates = { 'COMPLETED':1, 'FAILED':1, 'CANCELLED':1, 'TIMEOUT':1 };
+    var rows = document.querySelectorAll('table tbody tr');
+    var needsRefresh = false;
+    rows.forEach(function (tr) {
+      var statusCell = tr.children[4];
+      if (statusCell) {
+        var st = (statusCell.textContent || '').trim().toUpperCase();
+        if (!finalStates[st]) needsRefresh = true;
+      }
+    });
+    if (needsRefresh) {
+      var note = document.createElement('div');
+      note.textContent = 'Auto-refreshing while jobs are pending/running…';
+      note.style.marginTop = '0.5rem';
+      note.style.fontSize = '0.9rem';
+      document.body.appendChild(note);
+      setTimeout(function () { window.location.reload(); }, 5000);
+    }
+  })();
+</script>
 {% endblock %}
-

@@ -5,10 +5,14 @@
 <p>Status: {{ status or game['status'] }}</p>
 
 <h3>Upload Files</h3>
+{% if not is_locked %}
 <form method="post" action="/games/{{ game['id'] }}/upload" enctype="multipart/form-data">
   <input type="file" name="files" multiple>
   <button type="submit">Upload</button>
 </form>
+{% else %}
+<p>Uploads disabled after job submission/completion.</p>
+{% endif %}
 
 <h3>Files</h3>
 <ul>
@@ -19,10 +23,13 @@
   {% endfor %}
   </ul>
 
+{% if not is_locked %}
 <form method="post" action="/games/{{ game['id'] }}/run">
   <button type="submit">Run</button>
 </form>
+{% else %}
+<p>Run disabled: job already submitted or finished.</p>
+{% endif %}
 
 <p><a href="/games">Back</a></p>
 {% endblock %}
-
