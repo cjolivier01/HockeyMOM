@@ -1,0 +1,23 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h2>Your Jobs</h2>
+<table>
+  <thead>
+    <tr><th>ID</th><th>Game</th><th>Dir</th><th>Slurm Job</th><th>Status</th><th>Created</th><th>Updated</th></tr>
+  </thead>
+  <tbody>
+  {% for j in jobs %}
+    <tr>
+      <td>{{ j['id'] }}</td>
+      <td>{{ j['game_id'] or '' }}</td>
+      <td><code>{{ j['dir_path'] }}</code></td>
+      <td>{{ j['slurm_job_id'] or '' }}</td>
+      <td>{{ j['status'] }}</td>
+      <td>{{ j['created_at'] }}</td>
+      <td>{{ j['updated_at'] or '' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+

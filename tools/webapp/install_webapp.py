@@ -17,17 +17,23 @@ def main():
     ap.add_argument("--port", type=int, default=8008)
     ap.add_argument("--server-name", default="_")  # nginx server_name
     ap.add_argument("--client-max-body-size", default="500M")
+    # DB settings
+    ap.add_argument("--db-name", default="hm_app_db")
+    ap.add_argument("--db-user", default="hmapp")
+    ap.add_argument("--db-pass", default="hmapp_pass")
+    ap.add_argument("--db-host", default="127.0.0.1")
+    ap.add_argument("--db-port", type=int, default=3306)
+    ap.add_argument("--python-bin", default="", help="Python interpreter to run the app (prefer conda env)")
     args = ap.parse_args()
 
     repo_root = Path(__file__).resolve().parents[2]
     install_root = Path(args.install_root)
-    venv = install_root / "venv"
     app_dir = install_root / "app"
     templates_dir = app_dir / "templates"
 
-    print("Installing OS packages (nginx, python3-venv)...")
+    print("Installing OS packages (nginx)...")
     subprocess.check_call(["sudo", "apt-get", "update", "-y"]) 
-    subprocess.check_call(["sudo", "apt-get", "install", "-y", "nginx", "python3-venv"])
+    subprocess.check_call(["sudo", "apt-get", "install", "-y", "nginx"])
     subprocess.check_call(["sudo", "mkdir", "-p", args.watch_root])
 
     print("Copying webapp code...")
@@ -39,11 +45,51 @@ def main():
     # Ensure instance dir is present and owned by service user
     subprocess.check_call(["sudo", "mkdir", "-p", str(app_dir / "instance")])
 
-    print("Creating virtualenv and installing deps...")
-    subprocess.check_call(["sudo", "python3", "-m", "venv", str(venv)])
-    pip = str(venv / "bin/pip")
-    subprocess.check_call(["sudo", pip, "install", "--upgrade", "pip", "wheel"])
-    subprocess.check_call(["sudo", pip, "install", "flask", "gunicorn", "werkzeug"])
+    # Determine python for the service user (prefer their conda env)
+    if not args.python_bin:
+        try:
+            user_py = subprocess.check_output(
+                ["sudo", "-H", "-u", args.user, "bash", "-lc", "command -v python || command -v python3"],
+                text=True,
+            ).strip()
+            python_bin = user_py or "/usr/bin/python3"
+        except Exception:
+            python_bin = "/usr/bin/python3"
+    else:
+        python_bin = args.python_bin
+    print(f"Using python: {python_bin}")
+    # Install dependencies into that environment as the service user
+    subprocess.check_call(["sudo", "-H", "-u", args.user, "bash", "-lc", f"{python_bin} -m pip install --upgrade pip wheel flask gunicorn werkzeug pymysql"])
+
+    # Create DB and user
+    print("Configuring MariaDB schema and user...")
+    sql = f"""
+CREATE DATABASE IF NOT EXISTS `{args.db_name}` CHARACTER SET utf8mb4;
+CREATE USER IF NOT EXISTS '{args.db_user}'@'localhost' IDENTIFIED BY '{args.db_pass}';
+GRANT ALL PRIVILEGES ON `{args.db_name}`.* TO '{args.db_user}'@'localhost';
+FLUSH PRIVILEGES;
+"""
+    subprocess.check_call(["sudo", "bash", "-lc", f"cat <<'SQL' | mysql -u root\n{sql}\nSQL\n" ])
+
+    # App config JSON
+    cfg = {
+        "watch_root": args.watch_root,
+        "db": {
+            "host": args.db_host,
+            "port": args.db_port,
+            "name": args.db_name,
+            "user": args.db_user,
+            "pass": args.db_pass,
+        },
+        "email": {
+            "from": os.environ.get("HM_FROM_EMAIL", "")
+        }
+    }
+    import json as _json
+    config_json = app_dir / "config.json"
+    config_json.write_text(_json.dumps(cfg, indent=2))
+    subprocess.check_call(["sudo", "chown", f"{args.user}:{args.user}", str(config_json)])
+    subprocess.check_call(["sudo", "chmod", "600", str(config_json)])
 
     print("Writing systemd service...")
     unit = f"""
@@ -58,8 +104,11 @@ User={args.user}
 Group={args.user}
 Environment=PYTHONUNBUFFERED=1
 Environment=HM_WATCH_ROOT={args.watch_root}
+Environment=MSMTP_CONFIG=/etc/msmtprc
+Environment=MSMTPRC=/etc/msmtprc
+Environment=HM_DB_CONFIG={app_dir}/config.json
 WorkingDirectory={app_dir}
-ExecStart={venv}/bin/gunicorn -b 127.0.0.1:{args.port} app:app
+ExecStart={python_bin} -m gunicorn -b 127.0.0.1:{args.port} app:app
 Restart=on-failure
 RestartSec=3
 

@@ -25,6 +25,7 @@
       <a href="/">Home</a>
       {% if session.get('user_id') %}
         <a href="/games">Games</a>
+        <a href="/jobs">Jobs</a>
         <a href="/logout">Logout</a>
         <span>Logged in as {{ session.get('user_email') }}</span>
       {% else %}
@@ -42,4 +43,3 @@
   {% block content %}{% endblock %}
 </body>
 </html>
-

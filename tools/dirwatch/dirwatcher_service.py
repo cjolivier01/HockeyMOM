@@ -57,10 +57,20 @@ class BehaviorConfig:
 
 
 @dataclass
+class DbConfig:
+    host: str = "127.0.0.1"
+    port: int = 3306
+    name: str = "hm_app_db"
+    user: str = "hmapp"
+    password: str = ""
+
+
+@dataclass
 class Config:
     watch: WatchConfig
     job: JobConfig
     behavior: BehaviorConfig
+    db: Optional[DbConfig] = None
 
 
 @dataclass
@@ -149,6 +159,7 @@ def read_config(path: Path) -> Config:
     job = raw.get("job", {})
     behavior = raw.get("behavior", {})
 
+    db_raw = raw.get("db", {})
     cfg = Config(
         watch=WatchConfig(
             root=str(watch["root"]),
@@ -180,6 +191,13 @@ def read_config(path: Path) -> Config:
             smtp_pass=behavior.get("smtp_pass"),
             smtp_use_tls=bool(behavior.get("smtp_use_tls", True)),
         ),
+        db=DbConfig(
+            host=str(db_raw.get("host", "127.0.0.1")),
+            port=int(db_raw.get("port", 3306)),
+            name=str(db_raw.get("name", "hm_app_db")),
+            user=str(db_raw.get("user", "hmapp")),
+            password=str(db_raw.get("pass", "")),
+        ) if db_raw else None,
     )
     return cfg
 
@@ -335,6 +353,12 @@ def run_service(cfg: Config) -> None:
         except Exception:
             logging.exception("Failed to create parent directory for failure_log")
     state = load_state(state_path)
+    # Attempt to sync active jobs from DB to memory (so we continue tracking on restart)
+    try:
+        sync_active_from_db(cfg, state)
+        save_state(state_path, state)
+    except Exception:
+        logging.exception("Failed to sync active jobs from DB; continuing without DB bootstrap")
 
     stop = threading.Event()
 
@@ -365,6 +389,10 @@ def run_service(cfg: Config) -> None:
                     state.active[job_id] = sub_key
                     state.processed[sub_key] = {"status": "SUBMITTED", "job_id": job_id}
                     save_state(state_path, state)
+                    try:
+                        upsert_job_db(cfg, sub_key, job_id, status="SUBMITTED")
+                    except Exception:
+                        logging.exception("DB update failed for submission of %s", sub_key)
                 else:
                     # sbatch submission failed; record into failure log
                     if cfg.behavior.failure_log:
@@ -391,6 +419,10 @@ def run_service(cfg: Config) -> None:
                     info["status"] = st
                     state.processed[sub_key] = info
                     finished.append(job_id)
+                    try:
+                        upsert_job_db(cfg, sub_key, job_id, status=st, finished=st.startswith("COMPLETED") or st.startswith("FAILED") or st.startswith("CANCELLED") or st.startswith("TIMEOUT"))
+                    except Exception:
+                        logging.exception("DB update failed for completion of %s", sub_key)
 
                     # Notify via email if possible
                     try:
@@ -498,6 +530,133 @@ def send_email(to_addr: str, subject: str, body: str, bcfg: BehaviorConfig) -> N
         except Exception:
             logging.exception("SMTP send failed")
     logging.warning("No email method available to notify %s", to_addr)
+
+
+def db_connect(cfg: Config):
+    if not cfg.db:
+        raise RuntimeError("DB not configured")
+    try:
+        import pymysql
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError("pymysql not installed") from e
+    return pymysql.connect(
+        host=cfg.db.host,
+        port=cfg.db.port,
+        user=cfg.db.user,
+        password=cfg.db.password,
+        database=cfg.db.name,
+        autocommit=False,
+        charset="utf8mb4",
+        cursorclass=None,
+    )
+
+
+def _lookup_ids_by_dir(conn, subdir: str) -> tuple[Optional[int], Optional[int], Optional[str]]:
+    """Return (user_id, game_id, user_email) by matching dir_path and meta file."""
+    user_id = None
+    game_id = None
+    email: Optional[str] = None
+    # Try game by dir_path
+    with conn.cursor() as cur:
+        try:
+            cur.execute("SELECT id, user_id FROM games WHERE dir_path=%s ORDER BY id DESC LIMIT 1", (subdir,))
+            row = cur.fetchone()
+            if row:
+                game_id = int(row[0])
+                user_id = int(row[1])
+        except Exception:
+            pass
+    # If user_id still unknown, try meta json
+    if user_id is None:
+        try:
+            meta = Path(subdir) / ".dirwatch_meta.json"
+            data = json.loads(meta.read_text())
+            email = data.get("user_email")
+        except Exception:
+            email = None
+        if email:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("SELECT id FROM users WHERE email=%s", (email,))
+                    row = cur.fetchone()
+                    if row:
+                        user_id = int(row[0])
+                except Exception:
+                    pass
+    return user_id, game_id, email
+
+
+def upsert_job_db(cfg: Config, subdir: str, slurm_job_id: Optional[str], status: str, finished: bool = False) -> None:
+    if not cfg.db:
+        return
+    conn = db_connect(cfg)
+    try:
+        uid, gid, email = _lookup_ids_by_dir(conn, subdir)
+        now = time.strftime('%Y-%m-%d %H:%M:%S')
+        with conn.cursor() as cur:
+            # Find existing job by slurm id or dir_path
+            job_row_id = None
+            if slurm_job_id:
+                cur.execute("SELECT id FROM jobs WHERE slurm_job_id=%s", (slurm_job_id,))
+                r = cur.fetchone()
+                if r:
+                    job_row_id = int(r[0])
+            if job_row_id is None:
+                cur.execute("SELECT id FROM jobs WHERE dir_path=%s ORDER BY id DESC LIMIT 1", (subdir,))
+                r = cur.fetchone()
+                if r:
+                    job_row_id = int(r[0])
+
+            if job_row_id is None:
+                # Insert new
+                cur.execute(
+                    """
+                    INSERT INTO jobs(user_id, game_id, dir_path, slurm_job_id, status, created_at, updated_at, user_email)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+                    """,
+                    (
+                        uid,
+                        gid,
+                        subdir,
+                        slurm_job_id,
+                        status,
+                        now,
+                        now,
+                        email,
+                    ),
+                )
+            else:
+                # Update existing
+                set_finished = ", finished_at=%s" if finished else ""
+                params = [status, now, slurm_job_id, job_row_id]
+                sql = f"UPDATE jobs SET status=%s, updated_at=%s, slurm_job_id=COALESCE(%s, slurm_job_id){set_finished} WHERE id=%s"
+                if finished:
+                    params = [status, now, slurm_job_id, now, job_row_id]
+                cur.execute(sql, params)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def sync_active_from_db(cfg: Config, state: State) -> None:
+    if not cfg.db:
+        return
+    conn = db_connect(cfg)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT slurm_job_id, dir_path, status FROM jobs WHERE status IN ('SUBMITTED','RUNNING','PENDING')"
+            )
+            for row in cur.fetchall() or []:
+                job_id = row[0]
+                subdir = row[1]
+                status = row[2]
+                if job_id and job_id not in state.active:
+                    state.active[job_id] = subdir
+                if subdir not in state.processed:
+                    state.processed[subdir] = {"status": status, "job_id": job_id or ""}
+    finally:
+        conn.close()
 
 
 def main(argv: Optional[List[str]] = None) -> int:

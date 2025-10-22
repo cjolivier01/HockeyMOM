@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
-import sqlite3
+import json
+import pymysql
 import secrets
 import datetime as dt
 from pathlib import Path
@@ -22,7 +23,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
-DB_PATH = INSTANCE_DIR / "webapp.db"
+CONFIG_PATH = BASE_DIR / "config.json"
 
 WATCH_ROOT = os.environ.get("HM_WATCH_ROOT", "/data/incoming")
 APP_SECRET = os.environ.get("HM_WEBAPP_SECRET") or secrets.token_hex(16)
@@ -41,8 +42,7 @@ def create_app() -> Flask:
 
     @app.before_request
     def open_db():
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
+        g.db = get_db()
 
     @app.teardown_request
     def close_db(exc):  # noqa: ARG001
@@ -74,6 +74,20 @@ def create_app() -> Flask:
                 session["user_id"] = uid
                 session["user_email"] = email
                 session["user_name"] = name
+                # Send confirmation email (best-effort)
+                try:
+                    send_email(
+                        to_addr=email,
+                        subject="Welcome to HM WebApp",
+                        body=(
+                            f"Hello {name or email},\n\n"
+                            "Your account has been created successfully.\n"
+                            "You can now create a game, upload files, and run jobs.\n\n"
+                            "Regards,\nHM"
+                        ),
+                    )
+                except Exception:
+                    pass
                 return redirect(url_for("games"))
         return render_template("register.html")
 
@@ -107,9 +121,9 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
-        rows = g.db.execute(
-            "SELECT * FROM games WHERE user_id=? ORDER BY created_at DESC", (session["user_id"],)
-        ).fetchall()
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT * FROM games WHERE user_id=%s ORDER BY created_at DESC", (session["user_id"],))
+            rows = cur.fetchall()
         # Read dirwatcher state if present
         dw_state = read_dirwatch_state()
         return render_template("games.html", games=rows, state=dw_state)
@@ -131,8 +145,9 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
-        game = g.db.execute("SELECT * FROM games WHERE id=? AND user_id=?", (gid, session["user_id"]))
-        game = game.fetchone()
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT * FROM games WHERE id=%s AND user_id=%s", (gid, session["user_id"]))
+            game = cur.fetchone()
         if not game:
             flash("Not found", "error")
             return redirect(url_for("games"))
@@ -189,7 +204,16 @@ def create_app() -> Flask:
             pass
         # Create the READY file
         (dir_path / "_READY").touch(exist_ok=True)
-        g.db.execute("UPDATE games SET status=? WHERE id=?", ("submitted", gid))
+        with g.db.cursor() as cur:
+            cur.execute("UPDATE games SET status=%s WHERE id=%s", ("submitted", gid))
+            # Insert job record (pending)
+            cur.execute(
+                """
+                INSERT INTO jobs(user_id, game_id, dir_path, status, created_at)
+                VALUES(%s,%s,%s,%s,%s)
+                """,
+                (session["user_id"], gid, str(dir_path), "PENDING", dt.datetime.now().isoformat()),
+            )
         g.db.commit()
         flash("Run requested. Job will start shortly.", "success")
         return redirect(url_for("game_detail", gid=gid))
@@ -207,46 +231,85 @@ def create_app() -> Flask:
         d = Path(game["dir_path"]).resolve()
         return send_from_directory(str(d), name, as_attachment=True)
 
+    @app.route("/jobs")
+    def jobs():
+        r = require_login()
+        if r:
+            return r
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM jobs WHERE user_id=%s ORDER BY created_at DESC",
+                (session["user_id"],),
+            )
+            jobs = cur.fetchall()
+        return render_template("jobs.html", jobs=jobs)
+
     return app
 
 
 def init_db():
-    with sqlite3.connect(DB_PATH) as db:
-        db.executescript(
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
             """
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  name TEXT,
-  created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS games (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  name TEXT NOT NULL,
-  dir_path TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'new',
-  created_at TEXT NOT NULL,
-  FOREIGN KEY(user_id) REFERENCES users(id)
-);
-"""
+            CREATE TABLE IF NOT EXISTS users (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              email VARCHAR(255) UNIQUE NOT NULL,
+              password_hash TEXT NOT NULL,
+              name VARCHAR(255),
+              created_at DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS games (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              name VARCHAR(255) NOT NULL,
+              dir_path TEXT NOT NULL,
+              status VARCHAR(32) NOT NULL DEFAULT 'new',
+              created_at DATETIME NOT NULL,
+              INDEX(user_id),
+              FOREIGN KEY(user_id) REFERENCES users(id)
+                ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              game_id INT,
+              dir_path TEXT NOT NULL,
+              slurm_job_id VARCHAR(64),
+              status VARCHAR(32) NOT NULL,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NULL,
+              finished_at DATETIME NULL,
+              user_email VARCHAR(255) NULL,
+              INDEX(user_id), INDEX(game_id), INDEX(slurm_job_id), INDEX(status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+    db.commit()
 
 
-def get_user_by_email(email: str) -> Optional[sqlite3.Row]:
-    with sqlite3.connect(DB_PATH) as db:
-        db.row_factory = sqlite3.Row
-        r = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        return r
+def get_user_by_email(email: str) -> Optional[dict]:
+    db = get_db()
+    with db.cursor(pymysql.cursors.DictCursor) as cur:
+        cur.execute("SELECT * FROM users WHERE email=%s", (email,))
+        return cur.fetchone()
 
 
 def create_user(email: str, password: str, name: str) -> int:
     pw = generate_password_hash(password)
     now = dt.datetime.now().isoformat()
-    with sqlite3.connect(DB_PATH) as db:
-        cur = db.execute(
-            "INSERT INTO users(email, password_hash, name, created_at) VALUES(?,?,?,?)",
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO users(email, password_hash, name, created_at) VALUES(%s,%s,%s,%s)",
             (email, pw, name, now),
         )
         db.commit()
@@ -264,9 +327,10 @@ def create_game(user_id: int, name: str, email: str):
         (d / ".dirwatch_meta.json").write_text(f'{{"user_email":"{email}","created":"{dt.datetime.now().isoformat()}"}}\n')
     except Exception:
         pass
-    with sqlite3.connect(DB_PATH) as db:
-        cur = db.execute(
-            "INSERT INTO games(user_id, name, dir_path, created_at) VALUES(?,?,?,?)",
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO games(user_id, name, dir_path, created_at) VALUES(%s,%s,%s,%s)",
             (user_id, name, str(d), dt.datetime.now().isoformat()),
         )
         db.commit()
@@ -283,8 +347,45 @@ def read_dirwatch_state():
         return {"processed": {}, "active": {}}
 
 
+def get_db():
+    # Load DB configuration
+    cfg_path = os.environ.get("HM_DB_CONFIG", str(CONFIG_PATH))
+    with open(cfg_path, "r", encoding="utf-8") as fh:
+        cfg = json.load(fh)
+    dbcfg = cfg.get("db", {})
+    conn = pymysql.connect(
+        host=dbcfg.get("host", "127.0.0.1"),
+        port=int(dbcfg.get("port", 3306)),
+        user=dbcfg.get("user", "hmapp"),
+        password=dbcfg.get("pass", ""),
+        database=dbcfg.get("name", "hm_app_db"),
+        autocommit=False,
+        charset="utf8mb4",
+        cursorclass=pymysql.cursors.Cursor,
+    )
+    return conn
+
+
+def send_email(to_addr: str, subject: str, body: str, from_addr: Optional[str] = None) -> None:
+    # Use system sendmail preferred
+    from_addr = from_addr or ("no-reply@" + os.uname().nodename)
+    msg = (
+        f"From: {from_addr}\nTo: {to_addr}\nSubject: {subject}\n"
+        f"Content-Type: text/plain; charset=utf-8\n\n{body}\n"
+    )
+    import shutil as _sh, subprocess as _sp
+    sendmail = _sh.which("sendmail")
+    if sendmail:
+        try:
+            _sp.run([sendmail, "-t"], input=msg.encode("utf-8"), check=True)
+            return
+        except Exception:
+            pass
+    # no-op if email fails
+    return
+
+
 app = create_app()
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8008, debug=True)
-

@@ -8,11 +8,30 @@ from pathlib import Path
 SERVICE_NAME = "dirwatcher.service"
 
 
-def write_config(cfg_path: Path, watch_root: str, signal_file: str, delete_on_success: bool,
-                 wrap_cmd: str, partition: str, account: str, gres: str, time_limit: str,
-                 state_file: str, failure_log: str,
-                 from_email: str = "", smtp_host: str = "", smtp_port: int = 0,
-                 smtp_user: str = "", smtp_pass: str = "", smtp_use_tls: bool = True) -> None:
+def write_config(
+    cfg_path: Path,
+    watch_root: str,
+    signal_file: str,
+    delete_on_success: bool,
+    wrap_cmd: str,
+    partition: str,
+    account: str,
+    gres: str,
+    time_limit: str,
+    state_file: str,
+    failure_log: str,
+    from_email: str = "",
+    smtp_host: str = "",
+    smtp_port: int = 0,
+    smtp_user: str = "",
+    smtp_pass: str = "",
+    smtp_use_tls: bool = True,
+    db_host: str = "127.0.0.1",
+    db_port: int = 3306,
+    db_name: str = "hm_app_db",
+    db_user: str = "hmapp",
+    db_pass: str = "",
+) -> None:
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg = f"""
 watch:
@@ -43,6 +62,12 @@ behavior:
   smtp_user: {smtp_user}
   smtp_pass: {smtp_pass}
   smtp_use_tls: {str(smtp_use_tls).lower()}
+db:
+  host: {db_host}
+  port: {db_port}
+  name: {db_name}
+  user: {db_user}
+  pass: {db_pass}
 """.strip()
     cfg_path.write_text(cfg + "\n")
 
@@ -139,7 +164,7 @@ def main() -> int:
     ap.add_argument("--signal-file", default="_READY", help="Ready signal filename (default: _READY)")
     ap.add_argument("--delete-on-success", action="store_true", help="Delete subdirectory after successful job completion")
     ap.add_argument("--user", default=os.environ.get("SUDO_USER") or os.environ.get("USER"), help="Service user (defaults to current user)")
-    ap.add_argument("--python-bin", default=shutil.which("python3") or "/usr/bin/python3", help="Python interpreter")
+    ap.add_argument("--python-bin", default="", help="Python interpreter (prefer conda env of service user)")
 
     # Slurm job configuration
     ap.add_argument("--partition", default="main")
@@ -174,6 +199,12 @@ def main() -> int:
         default="/var/log/dirwatcher/failed_jobs.log",
         help="Path to append failed job records",
     )
+    # DB options (shared with webapp)
+    ap.add_argument("--db-name", default="hm_app_db")
+    ap.add_argument("--db-user", default="hmapp")
+    ap.add_argument("--db-pass", default="hmapp_pass")
+    ap.add_argument("--db-host", default="127.0.0.1")
+    ap.add_argument("--db-port", type=int, default=3306)
     # SMTP options
     ap.add_argument("--smtp-setup", action="store_true", help="Install and configure msmtp for email sending")
     ap.add_argument("--from-email", default="", help="From email address for notifications")
@@ -226,6 +257,24 @@ def main() -> int:
     failure_log.parent.mkdir(parents=True, exist_ok=True)
     (config_path.parent).mkdir(parents=True, exist_ok=True)
 
+    # Determine python for the service user (prefer their conda env)
+    if not args.python_bin:
+        try:
+            user_py = subprocess.check_output(
+                ["sudo", "-H", "-u", args.user, "bash", "-lc", "command -v python || command -v python3"],
+                text=True,
+            ).strip()
+            python_bin = user_py or "/usr/bin/python3"
+        except Exception:
+            python_bin = "/usr/bin/python3"
+    else:
+        python_bin = args.python_bin
+    # Ensure pymysql is available in that environment
+    try:
+        subprocess.check_call(["sudo", "-H", "-u", args.user, "bash", "-lc", f"{python_bin} -m pip install --upgrade pip wheel pymysql"])
+    except Exception:
+        pass
+
     write_config(
         config_path,
         watch_root=args.watch_root,
@@ -244,9 +293,14 @@ def main() -> int:
         smtp_user=args.smtp_user,
         smtp_pass=args.smtp_pass,
         smtp_use_tls=bool(args.smtp_use_tls),
+        db_host=args.db_host,
+        db_port=args.db_port,
+        db_name=args.db_name,
+        db_user=args.db_user,
+        db_pass=args.db_pass,
     )
 
-    write_service(unit_path, args.user, config_path, args.python_bin, install_root)
+    write_service(unit_path, args.user, config_path, python_bin, install_root)
 
     # Ensure state and log paths are writeable by the service user
     try:
