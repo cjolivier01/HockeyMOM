@@ -37,17 +37,24 @@ def main():
     subprocess.check_call(["sudo", "apt-get", "install", "-y", "nginx"])
     subprocess.check_call(["sudo", "mkdir", "-p", args.watch_root])
 
+    def _do_copy(src, dst):
+        subprocess.check_call(["sudo", "cp", "-r", str(src), str(dst)])
+
     print("Copying webapp code...")
     subprocess.check_call(["sudo", "mkdir", "-p", str(app_dir)])
-    shutil.copy2(repo_root / "tools/webapp/app.py", app_dir / "app.py")
+    _do_copy(repo_root / "tools/webapp/app.py", app_dir / "app.py")
+    # subprocess.check_call(["sudo", "cp", str(repo_root / "tools/webapp/app.py"), str(app_dir / "app.py")])
+    # shutil.copy2(repo_root / "tools/webapp/app.py", app_dir / "app.py")
     subprocess.check_call(["sudo", "mkdir", "-p", str(templates_dir)])
     for t in (repo_root / "tools/webapp/templates").glob("*.html"):
-        shutil.copy2(t, templates_dir / t.name)
+        _do_copy(t, templates_dir / t.name)
+        # shutil.copy2(t, templates_dir / t.name)
     # Copy static assets
     subprocess.check_call(["sudo", "mkdir", "-p", str(static_dir)])
     for s in (repo_root / "tools/webapp/static").glob("*"):
         if s.is_file():
-            shutil.copy2(s, static_dir / s.name)
+            # shutil.copy2(s, static_dir / s.name)
+            _do_copy(s, static_dir / s.name)
     # Ensure instance dir is present and owned by service user
     subprocess.check_call(["sudo", "mkdir", "-p", str(app_dir / "instance")])
 
