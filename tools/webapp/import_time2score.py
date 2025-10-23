@@ -857,29 +857,17 @@ def main(argv: Optional[list[str]] = None) -> int:
                             continue
                         import re as _re
 
-                        import bs4 as _bs4
                         def _val_to_text(v):
                             # pandas extract_links returns (text, link) for cells with <a>
                             if isinstance(v, tuple) and len(v) > 0:
                                 return str(v[0])
                             return str(v)
 
-                        def _remove_item(collection, item):
-                            try:
-                                collection.remove(item)
-                            except ValueError:
-                                pass
-
                         def _parse_table_bs4(tbl_obj):
                             # Returns (headers, rows) where rows is list of list[str]
-                            headers = []
-                            # header from th cells
-                            ths = tbl_obj.find_all("th")
-                            if ths:
-                                headers = [th.get_text(strip=True) for th in ths]
-                            rows = []
+                            all_rows = []
                             for tr in tbl_obj.find_all("tr"):
-                                tds = tr.find_all("td")
+                                tds = tr.find_all(["td", "th"])
                                 if not tds:
                                     continue
                                 row = []
@@ -889,9 +877,25 @@ def main(argv: Optional[list[str]] = None) -> int:
                                         row.append(a.get_text(strip=True))
                                     else:
                                         row.append(td.get_text(strip=True))
-                                rows.append(row)
-                                if len(rows):
-                                    assert len(rows[0]) == len(headers)
+                                all_rows.append(row)
+
+                            # Find the first row that has same number of columns (>1) as the next row
+                            header_idx = None
+                            for i in range(len(all_rows) - 1):
+                                if len(all_rows[i]) > 1 and len(all_rows[i]) == len(all_rows[i + 1]):
+                                    header_idx = i
+                                    break
+
+                            if header_idx is None:
+                                # Default to no headers
+                                headers = []
+                                rows = all_rows
+                            else:
+                                headers = all_rows[header_idx]
+                                rows = all_rows[header_idx + 1 :]
+                                # sanity check
+                                rows = [r for r in rows if len(r) == len(headers)]
+
                             return headers, rows
 
                         for tbl in tables:
