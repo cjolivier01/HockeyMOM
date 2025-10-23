@@ -48,6 +48,56 @@ def create_app() -> Flask:
     @app.before_request
     def open_db():
         g.db = get_db()
+        # Ensure session league selection is valid or load user's default league
+        try:
+            if "user_id" in session:
+                uid = int(session["user_id"])  # type: ignore[arg-type]
+
+                def _has_access(lid: int) -> bool:
+                    with g.db.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT 1 FROM leagues l
+                            LEFT JOIN league_members m
+                              ON m.league_id=l.id AND m.user_id=%s
+                            WHERE l.id=%s AND (l.owner_user_id=%s OR m.user_id=%s)
+                            """,
+                            (uid, lid, uid, uid),
+                        )
+                        return bool(cur.fetchone())
+
+                # Validate existing session league
+                sid = session.get("league_id")
+                if sid is not None:
+                    try:
+                        lid = int(sid)  # type: ignore[arg-type]
+                        if not _has_access(lid):
+                            # Clear invalid selection and clear stored default if matches
+                            session.pop("league_id", None)
+                            with g.db.cursor() as cur:
+                                cur.execute("UPDATE users SET default_league_id=NULL WHERE id=%s AND default_league_id=%s", (uid, lid))
+                            g.db.commit()
+                    except Exception:
+                        session.pop("league_id", None)
+                else:
+                    # Load user's default league if any
+                    with g.db.cursor() as cur:
+                        cur.execute("SELECT default_league_id FROM users WHERE id=%s", (uid,))
+                        row = cur.fetchone()
+                    if row and row[0] is not None:
+                        try:
+                            pref = int(row[0])
+                            if _has_access(pref):
+                                session["league_id"] = pref
+                            else:
+                                with g.db.cursor() as cur:
+                                    cur.execute("UPDATE users SET default_league_id=NULL WHERE id=%s AND default_league_id=%s", (uid, pref))
+                                g.db.commit()
+                        except Exception:
+                            pass
+        except Exception:
+            # Non-fatal
+            pass
 
     @app.teardown_request
     def close_db(exc):  # noqa: ARG001
@@ -64,6 +114,61 @@ def create_app() -> Flask:
         if "user_id" in session:
             return redirect(url_for("games"))
         return render_template("index.html")
+
+    @app.context_processor
+    def inject_user_leagues():
+        leagues = []
+        selected = session.get("league_id")
+        if "user_id" in session:
+            try:
+                with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                    cur.execute(
+                        """
+                        SELECT l.id, l.name, l.is_shared, (l.owner_user_id=%s) AS is_owner,
+                               CASE WHEN (l.owner_user_id=%s OR EXISTS (
+                                   SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s AND m.role IN ('admin','owner')
+                               )) THEN 1 ELSE 0 END AS is_admin
+                        FROM leagues l
+                        WHERE l.owner_user_id=%s OR EXISTS (
+                          SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s
+                        )
+                        ORDER BY l.name
+                        """,
+                        (session["user_id"], session["user_id"], session["user_id"], session["user_id"], session["user_id"]),
+                    )
+                    leagues = cur.fetchall()
+            except Exception:
+                leagues = []
+        return dict(user_leagues=leagues, selected_league_id=selected)
+
+    @app.post("/league/select")
+    def league_select():
+        r = require_login()
+        if r:
+            return r
+        lid = request.form.get("league_id")
+        # Validate membership
+        if lid and lid.isdigit():
+            lid_i = int(lid)
+            with g.db.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM leagues l LEFT JOIN league_members m ON l.id=m.league_id AND m.user_id=%s WHERE l.id=%s AND (l.owner_user_id=%s OR m.user_id=%s)",
+                    (session["user_id"], lid_i, session["user_id"], session["user_id"]),
+                )
+                ok = cur.fetchone()
+            if ok:
+                session["league_id"] = lid_i
+                # Persist preferred league in users table
+                with g.db.cursor() as cur:
+                    cur.execute("UPDATE users SET default_league_id=%s WHERE id=%s", (lid_i, session["user_id"]))
+                g.db.commit()
+        else:
+            # Switch back to personal data; clear preferred league
+            session.pop("league_id", None)
+            with g.db.cursor() as cur:
+                cur.execute("UPDATE users SET default_league_id=NULL WHERE id=%s", (session["user_id"],))
+            g.db.commit()
+        return redirect(request.headers.get("Referer") or url_for("index"))
 
     @app.route("/register", methods=["GET", "POST"])
     def register():
@@ -483,15 +588,223 @@ def create_app() -> Flask:
         if r:
             return r
         include_external = request.args.get("all", "0") == "1"
-        where = "user_id=%s" + ("" if include_external else " AND is_external=0")
+        league_id = session.get("league_id")
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute(f"SELECT * FROM teams WHERE {where} ORDER BY name ASC", (session["user_id"],))
+            if league_id:
+                cur.execute(
+                    """
+                    SELECT t.*
+                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                    WHERE lt.league_id=%s
+                    ORDER BY t.name ASC
+                    """,
+                    (league_id,),
+                )
+            else:
+                where = "user_id=%s" + ("" if include_external else " AND is_external=0")
+                cur.execute(f"SELECT * FROM teams WHERE {where} ORDER BY name ASC", (session["user_id"],))
             rows = cur.fetchall()
         # compute stats per team (wins/losses/ties/gf/ga/points)
         stats = {}
         for t in rows:
-            stats[t["id"]] = compute_team_stats(g.db, t["id"], session["user_id"]) 
+            if league_id:
+                stats[t["id"]] = compute_team_stats_league(g.db, t["id"], int(league_id))
+            else:
+                stats[t["id"]] = compute_team_stats(g.db, t["id"], session["user_id"]) 
         return render_template("teams.html", teams=rows, stats=stats, include_external=include_external)
+
+    @app.get("/leagues")
+    def leagues_index():
+        r = require_login()
+        if r:
+            return r
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT l.id, l.name, l.is_shared,
+                       CASE WHEN (l.owner_user_id=%s OR EXISTS (
+                           SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s AND m.role IN ('admin','owner')
+                       )) THEN 1 ELSE 0 END AS is_admin
+                FROM leagues l
+                WHERE l.owner_user_id=%s OR EXISTS (
+                  SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s
+                )
+                ORDER BY l.name
+                """,
+                (session["user_id"], session["user_id"], session["user_id"], session["user_id"]),
+            )
+            leagues = cur.fetchall()
+        return render_template("leagues.html", leagues=leagues)
+
+    @app.post("/leagues/new")
+    def leagues_new():
+        r = require_login()
+        if r:
+            return r
+        name = request.form.get("name", "").strip()
+        is_shared = 1 if request.form.get("is_shared") == "1" else 0
+        if not name:
+            flash("Name is required", "error")
+            return redirect(url_for("leagues_index"))
+        with g.db.cursor() as cur:
+            try:
+                cur.execute(
+                    "INSERT INTO leagues(name, owner_user_id, is_shared, created_at) VALUES(%s,%s,%s,%s)",
+                    (name, session["user_id"], is_shared, dt.datetime.now().isoformat()),
+                )
+                lid = int(cur.lastrowid)
+                # Add owner as admin member
+                cur.execute(
+                    "INSERT INTO league_members(league_id, user_id, role, created_at) VALUES(%s,%s,%s,%s)",
+                    (lid, session["user_id"], "admin", dt.datetime.now().isoformat()),
+                )
+                g.db.commit()
+            except Exception:
+                g.db.rollback()
+                flash("Failed to create league (name may already exist)", "error")
+                return redirect(url_for("leagues_index"))
+        session["league_id"] = lid
+        flash("League created and selected", "success")
+        return redirect(url_for("leagues_index"))
+
+    @app.post("/leagues/<int:league_id>/delete")
+    def leagues_delete(league_id: int):
+        r = require_login()
+        if r:
+            return r
+        # Only owner can delete
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT owner_user_id FROM leagues WHERE id=%s", (league_id,))
+            row = cur.fetchone()
+        if not row or int(row["owner_user_id"]) != int(session["user_id"]):
+            flash("Not authorized to delete this league", "error")
+            return redirect(url_for("leagues_index"))
+
+        # Delete child data like schedules, teams, players similar to reset script
+        try:
+            with g.db.cursor() as cur:
+                # Collect games mapped to this league
+                cur.execute("SELECT DISTINCT game_id FROM league_games WHERE league_id=%s", (league_id,))
+                game_ids = [int(r[0]) for r in cur.fetchall() or []]
+                if game_ids:
+                    # Delete player stats for these games
+                    qmarks = ",".join(["%s"] * len(game_ids))
+                    cur.execute(f"DELETE FROM player_stats WHERE game_id IN ({qmarks})", game_ids)
+                    # Delete league_games entries for this league
+                    cur.execute("DELETE FROM league_games WHERE league_id=%s", (league_id,))
+                    # Delete hky_games not used by other leagues
+                    cur.execute(f"SELECT DISTINCT game_id FROM league_games WHERE game_id IN ({qmarks}) AND league_id<>%s", game_ids + [league_id])
+                    keep = {int(r[0]) for r in cur.fetchall() or []}
+                    to_delete = [gid for gid in game_ids if gid not in keep]
+                    if to_delete:
+                        q2 = ",".join(["%s"] * len(to_delete))
+                        cur.execute(f"DELETE FROM hky_games WHERE id IN ({q2})", to_delete)
+                # Teams mapped to this league
+                cur.execute("SELECT DISTINCT team_id FROM league_teams WHERE league_id=%s", (league_id,))
+                team_ids = [int(r[0]) for r in cur.fetchall() or []]
+                if team_ids:
+                    cur.execute("DELETE FROM league_teams WHERE league_id=%s", (league_id,))
+                    # Delete players for these teams
+                    q3 = ",".join(["%s"] * len(team_ids))
+                    cur.execute(f"DELETE FROM players WHERE team_id IN ({q3})", team_ids)
+                    # Delete teams if no other league maps them and no games reference them
+                    cur.execute(f"SELECT DISTINCT team_id FROM league_teams WHERE team_id IN ({q3})", team_ids)
+                    still = {int(r[0]) for r in cur.fetchall() or []}
+                    deleteable = []
+                    for tid in team_ids:
+                        if tid in still:
+                            continue
+                        cur.execute("SELECT COUNT(*) FROM hky_games WHERE team1_id=%s OR team2_id=%s", (tid, tid))
+                        cnt = int((cur.fetchone() or [0])[0])
+                        if cnt == 0:
+                            deleteable.append(tid)
+                    if deleteable:
+                        q4 = ",".join(["%s"] * len(deleteable))
+                        cur.execute(f"DELETE FROM teams WHERE id IN ({q4})", deleteable)
+                # Finally delete league members and league row
+                cur.execute("DELETE FROM league_members WHERE league_id=%s", (league_id,))
+                cur.execute("DELETE FROM leagues WHERE id=%s", (league_id,))
+            g.db.commit()
+            if session.get("league_id") == league_id:
+                session.pop("league_id", None)
+            flash("League and associated data deleted", "success")
+        except Exception:
+            g.db.rollback()
+            flash("Failed to delete league", "error")
+        return redirect(url_for("leagues_index"))
+
+    def _is_league_admin(league_id: int, user_id: int) -> bool:
+        with g.db.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM leagues WHERE id=%s AND owner_user_id=%s",
+                (league_id, user_id),
+            )
+            if cur.fetchone():
+                return True
+            cur.execute(
+                "SELECT 1 FROM league_members WHERE league_id=%s AND user_id=%s AND role IN ('admin','owner')",
+                (league_id, user_id),
+            )
+            return bool(cur.fetchone())
+
+    @app.get("/leagues/<int:league_id>/members")
+    def league_members(league_id: int):
+        r = require_login()
+        if r:
+            return r
+        if not _is_league_admin(league_id, session["user_id"]):
+            flash("Not authorized", "error")
+            return redirect(url_for("leagues_index"))
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                "SELECT u.id, u.email, COALESCE(m.role,'admin') AS role FROM users u JOIN league_members m ON m.user_id=u.id WHERE m.league_id=%s ORDER BY u.email",
+                (league_id,),
+            )
+            members = cur.fetchall()
+        return render_template("league_members.html", league_id=league_id, members=members)
+
+    @app.post("/leagues/<int:league_id>/members")
+    def league_members_add(league_id: int):
+        r = require_login()
+        if r:
+            return r
+        if not _is_league_admin(league_id, session["user_id"]):
+            flash("Not authorized", "error")
+            return redirect(url_for("leagues_index"))
+        email = request.form.get("email", "").strip().lower()
+        role = request.form.get("role", "viewer")
+        if not email:
+            flash("Email required", "error")
+            return redirect(url_for("league_members", league_id=league_id))
+        with g.db.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email=%s", (email,))
+            row = cur.fetchone()
+            if not row:
+                flash("User not found. Ask them to register first.", "error")
+                return redirect(url_for("league_members", league_id=league_id))
+            uid = int(row[0])
+            cur.execute(
+                "INSERT INTO league_members(league_id, user_id, role, created_at) VALUES(%s,%s,%s,%s) ON DUPLICATE KEY UPDATE role=VALUES(role)",
+                (league_id, uid, role, dt.datetime.now().isoformat()),
+            )
+            g.db.commit()
+        flash("Member added/updated", "success")
+        return redirect(url_for("league_members", league_id=league_id))
+
+    @app.post("/leagues/<int:league_id>/members/remove")
+    def league_members_remove(league_id: int):
+        r = require_login()
+        if r:
+            return r
+        if not _is_league_admin(league_id, session["user_id"]):
+            flash("Not authorized", "error")
+            return redirect(url_for("leagues_index"))
+        uid = int(request.form.get("user_id") or 0)
+        with g.db.cursor() as cur:
+            cur.execute("DELETE FROM league_members WHERE league_id=%s AND user_id=%s", (league_id, uid))
+            g.db.commit()
+        flash("Member removed", "success")
+        return redirect(url_for("league_members", league_id=league_id))
 
     @app.route("/teams/new", methods=["GET", "POST"])
     def new_team():
@@ -639,19 +952,35 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
+        league_id = session.get("league_id")
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute(
-                """
-                SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name
-                FROM hky_games g
-                  JOIN teams t1 ON g.team1_id=t1.id
-                  JOIN teams t2 ON g.team2_id=t2.id
-                  LEFT JOIN game_types gt ON g.game_type_id=gt.id
-                WHERE g.user_id=%s
-                ORDER BY COALESCE(g.starts_at, g.created_at) DESC
-                """,
-                (session["user_id"],),
-            )
+            if league_id:
+                cur.execute(
+                    """
+                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name
+                    FROM league_games lg
+                      JOIN hky_games g ON lg.game_id=g.id
+                      JOIN teams t1 ON g.team1_id=t1.id
+                      JOIN teams t2 ON g.team2_id=t2.id
+                      LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                    WHERE lg.league_id=%s
+                    ORDER BY COALESCE(g.starts_at, g.created_at) DESC
+                    """,
+                    (league_id,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name
+                    FROM hky_games g
+                      JOIN teams t1 ON g.team1_id=t1.id
+                      JOIN teams t2 ON g.team2_id=t2.id
+                      LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                    WHERE g.user_id=%s
+                    ORDER BY COALESCE(g.starts_at, g.created_at) DESC
+                    """,
+                    (session["user_id"],),
+                )
             games = cur.fetchall()
         return render_template("schedule.html", games=games)
 
@@ -691,6 +1020,17 @@ def create_app() -> Flask:
                 starts_at=parse_dt_or_none(starts_at),
                 location=location or None,
             )
+            # If a league is selected, map teams and game into the league
+            league_id = session.get("league_id")
+            if league_id:
+                try:
+                    with g.db.cursor() as cur:
+                        cur.execute("INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)", (league_id, team1_id))
+                        cur.execute("INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)", (league_id, team2_id))
+                        cur.execute("INSERT IGNORE INTO league_games(league_id, game_id) VALUES(%s,%s)", (league_id, gid))
+                    g.db.commit()
+                except Exception:
+                    pass
             flash("Game created", "success")
             return redirect(url_for("hky_game_detail", game_id=gid))
         return render_template("schedule_new.html", my_teams=my_teams, game_types=gt)
@@ -700,6 +1040,8 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
+        league_id = session.get("league_id")
+        game = None
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 """
@@ -710,6 +1052,17 @@ def create_app() -> Flask:
                 (game_id, session["user_id"]),
             )
             game = cur.fetchone()
+            if not game and league_id:
+                cur.execute(
+                    """
+                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, t1.is_external AS team1_ext, t2.is_external AS team2_ext
+                    FROM league_games lg JOIN hky_games g ON lg.game_id=g.id
+                      JOIN teams t1 ON g.team1_id=t1.id JOIN teams t2 ON g.team2_id=t2.id
+                    WHERE g.id=%s AND lg.league_id=%s
+                    """,
+                    (game_id, league_id),
+                )
+                game = cur.fetchone()
         if not game:
             flash("Not found", "error")
             return redirect(url_for("schedule"))
@@ -724,7 +1077,19 @@ def create_app() -> Flask:
             stats_rows = cur.fetchall()
         stats_by_pid = {r["player_id"]: r for r in stats_rows}
 
-        if request.method == "POST":
+        # Authorization: only allow edits if owner or league editor/admin
+        editable = True
+        if league_id and game and request.method == "POST":
+            with g.db.cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(MAX(CASE WHEN role IN ('admin','owner','editor') THEN 1 ELSE 0 END),0) FROM league_members WHERE league_id=%s AND user_id=%s",
+                    (league_id, session["user_id"]),
+                )
+                can_edit = int((cur.fetchone() or [0])[0]) == 1
+            if not can_edit:
+                editable = False
+                flash("You do not have permission to edit this game in the selected league.", "error")
+        if request.method == "POST" and editable:
             # Update game meta and scores
             loc = request.form.get("location", "").strip()
             starts_at = request.form.get("starts_at", "").strip()
@@ -795,6 +1160,7 @@ def create_app() -> Flask:
             team1_players=team1_players,
             team2_players=team2_players,
             stats_by_pid=stats_by_pid,
+            editable=editable,
         )
 
     @app.route("/game_types", methods=["GET", "POST"]) 
@@ -832,6 +1198,63 @@ def init_db():
               password_hash TEXT NOT NULL,
               name VARCHAR(255),
               created_at DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Leagues and sharing tables
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leagues (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              name VARCHAR(255) UNIQUE NOT NULL,
+              owner_user_id INT NOT NULL,
+              is_shared TINYINT(1) NOT NULL DEFAULT 0,
+              source VARCHAR(64) NULL,
+              external_key VARCHAR(255) NULL,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NULL,
+              INDEX(owner_user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_members (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              user_id INT NOT NULL,
+              role VARCHAR(32) NOT NULL DEFAULT 'viewer',
+              created_at DATETIME NOT NULL,
+              UNIQUE KEY uniq_member (league_id, user_id),
+              INDEX(league_id), INDEX(user_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_teams (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              team_id INT NOT NULL,
+              UNIQUE KEY uniq_league_team (league_id, team_id),
+              INDEX(league_id), INDEX(team_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_games (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              game_id INT NOT NULL,
+              UNIQUE KEY uniq_league_game (league_id, game_id),
+              INDEX(league_id), INDEX(game_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
@@ -898,6 +1321,19 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
+        # Add users.default_league_id if missing
+        try:
+            cur.execute("SHOW COLUMNS FROM users LIKE 'default_league_id'")
+            exists = cur.fetchone()
+            if not exists:
+                cur.execute("ALTER TABLE users ADD COLUMN default_league_id INT NULL")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_default_league ON users(default_league_id)")
+        except Exception:
+            # Fallback for MySQL variants without IF NOT EXISTS
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN default_league_id INT NULL")
+            except Exception:
+                pass
         # Players (belong to exactly one team)
         cur.execute(
             """
@@ -1176,6 +1612,35 @@ def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:
             FROM hky_games WHERE user_id=%s AND (team1_id=%s OR team2_id=%s) AND team1_score IS NOT NULL AND team2_score IS NOT NULL
             """,
             (user_id, team_id, team_id),
+        )
+        rows = cur.fetchall()
+    wins = losses = ties = gf = ga = 0
+    for r in rows:
+        t1 = int(r["team1_id"]) == team_id
+        my_score = int(r["team1_score"]) if t1 else int(r["team2_score"]) if r["team2_score"] is not None else 0
+        op_score = int(r["team2_score"]) if t1 else int(r["team1_score"]) if r["team1_score"] is not None else 0
+        gf += my_score
+        ga += op_score
+        if my_score > op_score:
+            wins += 1
+        elif my_score < op_score:
+            losses += 1
+        else:
+            ties += 1
+    points = wins * 2 + ties * 1
+    return {"wins": wins, "losses": losses, "ties": ties, "gf": gf, "ga": ga, "points": points}
+
+def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
+    curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, 'cursors', None)) else None  # type: ignore
+    with (db_conn.cursor(curtype) if curtype else db_conn.cursor()) as cur:
+        cur.execute(
+            """
+            SELECT g.team1_id, g.team2_id, g.team1_score, g.team2_score, g.is_final
+            FROM league_games lg JOIN hky_games g ON lg.game_id=g.id
+            WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
+              AND g.team1_score IS NOT NULL AND g.team2_score IS NOT NULL
+            """,
+            (league_id, team_id, team_id),
         )
         rows = cur.fetchall()
     wins = losses = ties = gf = ga = 0

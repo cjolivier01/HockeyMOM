@@ -59,6 +59,70 @@ python3 tools/webapp/seed_demo.py --config /opt/hm-webapp/app/config.json \
 
 This creates a demo user, two teams, 10 players per team, default game types, two games (one completed with random per-player stats), and an external opponent team.
 
+Import From time2score
+----------------------
+Use the import script to populate teams and games from the CAHA TimeToScore site into the webapp database. It will:
+- Discover games by division schedules or explicit game ids (avoids Division Player Stats)
+- Scrape per-game box scores to derive teams, rosters and scores
+- Upsert teams as external teams for a selected user
+- Upsert games with start time, location, scores, and optional league grouping
+
+Example usage:
+
+```
+python3 tools/webapp/import_time2score.py \
+  --config /opt/hm-webapp/app/config.json \
+  --season 2024 \
+  --user-email demo@example.com \
+  --sync --stats
+```
+
+Flags:
+- `--season`: season id (0 = current)
+- `--user-email`: user that will own imported teams/games (teams marked is_external=1)
+- `--sync`: scrape and cache seasons/divisions/teams/games before import
+- `--stats`: fetch box scores to fill missing scores if available
+- `--tts-db-dir`: directory to place the temporary sqlite file used by the scraper (default: `tools/webapp/instance/time2score_db`)
+- `--division`: filter to only divisions you want (repeatable). Accepts:
+  - substring name match (e.g., `--division 12AA`) — case-insensitive
+  - level only (e.g., `--division 12`) to include all conferences at that level
+  - exact level:conference (e.g., `--division 12:1`)
+- `--list-seasons`: print the known season ids and exit
+- `--list-divisions`: print divisions for the selected season and exit
+- `--game-id` / `--games-file`: import from explicit game ids (one per line)
+- `--limit`: cap number of games (useful for testing)
+- `--team`: filter to games that involve a team name containing this substring (repeatable)
+- `--logo-dir`: directory to save team logos downloaded from the team page; importer updates `teams.logo_path`
+- League grouping and sharing:
+  - `--league-name` (default: `CAHA-<season>`), `--shared`, `--share-with <email>`
+  - Adds records to `leagues`, `league_members`, `league_teams`, `league_games`
+
+Reset Hockey Data
+-----------------
+Wipe teams, players, hockey games, and player_stats while keeping users and league permissions intact. Useful before a fresh re-import.
+
+Examples:
+
+```
+# Wipe everything (prompts for confirmation)
+python3 tools/webapp/reset_league_data.py --config /opt/hm-webapp/app/config.json
+
+# Wipe only a specific league by name
+python3 tools/webapp/reset_league_data.py --config /opt/hm-webapp/app/config.json --league-name CAHA-Current-12U
+
+# Non-interactive
+python3 tools/webapp/reset_league_data.py --config /opt/hm-webapp/app/config.json --force
+```
+
+What it does:
+- Global reset: deletes from `player_stats`, `league_games`, `hky_games`, `league_teams`, `players`, `teams` in FK-safe order.
+- League-scoped reset: clears mappings for that league, deletes related `player_stats`; then removes `hky_games`/`teams` only if not referenced by other leagues or remaining games.
+- Preserves: `users`, `leagues`, and `league_members`.
+
+Notes:
+- The hockey DB schema does not include a season column; the script stores season metadata in the `hky_games.notes` JSON field for reference.
+- If the user does not exist, pass `--create-user --password-hash <pbkdf2_hash>` to create it.
+
 Testing
 -------
 - Route/logic smoke tests for the new hockey features are in `tests/test_webapp_hockey.py`.

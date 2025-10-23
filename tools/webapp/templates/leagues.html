@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Leagues</h2>
+
+<div class="card">
+  <h3>Your Leagues</h3>
+  {% if leagues %}
+    <ul>
+      {% for L in leagues %}
+        <li>
+          <strong>{{ L.name }}</strong>
+          {% if L.is_shared %}<em>(shared)</em>{% endif %}
+          {% if L.is_admin %} — <a href="/leagues/{{ L.id }}/members">Manage Members</a>{% endif %}
+          {% if L.is_owner %}
+            — <form method="post" action="/leagues/{{ L.id }}/delete" style="display:inline" onsubmit="return confirm('This will delete the league and its data. Continue?')">
+                <button type="submit">Delete League</button>
+              </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No leagues yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>Create League</h3>
+  <form method="post" action="/leagues/new">
+    <label>Name</label>
+    <input type="text" name="name" required />
+    <label><input type="checkbox" name="is_shared" value="1" /> Shared league</label>
+    <button class="btn primary" type="submit">Create</button>
+  </form>
+  <p class="muted">You will be the administrator and can grant access to others.</p>
+  <p class="muted">Use the League selector in the header to switch active context.</p>
+  <p><a href="/leagues">Refresh</a></p>
+  <form method="post" action="/league/select" style="margin-top:8px;">
+    <label>Switch Active League</label>
+    <select name="league_id">
+      <option value="">(My Data)</option>
+      {% for L in leagues %}
+        <option value="{{ L.id }}" {% if selected_league_id==L.id %}selected{% endif %}>{{ L.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Switch</button>
+  </form>
+</div>
+
+{% endblock %}

@@ -19,6 +19,7 @@
           <a href="/games">Jobs: Upload</a>
           <a href="/teams">Teams</a>
           <a href="/schedule">Schedule</a>
+          <a href="/leagues">Leagues</a>
           <a href="/jobs">Jobs</a>
           <a href="/logout">Logout</a>
         {% else %}
@@ -29,6 +30,17 @@
     </div>
   </header>
   <div class="container">
+    {% if session.get('user_id') and user_leagues %}
+      <form method="post" action="/league/select" style="margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+        <label for="league_id">League:</label>
+        <select name="league_id" id="league_id" onchange="this.form.submit()">
+          <option value="">(My Data)</option>
+          {% for L in user_leagues %}
+            <option value="{{ L.id }}" {% if selected_league_id==L.id %}selected{% endif %}>{{ L.name }}{% if L.is_shared %} (shared){% endif %}</option>
+          {% endfor %}
+        </select>
+      </form>
+    {% endif %}
     {% for m in get_flashed_messages(category_filter=['error']) %}
       <div class="flash error">{{ m }}</div>
     {% endfor %}
