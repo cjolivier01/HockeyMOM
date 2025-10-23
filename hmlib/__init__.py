@@ -1,6 +1,19 @@
 import importlib
+import os
+import sys
 
 import numpy as np
+
+from .hm_transforms import HmLoadImageFromWebcam
+
+# Get the absolute path of this file's parent directory
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+
+# Add it to sys.path if not already present
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+
 
 # Define a dictionary that mimics the structure of np.sctypes
 # You'll need to populate this with the specific dtypes your code expects
@@ -16,12 +29,12 @@ _sctypes_mock = {
 # Monkey-patch np.sctypes
 np.sctypes = _sctypes_mock
 
-from .hm_transforms import HmLoadImageFromWebcam
 
 __all__ = [
     "HmLoadImageFromWebcam",
     "LazyImport",
 ]
+
 
 class LazyImport:
     def __init__(self, module_name):
