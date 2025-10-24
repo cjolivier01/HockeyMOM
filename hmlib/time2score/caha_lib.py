@@ -8,13 +8,13 @@ such as no season drop-down on the main stats page.
 from __future__ import annotations
 
 import io
-import re
-from typing import Any, Iterable
+from typing import Any
 
-import database
 import numpy as np
 import pandas as pd
-import util
+
+from . import util
+from .database import Database
 
 # Base site configuration
 TIMETOSCORE_URL = "https://stats.caha.timetoscore.com/"
@@ -501,7 +501,7 @@ def scrape_game_stats(game_id: int):
     return data
 
 
-def sync_seasons(db: database.Database):
+def sync_seasons(db: Database):
     seasons = scrape_seasons()
     for name, season_id in seasons.items():
         db.add_season(season_id, name)
@@ -509,7 +509,7 @@ def sync_seasons(db: database.Database):
         db.add_season(0, "Current")
 
 
-def sync_divisions(db: database.Database, season: int):
+def sync_divisions(db: Database, season: int):
     """Sync divisions from CAHA site."""
     divs = scrape_season_divisions(season_id=season)
     print("Found %d divisions in season %s..." % (len(divs), season))
@@ -532,7 +532,7 @@ def sync_divisions(db: database.Database, season: int):
 
 
 def get_team_id(
-    db: database.Database,
+    db: Database,
     team_name: str,
     season: int,
     division_id: int | None = None,
@@ -558,7 +558,7 @@ def get_team_id(
 
 
 def get_team_or_unknown(
-    db: database.Database,
+    db: Database,
     team_name: str,
     season: int,
     division_id: int | None = None,
@@ -583,9 +583,7 @@ def get_team_or_unknown(
     return team_id
 
 
-def add_game(
-    db: database.Database, season: int, team: dict[str, Any], game: dict[str, Any]
-):
+def add_game(db: Database, season: int, team: dict[str, Any], game: dict[str, Any]):
     """Add a game to the database from a parsed row."""
     # Clean up dict and translate data.
     game_id = game.pop("id")
@@ -616,7 +614,7 @@ def add_game(
     )
 
 
-def sync_season_teams(db: database.Database, season: int):
+def sync_season_teams(db: Database, season: int):
     """Sync games for all teams in a season."""
     teams = db.list_teams("season_id = %d" % season)
     game_ids: set[int] = set()
@@ -631,7 +629,7 @@ def sync_season_teams(db: database.Database, season: int):
             add_game(db, season, team, game)
 
 
-def sync_game_stats(db: database.Database):
+def sync_game_stats(db: Database):
     games = db.list_games()
     for game in games:
         if not game["stats"]:
@@ -643,7 +641,7 @@ def sync_game_stats(db: database.Database):
             db.add_game_stats(game["game_id"], stats)  # type: ignore[arg-type]
 
 
-def load_data(db: database.Database):
+def load_data(db: Database):
     db.create_tables()
     sync_seasons(db)
     seasons = [a["season_id"] for a in db.list_seasons()]
@@ -652,7 +650,7 @@ def load_data(db: database.Database):
         sync_season_teams(db, season)
 
 
-DATABASE = database.Database()
+DATABASE = Database()
 
 if __name__ == "__main__":
     load_data(DATABASE)
