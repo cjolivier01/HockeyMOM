@@ -30,6 +30,7 @@ Example:
 """
 
 import argparse
+import datetime
 import re
 import statistics
 import sys
@@ -142,11 +143,32 @@ def extract_pairs_from_row(row: pd.Series, start_cols: List[int], end_cols: List
     """
     From start/end column groups, collect non-empty strings and pair positionally.
     Start/End order in the sheet can be higher->lower or lower->higher; pairing is positional only.
+    If a value is a time (datetime.time or Timestamp with time), keep only hour:minute.
     """
-    starts = [str(row[c]).strip() for c in start_cols if pd.notna(row[c]) and str(row[c]).strip()]
-    ends = [str(row[c]).strip() for c in end_cols if pd.notna(row[c]) and str(row[c]).strip()]
+
+    def format_cell(val) -> str:
+        if pd.isna(val):
+            return ""
+        # Already string → return trimmed
+        if isinstance(val, str):
+            return val.strip()
+        # datetime.time (Excel time)
+        if isinstance(val, datetime.time):
+            return val.strftime("%H:%M")
+        # pandas Timestamp (could include date/time)
+        if isinstance(val, pd.Timestamp):
+            if val.time() != datetime.time(0, 0):  # has time portion
+                return val.strftime("%H:%M")
+            else:
+                return val.strftime("%Y-%m-%d")  # just a date
+        # Fallback
+        return str(val).strip()
+
+    starts = [format_cell(row[c]) for c in start_cols if format_cell(row[c])]
+    ends = [format_cell(row[c]) for c in end_cols if format_cell(row[c])]
     n = min(len(starts), len(ends))
     return [(starts[i], ends[i]) for i in range(n)]
+
 
 # Treat period end as 0:00 on the scoreboard when sheets encode it as the period start time.
 _PERIOD_START_TIMES = {"12:00", "15:00", "20:00"}
@@ -883,6 +905,9 @@ def process_sheet(
 
                 player_key = f"{sanitize_name(jersey)}_{sanitize_name(name)}"
 
+                if r == 7:
+                    pass
+
                 video_pairs = extract_pairs_from_row(df.iloc[r], start_v_cols, end_v_cols)
                 sb_pairs = extract_pairs_from_row(df.iloc[r], start_sb_cols, end_sb_cols)
                 # Normalize scoreboard end times that incorrectly use the period start
@@ -962,7 +987,6 @@ def process_sheet(
                     except Exception:
                         continue
                     conv_segments_by_period.setdefault(period_num, []).append((s1, s2, v1, v2))
-
 
     # Select subdirectory by detected format
     format_dir = "event_log" if ('used_event_log' in locals() and used_event_log) else "per_player"
