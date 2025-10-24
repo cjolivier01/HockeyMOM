@@ -34,7 +34,7 @@ import re
 import statistics
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple, Any
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 
@@ -1639,6 +1639,9 @@ def main() -> None:
                     f"[t2s] No goals found for game {args.t2s}; continuing without GF/GA.",
                     file=sys.stderr,
                 )
+            else:
+                for g in reversed(sorted([str(g) for g in goals])):
+                    print(g)
         except Exception as e:  # noqa: BLE001
             print(f"[t2s] Failed to fetch goals for game {args.t2s}: {e}", file=sys.stderr)
             # proceed with empty goals
