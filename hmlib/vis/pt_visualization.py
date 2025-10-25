@@ -1,7 +1,6 @@
-"""
-PyTorch geometric shape drawing functions
-"""
+"""PyTorch geometric shape drawing helpers that run efficiently on GPU tensors."""
 
+import math
 from typing import Tuple, Union
 
 import numpy as np
@@ -9,7 +8,107 @@ import torch
 
 from hmlib.bbox.box_functions import height, width
 
-from ..utils.image import image_height, image_width, is_channels_last, make_channels_first, make_channels_last
+from ..utils.image import is_channels_last, make_channels_first, make_channels_last
+
+
+def _prepare_image_for_drawing(image: torch.Tensor) -> Tuple[torch.Tensor, bool, bool]:
+    if image.ndim not in (3, 4):
+        raise ValueError("image must be 3D or 4D")
+
+    was_channels_last = is_channels_last(image)
+    batched = image.ndim == 4
+    if not batched:
+        image = image.unsqueeze(0)
+    if was_channels_last:
+        image = make_channels_first(image)
+    return image, was_channels_last, batched
+
+
+def _finalize_image_after_drawing(
+    image: torch.Tensor,
+    was_channels_last: bool,
+    batched: bool,
+) -> torch.Tensor:
+    if was_channels_last:
+        image = make_channels_last(image)
+    if not batched:
+        image = image.squeeze(0)
+    return image
+
+
+def _color_to_broadcast_tensor(color: Union[Tuple[int, int, int], torch.Tensor], image: torch.Tensor) -> torch.Tensor:
+    channels = image.shape[1]
+    target_dtype = image.dtype
+
+    if isinstance(color, torch.Tensor):
+        color_tensor = color.to(device=image.device, dtype=target_dtype)
+    else:
+        color_tensor = torch.tensor(color, device=image.device, dtype=target_dtype)
+
+    if color_tensor.ndim == 1:
+        color_tensor = color_tensor.view(1, channels, 1, 1)
+    elif color_tensor.ndim == 3:
+        color_tensor = color_tensor.unsqueeze(0)
+    elif color_tensor.ndim == 4:
+        pass
+    else:
+        raise ValueError("color must be a tuple or tensor with channel dimension")
+
+    if color_tensor.shape[1] != channels:
+        raise ValueError("color channel count does not match image")
+
+    return color_tensor
+
+
+def _apply_solid_fill(
+    image: torch.Tensor,
+    x0: int,
+    x1: int,
+    y0: int,
+    y1: int,
+    color_tensor: torch.Tensor,
+    alpha: int,
+) -> None:
+    height = image.shape[2]
+    width = image.shape[3]
+
+    x0 = max(0, min(width, x0))
+    x1 = max(0, min(width, x1))
+    y0 = max(0, min(height, y0))
+    y1 = max(0, min(height, y1))
+
+    if x0 >= x1 or y0 >= y1:
+        return
+
+    region = image[:, :, y0:y1, x0:x1]
+    color_expanded = color_tensor.expand_as(region)
+
+    if alpha >= 255:
+        region.copy_(color_expanded)
+        return
+
+    if alpha <= 0:
+        return
+
+    falpha = float(alpha) / 255.0
+    if torch.is_floating_point(region):
+        region.lerp_(color_expanded, falpha)
+    else:
+        blended = torch.lerp(
+            region.to(torch.float32),
+            color_expanded.to(torch.float32),
+            falpha,
+        )
+        region.copy_(blended.to(region.dtype))
+
+
+def _thickness_offsets(thickness: int, device: torch.device) -> torch.Tensor:
+    if thickness <= 1:
+        return torch.zeros((1, 2), dtype=torch.int64, device=device)
+
+    offsets = torch.arange(thickness, device=device, dtype=torch.int64) - (thickness // 2)
+    offset_y, offset_x = torch.meshgrid(offsets, offsets, indexing="ij")
+    return torch.stack((offset_y.reshape(-1), offset_x.reshape(-1)), dim=1)
 
 
 def draw_filled_square(
@@ -20,55 +119,39 @@ def draw_filled_square(
     color: Union[Tuple[int, int, int], torch.Tensor],
     alpha: int = 255,
 ) -> torch.Tensor:
-    """
-    Draw a square on the image at specified location using PyTorch.
+    """Draw a filled square centered at ``(center_x, center_y)``."""
 
-    Parameters:
-        image (torch.Tensor): The image tensor of shape [3, H, W]
-        top_left_x (int): The x coordinate of the top left corner of the square
-        top_left_y (int): The y coordinate of the top left corner of the square
-        size (int): The size of the side of the square
-        color (tuple): The RGB color of the square
-    """
-    # Ensure the square doesn't go out of the image boundaries
-    assert image.ndim == 4
-    assert alpha >= 0 and alpha <= 255
-
-    # image = draw_text(image=image, x=100, y=100, text="HELLO WORLD")
-
-    if alpha == 0:
-        # Nothing to do
+    if alpha <= 0:
         return image
 
-    falpha = float(alpha) / 255.0
+    size_int = int(size)
+    if size_int <= 0:
+        return image
 
-    was_channels_last = is_channels_last(image)
-    if was_channels_last:
-        image = make_channels_first(image)
+    work_image, was_channels_last, batched = _prepare_image_for_drawing(image)
+    color_tensor = _color_to_broadcast_tensor(color, work_image)
 
-    if not isinstance(color, torch.Tensor):
-        # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
-        color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
+    cx = int(center_x)
+    cy = int(center_y)
+    top_left_x = cx - size_int // 2
+    top_left_y = cy - size_int // 2
 
-    top_left_x = int(center_x - size // 2)
-    top_left_y = int(center_y - size // 2)
-    H, W = image_height(image), image_width(image)
-    if top_left_x + size > W or top_left_y + size > H:
+    width = work_image.shape[3]
+    height = work_image.shape[2]
+    if top_left_x < 0 or top_left_y < 0 or top_left_x + size_int > width or top_left_y + size_int > height:
         raise ValueError("Square goes out of image boundaries.")
 
-    if alpha == 255:
-        image[:, :, top_left_y : top_left_y + size, top_left_x : top_left_x + size] = color_tensor
-    else:
-        # Set the pixel values to the specified color  TODO: do all channels a once
-        image[:, :, top_left_y : top_left_y + size, top_left_x : top_left_x + size] = (
-            image[:, :, top_left_y : top_left_y + size, top_left_x : top_left_x + size]
-            * (1 - alpha)
-            + color_tensor * falpha
-        )
+    _apply_solid_fill(
+        work_image,
+        top_left_x,
+        top_left_x + size_int,
+        top_left_y,
+        top_left_y + size_int,
+        color_tensor,
+        alpha,
+    )
 
-    if was_channels_last:
-        image = make_channels_last(image)
-    return image
+    return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
 
 def draw_horizontal_line(
@@ -83,58 +166,39 @@ def draw_horizontal_line(
     """
     Draw a horizontal line on the image at specified location using PyTorch.
     """
-    # Ensure the square doesn't go out of the image boundaries
-    assert alpha >= 0 and alpha <= 255
-
-    if alpha == 0:
-        # Nothing to do
+    if alpha <= 0 or length <= 0 or thickness <= 0:
         return image
 
-    sq = image.ndim == 3
-    if sq:
-        image = image.unsqueeze(0)
+    work_image, was_channels_last, batched = _prepare_image_for_drawing(image)
+    color_tensor = _color_to_broadcast_tensor(color, work_image)
 
-    falpha = float(alpha) / 255.0
+    length_int = int(length)
+    thickness_int = max(1, int(thickness))
+    start_x_int = int(start_x)
+    start_y_int = int(start_y)
 
-    if start_y >= thickness // 2:
-        start_y -= thickness // 2
+    top = start_y_int - thickness_int // 2
+    bottom = top + thickness_int
+    left = start_x_int
+    right = start_x_int + length_int
 
-    was_channels_last = is_channels_last(image)
-    if was_channels_last:
-        image = make_channels_first(image)
+    height = work_image.shape[2]
+    width = work_image.shape[3]
 
-    if not isinstance(color, torch.Tensor):
-        # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
-        color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
-    else:
-        color_tensor = color
+    if right <= 0 or left >= width or bottom <= 0 or top >= height:
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
-    H, W = image_height(image), image_width(image)
+    _apply_solid_fill(
+        work_image,
+        left,
+        right,
+        top,
+        bottom,
+        color_tensor,
+        alpha,
+    )
 
-    if start_y < 0 or start_y > H:
-        return image
-
-    if start_x + length > W:
-        length = W - start_x
-        if length < 0:  # it's all off the screen?
-            return image
-
-    if alpha == 255:
-        image[:, :, start_y : start_y + thickness, start_x : start_x + length] = color_tensor
-    else:
-        # Set the pixel values to the specified color  TODO: do all channels a once
-        image[:, :, start_y : start_y + thickness, start_x : start_x + length] = (
-            image[:, :, start_y : start_y + thickness, start_x : start_x + length] * (1 - alpha)
-            + color_tensor * falpha
-        )
-
-    if was_channels_last:
-        image = make_channels_last(image)
-
-    if sq:
-        image = image.squeeze(0)
-
-    return image
+    return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
 
 def draw_vertical_line(
@@ -146,66 +210,40 @@ def draw_vertical_line(
     thickness: int = 1,
     alpha: int = 255,
 ) -> torch.Tensor:
-    """
-    Draw a horizontal line on the image at specified location using PyTorch.
-    """
-    # Ensure the square doesn't go out of the image boundaries
-    # assert length > 1
-    assert alpha >= 0 and alpha <= 255
-
-    if alpha == 0:
-        # Nothing to do
+    """Draw a vertical line on the image at the specified location."""
+    if alpha <= 0 or length <= 0 or thickness <= 0:
         return image
 
-    sq = image.ndim == 3
-    if sq:
-        image = image.unsqueeze(0)
+    work_image, was_channels_last, batched = _prepare_image_for_drawing(image)
+    color_tensor = _color_to_broadcast_tensor(color, work_image)
 
-    falpha = float(alpha) / 255.0
+    length_int = int(length)
+    thickness_int = max(1, int(thickness))
+    start_x_int = int(start_x)
+    start_y_int = int(start_y)
 
-    if start_x >= thickness // 2:
-        start_x -= thickness // 2
+    left = start_x_int - thickness_int // 2
+    right = left + thickness_int
+    top = start_y_int
+    bottom = start_y_int + length_int
 
-    was_channels_last = is_channels_last(image)
-    if was_channels_last:
-        image = make_channels_first(image)
+    height = work_image.shape[2]
+    width = work_image.shape[3]
 
-    if not isinstance(color, torch.Tensor):
-        # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
-        color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(1, -1, 1, 1)
-    else:
-        color_tensor = color
+    if right <= 0 or left >= width or bottom <= 0 or top >= height:
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
-    H, W = image_height(image), image_width(image)
-    if start_x < 0 or start_x > W:
-        return image
-    if start_y < 0:
-        start_y = 0
-    if start_y + length > H:
-        length = H - start_y
-        if length < 0:  # it's all off the screen?
-            return image
+    _apply_solid_fill(
+        work_image,
+        left,
+        right,
+        top,
+        bottom,
+        color_tensor,
+        alpha,
+    )
 
-    if alpha == 255:
-        image[:, :, start_y : start_y + length, start_x : start_x + thickness] = color_tensor
-    else:
-        # Set the pixel values to the specified color  TODO: do all channels a once
-        image[:, :, start_y : start_y + length, start_x : start_x + thickness] = (
-            image[:, :, start_y : start_y + length, start_x : start_x + thickness] * (1 - falpha)
-            + color_tensor * falpha
-        )
-
-    if was_channels_last:
-        image = make_channels_last(image)
-
-    if sq:
-        image = image.squeeze(0)
-
-    return image
-
-
-import torch
-
+    return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
 def draw_line(
     image: torch.Tensor,
@@ -226,8 +264,10 @@ def draw_line(
     - thickness: Line thickness in pixels.
     """
 
+    if thickness <= 0:
+        return image
+
     if y1 == y2:
-        # Horizontal
         start_x = min(x1, x2)
         stop_x = max(x1, x2)
         start_y = y1
@@ -240,8 +280,7 @@ def draw_line(
             color=color,
             thickness=thickness,
         )
-    elif x1 == x2:
-        # Vertical
+    if x1 == x2:
         start_y = min(y1, y2)
         stop_y = max(y1, y2)
         start_x = x1
@@ -255,57 +294,66 @@ def draw_line(
             thickness=thickness,
         )
 
-    assert image.ndim == 3
-    image = make_channels_first(image)
+    work_image, was_channels_last, batched = _prepare_image_for_drawing(image)
+    if work_image.shape[0] != 1:
+        raise ValueError("draw_line expects an image tensor or a batch of size 1")
 
-    # Get image dimensions
-    C, H, W = image.shape
-    device = image.device
+    color_tensor = _color_to_broadcast_tensor(color, work_image)
 
-    # Compute the bounding box around the line with thickness
-    x_min = int(max(0, min(x1, x2) - thickness))
-    x_max = int(min(W - 1, max(x1, x2) + thickness)) + 1
-    y_min = int(max(0, min(y1, y2) - thickness))
-    y_max = int(min(H - 1, max(y1, y2) + thickness)) + 1
+    target = work_image[0]
+    _, height, width = target.shape
 
-    # Create coordinate grid within the bounding box
-    ys, xs = torch.meshgrid(
-        torch.arange(y_min, y_max, device=device, dtype=torch.float32),
-        torch.arange(x_min, x_max, device=device, dtype=torch.float32),
-        indexing="ij",
-    )
+    thickness_int = max(1, int(thickness))
+    dx = x2 - x1
+    dy = y2 - y1
 
-    # Compute line coefficients A, B, and C for the line equation Ax + By + C = 0
-    A = y2 - y1
-    B = x1 - x2
-    CL = x2 * y1 - x1 * y2
+    if dx == 0 and dy == 0:
+        center_x = int(x1) - thickness_int // 2
+        center_y = int(y1) - thickness_int // 2
+        _apply_solid_fill(
+            work_image,
+            center_x,
+            center_x + thickness_int,
+            center_y,
+            center_y + thickness_int,
+            color_tensor,
+            255,
+        )
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
-    if not isinstance(A, torch.Tensor):
-        A = torch.tensor(A, dtype=torch.float, device=image.device)
+    device = target.device
+    steps = int(max(abs(dx), abs(dy))) + 1
+    t = torch.linspace(0.0, 1.0, steps, device=device, dtype=torch.float32)
 
-    # Compute the distance from each pixel to the line
-    denominator = torch.sqrt(A**2 + B**2) + 1e-8  # Avoid division by zero
-    distance = torch.abs(A * xs + B * ys + CL) / denominator
+    xs = torch.round(t * dx + float(x1)).to(torch.int64)
+    ys = torch.round(t * dy + float(y1)).to(torch.int64)
+    points = torch.stack((ys, xs), dim=1)
 
-    # Create a mask where the distance is less than or equal to half the thickness
-    mask = distance <= (thickness / 2.0)
+    offsets = _thickness_offsets(thickness_int, device)
+    if offsets.shape[0] > 1:
+        points = points.unsqueeze(1) + offsets.unsqueeze(0)
+        points = points.view(-1, 2)
 
-    # Apply the mask to the image region
-    mask = mask.unsqueeze(0).expand(C, -1, -1)  # Expand mask to (C, H', W')
+    valid = (points[:, 1] >= 0) & (points[:, 1] < width) & (points[:, 0] >= 0) & (points[:, 0] < height)
+    points = points[valid]
 
-    if not isinstance(color, torch.Tensor):
-        # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
-        color = torch.tensor(color, dtype=image.dtype, device=image.device)
+    if points.numel() == 0:
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
-    color = color.view(C, 1, 1)  # Reshape color to (C, 1, 1)
+    points = torch.unique(points, dim=0)
+    if points.numel() == 0:
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
-    # Slice the image to the bounding box
-    image_region = image[:, y_min:y_max, x_min:x_max]
+    color_vector = color_tensor.view(color_tensor.shape[1])
 
-    # Modify the region in the image
-    image[:, y_min:y_max, x_min:x_max] = torch.where(mask, color, image_region)
+    ys_idx = points[:, 0]
+    xs_idx = points[:, 1]
+    num_points = xs_idx.numel()
 
-    return image
+    values = color_vector.unsqueeze(1).expand(-1, num_points)
+    target[:, ys_idx, xs_idx] = values
+
+    return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
 
 def draw_box(
@@ -320,91 +368,74 @@ def draw_box(
     alpha: int = 255,
     filled: bool = False,
 ) -> torch.Tensor:
-    W = int(width(tlbr))
-    H = int(height(tlbr))
-    assert len(tlbr) == 4
-    int_box = [int(i) for i in tlbr]
-
-    if filled:
-        intbox = [int(i) for i in tlbr]
-        h = intbox[3] - intbox[1]
-        w = intbox[2] - intbox[0]
-        start_x = intbox[0]
-        start_y = intbox[1]
-        use_dtype = image.dtype
-        image = make_channels_first(image)
-
-        if alpha == 255:
-            if not isinstance(color, torch.Tensor):
-                # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
-                color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(
-                    1, -1, 1, 1
-                )
-            else:
-                color_tensor = color
-
-            image[:, :, start_y : start_y + h, start_x : start_x + w] = color
-        else:
-            if not torch.is_floating_point(image):
-                image = image.to(torch.float, non_blocking=True)
-
-            if not isinstance(color, torch.Tensor):
-                # Convert color tuple to a tensor and reshape to [1, C, 1, 1] for broadcasting
-                color_tensor = torch.tensor(color, dtype=image.dtype, device=image.device).view(
-                    1, -1, 1, 1
-                )
-            else:
-                color_tensor = color
-
-            falpha = alpha / 255
-            # Set the pixel values to the specified color  TODO: do all channels a once
-            image[:, :, start_y : start_y + h, start_x : start_x + w] = (
-                image[:, :, start_y : start_y + h, start_x : start_x + w] * (1 - falpha)
-                + color_tensor * falpha
-            )
+    if alpha <= 0:
         return image
 
-    # left side
-    image = draw_vertical_line(
-        image=image,
-        start_x=int_box[0],
-        start_y=int_box[1],
-        length=H,
-        color=color,
-        thickness=thickness,
-        alpha=alpha,
+    if len(tlbr) != 4:
+        raise ValueError("Bounding box must have four elements")
+
+    work_image, was_channels_last, batched = _prepare_image_for_drawing(image)
+    color_tensor = _color_to_broadcast_tensor(color, work_image)
+
+    left, top, right, bottom = (int(i) for i in tlbr)
+    box_width = int(width(tlbr))
+    box_height = int(height(tlbr))
+
+    if box_width <= 0 or box_height <= 0:
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
+
+    if filled:
+        _apply_solid_fill(
+            work_image,
+            left,
+            right,
+            top,
+            bottom,
+            color_tensor,
+            alpha,
+        )
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
+
+    thickness_int = max(1, int(thickness))
+
+    _apply_solid_fill(
+        work_image,
+        left,
+        left + thickness_int,
+        top,
+        top + box_height,
+        color_tensor,
+        alpha,
     )
-    # right side
-    image = draw_vertical_line(
-        image=image,
-        start_x=int_box[2],
-        start_y=int_box[1],
-        length=H,
-        color=color,
-        thickness=thickness,
-        alpha=alpha,
+    _apply_solid_fill(
+        work_image,
+        right,
+        right + thickness_int,
+        top,
+        top + box_height,
+        color_tensor,
+        alpha,
     )
-    # top
-    image = draw_horizontal_line(
-        image=image,
-        start_x=int_box[0],
-        start_y=int_box[1],
-        length=W,
-        color=color,
-        thickness=thickness,
-        alpha=alpha,
+    _apply_solid_fill(
+        work_image,
+        left,
+        left + box_width,
+        top,
+        top + thickness_int,
+        color_tensor,
+        alpha,
     )
-    # bottom
-    image = draw_horizontal_line(
-        image=image,
-        start_x=int_box[0],
-        start_y=int_box[3],
-        length=W,
-        color=color,
-        thickness=thickness,
-        alpha=alpha,
+    _apply_solid_fill(
+        work_image,
+        left,
+        left + box_width,
+        bottom,
+        bottom + thickness_int,
+        color_tensor,
+        alpha,
     )
-    return image
+
+    return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
 
 def draw_circle(
@@ -416,76 +447,63 @@ def draw_circle(
     thickness: int = 1,
     fill: bool = False,
 ) -> torch.Tensor:
-    """
-    Draws a circle on the image tensor with the given center, radius, color, and thickness,
-    optionally filling it. If the circle would extend outside the image, it is not drawn.
+    """Draw a circle or disk using vectorized GPU-friendly operations."""
 
-    Parameters:
-    - image: torch.Tensor of shape (C, H, W) on the GPU or CPU.
-    - center_x: float, x-coordinate of the circle center.
-    - center_y: float, y-coordinate of the circle center.
-    - radius: float, radius of the circle.
-    - color: torch.Tensor of shape (C,) representing the RGB color.
-    - thickness: int, circle line thickness in pixels. Ignored if fill=True.
-    - fill: bool, if True, fills the circle.
-
-    Returns:
-    - torch.Tensor: The image tensor with the circle drawn on it, or unchanged if circle goes out of bounds.
-    """
-    # Validate input
-    assert image.ndim == 3, "Image must be of shape (C, H, W)"
-    C, H, W = image.shape
-    device = image.device
-
-    # Effective thickness (0 if fill)
-    t = 0.0 if fill else float(thickness)
-    t = max(t, 0.0)
-
-    # Check if circle fits fully inside the image (with thickness margin)
-    if (
-        center_x - radius - t < 0
-        or center_x + radius + t >= W
-        or center_y - radius - t < 0
-        or center_y + radius + t >= H
-    ):
-        # Circle would go out of bounds -> return unchanged image
+    if radius <= 0:
         return image
 
-    # Bounding box
-    x_min = int(center_x - radius - t)
-    x_max = int(center_x + radius + t) + 1
-    y_min = int(center_y - radius - t)
-    y_max = int(center_y + radius + t) + 1
+    thickness_int = max(1, int(thickness))
 
-    # Grid
-    ys, xs = torch.meshgrid(
-        torch.arange(y_min, y_max, device=device, dtype=torch.float32),
-        torch.arange(x_min, x_max, device=device, dtype=torch.float32),
-        indexing="ij",
-    )
+    work_image, was_channels_last, batched = _prepare_image_for_drawing(image)
+    if work_image.shape[0] != 1:
+        raise ValueError("draw_circle expects an image tensor or a batch of size 1")
 
-    # Distances
-    distance_sq = (xs - center_x) ** 2 + (ys - center_y) ** 2
-    radius_sq = radius**2
+    radius_float = float(radius)
+    effective_thickness = 0.0 if fill else float(thickness_int)
+
+    color_tensor = _color_to_broadcast_tensor(color, work_image)
+
+    target = work_image[0]
+    _, height, width = target.shape
+    device = target.device
+
+    x_min = math.floor(center_x - radius_float - effective_thickness)
+    x_max = math.ceil(center_x + radius_float + effective_thickness) + 1
+    y_min = math.floor(center_y - radius_float - effective_thickness)
+    y_max = math.ceil(center_y + radius_float + effective_thickness) + 1
+
+    x_min_clamped = max(0, x_min)
+    y_min_clamped = max(0, y_min)
+    x_max_clamped = min(width, x_max)
+    y_max_clamped = min(height, y_max)
+
+    if x_min_clamped >= x_max_clamped or y_min_clamped >= y_max_clamped:
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
+
+    xs = torch.arange(x_min_clamped, x_max_clamped, device=device, dtype=torch.float32)
+    ys = torch.arange(y_min_clamped, y_max_clamped, device=device, dtype=torch.float32)
+    ys_grid, xs_grid = torch.meshgrid(ys, xs, indexing="ij")
+
+    distance_sq = (xs_grid - float(center_x)) ** 2 + (ys_grid - float(center_y)) ** 2
+    radius_sq = radius_float**2
 
     if fill:
         mask = distance_sq <= radius_sq
     else:
-        inner_radius_sq = max(0.0, (radius - thickness)) ** 2
-        mask = (distance_sq >= inner_radius_sq) & (distance_sq <= radius_sq)
+        inner_radius = max(0.0, radius_float - float(thickness_int))
+        inner_radius_sq = inner_radius**2
+        mask = (distance_sq <= radius_sq) & (distance_sq >= inner_radius_sq)
 
-    # Expand mask to channels
-    mask = mask.unsqueeze(0).expand(C, -1, -1)
+    if not mask.any():
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
-    if not isinstance(color, torch.Tensor):
-        color = torch.tensor(color, dtype=image.dtype, device=device)
-    color = color.view(C, 1, 1)
+    region = work_image[:, :, y_min_clamped:y_max_clamped, x_min_clamped:x_max_clamped]
+    mask_expanded = mask.unsqueeze(0).unsqueeze(0).expand_as(region)
+    color_expanded = color_tensor.expand_as(region)
 
-    # Clone image to avoid in-place modifications
-    region = image[:, y_min:y_max, x_min:x_max]
-    image[:, y_min:y_max, x_min:x_max] = torch.where(mask, color, region)
+    region.copy_(torch.where(mask_expanded, color_expanded, region))
 
-    return image
+    return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
 
 def draw_ellipse(self, frame, bbox, color, track_id=None, team=None):
