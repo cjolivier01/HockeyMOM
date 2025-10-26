@@ -275,14 +275,19 @@ def get_game_videos_analysis(
     return videos_dict
 
 
-def extract_chapters_file_list(chapter_map: Dict[int, Path]) -> List[str]:
-    file_list: List[str] = []
-    numeric_keys = [key for key in chapter_map.keys() if isinstance(key, (int, float))]
-    index = min(numeric_keys)
-    while index in chapter_map:
-        file_list.append(chapter_map[index])
-        index += 1
-    return file_list
+def extract_chapters_file_list(chapter_map: VideoChapter) -> List[str]:
+    numeric_keys = sorted(key for key in chapter_map.keys() if isinstance(key, (int, float)))
+    if not numeric_keys:
+        return []
+
+    start = int(numeric_keys[0])
+    expected = list(range(start, start + len(numeric_keys)))
+    actual = [int(key) for key in numeric_keys]
+    if actual != expected:
+        missing = sorted(set(expected) - set(actual))
+        raise ValueError(f"Non-consecutive chapter numbers: present={actual}, missing={missing}")
+
+    return [chapter_map[index] for index in expected]
 
 
 def configure_game_videos(
