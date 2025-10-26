@@ -25,6 +25,8 @@ class PoseTrunk(Trunk):
     """
 
     def __init__(self, enabled: bool = True):
+        # Need to import in order to register
+        from hmlib.visualization import PytorchPoseLocalVisualizer
         super().__init__(enabled=enabled)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -281,10 +283,11 @@ class PoseTrunk(Trunk):
                                 clone_image=False,
                                 draw_gt=False,
                                 draw_bbox=False,
+                                show_kpt_idx=True,
                                 kpt_thr=kpt_thr if kpt_thr is not None else 0.3,
                             )
                             # show_image("pose", img, wait=False)
-                        except Exception:
+                        except Exception as ex:
                             pass
         else:
             # Fallback: let MMPose handle detection internally
