@@ -3,7 +3,7 @@ import os
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import torch
 
@@ -26,15 +26,16 @@ from hmlib.utils.video import load_first_video_frame
 # GoPro pattern is GXzzxxxx.mp4, where zz is chapter number and zzzz is video
 # number
 GOPRO_FILE_PATTERN: str = r"^G[A-Z][0-9]{6}\.(MP4|mp4)$"
+INSTA360_FILE_PATTERN: str = r"^VID_[0-9]{8}_[0-9]{6}_[0-9]{3}\.(MP4|mp4)$"
 LEFT_PART_FILE_PATTERN: str = r"left-[0-9]\.mp4$"
 RIGHT_PART_FILE_PATTERN: str = r"right-[0-9]\.mp4$"
 LEFT_FILE_PATTERN: str = r"left.mp4"
 RIGHT_FILE_PATTERN: str = r"right.mp4"
 
 
-VideoChapter = Dict[int, Any]
+VideoChapter = Dict[Union[int, str], Any]
 VideosDictKey = Union[int, str]
-VideosDict = Dict[VideosDictKey, List[Dict[Union[int, str], Any]]]
+VideosDict = Dict[VideosDictKey, VideoChapter]
 
 
 def gopro_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
@@ -47,6 +48,17 @@ def gopro_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
     assert name[0] == "G"
     assert name[1] in {"H", "X"}
     return int(name[4:8]), int(name[2:4])
+
+
+def insta360_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
+    """Return (video identifier, chapter number) for Insta360 clips."""
+    name = Path(filename).stem
+    tokens = name.split("_")
+    assert tokens[0] == "VID"
+    assert len(tokens) >= 4
+    date_token, video_token, chapter_token = tokens[1], tokens[2], tokens[3]
+    video_id = int(f"{date_token}{video_token}")
+    return video_id, int(chapter_token)
 
 
 def get_lr_part_number(filename: str) -> int:
@@ -100,9 +112,16 @@ def get_available_videos(dir_name: str, prune: bool = False) -> VideosDict:
     """
     gopro_files: List[str] = find_matching_files(re_pattern=GOPRO_FILE_PATTERN, directory=dir_name)
     # Video # / left|right -> Chapter # -> filename
-    videos_dict: Dict[Union[int, str], List[Dict[int, str]]] = OrderedDict()
+    videos_dict: VideosDict = OrderedDict()
     for file in gopro_files:
         video, chapter = gopro_get_video_and_chapter(filename=file)
+        if video not in videos_dict:
+            videos_dict[video] = {}
+        videos_dict[video][chapter] = file
+
+    insta360_files: List[str] = find_matching_files(re_pattern=INSTA360_FILE_PATTERN, directory=dir_name)
+    for file in insta360_files:
+        video, chapter = insta360_get_video_and_chapter(filename=file)
         if video not in videos_dict:
             videos_dict[video] = {}
         videos_dict[video][chapter] = file
