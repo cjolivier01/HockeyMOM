@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 import torch
 from mmengine.structures import InstanceData
 
+from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
 
 from .base import Trunk
@@ -33,16 +34,36 @@ class TrackerTrunk(Trunk):
         self._cpp_tracker = bool(cpp_tracker)
         self._hm_tracker: Optional[HmTracker] = None
 
-    def _ensure_tracker(self):
+    def _ensure_tracker(self, image_size: torch.Size):
         if self._hm_tracker is not None:
             return
-        config = HmByteTrackConfig()
-        config.init_track_thr = 0.7
-        config.obj_score_thrs_low = 0.1
-        config.obj_score_thrs_high = 0.3
-        config.match_iou_thrs_high = 0.1
-        config.match_iou_thrs_low = 0.5
-        config.match_iou_thrs_tentative = 0.3
+
+        # make sure it's channels first so that we can pull the width
+        image_width = image_size[-1]
+        assert image_width > 4
+        image_width_ratio: float = image_width / WIDTH_NORMALIZATION_SIZE
+
+        if image_width_ratio >= 1.3:
+            config = HmByteTrackConfig()
+            config.init_track_thr = 0.7
+            config.obj_score_thrs_low = 0.1
+            config.obj_score_thrs_high = 0.3
+            # config.obj_score_thrs_low = 0.2
+            # config.obj_score_thrs_high = 0.4
+
+            config.match_iou_thrs_high = 0.1
+            config.match_iou_thrs_low = 0.5
+            config.match_iou_thrs_tentative = 0.3
+        else:
+            config = HmByteTrackConfig()
+            config.init_track_thr = 0.7
+            config.obj_score_thrs_low = 0.1
+            config.obj_score_thrs_high = 0.3
+
+            config.match_iou_thrs_high = 0.1
+            config.match_iou_thrs_low = 0.5
+            config.match_iou_thrs_tentative = 0.3
+
         config.track_buffer_size = 60
         config.return_user_ids = False
         config.return_track_age = False
@@ -63,7 +84,7 @@ class TrackerTrunk(Trunk):
         using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
         using_precalc_det: bool = bool(context.get("using_precalculated_detection", False))
 
-        self._ensure_tracker()
+        self._ensure_tracker(image_size=data["original_images"].shape)
 
         # Access TrackDataSample list
         track_samples = data.get("data_samples")

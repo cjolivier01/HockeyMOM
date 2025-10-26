@@ -15,7 +15,7 @@ aspen:
     - type: HmResize
       img_scale: [1312, 480]
       keep_ratio: true
-      interpolation: nearest
+      interpolation: bilinear
     - type: HmPad
       pad_val: 114.0
       size_divisor: 32

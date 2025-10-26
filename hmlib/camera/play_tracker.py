@@ -168,7 +168,7 @@ class PlayTracker(torch.nn.Module):
 
             current_roi_config.max_width = play_width
             current_roi_config.max_height = play_height
-            current_roi_config.min_height = 10
+            current_roi_config.min_height = play_height / 10
 
             current_roi_config.stop_resizing_on_dir_change = False
             current_roi_config.stop_translation_on_dir_change = False
@@ -299,6 +299,7 @@ class PlayTracker(torch.nn.Module):
                 color=(255, 128, 64),
                 thickness=5,
                 device=self._device,
+                min_height=play_height / 10,
             )
 
             self._current_roi_aspect: Union[MovingBox, PyLivingBox] = MovingBox(
