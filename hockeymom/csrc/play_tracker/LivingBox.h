@@ -151,6 +151,14 @@ struct TranslatingBoxConfig {
   FloatValue max_accel_x{0.0};
   FloatValue max_accel_y{0.0};
   bool stop_translation_on_dir_change{true};
+  // When >0, instead of damping the input on a direction change,
+  // initiate a per-axis stop over this many frames, ignoring new inputs
+  // on that axis while decelerating to zero.
+  IntValue stop_translation_on_dir_change_delay{0};
+  // If true, while a stop-delay is active on an axis,
+  // cancel that stop-delay immediately if the input direction flips
+  // opposite to the direction that originally triggered the stop.
+  bool cancel_stop_on_opposite_dir{false};
   FloatValue dynamic_acceleration_scaling{0.0};
   FloatValue arena_angle_from_vertical{0.0};
   std::optional<BBox> arena_box{std::nullopt};

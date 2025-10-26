@@ -40,3 +40,11 @@ py_test(
     name = "test_webapp_hockey",
     srcs = ["test_webapp_hockey.py"],
 )
+
+py_test(
+    name = "test_box_equivalence",
+    srcs = ["test_box_equivalence.py"],
+    data = [
+        "//hmlib:wheel_data_files",
+    ],
+)

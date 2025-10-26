@@ -56,6 +56,9 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     center_dest = *state_.filtered_target_center;
   }
   PointDiff total_diff = center_dest - center_current;
+  // Reset single-frame cancel flash indicators
+  state_.canceled_stop_x = false;
+  state_.canceled_stop_y = false;
 
   std::optional<FloatValue> x_gaussian;
   if (!is_zero(config_.dynamic_acceleration_scaling)) {
@@ -134,42 +137,103 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     //
   }
 
-  if (!is_nonstop()) {
-    // If we aren't in a forced state of not applying any
-    // constraint/direction-change stops. This is usually because we noticed
-    // (externally) a big change and need to get things moving in some
-    // corrective way (i.e. follow a breakaway) without any randomness.
-    // interfering and stopping it.
-    // This is in leiu of making a big jump all at once, which can be
-    // (visually) jarring.
+  // Build per-axis accel, allowing stop-delay braking to override input
+  std::optional<FloatValue> accel_x = total_diff.dx;
+  std::optional<FloatValue> accel_y = total_diff.dy;
 
-    if (different_directions(total_diff.dx, state_.current_speed_x)) {
-      if (std::abs(state_.current_speed_x) <
-          config_.max_speed_x / kSpeedDiffDirectionAssumeStoppedMaxRatio) {
-        state_.current_speed_x = 0.0;
+  if (!is_nonstop()) {
+    // Only consider triggering new stop-delays if not already braking on axis
+    if ((!state_.stop_delay_x || *state_.stop_delay_x == 0) &&
+        different_directions(total_diff.dx, state_.current_speed_x)) {
+      const bool moving_enough_x =
+          std::abs(state_.current_speed_x) >=
+          config_.max_speed_x / kSpeedDiffDirectionAssumeStoppedMaxRatio;
+      if (config_.stop_translation_on_dir_change_delay > 0 && moving_enough_x) {
+        state_.stop_delay_x = config_.stop_translation_on_dir_change_delay;
+        state_.stop_delay_x_counter = 0;
+        state_.stop_decel_x = -state_.current_speed_x /
+            static_cast<FloatValue>(config_.stop_translation_on_dir_change_delay);
+        state_.stop_trigger_dir_x = sign(total_diff.dx);
       } else {
-        state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
-      }
-      // Instead of hard-stopping on direction change, gently damp desired accel.
-      if (config_.stop_translation_on_dir_change) {
-        total_diff.dx *= 0.25; // soften abrupt direction reversals
+        if (std::abs(state_.current_speed_x) <
+            config_.max_speed_x / kSpeedDiffDirectionAssumeStoppedMaxRatio) {
+          state_.current_speed_x = 0.0;
+        } else {
+          state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
+        }
+        if (config_.stop_translation_on_dir_change) {
+          total_diff.dx *= 0.25f; // soften abrupt direction reversals
+          accel_x = total_diff.dx;
+        }
       }
     }
 
-    if (different_directions(total_diff.dy, state_.current_speed_y)) {
-      if (std::abs(state_.current_speed_y) <
-          config_.max_speed_y / kSpeedDiffDirectionAssumeStoppedMaxRatio) {
-        state_.current_speed_y = 0.0;
+    if ((!state_.stop_delay_y || *state_.stop_delay_y == 0) &&
+        different_directions(total_diff.dy, state_.current_speed_y)) {
+      const bool moving_enough_y =
+          std::abs(state_.current_speed_y) >=
+          config_.max_speed_y / kSpeedDiffDirectionAssumeStoppedMaxRatio;
+      if (config_.stop_translation_on_dir_change_delay > 0 && moving_enough_y) {
+        state_.stop_delay_y = config_.stop_translation_on_dir_change_delay;
+        state_.stop_delay_y_counter = 0;
+        state_.stop_decel_y = -state_.current_speed_y /
+            static_cast<FloatValue>(config_.stop_translation_on_dir_change_delay);
+        state_.stop_trigger_dir_y = sign(total_diff.dy);
       } else {
-        state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
-      }
-      if (config_.stop_translation_on_dir_change) {
-        total_diff.dy *= 0.25;
+        if (std::abs(state_.current_speed_y) <
+            config_.max_speed_y / kSpeedDiffDirectionAssumeStoppedMaxRatio) {
+          state_.current_speed_y = 0.0;
+        } else {
+          state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
+        }
+        if (config_.stop_translation_on_dir_change) {
+          total_diff.dy *= 0.25f;
+          accel_y = total_diff.dy;
+        }
       }
     }
   } // end of is_nonstop()
 
-  adjust_speed(total_diff.dx, total_diff.dy, /*scale_constraints=*/x_gaussian);
+  // If braking is active, ignore input-derived accel for that axis
+  if (state_.stop_delay_x && *state_.stop_delay_x != 0) {
+    // Optional: cancel braking if input flips opposite of the trigger direction
+    if (config_.cancel_stop_on_opposite_dir && sign(total_diff.dx) != 0.0f &&
+        sign(total_diff.dx) == -state_.stop_trigger_dir_x) {
+      state_.stop_delay_x = zero();
+      state_.stop_delay_x_counter = zero();
+      state_.stop_decel_x = 0.0f;
+      state_.canceled_stop_x = true;
+    } else {
+      accel_x = state_.stop_decel_x;
+    }
+  }
+  if (state_.stop_delay_y && *state_.stop_delay_y != 0) {
+    if (config_.cancel_stop_on_opposite_dir && sign(total_diff.dy) != 0.0f &&
+        sign(total_diff.dy) == -state_.stop_trigger_dir_y) {
+      state_.stop_delay_y = zero();
+      state_.stop_delay_y_counter = zero();
+      state_.stop_decel_y = 0.0f;
+      state_.canceled_stop_y = true;
+    } else {
+      accel_y = state_.stop_decel_y;
+    }
+  }
+
+  adjust_speed(accel_x, accel_y, /*scale_constraints=*/x_gaussian);
+
+  // Clamp overshoot during braking to avoid reversing direction
+  if (state_.stop_delay_x && *state_.stop_delay_x != 0) {
+    const FloatValue next_speed_x = state_.current_speed_x;
+    if (std::abs(next_speed_x) < std::abs(state_.stop_decel_x) + kEpsilon) {
+      state_.current_speed_x = 0.0f;
+    }
+  }
+  if (state_.stop_delay_y && *state_.stop_delay_y != 0) {
+    const FloatValue next_speed_y = state_.current_speed_y;
+    if (std::abs(next_speed_y) < std::abs(state_.stop_decel_y) + kEpsilon) {
+      state_.current_speed_y = 0.0f;
+    }
+  }
 }
 
 const TranslationState& TranslatingBox::get_state() const {
@@ -204,6 +268,29 @@ void TranslatingBox::update_nonstop_delay() {
     if (state_.nonstop_delay_counter > state_.nonstop_delay) {
       state_.nonstop_delay = zero();
       state_.nonstop_delay_counter = zero();
+    }
+  }
+}
+
+void TranslatingBox::update_stop_delays() {
+  // X-axis stop delay
+  if (state_.stop_delay_x != zero()) {
+    state_.stop_delay_x_counter += 1;
+    if (state_.stop_delay_x_counter >= state_.stop_delay_x) {
+      state_.stop_delay_x = zero();
+      state_.stop_delay_x_counter = zero();
+      state_.stop_decel_x = 0.0f;
+      state_.current_speed_x = 0.0f; // ensure fully stopped
+    }
+  }
+  // Y-axis stop delay
+  if (state_.stop_delay_y != zero()) {
+    state_.stop_delay_y_counter += 1;
+    if (state_.stop_delay_y_counter >= state_.stop_delay_y) {
+      state_.stop_delay_y = zero();
+      state_.stop_delay_y_counter = zero();
+      state_.stop_decel_y = 0.0f;
+      state_.current_speed_y = 0.0f;
     }
   }
 }

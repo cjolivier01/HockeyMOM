@@ -75,6 +75,7 @@ class ResizingBox(BasicBox):
         max_width: Union[torch.Tensor, int, float],
         max_height: Union[torch.Tensor, int, float],
         stop_on_dir_change: bool,
+        stop_on_dir_change_delay: int = 0,
         sticky_sizing: bool = False,
         device: Optional[Union[str, torch.device]] = None,
     ):
@@ -107,6 +108,9 @@ class ResizingBox(BasicBox):
         self._size_ratio_thresh_shrink_dh = 0.1
 
         self._size_is_frozen = False
+        # One-frame visual cue flags when cancel-on-opposite triggers
+        self._cancel_stop_x_flash = False
+        self._cancel_stop_y_flash = False
 
     def draw(
         self,
@@ -303,6 +307,8 @@ class MovingBox(ResizingBox):
         max_width: torch.Tensor,
         max_height: torch.Tensor,
         stop_on_dir_change: bool,
+        stop_on_dir_change_delay: int = 0,
+        cancel_stop_on_opposite_dir: bool = False,
         min_width: int = 10,
         min_height: int = 10,
         max_speed_w: Optional[torch.Tensor] = None,
@@ -348,6 +354,7 @@ class MovingBox(ResizingBox):
         self._pan_smoothing_alpha = float(pan_smoothing_alpha)
         self._filtered_target_center: Optional[torch.Tensor] = None
         self._clamp_scaled_input_box = clamp_scaled_input_box
+        self._cancel_stop_on_opposite_dir = bool(cancel_stop_on_opposite_dir)
 
         self._line_thickness_tensor = torch.tensor(
             [2, 2, -1, -2], dtype=torch.float, device=self.device
@@ -377,6 +384,21 @@ class MovingBox(ResizingBox):
         self._nonstop_delay = self._zero
         self._nonstop_delay_counter = self._zero
         self._previous_area = width(bbox) * height(bbox)
+        # Per-axis braking state for stop-on-direction-change
+        self._stop_on_dir_change_delay = torch.tensor(
+            int(stop_on_dir_change_delay), dtype=torch.int64, device=self.device
+        )
+        self._stop_on_dir_change_delay = torch.tensor(
+            int(stop_on_dir_change_delay), dtype=torch.int64, device=self.device
+        )
+        self._stop_delay_x = self._zero_int.clone()
+        self._stop_delay_y = self._zero_int.clone()
+        self._stop_delay_x_counter = self._zero_int.clone()
+        self._stop_delay_y_counter = self._zero_int.clone()
+        self._stop_decel_x = self._zero.clone()
+        self._stop_decel_y = self._zero.clone()
+        self._stop_trigger_dir_x = self._zero.clone()
+        self._stop_trigger_dir_y = self._zero.clone()
 
         if self._arena_box is not None:
             self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
@@ -434,6 +456,42 @@ class MovingBox(ResizingBox):
             label=self._make_label(),
             text_scale=2,
         )
+        # Small visual cue: if cancel-on-opposite triggered this frame, flash a thin cyan border
+        if self._cancel_stop_x_flash or self._cancel_stop_y_flash:
+            img = vis.plot_rectangle(
+                img,
+                draw_box,
+                color=(0, 255, 255),
+                thickness=2,
+            )
+        # Debug overlay: show active per-axis braking state
+        if self._stop_delay_x != self._zero_int or self._stop_delay_y != self._zero_int:
+            intbox = [int(i) for i in draw_box]
+            x1, y1 = intbox[0], intbox[1]
+            y_offset = 50
+            if self._stop_delay_x != self._zero_int:
+                text = f"BrakeX {int(self._stop_delay_x_counter.item())}/{int(self._stop_delay_x.item())}"
+                img = vis.plot_text(
+                    img,
+                    text,
+                    (x1 + 5, y1 + y_offset),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    2,
+                    (0, 255, 255),
+                    thickness=2,
+                )
+                y_offset += 28
+            if self._stop_delay_y != self._zero_int:
+                text = f"BrakeY {int(self._stop_delay_y_counter.item())}/{int(self._stop_delay_y.item())}"
+                img = vis.plot_text(
+                    img,
+                    text,
+                    (x1 + 5, y1 + y_offset),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    2,
+                    (0, 255, 255),
+                    thickness=2,
+                )
         # img = vis.draw_arrows(img, bbox=draw_box, horizontal=True, vertical=True)
         if draw_thresholds and self._sticky_translation:
             sticky, unsticky = self._get_sticky_translation_sizes()
@@ -594,6 +652,9 @@ class MovingBox(ResizingBox):
             dest_box = dest_box.bounding_box()
 
         # print(f"{self._label}: set_destination({dest_box})")
+        # Reset one-frame cancel flash indicators
+        self._cancel_stop_x_flash = False
+        self._cancel_stop_y_flash = False
 
         bbox = self.bounding_box()
         center_current = center(bbox)
@@ -657,28 +718,73 @@ class MovingBox(ResizingBox):
                 self._current_speed_y = self._zero.clone()
         # END Sticky Translation
 
+        # Build per-axis accel, allowing stop-delay braking to override input
+        accel_x = total_diff[0]
+        accel_y = total_diff[1]
+
         if not self.is_nonstop():
-            if different_directions(total_diff[0], self._current_speed_x):
-                self._current_speed_x = torch.where(
-                    torch.abs(self._current_speed_x) < self._max_speed_x / 6,
-                    0,
-                    self._current_speed_x / 2,
-                )
+            # Trigger braking if not already active and direction changes
+            if self._stop_delay_x == self._zero_int and different_directions(total_diff[0], self._current_speed_x):
+                moving_enough_x = torch.abs(self._current_speed_x) >= (self._max_speed_x / 6)
+                if self._stop_on_dir_change_delay > self._zero_int and moving_enough_x:
+                    self._stop_delay_x = self._stop_on_dir_change_delay.clone()
+                    self._stop_delay_x_counter = self._zero_int.clone()
+                    # Decelerate linearly to zero in N frames
+                    self._stop_decel_x = -self._current_speed_x / self._stop_delay_x.to(self._current_speed_x.dtype)
+                    self._stop_trigger_dir_x = torch.sign(total_diff[0]).to(self._current_speed_x.dtype)
+                else:
+                    # legacy mild damping behavior
+                    self._current_speed_x = torch.where(
+                        torch.abs(self._current_speed_x) < self._max_speed_x / 6,
+                        0,
+                        self._current_speed_x / 2,
+                    )
+                    if self._stop_on_dir_change:
+                        accel_x = total_diff[0] * 0.25
 
-                if self._stop_on_dir_change:
-                    total_diff[0] *= 0.25
-            if different_directions(total_diff[1], self._current_speed_y):
-                self._current_speed_y = torch.where(
-                    torch.abs(self._current_speed_y) < self._max_speed_y / 6,
-                    0,
-                    self._current_speed_y / 2,
-                )
+            if self._stop_delay_y == self._zero_int and different_directions(total_diff[1], self._current_speed_y):
+                moving_enough_y = torch.abs(self._current_speed_y) >= (self._max_speed_y / 6)
+                if self._stop_on_dir_change_delay > self._zero_int and moving_enough_y:
+                    self._stop_delay_y = self._stop_on_dir_change_delay.clone()
+                    self._stop_delay_y_counter = self._zero_int.clone()
+                    self._stop_decel_y = -self._current_speed_y / self._stop_delay_y.to(self._current_speed_y.dtype)
+                    self._stop_trigger_dir_y = torch.sign(total_diff[1]).to(self._current_speed_y.dtype)
+                else:
+                    self._current_speed_y = torch.where(
+                        torch.abs(self._current_speed_y) < self._max_speed_y / 6,
+                        0,
+                        self._current_speed_y / 2,
+                    )
+                    if self._stop_on_dir_change:
+                        accel_y = total_diff[1] * 0.25
 
-                if self._stop_on_dir_change:
-                    total_diff[1] *= 0.25
+        # If braking is active on an axis, ignore input accel for that axis
+        if self._stop_delay_x != self._zero_int:
+            if self._cancel_stop_on_opposite_dir and torch.sign(total_diff[0]) != 0 and (
+                torch.sign(total_diff[0]) == -self._stop_trigger_dir_x
+            ):
+                # Cancel braking on X
+                self._stop_delay_x = self._zero_int.clone()
+                self._stop_delay_x_counter = self._zero_int.clone()
+                self._stop_decel_x = self._zero.clone()
+                self._cancel_stop_x_flash = True
+            else:
+                accel_x = self._stop_decel_x
+        if self._stop_delay_y != self._zero_int:
+            if self._cancel_stop_on_opposite_dir and torch.sign(total_diff[1]) != 0 and (
+                torch.sign(total_diff[1]) == -self._stop_trigger_dir_y
+            ):
+                # Cancel braking on Y
+                self._stop_delay_y = self._zero_int.clone()
+                self._stop_delay_y_counter = self._zero_int.clone()
+                self._stop_decel_y = self._zero.clone()
+                self._cancel_stop_y_flash = True
+            else:
+                accel_y = self._stop_decel_y
+
         self.adjust_speed(
-            accel_x=total_diff[0],
-            accel_y=total_diff[1],
+            accel_x=accel_x,
+            accel_y=accel_y,
             scale_constraints=1.0,
         )
 
@@ -748,6 +854,21 @@ class MovingBox(ResizingBox):
             if self._nonstop_delay_counter > self._nonstop_delay:
                 self._nonstop_delay = self._zero
                 self._nonstop_delay_counter = self._zero.clone()
+        # Update per-axis stop delays
+        if self._stop_delay_x != self._zero_int:
+            self._stop_delay_x_counter += 1
+            if self._stop_delay_x_counter >= self._stop_delay_x:
+                self._stop_delay_x = self._zero_int.clone()
+                self._stop_delay_x_counter = self._zero_int.clone()
+                self._stop_decel_x = self._zero.clone()
+                self._current_speed_x = self._zero.clone()
+        if self._stop_delay_y != self._zero_int:
+            self._stop_delay_y_counter += 1
+            if self._stop_delay_y_counter >= self._stop_delay_y:
+                self._stop_delay_y = self._zero_int.clone()
+                self._stop_delay_y_counter = self._zero_int.clone()
+                self._stop_decel_y = self._zero.clone()
+                self._current_speed_y = self._zero.clone()
         self.stop_translation_if_out_of_arena()
         self.clamp_to_arena()
         if self._fixed_aspect_ratio is not None:

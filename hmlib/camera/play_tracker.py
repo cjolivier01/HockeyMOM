@@ -172,6 +172,23 @@ class PlayTracker(torch.nn.Module):
 
             current_roi_config.stop_resizing_on_dir_change = False
             current_roi_config.stop_translation_on_dir_change = False
+            # Optional per-axis braking delay on direction change
+            camera_cfg = args.game_config["rink"]["camera"]
+            # Prefer YAML; fall back to CLI hm_opts defaults/overrides
+            stop_dir_delay = int(
+                camera_cfg.get(
+                    "stop_on_dir_change_delay",
+                    getattr(args, "stop_on_dir_change_delay", 0),
+                )
+            )
+            cancel_stop = bool(
+                camera_cfg.get(
+                    "cancel_stop_on_opposite_dir",
+                    bool(getattr(args, "cancel_stop_on_opposite_dir", 0)),
+                )
+            )
+            current_roi_config.stop_translation_on_dir_change_delay = stop_dir_delay
+            current_roi_config.cancel_stop_on_opposite_dir = cancel_stop
             current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
 
             #
@@ -202,9 +219,16 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.max_width = play_width
             current_roi_aspect_config.max_height = play_height
             current_roi_aspect_config.min_height = play_height / 5
+
             current_roi_aspect_config.stop_resizing_on_dir_change = True
             current_roi_aspect_config.stop_translation_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
+
+            stop_dir_delay = 10
+            cancel_stop = True
+
+            current_roi_aspect_config.stop_translation_on_dir_change_delay = stop_dir_delay
+            current_roi_aspect_config.cancel_stop_on_opposite_dir = cancel_stop
 
             # FIXME: get this from config
             current_roi_aspect_config.dynamic_acceleration_scaling = 1.0
@@ -284,6 +308,20 @@ class PlayTracker(torch.nn.Module):
 
             self._breakaway_detection = BreakawayDetection(args.game_config)
 
+            camera_cfg = args.game_config["rink"]["camera"]
+            stop_dir_delay = int(
+                camera_cfg.get(
+                    "stop_on_dir_change_delay",
+                    getattr(args, "stop_on_dir_change_delay", 0),
+                )
+            )
+            cancel_stop = bool(
+                camera_cfg.get(
+                    "cancel_stop_on_opposite_dir",
+                    bool(getattr(args, "cancel_stop_on_opposite_dir", 0)),
+                )
+            )
+
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="Current ROI",
                 bbox=start_box.clone(),
@@ -295,6 +333,8 @@ class PlayTracker(torch.nn.Module):
                 max_width=play_width,
                 max_height=play_height,
                 stop_on_dir_change=False,
+                stop_on_dir_change_delay=stop_dir_delay,
+                cancel_stop_on_opposite_dir=cancel_stop,
                 pan_smoothing_alpha=args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
                 color=(255, 128, 64),
                 thickness=5,
@@ -313,6 +353,8 @@ class PlayTracker(torch.nn.Module):
                 max_width=play_width,
                 max_height=play_height,
                 stop_on_dir_change=True,
+                stop_on_dir_change_delay=stop_dir_delay,
+                cancel_stop_on_opposite_dir=cancel_stop,
                 sticky_translation=True,
                 sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
                     "sticky_size_ratio_to_frame_width"

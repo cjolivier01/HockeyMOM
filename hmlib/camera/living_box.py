@@ -130,6 +130,53 @@ class PyLivingBox(LivingBox):
             label=live_box.name(),
             text_scale=2,
         )
+        # Small visual cue: if cancel-on-opposite triggered this frame, flash a thin cyan border
+        try:
+            if getattr(tstate, "canceled_stop_x", False) or getattr(tstate, "canceled_stop_y", False):
+                img = vis.plot_rectangle(
+                    img,
+                    draw_box,
+                    color=(0, 255, 255),
+                    thickness=2,
+                    label=None,
+                    text_scale=1,
+                )
+        except Exception:
+            pass
+        # Debug overlay: show active per-axis braking state for C++ boxes
+        try:
+            # Optional[IntValue] fields come through as None or int
+            stop_x = getattr(tstate, "stop_delay_x", None)
+            stop_y = getattr(tstate, "stop_delay_y", None)
+            if (stop_x and int(stop_x) > 0) or (stop_y and int(stop_y) > 0):
+                intbox = [int(i) for i in draw_box]
+                x1, y1 = intbox[0], intbox[1]
+                y_offset = 50
+                if stop_x and int(stop_x) > 0:
+                    cnt_x = int(getattr(tstate, "stop_delay_x_counter", 0))
+                    img = vis.plot_text(
+                        img,
+                        f"BrakeX {cnt_x}/{int(stop_x)}",
+                        (x1 + 5, y1 + y_offset),
+                        cv2.FONT_HERSHEY_PLAIN,
+                        20,
+                        (0, 255, 255),
+                        thickness=2,
+                    )
+                    y_offset += 28
+                if stop_y and int(stop_y) > 0:
+                    cnt_y = int(getattr(tstate, "stop_delay_y_counter", 0))
+                    img = vis.plot_text(
+                        img,
+                        f"BrakeY {cnt_y}/{int(stop_y)}",
+                        (x1 + 5, y1 + y_offset),
+                        cv2.FONT_HERSHEY_PLAIN,
+                        20,
+                        (0, 255, 255),
+                        thickness=2,
+                    )
+        except Exception:
+            pass
 
         # img = vis.draw_arrows(img, bbox=draw_box, horizontal=True, vertical=True)
         if draw_thresholds and tconfig.sticky_translation:

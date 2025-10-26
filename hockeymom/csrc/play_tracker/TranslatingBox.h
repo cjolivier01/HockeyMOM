@@ -17,6 +17,18 @@ struct TranslationState {
   // Nonstop stuff
   std::optional<IntValue> nonstop_delay{0};
   IntValue nonstop_delay_counter{0};
+  // Per-axis stop-on-direction-change braking (frames + per-frame decel)
+  std::optional<IntValue> stop_delay_x{0};
+  IntValue stop_delay_x_counter{0};
+  FloatValue stop_decel_x{0.0};
+  FloatValue stop_trigger_dir_x{0.0};
+  std::optional<IntValue> stop_delay_y{0};
+  IntValue stop_delay_y_counter{0};
+  FloatValue stop_decel_y{0.0};
+  FloatValue stop_trigger_dir_y{0.0};
+  // Visual cue booleans to indicate a cancel occurred this frame
+  bool canceled_stop_x{false};
+  bool canceled_stop_y{false};
   // Low-pass filtered target center for smooth panning
   std::optional<Point> filtered_target_center{std::nullopt};
 };
@@ -66,6 +78,9 @@ class TranslatingBox : virtual public IBasicLivingBox {
 
   // After new position is set, adjust the nonstop-delay
   void update_nonstop_delay();
+
+  // After new position is set, adjust per-axis stop delays
+  void update_stop_delays();
 
   void on_new_position();
 

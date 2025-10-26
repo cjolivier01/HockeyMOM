@@ -1005,6 +1005,12 @@ void init_living_boxes(::pybind11::module_& m) {
           "stop_translation_on_dir_change",
           &TranslatingBoxConfig::stop_translation_on_dir_change)
       .def_readwrite(
+          "stop_translation_on_dir_change_delay",
+          &TranslatingBoxConfig::stop_translation_on_dir_change_delay)
+      .def_readwrite(
+          "cancel_stop_on_opposite_dir",
+          &TranslatingBoxConfig::cancel_stop_on_opposite_dir)
+      .def_readwrite(
           "dynamic_acceleration_scaling",
           &TranslatingBoxConfig::dynamic_acceleration_scaling)
       .def_readwrite(
@@ -1037,7 +1043,20 @@ void init_living_boxes(::pybind11::module_& m) {
           &TranslationState::last_arena_edge_center_position_scale)
       .def_readonly("nonstop_delay", &TranslationState::nonstop_delay)
       .def_readonly(
-          "nonstop_delay_counter", &TranslationState::nonstop_delay_counter);
+          "nonstop_delay_counter", &TranslationState::nonstop_delay_counter)
+      // Stop-on-direction-change braking state
+      .def_readonly("stop_delay_x", &TranslationState::stop_delay_x)
+      .def_readonly(
+          "stop_delay_x_counter", &TranslationState::stop_delay_x_counter)
+      .def_readonly("stop_decel_x", &TranslationState::stop_decel_x)
+      .def_readonly("stop_trigger_dir_x", &TranslationState::stop_trigger_dir_x)
+      .def_readonly("stop_delay_y", &TranslationState::stop_delay_y)
+      .def_readonly(
+          "stop_delay_y_counter", &TranslationState::stop_delay_y_counter)
+      .def_readonly("stop_decel_y", &TranslationState::stop_decel_y)
+      .def_readonly("stop_trigger_dir_y", &TranslationState::stop_trigger_dir_y)
+      .def_readonly("canceled_stop_x", &TranslationState::canceled_stop_x)
+      .def_readonly("canceled_stop_y", &TranslationState::canceled_stop_y);
 
   py::class_<LivingBoxConfig>(m, "LivingBoxConfig")
       .def(py::init<>())

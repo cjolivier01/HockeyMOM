@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Union
 
 import yaml
 
-from hmlib.config import get_nested_value
+from hmlib.config import get_nested_value, set_nested_value
 
 
 def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
@@ -435,6 +435,20 @@ class hm_opts(object):
         parser.add_argument("--jersey-sam-model-type", type=str, default=None, help="SAM model type (e.g., vit_b)")
         parser.add_argument("--jersey-sam-device", type=str, default=None, help="SAM device")
 
+        # Camera tracking direction-change behavior
+        parser.add_argument(
+            "--stop-on-dir-change-delay",
+            default=10,
+            type=int,
+            help="Frames to brake to a stop on direction change (camera tracking)",
+        )
+        parser.add_argument(
+            "--cancel-stop-on-opposite-dir",
+            default=1,
+            type=int,
+            help="Cancel braking when inputs flip opposite (0/1)",
+        )
+
         return parser
 
     def parse(self, args=""):
@@ -472,6 +486,27 @@ class hm_opts(object):
                         ):
                             print(f"Setting attribute {k} to {v}")
                             setattr(opt, k, v)
+
+        # Map select CLI camera options into YAML-style config (if not already present)
+        # This lets downstream code read from args.game_config['rink']['camera']
+        game_cfg = getattr(opt, "game_config", None)
+        if isinstance(game_cfg, dict):
+            # stop_on_dir_change_delay
+            try:
+                if get_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", None) is None:
+                    set_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", int(opt.stop_on_dir_change_delay))
+            except Exception:
+                pass
+            # cancel_stop_on_opposite_dir (store as bool in YAML)
+            try:
+                if get_nested_value(game_cfg, "rink.camera.cancel_stop_on_opposite_dir", None) is None:
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.cancel_stop_on_opposite_dir",
+                        bool(int(opt.cancel_stop_on_opposite_dir)),
+                    )
+            except Exception:
+                pass
 
         return opt
 
