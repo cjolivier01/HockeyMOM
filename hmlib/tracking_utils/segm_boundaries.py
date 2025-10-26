@@ -6,6 +6,7 @@ import torch
 
 import hmlib.vis.pt_visualization as ptv
 from hmlib.builder import PIPELINES
+from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_height, image_width, make_channels_first
@@ -37,6 +38,7 @@ class SegmBoundaries:
         self._duration = 0
         self._raise_bbox_center_by_height_ratio = raise_bbox_center_by_height_ratio
         self._lower_bbox_bottom_by_height_ratio = lower_bbox_bottom_by_height_ratio
+        self._normalization_scale: float | None = None
         self._draw = draw
         self._color_mask = torch.tensor([0, 255, 0], dtype=torch.uint8).reshape(3, 1)
         self.set_segment_mask_and_centroid(segment_mask, centroid)
@@ -178,6 +180,14 @@ class SegmBoundaries:
         if self._segment_mask is None:
             # We don't have any information to go on
             return data
+
+        if self._normalization_scale is None:
+            # Adjust thresholds based on image size
+            img_width = self._segment_mask.shape[-1]
+            self._normalization_scale = img_width / WIDTH_NORMALIZATION_SIZE
+            if self._normalization_scale > 0:
+                self._raise_bbox_center_by_height_ratio *= self._normalization_scale
+                self._lower_bbox_bottom_by_height_ratio *= self._normalization_scale
 
         # Maybe we render on the original image
         if self._draw and "original_images" in data:
