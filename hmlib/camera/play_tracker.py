@@ -27,6 +27,7 @@ from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_nested_value
+from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
@@ -127,18 +128,6 @@ class PlayTracker(torch.nn.Module):
         if args.track_ids:
             self._track_ids = set([int(i) for i in args.track_ids.split(",")])
 
-        # if (
-        #     self._args.plot_boundaries
-        #     and self._args.top_border_lines
-        #     or self._args.bottom_border_lines
-        # ):
-        #     # Only used for plotting the lines
-        #     self._boundaries = BoundaryLines(
-        #         self._args.top_border_lines,
-        #         self._args.bottom_border_lines,
-        #         self._original_clip_box,
-        #     )
-
         # Persistent state across frames
         self._previous_cluster_union_box = None
         self._last_temporal_box = None
@@ -152,7 +141,7 @@ class PlayTracker(torch.nn.Module):
         assert play_height <= self._hockey_mom._video_frame.height
 
         # speed_scale = 1.0
-        speed_scale = self._hockey_mom.fps_speed_scale
+        speed_scale = self._hockey_mom.speed_scale
 
         start_box = self._play_box.clone()
 
@@ -290,56 +279,6 @@ class PlayTracker(torch.nn.Module):
                 self._playtracker = CppPlayTracker(BBox(0, 0, play_width, play_height), pt_config)
                 self._current_roi = None
                 self._current_roi_aspect = None
-
-                # Also create Python ROI movers so external camera boxes can flow through smoothing
-                # self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
-                #     label="Current ROI",
-                #     bbox=start_box.clone(),
-                #     arena_box=self.get_arena_box(),
-                #     max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale,
-                #     max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale,
-                #     max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale,
-                #     max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale,
-                #     max_width=play_width,
-                #     max_height=play_height,
-                #     stop_on_dir_change=False,
-                #     pan_smoothing_alpha=args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
-                #     color=(255, 128, 64),
-                #     thickness=5,
-                #     device=self._device,
-                # )
-
-                # self._current_roi_aspect: Union[MovingBox, PyLivingBox] = MovingBox(
-                #     label="AspectRatio",
-                #     bbox=start_box.clone(),
-                #     arena_box=self.get_arena_box(),
-                #     max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale,
-                #     max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale,
-                #     max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone() / speed_scale,
-                #     max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone() / speed_scale,
-                #     max_width=play_width,
-                #     max_height=play_height,
-                #     stop_on_dir_change=True,
-                #     sticky_translation=True,
-                #     sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
-                #         "sticky_size_ratio_to_frame_width"
-                #     ],
-                #     sticky_translation_gaussian_mult=self._args.game_config["rink"]["camera"][
-                #         "sticky_translation_gaussian_mult"
-                #     ],
-                #     unsticky_translation_size_ratio=self._args.game_config["rink"]["camera"][
-                #         "unsticky_translation_size_ratio"
-                #     ],
-                #     pan_smoothing_alpha=self._args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
-                #     sticky_sizing=True,
-                #     scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
-                #     scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
-                #     fixed_aspect_ratio=self._final_aspect_ratio,
-                #     color=(255, 0, 255),
-                #     thickness=5,
-                #     device=self._device,
-                #     min_height=play_height / 5,
-                # )
         else:
             assert not self._cpp_playtracker
 

@@ -4,6 +4,7 @@ import numpy as np
 import torch
 
 from hmlib.bbox.box_functions import tlwh_to_tlbr_single
+from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.log import logger
 from hmlib.tracking_utils.visualization import plot_trajectory
 
@@ -166,6 +167,8 @@ class HockeyMOM:
         self._online_ids: Set[int] = set()
         self._id_to_tlwhs_history_map = dict()
         self._fps_speed_scale: float = fps / HockeyMOM.BASE_FPS
+        self._image_size_speed_scale: float = image_width / WIDTH_NORMALIZATION_SIZE
+        self._speed_scale = self._fps_speed_scale / self._image_size_speed_scale
 
         self._online_image_center_points = []
 
@@ -179,8 +182,8 @@ class HockeyMOM:
             f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
         )
 
-        self._camera_box_max_accel_x = self._to_scalar_float(1) / self._fps_speed_scale
-        self._camera_box_max_accel_y = self._to_scalar_float(1) / self._fps_speed_scale
+        self._camera_box_max_accel_x = self._to_scalar_float(1) / self._speed_scale
+        self._camera_box_max_accel_y = self._to_scalar_float(1) / self._speed_scale
         logger.info(
             f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
         )
@@ -216,8 +219,8 @@ class HockeyMOM:
             self._id_to_tlwhs_history_map[id.item()] = hist
 
     @property
-    def fps_speed_scale(self) -> float:
-        return self._fps_speed_scale
+    def speed_scale(self) -> float:
+        return self._speed_scale
 
     @property
     def video(self):
