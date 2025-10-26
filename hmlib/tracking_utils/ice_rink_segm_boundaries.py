@@ -20,6 +20,7 @@ class IceRinkSegmConfig:
         shape_label: str = "ori_shape",
         image_label: str = "original_images",
         clip: bool = False,
+        ice_rink_inference_scale: Optional[float] = None,
         **kwargs,
     ):
         self._game_id = game_id
@@ -30,6 +31,7 @@ class IceRinkSegmConfig:
         self._clip = clip
         self._clip_box = None
         self._clipped_shape = None
+        self._ice_rink_inference_scale = ice_rink_inference_scale
 
     def maybe_init_rink_segmentation(self, data: Dict[str, Any]):
         if self._rink_profile is None:
@@ -44,6 +46,7 @@ class IceRinkSegmConfig:
                 device=self._device,
                 expected_shape=image_shape,
                 image=image[0],
+                scale=self._ice_rink_inference_scale,
             )
             if self._clip:
                 bbox = rink_profile["combined_bbox"]

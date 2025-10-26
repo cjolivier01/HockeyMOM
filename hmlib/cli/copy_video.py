@@ -295,7 +295,12 @@ def main():
     fast_gpu = torch.device("cuda", gpu_allocator.allocate_fast())
 
     if args.game_id:
-        file_dict = configure_game_videos(game_id=args.game_id, force=False, write_results=False)
+        file_dict = configure_game_videos(
+            game_id=args.game_id,
+            force=False,
+            write_results=False,
+            inference_scale=getattr(args, "ice_rink_inference_scale", None),
+        )
         if "left" in file_dict:
             video_files = file_dict["left"]
         elif "right" in file_dict:

@@ -175,6 +175,14 @@ class hm_opts(object):
             help="scale showed image (ignored is --show-image is not specified)",
         )
         parser.add_argument(
+            "--ice-rink-inference-scale",
+            "--ice-rink-mask-scale",
+            dest="ice_rink_inference_scale",
+            type=float,
+            default=None,
+            help="Downscale factor for ice rink segmentation (e.g., 0.5 doubles speed, 1.0 keeps original size)",
+        )
+        parser.add_argument(
             "--decoder",
             "--video-stream-decode-method",
             dest="video_stream_decode_method",

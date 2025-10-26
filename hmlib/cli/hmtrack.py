@@ -38,10 +38,10 @@ from hmlib.log import get_root_logger, logger
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
+from hmlib.tracking_utils.action_dataframe import ActionDataFrame
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
-from hmlib.tracking_utils.action_dataframe import ActionDataFrame
 
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
@@ -760,13 +760,14 @@ def _main(args, num_gpu):
                         mk = step.get("meta_keys")
                         if isinstance(mk, list):
                             step["meta_keys"] = tuple(mk)
-                update_pipeline_item(
-                    pipeline,
-                    "IceRinkSegmConfig",
-                    dict(
-                        game_id=args.game_id,
-                    ),
-                )
+                    update_pipeline_item(
+                        pipeline,
+                        "IceRinkSegmConfig",
+                        dict(
+                            game_id=args.game_id,
+                            ice_rink_inference_scale=getattr(args, "ice_rink_inference_scale", None),
+                        ),
+                    )
                 # Apply clip box if present
                 orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
                 if orig_clip_box:
@@ -851,7 +852,10 @@ def _main(args, num_gpu):
                     dir_name = os.path.dirname(vl)
                     assert dir_name == os.path.dirname(vr)
                 elif os.path.isdir(args.input_video):
-                    game_videos = configure_game_videos(game_id=args.game_id)
+                    game_videos = configure_game_videos(
+                        game_id=args.game_id,
+                        inference_scale=getattr(args, "ice_rink_inference_scale", None),
+                    )
                     dir_name = args.input_video
                     assert dir_name
                     input_video_files = game_videos

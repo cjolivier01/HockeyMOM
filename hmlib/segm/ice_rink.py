@@ -32,16 +32,10 @@ from hmlib.config import (
 from hmlib.hm_opts import hm_opts
 from hmlib.log import logger, logging
 from hmlib.models.loader import get_model_config
-from hmlib.segm.utils import calculate_centroid, polygon_to_mask, scale_polygon
+from hmlib.segm.utils import calculate_centroid
 from hmlib.ui import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    is_channels_first,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
 
 DEFAULT_SCORE_THRESH = 0.3
 
@@ -235,11 +229,54 @@ def contours_to_polygons(contours: List[np.ndarray]) -> List[Polygon]:
     return [Polygon(c) for c in contours]
 
 
+def _resize_mask(mask: torch.Tensor, height: int, width: int) -> torch.Tensor:
+    mask_tensor = mask.to(torch.float32).unsqueeze(0).unsqueeze(0)
+    resized = F.interpolate(mask_tensor, size=(height, width), mode="nearest")
+    return resized.squeeze(0).squeeze(0).to(torch.bool)
+
+
+def _rescale_rink_results(
+    rink_results: Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]],
+    scale_factor: float,
+    original_size: Tuple[int, int],
+) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
+    if scale_factor == 1.0:
+        return rink_results
+
+    inv_scale = 1.0 / scale_factor
+    orig_height, orig_width = original_size
+
+    if "contours" in rink_results and rink_results["contours"]:
+        scaled_contours: List[np.ndarray] = []
+        for contour in rink_results["contours"]:
+            contour_np = np.asarray(contour, dtype=np.float32)
+            scaled_contours.append(contour_np * inv_scale)
+        rink_results["contours"] = scaled_contours
+
+    if "masks" in rink_results and rink_results["masks"]:
+        rink_results["masks"] = [
+            _resize_mask(mask, orig_height, orig_width) for mask in rink_results["masks"]
+        ]
+
+    if "combined_mask" in rink_results and rink_results["combined_mask"] is not None:
+        rink_results["combined_mask"] = _resize_mask(rink_results["combined_mask"], orig_height, orig_width)
+
+    if "centroid" in rink_results and rink_results["centroid"] is not None:
+        rink_results["centroid"] = rink_results["centroid"] * inv_scale
+
+    if "bboxes" in rink_results and rink_results["bboxes"] is not None:
+        rink_results["bboxes"] = rink_results["bboxes"] * inv_scale
+
+    if "combined_bbox" in rink_results and rink_results["combined_bbox"] is not None:
+        rink_results["combined_bbox"] = rink_results["combined_bbox"] * inv_scale
+
+    return rink_results
+
+
 def detect_ice_rink_mask(
     image: Union[torch.Tensor, np.ndarray],
     model: BaseDetector,
     show: bool = False,
-    scale: float = None,
 ) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
     if isinstance(image, torch.Tensor):
         if image.ndim == 4:
@@ -254,16 +291,7 @@ def detect_ice_rink_mask(
         # show_image = model.show_result(show_image, result, score_thr=DEFAULT_SCORE_THRESH, show=False)
         do_show_image("Ice-rink", show_image, wait=True)
 
-    rink_results = result_to_polygons(inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=False)
-
-    if scale and scale != 1.0:
-        for contour, mask in zip(rink_results["contours"], rink_results["masks"]):
-            scaled_contour = scale_polygon(contour, scale)
-            generated_mask = polygon_to_mask(scaled_contour, height=image_height(image), width=image_width(image))
-            if show:
-                do_show_image("Ice-rink Mask", generated_mask.cpu().numpy().astype(np.uint8) * 255, wait=True)
-
-    return rink_results
+    return result_to_polygons(inference_result=result, score_thr=DEFAULT_SCORE_THRESH, show=False)
 
 
 def find_ice_rink_masks(
@@ -272,21 +300,52 @@ def find_ice_rink_masks(
     checkpoint: str,
     device: Optional[torch.device] = None,
     show: bool = False,
-    scale: Optional[float] = None,
+    inference_scale: Optional[float] = None,
 ) -> List[Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]]:
     if device is None:
         device = torch.device("cuda:0")
+    device = torch.device("cpu")
 
     was_list = isinstance(image, list)
     if not was_list:
         image = [image]
+
+    # image = [make_channels_first(img) for img in image]
+    for i, img in enumerate(image):
+        if len(img.shape) == 4:
+            assert img.shape[0] == 1
+            image[i] = img.squeeze(0)
 
     if device.type == "cpu":
         logger.info("Looking for the ice at the rink, this may take awhile...")
     model = init_detector(config_file, checkpoint, device=device)
     results: List[Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]] = []
     for img in image:
-        results.append(detect_ice_rink_mask(image=img.to(device), model=model, show=show, scale=scale))
+        orig_height = image_height(img)
+        orig_width = image_width(img)
+        infer_image: Union[np.ndarray, torch.Tensor]
+        if isinstance(img, torch.Tensor):
+            infer_image = img.cpu().numpy()
+        else:
+            infer_image = img
+        infer_image = np.ascontiguousarray(infer_image)
+
+        if inference_scale and inference_scale != 1.0:
+            new_width = max(1, int(round(orig_width * inference_scale)))
+            new_height = max(1, int(round(orig_height * inference_scale)))
+            interpolation = cv2.INTER_AREA if inference_scale < 1.0 else cv2.INTER_LINEAR
+            infer_image = cv2.resize(infer_image, (new_width, new_height), interpolation=interpolation)
+
+        rink_result = detect_ice_rink_mask(image=infer_image, model=model, show=show)
+
+        if rink_result is None:
+            results.append(rink_result)
+            continue
+
+        if inference_scale and inference_scale != 1.0:
+            rink_result = _rescale_rink_results(rink_result, inference_scale, (orig_height, orig_width))
+
+        results.append(rink_result)
 
     if device.type == "cpu":
         logger.info("Found the ice at the rink, continuing...")
@@ -469,16 +528,13 @@ def confgure_ice_rink_mask(
         assert image_height(image_frame) == expected_shape[0]
         assert image_width(image_frame) == expected_shape[1]
 
-    if scale and scale != 1.0:
-        image_frame = scale_images_nn(images=image_frame, scale=scale)
-
     rink_results = find_ice_rink_masks(
         image=image_frame,
         config_file=prepend_root_dir(model_config_file),
         checkpoint=prepend_root_dir(model_checkpoint),
         show=show,
         device=device,
-        scale=scale,
+        inference_scale=scale,
     )
     if "combined_mask" in rink_results:
         rink_mask = rink_results["combined_mask"]
@@ -611,6 +667,12 @@ def main(args: argparse.Namespace = None, device: torch.device = torch.device("c
 
     image = cv2.imread(f"{os.environ['HOME']}/Videos/{args.game_id}/s.png")
 
+    mask_scale = getattr(args, "ice_rink_inference_scale", None)
+    if mask_scale is None:
+        mask_scale = getattr(args, "scale", None)
+    if mask_scale is not None:
+        setattr(args, "ice_rink_inference_scale", mask_scale)
+
     results = confgure_ice_rink_mask(
         game_id=args.game_id,
         device=device,
@@ -618,7 +680,7 @@ def main(args: argparse.Namespace = None, device: torch.device = torch.device("c
         force=args.force,
         image=image,
         expected_shape=(image_height(image), image_width(image)),
-        scale=args.scale,
+        scale=mask_scale,
     )
     mask = results["combined_mask"]
     centroid = [int(i) for i in results["centroid"]]

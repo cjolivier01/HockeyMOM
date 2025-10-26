@@ -284,6 +284,7 @@ def _main(args) -> None:
         game_id=args.game_id,
         write_results=not args.single_file,
         force=args.force,
+        inference_scale=getattr(args, "ice_rink_inference_scale", None),
     )
 
     HalfFloatType = torch.float16

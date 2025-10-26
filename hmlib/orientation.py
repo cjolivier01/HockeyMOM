@@ -162,6 +162,7 @@ def detect_video_rink_masks(
     game_id: str,
     videos_dict: VideosDict,
     device: torch.device = None,
+    inference_scale: Optional[float] = None,
 ) -> VideosDict:
     if device is None:
         gpu_allocator = GpuAllocator(gpus=None)
@@ -187,6 +188,7 @@ def detect_video_rink_masks(
         config_file=prepend_root_dir(config_file),
         checkpoint=prepend_root_dir(checkpoint),
         device=device,
+        inference_scale=inference_scale,
     )
     assert len(frame_ir_masks) == len(keys)
     for i, key in enumerate(keys):
@@ -243,11 +245,19 @@ def get_orientation(rink_mask: torch.Tensor) -> str:
 
 
 def get_game_videos_analysis(
-    game_id: str, videos_dict: Optional[VideosDict] = None, device: torch.device = None
+    game_id: str,
+    videos_dict: Optional[VideosDict] = None,
+    device: torch.device = None,
+    inference_scale: Optional[float] = None,
 ) -> VideosDict:
     if videos_dict is None:
         videos_dict = get_available_videos(dir_name=get_game_dir(game_id=game_id))
-    videos_dict = detect_video_rink_masks(game_id=game_id, videos_dict=videos_dict, device=device)
+    videos_dict = detect_video_rink_masks(
+        game_id=game_id,
+        videos_dict=videos_dict,
+        device=device,
+        inference_scale=inference_scale,
+    )
 
     new_dict: VideosDict = {}
 
@@ -295,6 +305,7 @@ def configure_game_videos(
     force: bool = False,
     write_results: bool = True,
     device: torch.device = None,
+    inference_scale: Optional[float] = None,
 ) -> Dict[str, List[str]]:
     dir_name = get_game_dir(game_id=game_id)
     videos_dict = get_available_videos(dir_name=dir_name)
@@ -315,7 +326,11 @@ def configure_game_videos(
                 "left": left_list,
                 "right": right_list,
             }
-    videos_dict = get_game_videos_analysis(game_id=game_id, device=device)
+    videos_dict = get_game_videos_analysis(
+        game_id=game_id,
+        device=device,
+        inference_scale=inference_scale,
+    )
     left_list = extract_chapters_file_list(videos_dict["left"])
     right_list = extract_chapters_file_list(videos_dict["right"])
     # Make sure they both have the same chapters
@@ -333,7 +348,10 @@ def configure_game_videos(
 def _main(args: argparse.Namespace):
     game_id = args.game_id
     assert game_id
-    results = configure_game_videos(game_id=game_id)
+    results = configure_game_videos(
+        game_id=game_id,
+        inference_scale=getattr(args, "ice_rink_inference_scale", None),
+    )
     # videos_dict = get_game_videos_analysis(game_id=game_id)
     print(results)
 
