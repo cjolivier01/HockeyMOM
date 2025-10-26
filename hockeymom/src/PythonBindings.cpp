@@ -1011,6 +1011,12 @@ void init_living_boxes(::pybind11::module_& m) {
           "cancel_stop_on_opposite_dir",
           &TranslatingBoxConfig::cancel_stop_on_opposite_dir)
       .def_readwrite(
+          "cancel_stop_hysteresis_frames",
+          &TranslatingBoxConfig::cancel_stop_hysteresis_frames)
+      .def_readwrite(
+          "stop_delay_cooldown_frames",
+          &TranslatingBoxConfig::stop_delay_cooldown_frames)
+      .def_readwrite(
           "dynamic_acceleration_scaling",
           &TranslatingBoxConfig::dynamic_acceleration_scaling)
       .def_readwrite(
@@ -1030,7 +1036,10 @@ void init_living_boxes(::pybind11::module_& m) {
           &TranslatingBoxConfig::unsticky_translation_size_ratio)
       .def_readwrite(
           "pan_smoothing_alpha",
-          &TranslatingBoxConfig::pan_smoothing_alpha);
+          &TranslatingBoxConfig::pan_smoothing_alpha)
+      .def_readwrite(
+          "post_nonstop_stop_delay_count",
+          &TranslatingBoxConfig::post_nonstop_stop_delay_count);
 
   py::class_<TranslationState>(m, "TranslationState")
       .def(py::init<>())
@@ -1050,11 +1059,15 @@ void init_living_boxes(::pybind11::module_& m) {
           "stop_delay_x_counter", &TranslationState::stop_delay_x_counter)
       .def_readonly("stop_decel_x", &TranslationState::stop_decel_x)
       .def_readonly("stop_trigger_dir_x", &TranslationState::stop_trigger_dir_x)
+      .def_readonly("cancel_opp_x_count", &TranslationState::cancel_opp_x_count)
+      .def_readonly("cooldown_x_counter", &TranslationState::cooldown_x_counter)
       .def_readonly("stop_delay_y", &TranslationState::stop_delay_y)
       .def_readonly(
           "stop_delay_y_counter", &TranslationState::stop_delay_y_counter)
       .def_readonly("stop_decel_y", &TranslationState::stop_decel_y)
       .def_readonly("stop_trigger_dir_y", &TranslationState::stop_trigger_dir_y)
+      .def_readonly("cancel_opp_y_count", &TranslationState::cancel_opp_y_count)
+      .def_readonly("cooldown_y_counter", &TranslationState::cooldown_y_counter)
       .def_readonly("canceled_stop_x", &TranslationState::canceled_stop_x)
       .def_readonly("canceled_stop_y", &TranslationState::canceled_stop_y);
 
@@ -1133,6 +1146,11 @@ void init_living_boxes(::pybind11::module_& m) {
           py::arg("ratio_x") = py::none(),
           py::arg("ratio_y") = py::none(),
           py::arg("clamp_to_max") = false)
+      .def(
+          "begin_stop_delay",
+          &LivingBox::begin_stop_delay,
+          py::arg("delay_x") = py::none(),
+          py::arg("delay_y") = py::none())
       .def("resizing_state", &LivingBox::ResizingBox::get_state)
       .def("resizing_config", &LivingBox::ResizingBox::get_config)
       .def("translation_state", &LivingBox::TranslatingBox::get_state)
@@ -1225,7 +1243,10 @@ void init_play_tracker(::pybind11::module_& m) {
           "nonstop_delay_count", &PlayDetectorConfig::nonstop_delay_count)
       .def_readwrite(
           "overshoot_scale_speed_ratio",
-          &PlayDetectorConfig::overshoot_scale_speed_ratio);
+          &PlayDetectorConfig::overshoot_scale_speed_ratio)
+      .def_readwrite(
+          "overshoot_stop_delay_count",
+          &PlayDetectorConfig::overshoot_stop_delay_count);
 
   py::class_<PlayTrackerConfig>(m, "PlayTrackerConfig")
       .def(py::init<>())

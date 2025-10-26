@@ -93,6 +93,10 @@ struct ILivingBox : virtual public IBasicLivingBox {
       std::optional<FloatValue> ratio_x,
       std::optional<FloatValue> ratio_y,
       bool clamp_to_max = false) = 0;
+
+  // Begin a per-axis stop delay externally (e.g., overshoot cases)
+  virtual void begin_stop_delay(
+      std::optional<IntValue> delay_x, std::optional<IntValue> delay_y) = 0;
 };
 
 /* clang-format off */
@@ -169,6 +173,12 @@ struct TranslatingBoxConfig {
   FloatValue unsticky_translation_size_ratio{0.75};
   // Smooth the target center before computing velocity (0 disables)
   FloatValue pan_smoothing_alpha{0.18};
+  // Optional braking after a nonstop (breakaway catch-up) window ends
+  IntValue post_nonstop_stop_delay_count{0};
+  // Hysteresis for cancel-on-opposite during braking (consecutive frames)
+  IntValue cancel_stop_hysteresis_frames{0};
+  // Cooldown after a stop-delay finishes or is canceled before a new one can start
+  IntValue stop_delay_cooldown_frames{0};
 };
 
 struct LivingBoxConfig {

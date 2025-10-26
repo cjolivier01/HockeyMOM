@@ -86,6 +86,11 @@ class LivingBox : public ILivingBox,
     TranslatingBox::scale_speed(ratio_x, ratio_y, clamp_to_max);
   }
 
+  void begin_stop_delay(
+      std::optional<IntValue> delay_x, std::optional<IntValue> delay_y) override {
+    TranslatingBox::begin_stop_delay(delay_x, delay_y);
+  }
+
  protected:
   BBox next_position();
 

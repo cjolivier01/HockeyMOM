@@ -448,6 +448,31 @@ class hm_opts(object):
             type=int,
             help="Cancel braking when inputs flip opposite (0/1)",
         )
+        parser.add_argument(
+            "--stop-cancel-hysteresis-frames",
+            default=0,
+            type=int,
+            help="Consecutive opposite-direction frames required to cancel braking",
+        )
+        parser.add_argument(
+            "--stop-delay-cooldown-frames",
+            default=0,
+            type=int,
+            help="Cooldown frames after stop-delay finishes/cancels before another can start",
+        )
+        # Breakaway quick-stop knobs via CLI
+        parser.add_argument(
+            "--overshoot-stop-delay-count",
+            default=None,
+            type=int,
+            help="When overshooting breakaway, brake to stop over N frames (if set)",
+        )
+        parser.add_argument(
+            "--post-nonstop-stop-delay-count",
+            default=None,
+            type=int,
+            help="After nonstop ends, brake to stop over N frames (if set)",
+        )
 
         return parser
 
@@ -504,6 +529,57 @@ class hm_opts(object):
                         game_cfg,
                         "rink.camera.cancel_stop_on_opposite_dir",
                         bool(int(opt.cancel_stop_on_opposite_dir)),
+                    )
+            except Exception:
+                pass
+            # cancel hysteresis frames
+            try:
+                if get_nested_value(game_cfg, "rink.camera.stop_cancel_hysteresis_frames", None) is None:
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.stop_cancel_hysteresis_frames",
+                        int(opt.stop_cancel_hysteresis_frames),
+                    )
+            except Exception:
+                pass
+            # stop delay cooldown frames
+            try:
+                if get_nested_value(game_cfg, "rink.camera.stop_delay_cooldown_frames", None) is None:
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.stop_delay_cooldown_frames",
+                        int(opt.stop_delay_cooldown_frames),
+                    )
+            except Exception:
+                pass
+            # Breakaway: overshoot/post-nonstop delays
+            try:
+                if (
+                    opt.overshoot_stop_delay_count is not None
+                    and get_nested_value(
+                        game_cfg, "rink.camera.breakaway_detection.overshoot_stop_delay_count", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.breakaway_detection.overshoot_stop_delay_count",
+                        int(opt.overshoot_stop_delay_count),
+                    )
+            except Exception:
+                pass
+            try:
+                if (
+                    opt.post_nonstop_stop_delay_count is not None
+                    and get_nested_value(
+                        game_cfg, "rink.camera.breakaway_detection.post_nonstop_stop_delay_count", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.breakaway_detection.post_nonstop_stop_delay_count",
+                        int(opt.post_nonstop_stop_delay_count),
                     )
             except Exception:
                 pass

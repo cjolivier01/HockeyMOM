@@ -322,6 +322,9 @@ class MovingBox(ResizingBox):
         sticky_translation_gaussian_mult: float = 5.0,
         unsticky_translation_size_ratio: float = 0.75,
         pan_smoothing_alpha: float = 0.18,
+        post_nonstop_stop_delay: int = 0,
+        cancel_hysteresis_frames: int = 0,
+        stop_delay_cooldown_frames: int = 0,
         sticky_sizing: bool = False,
         color: Tuple[int, int, int] = (255, 0, 0),
         frozen_color: Tuple[int, int, int] = (64, 64, 64),
@@ -355,6 +358,19 @@ class MovingBox(ResizingBox):
         self._filtered_target_center: Optional[torch.Tensor] = None
         self._clamp_scaled_input_box = clamp_scaled_input_box
         self._cancel_stop_on_opposite_dir = bool(cancel_stop_on_opposite_dir)
+        self._post_nonstop_stop_delay = torch.tensor(
+            int(post_nonstop_stop_delay), dtype=torch.int64, device=self.device
+        )
+        self._cancel_hysteresis_frames = torch.tensor(
+            int(cancel_hysteresis_frames), dtype=torch.int64, device=self.device
+        )
+        self._stop_delay_cooldown_frames = torch.tensor(
+            int(stop_delay_cooldown_frames), dtype=torch.int64, device=self.device
+        )
+        self._cancel_opp_x_count = self._zero_int.clone()
+        self._cancel_opp_y_count = self._zero_int.clone()
+        self._cooldown_x_counter = self._zero_int.clone()
+        self._cooldown_y_counter = self._zero_int.clone()
 
         self._line_thickness_tensor = torch.tensor(
             [2, 2, -1, -2], dtype=torch.float, device=self.device
@@ -492,6 +508,31 @@ class MovingBox(ResizingBox):
                     (0, 255, 255),
                     thickness=2,
                 )
+                y_offset += 28
+            # Hysteresis/cooldown indicators
+            if self._cancel_hysteresis_frames > self._zero_int:
+                text = f"Hyst {int(self._cancel_hysteresis_frames.item())}"
+                img = vis.plot_text(
+                    img,
+                    text,
+                    (x1 + 5, y1 + y_offset),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    2,
+                    (128, 255, 128),
+                    thickness=2,
+                )
+                y_offset += 28
+            if self._cooldown_x_counter > self._zero_int or self._cooldown_y_counter > self._zero_int:
+                text = f"Cd X{int(self._cooldown_x_counter.item())} Y{int(self._cooldown_y_counter.item())}"
+                img = vis.plot_text(
+                    img,
+                    text,
+                    (x1 + 5, y1 + y_offset),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    2,
+                    (255, 200, 0),
+                    thickness=2,
+                )
         # img = vis.draw_arrows(img, bbox=draw_box, horizontal=True, vertical=True)
         if draw_thresholds and self._sticky_translation:
             sticky, unsticky = self._get_sticky_translation_sizes()
@@ -623,6 +664,23 @@ class MovingBox(ResizingBox):
             self._nonstop_delay = nonstop_delay
             self._nonstop_delay_counter = self._zero.clone()
 
+    # Public: begin a per-axis stop delay (mirror of C++ API for parity)
+    def begin_stop_delay(
+        self,
+        delay_x: Optional[int] = None,
+        delay_y: Optional[int] = None,
+    ):
+        if delay_x is not None and int(delay_x) > 0:
+            self._stop_delay_x = torch.tensor(int(delay_x), dtype=torch.int64, device=self.device)
+            self._stop_delay_x_counter = self._zero_int.clone()
+            self._stop_decel_x = -self._current_speed_x / self._stop_delay_x.to(self._current_speed_x.dtype)
+            self._stop_trigger_dir_x = torch.sign(self._current_speed_x)
+        if delay_y is not None and int(delay_y) > 0:
+            self._stop_delay_y = torch.tensor(int(delay_y), dtype=torch.int64, device=self.device)
+            self._stop_delay_y_counter = self._zero_int.clone()
+            self._stop_decel_y = -self._current_speed_y / self._stop_delay_y.to(self._current_speed_y.dtype)
+            self._stop_trigger_dir_y = torch.sign(self._current_speed_y)
+
     def scale_speed(
         self,
         ratio_x: Optional[torch.Tensor] = None,
@@ -724,7 +782,11 @@ class MovingBox(ResizingBox):
 
         if not self.is_nonstop():
             # Trigger braking if not already active and direction changes
-            if self._stop_delay_x == self._zero_int and different_directions(total_diff[0], self._current_speed_x):
+            if (
+                self._stop_delay_x == self._zero_int
+                and self._cooldown_x_counter == self._zero_int
+                and different_directions(total_diff[0], self._current_speed_x)
+            ):
                 moving_enough_x = torch.abs(self._current_speed_x) >= (self._max_speed_x / 6)
                 if self._stop_on_dir_change_delay > self._zero_int and moving_enough_x:
                     self._stop_delay_x = self._stop_on_dir_change_delay.clone()
@@ -742,7 +804,11 @@ class MovingBox(ResizingBox):
                     if self._stop_on_dir_change:
                         accel_x = total_diff[0] * 0.25
 
-            if self._stop_delay_y == self._zero_int and different_directions(total_diff[1], self._current_speed_y):
+            if (
+                self._stop_delay_y == self._zero_int
+                and self._cooldown_y_counter == self._zero_int
+                and different_directions(total_diff[1], self._current_speed_y)
+            ):
                 moving_enough_y = torch.abs(self._current_speed_y) >= (self._max_speed_y / 6)
                 if self._stop_on_dir_change_delay > self._zero_int and moving_enough_y:
                     self._stop_delay_y = self._stop_on_dir_change_delay.clone()
@@ -763,23 +829,48 @@ class MovingBox(ResizingBox):
             if self._cancel_stop_on_opposite_dir and torch.sign(total_diff[0]) != 0 and (
                 torch.sign(total_diff[0]) == -self._stop_trigger_dir_x
             ):
-                # Cancel braking on X
-                self._stop_delay_x = self._zero_int.clone()
-                self._stop_delay_x_counter = self._zero_int.clone()
-                self._stop_decel_x = self._zero.clone()
-                self._cancel_stop_x_flash = True
+                # Hysteresis: require consecutive frames before cancel
+                if self._cancel_hysteresis_frames > self._zero_int:
+                    self._cancel_opp_x_count += 1
+                    if self._cancel_opp_x_count >= self._cancel_hysteresis_frames:
+                        self._stop_delay_x = self._zero_int.clone()
+                        self._stop_delay_x_counter = self._zero_int.clone()
+                        self._stop_decel_x = self._zero.clone()
+                        self._cancel_stop_x_flash = True
+                        self._cancel_opp_x_count = self._zero_int.clone()
+                        self._cooldown_x_counter = self._stop_delay_cooldown_frames.clone()
+                else:
+                    # Cancel immediately
+                    self._stop_delay_x = self._zero_int.clone()
+                    self._stop_delay_x_counter = self._zero_int.clone()
+                    self._stop_decel_x = self._zero.clone()
+                    self._cancel_stop_x_flash = True
+                    self._cooldown_x_counter = self._stop_delay_cooldown_frames.clone()
             else:
+                self._cancel_opp_x_count = self._zero_int.clone()
                 accel_x = self._stop_decel_x
         if self._stop_delay_y != self._zero_int:
             if self._cancel_stop_on_opposite_dir and torch.sign(total_diff[1]) != 0 and (
                 torch.sign(total_diff[1]) == -self._stop_trigger_dir_y
             ):
-                # Cancel braking on Y
-                self._stop_delay_y = self._zero_int.clone()
-                self._stop_delay_y_counter = self._zero_int.clone()
-                self._stop_decel_y = self._zero.clone()
-                self._cancel_stop_y_flash = True
+                if self._cancel_hysteresis_frames > self._zero_int:
+                    self._cancel_opp_y_count += 1
+                    if self._cancel_opp_y_count >= self._cancel_hysteresis_frames:
+                        self._stop_delay_y = self._zero_int.clone()
+                        self._stop_delay_y_counter = self._zero_int.clone()
+                        self._stop_decel_y = self._zero.clone()
+                        self._cancel_stop_y_flash = True
+                        self._cancel_opp_y_count = self._zero_int.clone()
+                        self._cooldown_y_counter = self._stop_delay_cooldown_frames.clone()
+                else:
+                    # Cancel immediately
+                    self._stop_delay_y = self._zero_int.clone()
+                    self._stop_delay_y_counter = self._zero_int.clone()
+                    self._stop_decel_y = self._zero.clone()
+                    self._cancel_stop_y_flash = True
+                    self._cooldown_y_counter = self._stop_delay_cooldown_frames.clone()
             else:
+                self._cancel_opp_y_count = self._zero_int.clone()
                 accel_y = self._stop_decel_y
 
         self.adjust_speed(
@@ -854,6 +945,17 @@ class MovingBox(ResizingBox):
             if self._nonstop_delay_counter > self._nonstop_delay:
                 self._nonstop_delay = self._zero
                 self._nonstop_delay_counter = self._zero.clone()
+                # Optional braking after nonstop completes
+                if self._post_nonstop_stop_delay > self._zero_int and torch.abs(self._current_speed_x) >= (self._max_speed_x / 6):
+                    self._stop_delay_x = self._post_nonstop_stop_delay.clone()
+                    self._stop_delay_x_counter = self._zero_int.clone()
+                    self._stop_decel_x = -self._current_speed_x / self._stop_delay_x.to(self._current_speed_x.dtype)
+                    self._stop_trigger_dir_x = torch.sign(self._current_speed_x)
+        # Decrement cooldowns
+        if self._cooldown_x_counter > self._zero_int:
+            self._cooldown_x_counter -= 1
+        if self._cooldown_y_counter > self._zero_int:
+            self._cooldown_y_counter -= 1
         # Update per-axis stop delays
         if self._stop_delay_x != self._zero_int:
             self._stop_delay_x_counter += 1
@@ -862,6 +964,8 @@ class MovingBox(ResizingBox):
                 self._stop_delay_x_counter = self._zero_int.clone()
                 self._stop_decel_x = self._zero.clone()
                 self._current_speed_x = self._zero.clone()
+                if self._stop_delay_cooldown_frames > self._zero_int:
+                    self._cooldown_x_counter = self._stop_delay_cooldown_frames.clone()
         if self._stop_delay_y != self._zero_int:
             self._stop_delay_y_counter += 1
             if self._stop_delay_y_counter >= self._stop_delay_y:
@@ -869,6 +973,8 @@ class MovingBox(ResizingBox):
                 self._stop_delay_y_counter = self._zero_int.clone()
                 self._stop_decel_y = self._zero.clone()
                 self._current_speed_y = self._zero.clone()
+                if self._stop_delay_cooldown_frames > self._zero_int:
+                    self._cooldown_y_counter = self._stop_delay_cooldown_frames.clone()
         self.stop_translation_if_out_of_arena()
         self.clamp_to_arena()
         if self._fixed_aspect_ratio is not None:
@@ -877,10 +983,9 @@ class MovingBox(ResizingBox):
         if arena_box is not None:
             self._bbox, was_shifted_x, was_shifted_y = shift_box_to_edge(self._bbox, arena_box)
             if was_shifted_x:
-                # We show down X velocity if we went off the edge
+                # Abrupt slow-down at the edge: keep immediate halving rather than braking
                 self._current_speed_x /= 2
             if was_shifted_y:
-                # We show down X velocity if we went off the edge
                 self._current_speed_y /= 2
 
         if self._fixed_aspect_ratio is not None:

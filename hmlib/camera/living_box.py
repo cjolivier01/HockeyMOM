@@ -151,7 +151,8 @@ class PyLivingBox(LivingBox):
             if (stop_x and int(stop_x) > 0) or (stop_y and int(stop_y) > 0):
                 intbox = [int(i) for i in draw_box]
                 x1, y1 = intbox[0], intbox[1]
-                y_offset = 50
+                text_height = 100
+                y_offset = text_height * 5
                 if stop_x and int(stop_x) > 0:
                     cnt_x = int(getattr(tstate, "stop_delay_x_counter", 0))
                     img = vis.plot_text(
@@ -159,11 +160,11 @@ class PyLivingBox(LivingBox):
                         f"BrakeX {cnt_x}/{int(stop_x)}",
                         (x1 + 5, y1 + y_offset),
                         cv2.FONT_HERSHEY_PLAIN,
-                        20,
+                        5,
                         (0, 255, 255),
                         thickness=2,
                     )
-                    y_offset += 28
+                    y_offset += text_height
                 if stop_y and int(stop_y) > 0:
                     cnt_y = int(getattr(tstate, "stop_delay_y_counter", 0))
                     img = vis.plot_text(
@@ -171,8 +172,34 @@ class PyLivingBox(LivingBox):
                         f"BrakeY {cnt_y}/{int(stop_y)}",
                         (x1 + 5, y1 + y_offset),
                         cv2.FONT_HERSHEY_PLAIN,
-                        20,
+                        5,
                         (0, 255, 255),
+                        thickness=2,
+                    )
+                    y_offset += text_height
+                # Show hysteresis threshold and cooldown counters
+                hyst = int(getattr(tconfig, "cancel_stop_hysteresis_frames", 0))
+                if hyst > 0:
+                    img = vis.plot_text(
+                        img,
+                        f"Hyst {hyst}",
+                        (x1 + 5, y1 + y_offset),
+                        cv2.FONT_HERSHEY_PLAIN,
+                        5,
+                        (128, 255, 128),
+                        thickness=2,
+                    )
+                    y_offset += text_height
+                cd_x = int(getattr(tstate, "cooldown_x_counter", 0))
+                cd_y = int(getattr(tstate, "cooldown_y_counter", 0))
+                if cd_x > 0 or cd_y > 0:
+                    img = vis.plot_text(
+                        img,
+                        f"Cd X{cd_x} Y{cd_y}",
+                        (x1 + 5, y1 + y_offset),
+                        cv2.FONT_HERSHEY_PLAIN,
+                        5,
+                        (255, 200, 0),
                         thickness=2,
                     )
         except Exception:

@@ -22,10 +22,14 @@ struct TranslationState {
   IntValue stop_delay_x_counter{0};
   FloatValue stop_decel_x{0.0};
   FloatValue stop_trigger_dir_x{0.0};
+  IntValue cancel_opp_x_count{0};
+  IntValue cooldown_x_counter{0};
   std::optional<IntValue> stop_delay_y{0};
   IntValue stop_delay_y_counter{0};
   FloatValue stop_decel_y{0.0};
   FloatValue stop_trigger_dir_y{0.0};
+  IntValue cancel_opp_y_count{0};
+  IntValue cooldown_y_counter{0};
   // Visual cue booleans to indicate a cancel occurred this frame
   bool canceled_stop_x{false};
   bool canceled_stop_y{false};
@@ -48,6 +52,11 @@ class TranslatingBox : virtual public IBasicLivingBox {
       std::optional<FloatValue> accel_y = std::nullopt,
       std::optional<FloatValue> scale_constraints = std::nullopt,
       std::optional<IntValue> nonstop_delay = std::nullopt);
+
+  // Begin a per-axis stop delay externally (e.g., overshoot/catch-up cases)
+  void begin_stop_delay(
+      std::optional<IntValue> delay_x = std::nullopt,
+      std::optional<IntValue> delay_y = std::nullopt);
 
   /**
    * Scale the current speed by the given ratio

@@ -143,7 +143,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
 
   if (!is_nonstop()) {
     // Only consider triggering new stop-delays if not already braking on axis
-    if ((!state_.stop_delay_x || *state_.stop_delay_x == 0) &&
+    if ((!state_.stop_delay_x || *state_.stop_delay_x == 0) && state_.cooldown_x_counter == 0 &&
         different_directions(total_diff.dx, state_.current_speed_x)) {
       const bool moving_enough_x =
           std::abs(state_.current_speed_x) >=
@@ -168,7 +168,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
       }
     }
 
-    if ((!state_.stop_delay_y || *state_.stop_delay_y == 0) &&
+    if ((!state_.stop_delay_y || *state_.stop_delay_y == 0) && state_.cooldown_y_counter == 0 &&
         different_directions(total_diff.dy, state_.current_speed_y)) {
       const bool moving_enough_y =
           std::abs(state_.current_speed_y) >=
@@ -199,22 +199,51 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     // Optional: cancel braking if input flips opposite of the trigger direction
     if (config_.cancel_stop_on_opposite_dir && sign(total_diff.dx) != 0.0f &&
         sign(total_diff.dx) == -state_.stop_trigger_dir_x) {
-      state_.stop_delay_x = zero();
-      state_.stop_delay_x_counter = zero();
-      state_.stop_decel_x = 0.0f;
-      state_.canceled_stop_x = true;
+      // Hysteresis: require N consecutive frames before cancel
+      if (config_.cancel_stop_hysteresis_frames > 0) {
+        state_.cancel_opp_x_count += 1;
+        if (state_.cancel_opp_x_count >= config_.cancel_stop_hysteresis_frames) {
+          state_.stop_delay_x = zero();
+          state_.stop_delay_x_counter = zero();
+          state_.stop_decel_x = 0.0f;
+          state_.canceled_stop_x = true;
+          state_.cancel_opp_x_count = zero_int();
+          state_.cooldown_x_counter = config_.stop_delay_cooldown_frames;
+        }
+      } else {
+        state_.stop_delay_x = zero();
+        state_.stop_delay_x_counter = zero();
+        state_.stop_decel_x = 0.0f;
+        state_.canceled_stop_x = true;
+        state_.cooldown_x_counter = config_.stop_delay_cooldown_frames;
+      }
     } else {
+      state_.cancel_opp_x_count = zero_int();
       accel_x = state_.stop_decel_x;
     }
   }
   if (state_.stop_delay_y && *state_.stop_delay_y != 0) {
     if (config_.cancel_stop_on_opposite_dir && sign(total_diff.dy) != 0.0f &&
         sign(total_diff.dy) == -state_.stop_trigger_dir_y) {
-      state_.stop_delay_y = zero();
-      state_.stop_delay_y_counter = zero();
-      state_.stop_decel_y = 0.0f;
-      state_.canceled_stop_y = true;
+      if (config_.cancel_stop_hysteresis_frames > 0) {
+        state_.cancel_opp_y_count += 1;
+        if (state_.cancel_opp_y_count >= config_.cancel_stop_hysteresis_frames) {
+          state_.stop_delay_y = zero();
+          state_.stop_delay_y_counter = zero();
+          state_.stop_decel_y = 0.0f;
+          state_.canceled_stop_y = true;
+          state_.cancel_opp_y_count = zero_int();
+          state_.cooldown_y_counter = config_.stop_delay_cooldown_frames;
+        }
+      } else {
+        state_.stop_delay_y = zero();
+        state_.stop_delay_y_counter = zero();
+        state_.stop_decel_y = 0.0f;
+        state_.canceled_stop_y = true;
+        state_.cooldown_y_counter = config_.stop_delay_cooldown_frames;
+      }
     } else {
+      state_.cancel_opp_y_count = zero_int();
       accel_y = state_.stop_decel_y;
     }
   }
@@ -268,6 +297,12 @@ void TranslatingBox::update_nonstop_delay() {
     if (state_.nonstop_delay_counter > state_.nonstop_delay) {
       state_.nonstop_delay = zero();
       state_.nonstop_delay_counter = zero();
+      // Optional braking after nonstop (breakaway catch-up) completes
+      if (config_.post_nonstop_stop_delay_count > 0) {
+        begin_stop_delay(
+            /*delay_x=*/config_.post_nonstop_stop_delay_count,
+            /*delay_y=*/std::nullopt);
+      }
     }
   }
 }
@@ -281,6 +316,9 @@ void TranslatingBox::update_stop_delays() {
       state_.stop_delay_x_counter = zero();
       state_.stop_decel_x = 0.0f;
       state_.current_speed_x = 0.0f; // ensure fully stopped
+      if (config_.stop_delay_cooldown_frames > 0) {
+        state_.cooldown_x_counter = config_.stop_delay_cooldown_frames;
+      }
     }
   }
   // Y-axis stop delay
@@ -291,7 +329,17 @@ void TranslatingBox::update_stop_delays() {
       state_.stop_delay_y_counter = zero();
       state_.stop_decel_y = 0.0f;
       state_.current_speed_y = 0.0f;
+      if (config_.stop_delay_cooldown_frames > 0) {
+        state_.cooldown_y_counter = config_.stop_delay_cooldown_frames;
+      }
     }
+  }
+  // Decrement cooldowns
+  if (state_.cooldown_x_counter > 0) {
+    state_.cooldown_x_counter -= 1;
+  }
+  if (state_.cooldown_y_counter > 0) {
+    state_.cooldown_y_counter -= 1;
   }
 }
 
@@ -306,11 +354,11 @@ void TranslatingBox::on_new_position() {
   const ShiftResult shift_result =
       shift_box_to_edge(bounding_box(), *config_.arena_box);
   if (shift_result.was_shifted_x) {
-    // We show down X velocity if we went off the edge
+    // Abrupt slow-down at the edge: keep immediate halving rather than braking
     state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
   }
   if (shift_result.was_shifted_y) {
-    // We show down X velocity if we went off the edge
+    // Abrupt slow-down at the edge: keep immediate halving rather than braking
     state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
   }
   if (shift_result.was_shifted_x || shift_result.was_shifted_y) {
@@ -366,6 +414,25 @@ void TranslatingBox::adjust_speed(
   if (nonstop_delay.has_value()) {
     state_.nonstop_delay = std::move(nonstop_delay);
     state_.nonstop_delay_counter = 0;
+  }
+}
+
+void TranslatingBox::begin_stop_delay(
+    std::optional<IntValue> delay_x, std::optional<IntValue> delay_y) {
+  if (delay_x.has_value() && *delay_x > 0) {
+    state_.stop_delay_x = *delay_x;
+    state_.stop_delay_x_counter = 0;
+    // Decelerate linearly to zero over N frames
+    state_.stop_decel_x = -state_.current_speed_x /
+        static_cast<FloatValue>(*delay_x);
+    state_.stop_trigger_dir_x = sign(state_.current_speed_x);
+  }
+  if (delay_y.has_value() && *delay_y > 0) {
+    state_.stop_delay_y = *delay_y;
+    state_.stop_delay_y_counter = 0;
+    state_.stop_decel_y = -state_.current_speed_y /
+        static_cast<FloatValue>(*delay_y);
+    state_.stop_trigger_dir_y = sign(state_.current_speed_y);
   }
 }
 

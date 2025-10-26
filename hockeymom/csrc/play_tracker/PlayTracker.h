@@ -98,6 +98,11 @@ class PlayTracker : public IBreakawayAdjuster {
       bool clamp_to_max = false) override {
     living_boxes_.at(0)->scale_speed(ratio_x, ratio_y, clamp_to_max);
   }
+
+  void begin_stop_delay(
+      std::optional<IntValue> delay_x, std::optional<IntValue> delay_y) override {
+    living_boxes_.at(0)->begin_stop_delay(delay_x, delay_y);
+  }
   // END IBreakawayAdjuster
 
   //

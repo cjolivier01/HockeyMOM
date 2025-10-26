@@ -210,11 +210,16 @@ std::optional<std::tuple<BBox, Point>> PlayDetector::detect_breakaway(
           /*scale_constraints=*/config_.scale_speed_constraints,
           /*nonstop_delay=*/config_.nonstop_delay_count);
     } else {
-      // Cut the speed quickly due to overshoot
-      adjuster_->scale_speed(
-          /*ratio_x=*/config_.overshoot_scale_speed_ratio,
-          /*ratio_y=*/std::nullopt,
-          /*clamp_to_max=*/false);
+      // Overshoot case: either multiplicative damping or begin a stop-delay
+      if (config_.overshoot_stop_delay_count > 0) {
+        adjuster_->begin_stop_delay(/*delay_x=*/config_.overshoot_stop_delay_count, /*delay_y=*/std::nullopt);
+      } else {
+        // Cut the speed quickly due to overshoot
+        adjuster_->scale_speed(
+            /*ratio_x=*/config_.overshoot_scale_speed_ratio,
+            /*ratio_y=*/std::nullopt,
+            /*clamp_to_max=*/false);
+      }
     }
   }
   return std::make_tuple(new_dest_bbox, *edge_center);

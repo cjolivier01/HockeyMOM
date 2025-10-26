@@ -27,6 +27,11 @@ struct IBreakawayAdjuster {
       std::optional<FloatValue> ratio_x,
       std::optional<FloatValue> ratio_y,
       bool clamp_to_max = false) = 0;
+
+  // Begin a per-axis stop delay (frames) for braking
+  virtual void begin_stop_delay(
+      std::optional<IntValue> delay_x,
+      std::optional<IntValue> delay_y) = 0;
 };
 
 struct PlayDetectorConfig {
@@ -60,6 +65,9 @@ struct PlayDetectorConfig {
   // When over-shooting the breakaway players, what scale do we apply
   // to the current speed each frame in order to slow it down?
   float overshoot_scale_speed_ratio = 0.7;
+  // If >0, instead of multiplicative speed scaling on overshoot,
+  // initiate a stop-delay on X to brake over N frames while ignoring inputs.
+  int overshoot_stop_delay_count{0};
 };
 
 struct PlayDetectorResults {

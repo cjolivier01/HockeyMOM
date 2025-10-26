@@ -172,23 +172,6 @@ class PlayTracker(torch.nn.Module):
 
             current_roi_config.stop_resizing_on_dir_change = False
             current_roi_config.stop_translation_on_dir_change = False
-            # Optional per-axis braking delay on direction change
-            camera_cfg = args.game_config["rink"]["camera"]
-            # Prefer YAML; fall back to CLI hm_opts defaults/overrides
-            stop_dir_delay = int(
-                camera_cfg.get(
-                    "stop_on_dir_change_delay",
-                    getattr(args, "stop_on_dir_change_delay", 0),
-                )
-            )
-            cancel_stop = bool(
-                camera_cfg.get(
-                    "cancel_stop_on_opposite_dir",
-                    bool(getattr(args, "cancel_stop_on_opposite_dir", 0)),
-                )
-            )
-            current_roi_config.stop_translation_on_dir_change_delay = stop_dir_delay
-            current_roi_config.cancel_stop_on_opposite_dir = cancel_stop
             current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
 
             #
@@ -224,11 +207,37 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.stop_translation_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
 
-            stop_dir_delay = 10
-            cancel_stop = True
+            # Prefer YAML; fall back to CLI hm_opts defaults/overrides
+            camera_cfg = args.game_config["rink"]["camera"]
+            stop_dir_delay = int(
+                camera_cfg.get(
+                    "stop_on_dir_change_delay",
+                    getattr(args, "stop_on_dir_change_delay", 0),
+                )
+            )
+            cancel_stop = bool(
+                camera_cfg.get(
+                    "cancel_stop_on_opposite_dir",
+                    bool(getattr(args, "cancel_stop_on_opposite_dir", 0)),
+                )
+            )
+            cancel_hyst = int(
+                camera_cfg.get(
+                    "stop_cancel_hysteresis_frames",
+                    getattr(args, "stop_cancel_hysteresis_frames", 0),
+                )
+            )
+            cooldown_frames = int(
+                camera_cfg.get(
+                    "stop_delay_cooldown_frames",
+                    getattr(args, "stop_delay_cooldown_frames", 0),
+                )
+            )
 
             current_roi_aspect_config.stop_translation_on_dir_change_delay = stop_dir_delay
             current_roi_aspect_config.cancel_stop_on_opposite_dir = cancel_stop
+            current_roi_aspect_config.cancel_stop_hysteresis_frames = cancel_hyst
+            current_roi_aspect_config.stop_delay_cooldown_frames = cooldown_frames
 
             # FIXME: get this from config
             current_roi_aspect_config.dynamic_acceleration_scaling = 1.0
@@ -298,6 +307,13 @@ class PlayTracker(torch.nn.Module):
                 pt_config.play_detector.scale_speed_constraints = breakaway_detection["scale_speed_constraints"]
                 pt_config.play_detector.nonstop_delay_count = breakaway_detection["nonstop_delay_count"]
                 pt_config.play_detector.overshoot_scale_speed_ratio = breakaway_detection["overshoot_scale_speed_ratio"]
+                # Optional: use stop-delay braking instead of multiplicative overshoot scale
+                pt_config.play_detector.overshoot_stop_delay_count = int(
+                    breakaway_detection.get("overshoot_stop_delay_count", 0)
+                )
+                # After nonstop ends, optionally brake to stop
+                post_nonstop = int(breakaway_detection.get("post_nonstop_stop_delay_count", 0))
+                current_roi_aspect_config.post_nonstop_stop_delay_count = post_nonstop
                 self._breakaway_detection = None
 
                 self._playtracker = CppPlayTracker(BBox(0, 0, play_width, play_height), pt_config)
@@ -321,6 +337,18 @@ class PlayTracker(torch.nn.Module):
                     bool(getattr(args, "cancel_stop_on_opposite_dir", 0)),
                 )
             )
+            cancel_hyst = int(
+                camera_cfg.get(
+                    "stop_cancel_hysteresis_frames",
+                    getattr(args, "stop_cancel_hysteresis_frames", 0),
+                )
+            )
+            cooldown_frames = int(
+                camera_cfg.get(
+                    "stop_delay_cooldown_frames",
+                    getattr(args, "stop_delay_cooldown_frames", 0),
+                )
+            )
 
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="Current ROI",
@@ -335,6 +363,8 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change=False,
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
+                cancel_hysteresis_frames=cancel_hyst,
+                stop_delay_cooldown_frames=cooldown_frames,
                 pan_smoothing_alpha=args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
                 color=(255, 128, 64),
                 thickness=5,
@@ -342,6 +372,7 @@ class PlayTracker(torch.nn.Module):
                 min_height=play_height / 10,
             )
 
+            post_nonstop = int(camera_cfg.get("breakaway_detection", {}).get("post_nonstop_stop_delay_count", 0))
             self._current_roi_aspect: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="AspectRatio",
                 bbox=start_box.clone(),
@@ -355,6 +386,8 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change=True,
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
+                cancel_hysteresis_frames=cancel_hyst,
+                stop_delay_cooldown_frames=cooldown_frames,
                 sticky_translation=True,
                 sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
                     "sticky_size_ratio_to_frame_width"
@@ -374,6 +407,7 @@ class PlayTracker(torch.nn.Module):
                 thickness=5,
                 device=self._device,
                 min_height=play_height / 5,
+                post_nonstop_stop_delay=post_nonstop,
             )
 
         # Optional transformer-based camera controller
@@ -1040,9 +1074,22 @@ class PlayTracker(torch.nn.Module):
                         nonstop_delay=self._breakaway_detection.nonstop_delay_count,
                     )
                 else:
-                    # Cut the speed quickly due to overshoot
-                    # self._current_roi.scale_speed(ratio_x=0.6)
-                    speed_adjust_box.scale_speed(ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio)
+                    # Overshoot: either multiplicative damping or begin a stop-delay
+                    overshoot_delay = int(
+                        self._args.game_config["rink"]["camera"]["breakaway_detection"].get(
+                            "overshoot_stop_delay_count", 0
+                        )
+                    )
+                    if overshoot_delay > 0:
+                        # If using Python-only path, MovingBox has begin_stop_delay
+                        if isinstance(speed_adjust_box, MovingBox):
+                            speed_adjust_box.begin_stop_delay(delay_x=overshoot_delay)
+                        else:
+                            # C++ LivingBox exposes begin_stop_delay via bindings
+                            speed_adjust_box.begin_stop_delay(overshoot_delay, None)
+                    else:
+                        # Cut the speed quickly due to overshoot
+                        speed_adjust_box.scale_speed(ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio)
         #
         # END Breakway detection
         #
