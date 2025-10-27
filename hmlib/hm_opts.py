@@ -435,43 +435,62 @@ class hm_opts(object):
         parser.add_argument("--jersey-sam-model-type", type=str, default=None, help="SAM model type (e.g., vit_b)")
         parser.add_argument("--jersey-sam-device", type=str, default=None, help="SAM device")
 
-        # Camera tracking direction-change behavior
-        parser.add_argument(
+        #
+        # Camera braking / stop-dampening controls
+        #
+        braking = parser.add_argument_group(
+            "camera_braking",
+            "Camera movement braking and stop dampening controls",
+        )
+        braking.add_argument(
             "--stop-on-dir-change-delay",
             default=10,
             type=int,
             help="Frames to brake to a stop on direction change (camera tracking)",
         )
-        parser.add_argument(
+        braking.add_argument(
             "--cancel-stop-on-opposite-dir",
             default=1,
             type=int,
             help="Cancel braking when inputs flip opposite (0/1)",
         )
-        parser.add_argument(
+        braking.add_argument(
             "--stop-cancel-hysteresis-frames",
-            default=0,
+            default=2,
             type=int,
             help="Consecutive opposite-direction frames required to cancel braking",
         )
-        parser.add_argument(
+        braking.add_argument(
             "--stop-delay-cooldown-frames",
-            default=0,
+            default=2,
             type=int,
             help="Cooldown frames after stop-delay finishes/cancels before another can start",
         )
         # Breakaway quick-stop knobs via CLI
-        parser.add_argument(
+        braking.add_argument(
             "--overshoot-stop-delay-count",
-            default=None,
+            default=6,
             type=int,
-            help="When overshooting breakaway, brake to stop over N frames (if set)",
+            help="When overshooting breakaway, brake to stop over N frames",
         )
-        parser.add_argument(
+        braking.add_argument(
             "--post-nonstop-stop-delay-count",
-            default=None,
+            default=6,
             type=int,
-            help="After nonstop ends, brake to stop over N frames (if set)",
+            help="After nonstop ends, brake to stop over N frames",
+        )
+
+        # Generic YAML overrides: --config-override rink.camera.foo.bar=VALUE (repeatable)
+        overrides = parser.add_argument_group(
+            "config_overrides",
+            "Override any YAML config key with --config-override key=value",
+        )
+        overrides.add_argument(
+            "--config-override",
+            dest="config_overrides",
+            action="append",
+            default=[],
+            help="Override a YAML key path (dot.notation) with a value (repeatable)",
         )
 
         return parser
@@ -583,6 +602,57 @@ class hm_opts(object):
                     )
             except Exception:
                 pass
+
+            # Apply generic overrides: key=value, with simple type inference
+            for ov in (opt.config_overrides or []):
+                if not isinstance(ov, str) or "=" not in ov:
+                    continue
+                key, val = ov.split("=", 1)
+                sval = val.strip()
+                # Try to infer type: null/None, bool, int, float; else keep string
+                lval = sval.lower()
+                if lval in ("null", "none"):
+                    pval: Any = None
+                elif lval in ("true", "false"):
+                    pval = lval == "true"
+                else:
+                    try:
+                        if "." in sval:
+                            pval = float(sval)
+                        else:
+                            pval = int(sval)
+                    except Exception:
+                        pval = sval
+                try:
+                    set_nested_value(game_cfg, key.strip(), pval)
+                except Exception:
+                    pass
+        else:
+            # If there's no game_config yet, create one to hold overrides
+            if getattr(opt, "config_overrides", []):
+                opt.game_config = {}
+                for ov in (opt.config_overrides or []):
+                    if not isinstance(ov, str) or "=" not in ov:
+                        continue
+                    key, val = ov.split("=", 1)
+                    sval = val.strip()
+                    lval = sval.lower()
+                    if lval in ("null", "none"):
+                        pval = None
+                    elif lval in ("true", "false"):
+                        pval = lval == "true"
+                    else:
+                        try:
+                            if "." in sval:
+                                pval = float(sval)
+                            else:
+                                pval = int(sval)
+                        except Exception:
+                            pval = sval
+                    try:
+                        set_nested_value(opt.game_config, key.strip(), pval)
+                    except Exception:
+                        pass
 
         return opt
 
