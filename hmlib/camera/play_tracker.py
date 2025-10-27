@@ -48,6 +48,7 @@ from .camera_transformer import (
     unpack_checkpoint,
 )
 from .living_box import PyLivingBox, from_bbox, to_bbox
+from hmlib.config import get_game_config_private, save_private_config
 
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
@@ -117,6 +118,10 @@ class PlayTracker(torch.nn.Module):
         self._cluster_man: Optional[ClusterMan] = None
         self._original_clip_box = original_clip_box
         self._progress_bar = progress_bar
+        self._camera_ui_enabled = bool(getattr(args, "camera_ui", 0))
+        self._ui_window_name = "Tracker Controls"
+        self._ui_inited = False
+        self._ui_defaults = {}
 
         self._jersey_tracker = JerseyTracker(show=args.plot_jersey_numbers)
         self._action_tracker = ActionTracker(show=getattr(args, 'plot_actions', False))
@@ -410,6 +415,9 @@ class PlayTracker(torch.nn.Module):
                 post_nonstop_stop_delay=post_nonstop,
             )
 
+        if self._camera_ui_enabled:
+            self._init_ui_controls()
+
         # Optional transformer-based camera controller
         self._camera_controller = getattr(args, "camera_controller", "rule")
         self._camera_model: Optional[CameraPanZoomTransformer] = None
@@ -684,6 +692,40 @@ class PlayTracker(torch.nn.Module):
                         color=(255, 255, 255),
                         thickness=2,
                     )
+                    # UI overlay and C++ live tuning
+                    self._apply_ui_controls()
+                    try:
+                        camera_cfg = self._args.game_config["rink"]["camera"]
+                        bkd = camera_cfg.get("breakaway_detection", {})
+                        dir_delay = int(camera_cfg.get("stop_on_dir_change_delay", 10))
+                        cancel_opp = bool(camera_cfg.get("cancel_stop_on_opposite_dir", 1))
+                        hyst = int(camera_cfg.get("stop_cancel_hysteresis_frames", 2))
+                        cooldown = int(camera_cfg.get("stop_delay_cooldown_frames", 2))
+                        postns = int(bkd.get("post_nonstop_stop_delay_count", 6))
+                        ov_delay = int(bkd.get("overshoot_stop_delay_count", 6))
+                        ov_scale = float(bkd.get("overshoot_scale_speed_ratio", 0.7))
+                        # Read selection + constraints from trackbars
+                        apply_fast = cv2.getTrackbarPos("ApplyFast", self._ui_window_name) if self._camera_ui_enabled else 1
+                        apply_follower = cv2.getTrackbarPos("ApplyFollower", self._ui_window_name) if self._camera_ui_enabled else 1
+                        msx = cv2.getTrackbarPos("MaxSpdXx10", self._ui_window_name) / 10.0 if self._camera_ui_enabled else 30.0
+                        msy = cv2.getTrackbarPos("MaxSpdYx10", self._ui_window_name) / 10.0 if self._camera_ui_enabled else 30.0
+                        maxx = cv2.getTrackbarPos("MaxAccXx10", self._ui_window_name) / 10.0 if self._camera_ui_enabled else 10.0
+                        maxy = cv2.getTrackbarPos("MaxAccYx10", self._ui_window_name) / 10.0 if self._camera_ui_enabled else 10.0
+                        if apply_fast:
+                            lb = self._playtracker.get_live_box(0)
+                            lb.set_braking(dir_delay, cancel_opp, hyst, cooldown, postns)
+                            lb.set_translation_constraints(msx, msy, maxx, maxy)
+                        if apply_follower:
+                            lb = self._playtracker.get_live_box(1)
+                            lb.set_braking(dir_delay, cancel_opp, hyst, cooldown, postns)
+                            lb.set_translation_constraints(msx, msy, maxx, maxy)
+                        self._playtracker.set_breakaway_braking(ov_delay, ov_scale)
+                    except Exception:
+                        pass
+                    online_im = self._draw_ui_overlay(online_im)
+                    # UI overlay for C++ path
+                    self._apply_ui_controls()
+                    online_im = self._draw_ui_overlay(online_im)
 
                 if (
                     self._args.plot_individual_player_tracking
@@ -712,6 +754,9 @@ class PlayTracker(torch.nn.Module):
                         color=(128, 255, 128),
                         thickness=4,
                     )
+                if self._args.plot_moving_boxes:
+                    self._apply_ui_controls()
+                    online_im = self._draw_ui_overlay(online_im)
 
             else:
                 largest_bbox = None
@@ -1004,6 +1049,189 @@ class PlayTracker(torch.nn.Module):
         results["img"] = img
 
         return results
+
+    # ---------------------- UI Controls ----------------------
+    def _init_ui_controls(self):
+        try:
+            cv2.namedWindow(self._ui_window_name, cv2.WINDOW_NORMAL)
+            camera_cfg = self._args.game_config["rink"]["camera"]
+            bkd = camera_cfg.get("breakaway_detection", {})
+            # Trackbar ranges
+            def tb(name, maxv, init):
+                cv2.createTrackbar(name, self._ui_window_name, int(init), int(maxv), lambda v: None)
+
+            stop_dir_delay = int(camera_cfg.get("stop_on_dir_change_delay", getattr(self._args, "stop_on_dir_change_delay", 10)))
+            cancel_stop = 1 if bool(camera_cfg.get("cancel_stop_on_opposite_dir", bool(getattr(self._args, "cancel_stop_on_opposite_dir", 1)))) else 0
+            hyst = int(camera_cfg.get("stop_cancel_hysteresis_frames", getattr(self._args, "stop_cancel_hysteresis_frames", 2)))
+            cooldown = int(camera_cfg.get("stop_delay_cooldown_frames", getattr(self._args, "stop_delay_cooldown_frames", 2)))
+            ov_delay = int(bkd.get("overshoot_stop_delay_count", getattr(self._args, "overshoot_stop_delay_count", 6)))
+            postns = int(bkd.get("post_nonstop_stop_delay_count", getattr(self._args, "post_nonstop_stop_delay_count", 6)))
+            ov_scale = int(100 * float(bkd.get("overshoot_scale_speed_ratio", 0.7)))
+
+            tb("DirDelay", 60, stop_dir_delay)
+            tb("CancelOpp", 1, cancel_stop)
+            tb("Hyst", 10, hyst)
+            tb("Cooldown", 30, cooldown)
+            tb("OvDelay", 60, ov_delay)
+            tb("PostNS", 60, postns)
+            tb("OvScaleX100", 200, ov_scale)
+            # Translation constraints and target selection
+            # Apply to fast and/or follower boxes
+            tb("ApplyFast", 1, 1)
+            tb("ApplyFollower", 1, 1)
+            # Speeds/accels (scale sliders by x10 to allow decimals)
+            # Initialize from YAML if present, else use reasonable defaults
+            msx = int(10 * float(self._args.game_config["rink"]["camera"].get("max_speed_x", 30.0)))
+            msy = int(10 * float(self._args.game_config["rink"]["camera"].get("max_speed_y", 30.0)))
+            maxx = int(10 * float(self._args.game_config["rink"]["camera"].get("max_accel_x", 10.0)))
+            maxy = int(10 * float(self._args.game_config["rink"]["camera"].get("max_accel_y", 10.0)))
+            tb("MaxSpdXx10", 2000, msx)
+            tb("MaxSpdYx10", 2000, msy)
+            tb("MaxAccXx10", 1000, maxx)
+            tb("MaxAccYx10", 1000, maxy)
+            # Save defaults for reset
+            self._ui_defaults = dict(
+                DirDelay=stop_dir_delay,
+                CancelOpp=cancel_stop,
+                Hyst=hyst,
+                Cooldown=cooldown,
+                OvDelay=ov_delay,
+                PostNS=postns,
+                OvScaleX100=ov_scale,
+                ApplyFast=1,
+                ApplyFollower=1,
+                MaxSpdXx10=msx,
+                MaxSpdYx10=msy,
+                MaxAccXx10=maxx,
+                MaxAccYx10=maxy,
+            )
+            self._ui_inited = True
+        except Exception:
+            self._camera_ui_enabled = False
+
+    def _apply_ui_controls(self):
+        if not self._camera_ui_enabled or not self._ui_inited:
+            return
+        try:
+            # Read trackbars
+            dir_delay = cv2.getTrackbarPos("DirDelay", self._ui_window_name)
+            cancel_opp = cv2.getTrackbarPos("CancelOpp", self._ui_window_name)
+            hyst = cv2.getTrackbarPos("Hyst", self._ui_window_name)
+            cooldown = cv2.getTrackbarPos("Cooldown", self._ui_window_name)
+            ov_delay = cv2.getTrackbarPos("OvDelay", self._ui_window_name)
+            postns = cv2.getTrackbarPos("PostNS", self._ui_window_name)
+            ov_scal = cv2.getTrackbarPos("OvScaleX100", self._ui_window_name) / 100.0
+
+            # Update YAML-like config so all downstream reads are consistent
+            camera_cfg = self._args.game_config["rink"]["camera"]
+            camera_cfg["stop_on_dir_change_delay"] = int(dir_delay)
+            camera_cfg["cancel_stop_on_opposite_dir"] = bool(cancel_opp)
+            camera_cfg["stop_cancel_hysteresis_frames"] = int(hyst)
+            camera_cfg["stop_delay_cooldown_frames"] = int(cooldown)
+            bkd = camera_cfg.setdefault("breakaway_detection", {})
+            bkd["overshoot_stop_delay_count"] = int(ov_delay)
+            bkd["post_nonstop_stop_delay_count"] = int(postns)
+            bkd["overshoot_scale_speed_ratio"] = float(ov_scal)
+            # Read selection + constraints
+            apply_fast = cv2.getTrackbarPos("ApplyFast", self._ui_window_name)
+            apply_follower = cv2.getTrackbarPos("ApplyFollower", self._ui_window_name)
+            msx = cv2.getTrackbarPos("MaxSpdXx10", self._ui_window_name) / 10.0
+            msy = cv2.getTrackbarPos("MaxSpdYx10", self._ui_window_name) / 10.0
+            maxx = cv2.getTrackbarPos("MaxAccXx10", self._ui_window_name) / 10.0
+            maxy = cv2.getTrackbarPos("MaxAccYx10", self._ui_window_name) / 10.0
+            # Apply to Python movers (live)
+            if isinstance(self._current_roi, MovingBox) and apply_fast:
+                mb = self._current_roi
+                mb._max_speed_x = torch.tensor(msx, dtype=torch.float, device=mb.device)
+                mb._max_speed_y = torch.tensor(msy, dtype=torch.float, device=mb.device)
+                mb._max_accel_x = torch.tensor(maxx, dtype=torch.float, device=mb.device)
+                mb._max_accel_y = torch.tensor(maxy, dtype=torch.float, device=mb.device)
+            if isinstance(self._current_roi_aspect, MovingBox) and apply_follower:
+                mb = self._current_roi_aspect
+                mb._max_speed_x = torch.tensor(msx, dtype=torch.float, device=mb.device)
+                mb._max_speed_y = torch.tensor(msy, dtype=torch.float, device=mb.device)
+                mb._max_accel_x = torch.tensor(maxx, dtype=torch.float, device=mb.device)
+                mb._max_accel_y = torch.tensor(maxy, dtype=torch.float, device=mb.device)
+
+            # Apply to Python movers live (if available)
+            if isinstance(self._current_roi_aspect, MovingBox):
+                mba = self._current_roi_aspect
+                mba._stop_on_dir_change_delay = torch.tensor(int(dir_delay), dtype=torch.int64, device=mba.device)
+                mba._cancel_stop_on_opposite_dir = bool(cancel_opp)
+                mba._cancel_hysteresis_frames = torch.tensor(int(hyst), dtype=torch.int64, device=mba.device)
+                mba._stop_delay_cooldown_frames = torch.tensor(int(cooldown), dtype=torch.int64, device=mba.device)
+                mba._post_nonstop_stop_delay = torch.tensor(int(postns), dtype=torch.int64, device=mba.device)
+            # For Python-only breakaway values, we read from args.game_config in calculate_breakaway
+        except Exception:
+            pass
+
+    def _draw_ui_overlay(self, img):
+        if not self._camera_ui_enabled or not self._ui_inited:
+            return img
+        try:
+            camera_cfg = self._args.game_config["rink"]["camera"]
+            bkd = camera_cfg.get("breakaway_detection", {})
+            text = (
+                f"DirDelay={camera_cfg.get('stop_on_dir_change_delay', 0)} "
+                f"Cancel={int(bool(camera_cfg.get('cancel_stop_on_opposite_dir', 0)))} "
+                f"Hyst={camera_cfg.get('stop_cancel_hysteresis_frames', 0)} "
+                f"CD={camera_cfg.get('stop_delay_cooldown_frames', 0)} "
+                f"OvDelay={bkd.get('overshoot_stop_delay_count', 0)} "
+                f"PostNS={bkd.get('post_nonstop_stop_delay_count', 0)} "
+                f"OvScale={bkd.get('overshoot_scale_speed_ratio', 0.0):.2f}"
+            )
+            img = vis.plot_text(
+                img,
+                text,
+                (20, 40),
+                cv2.FONT_HERSHEY_PLAIN,
+                2,
+                (0, 255, 0),
+                thickness=2,
+            )
+            # Key help
+            img = vis.plot_text(
+                img,
+                "[R]eset  [S]ave",
+                (20, 70),
+                cv2.FONT_HERSHEY_PLAIN,
+                2,
+                (255, 255, 255),
+                thickness=2,
+            )
+            # Handle key events
+            k = cv2.waitKey(1) & 0xFF
+            if k == ord('r') or k == ord('R'):
+                self._reset_ui_controls()
+            elif k == ord('s') or k == ord('S'):
+                self._save_ui_config()
+        except Exception:
+            pass
+        return img
+
+    def _reset_ui_controls(self):
+        if not self._camera_ui_enabled or not self._ui_inited:
+            return
+        try:
+            for name, val in self._ui_defaults.items():
+                cv2.setTrackbarPos(name, self._ui_window_name, int(val))
+        except Exception:
+            pass
+
+    def _save_ui_config(self):
+        # Save current game_config to private config.yaml if game_id is present
+        try:
+            game_id = getattr(self._args, "game_id", None)
+            if not game_id:
+                return
+            priv = get_game_config_private(game_id=game_id) or {}
+            # Merge in camera section from current args
+            priv.setdefault("rink", {}).setdefault("camera", {})
+            camera_cfg = self._args.game_config["rink"]["camera"]
+            priv["rink"]["camera"] = camera_cfg
+            save_private_config(game_id=game_id, data=priv, verbose=True)
+        except Exception:
+            pass
 
     def calculate_breakaway(
         self,

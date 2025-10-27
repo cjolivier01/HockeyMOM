@@ -58,6 +58,21 @@ class TranslatingBox : virtual public IBasicLivingBox {
       std::optional<IntValue> delay_x = std::nullopt,
       std::optional<IntValue> delay_y = std::nullopt);
 
+  // Update braking-related configuration at runtime
+  void set_braking_params(
+      IntValue stop_on_dir_change_delay,
+      bool cancel_on_opposite,
+      IntValue cancel_hysteresis_frames,
+      IntValue stop_delay_cooldown_frames,
+      IntValue post_nonstop_stop_delay_count);
+
+  // Update translation constraints (max speeds/accels) at runtime
+  void set_translation_constraints(
+      FloatValue max_speed_x,
+      FloatValue max_speed_y,
+      FloatValue max_accel_x,
+      FloatValue max_accel_y);
+
   /**
    * Scale the current speed by the given ratio
    */

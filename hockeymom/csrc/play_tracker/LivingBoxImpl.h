@@ -91,6 +91,29 @@ class LivingBox : public ILivingBox,
     TranslatingBox::begin_stop_delay(delay_x, delay_y);
   }
 
+  void set_braking(
+      IntValue stop_on_dir_change_delay,
+      bool cancel_on_opposite,
+      IntValue cancel_hysteresis_frames,
+      IntValue stop_delay_cooldown_frames,
+      IntValue post_nonstop_stop_delay_count) {
+    TranslatingBox::set_braking_params(
+        stop_on_dir_change_delay,
+        cancel_on_opposite,
+        cancel_hysteresis_frames,
+        stop_delay_cooldown_frames,
+        post_nonstop_stop_delay_count);
+  }
+
+  void set_translation_constraints(
+      FloatValue max_speed_x,
+      FloatValue max_speed_y,
+      FloatValue max_accel_x,
+      FloatValue max_accel_y) {
+    TranslatingBox::set_translation_constraints(
+        max_speed_x, max_speed_y, max_accel_x, max_accel_y);
+  }
+
  protected:
   BBox next_position();
 

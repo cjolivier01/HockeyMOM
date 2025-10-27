@@ -83,6 +83,10 @@ class PlayDetector {
  public:
   PlayDetector(const PlayDetectorConfig& config, IBreakawayAdjuster* adjuster);
 
+  // Live tuning setters (overrides)
+  void set_overshoot_stop_delay_count(int v);
+  void set_overshoot_scale_speed_ratio(float v);
+
   PlayDetectorResults forward(
       size_t frame_id,
       const BBox& current_target_bbox,
@@ -96,6 +100,10 @@ class PlayDetector {
  private:
   const PlayDetectorConfig config_;
   IBreakawayAdjuster* adjuster_;
+
+  // Overrides (if set) for live tuning
+  std::optional<int> overshoot_stop_delay_override_;
+  std::optional<float> overshoot_scale_override_;
 
   struct TrackStateInfo {
     std::unordered_map<size_t, Velocity> track_velocity;

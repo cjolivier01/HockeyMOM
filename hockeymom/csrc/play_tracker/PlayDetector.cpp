@@ -73,7 +73,15 @@ auto make_value_iterator(MapType& map) {
 PlayDetector::PlayDetector(
     const PlayDetectorConfig& config,
     IBreakawayAdjuster* adjuster)
-    : config_(config), adjuster_(adjuster) {}
+    : config_(config), adjuster_(adjuster), overshoot_stop_delay_override_(std::nullopt), overshoot_scale_override_(std::nullopt) {}
+
+void PlayDetector::set_overshoot_stop_delay_count(int v) {
+  overshoot_stop_delay_override_ = v;
+}
+
+void PlayDetector::set_overshoot_scale_speed_ratio(float v) {
+  overshoot_scale_override_ = v;
+}
 
 void PlayDetector::reset() {
   tracks_.clear();
@@ -211,12 +219,18 @@ std::optional<std::tuple<BBox, Point>> PlayDetector::detect_breakaway(
           /*nonstop_delay=*/config_.nonstop_delay_count);
     } else {
       // Overshoot case: either multiplicative damping or begin a stop-delay
-      if (config_.overshoot_stop_delay_count > 0) {
-        adjuster_->begin_stop_delay(/*delay_x=*/config_.overshoot_stop_delay_count, /*delay_y=*/std::nullopt);
+      const int osd = overshoot_stop_delay_override_.has_value()
+          ? *overshoot_stop_delay_override_
+          : config_.overshoot_stop_delay_count;
+      const float osc = overshoot_scale_override_.has_value()
+          ? *overshoot_scale_override_
+          : config_.overshoot_scale_speed_ratio;
+      if (osd > 0) {
+        adjuster_->begin_stop_delay(/*delay_x=*/osd, /*delay_y=*/std::nullopt);
       } else {
         // Cut the speed quickly due to overshoot
         adjuster_->scale_speed(
-            /*ratio_x=*/config_.overshoot_scale_speed_ratio,
+            /*ratio_x=*/osc,
             /*ratio_y=*/std::nullopt,
             /*clamp_to_max=*/false);
       }

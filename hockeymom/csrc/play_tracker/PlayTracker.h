@@ -76,6 +76,12 @@ class PlayTracker : public IBreakawayAdjuster {
 
   std::shared_ptr<ILivingBox> get_live_box(size_t index) const;
 
+  // Live tuning: breakaway braking
+  void set_breakaway_braking(int overshoot_delay_count, float overshoot_scale_ratio) {
+    play_detector_.set_overshoot_stop_delay_count(overshoot_delay_count);
+    play_detector_.set_overshoot_scale_speed_ratio(overshoot_scale_ratio);
+  }
+
  private:
   void create_boxes(const BBox& initial_box);
   ClusterBoxes get_cluster_boxes(const std::vector<BBox>& tracking_boxes) const;

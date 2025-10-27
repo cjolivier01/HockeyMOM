@@ -1151,6 +1151,21 @@ void init_living_boxes(::pybind11::module_& m) {
           &LivingBox::begin_stop_delay,
           py::arg("delay_x") = py::none(),
           py::arg("delay_y") = py::none())
+      .def(
+          "set_braking",
+          &LivingBox::set_braking,
+          py::arg("stop_on_dir_change_delay"),
+          py::arg("cancel_on_opposite"),
+          py::arg("cancel_hysteresis_frames"),
+          py::arg("stop_delay_cooldown_frames"),
+          py::arg("post_nonstop_stop_delay_count"))
+      .def(
+          "set_translation_constraints",
+          &LivingBox::set_translation_constraints,
+          py::arg("max_speed_x"),
+          py::arg("max_speed_y"),
+          py::arg("max_accel_x"),
+          py::arg("max_accel_y"))
       .def("resizing_state", &LivingBox::ResizingBox::get_state)
       .def("resizing_config", &LivingBox::ResizingBox::get_config)
       .def("translation_state", &LivingBox::TranslatingBox::get_state)
@@ -1304,7 +1319,12 @@ void init_play_tracker(::pybind11::module_& m) {
           "set_bboxes_scaled",
           &PlayTracker::set_bboxes_scaled,
           py::arg("bbox"),
-          py::arg("scale_step"));
+          py::arg("scale_step"))
+      .def(
+          "set_breakaway_braking",
+          &PlayTracker::set_breakaway_braking,
+          py::arg("overshoot_delay_count"),
+          py::arg("overshoot_scale_ratio"));
 }
 
 template <typename T_compute>

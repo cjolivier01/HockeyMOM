@@ -14,7 +14,13 @@ from torchvision.transforms import functional as F
 
 from hmlib.ui.show import show_image
 from hmlib.utils.gpu import StreamTensor, tensor_call
-from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    is_channels_first,
+    make_channels_first,
+    make_channels_last,
+)
 
 try:
     from PIL import Image
@@ -183,7 +189,7 @@ def hm_imresize(
         assert img.dtype == np.uint8, "Pillow backend only support uint8 type"
         pil_image = Image.fromarray(img)
         pil_image = pil_image.resize(size, pillow_interp_codes[interpolation])
-        resized_img = np.array(pil_image)
+        img = np.array(pil_image)
     elif isinstance(img, torch.Tensor | StreamTensor):
         w = size[0]
         h = size[1]
@@ -194,28 +200,22 @@ def hm_imresize(
                 # H, W, C -> C, W, H
                 img = img.permute(0, 3, 2, 1)
             assert img.shape[1] == 3 or img.shape[1] == 4
-            resized_img = tensor_call(
+            img = tensor_call(
                 img,
                 F.resize,
                 size=(w, h) if permuted else (h, w),
                 interpolation=pillow_interp_codes[interpolation],
                 antialias=True,
             )
-            # resized_img = F.resize(
-            #     img=img,
-            #     size=(w, h) if permuted else (h, w),
-            #     interpolation=pillow_interp_codes[interpolation],
-            #     antialias=True,
-            # )
             if permuted:
                 # C, W, H -> H, W, C
-                resized_img = resized_img.permute(0, 3, 2, 1)
+                img = img.permute(0, 3, 2, 1)
         else:
             permuted = img.shape[-1] == 3 or img.shape[-1] == 4
             if permuted:
                 # H, W, C -> C, W, H
                 img = img.permute(2, 1, 0)
-            resized_img = F.resize(
+            img = F.resize(
                 img=img,
                 size=(w, h) if permuted else (h, w),
                 interpolation=pillow_interp_codes[interpolation],
@@ -223,15 +223,15 @@ def hm_imresize(
             )
             if permuted:
                 # C, W, H -> H, W, C
-                resized_img = resized_img.permute(2, 1, 0)
+                img = img.permute(2, 1, 0)
     else:
-        resized_img = cv2.resize(img, size, dst=out, interpolation=cv2_interp_codes[interpolation])
+        img = cv2.resize(img, size, dst=out, interpolation=cv2_interp_codes[interpolation])
     if not return_scale:
-        return resized_img
+        return img
     else:
         w_scale = size[0] / w
         h_scale = size[1] / h
-        return resized_img, w_scale, h_scale
+        return img, w_scale, h_scale
 
 
 def hm_imresize_to_multiple(

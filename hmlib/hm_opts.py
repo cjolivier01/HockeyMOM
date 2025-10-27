@@ -493,6 +493,20 @@ class hm_opts(object):
             help="Override a YAML key path (dot.notation) with a value (repeatable)",
         )
 
+        #
+        # UI controls
+        #
+        ui = parser.add_argument_group(
+            "ui",
+            "Runtime UI controls",
+        )
+        ui.add_argument(
+            "--camera-ui",
+            default=0,
+            type=int,
+            help="Enable runtime camera braking UI (OpenCV trackbars)",
+        )
+
         return parser
 
     def parse(self, args=""):

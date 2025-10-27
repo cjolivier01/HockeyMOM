@@ -436,6 +436,32 @@ void TranslatingBox::begin_stop_delay(
   }
 }
 
+void TranslatingBox::set_braking_params(
+    IntValue stop_on_dir_change_delay,
+    bool cancel_on_opposite,
+    IntValue cancel_hysteresis_frames,
+    IntValue stop_delay_cooldown_frames,
+    IntValue post_nonstop_stop_delay_count) {
+  config_.stop_translation_on_dir_change_delay = stop_on_dir_change_delay;
+  config_.cancel_stop_on_opposite_dir = cancel_on_opposite;
+  config_.cancel_stop_hysteresis_frames = cancel_hysteresis_frames;
+  config_.stop_delay_cooldown_frames = stop_delay_cooldown_frames;
+  config_.post_nonstop_stop_delay_count = post_nonstop_stop_delay_count;
+}
+
+void TranslatingBox::set_translation_constraints(
+    FloatValue max_speed_x,
+    FloatValue max_speed_y,
+    FloatValue max_accel_x,
+    FloatValue max_accel_y) {
+  config_.max_speed_x = max_speed_x;
+  config_.max_speed_y = max_speed_y;
+  config_.max_accel_x = max_accel_x;
+  config_.max_accel_y = max_accel_y;
+  // Clamp current speeds to new limits
+  clamp_speed(1.0);
+}
+
 /**
  * Scale the current speed by the given ratio
  */
