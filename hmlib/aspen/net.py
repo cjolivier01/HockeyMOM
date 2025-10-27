@@ -1,4 +1,5 @@
 import importlib
+import contextlib
 import os
 import threading
 from dataclasses import dataclass
@@ -56,6 +57,9 @@ class AspenNet(torch.nn.Module):
         trunks = graph_cfg.get("trunks") if isinstance(graph_cfg, dict) else None
         if trunks is None:
             raise ValueError("AspenNet expects a dict with a 'trunks' mapping.")
+
+        # Profiler wiring (optional and zero-overhead when absent)
+        self._profiler = self.shared.get("profiler", None)
 
         self._build_nodes(trunks)
         self._build_graph(trunks)
@@ -249,7 +253,12 @@ class AspenNet(torch.nn.Module):
     def _execute_node(self, node: _Node, context: Dict[str, Any]) -> None:
         trunk = node.module
         subctx = self._make_subcontext(trunk, context) if self.minimal_context else context
-        out = trunk(subctx) or {}
+        if getattr(self._profiler, "enabled", False):
+            name = f"aspen.trunk.{node.name}"
+            with self._profiler.rf(name):
+                out = trunk(subctx) or {}
+        else:
+            out = trunk(subctx) or {}
 
         declared = set(getattr(trunk, "output_keys", lambda: set())())
         update_keys = declared if declared else set(out.keys())

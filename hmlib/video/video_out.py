@@ -4,6 +4,7 @@ import os
 import time
 import traceback
 from threading import Thread
+import contextlib
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 import cv2
@@ -315,13 +316,18 @@ class VideoOutput:
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if not self._async_output:
             with cuda_stream_scope(self._cuda_stream):
-                results = self.forward(results)
+                prof = getattr(self._args, "profiler", None) if self.has_args() else None
+                fctx = prof.rf("video_out.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                sctx = prof.rf("video_out.save_frame") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                with fctx:
+                    results = self.forward(results)
                 assert results["img"].device == self._device
-                results = self.save_frame(
-                    results,
-                    cuda_stream=self._cuda_stream,
-                    default_cuda_stream=self._default_cuda_stream,
-                )
+                with sctx:
+                    results = self.save_frame(
+                        results,
+                        cuda_stream=self._cuda_stream,
+                        default_cuda_stream=self._default_cuda_stream,
+                    )
             return results
         else:
             with TimeTracker(
@@ -435,10 +441,15 @@ class VideoOutput:
 
                     batch_size = results["img"].size(0)
 
-                    results = self.forward(results)
-                    results = self.save_frame(
-                        results, cuda_stream=cuda_stream, default_cuda_stream=default_cuda_stream
-                    )
+                    prof = getattr(self._args, "profiler", None) if self.has_args() else None
+                    fctx = prof.rf("video_out.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                    sctx = prof.rf("video_out.save_frame") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                    with fctx:
+                        results = self.forward(results)
+                    with sctx:
+                        results = self.save_frame(
+                            results, cuda_stream=cuda_stream, default_cuda_stream=default_cuda_stream
+                        )
 
                     timer.toc()
 

@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from typing import Any, Dict, Optional
+import contextlib
 
 import torch
 import yaml
@@ -36,6 +37,7 @@ def run_mmtrack(
     fp16: bool = False,
     no_cuda_streams: bool = False,
     track_mean_mode: Optional[str] = None,
+    profiler: Any = None,
 ):
     mean_tracker: Optional[MeanTracker] = None
     if config is None:
@@ -285,13 +287,18 @@ def run_mmtrack(
                     top_border_lines=config.get("top_border_lines"),
                     bottom_border_lines=config.get("bottom_border_lines"),
                 )
+                if profiler is not None:
+                    shared["profiler"] = profiler
                 aspen_net = AspenNet(aspen_cfg, shared=shared)
-            for cur_iter, dataset_results in enumerate(dataloader_iterator):
-                origin_imgs, data, _, info_imgs, ids = dataset_results.pop("pano")
-                if fps:
-                    data["fps"] = fps
-                with torch.no_grad():
-                    frame_id = info_imgs[2][0]
+            # Optional torch profiler context spanning the run
+            prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
+            with prof_ctx:
+                for cur_iter, dataset_results in enumerate(dataloader_iterator):
+                    origin_imgs, data, _, info_imgs, ids = dataset_results.pop("pano")
+                    if fps:
+                        data["fps"] = fps
+                    with torch.no_grad():
+                        frame_id = info_imgs[2][0]
 
                     batch_size = origin_imgs.shape[0]
 
@@ -327,7 +334,11 @@ def run_mmtrack(
                         if dataset_results:
                             iter_context.setdefault("data", {})["dataset_results"] = dataset_results
 
-                        out_context = aspen_net(iter_context)
+                        if getattr(profiler, "enabled", False):
+                            with profiler.rf("aspen.forward"):
+                                out_context = aspen_net(iter_context)
+                        else:
+                            out_context = aspen_net(iter_context)
                         # Update stats for progress bar
                         nr_tracks = int(out_context.get("nr_tracks", 0))
                         max_tracking_id = out_context.get("max_tracking_id", 0)
@@ -362,6 +373,9 @@ def run_mmtrack(
                         wraparound_timer.toc()
 
                     number_of_batches_processed += 1
+                    # Per-iteration profiler step for per-iter export if enabled
+                    if getattr(profiler, "enabled", False):
+                        profiler.step()
                     wraparound_timer.tic()
     except StopIteration:
         print("run_mmtrack reached end of dataset")

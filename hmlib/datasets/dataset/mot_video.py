@@ -1,6 +1,7 @@
 import threading
 import traceback
 from contextlib import contextmanager
+import contextlib as _contextlib
 from threading import Lock
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -313,7 +314,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # BEGIN READ NEXT IMAGE
         while True:
             try:
-                res, img0 = self._read_next_image()
+                prof = getattr(self, "_profiler", None)
+                rctx = prof.rf("dataloader.read_next_image") if getattr(prof, "enabled", False) else _contextlib.nullcontext()
+                with rctx:
+                    res, img0 = self._read_next_image()
                 if not res or img0 is None:
                     print(f"Error loading frame: {self._count + self._start_frame_number}")
                     raise StopIteration()
@@ -344,7 +348,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             assert img0.ndim == 4
 
             if self._preproc is not None:
-                img0 = self._preproc(img0)
+                prof = getattr(self, "_profiler", None)
+                pctx = prof.rf("dataloader.preproc") if getattr(prof, "enabled", False) else _contextlib.nullcontext()
+                with pctx:
+                    img0 = self._preproc(img0)
 
             if self._device.type != "cpu" and img0.device != self._device:
                 img0 = img0.to(self._device, non_blocking=True)
@@ -468,14 +475,17 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     # New mmcv2 path
                     assert isinstance(data["img"], torch.Tensor)
                     data["img"] = StreamCheckpoint(tensor=data["img"])
-            if self._result_as_dict:
-                return dict(
-                    original_imgs=_wrap_original_image(original_img0),
-                    data=data,
-                    imgs_info=imgs_info,
-                    ids=ids,
-                )
-            return _wrap_original_image(original_img0), data, None, imgs_info, ids
+            prof = getattr(self, "_profiler", None)
+            dctx = prof.rf("dataloader.data_pipeline") if getattr(prof, "enabled", False) else _contextlib.nullcontext()
+            with dctx:
+                if self._result_as_dict:
+                    return dict(
+                        original_imgs=_wrap_original_image(original_img0),
+                        data=data,
+                        imgs_info=imgs_info,
+                        ids=ids,
+                    )
+                return _wrap_original_image(original_img0), data, None, imgs_info, ids
         if self._original_image_only:
             if not isinstance(original_img0, StreamTensor):
                 original_img0 = _wrap_original_image(original_img0)
@@ -503,8 +513,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
     def __next__(self):
         with self._seek_lock:
             self._timer.tic()
-            self._to_worker_queue.put("ok")
-            results = self._from_worker_queue.get()
+            prof = getattr(self, "_profiler", None)
+            qctx = prof.rf("dataloader.dequeue") if getattr(prof, "enabled", False) else _contextlib.nullcontext()
+            with qctx:
+                self._to_worker_queue.put("ok")
+                results = self._from_worker_queue.get()
             if isinstance(results, Exception):
                 if not isinstance(results, StopIteration):
                     print(results)
@@ -558,3 +571,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if self.vn is None:
             self.vn = self._video_info.frame_count
         return self.vn // self._batch_size  # number of frames
+
+    # Optional: external wiring for profiler instance
+    def set_profiler(self, profiler):
+        self._profiler = profiler

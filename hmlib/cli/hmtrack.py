@@ -210,6 +210,57 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=None,
         help="plot all detections above this given accuracy",
     )
+    # Profiling options
+    parser.add_argument(
+        "--profile",
+        dest="profile",
+        action="store_true",
+        help="Enable PyTorch Perfetto/Chrome profiler and export trace JSON",
+    )
+    parser.add_argument(
+        "--profile-dir",
+        dest="profile_dir",
+        type=str,
+        default=None,
+        help="Directory to write profiler traces (defaults under output_workdirs/<game_id>/profiler)",
+    )
+    parser.add_argument(
+        "--profile-gpu",
+        dest="profile_gpu",
+        action="store_true",
+        help="Include CUDA GPU activities if available",
+    )
+    parser.add_argument(
+        "--profile-record-shapes",
+        dest="profile_record_shapes",
+        action="store_true",
+        help="Record tensor shapes in profiler (adds overhead)",
+    )
+    parser.add_argument(
+        "--profile-memory",
+        dest="profile_memory",
+        action="store_true",
+        help="Track memory in profiler (adds overhead)",
+    )
+    parser.add_argument(
+        "--profile-with-stack",
+        dest="profile_with_stack",
+        action="store_true",
+        help="Capture Python stack traces in profiler events (adds overhead)",
+    )
+    parser.add_argument(
+        "--profile-export-per-iter",
+        dest="profile_export_per_iter",
+        action="store_true",
+        help="Export one trace per iteration (large runs; adds I/O)",
+    )
+    parser.add_argument(
+        "--py-trace-out",
+        dest="py_trace_out",
+        type=str,
+        default=None,
+        help="Optional Python cProfile output file (.pstats or .txt)",
+    )
     # Camera controller options
     parser.add_argument(
         "--camera-controller",
@@ -568,6 +619,16 @@ def _main(args, num_gpu):
         results_folder = os.path.join(".", "output_workdirs", args.game_id)
         os.makedirs(results_folder, exist_ok=True)
 
+        # Initialize lightweight profiler and attach to args for downstream use
+        try:
+            from hmlib.utils.profiler import build_profiler_from_args
+
+            default_prof_dir = os.path.join(results_folder, "profiler")
+            profiler = build_profiler_from_args(args, save_dir_fallback=default_prof_dir)
+        except Exception:
+            profiler = None
+        setattr(args, "profiler", profiler)
+
         if args.save_tracking_data or args.input_tracking_data or not args.input_tracking_data:
             if args.input_tracking_data:
                 args.input_tracking_data = args.input_tracking_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
@@ -918,6 +979,7 @@ def _main(args, num_gpu):
                     minimize_blend=not args.no_minimize_blend,
                     no_cuda_streams=args.no_cuda_streams,
                     post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
+                    profiler=getattr(args, "profiler", None),
                 )
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
@@ -935,6 +997,10 @@ def _main(args, num_gpu):
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                 )
+                try:
+                    mot_dataloader.set_profiler(getattr(args, "profiler", None))
+                except Exception:
+                    pass
                 dataloader.append_dataset("pano", mot_dataloader)
             else:
                 assert len(input_video_files) == 1
@@ -964,6 +1030,10 @@ def _main(args, num_gpu):
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                 )
+                try:
+                    pano_dataloader.set_profiler(getattr(args, "profiler", None))
+                except Exception:
+                    pass
                 dataloader.append_dataset("pano", pano_dataloader)
 
             if tracking_dataframe_ds is not None:
@@ -979,16 +1049,20 @@ def _main(args, num_gpu):
                 ]
                 ez_count = 0
                 for vid_name, vid_path in other_videos:
-                    if os.path.exists(vid_path):
-                        extra_dataloader = MOTLoadVideoWithOrig(
-                            path=vid_path,
-                            start_frame_number=args.start_frame,
-                            batch_size=args.batch_size,
-                            dtype=torch.float if not args.fp16 else torch.half,
-                            device=gpus["encoder"],
-                            original_image_only=True,
-                            no_cuda_streams=args.no_cuda_streams,
-                        )
+                        if os.path.exists(vid_path):
+                            extra_dataloader = MOTLoadVideoWithOrig(
+                                path=vid_path,
+                                start_frame_number=args.start_frame,
+                                batch_size=args.batch_size,
+                                dtype=torch.float if not args.fp16 else torch.half,
+                                device=gpus["encoder"],
+                                original_image_only=True,
+                                no_cuda_streams=args.no_cuda_streams,
+                            )
+                        try:
+                            extra_dataloader.set_profiler(getattr(args, "profiler", None))
+                        except Exception:
+                            pass
                         dataloader.append_dataset(vid_name, extra_dataloader)
                         ez_count += 1
                 if not ez_count:
@@ -1128,6 +1202,7 @@ def _main(args, num_gpu):
                 input_cache_size=args.cache_size,
                 progress_bar=progress_bar,
                 no_cuda_streams=args.no_cuda_streams,
+                profiler=getattr(args, "profiler", None),
                 **other_kwargs,
             )
 
@@ -1307,7 +1382,30 @@ def main():
         num_gpus = len(args.gpus) if args.gpus else 0
         num_gpus = min(num_gpus, torch.cuda.device_count())
 
-    _main(args, num_gpus)
+    # Optional Python cProfile
+    if getattr(args, "py_trace_out", None):
+        import cProfile
+        import pstats
+
+        pr = cProfile.Profile()
+        pr.enable()
+        try:
+            _main(args, num_gpus)
+        finally:
+            pr.disable()
+            out_path = args.py_trace_out
+            try:
+                os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+            except Exception:
+                pass
+            if out_path.endswith(".txt"):
+                with open(out_path, "w") as f:
+                    ps = pstats.Stats(pr, stream=f)
+                    ps.sort_stats("cumulative").print_stats()
+            else:
+                pr.dump_stats(out_path)
+    else:
+        _main(args, num_gpus)
     print("Done.")
 
 

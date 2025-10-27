@@ -3,6 +3,7 @@ Experiments in stitching
 """
 
 import argparse
+import contextlib
 import os
 import threading
 import time
@@ -175,6 +176,7 @@ class StitchDataset:
         no_cuda_streams: bool = False,
         show_image_components: bool = False,
         post_stitch_rotate_degrees: Optional[float] = None,
+        profiler: Any = None,
     ):
         # max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
@@ -206,6 +208,7 @@ class StitchDataset:
         self._remapping_stream = None
         # Optional rotation after stitching (degrees, about image center)
         self._post_stitch_rotate_degrees: Optional[float] = post_stitch_rotate_degrees
+        self._profiler = profiler
 
         # Optimize the roi box
         if image_roi is not None:
@@ -709,7 +712,9 @@ class StitchDataset:
         assert frame_id == self._current_frame
         # INFO(f"Dequeing frame id: {self._current_frame}...")
         # stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
-        frame_id, stitched_frame = self._ordering_queue.get()
+        rctx = self._profiler.rf("stitch.dequeue") if getattr(self._profiler, "enabled", False) else contextlib.nullcontext()
+        with rctx:
+            frame_id, stitched_frame = self._ordering_queue.get()
         if isinstance(frame_id, Exception):
             raise frame_id
         if stitched_frame is not None:
@@ -739,7 +744,9 @@ class StitchDataset:
         # INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         # print(f"self._from_coordinator_queue size: {self._from_coordinator_queue.qsize()}")
         self._next_timer.tic()
-        status = self._from_coordinator_queue.get()
+        qctx = self._profiler.rf("stitch.queue_receive") if getattr(self._profiler, "enabled", False) else contextlib.nullcontext()
+        with qctx:
+            status = self._from_coordinator_queue.get()
         # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
         if isinstance(status, Exception):
             self.close()
@@ -751,7 +758,9 @@ class StitchDataset:
             assert frame_id == self._current_frame
 
         # self._next_timer.tic()
-        stitched_frame = self.get_next_frame(frame_id=frame_id)
+        nctx = self._profiler.rf("stitch.get_next_frame") if getattr(self._profiler, "enabled", False) else contextlib.nullcontext()
+        with nctx:
+            stitched_frame = self.get_next_frame(frame_id=frame_id)
 
         # show_image("stitched_frame", stitched_frame.get(), wait=True)
         if stitched_frame is None:
@@ -761,10 +770,12 @@ class StitchDataset:
         self._batch_count += 1
 
         # Code doesn't handle strided channels efficiently
-        stitched_frame = self.prepare_frame_for_video(
-            stitched_frame,
-            image_roi=self._image_roi,
-        )
+        pctx = self._profiler.rf("stitch.prepare_frame") if getattr(self._profiler, "enabled", False) else contextlib.nullcontext()
+        with pctx:
+            stitched_frame = self.prepare_frame_for_video(
+                stitched_frame,
+                image_roi=self._image_roi,
+            )
 
         if self._batch_count == 1:
             frame_path = os.path.join(self._dir_name, "s.png")

@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+import contextlib
 import os
 import time
 import traceback
@@ -364,7 +365,10 @@ class CamTrackPostProcessor:
                     self._queue.put(data)
             else:
                 with torch.no_grad():
-                    results = self._play_tracker.forward(results=data)
+                    prof = getattr(self._args, "profiler", None)
+                    ctx = prof.rf("play_tracker.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                    with ctx:
+                        results = self._play_tracker.forward(results=data)
                 del data
                 for frame_id, current_box in zip(results["frame_ids"], results["current_box"]):
                     assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
@@ -374,7 +378,10 @@ class CamTrackPostProcessor:
                             tlbr=current_box if current_box.ndim == 4 else current_box.unsqueeze(0),
                         )
                 if self._video_output_campp is not None:
-                    self._video_output_campp.append(results)
+                    prof = getattr(self._args, "profiler", None)
+                    ctx = prof.rf("video_out.append") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                    with ctx:
+                        self._video_output_campp.append(results)
                 elif self._shower is not None and "img" in results:
                     self._shower.show(results["img"].cpu())
                 return results
@@ -402,7 +409,10 @@ class CamTrackPostProcessor:
                 break
 
             with torch.no_grad():
-                results = self._play_tracker.forward(results=results)
+                prof = getattr(self._args, "profiler", None)
+                ctx = prof.rf("play_tracker.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                with ctx:
+                    results = self._play_tracker.forward(results=results)
 
             for frame_id, current_box in zip(results["frame_ids"], results["current_box"]):
                 assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
@@ -412,7 +422,10 @@ class CamTrackPostProcessor:
                         tlbr=current_box if current_box.ndim == 4 else current_box.unsqueeze(0),
                     )
             if self._video_output_campp is not None:
-                self._video_output_campp.append(results)
+                prof = getattr(self._args, "profiler", None)
+                ctx = prof.rf("video_out.append") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                with ctx:
+                    self._video_output_campp.append(results)
             elif self._shower is not None and "img" in results:
                 self._shower.show(results["img"])
 
