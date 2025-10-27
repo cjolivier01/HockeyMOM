@@ -1,10 +1,10 @@
 from __future__ import absolute_import, division, print_function
 
+import contextlib
 import os
 import time
 import traceback
 from threading import Thread
-import contextlib
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 import cv2
@@ -24,7 +24,12 @@ from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.exceptions import raise_exception_in_thread
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope, get_gpu_capabilities
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensor,
+    cuda_stream_scope,
+    get_gpu_capabilities,
+)
 from hmlib.utils.image import (
     ImageColorScaler,
     image_height,
@@ -40,7 +45,11 @@ from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import to_tensor_scalar
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
-from .video_stream import VideoStreamWriterInterface, clamp_max_video_dimensions, create_output_video_stream
+from .video_stream import (
+    VideoStreamWriterInterface,
+    clamp_max_video_dimensions,
+    create_output_video_stream,
+)
 
 
 def get_and_pop(map: Dict[str, Any], key: str) -> Any:
@@ -116,6 +125,55 @@ def tensor_checkpoint(
     return tensor
 
 
+def is_nearly_8k(width, height, size_tolerance=0.10, aspect_ratio_tolerance=0.01):
+    """
+    Checks if a given width and height are within a configurable tolerance of 8K
+    resolution and have a very similar aspect ratio.
+
+    Args:
+        width (int): The width dimension to check.
+        height (int): The height dimension to check.
+        size_tolerance (float): The maximum allowed percentage difference from 8K
+                                dimensions (e.g., 0.10 for 10%).
+        aspect_ratio_tolerance (float): The maximum allowed absolute difference
+                                       in aspect ratio.
+
+    Returns:
+        tuple: A boolean indicating if the dimensions and aspect ratio match,
+               and a string with details on the outcome.
+    """
+    # Define the reference 8K dimensions and aspect ratio
+    ref_8k_width, ref_8k_height = 7680, 4320
+    ref_aspect_ratio = ref_8k_width / ref_8k_height
+
+    # Check if dimensions are within 10% of 8K
+    width_ok = ref_8k_width * (1 - size_tolerance) <= width <= ref_8k_width * (1 + size_tolerance)
+    height_ok = ref_8k_height * (1 - size_tolerance) <= height <= ref_8k_height * (1 + size_tolerance)
+
+    # Check if the aspect ratio is very close
+    try:
+        current_aspect_ratio = width / height
+        aspect_ratio_ok = math.isclose(current_aspect_ratio, ref_aspect_ratio, rel_tol=aspect_ratio_tolerance)
+    except ZeroDivisionError:
+        return False, "Height cannot be zero."
+
+    # Return the combined result
+    if width_ok and height_ok and aspect_ratio_ok:
+        return True, "Dimensions are within 10% of 8K and have a very close aspect ratio."
+    else:
+        details = []
+        if not width_ok:
+            details.append(f"Width ({width}) is not within {size_tolerance*100}% of 8K width ({ref_8k_width}).")
+        if not height_ok:
+            details.append(f"Height ({height}) is not within {size_tolerance*100}% of 8K height ({ref_8k_height}).")
+        if not aspect_ratio_ok:
+            details.append(
+                f"Aspect ratio ({current_aspect_ratio:.4f}) is not very close to 8K ({ref_aspect_ratio:.4f})."
+            )
+
+        return False, " and ".join(details)
+
+
 _FP_TYPES: Set[torch.dtype] = {
     torch.float,
     torch.float32,
@@ -182,6 +240,12 @@ class VideoOutput:
                 codec=fourcc,
             )
             self._allow_scaling = original_width != int(output_frame_width)
+        elif is_nearly_8k(output_frame_width, output_frame_height):
+            # Check if close to standard dimensions
+            standard_8k_width: int = 7680
+            standard_8k_height: int = 4320
+            output_frame_width = standard_8k_width
+            output_frame_height = standard_8k_height
 
         if device is not None:
             logger.info(
