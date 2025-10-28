@@ -7,17 +7,10 @@ import kornia
 import numpy as np
 import torch
 from kornia.geometry.transform import warp_perspective
-from lightglue import LightGlue, SuperPoint, viz2d
-from lightglue.utils import load_image, rbd
 
 from hmlib.config import get_game_dir
 from hmlib.ui.show import show_image
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 
 
 def evenly_spaced_indices(n_points, n_samples):
@@ -176,6 +169,10 @@ def calculate_control_points(
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:
+
+    from lightglue import LightGlue, SuperPoint, viz2d
+    from lightglue.utils import load_image, rbd
+
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     extractor: SuperPoint = (
