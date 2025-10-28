@@ -11,9 +11,12 @@ aspen:
       keys: [img]
       # scale_factor: 255.0
     - type: HmResize
-      img_scale: [1312, 480]
+      # img_scale: [1312, 480]
+      img_scale: [1632, 608]
+      # img_scale: [1952, 704]
       keep_ratio: true
-      interpolation: bilinear
+      # interpolation: bilinear
+      interpolation: nearest
     - type: HmPad
       pad_val: 114.0
       size_divisor: 32
