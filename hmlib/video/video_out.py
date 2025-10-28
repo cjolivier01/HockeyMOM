@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import contextlib
+import math
 import os
 import time
 import traceback
@@ -24,12 +25,7 @@ from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.exceptions import raise_exception_in_thread
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensor,
-    cuda_stream_scope,
-    get_gpu_capabilities,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope, get_gpu_capabilities
 from hmlib.utils.image import (
     ImageColorScaler,
     image_height,
@@ -45,11 +41,10 @@ from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import to_tensor_scalar
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
-from .video_stream import (
-    VideoStreamWriterInterface,
-    clamp_max_video_dimensions,
-    create_output_video_stream,
-)
+from .video_stream import VideoStreamWriterInterface, clamp_max_video_dimensions, create_output_video_stream
+
+standard_8k_width: int = 7680
+standard_8k_height: int = 4320
 
 
 def get_and_pop(map: Dict[str, Any], key: str) -> Any:
@@ -143,7 +138,7 @@ def is_nearly_8k(width, height, size_tolerance=0.10, aspect_ratio_tolerance=0.01
                and a string with details on the outcome.
     """
     # Define the reference 8K dimensions and aspect ratio
-    ref_8k_width, ref_8k_height = 7680, 4320
+    ref_8k_width, ref_8k_height = standard_8k_width, standard_8k_height
     ref_aspect_ratio = ref_8k_width / ref_8k_height
 
     # Check if dimensions are within 10% of 8K
@@ -240,12 +235,12 @@ class VideoOutput:
                 codec=fourcc,
             )
             self._allow_scaling = original_width != int(output_frame_width)
-        elif is_nearly_8k(output_frame_width, output_frame_height):
-            # Check if close to standard dimensions
-            standard_8k_width: int = 7680
-            standard_8k_height: int = 4320
+        elif is_nearly_8k(output_frame_width, output_frame_height)[0]:
+            # Check if close to standard 8k dimensions, in which case, make that the output
+            original_width = int(output_frame_width)
             output_frame_width = standard_8k_width
             output_frame_height = standard_8k_height
+            self._allow_scaling = original_width != int(output_frame_width)
 
         if device is not None:
             logger.info(
