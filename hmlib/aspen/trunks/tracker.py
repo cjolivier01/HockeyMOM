@@ -48,8 +48,6 @@ class TrackerTrunk(Trunk):
             config.init_track_thr = 0.7
             config.obj_score_thrs_low = 0.1
             config.obj_score_thrs_high = 0.3
-            # config.obj_score_thrs_low = 0.2
-            # config.obj_score_thrs_high = 0.4
 
             config.match_iou_thrs_high = 0.1
             config.match_iou_thrs_low = 0.5
