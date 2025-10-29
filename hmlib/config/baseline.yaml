@@ -167,10 +167,12 @@ model:
     config: config/models/hm2/hm2_composited.py
     checkpoint: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
     # checkpoint_local: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
-    # checkpoint: mnt/monster-data/colivier/src/hm/openmm/rundir/work_dirs/hm_crowdhuman_yolox_s_2240x800/epoch_1.pth
     # ^ the above checkpoint, but on Google drive (pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth)
-    checkpoint_remote: https://drive.google.com/file/d/1WgJ-u2aL1Yv6VNXF5w-0DtsxCCDXAEe7/view?usp=drive_link
-
+    # checkpoint_remote: https://drive.google.com/file/d/1WgJ-u2aL1Yv6VNXF5w-0DtsxCCDXAEe7/view?usp=drive_link
+    
+    # config: config/models/hm2/hm_crowdhuman_yolox_s_2240x800.py
+    # checkpoint: /mnt/data/pretrained/mmdetection/yolox_s_8x8_300e_coco_1312x480_80e_ch_2240x800_1e_with_detector_prefix.pth
+    
   pose:
     config: config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
     checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
