@@ -14,13 +14,7 @@ from torchvision.transforms import functional as F
 
 from hmlib.ui.show import show_image
 from hmlib.utils.gpu import StreamTensor, tensor_call
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    is_channels_first,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
 
 try:
     from PIL import Image
@@ -45,29 +39,6 @@ cv2_border_modes = {
     "transparent": cv2.BORDER_TRANSPARENT,
     "isolated": cv2.BORDER_ISOLATED,
 }
-
-# Pillow >=v9.1.0 use a slightly different naming scheme for filters.
-# Set pillow_interp_codes according to the naming scheme used.
-if Image is not None:
-    if hasattr(Image, "Resampling"):
-        pillow_interp_codes = {
-            "nearest": Image.Resampling.NEAREST,
-            "bilinear": Image.Resampling.BILINEAR,
-            "bicubic": Image.Resampling.BICUBIC,
-            "box": Image.Resampling.BOX,
-            "lanczos": Image.Resampling.LANCZOS,
-            "hamming": Image.Resampling.HAMMING,
-        }
-    else:
-        pillow_interp_codes = {
-            "nearest": Image.NEAREST,
-            "bilinear": Image.BILINEAR,
-            "bicubic": Image.BICUBIC,
-            "box": Image.BOX,
-            "lanczos": Image.LANCZOS,
-            "hamming": Image.HAMMING,
-        }
-
 
 PIPELINE_SUBSTITUTIONS: Dict[str, str] = {
     "TopDownAffine": "HmTopDownAffine",
@@ -176,61 +147,93 @@ def hm_imresize(
         tuple | ndarray: (`resized_img`, `w_scale`, `h_scale`) or
         `resized_img`.
     """
-    h, w = img.shape[:2]
+    # Use helpers to robustly get height/width for both numpy and torch tensors
+    orig_h, orig_w = image_height(img), image_width(img)
     if backend is None:
         backend = mmcv.imread_backend
     if backend not in ["cv2", "pillow"]:
-        raise ValueError(
-            f"backend: {backend} is not supported for resize."
-            f"Supported backends are 'cv2', 'pillow'"
-        )
+        raise ValueError(f"backend: {backend} is not supported for resize." f"Supported backends are 'cv2', 'pillow'")
 
-    if backend == "pillow":
-        assert img.dtype == np.uint8, "Pillow backend only support uint8 type"
-        pil_image = Image.fromarray(img)
-        pil_image = pil_image.resize(size, pillow_interp_codes[interpolation])
-        img = np.array(pil_image)
-    elif isinstance(img, torch.Tensor | StreamTensor):
-        w = size[0]
-        h = size[1]
-        if img.ndim == 4:
-            # Probably doesn't work
-            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
-            if permuted:
-                # H, W, C -> C, W, H
-                img = img.permute(0, 3, 2, 1)
-            assert img.shape[1] == 3 or img.shape[1] == 4
-            img = tensor_call(
-                img,
-                F.resize,
-                size=(w, h) if permuted else (h, w),
-                interpolation=pillow_interp_codes[interpolation],
-                antialias=True,
-            )
-            if permuted:
-                # C, W, H -> H, W, C
-                img = img.permute(0, 3, 2, 1)
+    target_w, target_h = size
+
+    # Pure PyTorch path for tensors (no torchvision or Pillow codes)
+    if isinstance(img, torch.Tensor) or isinstance(img, StreamTensor):
+        tensor = img
+        ndim = tensor.ndim
+
+        # Normalize to NCHW
+        if ndim == 4:
+            # Heuristic: NHWC if last dim is channel-like
+            is_nhwc = tensor.shape[-1] in (1, 3, 4) and not (tensor.shape[1] in (1, 3, 4))
+            tensor_nchw = tensor.permute(0, 3, 1, 2) if is_nhwc else tensor
+            restore = "nhwc" if is_nhwc else "nchw"
+        elif ndim == 3:
+            # Use helper for 3D images
+            if is_channels_first(tensor):
+                tensor_nchw = tensor.unsqueeze(0)
+                restore = "chw"
+            else:
+                tensor_nchw = tensor.permute(2, 0, 1).unsqueeze(0)
+                restore = "hwc"
         else:
-            permuted = img.shape[-1] == 3 or img.shape[-1] == 4
-            if permuted:
-                # H, W, C -> C, W, H
-                img = img.permute(2, 1, 0)
-            img = F.resize(
-                img=img,
-                size=(w, h) if permuted else (h, w),
-                interpolation=pillow_interp_codes[interpolation],
-                antialias=True,
-            )
-            if permuted:
-                # C, W, H -> H, W, C
-                img = img.permute(2, 1, 0)
+            raise ValueError(f"Unsupported tensor ndim={ndim} for resize")
+
+        # Interpolate requires floating point; keep original dtype to restore
+        orig_dtype = tensor_nchw.dtype
+        if not torch.is_floating_point(tensor_nchw):
+            tensor_nchw = tensor_nchw.to(torch.float32)
+
+        # Map interpolation names to torch modes; fall back where unsupported
+        mode_map = {
+            "nearest": "nearest",
+            "bilinear": "bilinear",
+            "bicubic": "bicubic",
+            "area": "area",
+            # Lanczos not supported by torch.interpolate; use bicubic as a high-quality fallback
+            "lanczos": "bicubic",
+        }
+        if interpolation not in mode_map:
+            raise ValueError(f"Unsupported interpolation: {interpolation}")
+        mode = mode_map[interpolation]
+
+        kwargs: Dict[str, Any] = {"size": (target_h, target_w), "mode": mode}
+        if mode in ("bilinear", "bicubic"):
+            # align_corners=False is standard for image resizing
+            kwargs["align_corners"] = False
+
+        # Use tensor_call to preserve StreamTensor behavior and CUDA stream semantics
+        tensor_resized = tensor_call(tensor_nchw, torch.nn.functional.interpolate, **kwargs)
+
+        # Restore dtype if needed (clamp for integer ranges typical of images)
+        if orig_dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
+            tensor_resized = tensor_resized.clamp(0, 255).to(orig_dtype)
+
+        # Restore original layout
+        if restore == "nhwc":
+            img = tensor_resized.permute(0, 2, 3, 1)
+        elif restore == "nchw":
+            img = tensor_resized
+        elif restore == "hwc":
+            img = tensor_resized.squeeze(0).permute(1, 2, 0)
+        elif restore == "chw":
+            img = tensor_resized.squeeze(0)
+        else:
+            # Should not reach here
+            img = tensor_resized
+
     else:
-        img = cv2.resize(img, size, dst=out, interpolation=cv2_interp_codes[interpolation])
+        # Numpy path: keep fast cv2 implementation; do not use Pillow
+        if backend == "pillow":
+            # Avoid Pillow; emulate via cv2 for numpy arrays
+            img = cv2.resize(img, size, dst=out, interpolation=cv2_interp_codes[interpolation])
+        else:
+            img = cv2.resize(img, size, dst=out, interpolation=cv2_interp_codes[interpolation])
+
     if not return_scale:
         return img
     else:
-        w_scale = size[0] / w
-        h_scale = size[1] / h
+        w_scale = target_w / float(orig_w)
+        h_scale = target_h / float(orig_h)
         return img, w_scale, h_scale
 
 

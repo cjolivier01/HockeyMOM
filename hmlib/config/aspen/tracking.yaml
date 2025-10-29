@@ -16,7 +16,7 @@ aspen:
       # img_scale: [1952, 704]
       keep_ratio: true
       # interpolation: bilinear
-      interpolation: nearest
+      interpolation: area
     - type: HmPad
       pad_val: 114.0
       size_divisor: 32
@@ -90,7 +90,8 @@ aspen:
     ice_boundaries:
       class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
       depends: [detector, ice_config]
-      params: {}
+      params:
+        enabled: true
 
     tracker:
       class: hmlib.aspen.trunks.tracker.TrackerTrunk
