@@ -15,7 +15,6 @@ aspen:
       img_scale: [1632, 608]
       # img_scale: [1952, 704]
       keep_ratio: true
-      # interpolation: bilinear
       interpolation: area
     - type: HmPad
       pad_val: 114.0
