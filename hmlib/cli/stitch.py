@@ -194,6 +194,8 @@ def stitch_videos(
             update_rate=20,
             table_callback=_table_callback,
             use_curses=True,
+            enable_gpu_metrics=getattr(args, "progress_gpu_metrics", True),
+            enable_cuda_sync_counter=getattr(args, "progress_cuda_sync_counter", True),
         )
         data_loader_iter = progress_bar
 
