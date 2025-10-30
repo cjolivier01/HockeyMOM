@@ -414,10 +414,8 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change=False,
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
-                cancel_hysteresis_frames=cancel_hyst,
                 stop_delay_cooldown_frames=cooldown_frames,
                 pan_smoothing_alpha=args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
-                stop_delay_cooldown_frames=cooldown_frames,
                 color=(255, 128, 64),
                 thickness=5,
                 device=self._device,
@@ -441,8 +439,6 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change=True,
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
-                cancel_hysteresis_frames=cancel_hyst,
-                stop_delay_cooldown_frames=cooldown_frames,
                 sticky_translation=True,
                 sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
                     "sticky_size_ratio_to_frame_width"
