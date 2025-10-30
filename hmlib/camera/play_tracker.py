@@ -26,7 +26,7 @@ from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
-from hmlib.config import get_nested_value
+from hmlib.config import get_game_config_private, get_nested_value, save_private_config
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
@@ -48,7 +48,6 @@ from .camera_transformer import (
     unpack_checkpoint,
 )
 from .living_box import PyLivingBox, from_bbox, to_bbox
-from hmlib.config import get_game_config_private, save_private_config
 
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
@@ -178,6 +177,9 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.stop_resizing_on_dir_change = False
             current_roi_config.stop_translation_on_dir_change = False
             current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
+            # Frames-to-destination speed limiting (scaled by fps)
+            ttg_frames = int(args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10))
+            current_roi_config.time_to_dest_speed_limit_frames = int(ttg_frames * speed_scale)
 
             #
             # Create and configure `AllLivingBoxConfig` for `_current_roi_aspect`
@@ -211,6 +213,50 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.stop_resizing_on_dir_change = True
             current_roi_aspect_config.stop_translation_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
+            # Prefer YAML; fall back to CLI hm_opts defaults/overrides
+            camera_cfg = args.game_config["rink"]["camera"]
+            stop_dir_delay = int(
+                camera_cfg.get(
+                    "stop_on_dir_change_delay",
+                    getattr(args, "stop_on_dir_change_delay", 0),
+                )
+            )
+            cancel_stop = bool(
+                camera_cfg.get(
+                    "cancel_stop_on_opposite_dir",
+                    bool(getattr(args, "cancel_stop_on_opposite_dir", 0)),
+                )
+            )
+            cancel_hyst = int(
+                camera_cfg.get(
+                    "stop_cancel_hysteresis_frames",
+                    getattr(args, "stop_cancel_hysteresis_frames", 0),
+                )
+            )
+            cooldown_frames = int(
+                camera_cfg.get(
+                    "stop_delay_cooldown_frames",
+                    getattr(args, "stop_delay_cooldown_frames", 0),
+                )
+            )
+            cancel_hyst = int(
+                camera_cfg.get(
+                    "stop_cancel_hysteresis_frames",
+                    getattr(args, "stop_cancel_hysteresis_frames", 0),
+                )
+            )
+            cooldown_frames = int(
+                camera_cfg.get(
+                    "stop_delay_cooldown_frames",
+                    getattr(args, "stop_delay_cooldown_frames", 0),
+                )
+            )
+            current_roi_aspect_config.stop_translation_on_dir_change_delay = stop_dir_delay
+            current_roi_aspect_config.cancel_stop_on_opposite_dir = cancel_stop
+            current_roi_aspect_config.cancel_stop_hysteresis_frames = cancel_hyst
+            current_roi_aspect_config.stop_delay_cooldown_frames = cooldown_frames
+            ttg_frames = int(args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10))
+            current_roi_aspect_config.time_to_dest_speed_limit_frames = int(ttg_frames * speed_scale)
 
             # Prefer YAML; fall back to CLI hm_opts defaults/overrides
             camera_cfg = args.game_config["rink"]["camera"]
@@ -371,10 +417,13 @@ class PlayTracker(torch.nn.Module):
                 cancel_hysteresis_frames=cancel_hyst,
                 stop_delay_cooldown_frames=cooldown_frames,
                 pan_smoothing_alpha=args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
+                cancel_hysteresis_frames=cancel_hyst,
+                stop_delay_cooldown_frames=cooldown_frames,
                 color=(255, 128, 64),
                 thickness=5,
                 device=self._device,
                 min_height=play_height / 10,
+                time_to_dest_speed_limit_frames=int(args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10) * speed_scale),
             )
 
             post_nonstop = int(camera_cfg.get("breakaway_detection", {}).get("post_nonstop_stop_delay_count", 0))
@@ -413,6 +462,9 @@ class PlayTracker(torch.nn.Module):
                 device=self._device,
                 min_height=play_height / 5,
                 post_nonstop_stop_delay=post_nonstop,
+                cancel_hysteresis_frames=cancel_hyst,
+                stop_delay_cooldown_frames=cooldown_frames,
+                time_to_dest_speed_limit_frames=int(args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10) * speed_scale),
             )
 
         if self._camera_ui_enabled:
@@ -1067,6 +1119,7 @@ class PlayTracker(torch.nn.Module):
             ov_delay = int(bkd.get("overshoot_stop_delay_count", getattr(self._args, "overshoot_stop_delay_count", 6)))
             postns = int(bkd.get("post_nonstop_stop_delay_count", getattr(self._args, "post_nonstop_stop_delay_count", 6)))
             ov_scale = int(100 * float(bkd.get("overshoot_scale_speed_ratio", 0.7)))
+            ttg = int(camera_cfg.get("time_to_dest_speed_limit_frames", 10))
 
             tb("DirDelay", 60, stop_dir_delay)
             tb("CancelOpp", 1, cancel_stop)
@@ -1075,6 +1128,7 @@ class PlayTracker(torch.nn.Module):
             tb("OvDelay", 60, ov_delay)
             tb("PostNS", 60, postns)
             tb("OvScaleX100", 200, ov_scale)
+            tb("TTGFrames", 120, ttg)
             # Translation constraints and target selection
             # Apply to fast and/or follower boxes
             tb("ApplyFast", 1, 1)
@@ -1098,6 +1152,7 @@ class PlayTracker(torch.nn.Module):
                 OvDelay=ov_delay,
                 PostNS=postns,
                 OvScaleX100=ov_scale,
+                TTGFrames=ttg,
                 ApplyFast=1,
                 ApplyFollower=1,
                 MaxSpdXx10=msx,
@@ -1121,6 +1176,7 @@ class PlayTracker(torch.nn.Module):
             ov_delay = cv2.getTrackbarPos("OvDelay", self._ui_window_name)
             postns = cv2.getTrackbarPos("PostNS", self._ui_window_name)
             ov_scal = cv2.getTrackbarPos("OvScaleX100", self._ui_window_name) / 100.0
+            ttg = cv2.getTrackbarPos("TTGFrames", self._ui_window_name)
 
             # Update YAML-like config so all downstream reads are consistent
             camera_cfg = self._args.game_config["rink"]["camera"]
@@ -1132,6 +1188,7 @@ class PlayTracker(torch.nn.Module):
             bkd["overshoot_stop_delay_count"] = int(ov_delay)
             bkd["post_nonstop_stop_delay_count"] = int(postns)
             bkd["overshoot_scale_speed_ratio"] = float(ov_scal)
+            camera_cfg["time_to_dest_speed_limit_frames"] = int(ttg)
             # Read selection + constraints
             apply_fast = cv2.getTrackbarPos("ApplyFast", self._ui_window_name)
             apply_follower = cv2.getTrackbarPos("ApplyFollower", self._ui_window_name)

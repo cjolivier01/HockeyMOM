@@ -179,6 +179,9 @@ struct TranslatingBoxConfig {
   IntValue cancel_stop_hysteresis_frames{0};
   // Cooldown after a stop-delay finishes or is canceled before a new one can start
   IntValue stop_delay_cooldown_frames{0};
+  // When increasing speed toward destination, cap the speed so that
+  // time-to-go along that axis is at least this many frames. 0 disables.
+  IntValue time_to_dest_speed_limit_frames{10};
 };
 
 struct LivingBoxConfig {

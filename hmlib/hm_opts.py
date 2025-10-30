@@ -479,6 +479,12 @@ class hm_opts(object):
             type=int,
             help="After nonstop ends, brake to stop over N frames",
         )
+        braking.add_argument(
+            "--time-to-dest-speed-limit-frames",
+            default=10,
+            type=int,
+            help="Minimum frames to reach destination along an axis when speeding up (0 disables)",
+        )
 
         # Generic YAML overrides: --config-override rink.camera.foo.bar=VALUE (repeatable)
         overrides = parser.add_argument_group(
@@ -549,15 +555,21 @@ class hm_opts(object):
         # This lets downstream code read from args.game_config['rink']['camera']
         game_cfg = getattr(opt, "game_config", None)
         if isinstance(game_cfg, dict):
+            # Helper to know if a CLI option was explicitly provided (not just default)
+            def _cli_spec(name: str) -> bool:
+                try:
+                    return parser is not None and getattr(opt, name) != parser.get_default(name)
+                except Exception:
+                    return False
             # stop_on_dir_change_delay
             try:
-                if get_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", None) is None:
+                if _cli_spec("stop_on_dir_change_delay") or get_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", None) is None:
                     set_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", int(opt.stop_on_dir_change_delay))
             except Exception:
                 pass
             # cancel_stop_on_opposite_dir (store as bool in YAML)
             try:
-                if get_nested_value(game_cfg, "rink.camera.cancel_stop_on_opposite_dir", None) is None:
+                if _cli_spec("cancel_stop_on_opposite_dir") or get_nested_value(game_cfg, "rink.camera.cancel_stop_on_opposite_dir", None) is None:
                     set_nested_value(
                         game_cfg,
                         "rink.camera.cancel_stop_on_opposite_dir",
@@ -567,7 +579,7 @@ class hm_opts(object):
                 pass
             # cancel hysteresis frames
             try:
-                if get_nested_value(game_cfg, "rink.camera.stop_cancel_hysteresis_frames", None) is None:
+                if _cli_spec("stop_cancel_hysteresis_frames") or get_nested_value(game_cfg, "rink.camera.stop_cancel_hysteresis_frames", None) is None:
                     set_nested_value(
                         game_cfg,
                         "rink.camera.stop_cancel_hysteresis_frames",
@@ -577,7 +589,7 @@ class hm_opts(object):
                 pass
             # stop delay cooldown frames
             try:
-                if get_nested_value(game_cfg, "rink.camera.stop_delay_cooldown_frames", None) is None:
+                if _cli_spec("stop_delay_cooldown_frames") or get_nested_value(game_cfg, "rink.camera.stop_delay_cooldown_frames", None) is None:
                     set_nested_value(
                         game_cfg,
                         "rink.camera.stop_delay_cooldown_frames",
@@ -585,11 +597,20 @@ class hm_opts(object):
                     )
             except Exception:
                 pass
+            # time to dest speed limit frames
+            try:
+                if _cli_spec("time_to_dest_speed_limit_frames") or get_nested_value(game_cfg, "rink.camera.time_to_dest_speed_limit_frames", None) is None:
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.time_to_dest_speed_limit_frames",
+                        int(opt.time_to_dest_speed_limit_frames),
+                    )
+            except Exception:
+                pass
             # Breakaway: overshoot/post-nonstop delays
             try:
-                if (
-                    opt.overshoot_stop_delay_count is not None
-                    and get_nested_value(
+                if _cli_spec("overshoot_stop_delay_count") or (
+                    get_nested_value(
                         game_cfg, "rink.camera.breakaway_detection.overshoot_stop_delay_count", None
                     )
                     is None
@@ -602,9 +623,8 @@ class hm_opts(object):
             except Exception:
                 pass
             try:
-                if (
-                    opt.post_nonstop_stop_delay_count is not None
-                    and get_nested_value(
+                if _cli_spec("post_nonstop_stop_delay_count") or (
+                    get_nested_value(
                         game_cfg, "rink.camera.breakaway_detection.post_nonstop_stop_delay_count", None
                     )
                     is None

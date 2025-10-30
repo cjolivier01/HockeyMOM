@@ -1017,6 +1017,9 @@ void init_living_boxes(::pybind11::module_& m) {
           "stop_delay_cooldown_frames",
           &TranslatingBoxConfig::stop_delay_cooldown_frames)
       .def_readwrite(
+          "time_to_dest_speed_limit_frames",
+          &TranslatingBoxConfig::time_to_dest_speed_limit_frames)
+      .def_readwrite(
           "dynamic_acceleration_scaling",
           &TranslatingBoxConfig::dynamic_acceleration_scaling)
       .def_readwrite(

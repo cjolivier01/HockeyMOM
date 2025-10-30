@@ -248,7 +248,30 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     }
   }
 
+  // Preserve previous speeds for increase detection
+  const FloatValue prev_speed_x = state_.current_speed_x;
+  const FloatValue prev_speed_y = state_.current_speed_y;
+
   adjust_speed(accel_x, accel_y, /*scale_constraints=*/x_gaussian);
+
+  // Time-to-destination speed limiting (per-axis)
+  auto limit_speed_ttg = [&](FloatValue& v, const FloatValue dist, const FloatValue prev_v) {
+    if (config_.time_to_dest_speed_limit_frames > 0) {
+      const FloatValue sgn = sign(dist);
+      if (sgn != 0.0f) {
+        const FloatValue new_sgn = sign(v);
+        const bool increasing = std::abs(v) > std::abs(prev_v);
+        if (new_sgn == sgn && increasing) {
+          const FloatValue limit = std::abs(dist) / static_cast<FloatValue>(config_.time_to_dest_speed_limit_frames);
+          // Clamp magnitude to at most limit
+          const FloatValue vmax = limit;
+          v = clamp(v, -vmax, vmax);
+        }
+      }
+    }
+  };
+  limit_speed_ttg(state_.current_speed_x, total_diff.dx, prev_speed_x);
+  limit_speed_ttg(state_.current_speed_y, total_diff.dy, prev_speed_y);
 
   // Clamp overshoot during braking to avoid reversing direction
   if (state_.stop_delay_x && *state_.stop_delay_x != 0) {
