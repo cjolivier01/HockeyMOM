@@ -417,13 +417,14 @@ class PlayTracker(torch.nn.Module):
                 cancel_hysteresis_frames=cancel_hyst,
                 stop_delay_cooldown_frames=cooldown_frames,
                 pan_smoothing_alpha=args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
-                cancel_hysteresis_frames=cancel_hyst,
                 stop_delay_cooldown_frames=cooldown_frames,
                 color=(255, 128, 64),
                 thickness=5,
                 device=self._device,
                 min_height=play_height / 10,
-                time_to_dest_speed_limit_frames=int(args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10) * speed_scale),
+                time_to_dest_speed_limit_frames=int(
+                    args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10) * speed_scale
+                ),
             )
 
             post_nonstop = int(camera_cfg.get("breakaway_detection", {}).get("post_nonstop_stop_delay_count", 0))
