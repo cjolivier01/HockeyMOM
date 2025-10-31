@@ -17,8 +17,8 @@ from hmlib.bbox.box_functions import (
 )
 from hmlib.builder import HM
 from hmlib.camera.camera_transformer import (
-    CameraPanZoomTransformer,
     CameraNorm,
+    CameraPanZoomTransformer,
     build_frame_features,
     unpack_checkpoint,
 )
@@ -151,10 +151,26 @@ class CameraControllerTrunk(Trunk):
 
             if box_out is None:
                 # Rule-based fallback: union of detections -> fixed height with aspect
-                left = torch.min(det_tlbr[:, 0]) if len(det_tlbr) else torch.tensor(0.0)
-                right = torch.max(det_tlbr[:, 2]) if len(det_tlbr) else torch.tensor(float(W))
-                top = torch.min(det_tlbr[:, 1]) if len(det_tlbr) else torch.tensor(0.0)
-                bottom = torch.max(det_tlbr[:, 3]) if len(det_tlbr) else torch.tensor(float(H))
+                left = (
+                    torch.min(det_tlbr[:, 0])
+                    if len(det_tlbr)
+                    else torch.tensor(0.0).to(device=det_tlbr.device, non_blocking=True)
+                )
+                right = (
+                    torch.max(det_tlbr[:, 2])
+                    if len(det_tlbr)
+                    else torch.tensor(float(W)).to(device=det_tlbr.device, non_blocking=True)
+                )
+                top = (
+                    torch.min(det_tlbr[:, 1])
+                    if len(det_tlbr)
+                    else torch.tensor(0.0).to(device=det_tlbr.device, non_blocking=True)
+                )
+                bottom = (
+                    torch.max(det_tlbr[:, 3])
+                    if len(det_tlbr)
+                    else torch.tensor(float(H)).to(device=det_tlbr.device, non_blocking=True)
+                )
                 uni = torch.stack([left, top, right, bottom])
                 c = center(uni)
                 h_px = torch.clamp((bottom - top) * 1.4, min=H * 0.35, max=H * 0.95)

@@ -76,11 +76,11 @@ class TrackerTrunk(Trunk):
 
         data: Dict[str, Any] = context["data"]
         # preserved_original_images = data.get("original_images")
-        dataset_results = data.get("dataset_results") or context.get("dataset_results")
+        # dataset_results = data.get("dataset_results") or context.get("dataset_results")
         frame_id0: int = int(context.get("frame_id", -1))
 
         using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
-        using_precalc_det: bool = bool(context.get("using_precalculated_detection", False))
+        # using_precalc_det: bool = bool(context.get("using_precalculated_detection", False))
 
         self._ensure_tracker(image_size=data["original_images"].shape)
 
@@ -95,7 +95,7 @@ class TrackerTrunk(Trunk):
 
         max_tracking_id = 0
         active_track_count = 0
-        all_frame_jersey_info: List[List[Any]] = []
+        # all_frame_jersey_info: List[List[Any]] = []
 
         def _to_tensor_1d(x):
             if not isinstance(x, torch.Tensor):
@@ -130,7 +130,7 @@ class TrackerTrunk(Trunk):
             det_bboxes = det_instances.bboxes
             det_labels = det_instances.labels
             det_scores = det_instances.scores
-            det_src_pose_idx = getattr(det_instances, "source_pose_index", None)
+            # det_src_pose_idx = getattr(det_instances, "source_pose_index", None)
 
             # Post-detection pruning is handled by a dedicated trunk upstream
 
@@ -241,13 +241,6 @@ class TrackerTrunk(Trunk):
                 max_id = int(torch.max(pred_track_instances.instances_id))
                 if max_id > max_tracking_id:
                     max_tracking_id = max_id
-
-        # if preserved_original_images is not None:
-        #     data["original_images"] = preserved_original_images
-        # elif "original_images" in data:
-        #     data["original_images"] = data["original_images"]
-        # if "img" in data:
-        #     del data["img"]
 
         return {
             "data": data,
