@@ -196,18 +196,32 @@ class PoseTrunk(Trunk):
             if batched_data_infos:
                 proc_inputs = collate_fn(batched_data_infos)
                 preds: Optional[List[Any]] = None
-                onnx_runner = getattr(
-                    getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None),
+                # Prefer TensorRT runner if available, else ONNX
+                trt_runner = getattr(
+                    getattr(context.get("pose_inferencer"), "_hm_trt_runner", None),
                     "forward",
                     None,
                 )
-                if callable(onnx_runner):
+                if callable(trt_runner):
                     try:
-                        pr = onnx_runner(proc_inputs)
+                        pr = trt_runner(proc_inputs)
                         if isinstance(pr, (list, tuple)):
                             preds = list(pr)
                     except Exception:
                         preds = None
+                if preds is None:
+                    onnx_runner = getattr(
+                        getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None),
+                        "forward",
+                        None,
+                    )
+                    if callable(onnx_runner):
+                        try:
+                            pr = onnx_runner(proc_inputs)
+                            if isinstance(pr, (list, tuple)):
+                                preds = list(pr)
+                        except Exception:
+                            preds = None
                 if preds is None:
                     start_t = time.time()
                     forward_outputs = pose_impl.forward(

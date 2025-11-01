@@ -2,6 +2,7 @@ from contextlib import nullcontext
 from typing import Any, Dict
 
 import torch
+from cuda_stacktrace import CudaStackTracer
 
 from .base import Trunk
 
@@ -84,7 +85,7 @@ class DetectorInferenceTrunk(Trunk):
                 img_data_sample.set_metainfo({"frame_id": int(fid)})
                 batch_data_samples.append(img_data_sample)
 
-            with amp_ctx:
+            with amp_ctx, CudaStackTracer(functions="cudaStreamSynchronize", enabled=False):
                 det_results = detector.predict(batch_inputs, batch_data_samples)
 
             assert (

@@ -27,6 +27,7 @@ class PoseInferencerFactoryTrunk(Trunk):
         disable_internal_detector: bool = False,
         enabled: bool = True,
         onnx: Optional[Dict[str, Any]] = None,
+        trt: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(enabled=enabled)
         self._pose_config = pose_config
@@ -39,6 +40,9 @@ class PoseInferencerFactoryTrunk(Trunk):
         # ONNX runtime/export options for pose (backbone+neck)
         self._onnx_cfg: Dict[str, Any] = dict(onnx or {})
         self._onnx_runner: Optional[_OnnxPoseRunner] = None
+        # TensorRT options for pose (backbone+neck)
+        self._trt_cfg: Dict[str, Any] = dict(trt or {})
+        self._trt_runner: Optional[_TrtPoseRunner] = None
 
     def _default_filter_args(self, pose_config: Optional[str]) -> Dict[str, Any]:
         # Defaults taken from hmtrack CLI logic
@@ -94,9 +98,21 @@ class PoseInferencerFactoryTrunk(Trunk):
             inferencer.filter_args = fa
             self._inferencer = inferencer
 
-            # Initialize optional ONNX runner using underlying inferencer's model
+            # Initialize optional accelerators using underlying inferencer's model
             try:
-                if bool(self._onnx_cfg.get("enable", False)):
+                # Prefer TensorRT if enabled
+                if bool(self._trt_cfg.get("enable", False)):
+                    pose_impl = getattr(self._inferencer, "inferencer", None)
+                    if pose_impl is not None and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown":
+                        self._trt_runner = _TrtPoseRunner(
+                            model=pose_impl.model,
+                            engine_path=str(self._trt_cfg.get("engine", "pose.engine")),
+                            force_build=bool(self._trt_cfg.get("force_build", False)),
+                            fp16=bool(self._trt_cfg.get("fp16", True)),
+                        )
+                        setattr(self._inferencer, "_hm_trt_runner", self._trt_runner)
+                # Otherwise, enable ONNX if requested
+                if self._trt_runner is None and bool(self._onnx_cfg.get("enable", False)):
                     pose_impl = getattr(self._inferencer, "inferencer", None)
                     if pose_impl is not None and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown":
                         self._onnx_runner = _OnnxPoseRunner(
@@ -111,6 +127,7 @@ class PoseInferencerFactoryTrunk(Trunk):
             except Exception:
                 # Non-fatal; fall back to PyTorch model
                 self._onnx_runner = None
+                self._trt_runner = None
 
         context["pose_inferencer"] = self._inferencer
         return {"pose_inferencer": self._inferencer}
@@ -164,6 +181,7 @@ class _OnnxPoseRunner:
         self._quantized = False
         self._ort_sess = None
         self._providers = None
+        self._use_cuda = False
         self._export_and_create_session()
 
     def _export_and_create_session(self) -> None:
@@ -194,28 +212,72 @@ class _OnnxPoseRunner:
                     },
                 )
         import onnxruntime as ort  # type: ignore
+        # Session options with higher optimization level
+        so = ort.SessionOptions()
+        try:
+            so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        except Exception:
+            pass
+        so.enable_mem_pattern = True
+        so.enable_cpu_mem_arena = True
         avail = ort.get_available_providers()
         if "CUDAExecutionProvider" in avail:
             self._providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            self._use_cuda = True
         else:
             self._providers = ["CPUExecutionProvider"]
-        self._ort_sess = ort.InferenceSession(self.onnx_path, providers=self._providers)  # type: ignore
+            self._use_cuda = False
+        self._ort_sess = ort.InferenceSession(self.onnx_path, sess_options=so, providers=self._providers)  # type: ignore
 
     def _run_feats(self, x: torch.Tensor) -> Any:
+        import numpy as np
         x = x.to(torch.float32)
-        x_np = x.detach().to("cpu").numpy()
-        # Save for calibration if needed
+        # Calibration capture from CPU
         if self.quantize_int8 and not self._quantized and self.calib_target > 0:
             try:
+                x_np = x.detach().to("cpu").numpy()
                 self._calib_inputs.append(x_np.copy())
             except Exception:
                 pass
+        try:
+            dev = next(self.model.parameters()).device
+        except StopIteration:
+            dev = torch.device("cpu")
+        if self._use_cuda and x.is_cuda:
+            io = self._ort_sess.io_binding()
+            input_name = self._ort_sess.get_inputs()[0].name
+            xc = x.contiguous()
+            io.bind_input(
+                name=input_name,
+                device_type="cuda",
+                device_id=int(xc.device.index or 0),
+                element_type=np.float32,
+                shape=list(xc.shape),
+                buffer_ptr=int(xc.data_ptr()),
+            )
+            for out in self._ort_sess.get_outputs():
+                io.bind_output(out.name, device_type="cuda")
+            self._ort_sess.run_with_iobinding(io)
+            ort_outs = io.get_outputs()
+            outs_t: List[torch.Tensor] = []
+            try:
+                from torch.utils.dlpack import from_dlpack  # type: ignore
+                for ov in ort_outs:
+                    outs_t.append(from_dlpack(ov.to_dlpack()).to(device=dev))
+            except Exception:
+                for ov in ort_outs:
+                    np_arr = np.array(ov)
+                    outs_t.append(torch.from_numpy(np_arr).to(device=dev))
+            if len(outs_t) == 1:
+                return outs_t[0]
+            return outs_t
+        # CPU fallback
+        x_np = x.detach().to("cpu").numpy()
         outputs = self._ort_sess.run(None, {self._ort_sess.get_inputs()[0].name: x_np})
         if len(outputs) == 1:
-            out = torch.from_numpy(outputs[0]).to(device=next(self.model.parameters()).device)
+            out = torch.from_numpy(outputs[0]).to(device=dev)
             return out
-        # If multiple outputs, convert to list of tensors
-        return [torch.from_numpy(o).to(device=next(self.model.parameters()).device) for o in outputs]
+        return [torch.from_numpy(o).to(device=dev) for o in outputs]
 
     def _maybe_quantize_after_calib(self) -> None:
         if not self.quantize_int8 or self._quantized:
@@ -272,6 +334,92 @@ class _OnnxPoseRunner:
         except Exception:
             pass
         # Fallback: run model directly
+        with torch.no_grad():
+            try:
+                return self.model.test_step(proc_inputs)
+            except Exception:
+                try:
+                    return self.model(**proc_inputs)
+                except Exception:
+                    return []
+
+
+class _TrtPoseRunner:
+    """Run pose backbone+neck with TensorRT via torch2trt; decode with PyTorch head."""
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        engine_path: str,
+        force_build: bool = False,
+        fp16: bool = True,
+    ):
+        self.model = model
+        self.engine_path = engine_path
+        self.force_build = bool(force_build)
+        self.fp16 = bool(fp16)
+        self._trt_module = None
+        self._build_or_load()
+
+    def _build_or_load(self) -> None:
+        try:
+            import torch2trt  # type: ignore
+        except Exception as ex:
+            raise RuntimeError("torch2trt is required for TensorRT pose path but is not available") from ex
+        import os
+        try:
+            dev = next(self.model.parameters()).device
+        except StopIteration:
+            dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
+        if (not self.force_build) and os.path.exists(self.engine_path):
+            try:
+                trt_mod = torch2trt.TRTModule()
+                import torch as _torch
+
+                trt_mod.load_state_dict(_torch.load(self.engine_path))
+                self._trt_module = trt_mod
+                return
+            except Exception:
+                pass
+        sample = torch.randn(1, 3, 256, 192, device=dev, dtype=torch.float32)
+        with torch.inference_mode():
+            trt_mod = torch2trt.torch2trt(
+                wrapper,
+                [sample],
+                fp16_mode=self.fp16,
+                max_batch_size=1,
+                max_workspace_size=1 << 28,
+            )
+        try:
+            import torch as _torch
+
+            _torch.save(trt_mod.state_dict(), self.engine_path)
+        except Exception:
+            pass
+        self._trt_module = trt_mod
+
+    def _run_feats(self, x: torch.Tensor):
+        assert self._trt_module is not None
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        with torch.inference_mode():
+            out = self._trt_module(x)
+        return out
+
+    def forward(self, proc_inputs: Dict[str, Any]):
+        try:
+            inputs = proc_inputs["inputs"]  # Tensor (N,C,H,W)
+            datas = proc_inputs.get("data_samples", None)
+            feats = self._run_feats(inputs)
+            head = getattr(self.model, "head", None)
+            if head is not None and hasattr(head, "predict") and datas is not None:
+                with torch.inference_mode():
+                    preds = head.predict(feats, datas)
+                return preds
+        except Exception:
+            pass
+        # Fallback to model
         with torch.no_grad():
             try:
                 return self.model.test_step(proc_inputs)

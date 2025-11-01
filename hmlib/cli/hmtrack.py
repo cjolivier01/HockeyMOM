@@ -381,6 +381,36 @@ def make_parser(parser: argparse.ArgumentParser = None):
             "If a path is not provided here, a default under output_workdirs/<GAME_ID>/detector.onnx is used."
         ),
     )
+    # TensorRT detector options
+    parser.add_argument(
+        "--detector-trt-enable",
+        dest="detector_trt_enable",
+        action="store_true",
+        help=(
+            "Enable TensorRT for detector (backbone+neck). Builds engine on first run if needed."
+        ),
+    )
+    parser.add_argument(
+        "--detector-trt-engine",
+        dest="detector_trt_engine",
+        type=str,
+        default=None,
+        help=(
+            "Path to save/load the detector TensorRT engine (defaults under output_workdirs/<GAME_ID>/detector.engine)."
+        ),
+    )
+    parser.add_argument(
+        "--detector-trt-fp16",
+        dest="detector_trt_fp16",
+        action="store_true",
+        help=("Build TensorRT detector engine in FP16 mode if supported."),
+    )
+    parser.add_argument(
+        "--detector-trt-force-build",
+        dest="detector_trt_force_build",
+        action="store_true",
+        help=("Force rebuilding the detector TensorRT engine even if it exists."),
+    )
     parser.add_argument(
         "--detector-onnx-enable",
         dest="detector_onnx_enable",
@@ -419,6 +449,36 @@ def make_parser(parser: argparse.ArgumentParser = None):
             "Export the pose model's feature extractor (backbone+neck) to ONNX and run with ONNX Runtime. "
             "If a path is not provided, a default under output_workdirs/<GAME_ID>/pose.onnx is used."
         ),
+    )
+    # TensorRT pose options
+    parser.add_argument(
+        "--pose-trt-enable",
+        dest="pose_trt_enable",
+        action="store_true",
+        help=(
+            "Enable TensorRT for pose (backbone+neck). Builds engine on first run if needed."
+        ),
+    )
+    parser.add_argument(
+        "--pose-trt-engine",
+        dest="pose_trt_engine",
+        type=str,
+        default=None,
+        help=(
+            "Path to save/load the pose TensorRT engine (defaults under output_workdirs/<GAME_ID>/pose.engine)."
+        ),
+    )
+    parser.add_argument(
+        "--pose-trt-fp16",
+        dest="pose_trt_fp16",
+        action="store_true",
+        help=("Build TensorRT pose engine in FP16 mode if supported."),
+    )
+    parser.add_argument(
+        "--pose-trt-force-build",
+        dest="pose_trt_force_build",
+        action="store_true",
+        help=("Force rebuilding the pose TensorRT engine even if it exists."),
     )
     parser.add_argument(
         "--pose-onnx-enable",
@@ -747,7 +807,7 @@ def _main(args, num_gpu):
         # Expose to downstream run_mmtrack() via args dict
         args.aspen = aspen_cfg_for_pipeline
 
-        # If ONNX detector flags are provided, thread them into Aspen trunks.detector_factory.params
+        # If ONNX/TRT detector flags are provided, thread them into Aspen trunks.detector_factory.params
         if args.aspen and isinstance(args.aspen, dict):
             try:
                 onnx_enable = bool(
@@ -776,6 +836,27 @@ def _main(args, num_gpu):
                     df_params["onnx"] = onnx_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
+                # TensorRT detector integration
+                trt_enable = bool(args.detector_trt_enable or args.detector_trt_engine)
+                if trt_enable and "detector" in trunks_cfg:
+                    df = trunks_cfg.setdefault(
+                        "detector_factory",
+                        {
+                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk",
+                            "depends": [],
+                            "params": {},
+                        },
+                    )
+                    df_params = df.setdefault("params", {}) or {}
+                    trt_cfg = df_params.setdefault("trt", {}) or {}
+                    trt_cfg["enable"] = True
+                    default_engine_path = os.path.join(results_folder, "detector.engine")
+                    trt_cfg["engine"] = args.detector_trt_engine or default_engine_path
+                    trt_cfg["force_build"] = bool(args.detector_trt_force_build)
+                    trt_cfg["fp16"] = bool(args.detector_trt_fp16)
+                    df_params["trt"] = trt_cfg
+                    df["params"] = df_params
+                    trunks_cfg["detector_factory"] = df
                 # Pose ONNX integration (pose_factory)
                 pose_onnx_enable = bool(args.pose_onnx_enable or args.pose_onnx_path or args.pose_onnx_quantize_int8)
                 if pose_onnx_enable and "pose" in trunks_cfg:
@@ -796,6 +877,27 @@ def _main(args, num_gpu):
                     ponnx_cfg["quantize_int8"] = bool(args.pose_onnx_quantize_int8)
                     ponnx_cfg["calib_frames"] = int(args.pose_onnx_calib_frames or 0)
                     pf_params["onnx"] = ponnx_cfg
+                    pf["params"] = pf_params
+                    trunks_cfg["pose_factory"] = pf
+                # Pose TensorRT integration (pose_factory)
+                pose_trt_enable = bool(args.pose_trt_enable or args.pose_trt_engine)
+                if pose_trt_enable and "pose" in trunks_cfg:
+                    pf = trunks_cfg.setdefault(
+                        "pose_factory",
+                        {
+                            "class": "hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk",
+                            "depends": [],
+                            "params": {},
+                        },
+                    )
+                    pf_params = pf.setdefault("params", {}) or {}
+                    ptrt_cfg = pf_params.setdefault("trt", {}) or {}
+                    ptrt_cfg["enable"] = True
+                    default_pose_engine = os.path.join(results_folder, "pose.engine")
+                    ptrt_cfg["engine"] = args.pose_trt_engine or default_pose_engine
+                    ptrt_cfg["force_build"] = bool(args.pose_trt_force_build)
+                    ptrt_cfg["fp16"] = bool(args.pose_trt_fp16)
+                    pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf
                 args.aspen["trunks"] = trunks_cfg

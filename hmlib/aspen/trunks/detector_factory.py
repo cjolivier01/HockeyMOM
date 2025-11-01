@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
 try:
-    from mmengine.config import ConfigDict
     from mmdet.registry import MODELS
+    from mmengine.config import ConfigDict
     from mmengine.structures import InstanceData
 except Exception:  # pragma: no cover - optional at runtime
     MODELS = None  # type: ignore
@@ -38,6 +38,7 @@ class DetectorFactoryTrunk(Trunk):
         to_device: bool = True,
         enabled: bool = True,
         onnx: Optional[Dict[str, Any]] = None,
+        trt: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(enabled=enabled)
         self._detector_dict = detector
@@ -48,6 +49,9 @@ class DetectorFactoryTrunk(Trunk):
         # ONNX runtime/export options
         self._onnx_cfg: Dict[str, Any] = dict(onnx or {})
         self._onnx_wrapper: Optional[_OnnxDetectorWrapper] = None
+        # TensorRT options
+        self._trt_cfg: Dict[str, Any] = dict(trt or {})
+        self._trt_wrapper: Optional[_TrtDetectorWrapper] = None
 
     def _load_detector_from_yaml(self, path: str) -> Dict[str, Any]:
         import yaml
@@ -97,7 +101,25 @@ class DetectorFactoryTrunk(Trunk):
             model.eval()
             self._model = model
 
-        # Decide backend: PyTorch (default) or ONNX
+        # Decide backend: TensorRT (highest), ONNX, or PyTorch
+        use_trt = bool(self._trt_cfg.get("enable", False))
+        if use_trt:
+            if self._trt_wrapper is None:
+                try:
+                    self._trt_wrapper = _TrtDetectorWrapper(
+                        model=self._model,
+                        engine_path=str(self._trt_cfg.get("engine", "detector.engine")),
+                        force_build=bool(self._trt_cfg.get("force_build", False)),
+                        fp16=bool(self._trt_cfg.get("fp16", True)),
+                    )
+                except Exception as ex:
+                    # Fall back to next option if TRT init fails
+                    print(f"Failed to initialize TensorRT detector wrapper: {ex}")
+                    self._trt_wrapper = None
+            if self._trt_wrapper is not None:
+                context["detector_model"] = self._trt_wrapper
+                return {"detector_model": self._trt_wrapper}
+
         use_onnx = bool(self._onnx_cfg.get("enable", False))
         if use_onnx:
             if self._onnx_wrapper is None:
@@ -177,10 +199,13 @@ class _OnnxDetectorWrapper:
         self._calib_inputs: List[Any] = []
         self._quantized = False
         self._quantized_path: Optional[str] = None
+        self._use_cuda = False
 
         # Gather preproc config
         self._mean = None
         self._std = None
+        self._mean_t: Optional[torch.Tensor] = None
+        self._std_t: Optional[torch.Tensor] = None
         self._swap_rgb = False
         try:
             dp = getattr(model, "data_preprocessor", None)
@@ -191,13 +216,17 @@ class _OnnxDetectorWrapper:
                 if isinstance(mean, torch.Tensor):
                     if mean.ndim == 1:
                         self._mean = mean.view(1, -1, 1, 1).detach().cpu().numpy()
+                        self._mean_t = mean.view(1, -1, 1, 1).detach()
                     elif mean.ndim == 4:
                         self._mean = mean.detach().cpu().numpy()
+                        self._mean_t = mean.detach()
                 if isinstance(std, torch.Tensor):
                     if std.ndim == 1:
                         self._std = std.view(1, -1, 1, 1).detach().cpu().numpy()
+                        self._std_t = std.view(1, -1, 1, 1).detach()
                     elif std.ndim == 4:
                         self._std = std.detach().cpu().numpy()
+                        self._std_t = std.detach()
                 bgr_to_rgb = bool(getattr(dp, "bgr_to_rgb", False))
                 rgb_to_bgr = bool(getattr(dp, "rgb_to_bgr", False))
                 self._swap_rgb = bool(bgr_to_rgb or rgb_to_bgr)
@@ -243,17 +272,28 @@ class _OnnxDetectorWrapper:
 
     def _create_session(self, path: str) -> None:
         import onnxruntime as ort  # type: ignore
+        # Session options for maximum graph optimizations
+        so = ort.SessionOptions()
+        try:
+            so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        except Exception:
+            pass
+        so.enable_mem_pattern = True
+        so.enable_cpu_mem_arena = True
         providers = []
         try:
             avail = ort.get_available_providers()
             if "CUDAExecutionProvider" in avail:
                 providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                self._use_cuda = True
             else:
                 providers = ["CPUExecutionProvider"]
+                self._use_cuda = False
         except Exception:
             providers = ["CPUExecutionProvider"]
+            self._use_cuda = False
         self._ort_providers = providers
-        self._ort_sess = ort.InferenceSession(path, providers=providers)  # type: ignore
+        self._ort_sess = ort.InferenceSession(path, sess_options=so, providers=providers)  # type: ignore
 
     def _maybe_quantize_after_calib(self) -> None:
         if not self.quantize_int8 or self._quantized:
@@ -261,12 +301,12 @@ class _OnnxDetectorWrapper:
         if self.calib_target <= 0 or len(self._calib_inputs) < self.calib_target:
             return
         try:
-            from onnxruntime.quantization import (
+            from onnxruntime.quantization import (  # type: ignore
                 CalibrationDataReader,
-                QuantType,
                 QuantFormat,
+                QuantType,
                 quantize_static,
-            )  # type: ignore
+            )
         except Exception:
             # Quantization not available; skip
             self._calib_inputs = []
@@ -323,50 +363,257 @@ class _OnnxDetectorWrapper:
         x_cpu = x.detach().to("cpu")
         return x_cpu.numpy()
 
-    def predict(self, single_img: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
-        # single_img: (1, C, H, W)
-        assert isinstance(data_samples, (list, tuple)) and len(data_samples) == 1
-        data_sample = data_samples[0]
-        # Build batch_img_metas for decode
-        try:
-            img_meta = getattr(data_sample, "metainfo", {})
-        except Exception:
-            img_meta = {}
+    def _preprocess_gpu(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        if self._swap_rgb and x.size(1) == 3:
+            x = x[:, [2, 1, 0], :, :]
+        if self._mean_t is not None and self._std_t is not None:
+            mean = self._mean_t.to(device=x.device, dtype=x.dtype)
+            std = self._std_t.to(device=x.device, dtype=x.dtype)
+            x = (x - mean) / std
+        return x.contiguous()
 
-        x_np = self._preprocess(single_img)
-        # Save calibration inputs if requested
-        if self.quantize_int8 and not self._quantized and self.calib_target > 0:
-            # Store a copy to avoid mutation
-            self._calib_inputs.append(x_np.copy())
-
-        # Run ORT backbone+neck
-        outs = self._ort_sess.run(None, {self._ort_sess.get_inputs()[0].name: x_np})
-        # Convert features to torch on the same device as model head
+    def _run_ort(self, x: torch.Tensor) -> List[torch.Tensor]:
+        """Run ORT either via CUDA I/O binding (if available) or CPU numpy path.
+        Returns a list of torch tensors on the model device.
+        """
+        import numpy as np
         try:
             dev = next(self.model.parameters()).device
         except StopIteration:
             dev = torch.device("cpu")
-        feats: List[torch.Tensor] = [torch.from_numpy(o).to(device=dev) for o in outs[:3]]
-        # Forward YOLOX head
-        with torch.no_grad():
+        if self._use_cuda and x.is_cuda:
+            # CUDA I/O binding with zero-copy via ptr
+            io = self._ort_sess.io_binding()
+            input_name = self._ort_sess.get_inputs()[0].name
+            xc = self._preprocess_gpu(x)
+            # Bind input GPU memory
+            io.bind_input(
+                name=input_name,
+                device_type="cuda",
+                device_id=int(xc.device.index or 0),
+                element_type=np.float32,
+                shape=list(xc.shape),
+                buffer_ptr=int(xc.data_ptr()),
+            )
+            # Bind outputs to CUDA to avoid host copies
+            for out in self._ort_sess.get_outputs():
+                io.bind_output(out.name, device_type="cuda")
+            self._ort_sess.run_with_iobinding(io)
+            ort_outs = io.get_outputs()
+            # Convert OrtValues (on CUDA) to torch via DLPack
+            outs_t: List[torch.Tensor] = []
+            try:
+                from torch.utils.dlpack import from_dlpack  # type: ignore
+                for ov in ort_outs:
+                    outs_t.append(from_dlpack(ov.to_dlpack()).to(device=dev))
+            except Exception:
+                # Fallback: copy to CPU numpy and back to torch
+                for ov in ort_outs:
+                    np_arr = np.array(ov)  # copies from device
+                    outs_t.append(torch.from_numpy(np_arr).to(device=dev))
+            return outs_t
+        # CPU path
+        x_np = self._preprocess(x)
+        outs = self._ort_sess.run(None, {self._ort_sess.get_inputs()[0].name: x_np})
+        return [torch.from_numpy(o).to(device=dev) for o in outs]
+
+    def predict(self, imgs: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
+        # imgs: (N, C, H, W)
+        assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
+        N = imgs.size(0)
+        try:
+            dev = next(self.model.parameters()).device
+        except StopIteration:
+            dev = torch.device("cpu")
+        # Calibration capture (CPU) if requested
+        if self.quantize_int8 and not self._quantized and self.calib_target > 0:
+            # Store only up to calib_target samples
+            remaining = max(0, self.calib_target - len(self._calib_inputs))
+            if remaining > 0:
+                take = min(N, remaining)
+                for i in range(take):
+                    x_np = self._preprocess(imgs[i : i + 1])
+                    self._calib_inputs.append(x_np.copy())
+        # Run ORT for the whole batch
+        outs = self._run_ort(imgs)
+        feats: List[torch.Tensor] = [o for o in outs[:3]]
+        with torch.inference_mode():
             cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
+            # Collect per-frame img_metas
+            metas = []
+            for i in range(N):
+                try:
+                    metas.append(getattr(data_samples[i], "metainfo", {}))
+                except Exception:
+                    metas.append({})
             result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
                 cls_scores=cls_scores,
                 bbox_preds=bbox_preds,
                 objectnesses=objectnesses,
-                batch_img_metas=[img_meta],
+                batch_img_metas=metas,
                 cfg=None,
                 rescale=True,
                 with_nms=True,
             )
-
         # Optional: try to quantize after gathering enough samples
         self._maybe_quantize_after_calib()
+        # Wrap results to mimic mmdet return objects
+        results: List[Any] = []
+        for inst in result_list:
+            class _Wrap:
+                def __init__(self, inst_):
+                    self.pred_instances = inst_
+            results.append(_Wrap(inst))
+        return results
 
-        inst = result_list[0]
-        # DetectorInferenceTrunk expects an object with .pred_instances
-        class _Wrap:
-            def __init__(self, inst_):
-                self.pred_instances = inst_
 
-        return [_Wrap(inst)]
+class _TrtDetectorWrapper:
+    """Backbone+neck with TensorRT via torch2trt; decode with PyTorch YOLOX head.
+
+    Builds the engine on-the-fly and caches to disk. Exposes a .predict compatible
+    with mmdet SingleStageDetector expectations used downstream.
+    """
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        engine_path: str,
+        force_build: bool = False,
+        fp16: bool = True,
+    ):
+        self.model = model
+        self.engine_path = engine_path
+        self.force_build = bool(force_build)
+        self.fp16 = bool(fp16)
+        self._trt_module = None
+        self._mean = None
+        self._std = None
+        self._swap_rgb = False
+
+        # Gather data_preprocessor normalization like ONNX path
+        try:
+            dp = getattr(model, "data_preprocessor", None)
+            if dp is not None:
+                mean = getattr(dp, "mean", None)
+                std = getattr(dp, "std", None)
+                if mean is not None:
+                    if not isinstance(mean, torch.Tensor):
+                        try:
+                            mean = torch.as_tensor(mean)
+                        except Exception:
+                            mean = None
+                    if isinstance(mean, torch.Tensor):
+                        if mean.ndim == 1:
+                            self._mean = mean.view(1, -1, 1, 1).detach().cpu()
+                        elif mean.ndim == 4:
+                            self._mean = mean.detach().cpu()
+                if std is not None:
+                    if not isinstance(std, torch.Tensor):
+                        try:
+                            std = torch.as_tensor(std)
+                        except Exception:
+                            std = None
+                    if isinstance(std, torch.Tensor):
+                        if std.ndim == 1:
+                            self._std = std.view(1, -1, 1, 1).detach().cpu()
+                        elif std.ndim == 4:
+                            self._std = std.detach().cpu()
+                bgr_to_rgb = bool(getattr(dp, "bgr_to_rgb", False))
+                rgb_to_bgr = bool(getattr(dp, "rgb_to_bgr", False))
+                self._swap_rgb = bool(bgr_to_rgb or rgb_to_bgr)
+        except Exception:
+            pass
+
+        self._ensure_trt_engine()
+
+    def _ensure_trt_engine(self) -> None:
+        try:
+            import torch2trt  # type: ignore
+        except Exception as ex:
+            raise RuntimeError("torch2trt is required for TensorRT path but is not available") from ex
+        import os
+        dev = next(self.model.parameters()).device
+        wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
+        if (not self.force_build) and os.path.exists(self.engine_path):
+            try:
+                trt_mod = torch2trt.TRTModule()
+                import torch as _torch
+
+                trt_mod.load_state_dict(_torch.load(self.engine_path))
+                self._trt_module = trt_mod
+                return
+            except Exception:
+                pass
+        # Build
+        sample = torch.randn(1, 3, 480, 1312, device=dev, dtype=torch.float32)
+        with torch.inference_mode():
+            trt_mod = torch2trt.torch2trt(
+                wrapper,
+                [sample],
+                fp16_mode=self.fp16,
+                max_batch_size=1,
+                max_workspace_size=1 << 30,
+            )
+        # Save engine
+        try:
+            import torch as _torch
+
+            _torch.save(trt_mod.state_dict(), self.engine_path)
+        except Exception:
+            pass
+        self._trt_module = trt_mod
+
+    def _preprocess(self, x: torch.Tensor) -> torch.Tensor:
+        # Normalize similar to data_preprocessor if present
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        if self._swap_rgb and x.size(1) == 3:
+            x = x[:, [2, 1, 0], :, :]
+        if self._mean is not None and self._std is not None:
+            mean = self._mean.to(device=x.device, dtype=x.dtype)
+            std = self._std.to(device=x.device, dtype=x.dtype)
+            x = (x - mean) / std
+        return x
+
+    def predict(self, imgs: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
+        assert self._trt_module is not None, "TRT engine not initialized"
+        assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
+        results: List[Any] = []
+        try:
+            dev = next(self.model.parameters()).device
+        except StopIteration:
+            dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        for i in range(imgs.size(0)):
+            data_sample = data_samples[i]
+            try:
+                img_meta = getattr(data_sample, "metainfo", {})
+            except Exception:
+                img_meta = {}
+            x = imgs[i : i + 1].to(device=dev, non_blocking=True)
+            x = self._preprocess(x)
+            feats = self._trt_module(x)
+            if isinstance(feats, torch.Tensor):
+                feats = [feats, feats, feats]
+            elif isinstance(feats, (list, tuple)):
+                feats = list(feats)
+            else:
+                feats = [torch.as_tensor(feats)]
+            with torch.inference_mode():
+                cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
+                result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                    cls_scores=cls_scores,
+                    bbox_preds=bbox_preds,
+                    objectnesses=objectnesses,
+                    batch_img_metas=[img_meta],
+                    cfg=None,
+                    rescale=True,
+                    with_nms=True,
+                )
+            inst = result_list[0]
+            class _Wrap:
+                def __init__(self, inst_):
+                    self.pred_instances = inst_
+            results.append(_Wrap(inst))
+        return results
