@@ -5,9 +5,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 
 try:
-    from mmdet.registry import MODELS
+    # from mmdet.registry import MODELS
     from mmengine.config import ConfigDict
     from mmengine.structures import InstanceData
+    from mmyolo.registry import MODELS
 except Exception:  # pragma: no cover - optional at runtime
     MODELS = None  # type: ignore
     ConfigDict = dict  # type: ignore
@@ -91,6 +92,14 @@ class DetectorFactoryTrunk(Trunk):
                     # Convert to dict to inject
                     model_cfg = ConfigDict(model_cfg)
                 model_cfg["data_preprocessor"] = _to_cfg(self._data_preprocessor)
+
+            if "yolodetector" in model_cfg.get("type", "").lower():
+                # Ensure we have mmyolo installed for YOLOv8 support
+                try:
+                    import mmyolo.models.detectors.yolo_detector  # type: ignore
+                except Exception as ex:
+                    raise RuntimeError("mmyolo is required for YOLOv8 models but is not installed.") from ex
+
             model = MODELS.build(model_cfg)
 
             if hasattr(model, "init_weights"):
@@ -272,6 +281,7 @@ class _OnnxDetectorWrapper:
 
     def _create_session(self, path: str) -> None:
         import onnxruntime as ort  # type: ignore
+
         # Session options for maximum graph optimizations
         so = ort.SessionOptions()
         try:

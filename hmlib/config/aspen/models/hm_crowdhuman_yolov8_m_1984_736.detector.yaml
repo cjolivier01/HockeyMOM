@@ -1,0 +1,112 @@
+backbone:
+  act_cfg:
+    inplace: true
+    type: SiLU
+  arch: P5
+  deepen_factor: 0.67
+  last_stage_out_channels: 768
+  norm_cfg:
+    eps: 0.001
+    momentum: 0.03
+    type: BN
+  type: mmyolo.YOLOv8CSPDarknet
+  widen_factor: 0.75
+bbox_head:
+  bbox_coder:
+    type: DistancePointBBoxCoder
+  head_module:
+    act_cfg:
+      inplace: true
+      type: SiLU
+    featmap_strides:
+    - 8
+    - 16
+    - 32
+    in_channels:
+    - 256
+    - 512
+    - 768
+    norm_cfg:
+      eps: 0.001
+      momentum: 0.03
+      type: BN
+    num_classes: 80
+    reg_max: 16
+    type: YOLOv8HeadModule
+    widen_factor: 0.75
+  loss_bbox:
+    bbox_format: xyxy
+    iou_mode: ciou
+    loss_weight: 7.5
+    reduction: sum
+    return_iou: false
+    type: IoULoss
+  loss_cls:
+    loss_weight: 0.5
+    reduction: none
+    type: mmdet.CrossEntropyLoss
+    use_sigmoid: true
+  loss_dfl:
+    loss_weight: 0.375
+    reduction: mean
+    type: mmdet.DistributionFocalLoss
+  prior_generator:
+    offset: 0.5
+    strides:
+    - 8
+    - 16
+    - 32
+    type: mmdet.MlvlPointGenerator
+  type: mmyolo.YOLOv8Head
+data_preprocessor:
+  bgr_to_rgb: true
+  mean:
+  - 0.0
+  - 0.0
+  - 0.0
+  std:
+  - 255.0
+  - 255.0
+  - 255.0
+  type: mmyolo.YOLOv5DetDataPreprocessor
+init_cfg:
+  checkpoint: https://download.openmmlab.com/mmyolo/v0/yolov8/yolov8_m_syncbn_fast_8xb16-500e_coco/yolov8_m_syncbn_fast_8xb16-500e_coco_20230115_192200-c22e560a.pth
+  type: Pretrained
+neck:
+  act_cfg:
+    inplace: true
+    type: SiLU
+  deepen_factor: 0.67
+  in_channels:
+  - 256
+  - 512
+  - 768
+  norm_cfg:
+    eps: 0.001
+    momentum: 0.03
+    type: BN
+  num_csp_blocks: 3
+  out_channels:
+  - 256
+  - 512
+  - 768
+  type: mmyolo.YOLOv8PAFPN
+  widen_factor: 0.75
+test_cfg:
+  max_per_img: 300
+  multi_label: true
+  nms:
+    iou_threshold: 0.7
+    type: nms
+  nms_pre: 30000
+  score_thr: 0.001
+train_cfg:
+  assigner:
+    alpha: 0.5
+    beta: 6.0
+    eps: 1.0e-09
+    num_classes: 80
+    topk: 10
+    type: BatchTaskAlignedAssigner
+    use_ciou: true
+type: mmyolo.YOLODetector
