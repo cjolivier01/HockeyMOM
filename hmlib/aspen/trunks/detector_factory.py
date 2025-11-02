@@ -3,16 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-
-try:
-    # from mmdet.registry import MODELS
-    from mmengine.config import ConfigDict
-    from mmengine.structures import InstanceData
-    from mmyolo.registry import MODELS
-except Exception:  # pragma: no cover - optional at runtime
-    MODELS = None  # type: ignore
-    ConfigDict = dict  # type: ignore
-    InstanceData = object  # type: ignore
+from mmengine.structures import InstanceData
 
 from .base import Trunk
 
@@ -70,6 +61,9 @@ class DetectorFactoryTrunk(Trunk):
             # Skip building a detector if detections are provided externally
             return {}
         if self._model is None:
+            from mmengine.config import ConfigDict
+            from mmyolo.registry import MODELS
+
             if MODELS is None:
                 raise RuntimeError("mmdet MODELS registry is unavailable; cannot build detector.")
 
@@ -249,6 +243,7 @@ class _OnnxDetectorWrapper:
 
     def _ensure_onnx_export(self) -> None:
         import os
+
         export_needed = self.force_export or (not os.path.exists(self.onnx_path))
         if not export_needed:
             return
@@ -389,6 +384,7 @@ class _OnnxDetectorWrapper:
         Returns a list of torch tensors on the model device.
         """
         import numpy as np
+
         try:
             dev = next(self.model.parameters()).device
         except StopIteration:
@@ -416,6 +412,7 @@ class _OnnxDetectorWrapper:
             outs_t: List[torch.Tensor] = []
             try:
                 from torch.utils.dlpack import from_dlpack  # type: ignore
+
                 for ov in ort_outs:
                     outs_t.append(from_dlpack(ov.to_dlpack()).to(device=dev))
             except Exception:
@@ -472,9 +469,11 @@ class _OnnxDetectorWrapper:
         # Wrap results to mimic mmdet return objects
         results: List[Any] = []
         for inst in result_list:
+
             class _Wrap:
                 def __init__(self, inst_):
                     self.pred_instances = inst_
+
             results.append(_Wrap(inst))
         return results
 
@@ -544,6 +543,7 @@ class _TrtDetectorWrapper:
         except Exception as ex:
             raise RuntimeError("torch2trt is required for TensorRT path but is not available") from ex
         import os
+
         dev = next(self.model.parameters()).device
         wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
         if (not self.force_build) and os.path.exists(self.engine_path):
@@ -558,6 +558,7 @@ class _TrtDetectorWrapper:
                 pass
         # Build
         sample = torch.randn(1, 3, 480, 1312, device=dev, dtype=torch.float32)
+        print("Building TensorRT engine for detector backbone+neck...")
         with torch.inference_mode():
             trt_mod = torch2trt.torch2trt(
                 wrapper,
@@ -571,8 +572,9 @@ class _TrtDetectorWrapper:
             import torch as _torch
 
             _torch.save(trt_mod.state_dict(), self.engine_path)
+            print(f"Saved TensorRT engine to {self.engine_path}")
         except Exception:
-            pass
+            print(f"Failed to save TensorRT engine to {self.engine_path}")
         self._trt_module = trt_mod
 
     def _preprocess(self, x: torch.Tensor) -> torch.Tensor:
@@ -622,8 +624,10 @@ class _TrtDetectorWrapper:
                     with_nms=True,
                 )
             inst = result_list[0]
+
             class _Wrap:
                 def __init__(self, inst_):
                     self.pred_instances = inst_
+
             results.append(_Wrap(inst))
         return results
