@@ -309,6 +309,9 @@ def extract_clip_with_overlay(
     end_time: Optional[str],  # None means till end (filelist mode)
     output_file: str,
     dest_fps: float,
+    width: int,
+    height: int,
+    apply_scale: bool,
     label: str,
     clip_number: int,
     top_right_margin: int = 10,
@@ -325,7 +328,16 @@ def extract_clip_with_overlay(
 
     overlay_text = f"{friendly_label(label)} {clip_number}"
     etext = escape_drawtext(overlay_text)
-    vf_chain = f"fps={dest_fps},format=nv12,drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin}"
+    # Ensure we draw text at final resolution when scaling; otherwise preserve source size.
+    vf_parts = []
+    if apply_scale:
+        vf_parts.append(f"scale={width}:{height}")
+    vf_parts.append(f"fps={dest_fps}")
+    vf_parts.append("format=nv12")
+    vf_parts.append(
+        f"drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin}"
+    )
+    vf_chain = ",".join(vf_parts)
 
     cmd = list(FFMPEG_BASE_HW)
     if start_time:
@@ -364,6 +376,7 @@ def _process_clip_from_timestamps(
     audio_sample_rate: int,
     dry_run: bool,
     cont: bool,
+    apply_scale: bool,
 ) -> list[str]:
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
@@ -392,6 +405,9 @@ def _process_clip_from_timestamps(
         end_time=end_time if end_time else None,
         output_file=numbered_clip,
         dest_fps=fps,
+        width=width,
+        height=height,
+        apply_scale=apply_scale,
         label=label,
         clip_number=idx + 1,
         dry_run=dry_run,
@@ -414,6 +430,7 @@ def _process_clip_from_filelist(
     audio_sample_rate: int,
     dry_run: bool,
     cont: bool,
+    apply_scale: bool,
 ) -> list[str]:
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
@@ -440,6 +457,9 @@ def _process_clip_from_filelist(
         end_time=None,
         output_file=numbered_clip,
         dest_fps=fps,
+        width=width,
+        height=height,
+        apply_scale=apply_scale,
         label=label,
         clip_number=idx + 1,
         dry_run=dry_run,
@@ -476,6 +496,11 @@ def main():
         dest="cont",
         action="store_true",
         help="Skip remaking mp4s that already exist when durations match",
+    )
+    parser.add_argument(
+        "--notk",
+        action="store_true",
+        help="Do not upscale to 4096 width; keep original resolution",
     )
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
@@ -537,6 +562,17 @@ def main():
         frame_rate_num, frame_rate_demon = map(int, ffprobe_results[2].split("/"))
         fps = float(frame_rate_num) / float(frame_rate_demon)
 
+    # Determine target output dimensions
+    # Default behavior (when --notk is not passed): make width 4096 while preserving aspect ratio.
+    # We compute the target height from the probed aspect ratio and round to an even integer.
+    if not args.notk:
+        target_width = 4096
+        target_height = int(round(height * (target_width / float(width))))
+        if target_height % 2 == 1:
+            target_height += 1
+    else:
+        target_width, target_height = width, height
+
     audio_sample_rate = get_audio_sample_rate(probe_video) if not args.dry_run else 48000
 
     # Create temporary directory
@@ -560,12 +596,13 @@ def main():
                     clip_file=clip_file,
                     label=args.label,
                     temp_dir=temp_dir,
-                    width=width,
-                    height=height,
+                    width=target_width,
+                    height=target_height,
                     fps=fps,
                     audio_sample_rate=audio_sample_rate,
                     dry_run=args.dry_run,
                     cont=args.cont,
+                    apply_scale=(not args.notk),
                 ): i
                 for i, clip_file in jobs
             }
@@ -612,12 +649,13 @@ def main():
                     end_time=end_time,
                     label=args.label,
                     temp_dir=temp_dir,
-                    width=width,
-                    height=height,
+                    width=target_width,
+                    height=target_height,
                     fps=fps,
                     audio_sample_rate=audio_sample_rate,
                     dry_run=args.dry_run,
                     cont=args.cont,
+                    apply_scale=(not args.notk),
                 ): i
                 for (i, start_time, end_time) in ts_jobs
             }
