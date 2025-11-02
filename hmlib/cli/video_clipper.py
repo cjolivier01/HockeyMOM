@@ -478,7 +478,7 @@ def main():
     parser.add_argument(
         "--codec",
         choices=["hevc", "h264"],
-        default="hevc",
+        default=None,
         help="Output codec: hevc (H.265) or h264 (H.264). Default: hevc",
     )
     parser.add_argument("--video-file-list", type=str, default=None, help="List of video files")
@@ -504,6 +504,9 @@ def main():
     )
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
+
+    if args.codec is Nohe:
+        args.codex = "h264" if not args.notk else "hevc"
 
     # Encoder selection based on codec + flags/env
     global WORKING_ENCODER_ARGS
