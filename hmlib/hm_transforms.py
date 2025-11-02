@@ -347,8 +347,13 @@ def hm_impad(
 
     assert (shape is not None) ^ (padding is not None)
     if shape is not None:
-        width = max(shape[1] - image_width(img), 0)
-        height = max(shape[0] - image_height(img), 0)
+        iw = image_width(img)
+        ih = image_height(img)
+        # padding should be making it larger or not at all
+        assert shape[1] >= iw
+        assert shape[0] >= ih
+        width = max(shape[1] - iw, 0)
+        height = max(shape[0] - ih, 0)
         padding = (0, 0, width, height)
 
     # check pad_val
@@ -391,12 +396,6 @@ def hm_impad(
             padding_mode,
             value=pad_val,
         )
-        # img = torch.nn.functional.pad(
-        #     img,
-        #     (padding[0], padding[2], padding[1], padding[3]),
-        #     padding_mode,
-        #     value=pad_val,
-        # )
         if img.ndim == 3:
             img = img.permute(1, 2, 0)
         else:
