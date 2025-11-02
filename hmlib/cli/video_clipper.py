@@ -505,8 +505,8 @@ def main():
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
 
-    if args.codec is Nohe:
-        args.codex = "h264" if not args.notk else "hevc"
+    if args.codec is None:
+        args.codec = "h264" if not args.notk else "hevc"
 
     # Encoder selection based on codec + flags/env
     global WORKING_ENCODER_ARGS
