@@ -98,25 +98,18 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="Don't do any postprocessing (i.e. play tracking) after basic player tracking.",
     )
-    parser.add_argument(
-        "--infer",
-        default=False,
-        action="store_true",
-        help="Run inference instead of validation",
-    )
-    parser.add_argument(
-        "--trt",
-        dest="trt",
-        default=False,
-        action="store_true",
-        help="Using TensorRT model for testing.",
-    )
-    parser.add_argument(
-        "--tracker",
-        default="mmtrack",
-        type=str,
-        help="Use tracker type [hm|fair|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
-    )
+    # parser.add_argument(
+    #     "--infer",
+    #     default=False,
+    #     action="store_true",
+    #     help="Run inference instead of validation",
+    # )
+    # parser.add_argument(
+    #     "--tracker",
+    #     default="mmtrack",
+    #     type=str,
+    #     help="Use tracker type [hm|fair|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
+    # )
     parser.add_argument(
         "--no_save_video",
         "--no-save-video",
@@ -1464,15 +1457,15 @@ def main():
         setattr(args, t, True)
 
     game_config["initial_args"] = vars(args)
-    if args.tracker is None:
-        args.tracker = get_nested_value(game_config, "model.tracker.type")
-    elif args.tracker != get_nested_value(game_config, "model.tracker.type"):
-        game_config = update_config(
-            root_dir=ROOT_DIR,
-            baseline_config=game_config,
-            config_type="models",
-            config_name="tracker_" + args.tracker,
-        )
+    # if args.tracker is None:
+    #     args.tracker = get_nested_value(game_config, "model.tracker.type")
+    # elif args.tracker != get_nested_value(game_config, "model.tracker.type"):
+    #     game_config = update_config(
+    #         root_dir=ROOT_DIR,
+    #         baseline_config=game_config,
+    #         config_type="models",
+    #         config_name="tracker_" + args.tracker,
+    #     )
     args.game_config = game_config
     args = hm_opts.init(args)
 
