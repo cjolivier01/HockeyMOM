@@ -97,6 +97,90 @@ class hm_opts(object):
             default=None,
             help="Gamma exponent (>1 darker). No-op if omitted.",
         )
+        #
+        # TensorRT options (Detector)
+        #
+        trt_det = parser.add_argument_group("TensorRT Detector")
+        trt_det.add_argument(
+            "--detector-trt-enable",
+            dest="detector_trt_enable",
+            action="store_true",
+            help="Enable TensorRT for detector (backbone+neck). Builds engine on first run if needed.",
+        )
+        trt_det.add_argument(
+            "--detector-trt-engine",
+            dest="detector_trt_engine",
+            type=str,
+            default=None,
+            help="Path to save/load the detector TensorRT engine (defaults under output_workdirs/<GAME_ID>/detector.engine).",
+        )
+        trt_det.add_argument(
+            "--detector-trt-fp16",
+            dest="detector_trt_fp16",
+            action="store_true",
+            help="Build TensorRT detector engine in FP16 mode if supported.",
+        )
+        trt_det.add_argument(
+            "--detector-trt-int8",
+            dest="detector_trt_int8",
+            action="store_true",
+            help="Build TensorRT detector engine in INT8 mode with calibration frames.",
+        )
+        trt_det.add_argument(
+            "--detector-trt-calib-frames",
+            dest="detector_trt_calib_frames",
+            type=int,
+            default=200,
+            help="Number of early frames to collect for TensorRT INT8 calibration (default: 200).",
+        )
+        trt_det.add_argument(
+            "--detector-trt-force-build",
+            dest="detector_trt_force_build",
+            action="store_true",
+            help="Force rebuilding the detector TensorRT engine even if it exists.",
+        )
+        #
+        # TensorRT options (Pose)
+        #
+        trt_pose = parser.add_argument_group("TensorRT Pose")
+        trt_pose.add_argument(
+            "--pose-trt-enable",
+            dest="pose_trt_enable",
+            action="store_true",
+            help="Enable TensorRT for pose (backbone+neck). Builds engine on first run if needed.",
+        )
+        trt_pose.add_argument(
+            "--pose-trt-engine",
+            dest="pose_trt_engine",
+            type=str,
+            default=None,
+            help="Path to save/load the pose TensorRT engine (defaults under output_workdirs/<GAME_ID>/pose.engine).",
+        )
+        trt_pose.add_argument(
+            "--pose-trt-fp16",
+            dest="pose_trt_fp16",
+            action="store_true",
+            help="Build TensorRT pose engine in FP16 mode if supported.",
+        )
+        trt_pose.add_argument(
+            "--pose-trt-int8",
+            dest="pose_trt_int8",
+            action="store_true",
+            help="Build TensorRT pose engine in INT8 mode with calibration frames.",
+        )
+        trt_pose.add_argument(
+            "--pose-trt-calib-frames",
+            dest="pose_trt_calib_frames",
+            type=int,
+            default=200,
+            help="Number of early frames to collect for TensorRT INT8 calibration for pose (default: 200).",
+        )
+        trt_pose.add_argument(
+            "--pose-trt-force-build",
+            dest="pose_trt_force_build",
+            action="store_true",
+            help="Force rebuilding the pose TensorRT engine even if it exists.",
+        )
         parser.add_argument(
             "--deterministic",
             default=0,

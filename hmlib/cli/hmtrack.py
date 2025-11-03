@@ -374,36 +374,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
             "If a path is not provided here, a default under output_workdirs/<GAME_ID>/detector.onnx is used."
         ),
     )
-    # TensorRT detector options
-    parser.add_argument(
-        "--detector-trt-enable",
-        dest="detector_trt_enable",
-        action="store_true",
-        help=(
-            "Enable TensorRT for detector (backbone+neck). Builds engine on first run if needed."
-        ),
-    )
-    parser.add_argument(
-        "--detector-trt-engine",
-        dest="detector_trt_engine",
-        type=str,
-        default=None,
-        help=(
-            "Path to save/load the detector TensorRT engine (defaults under output_workdirs/<GAME_ID>/detector.engine)."
-        ),
-    )
-    parser.add_argument(
-        "--detector-trt-fp16",
-        dest="detector_trt_fp16",
-        action="store_true",
-        help=("Build TensorRT detector engine in FP16 mode if supported."),
-    )
-    parser.add_argument(
-        "--detector-trt-force-build",
-        dest="detector_trt_force_build",
-        action="store_true",
-        help=("Force rebuilding the detector TensorRT engine even if it exists."),
-    )
+    # TensorRT detector options moved to hm_opts.parser
     parser.add_argument(
         "--detector-onnx-enable",
         dest="detector_onnx_enable",
@@ -443,36 +414,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
             "If a path is not provided, a default under output_workdirs/<GAME_ID>/pose.onnx is used."
         ),
     )
-    # TensorRT pose options
-    parser.add_argument(
-        "--pose-trt-enable",
-        dest="pose_trt_enable",
-        action="store_true",
-        help=(
-            "Enable TensorRT for pose (backbone+neck). Builds engine on first run if needed."
-        ),
-    )
-    parser.add_argument(
-        "--pose-trt-engine",
-        dest="pose_trt_engine",
-        type=str,
-        default=None,
-        help=(
-            "Path to save/load the pose TensorRT engine (defaults under output_workdirs/<GAME_ID>/pose.engine)."
-        ),
-    )
-    parser.add_argument(
-        "--pose-trt-fp16",
-        dest="pose_trt_fp16",
-        action="store_true",
-        help=("Build TensorRT pose engine in FP16 mode if supported."),
-    )
-    parser.add_argument(
-        "--pose-trt-force-build",
-        dest="pose_trt_force_build",
-        action="store_true",
-        help=("Force rebuilding the pose TensorRT engine even if it exists."),
-    )
+    # TensorRT pose options moved to hm_opts.parser
     parser.add_argument(
         "--pose-onnx-enable",
         dest="pose_onnx_enable",
@@ -847,6 +789,9 @@ def _main(args, num_gpu):
                     trt_cfg["engine"] = args.detector_trt_engine or default_engine_path
                     trt_cfg["force_build"] = bool(args.detector_trt_force_build)
                     trt_cfg["fp16"] = bool(args.detector_trt_fp16)
+                    # INT8 options
+                    trt_cfg["int8"] = bool(getattr(args, "detector_trt_int8", False))
+                    trt_cfg["calib_frames"] = int(getattr(args, "detector_trt_calib_frames", 0) or 0)
                     df_params["trt"] = trt_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
@@ -890,6 +835,9 @@ def _main(args, num_gpu):
                     ptrt_cfg["engine"] = args.pose_trt_engine or default_pose_engine
                     ptrt_cfg["force_build"] = bool(args.pose_trt_force_build)
                     ptrt_cfg["fp16"] = bool(args.pose_trt_fp16)
+                    # INT8 options
+                    ptrt_cfg["int8"] = bool(getattr(args, "pose_trt_int8", False))
+                    ptrt_cfg["calib_frames"] = int(getattr(args, "pose_trt_calib_frames", 0) or 0)
                     pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf

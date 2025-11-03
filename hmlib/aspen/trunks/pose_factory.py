@@ -109,6 +109,8 @@ class PoseInferencerFactoryTrunk(Trunk):
                             engine_path=str(self._trt_cfg.get("engine", "pose.engine")),
                             force_build=bool(self._trt_cfg.get("force_build", False)),
                             fp16=bool(self._trt_cfg.get("fp16", True)),
+                            int8=bool(self._trt_cfg.get("int8", False)),
+                            calib_frames=int(self._trt_cfg.get("calib_frames", 0)),
                         )
                         setattr(self._inferencer, "_hm_trt_runner", self._trt_runner)
                 # Otherwise, enable ONNX if requested
@@ -353,12 +355,18 @@ class _TrtPoseRunner:
         engine_path: str,
         force_build: bool = False,
         fp16: bool = True,
+        int8: bool = False,
+        calib_frames: int = 0,
     ):
         self.model = model
         self.engine_path = engine_path
         self.force_build = bool(force_build)
         self.fp16 = bool(fp16)
+        self.int8 = bool(int8)
+        self.calib_frames = int(calib_frames or 0)
         self._trt_module = None
+        self._calib_dataset = None
+        self._wrapper_module = None
         self._build_or_load()
 
     def _build_or_load(self) -> None:
@@ -367,11 +375,7 @@ class _TrtPoseRunner:
         except Exception as ex:
             raise RuntimeError("torch2trt is required for TensorRT pose path but is not available") from ex
         import os
-        try:
-            dev = next(self.model.parameters()).device
-        except StopIteration:
-            dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
+        # Try to load an existing engine at the provided path; otherwise, defer building
         if (not self.force_build) and os.path.exists(self.engine_path):
             try:
                 trt_mod = torch2trt.TRTModule()
@@ -382,35 +386,170 @@ class _TrtPoseRunner:
                 return
             except Exception:
                 pass
-        sample = torch.randn(1, 3, 256, 192, device=dev, dtype=torch.float32)
-        with torch.inference_mode():
-            trt_mod = torch2trt.torch2trt(
-                wrapper,
-                [sample],
-                fp16_mode=self.fp16,
-                max_batch_size=1,
-                max_workspace_size=1 << 28,
-            )
-        try:
-            import torch as _torch
+        # Defer building until first inputs are seen so shapes/dtypes are known
+        return
 
-            _torch.save(trt_mod.state_dict(), self.engine_path)
+    def _ensure_trt_engine(self, shape: torch.Size, dtype: torch.dtype) -> None:
+        if self._trt_module is not None:
+            return
+        try:
+            import torch2trt  # type: ignore
         except Exception:
-            pass
-        self._trt_module = trt_mod
+            return
+        from pathlib import Path as _Path
+        import os
+        # Append shape (and int8 tag) to engine filename to specialize per input
+        base = _Path(self.engine_path)
+        portions = [base.stem]
+        if self.int8:
+            portions.append("int8")
+        for dim in shape:
+            portions.append(str(dim))
+        engine_path = base.with_stem("_".join(portions))
+        if (not self.force_build) and os.path.exists(engine_path):
+            try:
+                trt_mod = torch2trt.TRTModule()
+                import torch as _torch
+                trt_mod.load_state_dict(_torch.load(engine_path))
+                self._trt_module = trt_mod
+                return
+            except Exception:
+                pass
+        # Build engine now
+        try:
+            try:
+                dev = next(self.model.parameters()).device
+            except StopIteration:
+                dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
+            with torch.inference_mode():
+                if self.int8:
+                    if self._calib_dataset is None or len(self._calib_dataset) == 0:
+                        return
+                    trt_mod = torch2trt.torch2trt(
+                        wrapper,
+                        self._calib_dataset,
+                        int8_mode=True,
+                        int8_calib_dataset=self._calib_dataset,
+                        fp16_mode=False,
+                        max_workspace_size=1 << 28,
+                    )
+                else:
+                    sample = torch.randn(*shape, device=dev, dtype=dtype)
+                    trt_mod = torch2trt.torch2trt(
+                        wrapper,
+                        [sample],
+                        fp16_mode=self.fp16,
+                        max_batch_size=shape[0],
+                        max_workspace_size=1 << 28,
+                    )
+            try:
+                import torch as _torch
+                _torch.save(trt_mod.state_dict(), engine_path)
+            except Exception:
+                pass
+            self._trt_module = trt_mod
+        except Exception as ex:
+            print(f"TRT build for pose failed: {ex}")
+
+    def _maybe_build_int8(self, sample_shape: torch.Size, sample_dtype: torch.dtype):
+        if self._trt_module is not None:
+            return
+        if not self.int8:
+            return
+        if self.calib_frames <= 0:
+            return
+        try:
+            import torch2trt  # type: ignore
+        except Exception:
+            return
+        import os
+        # Prepare dataset and build when enough samples
+        if self._calib_dataset is None:
+            try:
+                from torch2trt import ListDataset  # type: ignore
+            except Exception:
+                return
+            self._calib_dataset = ListDataset()
+        if len(self._calib_dataset) < self.calib_frames:
+            return
+        # Build INT8 engine
+        try:
+            dev = next(self.model.parameters()).device
+        except StopIteration:
+            dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
+        try:
+            with torch.inference_mode():
+                trt_mod = torch2trt.torch2trt(
+                    wrapper,
+                    self._calib_dataset,
+                    int8_mode=True,
+                    int8_calib_dataset=self._calib_dataset,
+                    fp16_mode=False,
+                    max_workspace_size=1 << 28,
+                )
+            # Save
+            try:
+                import torch as _torch
+                _torch.save(trt_mod.state_dict(), self.engine_path)
+            except Exception:
+                pass
+            self._trt_module = trt_mod
+        except Exception as ex:
+            # Fallback: try building non-int8 engine to proceed
+            print(f"Pose INT8 build failed, falling back to non-INT8: {ex}")
+            try:
+                with torch.inference_mode():
+                    trt_mod = torch2trt.torch2trt(
+                        wrapper,
+                        [torch.randn(*sample_shape, device=dev, dtype=sample_dtype)],
+                        fp16_mode=self.fp16,
+                        max_batch_size=1,
+                        max_workspace_size=1 << 28,
+                    )
+                try:
+                    import torch as _torch
+                    _torch.save(trt_mod.state_dict(), self.engine_path)
+                except Exception:
+                    pass
+                self._trt_module = trt_mod
+            except Exception:
+                self._trt_module = None
 
     def _run_feats(self, x: torch.Tensor):
-        assert self._trt_module is not None
         if x.dtype != torch.float32:
             x = x.to(torch.float32)
+        # Use TRT if available, otherwise fallback to PyTorch forward
+        if self._trt_module is not None:
+            with torch.inference_mode():
+                return self._trt_module(x)
         with torch.inference_mode():
-            out = self._trt_module(x)
-        return out
+            if self._wrapper_module is None:
+                self._wrapper_module = _BackboneNeckWrapper(self.model).eval().to(x.device)
+            return self._wrapper_module(x)
 
     def forward(self, proc_inputs: Dict[str, Any]):
         try:
             inputs = proc_inputs["inputs"]  # Tensor (N,C,H,W)
             datas = proc_inputs.get("data_samples", None)
+            # Calibration capture for INT8; defer fp16/fp32 build to first inputs
+            if self.int8:
+                if self._calib_dataset is None and self.calib_frames > 0:
+                    try:
+                        from torch2trt import ListDataset  # type: ignore
+                        self._calib_dataset = ListDataset()
+                    except Exception:
+                        self._calib_dataset = None
+                if self._calib_dataset is not None and len(self._calib_dataset) < self.calib_frames:
+                    # store GPU tensors for calibration to match module device
+                    for i in range(inputs.size(0)):
+                        self._calib_dataset.insert([inputs[i : i + 1].detach()])
+                # Try to build INT8 engine once enough samples collected
+                self._ensure_trt_engine(inputs.shape, inputs.dtype)
+            else:
+                # Lazy build for fp16/fp32 path
+                self._ensure_trt_engine(inputs.shape, inputs.dtype)
             feats = self._run_feats(inputs)
             head = getattr(self.model, "head", None)
             if head is not None and hasattr(head, "predict") and datas is not None:
