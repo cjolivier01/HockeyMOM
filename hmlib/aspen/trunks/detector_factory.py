@@ -545,7 +545,7 @@ class _TrtDetectorWrapper:
             raise RuntimeError("torch2trt is required for TensorRT path but is not available") from ex
         import os
 
-        portions: list[str] = [self.engine_path.name]
+        portions: list[str] = [self.engine_path.stem]
         for dim in shape:
             portions.append(str(dim))
         self.engine_path = "_".join(portions)
