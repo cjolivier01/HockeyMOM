@@ -548,7 +548,7 @@ class _TrtDetectorWrapper:
         portions: list[str] = [self.engine_path.stem]
         for dim in shape:
             portions.append(str(dim))
-        self.engine_path = "_".join(portions)
+        self.engine_path.stem = "_".join(portions)
 
         dev = next(self.model.parameters()).device
         wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
