@@ -69,6 +69,14 @@ class hm_opts(object):
             help="Per-channel RGB gains for white balance (e.g., 1.05 1.0 0.95)",
         )
         parser.add_argument(
+            "--white-balance-k",
+            "--white-balance-temp",
+            dest="white_balance_k",
+            type=str,
+            default=None,
+            help="White balance correlated color temperature (e.g., 3500k, 4700k, 6500k)",
+        )
+        parser.add_argument(
             "--color-brightness",
             dest="color_brightness",
             type=float,

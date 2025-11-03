@@ -120,6 +120,8 @@ class PlayTracker(torch.nn.Module):
         self._camera_ui_enabled = bool(getattr(args, "camera_ui", 0))
         self._ui_window_name = "Tracker Controls"
         self._ui_inited = False
+        self._ui_color_window_name = "Tracker Controls (Color)"
+        self._ui_color_inited = False
         self._ui_defaults = {}
 
         self._jersey_tracker = JerseyTracker(show=args.plot_jersey_numbers)
@@ -1158,6 +1160,26 @@ class PlayTracker(torch.nn.Module):
                 MaxAccYx10=maxy,
             )
             self._ui_inited = True
+            # ---- Color controls window ----
+            try:
+                cv2.namedWindow(self._ui_color_window_name, cv2.WINDOW_NORMAL)
+                try:
+                    cv2.moveWindow(self._ui_color_window_name, 520, 50)
+                except Exception:
+                    pass
+                def tb2(name, maxv, init):
+                    cv2.createTrackbar(name, self._ui_color_window_name, int(init), int(maxv), lambda v: None)
+                tb2("WB_K_Enable", 1, 0)
+                tb2("WB_Kelvin", 15000, 6500)
+                tb2("WB_R_x100", 300, 100)
+                tb2("WB_G_x100", 300, 100)
+                tb2("WB_B_x100", 300, 100)
+                tb2("Bright_x100", 300, 100)
+                tb2("Contr_x100", 300, 100)
+                tb2("Gamma_x100", 300, 100)
+                self._ui_color_inited = True
+            except Exception:
+                self._ui_color_inited = False
         except Exception:
             self._camera_ui_enabled = False
 
@@ -1186,6 +1208,37 @@ class PlayTracker(torch.nn.Module):
             bkd["post_nonstop_stop_delay_count"] = int(postns)
             bkd["overshoot_scale_speed_ratio"] = float(ov_scal)
             camera_cfg["time_to_dest_speed_limit_frames"] = int(ttg)
+            # --- Color controls (second window) ---
+            if self._ui_color_inited:
+                try:
+                    color_win = self._ui_color_window_name
+                    # Read back color trackbars
+                    wbk_enable = cv2.getTrackbarPos("WB_K_Enable", color_win)
+                    kelvin = cv2.getTrackbarPos("WB_Kelvin", color_win)
+                    r100 = cv2.getTrackbarPos("WB_R_x100", color_win)
+                    g100 = cv2.getTrackbarPos("WB_G_x100", color_win)
+                    b100 = cv2.getTrackbarPos("WB_B_x100", color_win)
+                    br100 = cv2.getTrackbarPos("Bright_x100", color_win)
+                    ct100 = cv2.getTrackbarPos("Contr_x100", color_win)
+                    gm100 = cv2.getTrackbarPos("Gamma_x100", color_win)
+
+                    color_cfg = camera_cfg.setdefault("color", {})
+                    # Kelvin WB overrides manual gains when enabled
+                    if int(wbk_enable) > 0:
+                        color_cfg["white_balance_temp"] = f"{int(max(1000, min(40000, kelvin)))}k"
+                        color_cfg.pop("white_balance", None)
+                    else:
+                        # Map 50..200 -> 0.5..2.0
+                        rgain = max(1, r100) / 100.0
+                        ggain = max(1, g100) / 100.0
+                        bgain = max(1, b100) / 100.0
+                        color_cfg["white_balance"] = [float(rgain), float(ggain), float(bgain)]
+                        color_cfg.pop("white_balance_temp", None)
+                    color_cfg["brightness"] = max(1, br100) / 100.0
+                    color_cfg["contrast"] = max(1, ct100) / 100.0
+                    color_cfg["gamma"] = max(1, gm100) / 100.0
+                except Exception:
+                    pass
             # Read selection + constraints
             apply_fast = cv2.getTrackbarPos("ApplyFast", self._ui_window_name)
             apply_follower = cv2.getTrackbarPos("ApplyFollower", self._ui_window_name)

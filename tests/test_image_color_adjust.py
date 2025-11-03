@@ -56,3 +56,24 @@ def should_apply_brightness_multiplier():
     expected = torch.ones_like(img) * 20.0
     assert torch.allclose(out["img"], expected)
 
+
+def should_kelvin_white_balance_behave_reasonably():
+    # Warm temperature should reduce red relative to blue (higher blue gain)
+    img = torch.ones(3, 2, 2, dtype=torch.float32) * 100.0
+    data = {"img": img.clone()}
+    warm = _compose_color_adjust(white_balance_temp="3500k")
+    out_warm = warm(data)["img"]
+    # Compare channel means
+    r_warm = out_warm[0].mean()
+    g_warm = out_warm[1].mean()
+    b_warm = out_warm[2].mean()
+    # For warm WB, blue should be boosted more than red
+    assert b_warm > r_warm
+
+    # Cool temperature should reduce blue relative to red (higher red gain)
+    data2 = {"img": img.clone()}
+    cool = _compose_color_adjust(white_balance_temp="9000k")
+    out_cool = cool(data2)["img"]
+    r_cool = out_cool[0].mean()
+    b_cool = out_cool[2].mean()
+    assert r_cool > b_cool
