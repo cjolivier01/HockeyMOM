@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -493,7 +494,7 @@ class _TrtDetectorWrapper:
         fp16: bool = True,
     ):
         self.model = model
-        self.engine_path = engine_path
+        self.engine_path = Path(engine_path)
         self.force_build = bool(force_build)
         self.fp16 = bool(fp16)
         self._trt_module = None
@@ -535,14 +536,19 @@ class _TrtDetectorWrapper:
         except Exception:
             pass
 
-        self._ensure_trt_engine()
-
-    def _ensure_trt_engine(self) -> None:
+    def _ensure_trt_engine(self, shape: torch.Shape, dtype: torch.dtype) -> None:
+        if self._trt_module is not None:
+            return
         try:
             import torch2trt  # type: ignore
         except Exception as ex:
             raise RuntimeError("torch2trt is required for TensorRT path but is not available") from ex
         import os
+
+        portions: list[str] = [self.engine_path.name]
+        for dim in shape:
+            portions.append(str(dim))
+        self.engine_path = "_".join(portions)
 
         dev = next(self.model.parameters()).device
         wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
@@ -557,14 +563,14 @@ class _TrtDetectorWrapper:
             except Exception:
                 pass
         # Build
-        sample = torch.randn(1, 3, 480, 1312, device=dev, dtype=torch.float32)
+        sample = torch.randn(*shape, device=dev, dtype=dtype)
         print("Building TensorRT engine for detector backbone+neck...")
         with torch.inference_mode():
             trt_mod = torch2trt.torch2trt(
                 wrapper,
                 [sample],
                 fp16_mode=self.fp16,
-                max_batch_size=1,
+                max_batch_size=shape[0],
                 max_workspace_size=1 << 30,
             )
         # Save engine
@@ -590,7 +596,6 @@ class _TrtDetectorWrapper:
         return x
 
     def predict(self, imgs: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
-        assert self._trt_module is not None, "TRT engine not initialized"
         assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
         results: List[Any] = []
         try:
@@ -605,6 +610,8 @@ class _TrtDetectorWrapper:
                 img_meta = {}
             x = imgs[i : i + 1].to(device=dev, non_blocking=True)
             x = self._preprocess(x)
+            self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
+            assert self._trt_module is not None, "TRT engine not initialized"
             feats = self._trt_module(x)
             if isinstance(feats, torch.Tensor):
                 feats = [feats, feats, feats]
