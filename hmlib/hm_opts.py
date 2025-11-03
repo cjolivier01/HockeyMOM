@@ -58,6 +58,37 @@ class hm_opts(object):
             type=float,
             help="Apply unsharp masking to frame (good for blurry LiveBarn footage)",
         )
+        # Input color adjustments (applied in inference pipeline via HmImageColorAdjust)
+        parser.add_argument(
+            "--white-balance",
+            dest="white_balance",
+            nargs=3,
+            type=float,
+            default=None,
+            metavar=("R_GAIN", "G_GAIN", "B_GAIN"),
+            help="Per-channel RGB gains for white balance (e.g., 1.05 1.0 0.95)",
+        )
+        parser.add_argument(
+            "--color-brightness",
+            dest="color_brightness",
+            type=float,
+            default=None,
+            help="Brightness multiplier (>1 brighter). No-op if omitted.",
+        )
+        parser.add_argument(
+            "--color-contrast",
+            dest="color_contrast",
+            type=float,
+            default=None,
+            help="Contrast factor (>1 more contrast). No-op if omitted.",
+        )
+        parser.add_argument(
+            "--color-gamma",
+            dest="color_gamma",
+            type=float,
+            default=None,
+            help="Gamma exponent (>1 darker). No-op if omitted.",
+        )
         parser.add_argument(
             "--deterministic",
             default=0,

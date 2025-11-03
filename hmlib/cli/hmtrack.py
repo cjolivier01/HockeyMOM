@@ -924,6 +924,23 @@ def _main(args, num_gpu):
                             ice_rink_inference_scale=getattr(args, "ice_rink_inference_scale", None),
                         ),
                     )
+                # Thread CLI color adjustments into HmImageColorAdjust (no-op if nothing set)
+                color_cfg = {}
+                if getattr(args, "white_balance", None) is not None:
+                    # argparse with nargs=3 yields a list of 3 floats
+                    color_cfg["white_balance"] = [float(x) for x in args.white_balance]
+                # Kelvin temperature option (e.g., 3500k)
+                wbk = getattr(args, "white_balance_k", None) or getattr(args, "white_balance_temp", None)
+                if wbk is not None:
+                    color_cfg["white_balance_temp"] = wbk
+                if getattr(args, "color_brightness", None) is not None:
+                    color_cfg["brightness"] = float(args.color_brightness)
+                if getattr(args, "color_contrast", None) is not None:
+                    color_cfg["contrast"] = float(args.color_contrast)
+                if getattr(args, "color_gamma", None) is not None:
+                    color_cfg["gamma"] = float(args.color_gamma)
+                if color_cfg:
+                    update_pipeline_item(pipeline, "HmImageColorAdjust", color_cfg)
                 # Apply clip box if present
                 orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
                 if orig_clip_box:

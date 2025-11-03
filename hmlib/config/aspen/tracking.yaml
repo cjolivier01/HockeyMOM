@@ -19,6 +19,13 @@ aspen:
       # img_scale: [1984, 736]
       keep_ratio: true
       interpolation: area
+    - type: HmImageColorAdjust
+      # No-op by default; CLI can set white_balance/brightness/contrast/gamma
+      # Example:
+      # white_balance: [1.05, 1.0, 0.95]
+      # brightness: 1.0
+      # contrast: 1.0
+      # gamma: 1.0
     - type: HmPad
       pad_val: 114.0
       # size_divisor: 32
