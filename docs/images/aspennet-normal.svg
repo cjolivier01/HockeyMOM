@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="220" viewBox="0 0 820 220" role="img" aria-labelledby="title desc">
+  <title id="title">AspenNet Normal Mode</title>
+  <desc id="desc">Sequential execution of trunks on a single thread using the default stream.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#222" />
+    </marker>
+    <style>
+      .box { fill:#DDEEFF; stroke:#222; stroke-width:2; rx:8; ry:8; }
+      .text { font: 14px sans-serif; fill:#111; }
+      .label { font: 16px sans-serif; font-weight:600; fill:#111; }
+    </style>
+  </defs>
+  <text class="label" x="20" y="28">AspenNet: Normal Mode (sequential)</text>
+  <text class="text" x="20" y="50">Single thread, executes trunks in topological order on default stream</text>
+
+  <rect class="box" x="40" y="90" width="180" height="60"/>
+  <text class="text" x="70" y="125">Trunk T1</text>
+
+  <rect class="box" x="320" y="90" width="180" height="60"/>
+  <text class="text" x="350" y="125">Trunk T2</text>
+
+  <rect class="box" x="600" y="90" width="180" height="60"/>
+  <text class="text" x="630" y="125">Trunk T3</text>
+
+  <line x1="220" y1="120" x2="320" y2="120" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="500" y1="120" x2="600" y2="120" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text class="text" x="40" y="175">context dict is passed and updated at each step; grad on if training; no per-trunk CUDA stream</text>
+</svg>
+

@@ -1,0 +1,43 @@
+<mxfile host="app.diagrams.net" modified="2025-10-31T00:00:00Z" agent="codex-cli" version="20.6.3">
+  <diagram id="aspennet-normal" name="AspenNet Normal">
+    <mxGraphModel dx="1024" dy="768" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="label" value="AspenNet: Normal Mode (sequential)\nSingle thread, executes trunks in topological order on default stream" style="text;whiteSpace=wrap;html=1;align=center;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="740" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="t1" value="Trunk T1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="t2" value="Trunk T2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="300" y="100" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="t3" value="Trunk T3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="540" y="100" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" style="endArrow=block;endFill=1;html=1;strokeWidth=2;" edge="1" parent="1" source="t1" target="t2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="endArrow=block;endFill=1;html=1;strokeWidth=2;" edge="1" parent="1" source="t2" target="t3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="note" value="context dict passed and updated at each step\nGrad on if training; no per-trunk CUDA stream" style="text;whiteSpace=wrap;html=1;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="640" height="50" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="meta" name="Notes">
+    <mxGraphModel dx="1024" dy="768" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="t" value="Normal mode uses AspenNet.forward() to iterate exec_order and _execute_node(). No CUDA Stream wrapper." style="text;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="900" height="60" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  </mxfile>
+
