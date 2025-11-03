@@ -93,6 +93,7 @@ def stitch_videos(
     configure_only: bool = False,
     lowmem: bool = False,
     post_stitch_rotate_degrees: Optional[float] = None,
+    args: Optional[argparse.Namespace] = None,
 ):
     if configure_only:
         cache_size = 0
@@ -194,8 +195,8 @@ def stitch_videos(
             update_rate=20,
             table_callback=_table_callback,
             use_curses=True,
-            enable_gpu_metrics=getattr(args, "progress_gpu_metrics", True),
-            enable_cuda_sync_counter=getattr(args, "progress_cuda_sync_counter", True),
+            enable_gpu_metrics=getattr(args, "progress_gpu_metrics", True) if args is not None else True,
+            enable_cuda_sync_counter=getattr(args, "progress_cuda_sync_counter", True) if args is not None else True,
         )
         data_loader_iter = progress_bar
 
@@ -350,6 +351,7 @@ def _main(args) -> None:
 
 def main() -> None:
     _main(hm_opts.parser(parser=make_parser()).parse_args())
+
 
 if __name__ == "__main__":
     main()
