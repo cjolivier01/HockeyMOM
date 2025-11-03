@@ -97,6 +97,208 @@ class hm_opts(object):
             default=None,
             help="Gamma exponent (>1 darker). No-op if omitted.",
         )
+
+        #
+        # Data I/O
+        #
+        io = parser.add_argument_group("Data I/O")
+        # Video input/output
+        io.add_argument(
+            "--input-video",
+            type=str,
+            default=None,
+            help="Input video file(s)",
+        )
+        io.add_argument(
+            "--output-video",
+            type=str,
+            default=None,
+            help="The output video file name",
+        )
+        io.add_argument(
+            "--no-save-video",
+            "--no_save_video",
+            dest="no_save_video",
+            action="store_true",
+            help="Don't save the output video",
+        )
+        io.add_argument(
+            "--save-frame-dir",
+            type=str,
+            default=None,
+            help="Directory to save output frames as PNG files",
+        )
+        io.add_argument(
+            "--audio-only",
+            action="store_true",
+            help="Only transfer the audio",
+        )
+        # Feature caching flags moved to their own group
+        io.add_argument(
+            "--save-camera-data",
+            action="store_true",
+            help="Save tracking data to camera.csv",
+        )
+
+        #
+        # Feature Cache (pipeline state caching: detection/tracking/pose/action)
+        #
+        cache = parser.add_argument_group("Feature Cache")
+        cache.add_argument(
+            "--input-tracking-data",
+            type=str,
+            default=None,
+            help="Input tracking data file and use instead of AI calling tracker",
+        )
+        cache.add_argument(
+            "--save-tracking-data",
+            action="store_true",
+            help="Save tracking data to results.csv",
+        )
+        cache.add_argument(
+            "--input-detection-data",
+            type=str,
+            default=None,
+            help="Input detection data file and use instead of AI calling tracker",
+        )
+        cache.add_argument(
+            "--save-detection-data",
+            action="store_true",
+            help="Save detection data to results.csv",
+        )
+        cache.add_argument(
+            "--input-pose-data",
+            type=str,
+            default=None,
+            help="Input pose data file and use instead of running pose inference",
+        )
+        cache.add_argument(
+            "--save-pose-data",
+            action="store_true",
+            help="Save pose data to results.csv",
+        )
+        cache.add_argument(
+            "--input-action-data",
+            type=str,
+            default=None,
+            help="Input per-frame action data file and use instead of running action inference",
+        )
+        cache.add_argument(
+            "--save-action-data",
+            action="store_true",
+            help="Save action data to actions.csv",
+        )
+
+        #
+        # Visualization & Plotting
+        #
+        plot = parser.add_argument_group("Visualization & Plotting")
+        plot.add_argument("--plot-tracking", action="store_true", help="Plot individual tracking boxes")
+        plot.add_argument("--plot-ice-mask", action="store_true", help="Plot the ice mask")
+        plot.add_argument("--plot-trajectories", action="store_true", help="Plot individual track trajectories")
+        plot.add_argument("--plot-jersey-numbers", action="store_true", help="Plot individual jersey numbers")
+        plot.add_argument("--plot-actions", action="store_true", help="Plot action labels per tracked player")
+        plot.add_argument("--plot-pose", action="store_true", help="Plot individual pose skeletons")
+        plot.add_argument(
+            "--plot-overhead-rink",
+            action="store_true",
+            help="Draw an overhead rink minimap with player positions",
+        )
+        plot.add_argument(
+            "--plot-all-detections",
+            type=float,
+            default=None,
+            help="Plot all detections above this given accuracy",
+        )
+        plot.add_argument(
+            "--plot-moving-boxes",
+            action="store_true",
+            help="Plot moving camera tracking boxes",
+        )
+        # Pose visualization tuning
+        plot.add_argument("--kpt-thr", type=float, default=0.3, help="Keypoint score threshold for overlay")
+        plot.add_argument("--bbox-thr", type=float, default=0.3, help="Bounding box score threshold for overlay")
+        plot.add_argument("--radius", type=int, default=4, help="Keypoint radius for overlay")
+        plot.add_argument("--thickness", type=int, default=1, help="Link thickness for overlay")
+
+        #
+        # Profiling
+        #
+        prof = parser.add_argument_group("Profiling")
+        prof.add_argument(
+            "--profile",
+            dest="profile",
+            action="store_true",
+            help="Enable PyTorch Perfetto/Chrome profiler and export trace JSON",
+        )
+        prof.add_argument(
+            "--profile-dir",
+            dest="profile_dir",
+            type=str,
+            default=None,
+            help="Directory to write profiler traces (defaults under output_workdirs/<game_id>/profiler)",
+        )
+        prof.add_argument(
+            "--profile-gpu",
+            dest="profile_gpu",
+            action="store_true",
+            help="Include CUDA GPU activities if available",
+        )
+        prof.add_argument(
+            "--profile-record-shapes",
+            dest="profile_record_shapes",
+            action="store_true",
+            help="Record tensor shapes in profiler (adds overhead)",
+        )
+        prof.add_argument(
+            "--profile-memory",
+            dest="profile_memory",
+            action="store_true",
+            help="Track memory in profiler (adds overhead)",
+        )
+        prof.add_argument(
+            "--profile-with-stack",
+            dest="profile_with_stack",
+            action="store_true",
+            help="Capture Python stack traces in profiler events (adds overhead)",
+        )
+        prof.add_argument(
+            "--profile-export-per-iter",
+            dest="profile_export_per_iter",
+            action="store_true",
+            help="Export one trace per iteration (large runs; adds I/O)",
+        )
+        prof.add_argument(
+            "--py-trace-out",
+            dest="py_trace_out",
+            type=str,
+            default=None,
+            help="Optional Python cProfile output file (.pstats or .txt)",
+        )
+
+        #
+        # Camera Controller
+        #
+        cam_ctrl = parser.add_argument_group("Camera Controller")
+        cam_ctrl.add_argument(
+            "--camera-controller",
+            type=str,
+            choices=["rule", "transformer"],
+            default="rule",
+            help="Select camera controller: rule-based PlayTracker or transformer model",
+        )
+        cam_ctrl.add_argument(
+            "--camera-model",
+            type=str,
+            default=None,
+            help="Path to transformer camera model checkpoint (.pt) produced by camtrain.py",
+        )
+        cam_ctrl.add_argument(
+            "--camera-window",
+            type=int,
+            default=8,
+            help="Temporal window length to feed the transformer controller",
+        )
         #
         # TensorRT options (Detector)
         #
@@ -180,6 +382,93 @@ class hm_opts(object):
             dest="pose_trt_force_build",
             action="store_true",
             help="Force rebuilding the pose TensorRT engine even if it exists.",
+        )
+
+        #
+        # ONNX options (Detector)
+        #
+        onnx_det = parser.add_argument_group("ONNX Detector")
+        onnx_det.add_argument(
+            "--detector-onnx",
+            dest="detector_onnx_path",
+            type=str,
+            default=None,
+            help=(
+                "Export the detector to ONNX at this path and run inference with ONNX Runtime. "
+                "If a path is not provided here, a default under output_workdirs/<GAME_ID>/detector.onnx is used."
+            ),
+        )
+        onnx_det.add_argument(
+            "--detector-onnx-enable",
+            dest="detector_onnx_enable",
+            action="store_true",
+            help=(
+                "Enable ONNX Runtime detector inference. If --detector-onnx is provided, enablement is implied."
+            ),
+        )
+        onnx_det.add_argument(
+            "--detector-onnx-quantize-int8",
+            dest="detector_onnx_quantize_int8",
+            action="store_true",
+            help=(
+                "After exporting the float32 model, quantize to INT8. "
+                "Calibration samples are gathered on-the-fly from early frames."
+            ),
+        )
+        onnx_det.add_argument(
+            "--detector-onnx-calib-frames",
+            dest="detector_onnx_calib_frames",
+            type=int,
+            default=200,
+            help="Number of frames to collect for INT8 calibration (default: 200)",
+        )
+        onnx_det.add_argument(
+            "--detector-onnx-force-export",
+            dest="detector_onnx_force_export",
+            action="store_true",
+            help="Force re-exporting ONNX even if the file already exists",
+        )
+
+        #
+        # ONNX options (Pose)
+        #
+        onnx_pose = parser.add_argument_group("ONNX Pose")
+        onnx_pose.add_argument(
+            "--pose-onnx",
+            dest="pose_onnx_path",
+            type=str,
+            default=None,
+            help=(
+                "Export the pose model's feature extractor (backbone+neck) to ONNX and run with ONNX Runtime. "
+                "If a path is not provided, a default under output_workdirs/<GAME_ID>/pose.onnx is used."
+            ),
+        )
+        onnx_pose.add_argument(
+            "--pose-onnx-enable",
+            dest="pose_onnx_enable",
+            action="store_true",
+            help=(
+                "Enable ONNX Runtime for pose (backbone+neck). If --pose-onnx is provided, enablement is implied."
+            ),
+        )
+        onnx_pose.add_argument(
+            "--pose-onnx-quantize-int8",
+            dest="pose_onnx_quantize_int8",
+            action="store_true",
+            help=("After exporting the float32 pose model, quantize to INT8 using calibration frames."),
+        )
+        onnx_pose.add_argument(
+            "--pose-onnx-calib-frames",
+            dest="pose_onnx_calib_frames",
+            type=int,
+            default=200,
+            help="Number of frames to collect for pose INT8 calibration (default: 200)",
+        )
+        onnx_pose.add_argument(
+            "--pose-onnx-force-export",
+            dest="pose_onnx_force_export",
+            action="store_true",
+            help="Force re-exporting ONNX for pose even if the file already exists",
         )
         parser.add_argument(
             "--deterministic",

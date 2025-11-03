@@ -110,13 +110,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     #     type=str,
     #     help="Use tracker type [hm|fair|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
     # )
-    parser.add_argument(
-        "--no_save_video",
-        "--no-save-video",
-        dest="no_save_video",
-        action="store_true",
-        help="Don't save the output video",
-    )
+    # Output video flag moved to hm_opts.parser
     parser.add_argument(
         "--speed",
         dest="speed",
@@ -185,101 +179,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="force video stitching",
     )
-    parser.add_argument("--plot-tracking", action="store_true", help="plot individual tracking boxes")
-    parser.add_argument("--plot-ice-mask", action="store_true", help="plot the ice mask")
-    parser.add_argument("--plot-trajectories", action="store_true", help="plot individual track trajectories")
-    parser.add_argument("--detect-jersey-numbers", action="store_true", help="Detect jersey numbers")
-    parser.add_argument("--plot-jersey-numbers", action="store_true", help="plot individual jersey numbers")
-    parser.add_argument("--plot-actions", action="store_true", help="plot action labels per tracked player")
-    parser.add_argument("--plot-pose", action="store_true", help="plot individual pose skeletons")
-    parser.add_argument(
-        "--plot-overhead-rink",
-        action="store_true",
-        help="Draw an overhead rink minimap with player positions",
-    )
-    parser.add_argument(
-        "--plot-all-detections",
-        type=float,
-        default=None,
-        help="plot all detections above this given accuracy",
-    )
-    # Profiling options
-    parser.add_argument(
-        "--profile",
-        dest="profile",
-        action="store_true",
-        help="Enable PyTorch Perfetto/Chrome profiler and export trace JSON",
-    )
-    parser.add_argument(
-        "--profile-dir",
-        dest="profile_dir",
-        type=str,
-        default=None,
-        help="Directory to write profiler traces (defaults under output_workdirs/<game_id>/profiler)",
-    )
-    parser.add_argument(
-        "--profile-gpu",
-        dest="profile_gpu",
-        action="store_true",
-        help="Include CUDA GPU activities if available",
-    )
-    parser.add_argument(
-        "--profile-record-shapes",
-        dest="profile_record_shapes",
-        action="store_true",
-        help="Record tensor shapes in profiler (adds overhead)",
-    )
-    parser.add_argument(
-        "--profile-memory",
-        dest="profile_memory",
-        action="store_true",
-        help="Track memory in profiler (adds overhead)",
-    )
-    parser.add_argument(
-        "--profile-with-stack",
-        dest="profile_with_stack",
-        action="store_true",
-        help="Capture Python stack traces in profiler events (adds overhead)",
-    )
-    parser.add_argument(
-        "--profile-export-per-iter",
-        dest="profile_export_per_iter",
-        action="store_true",
-        help="Export one trace per iteration (large runs; adds I/O)",
-    )
-    parser.add_argument(
-        "--py-trace-out",
-        dest="py_trace_out",
-        type=str,
-        default=None,
-        help="Optional Python cProfile output file (.pstats or .txt)",
-    )
-    # Camera controller options
-    parser.add_argument(
-        "--camera-controller",
-        type=str,
-        choices=["rule", "transformer"],
-        default="rule",
-        help="Select camera controller: rule-based PlayTracker or transformer model",
-    )
-    parser.add_argument(
-        "--camera-model",
-        type=str,
-        default=None,
-        help="Path to transformer camera model checkpoint (.pt) produced by camtrain.py",
-    )
-    parser.add_argument(
-        "--camera-window",
-        type=int,
-        default=8,
-        help="Temporal window length to feed the transformer controller",
-    )
-    # Jersey options are defined in hm_opts to be reusable across CLIs
-    parser.add_argument(
-        "--plot-moving-boxes",
-        action="store_true",
-        help="plot moving camera tracking boxes",
-    )
+    # Plotting, Profiling, and Camera Controller options moved to hm_opts.parser
     parser.add_argument(
         "--config",
         action="append",
@@ -291,12 +191,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     parser.add_argument("--test-size", type=str, default=None, help="WxH of test box size (format WxH)")
     parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
-    parser.add_argument(
-        "--save-frame-dir",
-        type=str,
-        default=None,
-        help="directory to save the output video frases as png files",
-    )
+    # Save frame dir moved to hm_opts.parser
     parser.add_argument(
         "--task",
         "--tasks",
@@ -308,149 +203,14 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument("--min-box-area", type=float, default=100, help="filter out tiny boxes")
     parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
-    parser.add_argument(
-        "--input-video",
-        type=str,
-        default=None,
-        help="Input video file(s)",
-    )
-    parser.add_argument(
-        "--input-tracking-data",
-        type=str,
-        default=None,
-        help="Input tracking data file and use instead of AI calling tracker",
-    )
-    parser.add_argument(
-        "--save-tracking-data",
-        action="store_true",
-        help="Save tracking data to results.csv",
-    )
-    parser.add_argument(
-        "--input-detection-data",
-        type=str,
-        default=None,
-        help="Input detection data file and use instead of AI calling tracker",
-    )
-    parser.add_argument(
-        "--save-detection-data",
-        action="store_true",
-        help="Save detection data to results.csv",
-    )
-    parser.add_argument(
-        "--input-pose-data",
-        type=str,
-        default=None,
-        help="Input pose data file and use instead of running pose inference",
-    )
-    parser.add_argument(
-        "--save-pose-data",
-        action="store_true",
-        help="Save pose data to results.csv",
-    )
-    parser.add_argument(
-        "--input-action-data",
-        type=str,
-        default=None,
-        help="Input per-frame action data file and use instead of running action inference",
-    )
-    parser.add_argument(
-        "--save-action-data",
-        action="store_true",
-        help="Save action data to actions.csv",
-    )
-    parser.add_argument(
-        "--save-camera-data",
-        action="store_true",
-        help="Save tracking data to camera.csv",
-    )
-    # ONNX detector export/inference options
-    parser.add_argument(
-        "--detector-onnx",
-        dest="detector_onnx_path",
-        type=str,
-        default=None,
-        help=(
-            "Export the detector to ONNX at this path and run inference with ONNX Runtime. "
-            "If a path is not provided here, a default under output_workdirs/<GAME_ID>/detector.onnx is used."
-        ),
-    )
+    # Data I/O flags moved to hm_opts.parser
+    # ONNX detector export/inference options moved to hm_opts.parser
     # TensorRT detector options moved to hm_opts.parser
-    parser.add_argument(
-        "--detector-onnx-enable",
-        dest="detector_onnx_enable",
-        action="store_true",
-        help=("Enable ONNX Runtime detector inference. If --detector-onnx is provided, enablement is implied."),
-    )
-    parser.add_argument(
-        "--detector-onnx-quantize-int8",
-        dest="detector_onnx_quantize_int8",
-        action="store_true",
-        help=(
-            "After exporting the float32 model, quantize to INT8. "
-            "Calibration samples are gathered on-the-fly from early frames."
-        ),
-    )
-    parser.add_argument(
-        "--detector-onnx-calib-frames",
-        dest="detector_onnx_calib_frames",
-        type=int,
-        default=200,
-        help="Number of frames to collect for INT8 calibration (default: 200)",
-    )
-    parser.add_argument(
-        "--detector-onnx-force-export",
-        dest="detector_onnx_force_export",
-        action="store_true",
-        help="Force re-exporting ONNX even if the file already exists",
-    )
-    # ONNX pose export/inference options
-    parser.add_argument(
-        "--pose-onnx",
-        dest="pose_onnx_path",
-        type=str,
-        default=None,
-        help=(
-            "Export the pose model's feature extractor (backbone+neck) to ONNX and run with ONNX Runtime. "
-            "If a path is not provided, a default under output_workdirs/<GAME_ID>/pose.onnx is used."
-        ),
-    )
+    # ONNX detector options moved to hm_opts.parser
+    # ONNX pose export/inference options moved to hm_opts.parser
     # TensorRT pose options moved to hm_opts.parser
-    parser.add_argument(
-        "--pose-onnx-enable",
-        dest="pose_onnx_enable",
-        action="store_true",
-        help=("Enable ONNX Runtime for pose (backbone+neck). If --pose-onnx is provided, enablement is implied."),
-    )
-    parser.add_argument(
-        "--pose-onnx-quantize-int8",
-        dest="pose_onnx_quantize_int8",
-        action="store_true",
-        help=("After exporting the float32 pose model, quantize to INT8 using calibration frames."),
-    )
-    parser.add_argument(
-        "--pose-onnx-calib-frames",
-        dest="pose_onnx_calib_frames",
-        type=int,
-        default=200,
-        help="Number of frames to collect for pose INT8 calibration (default: 200)",
-    )
-    parser.add_argument(
-        "--pose-onnx-force-export",
-        dest="pose_onnx_force_export",
-        action="store_true",
-        help="Force re-exporting ONNX for pose even if the file already exists",
-    )
-    parser.add_argument(
-        "--audio-only",
-        action="store_true",
-        help="Only transfer the audio",
-    )
-    parser.add_argument(
-        "--output-video",
-        type=str,
-        default=None,
-        help="The output video file name",
-    )
+    # ONNX pose options moved to hm_opts.parser
+    # Audio-only and output-video moved to hm_opts.parser
     parser.add_argument("--checkpoint", type=str, default=None, help="Tracking checkpoint file")
     parser.add_argument("--detector", help="det checkpoint file")
     parser.add_argument("--reid", help="reid checkpoint file")
@@ -458,10 +218,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     # Pose args
     parser.add_argument("--pose-config", type=str, default=None, help="Pose config file")
     parser.add_argument("--pose-checkpoint", type=str, default=None, help="Pose checkpoint file")
-    parser.add_argument("--kpt-thr", type=float, default=0.3, help="Keypoint score threshold")
-    parser.add_argument("--bbox-thr", type=float, default=0.3, help="Bounding box score threshold")
-    parser.add_argument("--radius", type=int, default=4, help="Keypoint radius for visualization")
-    parser.add_argument("--thickness", type=int, default=1, help="Link thickness for visualization")
+    # Pose visualization args moved to hm_opts.parser
     parser.add_argument("--debug-play-tracker", action="store_true", help="Print per-frame play boxes and counts")
     parser.add_argument(
         "--smooth",
