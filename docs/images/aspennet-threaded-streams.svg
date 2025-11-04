@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="260" viewBox="0 0 1120 260" role="img" aria-labelledby="title desc">
+  <title id="title">AspenNet Threaded Mode with CUDA Streams</title>
+  <desc id="desc">Each trunk runs in its own thread using a separate CUDA stream; context flows via bounded queues.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#222" />
+    </marker>
+    <style>
+      .box { fill:#DDEEFF; stroke:#222; stroke-width:2; rx:8; ry:8; }
+      .q { fill:#FFF2CC; stroke:#222; stroke-width:2; rx:6; ry:6; }
+      .text { font: 14px sans-serif; fill:#111; }
+      .label { font: 16px sans-serif; font-weight:600; fill:#111; }
+      .sub { font: 12px sans-serif; fill:#333; }
+    </style>
+  </defs>
+  <text class="label" x="20" y="28">AspenNet: Threaded Mode (per-trunk CUDA streams)</text>
+  <text class="text" x="20" y="50">Flags/config: pipeline.threaded=true, pipeline.queue_size=N, pipeline.cuda_streams=true</text>
+
+  <rect class="box" x="40" y="100" width="240" height="90"/>
+  <text class="text" x="60" y="130">Thread 1 — Trunk T1</text>
+  <text class="sub" x="60" y="150">with torch.cuda.Stream()</text>
+
+  <rect class="q" x="310" y="120" width="160" height="50"/>
+  <text class="text" x="330" y="150">Queue (size = N)</text>
+
+  <rect class="box" x="510" y="100" width="240" height="90"/>
+  <text class="text" x="530" y="130">Thread 2 — Trunk T2</text>
+  <text class="sub" x="530" y="150">with torch.cuda.Stream()</text>
+
+  <rect class="q" x="780" y="120" width="160" height="50"/>
+  <text class="text" x="800" y="150">Queue (size = N)</text>
+
+  <rect class="box" x="980" y="100" width="240" height="90"/>
+  <text class="text" x="1000" y="130">Thread 3 — Trunk T3</text>
+  <text class="sub" x="1000" y="150">with torch.cuda.Stream()</text>
+
+  <line x1="280" y1="145" x2="310" y2="145" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="470" y1="145" x2="510" y2="145" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="750" y1="145" x2="780" y2="145" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="940" y1="145" x2="980" y2="145" stroke="#222" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text class="text" x="40" y="215">Each worker thread executes its trunk inside a dedicated CUDA stream and syncs before enqueueing results.</text>
+</svg>
+

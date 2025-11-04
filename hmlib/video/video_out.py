@@ -335,6 +335,8 @@ class VideoOutput:
         self._video_out_pipeline = video_out_pipeline
         if self._video_out_pipeline is not None:
             self._video_out_pipeline = Compose(self._video_out_pipeline)
+        # Cache pointer to color adjust transform (if present)
+        self._color_adjust_tf = None
 
         if self._save_frame_dir and not os.path.isdir(self._save_frame_dir):
             os.makedirs(self._save_frame_dir)
@@ -674,6 +676,58 @@ class VideoOutput:
         # Video-out pipeline
         #
         if self._video_out_pipeline is not None:
+            # Update color adjust transform at runtime from YAML-like args config
+            try:
+                if self._color_adjust_tf is None:
+                    for tf in getattr(self._video_out_pipeline, "transforms", []):
+                        if tf.__class__.__name__ == "HmImageColorAdjust":
+                            self._color_adjust_tf = tf
+                            break
+                if self._color_adjust_tf is not None and self.has_args():
+                    cam = None
+                    try:
+                        cam = self._args.game_config.get("rink", {}).get("camera", {})
+                    except Exception:
+                        cam = None
+                    if isinstance(cam, dict):
+                        color = cam.get("color", {}) or {}
+                        # Allow fallback to flat camera keys too
+                        wb = color.get("white_balance", cam.get("white_balance"))
+                        wbk = color.get("white_balance_temp", cam.get("white_balance_k", cam.get("white_balance_temp")))
+                        bright = color.get("brightness", cam.get("color_brightness"))
+                        contr = color.get("contrast", cam.get("color_contrast"))
+                        gamma = color.get("gamma", cam.get("color_gamma"))
+                        if wbk is not None and wb is None:
+                            try:
+                                # Kelvin can be numeric or string like '3500k'
+                                self._color_adjust_tf.white_balance = self._color_adjust_tf._gains_from_kelvin(wbk)
+                            except Exception:
+                                pass
+                        elif wb is not None:
+                            try:
+                                if isinstance(wb, (list, tuple)) and len(wb) == 3:
+                                    self._color_adjust_tf.white_balance = [float(x) for x in wb]
+                            except Exception:
+                                pass
+                        # Scalars
+                        if bright is not None:
+                            try:
+                                self._color_adjust_tf.brightness = float(bright)
+                            except Exception:
+                                pass
+                        if contr is not None:
+                            try:
+                                self._color_adjust_tf.contrast = float(contr)
+                            except Exception:
+                                pass
+                        if gamma is not None:
+                            try:
+                                self._color_adjust_tf.gamma = float(gamma)
+                            except Exception:
+                                pass
+            except Exception:
+                # Non-fatal if color transform not found
+                pass
             results["img"] = online_im
             results["camera_box"] = current_boxes
             results["video_frame_cfg"] = self._video_frame_config

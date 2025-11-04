@@ -1,0 +1,44 @@
+<mxfile host="app.diagrams.net" modified="2025-10-31T00:00:00Z" agent="codex-cli" version="20.6.3">
+  <diagram id="aspennet-threaded-no-streams" name="AspenNet Threaded (no CUDA streams)">
+    <mxGraphModel dx="1024" dy="768" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="label" value="AspenNet: Threaded Mode without per-trunk CUDA Streams\nEach trunk runs in its own thread on default stream" style="text;whiteSpace=wrap;html=1;align=center;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="900" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="t1" value="Thread 1\nTrunk T1\n(no explicit CUDA stream)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="60" y="110" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="q12" value="Queue (size = N)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="300" y="125" width="150" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="t2" value="Thread 2\nTrunk T2\n(no explicit CUDA stream)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="490" y="110" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="q23" value="Queue (size = N)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="730" y="125" width="150" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="t3" value="Thread 3\nTrunk T3\n(no explicit CUDA stream)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDEEFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="920" y="110" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" style="endArrow=block;endFill=1;html=1;strokeWidth=2;" edge="1" parent="1" source="t1" target="q12">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="endArrow=block;endFill=1;html=1;strokeWidth=2;" edge="1" parent="1" source="q12" target="t2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" style="endArrow=block;endFill=1;html=1;strokeWidth=2;" edge="1" parent="1" source="t2" target="q23">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" style="endArrow=block;endFill=1;html=1;strokeWidth=2;" edge="1" parent="1" source="q23" target="t3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="note" value="Flags/config: pipeline.threaded=true, pipeline.queue_size=N, pipeline.cuda_streams=false (or --aspen-threaded, --aspen-thread-queue-size, --no-aspen-thread-cuda-streams). Threads run trunks on the default CUDA stream/CPU." style="text;whiteSpace=wrap;html=1;align=left;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="210" width="1060" height="60" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

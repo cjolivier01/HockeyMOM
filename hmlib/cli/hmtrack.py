@@ -110,13 +110,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     #     type=str,
     #     help="Use tracker type [hm|fair|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
     # )
-    parser.add_argument(
-        "--no_save_video",
-        "--no-save-video",
-        dest="no_save_video",
-        action="store_true",
-        help="Don't save the output video",
-    )
+    # Output video flag moved to hm_opts.parser
     parser.add_argument(
         "--speed",
         dest="speed",
@@ -185,101 +179,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="force video stitching",
     )
-    parser.add_argument("--plot-tracking", action="store_true", help="plot individual tracking boxes")
-    parser.add_argument("--plot-ice-mask", action="store_true", help="plot the ice mask")
-    parser.add_argument("--plot-trajectories", action="store_true", help="plot individual track trajectories")
-    parser.add_argument("--detect-jersey-numbers", action="store_true", help="Detect jersey numbers")
-    parser.add_argument("--plot-jersey-numbers", action="store_true", help="plot individual jersey numbers")
-    parser.add_argument("--plot-actions", action="store_true", help="plot action labels per tracked player")
-    parser.add_argument("--plot-pose", action="store_true", help="plot individual pose skeletons")
-    parser.add_argument(
-        "--plot-overhead-rink",
-        action="store_true",
-        help="Draw an overhead rink minimap with player positions",
-    )
-    parser.add_argument(
-        "--plot-all-detections",
-        type=float,
-        default=None,
-        help="plot all detections above this given accuracy",
-    )
-    # Profiling options
-    parser.add_argument(
-        "--profile",
-        dest="profile",
-        action="store_true",
-        help="Enable PyTorch Perfetto/Chrome profiler and export trace JSON",
-    )
-    parser.add_argument(
-        "--profile-dir",
-        dest="profile_dir",
-        type=str,
-        default=None,
-        help="Directory to write profiler traces (defaults under output_workdirs/<game_id>/profiler)",
-    )
-    parser.add_argument(
-        "--profile-gpu",
-        dest="profile_gpu",
-        action="store_true",
-        help="Include CUDA GPU activities if available",
-    )
-    parser.add_argument(
-        "--profile-record-shapes",
-        dest="profile_record_shapes",
-        action="store_true",
-        help="Record tensor shapes in profiler (adds overhead)",
-    )
-    parser.add_argument(
-        "--profile-memory",
-        dest="profile_memory",
-        action="store_true",
-        help="Track memory in profiler (adds overhead)",
-    )
-    parser.add_argument(
-        "--profile-with-stack",
-        dest="profile_with_stack",
-        action="store_true",
-        help="Capture Python stack traces in profiler events (adds overhead)",
-    )
-    parser.add_argument(
-        "--profile-export-per-iter",
-        dest="profile_export_per_iter",
-        action="store_true",
-        help="Export one trace per iteration (large runs; adds I/O)",
-    )
-    parser.add_argument(
-        "--py-trace-out",
-        dest="py_trace_out",
-        type=str,
-        default=None,
-        help="Optional Python cProfile output file (.pstats or .txt)",
-    )
-    # Camera controller options
-    parser.add_argument(
-        "--camera-controller",
-        type=str,
-        choices=["rule", "transformer"],
-        default="rule",
-        help="Select camera controller: rule-based PlayTracker or transformer model",
-    )
-    parser.add_argument(
-        "--camera-model",
-        type=str,
-        default=None,
-        help="Path to transformer camera model checkpoint (.pt) produced by camtrain.py",
-    )
-    parser.add_argument(
-        "--camera-window",
-        type=int,
-        default=8,
-        help="Temporal window length to feed the transformer controller",
-    )
-    # Jersey options are defined in hm_opts to be reusable across CLIs
-    parser.add_argument(
-        "--plot-moving-boxes",
-        action="store_true",
-        help="plot moving camera tracking boxes",
-    )
+    # Plotting, Profiling, and Camera Controller options moved to hm_opts.parser
     parser.add_argument(
         "--config",
         action="append",
@@ -291,12 +191,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     parser.add_argument("--test-size", type=str, default=None, help="WxH of test box size (format WxH)")
     parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
-    parser.add_argument(
-        "--save-frame-dir",
-        type=str,
-        default=None,
-        help="directory to save the output video frases as png files",
-    )
+    # Save frame dir moved to hm_opts.parser
     parser.add_argument(
         "--task",
         "--tasks",
@@ -308,207 +203,14 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument("--min-box-area", type=float, default=100, help="filter out tiny boxes")
     parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
-    parser.add_argument(
-        "--input-video",
-        type=str,
-        default=None,
-        help="Input video file(s)",
-    )
-    parser.add_argument(
-        "--input-tracking-data",
-        type=str,
-        default=None,
-        help="Input tracking data file and use instead of AI calling tracker",
-    )
-    parser.add_argument(
-        "--save-tracking-data",
-        action="store_true",
-        help="Save tracking data to results.csv",
-    )
-    parser.add_argument(
-        "--input-detection-data",
-        type=str,
-        default=None,
-        help="Input detection data file and use instead of AI calling tracker",
-    )
-    parser.add_argument(
-        "--save-detection-data",
-        action="store_true",
-        help="Save detection data to results.csv",
-    )
-    parser.add_argument(
-        "--input-pose-data",
-        type=str,
-        default=None,
-        help="Input pose data file and use instead of running pose inference",
-    )
-    parser.add_argument(
-        "--save-pose-data",
-        action="store_true",
-        help="Save pose data to results.csv",
-    )
-    parser.add_argument(
-        "--input-action-data",
-        type=str,
-        default=None,
-        help="Input per-frame action data file and use instead of running action inference",
-    )
-    parser.add_argument(
-        "--save-action-data",
-        action="store_true",
-        help="Save action data to actions.csv",
-    )
-    parser.add_argument(
-        "--save-camera-data",
-        action="store_true",
-        help="Save tracking data to camera.csv",
-    )
-    # ONNX detector export/inference options
-    parser.add_argument(
-        "--detector-onnx",
-        dest="detector_onnx_path",
-        type=str,
-        default=None,
-        help=(
-            "Export the detector to ONNX at this path and run inference with ONNX Runtime. "
-            "If a path is not provided here, a default under output_workdirs/<GAME_ID>/detector.onnx is used."
-        ),
-    )
-    # TensorRT detector options
-    parser.add_argument(
-        "--detector-trt-enable",
-        dest="detector_trt_enable",
-        action="store_true",
-        help=(
-            "Enable TensorRT for detector (backbone+neck). Builds engine on first run if needed."
-        ),
-    )
-    parser.add_argument(
-        "--detector-trt-engine",
-        dest="detector_trt_engine",
-        type=str,
-        default=None,
-        help=(
-            "Path to save/load the detector TensorRT engine (defaults under output_workdirs/<GAME_ID>/detector.engine)."
-        ),
-    )
-    parser.add_argument(
-        "--detector-trt-fp16",
-        dest="detector_trt_fp16",
-        action="store_true",
-        help=("Build TensorRT detector engine in FP16 mode if supported."),
-    )
-    parser.add_argument(
-        "--detector-trt-force-build",
-        dest="detector_trt_force_build",
-        action="store_true",
-        help=("Force rebuilding the detector TensorRT engine even if it exists."),
-    )
-    parser.add_argument(
-        "--detector-onnx-enable",
-        dest="detector_onnx_enable",
-        action="store_true",
-        help=("Enable ONNX Runtime detector inference. If --detector-onnx is provided, enablement is implied."),
-    )
-    parser.add_argument(
-        "--detector-onnx-quantize-int8",
-        dest="detector_onnx_quantize_int8",
-        action="store_true",
-        help=(
-            "After exporting the float32 model, quantize to INT8. "
-            "Calibration samples are gathered on-the-fly from early frames."
-        ),
-    )
-    parser.add_argument(
-        "--detector-onnx-calib-frames",
-        dest="detector_onnx_calib_frames",
-        type=int,
-        default=200,
-        help="Number of frames to collect for INT8 calibration (default: 200)",
-    )
-    parser.add_argument(
-        "--detector-onnx-force-export",
-        dest="detector_onnx_force_export",
-        action="store_true",
-        help="Force re-exporting ONNX even if the file already exists",
-    )
-    # ONNX pose export/inference options
-    parser.add_argument(
-        "--pose-onnx",
-        dest="pose_onnx_path",
-        type=str,
-        default=None,
-        help=(
-            "Export the pose model's feature extractor (backbone+neck) to ONNX and run with ONNX Runtime. "
-            "If a path is not provided, a default under output_workdirs/<GAME_ID>/pose.onnx is used."
-        ),
-    )
-    # TensorRT pose options
-    parser.add_argument(
-        "--pose-trt-enable",
-        dest="pose_trt_enable",
-        action="store_true",
-        help=(
-            "Enable TensorRT for pose (backbone+neck). Builds engine on first run if needed."
-        ),
-    )
-    parser.add_argument(
-        "--pose-trt-engine",
-        dest="pose_trt_engine",
-        type=str,
-        default=None,
-        help=(
-            "Path to save/load the pose TensorRT engine (defaults under output_workdirs/<GAME_ID>/pose.engine)."
-        ),
-    )
-    parser.add_argument(
-        "--pose-trt-fp16",
-        dest="pose_trt_fp16",
-        action="store_true",
-        help=("Build TensorRT pose engine in FP16 mode if supported."),
-    )
-    parser.add_argument(
-        "--pose-trt-force-build",
-        dest="pose_trt_force_build",
-        action="store_true",
-        help=("Force rebuilding the pose TensorRT engine even if it exists."),
-    )
-    parser.add_argument(
-        "--pose-onnx-enable",
-        dest="pose_onnx_enable",
-        action="store_true",
-        help=("Enable ONNX Runtime for pose (backbone+neck). If --pose-onnx is provided, enablement is implied."),
-    )
-    parser.add_argument(
-        "--pose-onnx-quantize-int8",
-        dest="pose_onnx_quantize_int8",
-        action="store_true",
-        help=("After exporting the float32 pose model, quantize to INT8 using calibration frames."),
-    )
-    parser.add_argument(
-        "--pose-onnx-calib-frames",
-        dest="pose_onnx_calib_frames",
-        type=int,
-        default=200,
-        help="Number of frames to collect for pose INT8 calibration (default: 200)",
-    )
-    parser.add_argument(
-        "--pose-onnx-force-export",
-        dest="pose_onnx_force_export",
-        action="store_true",
-        help="Force re-exporting ONNX for pose even if the file already exists",
-    )
-    parser.add_argument(
-        "--audio-only",
-        action="store_true",
-        help="Only transfer the audio",
-    )
-    parser.add_argument(
-        "--output-video",
-        type=str,
-        default=None,
-        help="The output video file name",
-    )
+    # Data I/O flags moved to hm_opts.parser
+    # ONNX detector export/inference options moved to hm_opts.parser
+    # TensorRT detector options moved to hm_opts.parser
+    # ONNX detector options moved to hm_opts.parser
+    # ONNX pose export/inference options moved to hm_opts.parser
+    # TensorRT pose options moved to hm_opts.parser
+    # ONNX pose options moved to hm_opts.parser
+    # Audio-only and output-video moved to hm_opts.parser
     parser.add_argument("--checkpoint", type=str, default=None, help="Tracking checkpoint file")
     parser.add_argument("--detector", help="det checkpoint file")
     parser.add_argument("--reid", help="reid checkpoint file")
@@ -516,10 +218,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
     # Pose args
     parser.add_argument("--pose-config", type=str, default=None, help="Pose config file")
     parser.add_argument("--pose-checkpoint", type=str, default=None, help="Pose checkpoint file")
-    parser.add_argument("--kpt-thr", type=float, default=0.3, help="Keypoint score threshold")
-    parser.add_argument("--bbox-thr", type=float, default=0.3, help="Bounding box score threshold")
-    parser.add_argument("--radius", type=int, default=4, help="Keypoint radius for visualization")
-    parser.add_argument("--thickness", type=int, default=1, help="Link thickness for visualization")
+    # Pose visualization args moved to hm_opts.parser
     parser.add_argument("--debug-play-tracker", action="store_true", help="Print per-frame play boxes and counts")
     parser.add_argument(
         "--smooth",
@@ -847,6 +546,9 @@ def _main(args, num_gpu):
                     trt_cfg["engine"] = args.detector_trt_engine or default_engine_path
                     trt_cfg["force_build"] = bool(args.detector_trt_force_build)
                     trt_cfg["fp16"] = bool(args.detector_trt_fp16)
+                    # INT8 options
+                    trt_cfg["int8"] = bool(getattr(args, "detector_trt_int8", False))
+                    trt_cfg["calib_frames"] = int(getattr(args, "detector_trt_calib_frames", 0) or 0)
                     df_params["trt"] = trt_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
@@ -890,6 +592,9 @@ def _main(args, num_gpu):
                     ptrt_cfg["engine"] = args.pose_trt_engine or default_pose_engine
                     ptrt_cfg["force_build"] = bool(args.pose_trt_force_build)
                     ptrt_cfg["fp16"] = bool(args.pose_trt_fp16)
+                    # INT8 options
+                    ptrt_cfg["int8"] = bool(getattr(args, "pose_trt_int8", False))
+                    ptrt_cfg["calib_frames"] = int(getattr(args, "pose_trt_calib_frames", 0) or 0)
                     pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf
@@ -924,6 +629,23 @@ def _main(args, num_gpu):
                             ice_rink_inference_scale=getattr(args, "ice_rink_inference_scale", None),
                         ),
                     )
+                # Thread CLI color adjustments into HmImageColorAdjust (no-op if nothing set)
+                color_cfg = {}
+                if getattr(args, "white_balance", None) is not None:
+                    # argparse with nargs=3 yields a list of 3 floats
+                    color_cfg["white_balance"] = [float(x) for x in args.white_balance]
+                # Kelvin temperature option (e.g., 3500k)
+                wbk = getattr(args, "white_balance_k", None) or getattr(args, "white_balance_temp", None)
+                if wbk is not None:
+                    color_cfg["white_balance_temp"] = wbk
+                if getattr(args, "color_brightness", None) is not None:
+                    color_cfg["brightness"] = float(args.color_brightness)
+                if getattr(args, "color_contrast", None) is not None:
+                    color_cfg["contrast"] = float(args.color_contrast)
+                if getattr(args, "color_gamma", None) is not None:
+                    color_cfg["gamma"] = float(args.color_gamma)
+                if color_cfg:
+                    update_pipeline_item(pipeline, "HmImageColorAdjust", color_cfg)
                 # Apply clip box if present
                 orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
                 if orig_clip_box:
@@ -1258,6 +980,46 @@ def _main(args, num_gpu):
                             device=gpus["encoder"],
                         ),
                     )
+                    # Ensure color adjust step exists; update from CLI if provided
+                    try:
+                        # See if it's already present
+                        present = False
+                        for step in (video_out_pipeline if isinstance(video_out_pipeline, list) else video_out_pipeline.get("pipeline", [])):
+                            if isinstance(step, dict) and step.get("type") == "HmImageColorAdjust":
+                                present = True
+                                break
+                        color_cfg = {}
+                        if getattr(args, "white_balance", None) is not None:
+                            color_cfg["white_balance"] = [float(x) for x in args.white_balance]
+                        wbk = getattr(args, "white_balance_k", None) or getattr(args, "white_balance_temp", None)
+                        if wbk is not None:
+                            color_cfg["white_balance_temp"] = wbk
+                        if getattr(args, "color_brightness", None) is not None:
+                            color_cfg["brightness"] = float(args.color_brightness)
+                        if getattr(args, "color_contrast", None) is not None:
+                            color_cfg["contrast"] = float(args.color_contrast)
+                        if getattr(args, "color_gamma", None) is not None:
+                            color_cfg["gamma"] = float(args.color_gamma)
+                        if not present:
+                            # Insert before overlays if possible
+                            plist = video_out_pipeline if isinstance(video_out_pipeline, list) else video_out_pipeline.get("pipeline", None)
+                            if plist is not None:
+                                insert_at = None
+                                for idx, step in enumerate(plist):
+                                    if isinstance(step, dict) and step.get("type") == "HmImageOverlays":
+                                        insert_at = idx
+                                        break
+                                new_step = dict(type="HmImageColorAdjust")
+                                if color_cfg:
+                                    new_step.update(color_cfg)
+                                if insert_at is None:
+                                    plist.append(new_step)
+                                else:
+                                    plist.insert(insert_at, new_step)
+                        elif color_cfg:
+                            update_pipeline_item(video_out_pipeline, "HmImageColorAdjust", color_cfg)
+                    except Exception:
+                        traceback.print_exc()
                 # TODO: get rid of one of these args things, merging them below
                 postprocessor = CamTrackHead(
                     opt=args,

@@ -1,4 +1,5 @@
 import numbers
+import math
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -904,6 +905,261 @@ class HmResize:
         repr_str += f"bbox_clip_border={self.bbox_clip_border})"
         return repr_str
 
+
+@TRANSFORMS.register_module()
+class HmImageColorAdjust:
+    """Apply optional color adjustments on images.
+
+    No-op unless one or more adjustments are specified.
+
+    Supported adjustments (all optional):
+    - white_balance: list[float] of length 3, per-channel RGB gains
+    - brightness: float, multiplicative gain (>1 brighter)
+    - contrast: float, contrast factor (>1 more contrast)
+    - gamma: float, gamma exponent (>1 darker)
+
+    Args:
+        keys (list[str]): Result dict keys to process (default: ["img"]).
+        white_balance (list[float] | None): Per-channel RGB gains.
+        brightness (float | None): Multiplicative brightness.
+        contrast (float | None): Contrast factor.
+        gamma (float | None): Gamma exponent applied to normalized [0, 1].
+    """
+
+    def __init__(
+        self,
+        keys: Optional[List[str]] = None,
+        white_balance: Optional[List[float]] = None,
+        white_balance_temp: Optional[Union[float, str]] = None,
+        brightness: Optional[float] = None,
+        contrast: Optional[float] = None,
+        gamma: Optional[float] = None,
+    ):
+        self.keys = keys or ["img"]
+        # If a Kelvin temperature is provided, convert to per-channel gains.
+        if white_balance is None and white_balance_temp is not None:
+            self.white_balance = self._gains_from_kelvin(white_balance_temp)
+        else:
+            self.white_balance = white_balance
+        self.brightness = brightness
+        self.contrast = contrast
+        self.gamma = gamma
+
+        # Validate white balance gains if provided
+        if self.white_balance is not None:
+            assert isinstance(self.white_balance, (list, tuple)) and len(self.white_balance) == 3
+
+    def _has_any_adjustment(self) -> bool:
+        if self.white_balance is not None:
+            return True
+        if self.brightness is not None:
+            return True
+        if self.contrast is not None:
+            return True
+        if self.gamma is not None:
+            return True
+        return False
+
+    @staticmethod
+    def _apply_white_balance(img: torch.Tensor, gains: List[float]) -> torch.Tensor:
+        # img expected: NCHW or CHW float or uint8
+        dtype = img.dtype
+        if not torch.is_floating_point(img):
+            img = img.to(torch.float32)
+        if img.ndim == 3:
+            g = torch.tensor(gains, device=img.device, dtype=img.dtype).view(3, 1, 1)
+        else:
+            g = torch.tensor(gains, device=img.device, dtype=img.dtype).view(1, 3, 1, 1)
+        img = img * g
+        # Clamp to 0..255 if original type was integer-like or float in 0..255
+        img = img.clamp(0.0, 255.0)
+        if dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
+            img = img.to(dtype)
+        return img
+
+    @staticmethod
+    def _apply_brightness(img: torch.Tensor, factor: float) -> torch.Tensor:
+        if factor is None or factor == 1.0:
+            return img
+        dtype = img.dtype
+        if not torch.is_floating_point(img):
+            img = img.to(torch.float32)
+        img = img * float(factor)
+        img = img.clamp(0.0, 255.0)
+        if dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
+            img = img.to(dtype)
+        return img
+
+    @staticmethod
+    def _apply_contrast(img: torch.Tensor, factor: float) -> torch.Tensor:
+        if factor is None or factor == 1.0:
+            return img
+        dtype = img.dtype
+        if not torch.is_floating_point(img):
+            img = img.to(torch.float32)
+        # Compute per-image mean intensity and scale around it
+        if img.ndim == 3:
+            # CHW
+            mean_val = img.mean(dim=(1, 2), keepdim=True)
+        else:
+            # NCHW
+            mean_val = img.mean(dim=(2, 3), keepdim=True)
+        img = (img - mean_val) * float(factor) + mean_val
+        img = img.clamp(0.0, 255.0)
+        if dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
+            img = img.to(dtype)
+        return img
+
+    @staticmethod
+    def _apply_gamma(img: torch.Tensor, gamma: float) -> torch.Tensor:
+        if gamma is None or gamma == 1.0:
+            return img
+        dtype = img.dtype
+        if not torch.is_floating_point(img):
+            img = img.to(torch.float32)
+        # Normalize to [0,1] assuming 0..255 images, apply gamma, then scale back
+        img01 = (img / 255.0).clamp(0.0, 1.0)
+        img01 = torch.pow(img01, float(gamma))
+        img = (img01 * 255.0).clamp(0.0, 255.0)
+        if dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
+            img = img.to(dtype)
+        return img
+
+    def _adjust_tensor(self, t: torch.Tensor) -> torch.Tensor:
+        # Ensure CHW or NCHW layout for arithmetic
+        icf = is_channels_first(t)
+        if not icf:
+            t = make_channels_first(t)
+        # Apply per selected adjustments
+        if self.white_balance is not None:
+            t = HmImageColorAdjust._apply_white_balance(t, self.white_balance)
+        if self.brightness is not None:
+            t = HmImageColorAdjust._apply_brightness(t, self.brightness)
+        if self.contrast is not None:
+            t = HmImageColorAdjust._apply_contrast(t, self.contrast)
+        if self.gamma is not None:
+            t = HmImageColorAdjust._apply_gamma(t, self.gamma)
+        if not icf:
+            t = make_channels_last(t)
+        return t
+
+    def _adjust_numpy(self, a: np.ndarray) -> np.ndarray:
+        icf = is_channels_first(a)
+        if not icf:
+            a = make_channels_first(a)
+        # Convert to float for ops
+        orig_dtype = a.dtype
+        if a.dtype != np.float32 and a.dtype != np.float64:
+            a = a.astype(np.float32)
+        if self.white_balance is not None:
+            gains = np.array(self.white_balance, dtype=a.dtype).reshape(3, 1, 1)
+            if a.ndim == 4:
+                gains = gains.reshape(1, 3, 1, 1)
+            a = a * gains
+        if self.brightness is not None and self.brightness != 1.0:
+            a = a * float(self.brightness)
+        if self.contrast is not None and self.contrast != 1.0:
+            if a.ndim == 3:
+                mean_val = a.mean(axis=(1, 2), keepdims=True)
+            else:
+                mean_val = a.mean(axis=(2, 3), keepdims=True)
+            a = (a - mean_val) * float(self.contrast) + mean_val
+        if self.gamma is not None and self.gamma != 1.0:
+            a01 = np.clip(a / 255.0, 0.0, 1.0)
+            a01 = np.power(a01, float(self.gamma))
+            a = a01 * 255.0
+        a = np.clip(a, 0.0, 255.0)
+        if orig_dtype != a.dtype:
+            a = a.astype(orig_dtype)
+        if not icf:
+            a = make_channels_last(a)
+        return a
+
+    def __call__(self, results):
+        if not self._has_any_adjustment():
+            return results
+        for key in self.keys:
+            if key not in results:
+                continue
+            img = results[key]
+            if isinstance(img, (torch.Tensor, StreamTensor)):
+                results[key] = tensor_call(img, self._adjust_tensor)
+            else:
+                # numpy array
+                results[key] = self._adjust_numpy(img)
+        return results
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(keys={self.keys}, white_balance={self.white_balance}, "
+            f"brightness={self.brightness}, contrast={self.contrast}, gamma={self.gamma})"
+        )
+
+    @staticmethod
+    def _kelvin_to_rgb(kelvin: float) -> List[float]:
+        """Approximate RGB for a given color temperature in Kelvin.
+
+        Returns RGB components in 0..255 range (non-linear, sRGB-like approx).
+        Based on Tanner Helland's approximation.
+        """
+        # Clamp to reasonable range
+        k = float(kelvin)
+        k = max(1000.0, min(40000.0, k))
+        t = k / 100.0
+
+        # Red
+        if t <= 66.0:
+            r = 255.0
+        else:
+            r = 329.698727446 * ((t - 60.0) ** -0.1332047592)
+            r = max(0.0, min(255.0, r))
+
+        # Green
+        if t <= 66.0:
+            g = 99.4708025861 * math.log(max(1.0, t)) - 161.1195681661
+        else:
+            g = 288.1221695283 * ((t - 60.0) ** -0.0755148492)
+        g = max(0.0, min(255.0, g))
+
+        # Blue
+        if t >= 66.0:
+            b = 255.0
+        elif t <= 19.0:
+            b = 0.0
+        else:
+            b = 138.5177312231 * math.log(max(1.0, t - 10.0)) - 305.0447927307
+            b = max(0.0, min(255.0, b))
+
+        return [r, g, b]
+
+    @staticmethod
+    def _parse_kelvin_value(value: Union[float, str]) -> float:
+        if isinstance(value, (int, float)):
+            return float(value)
+        s = str(value).strip().lower()
+        if s.endswith("k"):
+            s = s[:-1]
+            # Allow formats like "3.5" meaning 3500K
+            if "." in s:
+                return float(float(s) * 1000.0)
+        try:
+            return float(s)
+        except Exception:
+            # Fallback: ignore invalid input
+            return 6500.0
+
+    @classmethod
+    def _gains_from_kelvin(cls, value: Union[float, str]) -> List[float]:
+        k = cls._parse_kelvin_value(value)
+        r, g, b = cls._kelvin_to_rgb(k)
+        # Normalize to 0..1
+        r /= 255.0
+        g /= 255.0
+        b /= 255.0
+        # Gains are inverse of illuminant RGB, normalized so mean gain = 1
+        inv = np.array([1.0 / max(1e-6, r), 1.0 / max(1e-6, g), 1.0 / max(1e-6, b)], dtype=np.float32)
+        inv /= float(inv.mean())
+        return inv.tolist()
 
 @TRANSFORMS.register_module()
 class HmCrop:

@@ -2,6 +2,8 @@
 Experiments in stitching
 """
 
+from __future__ import annotations
+
 import contextlib
 import math
 import os
@@ -37,6 +39,7 @@ from hmlib.utils.image import (
     make_visible_image,
 )
 from hmlib.utils.iterators import CachedIterator
+from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hockeymom import show_cuda_tensor
 from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
@@ -161,7 +164,7 @@ def as_torch_device(device: Any) -> torch.device:
 # |_____/ \__|_| \__|\___|_| |_|_____/ \__,_|\__|\__,_||___/ \___| \__|
 #
 #
-class StitchDataset:
+class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
     def __init__(
         self,
@@ -574,7 +577,9 @@ class StitchDataset:
                                 and abs(self._post_stitch_rotate_degrees) > 1e-6
                             ):
                                 blended_stream_tensor = self._rotate_tensor_keep_size(
-                                    blended_stream_tensor, self._post_stitch_rotate_degrees
+                                    blended_stream_tensor,
+                                    self._post_stitch_rotate_degrees,
+                                    persist=True,
                                 )
                             if self._show_image_components:
                                 for blended_image in blended_stream_tensor:
@@ -596,7 +601,9 @@ class StitchDataset:
                                 and abs(self._post_stitch_rotate_degrees) > 1e-6
                             ):
                                 blended_stream_tensor = self._rotate_tensor_keep_size(
-                                    blended_stream_tensor, self._post_stitch_rotate_degrees
+                                    blended_stream_tensor,
+                                    self._post_stitch_rotate_degrees,
+                                    persist=True,
                                 )
 
                         if stream is not None:
@@ -818,89 +825,112 @@ class StitchDataset:
             )
 
         # show_image("stitched_frame", stitched_frame.get(), wait=False)
+        # for img in stitched_frame:
+        #     show_cuda_tensor("stitched_frame", make_channels_last(img), wait=False)
         return stitched_frame
 
     def __len__(self):
         return self._total_number_of_frames // self._batch_size
 
-    def _rotate_tensor_keep_size(self, tensor: torch.Tensor, degrees: float) -> torch.Tensor:
+    def _rotate_tensor_keep_size(
+        self,
+        tensor: torch.Tensor,
+        degrees: float,
+        persist: bool = False,
+    ) -> torch.Tensor:
         """
         Rotate a batched image tensor about its center by `degrees` while keeping dimensions.
+        If `persist` is True, caches precomputed tensors that only depend on (H, W, dtype, device)
+        to avoid recomputing them across calls for identical input configurations.
 
         Supports tensors of shape (B, H, W, C) or (B, C, H, W) with any C>=1.
         Operates on CUDA tensors without host roundtrips.
         """
+
         if tensor is None:
             return tensor
         if degrees is None or abs(degrees) < 1e-6:
             return tensor
 
-        # Determine layout
+        # --- Determine layout ---
         assert tensor.ndim == 4, f"Expected 4D tensor, got {tensor.shape}"
         was_channels_last = tensor.shape[-1] in (1, 3, 4)
         orig_dtype = tensor.dtype
         device = tensor.device
 
         # Convert to NCHW
-        if was_channels_last:
-            x = tensor.permute(0, 3, 1, 2)
-        else:
-            x = tensor
-
+        x = tensor.permute(0, 3, 1, 2) if was_channels_last else tensor
         B, C, H, W = x.shape
-
-        # Use float32 for grid_sample math
         x_work = x.to(dtype=torch.float32, non_blocking=True)
 
+        # --- Setup persistent cache fingerprint ---
+        extras = {"op": "rotate_tensor_keep_size"}
+        if hasattr(self, "_persist_init_or_assert"):
+            self._persist_init_or_assert(persist, x_work, extras)
+
+        # --- Angle-dependent tensors ---
         angle = torch.tensor(degrees * math.pi / 180.0, device=device, dtype=torch.float32)
         cos_a = torch.cos(angle)
         sin_a = torch.sin(angle)
 
-        cx = torch.tensor((W - 1) / 2.0, device=device, dtype=torch.float32)
-        cy = torch.tensor((H - 1) / 2.0, device=device, dtype=torch.float32)
+        # --- Cached tensors that only depend on shape/type ---
+        def make_center():
+            return (
+                torch.tensor((W - 1) / 2.0, device=device, dtype=torch.float32),
+                torch.tensor((H - 1) / 2.0, device=device, dtype=torch.float32),
+            )
 
-        # Inverse rotation (output -> input) around center, in pixel coords
-        # x_in = cos*x_out + sin*y_out + tx
-        # y_in = -sin*x_out + cos*y_out + ty
+        cx, cy = self._persist_get("center", make_center, persist) if persist else make_center()
+
+        def make_S():
+            return torch.tensor(
+                [
+                    [(W - 1) / 2.0, 0.0, (W - 1) / 2.0],
+                    [0.0, (H - 1) / 2.0, (H - 1) / 2.0],
+                    [0.0, 0.0, 1.0],
+                ],
+                device=device,
+                dtype=torch.float32,
+            )
+
+        def make_S_inv():
+            return torch.tensor(
+                [
+                    [2.0 / (W - 1), 0.0, -1.0],
+                    [0.0, 2.0 / (H - 1), -1.0],
+                    [0.0, 0.0, 1.0],
+                ],
+                device=device,
+                dtype=torch.float32,
+            )
+
+        S = self._persist_get("S", make_S, persist) if persist else make_S()
+        S_inv = self._persist_get("S_inv", make_S_inv, persist) if persist else make_S_inv()
+
+        # --- Compute transform matrices ---
         tx = (1.0 - cos_a) * cx - sin_a * cy
         ty = sin_a * cx + (1.0 - cos_a) * cy
-
         M_inv = torch.stack(
             [
                 torch.stack([cos_a, sin_a, tx]),
                 torch.stack([-sin_a, cos_a, ty]),
                 torch.tensor([0.0, 0.0, 1.0], device=device, dtype=torch.float32),
             ]
-        )  # 3x3
-
-        # Normalized coord transform: [-1,1] <-> pixel coords with align_corners=True
-        S = torch.tensor(
-            [
-                [(W - 1) / 2.0, 0.0, (W - 1) / 2.0],
-                [0.0, (H - 1) / 2.0, (H - 1) / 2.0],
-                [0.0, 0.0, 1.0],
-            ],
-            device=device,
-            dtype=torch.float32,
-        )
-        S_inv = torch.tensor(
-            [
-                [2.0 / (W - 1), 0.0, -1.0],
-                [0.0, 2.0 / (H - 1), -1.0],
-                [0.0, 0.0, 1.0],
-            ],
-            device=device,
-            dtype=torch.float32,
         )
 
         A = S_inv @ M_inv @ S  # 3x3
         theta = A[:2, :].unsqueeze(0).repeat(B, 1, 1).contiguous()  # Bx2x3
 
-        grid = F.affine_grid(theta, size=(B, C, H, W), align_corners=True)
-        # Use black padding outside the image
+        # --- Cached affine grid ---
+        def make_grid():
+            return F.affine_grid(theta, size=(B, C, H, W), align_corners=True)
+
+        grid = self._persist_get("affine_grid", make_grid, persist) if persist else make_grid()
+
+        # --- Rotate using grid_sample ---
         y = F.grid_sample(x_work, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
 
-        # Convert back to original dtype/layout
+        # --- Restore dtype/layout ---
         if orig_dtype == torch.uint8:
             y = y.clamp(min=0.0, max=255.0).to(dtype=torch.uint8)
         else:

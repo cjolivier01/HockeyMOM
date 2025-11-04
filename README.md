@@ -31,3 +31,19 @@ aspen:
     detector_factory: {...}
     tracker: {...}
 ```
+
+**AspenNet Execution Modes**
+- Normal (sequential): single thread runs trunks in topological order.
+  
+  ![AspenNet Normal](docs/images/aspennet-normal.svg)
+
+- Threaded + CUDA streams: each trunk executes in its own thread and CUDA stream; queues connect stages.
+  
+  ![AspenNet Threaded (CUDA streams)](docs/images/aspennet-threaded-streams.svg)
+
+- Threaded without streams: threaded execution on default stream/CPU; same queueing.
+  
+  ![AspenNet Threaded (no streams)](docs/images/aspennet-threaded-no-streams.svg)
+
+- Configure via YAML `aspen.pipeline`: `threaded: bool`, `queue_size: int`, `cuda_streams: bool`.
+- CLI toggles: `--aspen-threaded`, `--aspen-thread-queue-size`, `--aspen-thread-cuda-streams` or `--no-aspen-thread-cuda-streams`.
