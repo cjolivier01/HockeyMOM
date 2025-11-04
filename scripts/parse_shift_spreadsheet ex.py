@@ -391,9 +391,13 @@ class EventLogContext:
 
 
 def _detect_event_log_headers(df: pd.DataFrame) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+    """
+    Backward-compatible detector for legacy headers. Kept for completeness, but
+    newer sheets might not contain these exact labels.
+    """
     def _find_cell(value: str) -> Optional[Tuple[int, int]]:
         needle = value.strip().lower()
-        for rr in range(df.shape[0]):
+        for rr in range(min(8, df.shape[0])):
             for cc in range(df.shape[1]):
                 try:
                     v = df.iat[rr, cc]
@@ -410,6 +414,80 @@ def _detect_event_log_headers(df: pd.DataFrame) -> Tuple[Optional[Tuple[int, int
     return blue_hdr, white_hdr
 
 
+def _detect_generic_shift_tables(df: pd.DataFrame) -> List[Tuple[Tuple[int, int], str]]:
+    """
+    Detect shift tables by locating repeated 'Video time' / 'Game time' headers in the
+    top rows, ignoring the leftmost event summary table. Returns a list of
+    ((header_row, approx_team_col), inferred_team_prefix) for up to two teams.
+    Team prefix is inferred as 'Blue'/'White' when possible; otherwise defaults
+    to 'Blue' for the rightmost table and 'White' for the other.
+    """
+    matches: List[Tuple[int, int]] = []
+    for rr in range(min(6, df.shape[0])):
+        for cc in range(df.shape[1]):
+            v = df.iat[rr, cc]
+            if isinstance(v, str) and v.strip().lower() == "video time":
+                # Must have a corresponding 'game time' nearby on same row
+                ok = False
+                for dc in (1, 2, -1):
+                    cc2 = cc + dc
+                    if 0 <= cc2 < df.shape[1]:
+                        gv = df.iat[rr, cc2]
+                        if isinstance(gv, str) and gv.strip().lower() in {"game time", "scoreboard"}:
+                            ok = True
+                            break
+                if ok:
+                    matches.append((rr, cc))
+
+    # Filter out very-left occurrences (likely left event table), and de-dup by column proximity
+    matches = [(r, c) for (r, c) in matches if c >= 8]
+    matches.sort(key=lambda x: x[1])
+    dedup: List[Tuple[int, int]] = []
+    for rc in matches:
+        if not dedup or abs(rc[1] - dedup[-1][1]) > 3:
+            dedup.append(rc)
+
+    # Keep up to the two rightmost
+    cand = dedup[-2:] if len(dedup) >= 2 else dedup
+    if not cand:
+        return []
+
+    # For each candidate, try to find a team-identifying label in row 0 nearby
+    out: List[Tuple[Tuple[int, int], str]] = []
+    for (rr, cc) in cand:
+        team_text = None
+        # search row 0 around cc
+        row0 = 0
+        for dc in range(-2, 6):
+            c2 = cc + dc
+            if 0 <= c2 < df.shape[1]:
+                v = df.iat[row0, c2]
+                if isinstance(v, str) and v.strip():
+                    team_text = v.strip()
+                    break
+        prefix = ""
+        if team_text:
+            low = team_text.lower()
+            if "(blue)" in low or low.endswith(" blue"):
+                prefix = "Blue"
+            elif "(white)" in low or low.endswith(" white"):
+                prefix = "White"
+        out.append(((row0, cc), prefix))
+
+    # Ensure distinct prefixes; fill blanks deterministically
+    rightsorted = sorted(out, key=lambda x: x[0][1])
+    # Default rightmost as Blue, the other as White when unknown
+    if len(rightsorted) == 2:
+        if not rightsorted[1][1]:
+            rightsorted[1] = (rightsorted[1][0], "Blue")
+        if not rightsorted[0][1]:
+            rightsorted[0] = (rightsorted[0][0], "White")
+    elif len(rightsorted) == 1:
+        if not rightsorted[0][1]:
+            rightsorted[0] = (rightsorted[0][0], "Blue")
+    return rightsorted
+
+
 def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
     bool,
     Dict[str, List[Tuple[str, str]]],
@@ -418,7 +496,15 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
     Optional[EventLogContext],
 ]:
     blue_hdr, white_hdr = _detect_event_log_headers(df)
-    if not (blue_hdr or white_hdr):
+    headers: List[Tuple[Tuple[int, int], str]] = []
+    if blue_hdr:
+        headers.append((blue_hdr, "Blue"))
+    if white_hdr:
+        headers.append((white_hdr, "White"))
+    if not headers:
+        # Fallback to generic detector
+        headers = _detect_generic_shift_tables(df)
+    if not headers:
         return False, {}, {}, {}, None
 
     # Accumulators
@@ -629,10 +715,8 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                     if sv is not None and evv is not None:
                         conv_segments_by_period.setdefault(int(per), []).append((int(sg), int(egg), int(sv), int(evv)))
 
-    if blue_hdr:
-        _parse_event_block(blue_hdr, "Blue")
-    if white_hdr:
-        _parse_event_block(white_hdr, "White")
+    for (rc, team_prefix) in headers:
+        _parse_event_block(rc, team_prefix or "Blue")
 
     # ---- Parse left-side event columns ----
     event_counts_by_player: Dict[str, Dict[str, int]] = {}
@@ -664,6 +748,12 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
         shots_col = label_to_col.get("shots")
         goals_col = label_to_col.get("goals")
         assists_col = label_to_col.get("assist")
+        sog_col = None
+        # handle alternate header names like 'Shots on Goal' / 'SOG'
+        for k, c in label_to_col.items():
+            kl = k.lower()
+            if kl == "shots on goal" or kl == "sog":
+                sog_col = c
         # tolerate wording variations and capitalization
         entries_col = None
         exits_col = None
@@ -681,8 +771,10 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
             cnt = 0
             for r in range(left_header_row + 1, min(df.shape[0], left_header_row + 80)):
                 v = df.iat[r, c]
-                if isinstance(v, str) and v.strip() in ("Blue", "White"):
-                    cnt += 1
+                if isinstance(v, str) and v.strip():
+                    vs = v.strip().lower()
+                    if ("blu" in vs) or ("whi" in vs):
+                        cnt += 1
             if cnt > best_count:
                 best_count = cnt
                 team_col = c
@@ -782,6 +874,21 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                 if isinstance(gv, str) and gv.strip():
                     t = team_val or _parse_team_from_text(gv)
                     jerseys = _extract_nums(gv)
+                    _record_event("Goal", t, jerseys, current_period, row_vsec, row_gsec)
+            # If there's a 'Shots on Goal' column and it says 'GOAL', record a Goal event
+            if sog_col is not None:
+                sv2 = df.iat[r, sog_col]
+                if isinstance(sv2, str) and ("goal" in sv2.strip().lower()):
+                    t = team_val or _parse_team_from_text(sv2)
+                    jerseys: List[int] = []
+                    if shots_col is not None:
+                        sv_sh = df.iat[r, shots_col]
+                        if isinstance(sv_sh, str) and sv_sh.strip():
+                            jerseys = _extract_nums(sv_sh)
+                    if not jerseys and assists_col is not None:
+                        av_sh = df.iat[r, assists_col]
+                        if isinstance(av_sh, str) and av_sh.strip():
+                            jerseys = _extract_nums(av_sh)
                     _record_event("Goal", t, jerseys, current_period, row_vsec, row_gsec)
             if assists_col is not None:
                 av = df.iat[r, assists_col]
@@ -1495,157 +1602,312 @@ def process_sheet(
             validation_errors,
         ) = _parse_per_player_layout(df, keep_goalies=keep_goalies, skip_validation=skip_validation)
 
-    # Output subdir depends on format
-    format_dir = "event_log" if used_event_log else "per_player"
-    outdir = outdir / format_dir
-    outdir.mkdir(parents=True, exist_ok=True)
+    # If this is the legacy per-player layout, keep the existing single-directory behavior.
+    if not used_event_log:
+        # Output subdir
+        legacy_dir = outdir / "per_player"
+        legacy_dir.mkdir(parents=True, exist_ok=True)
 
-    # Per-player time files and clip scripts
-    _write_video_times_and_scripts(outdir, video_pairs_by_player)
-    _write_scoreboard_times(outdir, sb_pairs_by_player)
+        # Per-player time files and clip scripts
+        _write_video_times_and_scripts(legacy_dir, video_pairs_by_player)
+        _write_scoreboard_times(legacy_dir, sb_pairs_by_player)
 
-    # Stats and plus/minus
-    goals_by_period: Dict[int, List[GoalEvent]] = {}
-    for ev in goals:
-        goals_by_period.setdefault(ev.period, []).append(ev)
+        # Stats and plus/minus
+        goals_by_period: Dict[int, List[GoalEvent]] = {}
+        for ev in goals:
+            goals_by_period.setdefault(ev.period, []).append(ev)
 
-    stats_table_rows: List[Dict[str, str]] = []
-    all_periods_seen: set[int] = set()
-    for player_key, sb_list in sb_pairs_by_player.items():
-        sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
-        for period, a, b in sb_list:
-            sb_by_period.setdefault(period, []).append((a, b))
-        all_pairs = [(a, b) for (_, a, b) in sb_list]
-        shift_summary = summarize_shift_lengths_sec(all_pairs)
-        per_period_toi_map = per_period_toi(sb_by_period)
+        stats_table_rows: List[Dict[str, str]] = []
+        all_periods_seen: set[int] = set()
+        for player_key, sb_list in sb_pairs_by_player.items():
+            sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
+            for period, a, b in sb_list:
+                sb_by_period.setdefault(period, []).append((a, b))
+            all_pairs = [(a, b) for (_, a, b) in sb_list]
+            shift_summary = summarize_shift_lengths_sec(all_pairs)
+            per_period_toi_map = per_period_toi(sb_by_period)
 
-        plus_minus = 0
-        counted_gf: List[str] = []
-        counted_ga: List[str] = []
-        counted_gf_by_period: Dict[int, int] = {}
-        counted_ga_by_period: Dict[int, int] = {}
-        for period, pairs in sb_by_period.items():
-            if period not in goals_by_period:
-                continue
-            for ev in goals_by_period[period]:
-                matched = False
-                for a, b in pairs:
-                    a_sec = parse_flex_time_to_seconds(a)
-                    b_sec = parse_flex_time_to_seconds(b)
-                    lo, hi = (a_sec, b_sec) if a_sec <= b_sec else (b_sec, a_sec)
-                    if not (lo <= ev.t_sec <= hi):
-                        continue
-                    if ev.kind == "GA" and ev.t_sec == a_sec:
-                        continue
-                    elif ev.kind == "GF" and ev.t_sec == a_sec:
-                        continue
-                    matched = True
-                    break
-                if matched:
-                    if ev.kind == "GF":
-                        plus_minus += 1
-                        counted_gf.append(f"P{period}:{ev.t_str}")
-                        counted_gf_by_period[period] = counted_gf_by_period.get(period, 0) + 1
-                    else:
-                        plus_minus -= 1
-                        counted_ga.append(f"P{period}:{ev.t_str}")
-                        counted_ga_by_period[period] = counted_ga_by_period.get(period, 0) + 1
+            plus_minus = 0
+            counted_gf: List[str] = []
+            counted_ga: List[str] = []
+            counted_gf_by_period: Dict[int, int] = {}
+            counted_ga_by_period: Dict[int, int] = {}
+            for period, pairs in sb_by_period.items():
+                if period not in goals_by_period:
+                    continue
+                for ev in goals_by_period[period]:
+                    matched = False
+                    for a, b in pairs:
+                        a_sec = parse_flex_time_to_seconds(a)
+                        b_sec = parse_flex_time_to_seconds(b)
+                        lo, hi = (a_sec, b_sec) if a_sec <= b_sec else (b_sec, a_sec)
+                        if not (lo <= ev.t_sec <= hi):
+                            continue
+                        if ev.kind == "GA" and ev.t_sec == a_sec:
+                            continue
+                        elif ev.kind == "GF" and ev.t_sec == a_sec:
+                            continue
+                        matched = True
+                        break
+                    if matched:
+                        if ev.kind == "GF":
+                            plus_minus += 1
+                            counted_gf.append(f"P{period}:{ev.t_str}")
+                            counted_gf_by_period[period] = counted_gf_by_period.get(period, 0) + 1
+                        else:
+                            plus_minus -= 1
+                            counted_ga.append(f"P{period}:{ev.t_str}")
+                            counted_ga_by_period[period] = counted_ga_by_period.get(period, 0) + 1
 
-        stats_lines = []
-        stats_lines.append(f"Player: {player_key}")
-        stats_lines.append(f"Shifts (scoreboard): {shift_summary['num_shifts']}")
-        stats_lines.append(f"TOI total (scoreboard): {shift_summary['toi_total']}")
-        stats_lines.append(f"Avg shift: {shift_summary['toi_avg']}")
-        stats_lines.append(f"Median shift: {shift_summary['toi_median']}")
-        stats_lines.append(f"Longest shift: {shift_summary['toi_longest']}")
-        stats_lines.append(f"Shortest shift: {shift_summary['toi_shortest']}")
-        if per_period_toi_map:
-            stats_lines.append("Per-period TOI (scoreboard):")
-            for period in sorted(per_period_toi_map.keys()):
-                stats_lines.append(f"  Period {period}: {per_period_toi_map[period]}")
-        stats_lines.append(f"Plus/Minus: {plus_minus}")
-        if counted_gf:
-            stats_lines.append("  GF counted at: " + ", ".join(sorted(counted_gf)))
-        if counted_ga:
-            stats_lines.append("  GA counted at: " + ", ".join(sorted(counted_ga)))
+            stats_lines = []
+            stats_lines.append(f"Player: {player_key}")
+            stats_lines.append(f"Shifts (scoreboard): {shift_summary['num_shifts']}")
+            stats_lines.append(f"TOI total (scoreboard): {shift_summary['toi_total']}")
+            stats_lines.append(f"Avg shift: {shift_summary['toi_avg']}")
+            stats_lines.append(f"Median shift: {shift_summary['toi_median']}")
+            stats_lines.append(f"Longest shift: {shift_summary['toi_longest']}")
+            stats_lines.append(f"Shortest shift: {shift_summary['toi_shortest']}")
+            if per_period_toi_map:
+                stats_lines.append("Per-period TOI (scoreboard):")
+                for period in sorted(per_period_toi_map.keys()):
+                    stats_lines.append(f"  Period {period}: {per_period_toi_map[period]}")
+            stats_lines.append(f"Plus/Minus: {plus_minus}")
+            if counted_gf:
+                stats_lines.append("  GF counted at: " + ", ".join(sorted(counted_gf)))
+            if counted_ga:
+                stats_lines.append("  GA counted at: " + ", ".join(sorted(counted_ga)))
 
-        if event_log_context is not None:
-            per_player_events = event_log_context.event_counts_by_player
-            ev_counts = per_player_events.get(player_key, {})
-            if ev_counts:
-                stats_lines.append("")
-                stats_lines.append("Event Counts:")
-                order = ["Shot", "Goal", "Assist", "ControlledEntry", "ControlledExit", "ExpectedGoal"]
-                for kind in order:
-                    if kind in ev_counts and ev_counts[kind] > 0:
-                        stats_lines.append(f"  {kind}: {ev_counts[kind]}")
-                for kind, cnt in sorted(ev_counts.items()):
-                    if kind in order:
-                        continue
-                    stats_lines.append(f"  {kind}: {cnt}")
+            for period, pairs in sorted(sb_by_period.items()):
+                stats_lines.append(f"Shifts in Period {period}: {len(pairs)}")
 
-        for period, pairs in sorted(sb_by_period.items()):
-            stats_lines.append(f"Shifts in Period {period}: {len(pairs)}")
+            (legacy_dir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
 
-        (outdir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
+            row_map: Dict[str, str] = {
+                "player": player_key,
+                "shifts": shift_summary["num_shifts"],
+                "plus_minus": str(plus_minus),
+                "sb_toi_total": shift_summary["toi_total"],
+                "sb_avg": shift_summary["toi_avg"],
+                "sb_median": shift_summary["toi_median"],
+                "sb_longest": shift_summary["toi_longest"],
+                "sb_shortest": shift_summary["toi_shortest"],
+            }
+            row_map["gf_counted"] = str(len(counted_gf))
+            row_map["ga_counted"] = str(len(counted_ga))
+            v_pairs = video_pairs_by_player.get(player_key, [])
+            if v_pairs:
+                v_sum = 0
+                for a, b in v_pairs:
+                    lo, hi = compute_interval_seconds(a, b)
+                    v_sum += hi - lo
+                row_map["video_toi_total"] = seconds_to_mmss_or_hhmmss(v_sum)
+            else:
+                row_map["video_toi_total"] = ""
+            for period, toi in per_period_toi_map.items():
+                row_map[f"P{period}_toi"] = toi
+                all_periods_seen.add(period)
+            for period, pairs in sb_by_period.items():
+                row_map[f"P{period}_shifts"] = str(len(pairs))
+            for period, cnt in counted_gf_by_period.items():
+                row_map[f"P{period}_GF"] = str(cnt)
+                all_periods_seen.add(period)
+            for period, cnt in counted_ga_by_period.items():
+                row_map[f"P{period}_GA"] = str(cnt)
+                all_periods_seen.add(period)
 
-        row_map: Dict[str, str] = {
-            "player": player_key,
-            "shifts": shift_summary["num_shifts"],
-            "plus_minus": str(plus_minus),
-            "sb_toi_total": shift_summary["toi_total"],
-            "sb_avg": shift_summary["toi_avg"],
-            "sb_median": shift_summary["toi_median"],
-            "sb_longest": shift_summary["toi_longest"],
-            "sb_shortest": shift_summary["toi_shortest"],
-        }
-        row_map["gf_counted"] = str(len(counted_gf))
-        row_map["ga_counted"] = str(len(counted_ga))
-        v_pairs = video_pairs_by_player.get(player_key, [])
-        if v_pairs:
-            v_sum = 0
-            for a, b in v_pairs:
-                lo, hi = compute_interval_seconds(a, b)
-                v_sum += hi - lo
-            row_map["video_toi_total"] = seconds_to_mmss_or_hhmmss(v_sum)
-        else:
-            row_map["video_toi_total"] = ""
-        for period, toi in per_period_toi_map.items():
-            row_map[f"P{period}_toi"] = toi
-            all_periods_seen.add(period)
-        for period, pairs in sb_by_period.items():
-            row_map[f"P{period}_shifts"] = str(len(pairs))
-        for period, cnt in counted_gf_by_period.items():
-            row_map[f"P{period}_GF"] = str(cnt)
-            all_periods_seen.add(period)
-        for period, cnt in counted_ga_by_period.items():
-            row_map[f"P{period}_GA"] = str(cnt)
-            all_periods_seen.add(period)
+            stats_table_rows.append(row_map)
 
-        stats_table_rows.append(row_map)
+        # Global CSV, consolidated stats, and goal windows
+        _write_global_summary_csv(legacy_dir, sb_pairs_by_player)
+        if stats_table_rows:
+            _write_player_stats_text_and_csv(legacy_dir, stats_table_rows, sorted(all_periods_seen))
+        _write_goal_window_files(legacy_dir, goals, conv_segments_by_period)
+        _write_clip_all_runner(legacy_dir)
 
-    # Global CSV
-    _write_global_summary_csv(outdir, sb_pairs_by_player)
+        if (not skip_validation) and validation_errors > 0:
+            print(
+                f"[validation] Completed with {validation_errors} issue(s). See messages above.",
+                file=sys.stderr,
+            )
+        return legacy_dir
 
-    # Event summaries
+    # Event-log layout: split into team subdirectories and derive goals from left table
+    # Build team-specific goal events from parsed instances
+    goals_blue: List[GoalEvent] = []
+    goals_white: List[GoalEvent] = []
     if event_log_context is not None:
-        _write_event_summaries_and_clips(outdir, event_log_context, conv_segments_by_period)
+        instances = event_log_context.event_instances or {}
 
-    # Consolidated player stats
-    if stats_table_rows:
-        _write_player_stats_text_and_csv(outdir, stats_table_rows, sorted(all_periods_seen))
+        def _mk_goals_for(team_name: str) -> List[GoalEvent]:
+            lst: List[GoalEvent] = []
+            for it in instances.get(("Goal", team_name), []) or []:
+                p = it.get("period")
+                gs = it.get("game_s")
+                if isinstance(p, int) and isinstance(gs, (int, float)):
+                    sec = int(gs)
+                    mm, ss = divmod(sec, 60)
+                    lst.append(GoalEvent("GF", int(p), f"{mm}:{ss:02d}"))
+            lst.sort(key=lambda e: (e.period, e.t_sec))
+            return lst
 
-    # Goals windows
-    _write_goal_window_files(outdir, goals, conv_segments_by_period)
+        blue_gf = _mk_goals_for("Blue")
+        white_gf = _mk_goals_for("White")
+        goals_blue = blue_gf + [GoalEvent("GA", g.period, g.t_str) for g in white_gf]
+        goals_white = white_gf + [GoalEvent("GA", g.period, g.t_str) for g in blue_gf]
 
-    # Aggregate clip runner
-    _write_clip_all_runner(outdir)
+    # Helper to split dicts like {"Blue_11": [...], "White_9": [...]} into per-team without prefix
+    def _split_prefix(prefix: str, m: Dict[str, Any]) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        pref = prefix + "_"
+        for k, v in m.items():
+            if k.startswith(pref):
+                out[k[len(pref) :]] = v
+        return out
 
-    # Validation summary
-    if (not used_event_log) and (not skip_validation) and validation_errors > 0:
-        print(f"[validation] Completed with {validation_errors} issue(s). See messages above.", file=sys.stderr)
+    teams = []
+    if any(k.startswith("Blue_") for k in video_pairs_by_player) or any(
+        k.startswith("Blue_") for k in sb_pairs_by_player
+    ):
+        teams.append("Blue")
+    if any(k.startswith("White_") for k in video_pairs_by_player) or any(
+        k.startswith("White_") for k in sb_pairs_by_player
+    ):
+        teams.append("White")
 
-    return outdir
+    root_out = outdir  # keep root as the return value
+    for team in teams:
+        team_dir = root_out / team
+        team_dir.mkdir(parents=True, exist_ok=True)
+
+        v_pairs_team = _split_prefix(team, video_pairs_by_player)
+        sb_pairs_team = _split_prefix(team, sb_pairs_by_player)
+
+        _write_video_times_and_scripts(team_dir, v_pairs_team)
+        _write_scoreboard_times(team_dir, sb_pairs_team)
+
+        # Team-specific goals_by_period
+        team_goal_events = goals_blue if team == "Blue" else goals_white
+        goals_by_period: Dict[int, List[GoalEvent]] = {}
+        for ev in team_goal_events:
+            goals_by_period.setdefault(ev.period, []).append(ev)
+
+        stats_table_rows: List[Dict[str, str]] = []
+        all_periods_seen: set[int] = set()
+        for player_key, sb_list in sb_pairs_team.items():
+            sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
+            for period, a, b in sb_list:
+                sb_by_period.setdefault(period, []).append((a, b))
+            all_pairs = [(a, b) for (_, a, b) in sb_list]
+            shift_summary = summarize_shift_lengths_sec(all_pairs)
+            per_period_toi_map = per_period_toi(sb_by_period)
+
+            plus_minus = 0
+            counted_gf: List[str] = []
+            counted_ga: List[str] = []
+            counted_gf_by_period: Dict[int, int] = {}
+            counted_ga_by_period: Dict[int, int] = {}
+            for period, pairs in sb_by_period.items():
+                if period not in goals_by_period:
+                    continue
+                for ev in goals_by_period[period]:
+                    matched = False
+                    for a, b in pairs:
+                        a_sec = parse_flex_time_to_seconds(a)
+                        b_sec = parse_flex_time_to_seconds(b)
+                        lo, hi = (a_sec, b_sec) if a_sec <= b_sec else (b_sec, a_sec)
+                        if not (lo <= ev.t_sec <= hi):
+                            continue
+                        if ev.kind == "GA" and ev.t_sec == a_sec:
+                            continue
+                        elif ev.kind == "GF" and ev.t_sec == a_sec:
+                            continue
+                        matched = True
+                        break
+                    if matched:
+                        if ev.kind == "GF":
+                            plus_minus += 1
+                            counted_gf.append(f"P{period}:{ev.t_str}")
+                            counted_gf_by_period[period] = counted_gf_by_period.get(period, 0) + 1
+                        else:
+                            plus_minus -= 1
+                            counted_ga.append(f"P{period}:{ev.t_str}")
+                            counted_ga_by_period[period] = counted_ga_by_period.get(period, 0) + 1
+
+            stats_lines = []
+            stats_lines.append(f"Player: {player_key}")
+            stats_lines.append(f"Shifts (scoreboard): {shift_summary['num_shifts']}")
+            stats_lines.append(f"TOI total (scoreboard): {shift_summary['toi_total']}")
+            stats_lines.append(f"Avg shift: {shift_summary['toi_avg']}")
+            stats_lines.append(f"Median shift: {shift_summary['toi_median']}")
+            stats_lines.append(f"Longest shift: {shift_summary['toi_longest']}")
+            stats_lines.append(f"Shortest shift: {shift_summary['toi_shortest']}")
+            if per_period_toi_map:
+                stats_lines.append("Per-period TOI (scoreboard):")
+                for p in sorted(per_period_toi_map.keys()):
+                    stats_lines.append(f"  Period {p}: {per_period_toi_map[p]}")
+            stats_lines.append(f"Plus/Minus: {plus_minus}")
+            if counted_gf:
+                stats_lines.append("  GF counted at: " + ", ".join(sorted(counted_gf)))
+            if counted_ga:
+                stats_lines.append("  GA counted at: " + ", ".join(sorted(counted_ga)))
+
+            for p, pairs in sorted(sb_by_period.items()):
+                stats_lines.append("")
+                stats_lines.append(f"Period {p} shifts:")
+                for a, b in pairs:
+                    stats_lines.append(f"  {a} -> {b}")
+            (team_dir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
+
+            # Row for team summary CSV/text
+            row_map: Dict[str, str] = {
+                "player": player_key,
+                "shifts": shift_summary["num_shifts"],
+                "plus_minus": str(plus_minus),
+                "sb_toi_total": shift_summary["toi_total"],
+                "sb_avg": shift_summary["toi_avg"],
+                "sb_median": shift_summary["toi_median"],
+                "sb_longest": shift_summary["toi_longest"],
+                "sb_shortest": shift_summary["toi_shortest"],
+            }
+            row_map["gf_counted"] = str(len(counted_gf))
+            row_map["ga_counted"] = str(len(counted_ga))
+            v_pairs = v_pairs_team.get(player_key, [])
+            if v_pairs:
+                v_sum = 0
+                for a, b in v_pairs:
+                    lo, hi = compute_interval_seconds(a, b)
+                    v_sum += hi - lo
+                row_map["video_toi_total"] = seconds_to_mmss_or_hhmmss(v_sum)
+            else:
+                row_map["video_toi_total"] = ""
+            for p, toi in per_period_toi_map.items():
+                row_map[f"P{p}_toi"] = toi
+                all_periods_seen.add(p)
+            for p, pairs in sb_by_period.items():
+                row_map[f"P{p}_shifts"] = str(len(pairs))
+            for p, cnt in counted_gf_by_period.items():
+                row_map[f"P{p}_GF"] = str(cnt)
+                all_periods_seen.add(p)
+            for p, cnt in counted_ga_by_period.items():
+                row_map[f"P{p}_GA"] = str(cnt)
+                all_periods_seen.add(p)
+
+            stats_table_rows.append(row_map)
+
+        # Team-level summaries
+        _write_global_summary_csv(team_dir, sb_pairs_team)
+        if stats_table_rows:
+            _write_player_stats_text_and_csv(team_dir, stats_table_rows, sorted(all_periods_seen))
+        if team_goal_events:
+            _write_goal_window_files(team_dir, team_goal_events, conv_segments_by_period)
+
+        _write_clip_all_runner(team_dir)
+
+    # For event-log layout, also write a one-time aggregate event summary at the root
+    if event_log_context is not None:
+        _write_event_summaries_and_clips(root_out, event_log_context, conv_segments_by_period)
+
+    return root_out
 
 
 # ----------------------------- CLI -----------------------------
