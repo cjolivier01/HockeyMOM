@@ -61,6 +61,17 @@ def sanitize_name(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_\-]", "", s)
 
 
+def clean_team_display_name(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    t = str(s)
+    # Remove explicit '(Shifts)' marker, tolerate spaces and case
+    t = re.sub(r"\(\s*Shifts\s*\)", "", t, flags=re.IGNORECASE)
+    # Collapse multiple spaces
+    t = re.sub(r"\s{2,}", " ", t)
+    return t.strip()
+
+
 def is_period_label(x: object) -> bool:
     s = str(x).strip()
     return bool(re.fullmatch(r"Period\s+[1-9]\d*", s))
@@ -388,6 +399,10 @@ class EventLogContext:
     event_player_rows: List[Dict[str, Any]]
     team_roster: Dict[str, List[int]]
     team_excluded: Dict[str, List[int]]
+    # Derived from on-ice inference at event time (by scoreboard time)
+    on_ice_counts_by_player: Dict[str, Dict[str, int]]
+    # Map logical sides ("Blue"/"White") -> display team names from sheet
+    team_display: Dict[str, str]
 
 
 def _detect_event_log_headers(df: pd.DataFrame) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
@@ -414,7 +429,7 @@ def _detect_event_log_headers(df: pd.DataFrame) -> Tuple[Optional[Tuple[int, int
     return blue_hdr, white_hdr
 
 
-def _detect_generic_shift_tables(df: pd.DataFrame) -> List[Tuple[Tuple[int, int], str]]:
+def _detect_generic_shift_tables(df: pd.DataFrame) -> List[Tuple[Tuple[int, int], str, Optional[str]]]:
     """
     Detect shift tables by locating repeated 'Video time' / 'Game time' headers in the
     top rows, ignoring the leftmost event summary table. Returns a list of
@@ -453,7 +468,7 @@ def _detect_generic_shift_tables(df: pd.DataFrame) -> List[Tuple[Tuple[int, int]
         return []
 
     # For each candidate, try to find a team-identifying label in row 0 nearby
-    out: List[Tuple[Tuple[int, int], str]] = []
+    out: List[Tuple[Tuple[int, int], str, Optional[str]]] = []
     for (rr, cc) in cand:
         team_text = None
         # search row 0 around cc
@@ -472,19 +487,19 @@ def _detect_generic_shift_tables(df: pd.DataFrame) -> List[Tuple[Tuple[int, int]
                 prefix = "Blue"
             elif "(white)" in low or low.endswith(" white"):
                 prefix = "White"
-        out.append(((row0, cc), prefix))
+        out.append(((row0, cc), prefix, team_text))
 
     # Ensure distinct prefixes; fill blanks deterministically
     rightsorted = sorted(out, key=lambda x: x[0][1])
     # Default rightmost as Blue, the other as White when unknown
     if len(rightsorted) == 2:
         if not rightsorted[1][1]:
-            rightsorted[1] = (rightsorted[1][0], "Blue")
+            rightsorted[1] = (rightsorted[1][0], "Blue", rightsorted[1][2])
         if not rightsorted[0][1]:
-            rightsorted[0] = (rightsorted[0][0], "White")
+            rightsorted[0] = (rightsorted[0][0], "White", rightsorted[0][2])
     elif len(rightsorted) == 1:
         if not rightsorted[0][1]:
-            rightsorted[0] = (rightsorted[0][0], "Blue")
+            rightsorted[0] = (rightsorted[0][0], "Blue", rightsorted[0][2])
     return rightsorted
 
 
@@ -496,15 +511,25 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
     Optional[EventLogContext],
 ]:
     blue_hdr, white_hdr = _detect_event_log_headers(df)
-    headers: List[Tuple[Tuple[int, int], str]] = []
+    headers_g: List[Tuple[Tuple[int, int], str, Optional[str]]] = []
+    def _find_row0_label(col: int) -> Optional[str]:
+        # Search first row for a likely team label near column
+        row0 = 0
+        for dc in range(-4, 8):
+            c2 = col + dc
+            if 0 <= c2 < df.shape[1]:
+                v = df.iat[row0, c2]
+                if isinstance(v, str) and v.strip() and ("video time" not in v.lower()) and ("game time" not in v.lower()):
+                    return v.strip()
+        return None
     if blue_hdr:
-        headers.append((blue_hdr, "Blue"))
+        headers_g.append((blue_hdr, "Blue", _find_row0_label(blue_hdr[1])))
     if white_hdr:
-        headers.append((white_hdr, "White"))
-    if not headers:
+        headers_g.append((white_hdr, "White", _find_row0_label(white_hdr[1])))
+    if not headers_g:
         # Fallback to generic detector
-        headers = _detect_generic_shift_tables(df)
-    if not headers:
+        headers_g = _detect_generic_shift_tables(df)
+    if not headers_g:
         return False, {}, {}, {}, None
 
     # Accumulators
@@ -715,7 +740,16 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                     if sv is not None and evv is not None:
                         conv_segments_by_period.setdefault(int(per), []).append((int(sg), int(egg), int(sv), int(evv)))
 
-    for (rc, team_prefix) in headers:
+    # Prepare team display mapping (Blue/White -> actual names if present)
+    team_display: Dict[str, str] = {}
+    for (_rc, pref, disp) in headers_g:
+        if pref:
+            if disp and isinstance(disp, str):
+                team_display[pref] = clean_team_display_name(disp)
+            else:
+                team_display[pref] = pref
+
+    for (rc, team_prefix, _disp) in headers_g:
         _parse_event_block(rc, team_prefix or "Blue")
 
     # ---- Parse left-side event columns ----
@@ -875,21 +909,28 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                     t = team_val or _parse_team_from_text(gv)
                     jerseys = _extract_nums(gv)
                     _record_event("Goal", t, jerseys, current_period, row_vsec, row_gsec)
-            # If there's a 'Shots on Goal' column and it says 'GOAL', record a Goal event
+            # If there's a 'Shots on Goal' column, parse SOG/GOAL markers
             if sog_col is not None:
                 sv2 = df.iat[r, sog_col]
-                if isinstance(sv2, str) and ("goal" in sv2.strip().lower()):
+                if isinstance(sv2, str) and sv2.strip():
+                    s2 = sv2.strip().lower()
                     t = team_val or _parse_team_from_text(sv2)
-                    jerseys: List[int] = []
-                    if shots_col is not None:
-                        sv_sh = df.iat[r, shots_col]
-                        if isinstance(sv_sh, str) and sv_sh.strip():
-                            jerseys = _extract_nums(sv_sh)
-                    if not jerseys and assists_col is not None:
-                        av_sh = df.iat[r, assists_col]
-                        if isinstance(av_sh, str) and av_sh.strip():
-                            jerseys = _extract_nums(av_sh)
-                    _record_event("Goal", t, jerseys, current_period, row_vsec, row_gsec)
+                    # SOG marker
+                    if "sog" in s2:
+                        _record_event("SOG", t, [], current_period, row_vsec, row_gsec)
+                    # Goal marker (also counts as SOG)
+                    if "goal" in s2:
+                        jerseys: List[int] = []
+                        if shots_col is not None:
+                            sv_sh = df.iat[r, shots_col]
+                            if isinstance(sv_sh, str) and sv_sh.strip():
+                                jerseys = _extract_nums(sv_sh)
+                        if not jerseys and assists_col is not None:
+                            av_sh = df.iat[r, assists_col]
+                            if isinstance(av_sh, str) and av_sh.strip():
+                                jerseys = _extract_nums(av_sh)
+                        _record_event("SOG", t, [], current_period, row_vsec, row_gsec)
+                        _record_event("Goal", t, jerseys, current_period, row_vsec, row_gsec)
             if assists_col is not None:
                 av = df.iat[r, assists_col]
                 if isinstance(av, str) and av.strip():
@@ -921,6 +962,90 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                     t = team_val or _parse_team_from_text(text_cell)
                     jerseys = _extract_nums(text_cell)
                 _record_event("ExpectedGoal", t, jerseys, current_period, row_vsec, row_gsec)
+            elif isinstance(label, str):
+                lab = label.strip().lower()
+                if ("controlled" in lab) and ("blue" in lab) and ("entr" in lab):
+                    # Controlled blue-line entries row
+                    _record_event("ControlledEntry", team_val, [], current_period, row_vsec, row_gsec)
+                elif ("controlled" in lab) and ("exit" in lab):
+                    # Controlled exits row
+                    _record_event("ControlledExit", team_val, [], current_period, row_vsec, row_gsec)
+                elif "rush" in lab:
+                    # Handle '2/3 Man Rushes'
+                    _record_event("Rush", team_val, [], current_period, row_vsec, row_gsec)
+            elif isinstance(label, str) and "rush" in label.strip().lower():
+                # Handle '2/3 Man Rushes' style rows; team is from the Team column
+                t = team_val
+                _record_event("Rush", t, [], current_period, row_vsec, row_gsec)
+
+    # ---- Build on-ice event counts (by scoreboard time) ----
+    # Build per-player scoreboard intervals for quick membership checks
+    intervals_by_player: Dict[str, Dict[int, List[Tuple[int, int]]]] = {}
+    for pk, lst in sb_pairs_by_player.items():
+        for period, a, b in lst:
+            try:
+                lo, hi = compute_interval_seconds(a, b)
+            except Exception:
+                continue
+            intervals_by_player.setdefault(pk, {}).setdefault(period, []).append((lo, hi))
+
+    def on_ice_sets(period: int, gsec: int) -> Tuple[set[int], set[int]]:
+        blue: set[int] = set()
+        white: set[int] = set()
+        for pk, byp in intervals_by_player.items():
+            if period not in byp:
+                continue
+            for lo, hi in byp[period]:
+                if interval_contains(gsec, lo, hi):
+                    # pk format: "Team_#"
+                    if pk.startswith("Blue_"):
+                        try:
+                            white_or_blue_num = int(pk.split("_", 1)[1])
+                        except Exception:
+                            continue
+                        blue.add(white_or_blue_num)
+                    elif pk.startswith("White_"):
+                        try:
+                            num = int(pk.split("_", 1)[1])
+                        except Exception:
+                            continue
+                        white.add(num)
+                    break
+        return blue, white
+
+    def _inc(d: Dict[str, int], key: str) -> None:
+        d[key] = d.get(key, 0) + 1
+
+    on_ice_counts_by_player: Dict[str, Dict[str, int]] = {}
+    # Iterate over all event instances
+    for (etype, team), lst in event_instances.items():
+        if team not in ("Blue", "White"):
+            continue
+        for it in lst:
+            p = it.get("period")
+            gs = it.get("game_s")
+            if not (isinstance(p, int) and isinstance(gs, (int, float))):
+                continue
+            period = int(p)
+            gsec = int(gs)
+            blue_set, white_set = on_ice_sets(period, gsec)
+            for_or_against_key_for = f"{etype}_For"
+            for_or_against_key_against = f"{etype}_Against"
+            # Increment for players on the executing team
+            if team == "Blue":
+                for j in sorted(blue_set):
+                    pk = f"Blue_{j}"
+                    _inc(on_ice_counts_by_player.setdefault(pk, {}), for_or_against_key_for)
+                for j in sorted(white_set):
+                    pk = f"White_{j}"
+                    _inc(on_ice_counts_by_player.setdefault(pk, {}), for_or_against_key_against)
+            else:
+                for j in sorted(white_set):
+                    pk = f"White_{j}"
+                    _inc(on_ice_counts_by_player.setdefault(pk, {}), for_or_against_key_for)
+                for j in sorted(blue_set):
+                    pk = f"Blue_{j}"
+                    _inc(on_ice_counts_by_player.setdefault(pk, {}), for_or_against_key_against)
 
     event_log_context = EventLogContext(
         event_counts_by_player=event_counts_by_player,
@@ -929,6 +1054,8 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
         event_player_rows=event_player_rows,
         team_roster=team_roster,
         team_excluded=team_excluded,
+        on_ice_counts_by_player=on_ice_counts_by_player,
+        team_display=team_display,
     )
 
     return True, video_pairs_by_player, sb_pairs_by_player, conv_segments_by_period, event_log_context
@@ -1084,7 +1211,13 @@ def _split_team_and_key(player_key: str) -> Tuple[Optional[str], str]:
     return None, player_key
 
 
-def _write_video_times_and_scripts(outdir: Path, video_pairs_by_player: Dict[str, List[Tuple[str, str]]], *, split_by_team: bool = False) -> None:
+def _write_video_times_and_scripts(
+    outdir: Path,
+    video_pairs_by_player: Dict[str, List[Tuple[str, str]]],
+    nr_jobs: int,
+    *,
+    split_by_team: bool = False,
+) -> None:
     for player_key, v_pairs in video_pairs_by_player.items():
         norm_pairs = []
         for a, b in v_pairs:
@@ -1131,7 +1264,7 @@ fi
 
 python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{player_key}\" \"{player_label} vs $OPP\" \"${{EXTRA_FLAGS[@]}}\"
 """.format(
-            nr_jobs=4, player_key=player_key, player_label=player_label
+            nr_jobs=nr_jobs, player_key=player_key, player_label=player_label
         )
         script_path.write_text(script_body, encoding="utf-8")
         try:
@@ -1275,7 +1408,33 @@ def _write_player_stats_text_and_csv(
     period_shift_cols = [f"P{p}_shifts" for p in periods]
     period_gf_cols = [f"P{p}_GF" for p in periods]
     period_ga_cols = [f"P{p}_GA" for p in periods]
-    cols = summary_cols + sb_cols + video_cols + period_toi_cols + period_shift_cols + period_gf_cols + period_ga_cols
+    # Detect extra event count columns present in rows and include them deterministically
+    event_order_types = [
+        "Shot",
+        "SOG",
+        "Goal",
+        "Assist",
+        "ControlledEntry",
+        "ControlledExit",
+        "ExpectedGoal",
+        "Rush",
+    ]
+    detected_event_cols = []
+    for t in event_order_types:
+        for suf in ("For", "Against"):
+            k = f"{t}_{suf}"
+            if any(k in r for r in stats_table_rows):
+                detected_event_cols.append(k)
+    cols = (
+        summary_cols
+        + sb_cols
+        + video_cols
+        + detected_event_cols
+        + period_toi_cols
+        + period_shift_cols
+        + period_gf_cols
+        + period_ga_cols
+    )
 
     rows_for_print: List[List[str]] = []
     for r in sorted(stats_table_rows, key=lambda x: x.get("player", "")):
@@ -1313,9 +1472,13 @@ def _write_event_summaries_and_clips(
     outdir: Path,
     event_log_context: EventLogContext,
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
+    nr_jobs: int,
 ) -> None:
     evt_by_team = event_log_context.event_counts_by_type_team
-    rows_evt = [{"event_type": et, "team": tm, "count": cnt} for (et, tm), cnt in sorted(evt_by_team.items())]
+    rows_evt = []
+    for (et, tm), cnt in sorted(evt_by_team.items()):
+        tm_disp = event_log_context.team_display.get(tm, tm)
+        rows_evt.append({"event_type": et, "team": tm_disp, "count": cnt})
     if rows_evt:
         pd.DataFrame(rows_evt).to_csv(outdir / "event_summary.csv", index=False)
 
@@ -1327,9 +1490,11 @@ def _write_event_summaries_and_clips(
             return seconds_to_mmss_or_hhmmss(int(x)) if isinstance(x, int) else (seconds_to_mmss_or_hhmmss(int(x)) if isinstance(x, float) else "")
         rows = []
         for r in player_event_rows:
+            tm = r.get('team')
+            tm_disp = event_log_context.team_display.get(tm, tm)
             rows.append({
                 'event_type': r.get('event_type'),
-                'team': r.get('team'),
+                'team': tm_disp,
                 'player': r.get('player'),
                 'jersey': r.get('jersey'),
                 'period': r.get('period'),
@@ -1392,26 +1557,38 @@ def _write_event_summaries_and_clips(
             elif isinstance(g, (int, float)) and isinstance(p, int):
                 vsec = map_sb_to_video(int(p), int(g))
             if vsec is not None:
-                start = max(0, vsec - 15)
-                end = vsec + 15
+                # Use shorter clips for CE/CBE/Rush, otherwise default to ±15s
+                if etype in ("ControlledEntry", "ControlledExit", "Rush"):
+                    pre, post = 10, 10
+                else:
+                    pre, post = 15, 15
+                start = max(0, vsec - pre)
+                end = vsec + post
                 v_windows.append((start, end))
             if isinstance(g, (int, float)) and isinstance(p, int):
                 gsec = int(g)
                 sb_max = max_sb_by_period.get(int(p), None)
-                sb_start = gsec + 15
+                # For CE/CBE/Rush scoreboard windows, also use ±10s
+                if etype in ("ControlledEntry", "ControlledExit", "Rush"):
+                    pre_sb, post_sb = 10, 10
+                else:
+                    pre_sb, post_sb = 15, 15
+                sb_start = gsec + post_sb
                 if sb_max is not None:
                     sb_start = min(sb_max, sb_start)
-                sb_end = max(0, gsec - 15)
+                sb_end = max(0, gsec - pre_sb)
                 lo, hi = (sb_end, sb_start) if sb_end <= sb_start else (sb_start, sb_end)
                 sb_windows_by_period.setdefault(int(p), []).append((lo, hi))
 
         v_windows = merge_windows(v_windows)
         if v_windows:
-            vfile = outdir / f"events_{etype}_{team}_video_times.txt"
+            team_disp = event_log_context.team_display.get(team, team)
+            team_tag = sanitize_name(team_disp)
+            vfile = outdir / f"events_{etype}_{team_tag}_video_times.txt"
             v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
-            script = outdir / f"clip_events_{etype}_{team}.sh"
-            label = f"{etype} ({team})"
+            script = outdir / f"clip_events_{etype}_{team_tag}.sh"
+            label = f"{etype} ({team_disp})"
             body = f"""#!/usr/bin/env bash
 set -euo pipefail
 if [ $# -lt 2 ]; then
@@ -1423,7 +1600,7 @@ OPP=\"$2\"
 THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
 TS_FILE=\"$THIS_DIR/{vfile.name}\"
 shift 2 || true
-python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{team}\" \"{label} vs $OPP\" \"$@\"
+python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{team_tag}\" \"{label} vs $OPP\" \"$@\"
 """
             script.write_text(body, encoding="utf-8")
             try:
@@ -1434,7 +1611,79 @@ python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FIL
             clip_scripts.append(script.name)
 
         if sb_windows_by_period:
-            sfile = outdir / f"events_{etype}_{team}_scoreboard_times.txt"
+            sfile = outdir / f"events_{etype}_{team_tag}_scoreboard_times.txt"
+            s_lines = []
+            for p, wins in sorted(sb_windows_by_period.items()):
+                wins = merge_windows(wins)
+                for lo, hi in wins:
+                    s_lines.append(f"{p} {seconds_to_mmss_or_hhmmss(hi)} {seconds_to_mmss_or_hhmmss(lo)}")
+            if s_lines:
+                sfile.write_text("\n".join(s_lines) + "\n", encoding="utf-8")
+
+    # Build combined ControlledBoth (entries + exits) per team with 10s windows
+    teams_seen = sorted({team for (_, team) in instances.keys()})
+    for team in teams_seen:
+        lst_combined = []
+        for et in ("ControlledEntry", "ControlledExit"):
+            lst_combined.extend(instances.get((et, team), []) or [])
+        if not lst_combined:
+            continue
+        v_windows: List[Tuple[int, int]] = []
+        sb_windows_by_period: Dict[int, List[Tuple[int, int]]] = {}
+        for it in lst_combined:
+            p = it.get('period')
+            v = it.get('video_s')
+            g = it.get('game_s')
+            vsec = None
+            if isinstance(v, (int, float)):
+                vsec = int(v)
+            elif isinstance(g, (int, float)) and isinstance(p, int):
+                vsec = map_sb_to_video(int(p), int(g))
+            if vsec is not None:
+                start = max(0, vsec - 10)
+                end = vsec + 10
+                v_windows.append((start, end))
+            if isinstance(g, (int, float)) and isinstance(p, int):
+                gsec = int(g)
+                sb_max = max_sb_by_period.get(int(p), None)
+                sb_start = gsec + 10
+                if sb_max is not None:
+                    sb_start = min(sb_max, sb_start)
+                sb_end = max(0, gsec - 10)
+                lo, hi = (sb_end, sb_start) if sb_end <= sb_start else (sb_start, sb_end)
+                sb_windows_by_period.setdefault(int(p), []).append((lo, hi))
+
+        v_windows = merge_windows(v_windows)
+        if v_windows:
+            team_disp = event_log_context.team_display.get(team, team)
+            team_tag = sanitize_name(team_disp)
+            vfile = outdir / f"events_ControlledBoth_{team_tag}_video_times.txt"
+            v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
+            vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
+            script = outdir / f"clip_events_ControlledBoth_{team_tag}.sh"
+            label = f"Controlled Entry/Exit ({team_disp})"
+            body = f"""#!/usr/bin/env bash
+set -euo pipefail
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
+  exit 1
+fi
+INPUT=\"$1\"
+OPP=\"$2\"
+THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
+TS_FILE=\"$THIS_DIR/{vfile.name}\"
+shift 2 || true
+python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/ControlledBoth_{team_tag}\" \"{label} vs $OPP\" \"$@\"
+"""
+            script.write_text(body, encoding="utf-8")
+            try:
+                import os as _os
+                _os.chmod(script, 0o755)
+            except Exception:
+                pass
+            clip_scripts.append(script.name)
+        if sb_windows_by_period:
+            sfile = outdir / f"events_ControlledBoth_{team_tag}_scoreboard_times.txt"
             s_lines = []
             for p, wins in sorted(sb_windows_by_period.items()):
                 wins = merge_windows(wins)
@@ -1579,6 +1828,7 @@ def process_sheet(
     keep_goalies: bool,
     goals: List[GoalEvent],
     skip_validation: bool = False,
+    nr_jobs: int = 4,
 ) -> Path:
     target_sheet = 0 if sheet_name is None else sheet_name
     df = pd.read_excel(xls_path, sheet_name=target_sheet, header=None)
@@ -1609,7 +1859,7 @@ def process_sheet(
         legacy_dir.mkdir(parents=True, exist_ok=True)
 
         # Per-player time files and clip scripts
-        _write_video_times_and_scripts(legacy_dir, video_pairs_by_player)
+        _write_video_times_and_scripts(legacy_dir, video_pairs_by_player, nr_jobs)
         _write_scoreboard_times(legacy_dir, sb_pairs_by_player)
 
         # Stats and plus/minus
@@ -1776,13 +2026,15 @@ def process_sheet(
 
     root_out = outdir  # keep root as the return value
     for team in teams:
-        team_dir = root_out / team
+        team_disp = event_log_context.team_display.get(team, team) if event_log_context is not None else team
+        team_dirname = sanitize_name(team_disp)
+        team_dir = root_out / team_dirname
         team_dir.mkdir(parents=True, exist_ok=True)
 
         v_pairs_team = _split_prefix(team, video_pairs_by_player)
         sb_pairs_team = _split_prefix(team, sb_pairs_by_player)
 
-        _write_video_times_and_scripts(team_dir, v_pairs_team)
+        _write_video_times_and_scripts(team_dir, v_pairs_team, nr_jobs)
         _write_scoreboard_times(team_dir, sb_pairs_team)
 
         # Team-specific goals_by_period
@@ -1856,6 +2108,31 @@ def process_sheet(
                 stats_lines.append(f"Period {p} shifts:")
                 for a, b in pairs:
                     stats_lines.append(f"  {a} -> {b}")
+            # On-ice event counts (For/Against) from left table
+            if event_log_context is not None:
+                oc_all = event_log_context.on_ice_counts_by_player or {}
+                pref_key = f"{team}_{player_key}"
+                oc = oc_all.get(pref_key, {})
+                if oc:
+                    stats_lines.append("")
+                    stats_lines.append("Event Counts (On-Ice):")
+                    ev_order = [
+                        "Shot",
+                        "SOG",
+                        "Goal",
+                        "Assist",
+                        "ControlledEntry",
+                        "ControlledExit",
+                        "ExpectedGoal",
+                        "Rush",
+                    ]
+                    for tname in ev_order:
+                        fkey = f"{tname}_For"
+                        akey = f"{tname}_Against"
+                        fv = oc.get(fkey, 0)
+                        av = oc.get(akey, 0)
+                        if fv or av:
+                            stats_lines.append(f"  {tname}: For {fv}, Against {av}")
             (team_dir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
 
             # Row for team summary CSV/text
@@ -1892,6 +2169,15 @@ def process_sheet(
                 row_map[f"P{p}_GA"] = str(cnt)
                 all_periods_seen.add(p)
 
+            # Add on-ice event counts into row_map for CSV
+            if event_log_context is not None:
+                oc_all = event_log_context.on_ice_counts_by_player or {}
+                pref_key = f"{team}_{player_key}"
+                oc = oc_all.get(pref_key, {})
+                for k, v in oc.items():
+                    # k like 'Shot_For'
+                    row_map[k] = str(v)
+
             stats_table_rows.append(row_map)
 
         # Team-level summaries
@@ -1905,7 +2191,7 @@ def process_sheet(
 
     # For event-log layout, also write a one-time aggregate event summary at the root
     if event_log_context is not None:
-        _write_event_summaries_and_clips(root_out, event_log_context, conv_segments_by_period)
+        _write_event_summaries_and_clips(root_out, event_log_context, conv_segments_by_period, nr_jobs)
 
     return root_out
 
@@ -1962,6 +2248,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip validation checks on start/end ordering and excessive durations.",
     )
+    p.add_argument(
+        "--nr-jobs",
+        type=int,
+        default=4,
+        help="Number of parallel jobs for video clipping scripts (default: 4)",
+    )
     return p
 
 
@@ -2002,6 +2294,7 @@ def main() -> None:
         keep_goalies=args.keep_goalies,
         goals=goals,
         skip_validation=args.skip_validation,
+        nr_jobs=int(args.nr_jobs),
     )
     try:
         print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
