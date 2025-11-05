@@ -1829,6 +1829,7 @@ def process_sheet(
     goals: List[GoalEvent],
     skip_validation: bool = False,
     nr_jobs: int = 4,
+    t2s_game_id: Optional[int] = None,
 ) -> Path:
     target_sheet = 0 if sheet_name is None else sheet_name
     df = pd.read_excel(xls_path, sheet_name=target_sheet, header=None)
@@ -2005,6 +2006,91 @@ def process_sheet(
         goals_blue = blue_gf + [GoalEvent("GA", g.period, g.t_str) for g in white_gf]
         goals_white = white_gf + [GoalEvent("GA", g.period, g.t_str) for g in blue_gf]
 
+    # If a TimeToScore game id was provided, fetch rosters and try to map Blue/White
+    # to home/away using jersey overlap (and team name similarity), then prepare
+    # per-color roster maps for name enrichment and jersey validation.
+    roster_by_color: Dict[str, Dict[int, str]] = {}
+    if used_event_log and t2s_game_id is not None and t2s_api is not None and event_log_context is not None:
+        try:
+            info = t2s_api.get_game_details(int(t2s_game_id))
+            stats = info.get("stats") or {}
+
+            def _build_roster(rows: Any) -> Dict[int, str]:
+                out: Dict[int, str] = {}
+                for r in rows or []:
+                    try:
+                        num = int(str((r or {}).get("number")).strip())
+                    except Exception:
+                        continue
+                    name = str((r or {}).get("name") or "").strip()
+                    if not (1 <= num <= 99):
+                        continue
+                    if not name:
+                        continue
+                    out[num] = name
+                return out
+
+            home_roster = _build_roster((stats or {}).get("homePlayers"))
+            away_roster = _build_roster((stats or {}).get("awayPlayers"))
+
+            # Observed sheet jersey sets
+            blue_set = set(event_log_context.team_roster.get("Blue", []) or [])
+            white_set = set(event_log_context.team_roster.get("White", []) or [])
+
+            # Simple side inference by overlap + name similarity
+            def _norm(s: str) -> str:
+                import re as _re
+                return _re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+            td_blue = event_log_context.team_display.get("Blue", "Blue")
+            td_white = event_log_context.team_display.get("White", "White")
+            home_name = (((info.get("home") or {}).get("team") or {}) or {}).get("name") or "Home"
+            away_name = (((info.get("away") or {}).get("team") or {}) or {}).get("name") or "Away"
+            n_td_blue, n_td_white = _norm(td_blue), _norm(td_white)
+            n_home, n_away = _norm(home_name), _norm(away_name)
+
+            def _name_score(a: str, b: str) -> int:
+                if not a or not b:
+                    return 0
+                if a == b:
+                    return 3
+                if a in b or b in a:
+                    return 2
+                return 0
+
+            blue_home = len(blue_set & set(home_roster.keys())) + _name_score(n_td_blue, n_home)
+            blue_away = len(blue_set & set(away_roster.keys())) + _name_score(n_td_blue, n_away)
+            white_home = len(white_set & set(home_roster.keys())) + _name_score(n_td_white, n_home)
+            white_away = len(white_set & set(away_roster.keys())) + _name_score(n_td_white, n_away)
+
+            if blue_home >= blue_away and white_away >= white_home:
+                color_to_side = {"Blue": "home", "White": "away"}
+            elif blue_away > blue_home and white_home > white_away:
+                color_to_side = {"Blue": "away", "White": "home"}
+            else:
+                color_to_side = {"Blue": ("home" if blue_home >= blue_away else "away")}
+                color_to_side["White"] = "away" if color_to_side["Blue"] == "home" else "home"
+
+            roster_by_color = {
+                "Blue": home_roster if color_to_side.get("Blue") == "home" else away_roster,
+                "White": away_roster if color_to_side.get("Blue") == "home" else home_roster,
+            }
+
+            # Validation: any jersey numbers observed but not on roster
+            import sys as _sys
+            for color, seen in ("Blue", blue_set), ("White", white_set):
+                roster_nums = set((roster_by_color.get(color) or {}).keys())
+                missing = sorted([n for n in seen if n not in roster_nums])
+                if missing:
+                    team_disp = event_log_context.team_display.get(color, color)
+                    print(
+                        f"[validation] ROSTER | Team={color} -> {team_disp} | jersey(s) not on T2S roster: "
+                        + ", ".join(str(x) for x in missing[:20]),
+                        file=_sys.stderr,
+                    )
+        except Exception:
+            roster_by_color = {}
+
     # Helper to split dicts like {"Blue_11": [...], "White_9": [...]} into per-team without prefix
     def _split_prefix(prefix: str, m: Dict[str, Any]) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
@@ -2033,6 +2119,28 @@ def process_sheet(
 
         v_pairs_team = _split_prefix(team, video_pairs_by_player)
         sb_pairs_team = _split_prefix(team, sb_pairs_by_player)
+
+        # If a roster is available for this color, rename keys to include player names
+        roster_map = roster_by_color.get(team) if roster_by_color else None
+        if roster_map:
+            def _remap_keys(m: Dict[str, Any]) -> Dict[str, Any]:
+                out: Dict[str, Any] = {}
+                for k, v in m.items():
+                    base = str(k).strip()
+                    try:
+                        num = int(base.split("_", 1)[0])
+                    except Exception:
+                        out[k] = v
+                        continue
+                    nm = roster_map.get(num)
+                    if nm:
+                        nk = f"{num}_{sanitize_name(nm)}"
+                    else:
+                        nk = base
+                    out[nk] = v
+                return out
+            v_pairs_team = _remap_keys(v_pairs_team)
+            sb_pairs_team = _remap_keys(sb_pairs_team)
 
         _write_video_times_and_scripts(team_dir, v_pairs_team, nr_jobs)
         _write_scoreboard_times(team_dir, sb_pairs_team)
@@ -2111,7 +2219,9 @@ def process_sheet(
             # On-ice event counts (For/Against) from left table
             if event_log_context is not None:
                 oc_all = event_log_context.on_ice_counts_by_player or {}
-                pref_key = f"{team}_{player_key}"
+                # on-ice counts keyed by team_jersey; extract jersey component
+                base_key = str(player_key).split("_", 1)[0]
+                pref_key = f"{team}_{base_key}"
                 oc = oc_all.get(pref_key, {})
                 if oc:
                     stats_lines.append("")
@@ -2172,7 +2282,8 @@ def process_sheet(
             # Add on-ice event counts into row_map for CSV
             if event_log_context is not None:
                 oc_all = event_log_context.on_ice_counts_by_player or {}
-                pref_key = f"{team}_{player_key}"
+                base_key = str(player_key).split("_", 1)[0]
+                pref_key = f"{team}_{base_key}"
                 oc = oc_all.get(pref_key, {})
                 for k, v in oc.items():
                     # k like 'Shot_For'
@@ -2230,7 +2341,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--t2s",
         type=int,
         default=None,
-        help=("TimeToScore game id. If set and no --goal/--goals-file provided, fetch goals from T2S."),
+        help=(
+            "TimeToScore game id. If set and no --goal/--goals-file provided, fetch goals from T2S (auto-detects side when possible). "
+            "For two-team sheets, rosters are used to name players and side flags are not required."
+        ),
     )
     side_group = p.add_mutually_exclusive_group()
     side_group.add_argument(
@@ -2261,32 +2375,95 @@ def main() -> None:
     args = build_arg_parser().parse_args()
     goals = load_goals(args.goal, args.goals_file)
 
-    # If no manual goals provided, but a T2S game id is given, use T2S.
+    # If no manual goals provided, and a T2S game id is given, optionally fetch goals
+    # from T2S. In two-team event-log layout, goals are derived from the sheet's
+    # left event table, so --home/--away is not required. For legacy per-player sheets,
+    # infer side automatically by jersey overlap when possible; otherwise fall back to flags.
     if not goals and args.t2s is not None:
-        side: Optional[str]
-        if args.home:
-            side = "home"
-        elif args.away:
-            side = "away"
-        else:
-            print(
-                "Error: --t2s was provided but neither --home nor --away was specified.",
-                file=sys.stderr,
-            )
-            sys.exit(2)
         try:
-            goals = goals_from_t2s(int(args.t2s), side=side)
-            if not goals:
-                print(
-                    f"[t2s] No goals found for game {args.t2s}; continuing without GF/GA.",
-                    file=sys.stderr,
-                )
-            else:
-                for g in reversed(sorted([str(g) for g in goals])):
-                    print(g)
-        except Exception as e:  # noqa: BLE001
-            print(f"[t2s] Failed to fetch goals for game {args.t2s}: {e}", file=sys.stderr)
-            # proceed with empty goals
+            target_sheet = 0 if args.sheet is None else args.sheet
+            df_peek = pd.read_excel(args.input, sheet_name=target_sheet, header=None)
+            used_ev, _vp, _sp, _conv, ctx = _parse_event_log_layout(df_peek)
+        except Exception:
+            used_ev, ctx = False, None
+
+        # Two-team event log -> we will build goals from the left table; do not fetch T2S goals.
+        if used_ev:
+            pass
+        else:
+            # Legacy per-player sheet: fetch from T2S. Try auto-detect if possible.
+            side: Optional[str] = None
+            if t2s_api is not None:
+                try:
+                    # Try overlap against any jersey numbers present in the sheet first column
+                    # (jersey) for a simple heuristic.
+                    df0 = df_peek if 'df_peek' in locals() else pd.read_excel(args.input, sheet_name=target_sheet, header=None)
+                    sheet_nums: set[int] = set()
+                    try:
+                        for i in range(min(200, df0.shape[0])):
+                            v = df0.iat[i, 0]
+                            if isinstance(v, (int, float)):
+                                n = int(v)
+                                if 1 <= n <= 98:
+                                    sheet_nums.add(n)
+                            elif isinstance(v, str):
+                                for m in re.finditer(r"#?(\d{1,2})(?!\d)", v):
+                                    n = int(m.group(1))
+                                    if 1 <= n <= 98:
+                                        sheet_nums.add(n)
+                    except Exception:
+                        sheet_nums = set()
+
+                    info = t2s_api.get_game_details(int(args.t2s))
+                    stats = info.get("stats") or {}
+                    def _nums(rows: Any) -> set[int]:
+                        out: set[int] = set()
+                        for r in rows or []:
+                            try:
+                                out.add(int(str(r.get("number")).strip()))
+                            except Exception:
+                                pass
+                        return out
+                    home_set = _nums(stats.get("homePlayers"))
+                    away_set = _nums(stats.get("awayPlayers"))
+                    # Decide side by which T2S roster overlaps more with jersey numbers in sheet
+                    home_overlap = len(sheet_nums & home_set)
+                    away_overlap = len(sheet_nums & away_set)
+                    if home_overlap > 0 or away_overlap > 0:
+                        side = "home" if home_overlap >= away_overlap else "away"
+                        print(
+                            f"[t2s] Auto-detected your side as {side.upper()} (overlap home={home_overlap}, away={away_overlap}).",
+                            file=sys.stderr,
+                        )
+                except Exception:
+                    side = None
+
+            # Fallback to explicit flags if auto-detect was not possible
+            if side is None:
+                if args.home:
+                    side = "home"
+                elif args.away:
+                    side = "away"
+                else:
+                    print(
+                        "Error: --t2s was provided but neither --home nor --away was specified, and auto-detection failed.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(2)
+
+            try:
+                goals = goals_from_t2s(int(args.t2s), side=side)
+                if not goals:
+                    print(
+                        f"[t2s] No goals found for game {args.t2s}; continuing without GF/GA.",
+                        file=sys.stderr,
+                    )
+                else:
+                    for g in reversed(sorted([str(g) for g in goals])):
+                        print(g)
+            except Exception as e:  # noqa: BLE001
+                print(f"[t2s] Failed to fetch goals for game {args.t2s}: {e}", file=sys.stderr)
+                # proceed with empty goals
     final_outdir = process_sheet(
         xls_path=args.input,
         sheet_name=args.sheet,
@@ -2295,6 +2472,7 @@ def main() -> None:
         goals=goals,
         skip_validation=args.skip_validation,
         nr_jobs=int(args.nr_jobs),
+        t2s_game_id=args.t2s,
     )
     try:
         print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
