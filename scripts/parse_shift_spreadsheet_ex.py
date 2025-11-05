@@ -1252,6 +1252,7 @@ def _parse_per_player_layout(df: pd.DataFrame, keep_goalies: bool, skip_validati
             video_pairs = extract_pairs_from_row(df.iloc[r], start_v_cols, end_v_cols)
             sb_pairs = extract_pairs_from_row(df.iloc[r], start_sb_cols, end_sb_cols)
             if sb_pairs:
+                assert False  # Is this necessary or even correct?
                 sb_pairs = [(a, _normalize_sb_end_time(b)) for a, b in sb_pairs]
 
             if not skip_validation:
@@ -1342,6 +1343,8 @@ def _write_video_times_and_scripts(
     *,
     split_by_team: bool = False,
 ) -> None:
+    times_dir = outdir / "times"
+    times_dir.mkdir(parents=True, exist_ok=True)
     for player_key, v_pairs in video_pairs_by_player.items():
         norm_pairs = []
         for a, b in v_pairs:
@@ -1351,7 +1354,7 @@ def _write_video_times_and_scripts(
             except Exception:
                 continue
             norm_pairs.append((seconds_to_hhmmss(sa), seconds_to_hhmmss(sb)))
-        p = outdir / f"{player_key}_video_times.txt"
+        p = times_dir / f"{player_key}_video_times.txt"
         p.write_text("\n".join(f"{a} {b}" for a, b in norm_pairs) + ("\n" if norm_pairs else ""), encoding="utf-8")
 
         script_path = outdir / f"clip_{player_key}.sh"
@@ -1365,7 +1368,7 @@ fi
 INPUT=\"$1\"
 OPP=\"$2\"
 THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-TS_FILE=\"$THIS_DIR/{player_key}_video_times.txt\"
+TS_FILE=\"$THIS_DIR/times/{player_key}_video_times.txt\"
 # Parse optional flags
 QUICK=0
 HQ=0
@@ -1400,8 +1403,10 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
 
 
 def _write_scoreboard_times(outdir: Path, sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]]) -> None:
+    times_dir = outdir / "times"
+    times_dir.mkdir(parents=True, exist_ok=True)
     for player_key, sb_list in sb_pairs_by_player.items():
-        p = outdir / f"{player_key}_scoreboard_times.txt"
+        p = times_dir / f"{player_key}_scoreboard_times.txt"
         lines = [f"{period} {a} {b}" for (period, a, b) in sb_list]
         p.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
@@ -1746,7 +1751,9 @@ def _write_event_summaries_and_clips(
         if v_windows:
             team_disp = event_log_context.team_display.get(team, team)
             team_tag = sanitize_name(team_disp)
-            vfile = outdir / f"events_{etype}_{team_tag}_video_times.txt"
+            times_dir = outdir / "times"
+            times_dir.mkdir(parents=True, exist_ok=True)
+            vfile = times_dir / f"events_{etype}_{team_tag}_video_times.txt"
             v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
             script = outdir / f"clip_events_{etype}_{team_tag}.sh"
@@ -1761,7 +1768,7 @@ fi
 INPUT=\"$1\"
 OPP=\"$2\"
 THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-TS_FILE=\"$THIS_DIR/{vfile.name}\"
+TS_FILE=\"$THIS_DIR/times/{vfile.name}\"
 shift 2 || true
 python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{team_tag}\" \"{label} vs $OPP\" \"$@\"
 """
@@ -1775,7 +1782,7 @@ fi
 INPUT=\"$1\"
 OPP=\"$2\"
 THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-TS_FILE=\"$THIS_DIR/{vfile.name}\"
+TS_FILE=\"$THIS_DIR/times/{vfile.name}\"
 shift 2 || true
 
 # Default to blinking circle around midpoint; allow opt-out with --no-blink
@@ -1801,7 +1808,9 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
             clip_scripts.append(script.name)
 
         if sb_windows_by_period:
-            sfile = outdir / f"events_{etype}_{team_tag}_scoreboard_times.txt"
+            times_dir = outdir / "times"
+            times_dir.mkdir(parents=True, exist_ok=True)
+            sfile = times_dir / f"events_{etype}_{team_tag}_scoreboard_times.txt"
             s_lines = []
             for p, wins in sorted(sb_windows_by_period.items()):
                 wins = merge_windows(wins)
@@ -1847,7 +1856,9 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
         if v_windows:
             team_disp = event_log_context.team_display.get(team, team)
             team_tag = sanitize_name(team_disp)
-            vfile = outdir / f"events_ControlledBoth_{team_tag}_video_times.txt"
+            times_dir = outdir / "times"
+            times_dir.mkdir(parents=True, exist_ok=True)
+            vfile = times_dir / f"events_ControlledBoth_{team_tag}_video_times.txt"
             v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
             script = outdir / f"clip_events_ControlledBoth_{team_tag}.sh"
@@ -1861,7 +1872,7 @@ fi
 INPUT=\"$1\"
 OPP=\"$2\"
 THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-TS_FILE=\"$THIS_DIR/{vfile.name}\"
+TS_FILE=\"$THIS_DIR/times/{vfile.name}\"
 shift 2 || true
 python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/ControlledBoth_{team_tag}\" \"{label} vs $OPP\" \"$@\"
 """
@@ -1874,7 +1885,9 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
                 pass
             clip_scripts.append(script.name)
         if sb_windows_by_period:
-            sfile = outdir / f"events_ControlledBoth_{team_tag}_scoreboard_times.txt"
+            times_dir = outdir / "times"
+            times_dir.mkdir(parents=True, exist_ok=True)
+            sfile = times_dir / f"events_ControlledBoth_{team_tag}_scoreboard_times.txt"
             s_lines = []
             for p, wins in sorted(sb_windows_by_period.items()):
                 wins = merge_windows(wins)
@@ -1985,8 +1998,10 @@ def _write_goal_window_files(
         else:
             ga_lines.append(line)
 
-    (outdir / "goals_for.txt").write_text("\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8")
-    (outdir / "goals_against.txt").write_text("\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8")
+    times_dir = outdir / "times"
+    times_dir.mkdir(parents=True, exist_ok=True)
+    (times_dir / "goals_for.txt").write_text("\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8")
+    (times_dir / "goals_against.txt").write_text("\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8")
 
 
 def _write_clip_all_runner(outdir: Path) -> None:

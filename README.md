@@ -64,3 +64,4 @@ aspen:
 - Event clip scripts (non-goal): enable `--blink-circle` by default.
   - Generated scripts accept `--no-blink` to disable the blinking overlay while preserving other arguments.
   - Player shift clips are unaffected (no blinking overlay added).
+ - Times files location: all generated time window text files are written under a `times/` subdirectory inside the chosen output directory. Generated shell scripts reference `times/<file>.txt` accordingly.
