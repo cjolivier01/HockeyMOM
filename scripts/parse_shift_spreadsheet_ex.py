@@ -1103,14 +1103,25 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
 
     # ---- Build on-ice event counts (by scoreboard time) ----
     # Build per-player scoreboard intervals for quick membership checks
-    intervals_by_player: Dict[str, Dict[int, List[Tuple[int, int]]]] = {}
+    # Store (lo, hi, start_sec) so we can exclude the exact shift-start boundary.
+    intervals_by_player: Dict[str, Dict[int, List[Tuple[int, int, int]]]] = {}
     for pk, lst in sb_pairs_by_player.items():
         for period, a, b in lst:
             try:
                 lo, hi = compute_interval_seconds(a, b)
+                start_sec = parse_flex_time_to_seconds(a)
             except Exception:
                 continue
-            intervals_by_player.setdefault(pk, {}).setdefault(period, []).append((lo, hi))
+            intervals_by_player.setdefault(pk, {}).setdefault(period, []).append((lo, hi, start_sec))
+
+    def interval_contains_excluding_start(t: int, lo: int, hi: int, start_sec: int) -> bool:
+        """Return True if t is within [lo, hi] but not equal to the original shift-start time.
+
+        This implements the rule: events at the exact scoreboard time when a player enters
+        the ice (shift start) are NOT counted for that player; events at the exact time a
+        player leaves the ice (shift end) ARE counted for that player.
+        """
+        return (lo <= t <= hi) and (t != start_sec)
 
     def on_ice_sets(period: int, gsec: int) -> Tuple[set[int], set[int]]:
         blue: set[int] = set()
@@ -1118,8 +1129,8 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
         for pk, byp in intervals_by_player.items():
             if period not in byp:
                 continue
-            for lo, hi in byp[period]:
-                if interval_contains(gsec, lo, hi):
+            for lo, hi, start_sec in byp[period]:
+                if interval_contains_excluding_start(gsec, lo, hi, start_sec):
                     # pk format: "Team_#"
                     if pk.startswith("Blue_"):
                         try:

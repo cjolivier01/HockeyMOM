@@ -65,4 +65,5 @@ aspen:
   - Generated scripts accept `--no-blink` to disable the blinking overlay while preserving other arguments.
   - Player shift clips are unaffected (no blinking overlay added).
 - Times files location: all generated time window text files are written under a `times/` subdirectory inside the chosen output directory. Generated shell scripts reference `times/<file>.txt` accordingly.
- - Shell scripts location: generated shell scripts are written under a `scripts/` subdirectory. Event scripts are further organized by team (`scripts/<TeamTag>/...`). Player shift scripts live in the `scripts/` subdir of each team folder (or legacy output folder).
+- Shell scripts location: generated shell scripts are written under a `scripts/` subdirectory. Event scripts are further organized by team (`scripts/<TeamTag>/...`). Player shift scripts live in the `scripts/` subdir of each team folder (or legacy output folder).
+ - On-ice boundary rule: when a shift ends at the exact same scoreboard time as an event, the event counts for the player leaving the ice and not for the player entering at that time. Internally, membership uses an interval that excludes the shift-start boundary and includes the shift-end boundary.
