@@ -1778,7 +1778,7 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
             v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
             script = outdir / f"clip_events_ControlledBoth_{team_tag}.sh"
-            label = f"Controlled Entry/Exit ({team_disp})"
+            label = f"Controlled Entry_Exit ({team_disp})"
             body = f"""#!/usr/bin/env bash
 set -euo pipefail
 if [ $# -lt 2 ]; then
