@@ -1345,6 +1345,8 @@ def _write_video_times_and_scripts(
 ) -> None:
     times_dir = outdir / "times"
     times_dir.mkdir(parents=True, exist_ok=True)
+    scripts_dir = outdir / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
     for player_key, v_pairs in video_pairs_by_player.items():
         norm_pairs = []
         for a, b in v_pairs:
@@ -1357,7 +1359,7 @@ def _write_video_times_and_scripts(
         p = times_dir / f"{player_key}_video_times.txt"
         p.write_text("\n".join(f"{a} {b}" for a, b in norm_pairs) + ("\n" if norm_pairs else ""), encoding="utf-8")
 
-        script_path = outdir / f"clip_{player_key}.sh"
+        script_path = scripts_dir / f"clip_{player_key}.sh"
         player_label = player_key.replace("_", " ")
         script_body = """#!/usr/bin/env bash
 set -euo pipefail
@@ -1367,8 +1369,8 @@ if [ $# -lt 2 ]; then
 fi
 INPUT=\"$1\"
 OPP=\"$2\"
-THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-TS_FILE=\"$THIS_DIR/times/{player_key}_video_times.txt\"
+ROOT_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")/..\" && pwd)\"
+TS_FILE=\"$ROOT_DIR/times/{player_key}_video_times.txt\"
 # Parse optional flags
 QUICK=0
 HQ=0
@@ -1389,7 +1391,7 @@ if [ \"$HQ\" -gt 0 ]; then
   export VIDEO_CLIPPER_HQ=1
 fi
 
-python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{player_key}\" \"{player_label} vs $OPP\" \"${{EXTRA_FLAGS[@]}}\"
+python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$ROOT_DIR/temp_clips/{player_key}\" \"{player_label} vs $OPP\" \"${{EXTRA_FLAGS[@]}}\"
 """.format(
             nr_jobs=nr_jobs, player_key=player_key, player_label=player_label
         )
@@ -1756,7 +1758,9 @@ def _write_event_summaries_and_clips(
             vfile = times_dir / f"events_{etype}_{team_tag}_video_times.txt"
             v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
-            script = outdir / f"clip_events_{etype}_{team_tag}.sh"
+            scripts_dir = outdir / "scripts" / team_tag
+            scripts_dir.mkdir(parents=True, exist_ok=True)
+            script = scripts_dir / f"clip_events_{etype}_{team_tag}.sh"
             label = f"{etype} ({team_disp})"
             if etype == "Goal":
                 body = f"""#!/usr/bin/env bash
@@ -1767,10 +1771,10 @@ if [ $# -lt 2 ]; then
 fi
 INPUT=\"$1\"
 OPP=\"$2\"
-THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-TS_FILE=\"$THIS_DIR/times/{vfile.name}\"
+ROOT_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")/../..\" && pwd)\"
+TS_FILE=\"$ROOT_DIR/times/{vfile.name}\"
 shift 2 || true
-python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{team_tag}\" \"{label} vs $OPP\" \"$@\"
+python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$ROOT_DIR/temp_clips/{etype}_{team_tag}\" \"{label} vs $OPP\" \"$@\"
 """
             else:
                 body = f"""#!/usr/bin/env bash
@@ -1781,8 +1785,8 @@ if [ $# -lt 2 ]; then
 fi
 INPUT=\"$1\"
 OPP=\"$2\"
-THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-TS_FILE=\"$THIS_DIR/times/{vfile.name}\"
+ROOT_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")/../..\" && pwd)\"
+TS_FILE=\"$ROOT_DIR/times/{vfile.name}\"
 shift 2 || true
 
 # Default to blinking circle around midpoint; allow opt-out with --no-blink
@@ -1796,7 +1800,7 @@ for arg in \"$@\"; do
   fi
 done
 
-python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{team_tag}\" \"${{BLINK_FLAGS[@]}}\" \"{label} vs $OPP\" \"${{EXTRA_ARGS[@]}}\"
+python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$ROOT_DIR/temp_clips/{etype}_{team_tag}\" \"${{BLINK_FLAGS[@]}}\" \"{label} vs $OPP\" \"${{EXTRA_ARGS[@]}}\"
 """
             script.write_text(body, encoding="utf-8")
             try:
@@ -1805,7 +1809,7 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
                 _os.chmod(script, 0o755)
             except Exception:
                 pass
-            clip_scripts.append(script.name)
+            clip_scripts.append(str(script.relative_to(outdir)))
 
         if sb_windows_by_period:
             times_dir = outdir / "times"
@@ -1861,7 +1865,9 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
             vfile = times_dir / f"events_ControlledBoth_{team_tag}_video_times.txt"
             v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
-            script = outdir / f"clip_events_ControlledBoth_{team_tag}.sh"
+            scripts_dir = outdir / "scripts" / team_tag
+            scripts_dir.mkdir(parents=True, exist_ok=True)
+            script = scripts_dir / f"clip_events_ControlledBoth_{team_tag}.sh"
             label = f"Controlled Entry_Exit ({team_disp})"
             body = f"""#!/usr/bin/env bash
 set -euo pipefail
@@ -1871,10 +1877,10 @@ if [ $# -lt 2 ]; then
 fi
 INPUT=\"$1\"
 OPP=\"$2\"
-THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-TS_FILE=\"$THIS_DIR/times/{vfile.name}\"
+ROOT_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")/../..\" && pwd)\"
+TS_FILE=\"$ROOT_DIR/times/{vfile.name}\"
 shift 2 || true
-python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/ControlledBoth_{team_tag}\" \"{label} vs $OPP\" \"$@\"
+python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$ROOT_DIR/temp_clips/ControlledBoth_{team_tag}\" \"{label} vs $OPP\" \"$@\"
 """
             script.write_text(body, encoding="utf-8")
             try:
@@ -1883,7 +1889,7 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
                 _os.chmod(script, 0o755)
             except Exception:
                 pass
-            clip_scripts.append(script.name)
+            clip_scripts.append(str(script.relative_to(outdir)))
         if sb_windows_by_period:
             times_dir = outdir / "times"
             times_dir.mkdir(parents=True, exist_ok=True)
@@ -2016,11 +2022,8 @@ INPUT=\"$1\"
 OPP=\"$2\"
 shift 2 || true
 THIS_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"
-for s in \"$THIS_DIR\"/clip_*.sh; do
+for s in \"$THIS_DIR/scripts\"/clip_*.sh; do
   [ -x \"$s\" ] || continue
-  if [ \"$s\" = \"$THIS_DIR/clip_all.sh\" ]; then
-    continue
-  fi
   echo \"Running $s...\"
   \"$s\" \"$INPUT\" \"$OPP\" \"$@\"
 done
