@@ -19,7 +19,6 @@ import re
 import shlex
 import subprocess
 from datetime import datetime
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 
@@ -315,6 +314,10 @@ def extract_clip_with_overlay(
     label: str,
     clip_number: int,
     top_right_margin: int = 10,
+    # Blinking circle options (disabled by default)
+    blink_circle: bool = False,
+    blink_pre: float = 2.0,
+    blink_post: float = 2.0,
     dry_run: bool,
     cont: bool,
     expected_duration: Optional[float],  # caller computes/guesses
@@ -334,6 +337,37 @@ def extract_clip_with_overlay(
         vf_parts.append(f"scale={width}:{height}")
     vf_parts.append(f"fps={dest_fps}")
     vf_parts.append("format=nv12")
+
+    # Optionally add a blinking bright orange circle near the midpoint of the clip in the top-left
+    # We compute the clip duration for the enable-window when possible.
+    circle_enable = None
+    if blink_circle:
+        # Determine the working duration of this output segment
+        seg_duration: Optional[float] = None
+        if start_time and end_time:
+            seg_duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
+        elif expected_duration is not None:
+            seg_duration = expected_duration
+        else:
+            # Probe full input when we have no better info (filelist mode without expected)
+            seg_duration = get_media_duration_seconds(input_video, dry_run=dry_run)
+
+        if seg_duration is not None and seg_duration > 0:
+            # Only blink if segment is reasonably long (>= 8s)
+            if seg_duration < 8.0:
+                seg_duration = None
+        if seg_duration is not None:
+            mid = seg_duration / 2.0
+            start_blink = max(0.0, mid - max(0.0, float(blink_pre)))
+            end_blink = min(seg_duration, mid + max(0.0, float(blink_post)))
+            if end_blink > start_blink:
+                # Blink on/off with a 0.2s cadence (0.2 on, 0.2 off)
+                # Only blink when the time window is active.
+                circle_enable = f"between(t,{start_blink:.3f},{end_blink:.3f})*lte(mod(t,0.4),0.2)"
+
+    # Note: if blinking circle is enabled, an RGBA image mask is overlaid via filter_complex below.
+
+    # Always add the top-right label text
     vf_parts.append(
         f"drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin}"
     )
@@ -342,16 +376,58 @@ def extract_clip_with_overlay(
     cmd = list(FFMPEG_BASE_HW)
     if start_time:
         cmd += ["-ss", start_time]
-    # Detect and select the appropriate CUDA decoder (H.264 or HEVC) per input
-    cmd += get_decoder_args_for_video(input_video, dry_run=dry_run) + ["-i", input_video]
     if start_time and end_time:
         dur = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
+        # Trim the primary input at decode time to avoid overlong graphs
         cmd += ["-t", f"{dur}"]
+    # Detect and select the appropriate CUDA decoder (H.264 or HEVC) per input
+    cmd += get_decoder_args_for_video(input_video, dry_run=dry_run) + ["-i", input_video]
 
-    cmd += [
-        "-vf",
-        vf_chain,
-    ]
+    if circle_enable:
+        # Add a synthetic orange source as second input for overlay
+        circle_src = "color=c=orange@1.0:s=500x500"
+        # Provide a finite duration if known (helps some ffmpeg builds when mapping/shortest)
+        if 'seg_duration' in locals() and seg_duration is not None and seg_duration > 0:
+            circle_src += f":d={seg_duration:.3f}"
+        cmd += ["-f", "lavfi", "-i", circle_src]
+
+        # Build a filter_complex graph to compose base -> overlay(circle) -> label text
+        base_chain = []
+        if apply_scale:
+            base_chain.append(f"scale={width}:{height}")
+        base_chain.append(f"fps={dest_fps}")
+        base_chain.append("format=rgba")
+        base_chain_s = ",".join(base_chain)
+
+        # Circle alpha mask using geq on the color source: keep RGB, set A to circle mask
+        circle_chain = (
+            "format=rgba,"
+            "geq="
+            "r='r(X,Y)':"
+            "g='g(X,Y)':"
+            "b='b(X,Y)':"
+            "a='if(lte((X-250)*(X-250)+(Y-250)*(Y-250),250*250),255,0)'"
+        )
+
+        # Compose overlay with enable blink expression, then draw the top-right label and convert to nv12
+        label_chain = (
+            f"drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin},format=nv12"
+        )
+
+        fc = (
+            f"[0:v]{base_chain_s}[base];"
+            f"[1:v]{circle_chain}[circle];"
+            f"[base][circle]overlay=x=10:y=10:shortest=1:enable='{circle_enable}'[ov];"
+            f"[ov]{label_chain}[vout]"
+        )
+        cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a?", "-shortest"]
+    else:
+        # Simple single-input vf chain (no circle overlay)
+        cmd += [
+            "-vf",
+            vf_chain,
+        ]
+
     cmd += WORKING_ENCODER_ARGS + [
         "-c:a",
         "aac",
@@ -377,6 +453,9 @@ def _process_clip_from_timestamps(
     dry_run: bool,
     cont: bool,
     apply_scale: bool,
+    blink_circle: bool,
+    blink_pre: float,
+    blink_post: float,
 ) -> list[str]:
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
@@ -410,6 +489,9 @@ def _process_clip_from_timestamps(
         apply_scale=apply_scale,
         label=label,
         clip_number=idx + 1,
+        blink_circle=blink_circle,
+        blink_pre=blink_pre,
+        blink_post=blink_post,
         dry_run=dry_run,
         cont=cont,
         expected_duration=exp_dur,
@@ -431,6 +513,9 @@ def _process_clip_from_filelist(
     dry_run: bool,
     cont: bool,
     apply_scale: bool,
+    blink_circle: bool,
+    blink_pre: float,
+    blink_post: float,
 ) -> list[str]:
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
@@ -462,6 +547,9 @@ def _process_clip_from_filelist(
         apply_scale=apply_scale,
         label=label,
         clip_number=idx + 1,
+        blink_circle=blink_circle,
+        blink_pre=blink_pre,
+        blink_post=blink_post,
         dry_run=dry_run,
         cont=cont,
         expected_duration=src_dur,
@@ -501,6 +589,25 @@ def main():
         "--notk",
         action="store_true",
         help="Do not upscale to 4096 width; keep original resolution",
+    )
+    parser.add_argument(
+        "--blink-circle",
+        action="store_true",
+        help=(
+            "Add a blinking bright orange circle in the top-left around the clip midpoint"
+        ),
+    )
+    parser.add_argument(
+        "--blink-pre",
+        type=float,
+        default=2.0,
+        help="Seconds before midpoint to blink the circle (default: 2.0)",
+    )
+    parser.add_argument(
+        "--blink-post",
+        type=float,
+        default=2.0,
+        help="Seconds after midpoint to blink the circle (default: 2.0)",
     )
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
@@ -606,6 +713,9 @@ def main():
                     dry_run=args.dry_run,
                     cont=args.cont,
                     apply_scale=(not args.notk),
+                    blink_circle=args.blink_circle,
+                    blink_pre=float(args.blink_pre),
+                    blink_post=float(args.blink_post),
                 ): i
                 for i, clip_file in jobs
             }
@@ -659,6 +769,9 @@ def main():
                     dry_run=args.dry_run,
                     cont=args.cont,
                     apply_scale=(not args.notk),
+                    blink_circle=args.blink_circle,
+                    blink_pre=float(args.blink_pre),
+                    blink_post=float(args.blink_post),
                 ): i
                 for (i, start_time, end_time) in ts_jobs
             }

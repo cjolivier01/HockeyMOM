@@ -199,6 +199,13 @@ def _normalize_sb_end_time(t: str) -> str:
     return t
 
 
+# ----------------------------- configuration -----------------------------
+
+# Goal clip window (seconds): 15s before, 5s after (max 20s total)
+GOAL_CLIP_PRE_S: int = 15
+GOAL_CLIP_POST_S: int = 5
+
+
 # ----------------------------- parsing sheet -----------------------------
 
 
@@ -1707,8 +1714,11 @@ def _write_event_summaries_and_clips(
             elif isinstance(g, (int, float)) and isinstance(p, int):
                 vsec = map_sb_to_video(int(p), int(g))
             if vsec is not None:
+                # Goals: 20s max window: 15s before, 5s after
+                if etype == "Goal":
+                    pre, post = GOAL_CLIP_PRE_S, GOAL_CLIP_POST_S
                 # Use shorter clips for CE/CBE/Rush, otherwise default to ±15s
-                if etype in ("ControlledEntry", "ControlledExit", "Rush"):
+                elif etype in ("ControlledEntry", "ControlledExit", "Rush"):
                     pre, post = 10, 10
                 else:
                     pre, post = 15, 15
@@ -1718,8 +1728,10 @@ def _write_event_summaries_and_clips(
             if isinstance(g, (int, float)) and isinstance(p, int):
                 gsec = int(g)
                 sb_max = max_sb_by_period.get(int(p), None)
-                # For CE/CBE/Rush scoreboard windows, also use ±10s
-                if etype in ("ControlledEntry", "ControlledExit", "Rush"):
+                # Scoreboard windows: Goal -> 15s before, 5s after; CE/CBE/Rush -> ±10s; else ±15s
+                if etype == "Goal":
+                    pre_sb, post_sb = GOAL_CLIP_PRE_S, GOAL_CLIP_POST_S
+                elif etype in ("ControlledEntry", "ControlledExit", "Rush"):
                     pre_sb, post_sb = 10, 10
                 else:
                     pre_sb, post_sb = 15, 15
@@ -1739,7 +1751,8 @@ def _write_event_summaries_and_clips(
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
             script = outdir / f"clip_events_{etype}_{team_tag}.sh"
             label = f"{etype} ({team_disp})"
-            body = f"""#!/usr/bin/env bash
+            if etype == "Goal":
+                body = f"""#!/usr/bin/env bash
 set -euo pipefail
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
@@ -1751,6 +1764,32 @@ THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
 TS_FILE=\"$THIS_DIR/{vfile.name}\"
 shift 2 || true
 python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{team_tag}\" \"{label} vs $OPP\" \"$@\"
+"""
+            else:
+                body = f"""#!/usr/bin/env bash
+set -euo pipefail
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq] [--no-blink]"
+  exit 1
+fi
+INPUT=\"$1\"
+OPP=\"$2\"
+THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
+TS_FILE=\"$THIS_DIR/{vfile.name}\"
+shift 2 || true
+
+# Default to blinking circle around midpoint; allow opt-out with --no-blink
+EXTRA_ARGS=()
+BLINK_FLAGS=(--blink-circle)
+for arg in \"$@\"; do
+  if [ \"$arg\" = \"--no-blink\" ]; then
+    BLINK_FLAGS=()
+  else
+    EXTRA_ARGS+=(\"$arg\")
+  fi
+done
+
+python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{team_tag}\" \"${{BLINK_FLAGS[@]}}\" \"{label} vs $OPP\" \"${{EXTRA_ARGS[@]}}\"
 """
             script.write_text(body, encoding="utf-8")
             try:
@@ -1914,8 +1953,9 @@ def _write_goal_window_files(
     ga_lines: List[str] = []
     for ev in goals:
         sb_max = max_sb_by_period.get(ev.period, None)
-        start_sb = ev.t_sec - 30
-        end_sb = ev.t_sec + 10
+        # Goal clip window: 15s before, 5s after (max 20s total)
+        start_sb = ev.t_sec - GOAL_CLIP_PRE_S
+        end_sb = ev.t_sec + GOAL_CLIP_POST_S
         if sb_max is not None:
             start_sb = max(0, start_sb)
             end_sb = min(sb_max, end_sb)
@@ -1924,8 +1964,9 @@ def _write_goal_window_files(
 
         v_center = map_sb_to_video(ev.period, ev.t_sec)
         if v_center is not None:
-            v_start = max(0, v_center - 30)
-            v_end = v_center + 10
+            # Prefer computing from video center to maintain exact 15s/5s when possible
+            v_start = max(0, v_center - GOAL_CLIP_PRE_S)
+            v_end = v_center + GOAL_CLIP_POST_S
             start_str = seconds_to_hhmmss(v_start)
             end_str = seconds_to_hhmmss(v_end)
         else:
@@ -2089,9 +2130,11 @@ def process_sheet(
                 base_key_num = str(player_key).split("_", 1)[0]
                 try:
                     int(base_key_num)
-                    pk_pref = f"{team}_{base_key_num}"
-                    pp_ct = (event_log_context.pp_shifts_by_player or {}).get(pk_pref, 0)
-                    sh_ct = (event_log_context.sh_shifts_by_player or {}).get(pk_pref, 0)
+                    team_color, _rest = _split_team_and_key(player_key)
+                    if team_color in ("Blue", "White"):
+                        pk_pref = f"{team_color}_{base_key_num}"
+                        pp_ct = (event_log_context.pp_shifts_by_player or {}).get(pk_pref, 0)
+                        sh_ct = (event_log_context.sh_shifts_by_player or {}).get(pk_pref, 0)
                 except Exception:
                     pass
             stats_lines.append(f"PP shifts: {pp_ct}")
