@@ -14,9 +14,12 @@ or as a file with lines like:
   GA:2/09:15
   # comments and blank lines allowed
 
-Alternatively, provide a TimeToScore game id to auto-fill goals:
-  --t2s 51602 --home   # Your team is home (home scoring = GF)
-  --t2s 51602 --away   # Your team is away (away scoring = GF)
+Alternatively, with a TimeToScore game id:
+  - Two-team (event-log) sheets: goals are derived from the sheet; use
+    --home=Blue or --home=White (or --away=Blue/White) to force which color
+    maps to the Home/Away roster for roster naming/validation.
+  - Per-player sheets: use --your-side=home or --your-side=away to map GF/GA
+    when fetching goals from TimeToScore.
 
 Install deps (for .xls):
   pip install pandas xlrd
@@ -403,6 +406,8 @@ class EventLogContext:
     on_ice_counts_by_player: Dict[str, Dict[str, int]]
     # Map logical sides ("Blue"/"White") -> display team names from sheet
     team_display: Dict[str, str]
+    # Roster numbers observed strictly from the shift tables (excludes left event table)
+    team_shift_roster: Dict[str, List[int]]
 
 
 def _detect_event_log_headers(df: pd.DataFrame) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
@@ -541,6 +546,7 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
     MAX_TEAM_PLAYERS = 20
     team_roster: Dict[str, List[int]] = {}
     team_excluded: Dict[str, List[int]] = {}
+    team_shift_roster: Dict[str, List[int]] = {}
 
     def _register_and_flag(team: str, jerseys: List[int]) -> List[int]:
         if not team:
@@ -664,6 +670,12 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
             if vsec is None and gsec is None and not players:
                 continue
             players = _register_and_flag(team_prefix, players)
+            # Track shift-table-only roster per team for robust T2S mapping/validation
+            if players:
+                sr = team_shift_roster.setdefault(team_prefix, [])
+                for j in players:
+                    if j not in sr:
+                        sr.append(j)
             events.append({
                 "period": _period_num_from_label(current_period_label),
                 "v": vsec,
@@ -880,6 +892,25 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                 )
             event_instances.setdefault((kind, team), []).append({"period": period_num, "video_s": vsec, "game_s": gsec})
 
+        def _validate_left_roster(team: Optional[str], jersey_list: List[int]) -> None:
+            """Validate that jersey numbers listed in the left event table appear in the
+            shift-table-derived roster for the specified team color (Blue/White).
+            """
+            if not team or not jersey_list:
+                return
+            try:
+                roster_nums = set(team_shift_roster.get(team, []) or [])
+                missing = [n for n in jersey_list if n not in roster_nums]
+                if missing:
+                    import sys as _sys
+                    miss_s = ", ".join(str(x) for x in sorted(set(missing))[:20])
+                    print(
+                        f"[validation] LEFT_TABLE_ROSTER | Team={team} | jersey(s) not on sheet roster: {miss_s}",
+                        file=_sys.stderr,
+                    )
+            except Exception:
+                pass
+
         # Walk data rows to collect events
         current_period: Optional[str] = None
         for r in range(left_header_row + 1, df.shape[0]):
@@ -902,12 +933,14 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                 if isinstance(sv, str) and sv.strip():
                     t = team_val or _parse_team_from_text(sv)
                     jerseys = _extract_nums(sv)
+                    _validate_left_roster(t, jerseys)
                     _record_event("Shot", t, jerseys, current_period, row_vsec, row_gsec)
             if goals_col is not None:
                 gv = df.iat[r, goals_col]
                 if isinstance(gv, str) and gv.strip():
                     t = team_val or _parse_team_from_text(gv)
                     jerseys = _extract_nums(gv)
+                    _validate_left_roster(t, jerseys)
                     _record_event("Goal", t, jerseys, current_period, row_vsec, row_gsec)
             # If there's a 'Shots on Goal' column, parse SOG/GOAL markers
             if sog_col is not None:
@@ -930,24 +963,28 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                             if isinstance(av_sh, str) and av_sh.strip():
                                 jerseys = _extract_nums(av_sh)
                         _record_event("SOG", t, [], current_period, row_vsec, row_gsec)
+                        _validate_left_roster(t, jerseys)
                         _record_event("Goal", t, jerseys, current_period, row_vsec, row_gsec)
             if assists_col is not None:
                 av = df.iat[r, assists_col]
                 if isinstance(av, str) and av.strip():
                     t = team_val or _parse_team_from_text(av)
                     jerseys = _extract_nums(av)
+                    _validate_left_roster(t, jerseys)
                     _record_event("Assist", t, jerseys, current_period, row_vsec, row_gsec)
             if entries_col is not None:
                 ev = df.iat[r, entries_col]
                 if isinstance(ev, str) and ev.strip():
                     t = team_val or _parse_team_from_text(ev)
                     jerseys = _extract_nums(ev)
+                    _validate_left_roster(t, jerseys)
                     _record_event("ControlledEntry", t, jerseys, current_period, row_vsec, row_gsec)
             if exits_col is not None:
                 xv = df.iat[r, exits_col]
                 if isinstance(xv, str) and xv.strip():
                     t = team_val or _parse_team_from_text(xv)
                     jerseys = _extract_nums(xv)
+                    _validate_left_roster(t, jerseys)
                     _record_event("ControlledExit", t, jerseys, current_period, row_vsec, row_gsec)
             label = df.iat[r, 0]
             if isinstance(label, str) and label.strip().lower() == "expected goal":
@@ -1056,6 +1093,7 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
         team_excluded=team_excluded,
         on_ice_counts_by_player=on_ice_counts_by_player,
         team_display=team_display,
+        team_shift_roster=team_shift_roster,
     )
 
     return True, video_pairs_by_player, sb_pairs_by_player, conv_segments_by_period, event_log_context
@@ -1830,6 +1868,8 @@ def process_sheet(
     skip_validation: bool = False,
     nr_jobs: int = 4,
     t2s_game_id: Optional[int] = None,
+    home: Optional[str] = None,
+    away: Optional[str] = None,
 ) -> Path:
     target_sheet = 0 if sheet_name is None else sheet_name
     df = pd.read_excel(xls_path, sheet_name=target_sheet, header=None)
@@ -2033,9 +2073,13 @@ def process_sheet(
             home_roster = _build_roster((stats or {}).get("homePlayers"))
             away_roster = _build_roster((stats or {}).get("awayPlayers"))
 
-            # Observed sheet jersey sets
-            blue_set = set(event_log_context.team_roster.get("Blue", []) or [])
-            white_set = set(event_log_context.team_roster.get("White", []) or [])
+            # Observed sheet jersey sets — prefer shift tables (less ambiguous) over left events
+            if event_log_context.team_shift_roster:
+                blue_set = set(event_log_context.team_shift_roster.get("Blue", []) or [])
+                white_set = set(event_log_context.team_shift_roster.get("White", []) or [])
+            else:
+                blue_set = set(event_log_context.team_roster.get("Blue", []) or [])
+                white_set = set(event_log_context.team_roster.get("White", []) or [])
 
             # Simple side inference by overlap + name similarity
             def _norm(s: str) -> str:
@@ -2058,23 +2102,76 @@ def process_sheet(
                     return 2
                 return 0
 
-            blue_home = len(blue_set & set(home_roster.keys())) + _name_score(n_td_blue, n_home)
-            blue_away = len(blue_set & set(away_roster.keys())) + _name_score(n_td_blue, n_away)
-            white_home = len(white_set & set(home_roster.keys())) + _name_score(n_td_white, n_home)
-            white_away = len(white_set & set(away_roster.keys())) + _name_score(n_td_white, n_away)
+            blue_home_ov = len(blue_set & set(home_roster.keys()))
+            blue_away_ov = len(blue_set & set(away_roster.keys()))
+            white_home_ov = len(white_set & set(home_roster.keys()))
+            white_away_ov = len(white_set & set(away_roster.keys()))
 
-            if blue_home >= blue_away and white_away >= white_home:
-                color_to_side = {"Blue": "home", "White": "away"}
-            elif blue_away > blue_home and white_home > white_away:
-                color_to_side = {"Blue": "away", "White": "home"}
+            # Optional explicit override from CLI: --home=Blue/White or --away=Blue/White
+            def _norm_color(s: Optional[str]) -> Optional[str]:
+                if not s:
+                    return None
+                sl = s.strip().lower()
+                if sl in ("blue", "white"):
+                    return sl.capitalize()
+                return None
+
+            home_color = _norm_color(home)
+            away_color = _norm_color(away)
+            if home_color and away_color and home_color == away_color:
+                # invalid, ignore away_color
+                away_color = None
+            if home_color:
+                color_to_side = {home_color: "home", ("White" if home_color == "Blue" else "Blue"): "away"}
+            elif away_color:
+                color_to_side = {away_color: "away", ("White" if away_color == "Blue" else "Blue"): "home"}
             else:
-                color_to_side = {"Blue": ("home" if blue_home >= blue_away else "away")}
-                color_to_side["White"] = "away" if color_to_side["Blue"] == "home" else "home"
+                # Primary criterion: choose assignment that minimizes mismatches
+                mismatch_home = len([n for n in blue_set if n not in home_roster]) + len(
+                    [n for n in white_set if n not in away_roster]
+                )
+                mismatch_away = len([n for n in blue_set if n not in away_roster]) + len(
+                    [n for n in white_set if n not in home_roster]
+                )
+
+                # Secondary tiebreaker: overlap counts + name similarity
+                blue_home_score = blue_home_ov + _name_score(n_td_blue, n_home)
+                blue_away_score = blue_away_ov + _name_score(n_td_blue, n_away)
+                white_home_score = white_home_ov + _name_score(n_td_white, n_home)
+                white_away_score = white_away_ov + _name_score(n_td_white, n_away)
+
+                if mismatch_home < mismatch_away:
+                    color_to_side = {"Blue": "home", "White": "away"}
+                elif mismatch_away < mismatch_home:
+                    color_to_side = {"Blue": "away", "White": "home"}
+                else:
+                    # Tie: prefer higher combined overlap+name score
+                    score_home = blue_home_score + white_away_score
+                    score_away = blue_away_score + white_home_score
+                    if score_home >= score_away:
+                        color_to_side = {"Blue": "home", "White": "away"}
+                    else:
+                        color_to_side = {"Blue": "away", "White": "home"}
 
             roster_by_color = {
                 "Blue": home_roster if color_to_side.get("Blue") == "home" else away_roster,
                 "White": away_roster if color_to_side.get("Blue") == "home" else home_roster,
             }
+
+            # Log the decision for visibility
+            try:
+                import sys as _sys
+                # Make mismatch counts only if we computed them
+                if 'mismatch_home' in locals() and 'mismatch_away' in locals():
+                    mm_info = f"; mismatch if H/A: {mismatch_home}/{mismatch_away}"
+                else:
+                    mm_info = ""
+                print((
+                    f"[t2s] Blue-> {color_to_side['Blue'].upper()} (ovl H={blue_home_ov}, A={blue_away_ov}{mm_info}). "
+                    f"Home='{home_name}', Away='{away_name}'."
+                ), file=_sys.stderr)
+            except Exception:
+                pass
 
             # Validation: any jersey numbers observed but not on roster
             import sys as _sys
@@ -2346,16 +2443,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "For two-team sheets, rosters are used to name players and side flags are not required."
         ),
     )
-    side_group = p.add_mutually_exclusive_group()
-    side_group.add_argument(
+    # Force Blue/White mapping to Home/Away (two-team event-log sheets)
+    p.add_argument(
         "--home",
-        action="store_true",
-        help="Your team is the home team (with --t2s).",
+        type=str,
+        choices=["Blue", "White", "blue", "white"],
+        default=None,
+        help="Force which color (Blue/White) maps to the Home roster (two-team event-log).",
     )
-    side_group.add_argument(
+    p.add_argument(
         "--away",
-        action="store_true",
-        help="Your team is the away team (with --t2s).",
+        type=str,
+        choices=["Blue", "White", "blue", "white"],
+        default=None,
+        help="Force which color (Blue/White) maps to the Away roster (two-team event-log).",
+    )
+    # Legacy per-player sheets GF/GA perspective when fetching T2S goals
+    p.add_argument(
+        "--your-side",
+        type=str,
+        choices=["home", "away"],
+        default=None,
+        help="For per-player sheets with --t2s and no manual goals: specify if your team is 'home' or 'away'.",
     )
     p.add_argument(
         "--skip-validation",
@@ -2389,7 +2498,23 @@ def main() -> None:
 
         # Two-team event log -> we will build goals from the left table; do not fetch T2S goals.
         if used_ev:
-            pass
+            # Validate color mapping flags if provided
+            def _norm_color(s: Optional[str]) -> Optional[str]:
+                if not s:
+                    return None
+                sl = s.strip().lower()
+                if sl in ("blue", "white"):
+                    return sl.capitalize()
+                return None
+
+            hcol = _norm_color(args.home)
+            acol = _norm_color(args.away)
+            if hcol and acol and hcol == acol:
+                print("Error: --home and --away cannot be the same color.", file=sys.stderr)
+                sys.exit(2)
+            if (args.home or args.away) and not (hcol or acol):
+                print("Error: --home/--away must be 'Blue' or 'White'.", file=sys.stderr)
+                sys.exit(2)
         else:
             # Legacy per-player sheet: fetch from T2S. Try auto-detect if possible.
             side: Optional[str] = None
@@ -2438,15 +2563,13 @@ def main() -> None:
                 except Exception:
                     side = None
 
-            # Fallback to explicit flags if auto-detect was not possible
+            # Fallback to explicit flag if auto-detect was not possible
             if side is None:
-                if args.home:
-                    side = "home"
-                elif args.away:
-                    side = "away"
+                if args.your_side in ("home", "away"):
+                    side = args.your_side
                 else:
                     print(
-                        "Error: --t2s was provided but neither --home nor --away was specified, and auto-detection failed.",
+                        "Error: --t2s was provided but --your-side was not specified, and auto-detection failed.",
                         file=sys.stderr,
                     )
                     sys.exit(2)
@@ -2473,6 +2596,8 @@ def main() -> None:
         skip_validation=args.skip_validation,
         nr_jobs=int(args.nr_jobs),
         t2s_game_id=args.t2s,
+        home=args.home,
+        away=args.away,
     )
     try:
         print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
