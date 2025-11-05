@@ -408,6 +408,9 @@ class EventLogContext:
     team_display: Dict[str, str]
     # Roster numbers observed strictly from the shift tables (excludes left event table)
     team_shift_roster: Dict[str, List[int]]
+    # Per-player PP/SH shift counts (keys like 'Blue_12')
+    pp_shifts_by_player: Dict[str, int]
+    sh_shifts_by_player: Dict[str, int]
 
 
 def _detect_event_log_headers(df: pd.DataFrame) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
@@ -547,6 +550,9 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
     team_roster: Dict[str, List[int]] = {}
     team_excluded: Dict[str, List[int]] = {}
     team_shift_roster: Dict[str, List[int]] = {}
+    # Per-player PP/SH counts keyed as 'Blue_12' or 'White_34'
+    pp_shifts_by_player: Dict[str, int] = {}
+    sh_shifts_by_player: Dict[str, int] = {}
 
     def _register_and_flag(team: str, jerseys: List[int]) -> List[int]:
         if not team:
@@ -622,10 +628,29 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
             period_col = base_c + 2
 
         players_start = base_c
-        players_width = 12
+        # Determine players_width by scanning to the right until a fully blank column separates tables
+        def _col_is_blank(col: int) -> bool:
+            if col >= df.shape[1]:
+                return True
+            for rr in range(base_r + 1, min(df.shape[0], base_r + 120)):
+                vv = df.iat[rr, col]
+                if pd.isna(vv):
+                    continue
+                if str(vv).strip():
+                    return False
+            return True
+
+        players_width = 0
+        for c2 in range(players_start, min(df.shape[1], players_start + 40)):
+            if _col_is_blank(c2):
+                break
+            players_width += 1
+        if players_width <= 0:
+            players_width = 12
 
         # Build events
         current_period_label: Optional[str] = None
+        current_strength: Optional[str] = None  # 'PP' or 'SH'
         events: List[Dict[str, Any]] = []
         for r in range(base_r + 1, df.shape[0]):
             vcell = df.iat[r, video_col] if video_col < df.shape[1] else None
@@ -637,6 +662,8 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
             vsec = _parse_event_time(vcell)
             gsec = _parse_event_time(gcell)
             players: List[int] = []
+            saw_pp = False
+            saw_sh = False
             for k in range(players_width):
                 c = players_start + k
                 if c >= df.shape[1]:
@@ -655,6 +682,10 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                 if not s:
                     continue
                 if s.upper() in {"PP", "SH"}:
+                    if s.upper() == "PP":
+                        saw_pp = True
+                    if s.upper() == "SH":
+                        saw_sh = True
                     continue
                 if re.match(r"^\d{1,2}:\d{2}(?::\d{2})?$", s):
                     continue
@@ -667,6 +698,16 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                         players.append(n)
             if players:
                 players = sorted(set(players))
+            # Determine strength marker for this row
+            row_strength: Optional[str] = None
+            if saw_pp and not saw_sh:
+                row_strength = "PP"
+            elif saw_sh and not saw_pp:
+                row_strength = "SH"
+            # If only PP/SH marker present, update current strength and skip
+            if (not players) and (vsec is None and gsec is None) and row_strength is not None:
+                current_strength = row_strength
+                continue
             if vsec is None and gsec is None and not players:
                 continue
             players = _register_and_flag(team_prefix, players)
@@ -681,6 +722,7 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                 "v": vsec,
                 "g": gsec,
                 "players": players,
+                "strength": (row_strength or current_strength),
             })
 
         # Walk events to generate per-player shifts
@@ -704,6 +746,11 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                         )
                         if sv is not None and evv is not None:
                             conv_segments_by_period.setdefault(last_period, []).append((int(sg), int(egg), int(sv), int(evv)))
+                    st = sh.get("strength")
+                    if st == "PP":
+                        pp_shifts_by_player[key] = pp_shifts_by_player.get(key, 0) + 1
+                    elif st == "SH":
+                        sh_shifts_by_player[key] = sh_shifts_by_player.get(key, 0) + 1
                     del open_shift[pid]
             if cur_p is not None:
                 last_period = cur_p
@@ -726,12 +773,17 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                         )
                         if sv is not None and evv is not None:
                             conv_segments_by_period.setdefault(cur_p, []).append((int(sg), int(end_g), int(sv), int(evv)))
+                    st = sh.get("strength")
+                    if st == "PP":
+                        pp_shifts_by_player[key] = pp_shifts_by_player.get(key, 0) + 1
+                    elif st == "SH":
+                        sh_shifts_by_player[key] = sh_shifts_by_player.get(key, 0) + 1
                     del open_shift[pid]
 
             # Open shifts for players now on
             for pid in on_ice:
                 if pid not in open_shift:
-                    open_shift[pid] = {"sv": ev.get("v"), "sg": ev.get("g"), "period": ev.get("period")}
+                    open_shift[pid] = {"sv": ev.get("v"), "sg": ev.get("g"), "period": ev.get("period"), "strength": ev.get("strength")}
 
         # Close any remaining open shifts at last event, scoreboard -> 0:00
         if events and open_shift:
@@ -751,6 +803,11 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                     )
                     if sv is not None and evv is not None:
                         conv_segments_by_period.setdefault(int(per), []).append((int(sg), int(egg), int(sv), int(evv)))
+                st = sh.get("strength")
+                if st == "PP":
+                    pp_shifts_by_player[key] = pp_shifts_by_player.get(key, 0) + 1
+                elif st == "SH":
+                    sh_shifts_by_player[key] = sh_shifts_by_player.get(key, 0) + 1
 
     # Prepare team display mapping (Blue/White -> actual names if present)
     team_display: Dict[str, str] = {}
@@ -1094,6 +1151,8 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
         on_ice_counts_by_player=on_ice_counts_by_player,
         team_display=team_display,
         team_shift_roster=team_shift_roster,
+        pp_shifts_by_player=pp_shifts_by_player,
+        sh_shifts_by_player=sh_shifts_by_player,
     )
 
     return True, video_pairs_by_player, sb_pairs_by_player, conv_segments_by_period, event_log_context
@@ -1320,12 +1379,18 @@ def _write_scoreboard_times(outdir: Path, sb_pairs_by_player: Dict[str, List[Tup
         p.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
-def _write_global_summary_csv(outdir: Path, sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]]) -> None:
+def _write_global_summary_csv(
+    outdir: Path,
+    sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]],
+    pp_map: Optional[Dict[str, int]] = None,
+    sh_map: Optional[Dict[str, int]] = None,
+    team_color: Optional[str] = None,
+) -> None:
     summary_rows = []
     for player_key, sb_list in sb_pairs_by_player.items():
         all_pairs = [(a, b) for (_, a, b) in sb_list]
         shift_summary = summarize_shift_lengths_sec(all_pairs)
-        row = {
+        row: Dict[str, Any] = {
             "player": player_key,
             "num_shifts": int(shift_summary["num_shifts"]),
             "toi_total_sec": (
@@ -1344,6 +1409,16 @@ def _write_global_summary_csv(outdir: Path, sb_pairs_by_player: Dict[str, List[T
                 parse_flex_time_to_seconds(shift_summary["toi_shortest"]) if ":" in shift_summary["toi_shortest"] else 0
             ),
         }
+        # Optionally include PP/SH shifts if provided
+        if pp_map is not None and sh_map is not None and team_color in ("Blue", "White"):
+            try:
+                base = str(player_key).split("_", 1)[0]
+                num = int(base)
+                k = f"{team_color}_{num}"
+                row["pp_shifts"] = int(pp_map.get(k, 0))
+                row["sh_shifts"] = int(sh_map.get(k, 0))
+            except Exception:
+                pass
         summary_rows.append(row)
     if summary_rows:
         pd.DataFrame(summary_rows).sort_values(by="player").to_csv(outdir / "summary_stats.csv", index=False)
@@ -1463,10 +1538,14 @@ def _write_player_stats_text_and_csv(
             k = f"{t}_{suf}"
             if any(k in r for r in stats_table_rows):
                 detected_event_cols.append(k)
+    # Include PP/SH columns if present in any row
+    include_ppsh = any(("pp_shifts" in r or "sh_shifts" in r) for r in stats_table_rows)
+    ppsh_cols = ["pp_shifts", "sh_shifts"] if include_ppsh else []
     cols = (
         summary_cols
         + sb_cols
         + video_cols
+        + ppsh_cols
         + detected_event_cols
         + period_toi_cols
         + period_shift_cols
@@ -1963,6 +2042,20 @@ def process_sheet(
                 for period in sorted(per_period_toi_map.keys()):
                     stats_lines.append(f"  Period {period}: {per_period_toi_map[period]}")
             stats_lines.append(f"Plus/Minus: {plus_minus}")
+            # PP/SH shift counts (from shift tables)
+            pp_ct = 0
+            sh_ct = 0
+            if event_log_context is not None:
+                base_key_num = str(player_key).split("_", 1)[0]
+                try:
+                    int(base_key_num)
+                    pk_pref = f"{team}_{base_key_num}"
+                    pp_ct = (event_log_context.pp_shifts_by_player or {}).get(pk_pref, 0)
+                    sh_ct = (event_log_context.sh_shifts_by_player or {}).get(pk_pref, 0)
+                except Exception:
+                    pass
+            stats_lines.append(f"PP shifts: {pp_ct}")
+            stats_lines.append(f"SH shifts: {sh_ct}")
             if counted_gf:
                 stats_lines.append("  GF counted at: " + ", ".join(sorted(counted_gf)))
             if counted_ga:
@@ -2161,6 +2254,7 @@ def process_sheet(
             # Log the decision for visibility
             try:
                 import sys as _sys
+
                 # Make mismatch counts only if we computed them
                 if 'mismatch_home' in locals() and 'mismatch_away' in locals():
                     mm_info = f"; mismatch if H/A: {mismatch_home}/{mismatch_away}"
@@ -2376,6 +2470,10 @@ def process_sheet(
                 row_map[f"P{p}_GA"] = str(cnt)
                 all_periods_seen.add(p)
 
+            # Include PP/SH shift counts in CSV row
+            row_map["pp_shifts"] = str(pp_ct)
+            row_map["sh_shifts"] = str(sh_ct)
+
             # Add on-ice event counts into row_map for CSV
             if event_log_context is not None:
                 oc_all = event_log_context.on_ice_counts_by_player or {}
@@ -2389,7 +2487,13 @@ def process_sheet(
             stats_table_rows.append(row_map)
 
         # Team-level summaries
-        _write_global_summary_csv(team_dir, sb_pairs_team)
+        _write_global_summary_csv(
+            team_dir,
+            sb_pairs_team,
+            pp_map=(event_log_context.pp_shifts_by_player if event_log_context is not None else None),
+            sh_map=(event_log_context.sh_shifts_by_player if event_log_context is not None else None),
+            team_color=team,
+        )
         if stats_table_rows:
             _write_player_stats_text_and_csv(team_dir, stats_table_rows, sorted(all_periods_seen))
         if team_goal_events:
@@ -2496,19 +2600,26 @@ def main() -> None:
         except Exception:
             used_ev, ctx = False, None
 
-        # Two-team event log -> we will build goals from the left table; do not fetch T2S goals.
-        if used_ev:
-            # Validate color mapping flags if provided
-            def _norm_color(s: Optional[str]) -> Optional[str]:
-                if not s:
-                    return None
-                sl = s.strip().lower()
-                if sl in ("blue", "white"):
-                    return sl.capitalize()
+        # If color mapping flags are present, assume two-team event-log mode even if
+        # header detection is inconclusive. In event-log mode, goals come from the
+        # left event table; do not fetch T2S goals.
+        def _norm_color(s: Optional[str]) -> Optional[str]:
+            if not s:
                 return None
+            sl = s.strip().lower()
+            if sl in ("blue", "white"):
+                return sl.capitalize()
+            return None
 
-            hcol = _norm_color(args.home)
-            acol = _norm_color(args.away)
+        forced_home = _norm_color(args.home)
+        forced_away = _norm_color(args.away)
+        assume_event_log = used_ev or bool(forced_home or forced_away)
+
+        # Two-team event log -> validate color flags if provided and skip T2S goals
+        if assume_event_log:
+            # Validate color mapping flags if provided
+            hcol = forced_home
+            acol = forced_away
             if hcol and acol and hcol == acol:
                 print("Error: --home and --away cannot be the same color.", file=sys.stderr)
                 sys.exit(2)
