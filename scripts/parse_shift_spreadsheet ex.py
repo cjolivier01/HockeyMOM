@@ -2471,6 +2471,17 @@ def process_sheet(
                 all_periods_seen.add(p)
 
             # Include PP/SH shift counts in CSV row
+            pp_ct = 0
+            sh_ct = 0
+            if event_log_context is not None:
+                base_key_num = str(player_key).split("_", 1)[0]
+                try:
+                    int(base_key_num)
+                    pk_pref = f"{team}_{base_key_num}"
+                    pp_ct = (event_log_context.pp_shifts_by_player or {}).get(pk_pref, 0)
+                    sh_ct = (event_log_context.sh_shifts_by_player or {}).get(pk_pref, 0)
+                except Exception:
+                    pass
             row_map["pp_shifts"] = str(pp_ct)
             row_map["sh_shifts"] = str(sh_ct)
 
