@@ -825,6 +825,7 @@ class hm_opts(object):
         )
 
         # Jersey framework toggles (Koshkina trunk) for reuse across CLIs
+        parser.add_argument("--detect-jersey-numbers", action="store_true", help="Detect individual jersey numbers")
         parser.add_argument("--jersey-roi-mode", type=str, choices=["bbox", "pose", "sam"], default=None,
                             help="ROI mode for jersey trunk: bbox|pose|sam")
         parser.add_argument("--jersey-str-backend", type=str, choices=["mmocr", "parseq"], default=None,

@@ -185,9 +185,9 @@ class SegmBoundaries:
             # Adjust thresholds based on image size
             img_width = self._segment_mask.shape[-1]
             self._normalization_scale = img_width / WIDTH_NORMALIZATION_SIZE
-            # if self._normalization_scale > 0:
-            #     self._raise_bbox_center_by_height_ratio *= self._normalization_scale / 2
-            #     self._lower_bbox_bottom_by_height_ratio *= self._normalization_scale / 2
+            if self._normalization_scale > 0:
+                self._raise_bbox_center_by_height_ratio *= self._normalization_scale / 2
+                self._lower_bbox_bottom_by_height_ratio *= self._normalization_scale / 2
 
         # Maybe we render on the original image
         if self._draw and "original_images" in data:
