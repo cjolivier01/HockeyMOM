@@ -1,5 +1,5 @@
-import numbers
 import math
+import numbers
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -370,9 +370,7 @@ def hm_impad(
     elif isinstance(padding, numbers.Number):
         padding = (padding, padding, padding, padding)
     else:
-        raise ValueError(
-            "Padding must be a int or a 2, or 4 element tuple." f"But received {padding}"
-        )
+        raise ValueError("Padding must be a int or a 2, or 4 element tuple." f"But received {padding}")
 
     # check padding mode
     assert padding_mode in ["constant", "edge", "reflect", "symmetric"]
@@ -415,9 +413,7 @@ def hm_impad(
     return img
 
 
-def hm_impad_to_multiple(
-    img: np.ndarray, divisor: int, pad_val: Union[float, List] = 0
-) -> np.ndarray:
+def hm_impad_to_multiple(img: np.ndarray, divisor: int, pad_val: Union[float, List] = 0) -> np.ndarray:
     """Pad an image to ensure each edge to be multiple to some number.
 
     Args:
@@ -530,9 +526,7 @@ class HmPad:
                 "The size and size_divisor must be None " "when pad2square is True"
             )
         else:
-            assert (
-                size is not None or size_divisor is not None
-            ), "only one of size and size_divisor should be valid"
+            assert size is not None or size_divisor is not None, "only one of size and size_divisor should be valid"
             assert size is None or size_divisor is None
 
     def _pad_img(self, results):
@@ -967,9 +961,9 @@ class HmImageColorAdjust:
         if not torch.is_floating_point(img):
             img = img.to(torch.float32)
         if img.ndim == 3:
-            g = torch.tensor(gains, device=img.device, dtype=img.dtype).view(3, 1, 1)
+            g = torch.tensor(gains, dtype=img.dtype).to(device=img.device, non_blocking=True).view(3, 1, 1)
         else:
-            g = torch.tensor(gains, device=img.device, dtype=img.dtype).view(1, 3, 1, 1)
+            g = torch.tensor(gains, dtype=img.dtype).to(device=img.device, non_blocking=True).view(1, 3, 1, 1)
         img = img * g
         # Clamp to 0..255 if original type was integer-like or float in 0..255
         img = img.clamp(0.0, 255.0)
@@ -1160,6 +1154,7 @@ class HmImageColorAdjust:
         inv = np.array([1.0 / max(1e-6, r), 1.0 / max(1e-6, g), 1.0 / max(1e-6, b)], dtype=np.float32)
         inv /= float(inv.mean())
         return inv.tolist()
+
 
 @TRANSFORMS.register_module()
 class HmCrop:

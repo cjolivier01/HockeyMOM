@@ -1,7 +1,7 @@
+import contextlib as _contextlib
 import threading
 import traceback
 from contextlib import contextmanager
-import contextlib as _contextlib
 from threading import Lock
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 
 from hmlib.log import get_root_logger
 from hmlib.tracking_utils.timer import Timer
+from hmlib.ui import show_image
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
@@ -91,7 +92,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._original_image_only = original_image_only
         self.width_t = None
         self.height_t = None
-        self._image_channel_adjustment = image_channel_adjustment
         self._scale_color_tensor = None
         self._count = torch.tensor([0], dtype=torch.int64)
         self._next_frame_id = torch.tensor([start_frame_number], dtype=torch.int32)
@@ -123,8 +123,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._video_info = None
         self._seek_lock = Lock()
 
-        if self._image_channel_adjustment:
-            assert len(self._image_channel_adjustment) == 3
         self.load_video_info()
 
     def load_video_info(self) -> None:
@@ -377,6 +375,22 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if self._data_pipeline is not None:
                 if isinstance(img0, StreamTensor):
                     img0 = img0.get()
+
+                # if True:
+                #     orig_dtype = img0.dtype
+                #     if not torch.is_floating_point(img0):
+                #         img0 = img0.to(torch.float32)
+                #     img0 = make_channels_first(img0)
+                #     img0 *= (
+                #         torch.tensor([1.15, 1.15, 1.25], dtype=img0.dtype)
+                #         .to(device=img0.device, non_blocking=True)
+                #         .view(1, 3, 1, 1)
+                #     )
+                #     img0 = make_channels_last(img0)
+                #     if orig_dtype != img0.dtype:
+                #         img0 = img0.clamp(0.0, 255.0).to(orig_dtype)
+
+                # show_image("img0", img0, wait=True)
 
                 original_img0 = img0
 

@@ -13,7 +13,7 @@
 
 #STITCHING_ARGS="--save-stitched"
 SAVE_DATA_ARGS="--save-detection-data --save-tracking-data --save-camera-data"
-EXPOSURE="--stitch-auto-adjust-exposure=1"
+# EXPOSURE="--stitch-auto-adjust-exposure=1"
 
 echo "Experiment name: ${EXP_NAME}"
 
