@@ -376,19 +376,19 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if isinstance(img0, StreamTensor):
                     img0 = img0.get()
 
-                # if True:
-                #     orig_dtype = img0.dtype
-                #     if not torch.is_floating_point(img0):
-                #         img0 = img0.to(torch.float32)
-                #     img0 = make_channels_first(img0)
-                #     img0 *= (
-                #         torch.tensor([1.15, 1.15, 1.25], dtype=img0.dtype)
-                #         .to(device=img0.device, non_blocking=True)
-                #         .view(1, 3, 1, 1)
-                #     )
-                #     img0 = make_channels_last(img0)
-                #     if orig_dtype != img0.dtype:
-                #         img0 = img0.clamp(0.0, 255.0).to(orig_dtype)
+                if True:
+                    orig_dtype = img0.dtype
+                    if not torch.is_floating_point(img0):
+                        img0 = img0.to(torch.float32)
+                    img0 = make_channels_first(img0)
+                    img0 *= (
+                        torch.tensor([1.15, 1.15, 1.25], dtype=img0.dtype)
+                        .to(device=img0.device, non_blocking=True)
+                        .view(1, 3, 1, 1)
+                    )
+                    img0 = make_channels_last(img0)
+                    if orig_dtype != img0.dtype:
+                        img0 = img0.clamp(0.0, 255.0).to(orig_dtype)
 
                 # show_image("img0", img0, wait=True)
 
