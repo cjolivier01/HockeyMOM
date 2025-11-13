@@ -382,7 +382,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                         img0 = img0.to(torch.float32)
                     img0 = make_channels_first(img0)
                     img0 *= (
-                        torch.tensor([1.15, 1.15, 1.25], dtype=img0.dtype)
+                        torch.tensor([1.2, 1.2, 1.3], dtype=img0.dtype)
                         .to(device=img0.device, non_blocking=True)
                         .view(1, 3, 1, 1)
                     )
