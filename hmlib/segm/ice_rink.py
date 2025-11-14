@@ -3,8 +3,8 @@ Ice Rink segmentation stuff, basically find the actual ice sheet in the image
 """
 
 import argparse
+import gc
 import os
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -29,13 +29,18 @@ from hmlib.config import (
     save_private_config,
     set_nested_value,
 )
-from hmlib.hm_opts import hm_opts
 from hmlib.log import logger, logging
 from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid
 from hmlib.ui import show_image as do_show_image
 from hmlib.utils.gpu import GpuAllocator, StreamTensor
-from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    is_channels_first,
+    make_channels_first,
+    make_channels_last,
+)
 
 DEFAULT_SCORE_THRESH = 0.3
 
@@ -346,6 +351,10 @@ def find_ice_rink_masks(
             rink_result = _rescale_rink_results(rink_result, inference_scale, (orig_height, orig_width))
 
         results.append(rink_result)
+
+    # Try to free up some CUDA memory
+    del model
+    gc.collect()
 
     if device.type == "cpu":
         logger.info("Found the ice at the rink, continuing...")

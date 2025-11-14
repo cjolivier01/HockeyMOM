@@ -1,16 +1,16 @@
+import gc
 import os
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
 import cv2
-import kornia
 import numpy as np
 import torch
-from kornia.geometry.transform import warp_perspective
 
-from hmlib.config import get_game_dir
-from hmlib.ui.show import show_image
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+)
 
 
 def evenly_spaced_indices(n_points, n_samples):
@@ -208,6 +208,12 @@ def calculate_control_points(
     feats0 = extractor.extract(image0)
     feats1 = extractor.extract(image1)
     matches01 = matcher({"image0": feats0, "image1": feats1})
+
+    # Clean up memory and garbage collect
+    del matcher
+    del extractor
+    gc.collect()
+
     feats0, feats1, matches01 = [
         rbd(x) for x in [feats0, feats1, matches01]
     ]  # remove batch dimension
@@ -220,7 +226,7 @@ def calculate_control_points(
     m_kpts1 = m_kpts1[indices]
 
     if output_directory:
-        axes = viz2d.plot_images([image0, image1])
+        viz2d.plot_images([image0, image1])
         viz2d.plot_matches(m_kpts0, m_kpts1, color="lime", lw=0.2)
         viz2d.add_text(0, f'Stop after {matches01["stop"]} layers', fs=20)
         viz2d.save_plot(os.path.join(output_directory, "matches.png"))
@@ -231,63 +237,6 @@ def calculate_control_points(
         viz2d.save_plot(os.path.join(output_directory, "keypoints.png"))
     control_points = dict(m_kpts0=m_kpts0, m_kpts1=m_kpts1)
     return control_points
-
-
-def do_stitch(
-    image0: Union[str, Path, torch.Tensor],
-    image1: Union[str, Path, torch.Tensor],
-    control_points: Dict[str, torch.Tensor],
-) -> torch.Tensor:
-    def my_matcher(data: Dict[str, torch.Tensor]):
-        results = {
-            # Inverting keypoints since dest is image0 and src is image1
-            "keypoints1": control_points["m_kpts0"],
-            "keypoints0": control_points["m_kpts1"],
-            "batch_indexes": [0],
-        }
-        return results
-
-    stitcher = kornia.contrib.ImageStitcher(matcher=my_matcher)
-    image0 = image0.to("cuda:0")
-    image1 = image1.to(image0.device)
-    image0 = make_channels_first(image0)
-    image1 = make_channels_first(image1)
-    stitcher.to(image0.device)
-
-    out, src_img, dest_img = stitcher(image0.unsqueeze(0), image1.unsqueeze(0))
-    out = cvtcolor_bgr_to_rgb(out)
-    src_img = cvtcolor_bgr_to_rgb(src_img)
-    dest_img = cvtcolor_bgr_to_rgb(dest_img)
-
-    H = stitcher.qstitch(image0.unsqueeze(0), image1.unsqueeze(0))
-    out = opencv_stitch(image0.cpu().numpy(), image1.cpu().numpy(), H.cpu().numpy())
-    return None
-
-
-def opencv_stitch(image1, image2, H):
-    image1 = make_channels_last(image1)
-    image2 = make_channels_last(image2)
-    height, width, channels = image1.shape
-    output_shape = (width * 2, height)
-    result = cv2.warpPerspective(image2, H, output_shape)
-
-    mask_left = np.ones_like(image1)
-    mask_right = np.ones_like(image2)
-    # 'nearest' to ensure no floating points in the mask
-    src_mask = cv2.warpPerspective(mask_right, H, output_shape, flags=cv2.INTER_NEAREST)
-    # warp_perspective(mask_right, homo, out_shape, mode="nearest")
-    dst_mask = np.concatenate([mask_left, np.zeros_like(mask_right)], -1)
-    # return self.blend_image(src_img, dst_img, src_mask), (dst_mask + src_mask).bool().to(
-    #     src_mask.dtype
-    # )
-    # result[0:height, 0:width] = image1
-    src_mask = src_mask[:, :, 0].astype("int32").astype("bool")
-    result[src_mask == True] = image2
-
-    cv2.imshow("Stitched Image", result)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-    return result
 
 
 if __name__ == "__main__":

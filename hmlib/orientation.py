@@ -1,4 +1,5 @@
 import argparse
+import gc
 import os
 import re
 from collections import OrderedDict

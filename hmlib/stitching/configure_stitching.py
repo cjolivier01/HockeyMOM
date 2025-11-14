@@ -2,27 +2,21 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
+import cv2
 import numpy as np
-import scipy
 import tifffile
 import torch
 import torch.nn.functional as F
-import cv2
 
 import hockeymom
 from hmlib.config import (
     get_game_config_private,
-    get_game_dir,
     get_nested_value,
     save_private_config,
     set_nested_value,
 )
-from hmlib.hm_opts import hm_opts
 from hmlib.stitching.control_points import calculate_control_points
-from hmlib.stitching.hugin import configure_control_points, load_pto_file, save_pto_file
-from hmlib.utils.audio import load_audio_as_tensor
-from hmlib.utils.path import add_suffix_to_filename
-from hmlib.video.ffmpeg import BasicVideoInfo
+from hmlib.stitching.hugin import configure_control_points
 from hmlib.video.video_stream import extract_frame_image
 
 from .synchronize import configure_synchronization
