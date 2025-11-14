@@ -7,7 +7,7 @@ import scipy
 import tifffile
 import torch
 import torch.nn.functional as F
-from PIL import Image, ImageOps
+import cv2
 
 import hockeymom
 from hmlib.config import (
@@ -76,15 +76,27 @@ def _apply_color_adders_to_image_file(image_path: str, adders: Optional[List[flo
     if not os.path.exists(image_path):
         return
     try:
-        with Image.open(image_path) as img:
-            # Work in RGB for consistent channel ordering
-            work = img.convert("RGB")
-            arr = np.array(work, dtype=np.float32)
-            arr[..., 0] = np.clip(arr[..., 0] + adders[0], 0.0, 255.0)
-            arr[..., 1] = np.clip(arr[..., 1] + adders[1], 0.0, 255.0)
-            arr[..., 2] = np.clip(arr[..., 2] + adders[2], 0.0, 255.0)
-            out = Image.fromarray(arr.astype(np.uint8), mode="RGB")
-            out.save(image_path)
+        img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            return
+        # Ensure we have at least 3 channels; treat input as BGR
+        if img.ndim == 2:
+            # Grayscale; treat all channels the same by broadcasting R/G/B adders
+            arr = img.astype(np.float32)
+            arr = np.stack([arr, arr, arr], axis=-1)
+        else:
+            arr = img.astype(np.float32)
+            # Convert BGR -> RGB for intuitive R/G/B indexing
+            arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
+
+        # Apply adders to RGB channels
+        arr[..., 0] = np.clip(arr[..., 0] + adders[0], 0.0, 255.0)
+        arr[..., 1] = np.clip(arr[..., 1] + adders[1], 0.0, 255.0)
+        arr[..., 2] = np.clip(arr[..., 2] + adders[2], 0.0, 255.0)
+
+        # Convert back to BGR before saving so downstream OpenCV users see expected ordering
+        arr_bgr = cv2.cvtColor(arr.astype(np.uint8), cv2.COLOR_RGB2BGR)
+        cv2.imwrite(image_path, arr_bgr)
     except Exception:
         # Do not fail stitching configuration if adjustment fails
         pass
@@ -312,9 +324,9 @@ def get_pixel_value_percentages(image_path: str) -> Dict[int, float]:
                           as a float in [0.0, 100.0].
     """
     # Open image and ensure it's in 8-bit grayscale mode
-    with Image.open(image_path) as img:
-        gray: Image.Image = img.convert("L")
-        arr: np.ndarray = np.array(gray, dtype=np.uint8)
+    arr: np.ndarray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if arr is None:
+        return {}
 
     # Total number of pixels
     total: int = arr.size
