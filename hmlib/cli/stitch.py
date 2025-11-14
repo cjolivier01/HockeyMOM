@@ -300,6 +300,24 @@ def _main(args) -> None:
             game_videos["left"] = game_videos["left"][:1]
         if "right" in game_videos and game_videos["right"]:
             game_videos["right"] = game_videos["right"][:1]
+
+    # If user specified max processing time (-t/--max-time), convert to frames
+    # once FPS is known from input videos. Prefer explicit --max-frames when set.
+    try:
+        if (getattr(args, "max_frames", None) in (None, 0)) and getattr(args, "max_time", None):
+            # Use left video FPS as reference for stitched stream
+            left_vid = BasicVideoInfo(",".join(game_videos["left"]))
+            seconds = convert_hms_to_seconds(args.max_time)
+            if seconds > 0 and left_vid.fps > 0:
+                args.max_frames = int(seconds * left_vid.fps)
+                logger.info(
+                    "Limiting processing to %s seconds -> %d frames (fps=%.3f)",
+                    args.max_time,
+                    args.max_frames,
+                    left_vid.fps,
+                )
+    except Exception as e:
+        logger.warning("Failed converting max-time to frames: %s", e)
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
     assert not args.start_frame_offset
     remapping_device = torch.device("cuda", gpu_allocator.allocate_fast())
