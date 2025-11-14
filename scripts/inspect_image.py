@@ -1,4 +1,5 @@
 import sys
+import argparse
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -6,17 +7,98 @@ import numpy as np
 from PIL import Image
 
 
-# Check if an image path was provided
-if len(sys.argv) < 2:
-    print("Usage: python scripts/inspect_image.py path_to_image")
-    sys.exit(1)
+parser = argparse.ArgumentParser(
+    description=(
+        "Inspect an image: left-click prints pixel RGB; "
+        "Shift+left-drag draws a region and prints average RGB."
+    )
+)
+parser.add_argument("image_path", help="Path to the image to inspect")
+parser.add_argument(
+    "-r",
+    "--red",
+    type=float,
+    default=0.0,
+    help="Offset added to the Red channel before display/analysis (can be negative)",
+)
+parser.add_argument(
+    "-g",
+    "--green",
+    type=float,
+    default=0.0,
+    help="Offset added to the Green channel before display/analysis (can be negative)",
+)
+parser.add_argument(
+    "-b",
+    "--blue",
+    type=float,
+    default=0.0,
+    help="Offset added to the Blue channel before display/analysis (can be negative)",
+)
 
-image_path = sys.argv[1]
+args = parser.parse_args()
+image_path = args.image_path
+
+
+def _clip_to_dtype_range(arr: np.ndarray, dtype) -> np.ndarray:
+    if np.issubdtype(dtype, np.integer):
+        info = np.iinfo(dtype)
+        return np.clip(arr, info.min, info.max)
+    if np.issubdtype(dtype, np.floating):
+        # Heuristic: most floating images are 0..1; but keep values as-is to avoid
+        # surprising behavior. Do not clip unless wildly out of range.
+        # Users can provide appropriate offsets for their data range.
+        return arr
+    # Fallback: clip to 0..255
+    return np.clip(arr, 0, 255)
+
+
+def apply_rgb_offsets(data: np.ndarray, r: float, g: float, b: float) -> np.ndarray:
+    """Return image array with RGB offsets applied to first 3 channels.
+
+    - If grayscale (H, W), replicate to (H, W, 3) when any offset is non-zero.
+    - If (H, W, 3) apply per-channel offsets.
+    - If (H, W, 4) apply offsets to RGB and preserve alpha.
+    Values are saturated to the original dtype range where applicable.
+    """
+    if r == 0 and g == 0 and b == 0:
+        return data
+
+    original_dtype = data.dtype
+
+    if data.ndim == 2 or (data.ndim == 3 and data.shape[2] == 1):
+        # Grayscale: convert to 3-channel for display/analysis when offsets used
+        base = data.squeeze()
+        base = base.astype(np.float32)
+        rgb = np.stack([base, base, base], axis=-1)
+        rgb[..., 0] += r
+        rgb[..., 1] += g
+        rgb[..., 2] += b
+        rgb = _clip_to_dtype_range(rgb, original_dtype).astype(original_dtype, copy=False)
+        return rgb
+
+    if data.ndim == 3 and data.shape[2] >= 3:
+        work = data.astype(np.float32)
+        work[..., 0] += r
+        work[..., 1] += g
+        work[..., 2] += b
+        work = _clip_to_dtype_range(work, original_dtype).astype(original_dtype, copy=False)
+        return work
+
+    # Unsupported format; return unchanged
+    return data
 
 try:
     # Load image
     img = Image.open(image_path)
     data = np.array(img)
+
+    # Apply optional RGB offsets before any display/analysis
+    if args.red != 0.0 or args.green != 0.0 or args.blue != 0.0:
+        print(
+            f"Applying offsets: R={args.red:+.2f}, G={args.green:+.2f}, B={args.blue:+.2f}"
+        )
+    data = apply_rgb_offsets(data, args.red, args.green, args.blue)
 
     # Ensure we work with RGB for averaging; ignore alpha if present
     if data.ndim == 3 and data.shape[2] >= 3:
