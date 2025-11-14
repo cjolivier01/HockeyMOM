@@ -15,7 +15,12 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+)
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import VideoStreamReader
@@ -49,6 +54,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         embedded_data_loader_cache_size: int = 6,
         original_image_only: bool = False,
         image_channel_adjustment: Tuple[float, float, float] = None,
+        image_channel_adders: Optional[Tuple[float, float, float]] = None,
         device: torch.device = torch.device("cpu"),
         decoder_device: torch.device = torch.device("cpu"),
         device_for_original_image: torch.device = None,
@@ -93,6 +99,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self.width_t = None
         self.height_t = None
         self._scale_color_tensor = None
+        # Optional per-channel adders (R, G, B) applied to the original image
+        self._image_channel_adders: Optional[Tuple[float, float, float]] = image_channel_adders
         self._count = torch.tensor([0], dtype=torch.int64)
         self._next_frame_id = torch.tensor([start_frame_number], dtype=torch.int32)
         if self._next_frame_id == 0:
@@ -124,6 +132,55 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._seek_lock = Lock()
 
         self.load_video_info()
+
+    def _apply_channel_adders(self, img: torch.Tensor) -> torch.Tensor:
+        """Apply per-channel additive offsets (R, G, B) to an image tensor.
+
+        - Supports 3 or 4 channel images.
+        - Works for NCHW or NHWC (and CHW/HWC) by converting to channels-first internally.
+        - Preserves dtype by clamping to [0, 255] for integer-like tensors.
+        """
+        if not self._image_channel_adders:
+            return img
+        # StreamTensor should be unpacked before this function is called
+        assert isinstance(img, torch.Tensor)
+
+        # Determine if channels-last to restore layout later
+        was_channels_last = False
+        if img.ndim == 4:
+            was_channels_last = img.shape[-1] in (3, 4)
+        elif img.ndim == 3:
+            was_channels_last = img.shape[-1] in (3, 4)
+
+        t = make_channels_first(img)
+        orig_dtype = t.dtype
+        if not torch.is_floating_point(t):
+            t = t.to(torch.float16, non_blocking=True)
+
+        # Build adder tensor and apply to first 3 channels only
+        add = torch.tensor(self._image_channel_adders, dtype=t.dtype, device=t.device)
+        if t.ndim == 4:
+            add = add.view(1, 3, 1, 1)
+        else:
+            add = add.view(3, 1, 1)
+        # Only add to RGB channels; preserve alpha if present
+        t[:, 0:3, :, :] = t[:, 0:3, :, :] + add
+
+        # Clamp and restore dtype
+        if orig_dtype in (
+            torch.uint8,
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+        ):
+            t = t.clamp(0.0, 255.0).to(dtype=orig_dtype)
+        else:
+            # Assume values are in 0..255 range typically; keep dtype float
+            pass
+
+        out = make_channels_last(t) if was_channels_last else t
+        return out
 
     def load_video_info(self) -> None:
         if not self._path_list:
@@ -376,21 +433,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if isinstance(img0, StreamTensor):
                     img0 = img0.get()
 
-                if False:
-                    orig_dtype = img0.dtype
-                    if not torch.is_floating_point(img0):
-                        img0 = img0.to(torch.float32)
-                    img0 = make_channels_first(img0)
-                    img0 *= (
-                        torch.tensor([1.15, 1.15, 1.25], dtype=img0.dtype)
-                        .to(device=img0.device, non_blocking=True)
-                        .view(1, 3, 1, 1)
-                    )
-                    img0 = make_channels_last(img0)
-                    if orig_dtype != img0.dtype:
-                        img0 = img0.clamp(0.0, 255.0).to(orig_dtype)
-
-                # show_image("img0", img0, wait=True)
+                # Optional per-channel additive offsets for input images
+                if self._image_channel_adders is not None:
+                    img0 = self._apply_channel_adders(img0)
 
                 original_img0 = img0
 
@@ -428,6 +473,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     # whatever the Hell that is supposed to be for
                     data = data_item
             else:
+                if isinstance(img0, StreamTensor):
+                    img0 = img0.get()
+                # Optional per-channel additive offsets for input images
+                if self._image_channel_adders is not None:
+                    img0 = self._apply_channel_adders(img0)
                 original_img0 = img0
 
                 if not self._original_image_only:

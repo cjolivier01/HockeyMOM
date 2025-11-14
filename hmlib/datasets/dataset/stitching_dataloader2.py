@@ -18,6 +18,7 @@ import torch
 import torch.nn.functional as F
 from cuda_stacktrace import CudaStackTracer
 
+from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
 from hmlib.stitching.configure_stitching import configure_video_stitching
@@ -25,8 +26,19 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensor,
+    copy_gpu_to_gpu_async,
+    cuda_stream_scope,
+)
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    make_visible_image,
+)
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -238,6 +250,10 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
         self._prepare_next_frame_timer = Timer()
 
+        # Optional per-camera channel adders (R,G,B) loaded from game config
+        self._channel_add_left: Optional[List[float]] = None
+        self._channel_add_right: Optional[List[float]] = None
+
         self._video_left_info = BasicVideoInfo(",".join(videos["left"]["files"]))
         self._video_right_info = BasicVideoInfo(",".join(videos["right"]["files"]))
         self._dir_name = _get_dir_name(str(videos["left"]["files"][0]))
@@ -258,6 +274,66 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         # In case you're debugging...
         self._shower: Optional[Shower] = None
         self._mean_tracker: Optional[MeanTracker] = None
+
+        # Load per-side RGB adders from config (if present)
+        try:
+            game_id = os.path.basename(str(self._dir_name))
+            cfg = get_game_config(game_id=game_id)
+
+            def _get_adders(side: str) -> Optional[List[float]]:
+                # Preferred structure:
+                # game.stitching.color_adjustment.left: {r: 45, g: 35, b: 56}
+                node = get_nested_value(cfg, f"game.stitching.color_adjustment.{side}")
+                if isinstance(node, dict):
+                    try:
+                        r = float(node.get("r"))
+                        g = float(node.get("g"))
+                        b = float(node.get("b"))
+                        return [r, g, b]
+                    except Exception:
+                        pass
+                # Legacy fallbacks (arrays or other key names)
+                candidate_keys = [
+                    f"game.stitching.rgb_add.{side}",
+                    f"game.stitching.channel_add.{side}",
+                    f"game.stitching.image_channel_add.{side}",
+                    f"game.stitching.image_channel_adders.{side}",
+                    f"game.rgb_add.{side}",
+                    f"game.color_add.{side}",
+                ]
+                for k in candidate_keys:
+                    v = get_nested_value(cfg, k)
+                    if v is not None:
+                        try:
+                            if isinstance(v, (list, tuple)) and len(v) >= 3:
+                                return [float(v[0]), float(v[1]), float(v[2])]
+                        except Exception:
+                            pass
+                # Global fallback without side (applies to both)
+                for k in [
+                    "game.stitching.rgb_add",
+                    "game.stitching.channel_add",
+                    "game.stitching.image_channel_add",
+                    "game.stitching.image_channel_adders",
+                    "game.rgb_add",
+                    "game.color_add",
+                ]:
+                    v = get_nested_value(cfg, k)
+                    if v is not None:
+                        try:
+                            if isinstance(v, (list, tuple)) and len(v) >= 3:
+                                return [float(v[0]), float(v[1]), float(v[2])]
+                        except Exception:
+                            pass
+                return None
+
+            self._channel_add_left = _get_adders("left")
+            self._channel_add_right = _get_adders("right")
+            pass
+        except Exception:
+            # Non-fatal if config missing/malformed
+            self._channel_add_left = None
+            self._channel_add_right = None
 
     def __delete__(self):
         if hasattr(self, "close"):
@@ -318,6 +394,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         dataloaders.append(
             MOTLoadVideoWithOrig(
                 path=self._videos["left"]["files"],
+                game_id=os.path.basename(str(self._dir_name)),
                 max_frames=max_frames,
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number + self._video_left_offset_frame,
@@ -327,11 +404,13 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 decoder_device=self._decoder_device,
                 frame_step=frame_step_1,
                 no_cuda_streams=self._no_cuda_streams,
+                image_channel_adders=self._channel_add_left,
             )
         )
         dataloaders.append(
             MOTLoadVideoWithOrig(
                 path=self._videos["right"]["files"],
+                game_id=os.path.basename(str(self._dir_name)),
                 max_frames=max_frames,
                 batch_size=self._batch_size,
                 start_frame_number=start_frame_number + self._video_right_offset_frame,
@@ -341,6 +420,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 decoder_device=self._decoder_device,
                 frame_step=frame_step_2,
                 no_cuda_streams=self._no_cuda_streams,
+                image_channel_adders=self._channel_add_right,
             )
         )
         stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders, input_queueue_size=max_input_queue_size)
