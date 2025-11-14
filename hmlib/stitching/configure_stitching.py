@@ -10,7 +10,13 @@ import torch.nn.functional as F
 from PIL import Image, ImageOps
 
 import hockeymom
-from hmlib.config import get_game_config_private, get_game_dir, get_nested_value, save_private_config, set_nested_value
+from hmlib.config import (
+    get_game_config_private,
+    get_game_dir,
+    get_nested_value,
+    save_private_config,
+    set_nested_value,
+)
 from hmlib.hm_opts import hm_opts
 from hmlib.stitching.control_points import calculate_control_points
 from hmlib.stitching.hugin import configure_control_points, load_pto_file, save_pto_file
@@ -20,6 +26,68 @@ from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import extract_frame_image
 
 from .synchronize import configure_synchronization
+
+
+def _get_color_adjustment_adders(game_id: str) -> Tuple[Optional[List[float]], Optional[List[float]]]:
+    """Return per-side RGB adders from game config, if present.
+
+    Expected config structure in private game config (e.g. $HOME/Videos/<game_id>/config.yaml):
+
+    game:
+      stitching:
+        color_adjustment:
+          left:
+            r: 45
+            g: 35
+            b: 56
+          right:
+            r: 48
+            g: 35
+            b: 49
+    """
+    cfg = get_game_config_private(game_id=game_id)
+    node = get_nested_value(cfg, "game.stitching.color_adjustment")
+    if not isinstance(node, dict):
+        return None, None
+
+    def _side(name: str) -> Optional[List[float]]:
+        side = node.get(name)
+        if not isinstance(side, dict):
+            return None
+        try:
+            r = float(side.get("r"))
+            g = float(side.get("g"))
+            b = float(side.get("b"))
+            return [r, g, b]
+        except Exception:
+            return None
+
+    return _side("left"), _side("right")
+
+
+def _apply_color_adders_to_image_file(image_path: str, adders: Optional[List[float]]) -> None:
+    """Apply per-channel RGB adders to a PNG file in-place.
+
+    - Operates on uint8 images, clamping to [0, 255].
+    - No-op if adders is None or the file is missing.
+    """
+    if not adders:
+        return
+    if not os.path.exists(image_path):
+        return
+    try:
+        with Image.open(image_path) as img:
+            # Work in RGB for consistent channel ordering
+            work = img.convert("RGB")
+            arr = np.array(work, dtype=np.float32)
+            arr[..., 0] = np.clip(arr[..., 0] + adders[0], 0.0, 255.0)
+            arr[..., 1] = np.clip(arr[..., 1] + adders[1], 0.0, 255.0)
+            arr[..., 2] = np.clip(arr[..., 2] + adders[2], 0.0, 255.0)
+            out = Image.fromarray(arr.astype(np.uint8), mode="RGB")
+            out.save(image_path)
+    except Exception:
+        # Do not fail stitching configuration if adjustment fails
+        pass
 
 
 def get_multiblend_bin() -> str:
@@ -296,22 +364,15 @@ def configure_video_stitching(
     force: bool = False,
 ):
     if left_frame_offset is None or right_frame_offset is None:
-        if True:
-            frame_offsets = configure_synchronization(
-                game_id=dir_name.split("/")[-1],
-                video_left=video_left,
-                video_right=video_right,
-                audio_sync_seconds=audio_sync_seconds,
-                force=force,
-            )
-            left_frame_offset = float(frame_offsets["left"])
-            right_frame_offset = float(frame_offsets["right"])
-        else:
-            left_frame_offset, right_frame_offset = synchronize_by_audio(
-                file0_path=os.path.join(dir_name, video_left),
-                file1_path=os.path.join(dir_name, video_right),
-                seconds=audio_sync_seconds,
-            )
+        frame_offsets = configure_synchronization(
+            game_id=dir_name.split("/")[-1],
+            video_left=video_left,
+            video_right=video_right,
+            audio_sync_seconds=audio_sync_seconds,
+            force=force,
+        )
+        left_frame_offset = float(frame_offsets["left"])
+        right_frame_offset = float(frame_offsets["right"])
 
     # PTO Project File
     pto_project_file: str = os.path.join(dir_name, project_file_name)
@@ -328,6 +389,13 @@ def configure_video_stitching(
             video_right,
             base_frame_offset + right_frame_offset,
         )
+
+        # Apply optional per-side color adjustments to extracted PNGs
+        # before they are used by Hugin / PTO configuration.
+        game_id = dir_name.split("/")[-1]
+        left_adders, right_adders = _get_color_adjustment_adders(game_id=game_id)
+        _apply_color_adders_to_image_file(left_image_file, left_adders)
+        _apply_color_adders_to_image_file(right_image_file, right_adders)
 
         build_stitching_project(
             project_file_path=pto_project_file,
