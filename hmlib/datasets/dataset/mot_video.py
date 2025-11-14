@@ -376,7 +376,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if isinstance(img0, StreamTensor):
                     img0 = img0.get()
 
-                if True:
+                if False:
                     orig_dtype = img0.dtype
                     if not torch.is_floating_point(img0):
                         img0 = img0.to(torch.float32)

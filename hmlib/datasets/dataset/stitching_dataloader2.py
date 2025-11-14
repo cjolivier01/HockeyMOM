@@ -25,19 +25,8 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensor,
-    copy_gpu_to_gpu_async,
-    cuda_stream_scope,
-)
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-    make_visible_image,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -191,6 +180,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         post_stitch_rotate_degrees: Optional[float] = None,
         profiler: Any = None,
     ):
+        super().__init__()
         # max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
         self._no_cuda_streams = no_cuda_streams
