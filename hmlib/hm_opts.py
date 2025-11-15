@@ -133,6 +133,11 @@ class hm_opts(object):
             action="store_true",
             help="Only transfer the audio",
         )
+        io.add_argument(
+            "--no-audio",
+            action="store_true",
+            help="Skip copying audio to the rendered video",
+        )
         # Feature caching flags moved to their own group
         io.add_argument(
             "--save-camera-data",

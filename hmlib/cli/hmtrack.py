@@ -990,7 +990,7 @@ def _main(args, num_gpu):
         #
         # Now add the audio and copy CSVs alongside with matching -x suffix
         #
-        if output_video_path and os.path.exists(output_video_path):
+        if not args.no_audio and output_video_path and os.path.exists(output_video_path):
             dest_path = transfer_audio(
                 game_id=args.game_id,
                 input_av_files=input_video_files,
