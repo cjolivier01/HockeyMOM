@@ -14,12 +14,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import VideoStreamReader
@@ -165,6 +160,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # Only add to RGB channels; preserve alpha if present
         t[:, 0:3, :, :] = t[:, 0:3, :, :] + add
 
+        t = t.clamp(0.0, 255.0)
+
         # Clamp and restore dtype
         if orig_dtype in (
             torch.uint8,
@@ -173,10 +170,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             torch.int32,
             torch.int64,
         ):
-            t = t.clamp(0.0, 255.0).to(dtype=orig_dtype)
-        else:
-            # Assume values are in 0..255 range typically; keep dtype float
-            pass
+            t = t.to(dtype=orig_dtype)
 
         out = make_channels_last(t) if was_channels_last else t
         return out
