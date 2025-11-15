@@ -44,8 +44,6 @@ rink:
     perspective_polygon: null
     projected_height: "%20"
     projected_width: "%10"
-    # projected_height: 500
-    # projected_width: 500
   end_zones:
     #
     # End zone start/stop thresholds (lines of the form (x1, y1), (x2, y2))

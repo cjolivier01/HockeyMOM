@@ -94,7 +94,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self.height_t = None
         self._scale_color_tensor = None
         # Optional per-channel adders (R, G, B) applied to the original image
-        self._image_channel_adders: Optional[Tuple[float, float, float]] = image_channel_adders
+        # but the image is actually BGR when it gets here, so swap B & R
+        self._image_channel_adders: Optional[Tuple[float, float, float]] = [
+            image_channel_adders[2],
+            image_channel_adders[1],
+            image_channel_adders[0],
+        ]
         self._count = torch.tensor([0], dtype=torch.int64)
         self._next_frame_id = torch.tensor([start_frame_number], dtype=torch.int32)
         if self._next_frame_id == 0:
