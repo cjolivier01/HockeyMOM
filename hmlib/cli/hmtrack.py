@@ -1159,7 +1159,9 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        # get off the NULL stream right away
+        with torch.cuda.stream(torch.cuda.Stream("cuda")):
+            main()
     except Exception as e:
         print(f"Exception during processing: {e}")
         traceback.print_exc()
