@@ -18,7 +18,10 @@ aspen:
       pad_val: 114.0
       size_divisor: 32
     - type: mmdet.PackTrackInputs
-      meta_keys: [img_metas]
+      meta_keys: [img_metas, hm_real_time_fps]
+    - type: HmRealTime
+      enabled: false
+      scale: 1.0
 
   # Default camera post-processing pipeline (was in hm_end_to_end.py)
   video_out_pipeline:

@@ -12,13 +12,6 @@ from hmlib.builder import PIPELINES as TRANSFORMS
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
 
-# class ILocator:
-#     def __init__(self, dataframe: pd.DataFrame) -> None:
-#         self._dataframe = dataframe
-
-#     def __getitem__(self, *args) -> Any:
-#         return self._dataframe.iloc[*args]
-
 
 class HmDataFrameBase:
 
@@ -72,12 +65,6 @@ class HmDataFrameBase:
     @property
     def fields(self) -> List[str]:
         return self._fields
-
-    # @property
-    # def iloc(self) -> ILocator:
-    #     if self._ilocator is None:
-    #         self._ilocator = ILocator(self.data)
-    #     return self._ilocator
 
     @staticmethod
     def _make_array(t: Union[np.ndarray, torch.Tensor]) -> np.ndarray:

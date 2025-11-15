@@ -36,7 +36,10 @@ aspen:
       size: [608, 1632]  # Actual size of tensor, which is H-W ordering
       # size: [480, 1312]
     - type: mmdet.PackTrackInputs
-      meta_keys: [img_metas]
+      meta_keys: [img_metas, hm_real_time_fps]
+    - type: HmRealTime
+      enabled: false
+      scale: 1.0
 
   # Default camera post-processing pipeline (was in hm_end_to_end.py)
   video_out_pipeline:
@@ -71,6 +74,7 @@ aspen:
     model_factory:
       class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
       depends: []
+      enabled: true
       params:
         model_class: hmlib.models.end_to_end.HmEndToEnd
         # Pure YAML detector definition (converted from mmengine config)
@@ -83,6 +87,7 @@ aspen:
     detector_factory:
       class: hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk
       depends: []
+      enabled: true
       params:
         detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
         # detector_yaml: hmlib/config/aspen/models/hm_crowdhuman_yolov8_m_1984_736.detector.yaml
@@ -90,11 +95,11 @@ aspen:
           type: TrackDataPreprocessor
           pad_size_divisor: 32
           use_det_processor: true
-          batch_augments:
-            - type: BatchSyncRandomResize
-              random_size_range: [576, 1024]
-              size_divisor: 32
-              interval: 10
+          # batch_augments:
+          #   - type: BatchSyncRandomResize
+          #     random_size_range: [576, 1024]
+          #     size_divisor: 32
+          #     interval: 10
 
     boundaries:
       class: hmlib.aspen.trunks.boundaries.BoundariesTrunk

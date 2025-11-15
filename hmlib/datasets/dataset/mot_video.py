@@ -450,6 +450,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img_prefix=None,
                     img_id=ids,
                 )
+                fps_value = self.fps
+                if fps_value and fps_value > 0:
+                    fps_scalar = float(fps_value)
+                    data_item["hm_real_time_fps"] = [fps_scalar for _ in range(len(ids))]
                 data_item = self._data_pipeline(data_item)
                 assert "img" not in data_item
                 data_item["img"] = data_item.pop("inputs")

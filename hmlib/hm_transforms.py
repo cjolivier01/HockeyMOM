@@ -1,5 +1,6 @@
 import math
 import numbers
+import time
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -1643,3 +1644,147 @@ class HmLoadImageFromWebcam(LoadImageFromFile):
         results["ori_shape"] = [shape for _ in range(batch_size)]
         results["img_fields"] = ["img"]
         return results
+
+
+@TRANSFORMS.register_module()
+class HmRealTime:
+    """Throttle inference batches so they do not run faster than the source FPS.
+
+    The transform inspects the batch FPS metadata (``hm_real_time_fps`` by default)
+    and sleeps before returning if the caller is ahead of real time. A ``scale``
+    parameter allows speeding up (>1.0) or slowing down (<1.0) relative to the
+    FPS reported by the dataset.
+    """
+
+    def __init__(self, enabled: bool = False, scale: float = 1.0, fps_key: str = "hm_real_time_fps"):
+        self.enabled = bool(enabled)
+        self.scale = float(scale)
+        self.fps_key = fps_key
+        self._next_available_time: Optional[float] = None
+
+    def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.enabled:
+            return results
+
+        fps = self._extract_fps(results)
+        if fps is None:
+            return results
+
+        effective_fps = fps * self.scale if self.scale else fps
+        if effective_fps <= 0:
+            return results
+
+        frame_count = max(1, self._count_frames(results))
+        interval = frame_count / effective_fps
+
+        now = time.perf_counter()
+        next_time = self._next_available_time
+        if next_time is None:
+            self._next_available_time = now + interval
+            return results
+
+        wait_time = next_time - now
+        if wait_time > 0:
+            time.sleep(wait_time)
+            now = time.perf_counter()
+            next_time = max(next_time, now)
+        else:
+            next_time = now
+
+        self._next_available_time = next_time + interval
+        return results
+
+    def _count_frames(self, results: Dict[str, Any]) -> int:
+        for key in ("inputs", "img"):
+            count = self._batch_size_from_value(results.get(key))
+            if count is not None:
+                return count
+        data_samples = results.get("data_samples")
+        if data_samples is not None and hasattr(data_samples, "video_data_samples"):
+            return len(data_samples.video_data_samples)
+        return 1
+
+    def _batch_size_from_value(self, value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            return len(value)
+        if isinstance(value, (torch.Tensor, StreamTensor)):
+            if value.ndim == 0:
+                return 1
+            return int(value.shape[0]) if value.shape else 1
+        if isinstance(value, np.ndarray):
+            if value.ndim == 0:
+                return 1
+            return int(value.shape[0])
+        return None
+
+    def _extract_fps(self, results: Dict[str, Any]) -> Optional[float]:
+        direct_value = results.get(self.fps_key)
+        fps = self._coerce_fps(direct_value)
+        if fps is not None:
+            return fps
+
+        img_info = results.get("img_info")
+        if isinstance(img_info, dict):
+            fps = self._coerce_fps(img_info.get("fps"))
+            if fps is not None:
+                return fps
+
+        data_samples = results.get("data_samples")
+        if data_samples is not None:
+            fps = self._fps_from_data_samples(data_samples)
+            if fps is not None:
+                return fps
+
+        return None
+
+    def _fps_from_data_samples(self, data_samples: Any) -> Optional[float]:
+        fps = self._coerce_fps(getattr(data_samples, self.fps_key, None))
+        if fps is not None:
+            return fps
+        video_samples = getattr(data_samples, "video_data_samples", None)
+        if isinstance(video_samples, list):
+            for sample in video_samples:
+                fps = self._coerce_fps(self._get_from_sample(sample))
+                if fps is not None:
+                    return fps
+        return None
+
+    def _get_from_sample(self, sample: Any) -> Any:
+        if sample is None:
+            return None
+        if hasattr(sample, "get"):
+            value = sample.get(self.fps_key, None)
+            if value is not None:
+                return value
+        metainfo = getattr(sample, "metainfo", None)
+        if isinstance(metainfo, dict):
+            return metainfo.get(self.fps_key)
+        return None
+
+    def _coerce_fps(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                fps = self._coerce_fps(item)
+                if fps is not None:
+                    return fps
+            return None
+        if isinstance(value, torch.Tensor):
+            if value.numel() == 0:
+                return None
+            value = value.item() if value.numel() == 1 else value.flatten()[0].item()
+        if isinstance(value, np.ndarray):
+            if value.size == 0:
+                return None
+            value = float(value.reshape(-1)[0])
+        if isinstance(value, (int, float)):
+            fps = float(value)
+            return fps if fps > 0 else None
+        try:
+            fps = float(value)
+        except (TypeError, ValueError):
+            return None
+        return fps if fps > 0 else None
