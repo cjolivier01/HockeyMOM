@@ -3,6 +3,7 @@
 /*.csv
 /venv
 /.venv
+/profile
 /*.db
 /bazel-*
 /work_dirs

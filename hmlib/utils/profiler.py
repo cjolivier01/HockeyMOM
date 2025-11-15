@@ -108,19 +108,25 @@ class HmProfiler:
             return False
         if self._prof is None:
             return False
+
+        prof = self._prof
+        self._prof = None
+
         try:
-            if not self._opts.export_per_iter and self._opts.save_dir:
-                # Single export on exit
-                path = os.path.join(
-                    self._opts.save_dir, f"{self._opts.trace_basename}.json"
-                )
-                try:
-                    self._prof.export_chrome_trace(path)
-                except Exception:
-                    pass
+            prof.__exit__(exc_type, exc, tb)
         finally:
-            self._prof.__exit__(exc_type, exc, tb)
             self._closed = True
+
+        if not self._opts.export_per_iter and self._opts.save_dir:
+            # Export once after profiler context closes
+            path = os.path.join(
+                self._opts.save_dir, f"{self._opts.trace_basename}.json"
+            )
+            try:
+                prof.export_chrome_trace(path)
+            except Exception:
+                pass
+
         return False
 
     def step(self):
@@ -150,4 +156,3 @@ def build_profiler_from_args(args, save_dir_fallback: Optional[str] = None) -> H
 # Null context helper for call sites
 def nullcontext():
     return _NullContext()
-
