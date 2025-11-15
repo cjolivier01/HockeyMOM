@@ -945,12 +945,15 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
         # --- Cached tensors that only depend on shape/type ---
         def make_center():
-            return (
-                torch.tensor((W - 1) / 2.0, device=device, dtype=torch.float32),
-                torch.tensor((H - 1) / 2.0, device=device, dtype=torch.float32),
+            # Single tensor so PersistCacheMixin can safely detach/cache
+            return torch.tensor(
+                [(W - 1) / 2.0, (H - 1) / 2.0],
+                device=device,
+                dtype=torch.float32,
             )
 
-        cx, cy = self._persist_get("center", make_center, persist) if persist else make_center()
+        center = self._persist_get("center", make_center, persist) if persist else make_center()
+        cx, cy = center[0], center[1]
 
         def make_S():
             return torch.tensor(
