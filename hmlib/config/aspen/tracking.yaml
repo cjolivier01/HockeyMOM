@@ -125,7 +125,10 @@ aspen:
     tracker:
       class: hmlib.aspen.trunks.tracker.TrackerTrunk
       depends: [detector, ice_boundaries, model_factory, boundaries]
-      params: {}
+      params:
+        # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable CUDA ByteTrack
+        # tracker_kwargs:
+        #   device: cuda:0
 
     # Optional camera controller (rule-based by default). Enable transformer by
     # setting controller: transformer and model_path to your checkpoint.
