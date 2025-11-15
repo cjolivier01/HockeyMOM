@@ -75,8 +75,9 @@ class Shower:
 
     def _do_show(self, img: Union[torch.Tensor, np.ndarray]):
         if self._use_tk and self._tk_displayer is None:
-            root = get_tk_root()
-            self._tk_displayer = ImageDisplayer(root)
+            # root = get_tk_root()
+            # self._tk_displayer = ImageDisplayer(root)
+            assert False
 
         if img.ndim == 3:
             if isinstance(img, torch.Tensor | StreamTensor):
