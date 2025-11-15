@@ -48,3 +48,11 @@ py_test(
         "//hmlib:wheel_data_files",
     ],
 )
+
+py_test(
+    name = "test_bytetrack_cuda",
+    srcs = ["test_bytetrack_cuda.py"],
+    deps = [
+        "//hockeymom:hockeymom",
+    ],
+)

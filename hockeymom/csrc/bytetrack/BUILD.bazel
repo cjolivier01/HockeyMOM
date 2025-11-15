@@ -6,6 +6,7 @@ cc_library(
     name = "bytetrack",
     srcs = [
         "BYTETracker.cpp",
+        "BYTETrackerCuda.cpp",
         "BaseTracker.cpp",
         "HmTracker.cpp",
         "STrack.cpp",
@@ -13,6 +14,7 @@ cc_library(
     ],
     hdrs = [
         "BYTETracker.h",
+        "BYTETrackerCuda.h",
         "BaseTracker.h",
         "HmTracker.h",
         "STrack.h",
@@ -22,7 +24,18 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "@libtorch",
+        "//hockeymom/csrc/pytorch:bytetrack_cuda_ops",
         ":bytetrack_lib",
+    ],
+)
+
+cc_test(
+    name = "byte_tracker_cuda_test",
+    srcs = ["byte_tracker_cuda_test.cpp"],
+    deps = [
+        ":bytetrack",
+        "//hockeymom/csrc/pytorch:bytetrack_cuda_ops",
+        "@libtorch",
     ],
 )
 
