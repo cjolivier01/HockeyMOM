@@ -79,7 +79,7 @@ class TrackerTrunk(Trunk):
         # dataset_results = data.get("dataset_results") or context.get("dataset_results")
         frame_id0: int = int(context.get("frame_id", -1))
 
-        using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
+        # using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
         # using_precalc_det: bool = bool(context.get("using_precalculated_detection", False))
 
         self._ensure_tracker(image_size=data["original_images"].shape)
@@ -118,9 +118,9 @@ class TrackerTrunk(Trunk):
             img_data_sample = track_data_sample[frame_index]
 
             # If precomputed tracking is used, skip tracker and only log data
-            if using_precalc_track:
-                # Keep pred_track_instances unset; logging handled below if needed
-                continue
+            # if using_precalc_track:
+            #     # Keep pred_track_instances unset; logging handled below if needed
+            #     continue
             # Detections should have been attached by DetectorInferenceTrunk
             det_instances = getattr(img_data_sample, "pred_instances", None)
             if det_instances is None:
@@ -252,8 +252,8 @@ class TrackerTrunk(Trunk):
         return {
             "data",
             "frame_id",
-            "using_precalculated_tracking",
-            "using_precalculated_detection",
+            # "using_precalculated_tracking",
+            # "using_precalculated_detection",
             # no longer depends on model's post-detection pipeline
         }
 
