@@ -202,7 +202,8 @@ class LoadTrackingTrunk(Trunk):
         for i in range(video_len):
             img_data_sample = track_data_sample[i]
             ds = getattr(df, "get_sample_by_frame", None)
-            track_ds = ds(frame_id=frame_id0 + i) if callable(ds) else None
+            fid: int = frame_id0 + i
+            track_ds = ds(frame_id=fid) if callable(ds) else None
             if track_ds is None:
                 # attach empty tracks instance
                 inst = InstanceData(
@@ -220,7 +221,7 @@ class LoadTrackingTrunk(Trunk):
             inst = getattr(track_ds[0] if hasattr(track_ds, "__getitem__") else track_ds, "pred_track_instances", None)
             if inst is None:
                 # Fallback to dict-based reconstruction
-                rec = df.get_data_dict_by_frame(frame_id=frame_id0 + i)
+                rec = df.get_data_dict_by_frame(frame_id=fid)
                 if rec is None:
                     inst = InstanceData(
                         instances_id=torch.empty((0,), dtype=torch.long),
@@ -247,6 +248,7 @@ class LoadTrackingTrunk(Trunk):
             img_data_sample.pred_track_instances = inst
             try:
                 img_data_sample.set_metainfo({"nr_tracks": len(inst.instances_id)})
+                img_data_sample.set_metainfo({"frame_id": int(fid)})
             except Exception:
                 pass
 
