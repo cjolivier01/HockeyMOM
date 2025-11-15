@@ -128,29 +128,35 @@ def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_W
     return tensor
 
 
-def yuv_to_bgr_float(
-    frames: torch.Tensor, dtype: torch.dtype = torch.float, non_blocking: bool = True
-):
+def yuv_to_bgr_float(frames: torch.Tensor, dtype: torch.dtype = torch.float16, non_blocking: bool = True):
     """
     Current HW decode returns only YUV
     """
     if not torch.is_floating_point(frames):
         frames = frames.to(dtype, non_blocking=non_blocking)
+
     y = frames[..., 0, :, :]
     u = frames[..., 1, :, :]
     v = frames[..., 2, :, :]
 
     y /= 255
-    u = u / 255 - 0.5
-    v = v / 255 - 0.5
+    # u = u / 255 - 0.5
+    # v = v / 255 - 0.5
+
+    u /= 255
+    u -= 0.5
+
+    v /= 255
+    v -= 0.5
 
     r = y + 1.14 * v
     g = y + -0.396 * u - 0.581 * v
     b = y + 2.029 * u
 
     rgb = torch.stack([b, g, r], -1)
-    rgb = (rgb * 255).clamp(0, 255)
-    return rgb
+    rgb *= 255
+    # rgb = (rgb * 255).clamp(0, 255)
+    return rgb.clamp(0, 255)
 
 
 def time_to_frame(time_str: str, fps: float):
@@ -487,7 +493,8 @@ class TAStreamReaderIterator:
             raise StopIteration()
         frame = next_chunk[0]
         assert len(frame) == self._batch_size
-        frame = yuv_to_bgr_float(frame)
+        with torch.no_grad():
+            frame = yuv_to_bgr_float(frame)
         return frame
 
 
