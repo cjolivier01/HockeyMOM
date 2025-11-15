@@ -649,7 +649,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                 blended_stream_tensor = self._rotate_tensor_keep_size(
                                     blended_stream_tensor,
                                     self._post_stitch_rotate_degrees,
-                                    persist=True,
+                                    use_cache=True,
                                 )
                             if self._show_image_components:
                                 for blended_image in blended_stream_tensor:
@@ -673,7 +673,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                 blended_stream_tensor = self._rotate_tensor_keep_size(
                                     blended_stream_tensor,
                                     self._post_stitch_rotate_degrees,
-                                    persist=True,
+                                    use_cache=True,
                                 )
 
                         if stream is not None:
@@ -906,15 +906,20 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self,
         tensor: torch.Tensor,
         degrees: float,
-        persist: bool = False,
+        use_cache: bool = True,
     ) -> torch.Tensor:
-        """
-        Rotate a batched image tensor about its center by `degrees` while keeping dimensions.
-        If `persist` is True, caches precomputed tensors that only depend on (H, W, dtype, device)
-        to avoid recomputing them across calls for identical input configurations.
+        """Rotate a batched image tensor about its center by `degrees` while keeping dimensions.
 
-        Supports tensors of shape (B, H, W, C) or (B, C, H, W) with any C>=1.
-        Operates on CUDA tensors without host roundtrips.
+        Args:
+            tensor: 4D image tensor of shape (B, H, W, C) or (B, C, H, W).
+            degrees: Rotation in degrees about the image center.
+            use_cache: If True, cache small shape-dependent tensors (center, S, S_inv)
+                across calls. Large per-frame tensors (like the sampling grid) are
+                intentionally *not* cached to avoid excessive memory usage.
+
+        Notes:
+            - Works on CUDA or CPU tensors without host roundtrips.
+            - All dtype/device conversions use non-blocking transfers where applicable.
         """
 
         if tensor is None:
@@ -935,8 +940,8 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
         # --- Setup persistent cache fingerprint ---
         extras = {"op": "rotate_tensor_keep_size"}
-        if hasattr(self, "_persist_init_or_assert"):
-            self._persist_init_or_assert(persist, x_work, extras)
+        if use_cache and hasattr(self, "_persist_init_or_assert"):
+            self._persist_init_or_assert(True, x_work, extras)
 
         # --- Angle-dependent tensors ---
         angle = torch.tensor(degrees * math.pi / 180.0, device=device, dtype=torch.float32)
@@ -952,7 +957,10 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 dtype=torch.float32,
             )
 
-        center = self._persist_get("center", make_center, persist) if persist else make_center()
+        if use_cache and hasattr(self, "_persist_get"):
+            center = self._persist_get("center", make_center, True)
+        else:
+            center = make_center()
         cx, cy = center[0], center[1]
 
         def make_S():
@@ -977,8 +985,12 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 dtype=torch.float32,
             )
 
-        S = self._persist_get("S", make_S, persist) if persist else make_S()
-        S_inv = self._persist_get("S_inv", make_S_inv, persist) if persist else make_S_inv()
+        if use_cache and hasattr(self, "_persist_get"):
+            S = self._persist_get("S", make_S, True)
+            S_inv = self._persist_get("S_inv", make_S_inv, True)
+        else:
+            S = make_S()
+            S_inv = make_S_inv()
 
         # --- Compute transform matrices ---
         tx = (1.0 - cos_a) * cx - sin_a * cy
@@ -996,9 +1008,12 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
         # --- Cached affine grid ---
         def make_grid():
+            # Do not cache the full sampling grid: it scales with H*W and can
+            # consume significant memory for large panoramas. Recomputing it
+            # per call is a reasonable trade-off for memory usage.
             return F.affine_grid(theta, size=(B, C, H, W), align_corners=True)
 
-        grid = self._persist_get("affine_grid", make_grid, persist) if persist else make_grid()
+        grid = make_grid()
 
         # --- Rotate using grid_sample ---
         y = F.grid_sample(x_work, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
