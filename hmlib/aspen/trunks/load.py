@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -7,8 +8,24 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.bbox.box_functions import tlwh_to_tlbr_multiple
+from hmlib.datasets.dataframe import find_latest_dataframe_file
+from hmlib.log import logger
+from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
+from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
+from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
 from .base import Trunk
+
+
+def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
+    if not key:
+        return None
+    if key in context:
+        return context[key]
+    shared = context.get("shared")
+    if isinstance(shared, dict):
+        return shared.get(key)
+    return None
 
 
 class LoadDetectionsTrunk(Trunk):
@@ -22,13 +39,44 @@ class LoadDetectionsTrunk(Trunk):
       - detection_dataframe: DetectionDataFrame (input_file provided)
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(
+        self,
+        enabled: bool = True,
+        input_path_key: str = "detection_data_path",
+        game_dir_key: str = "game_dir",
+        file_stem: str = "detections",
+        input_batch_size: int = 1,
+    ):
         super().__init__(enabled=enabled)
+        self._input_path_key = input_path_key
+        self._game_dir_key = game_dir_key
+        self._file_stem = file_stem
+        self._input_batch_size = input_batch_size
+        self._detection_dataframe: Optional[DetectionDataFrame] = None
+        self._warned_missing = False
+
+    def _ensure_dataframe(self, context: Dict[str, Any]) -> Optional[DetectionDataFrame]:
+        if self._detection_dataframe is not None:
+            return self._detection_dataframe
+        path = _ctx_value(context, self._input_path_key)
+        if not path:
+            path = find_latest_dataframe_file(_ctx_value(context, self._game_dir_key), self._file_stem)
+        if not path or not os.path.exists(path):
+            if not self._warned_missing:
+                logger.info("LoadDetectionsTrunk: no %s CSV found; skipping load", self._file_stem)
+                self._warned_missing = True
+            return None
+        self._detection_dataframe = DetectionDataFrame(
+            input_file=path,
+            input_batch_size=self._input_batch_size,
+            write_interval=100,
+        )
+        return self._detection_dataframe
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
-        df = context.get("detection_dataframe")
+        df = self._ensure_dataframe(context)
         if df is None or not df.has_input_data():
             return {}
 
@@ -72,13 +120,13 @@ class LoadDetectionsTrunk(Trunk):
                         inst.bboxes = torch.as_tensor(rec.get("bboxes", np.empty((0, 4), dtype=np.float32)))
                 img_data_sample.pred_instances = inst
 
-        return {"data": data}
+        return {"data": data, "detection_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id", "detection_dataframe"}
+        return {"data", "frame_id"}
 
     def output_keys(self):
-        return {"data"}
+        return {"data", "detection_dataframe"}
 
 
 class LoadTrackingTrunk(Trunk):
@@ -93,14 +141,45 @@ class LoadTrackingTrunk(Trunk):
       - tracking_dataframe: TrackingDataFrame (input_file provided)
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(
+        self,
+        enabled: bool = True,
+        input_path_key: str = "tracking_data_path",
+        game_dir_key: str = "game_dir",
+        file_stem: str = "tracking",
+        input_batch_size: int = 1,
+    ):
         super().__init__(enabled=enabled)
+        self._input_path_key = input_path_key
+        self._game_dir_key = game_dir_key
+        self._file_stem = file_stem
+        self._input_batch_size = input_batch_size
+        self._tracking_dataframe: Optional[TrackingDataFrame] = None
+        self._warned_missing = False
+
+    def _ensure_dataframe(self, context: Dict[str, Any]) -> Optional[TrackingDataFrame]:
+        if self._tracking_dataframe is not None:
+            return self._tracking_dataframe
+        path = _ctx_value(context, self._input_path_key)
+        if not path:
+            path = find_latest_dataframe_file(_ctx_value(context, self._game_dir_key), self._file_stem)
+        if not path or not os.path.exists(path):
+            if not self._warned_missing:
+                logger.info("LoadTrackingTrunk: no %s CSV found; skipping load", self._file_stem)
+                self._warned_missing = True
+            return None
+        self._tracking_dataframe = TrackingDataFrame(
+            input_file=path,
+            input_batch_size=self._input_batch_size,
+            write_interval=100,
+        )
+        return self._tracking_dataframe
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
 
-        df = context.get("tracking_dataframe")
+        df = self._ensure_dataframe(context)
         if df is None or not df.has_input_data():
             return {}
 
@@ -180,13 +259,14 @@ class LoadTrackingTrunk(Trunk):
             "data": data,
             "nr_tracks": active_track_count,
             "max_tracking_id": max_tracking_id,
+            "tracking_dataframe": df,
         }
 
     def input_keys(self):
-        return {"data", "frame_id", "tracking_dataframe"}
+        return {"data", "frame_id"}
 
     def output_keys(self):
-        return {"data", "nr_tracks", "max_tracking_id"}
+        return {"data", "nr_tracks", "max_tracking_id", "tracking_dataframe"}
 
 
 class LoadPoseTrunk(Trunk):
@@ -202,13 +282,38 @@ class LoadPoseTrunk(Trunk):
       - frame_id: int first frame
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(
+        self,
+        enabled: bool = True,
+        input_path_key: str = "pose_data_path",
+        game_dir_key: str = "game_dir",
+        file_stem: str = "pose",
+    ):
         super().__init__(enabled=enabled)
+        self._input_path_key = input_path_key
+        self._game_dir_key = game_dir_key
+        self._file_stem = file_stem
+        self._pose_dataframe: Optional[PoseDataFrame] = None
+        self._warned_missing = False
+
+    def _ensure_dataframe(self, context: Dict[str, Any]) -> Optional[PoseDataFrame]:
+        if self._pose_dataframe is not None:
+            return self._pose_dataframe
+        path = _ctx_value(context, self._input_path_key)
+        if not path:
+            path = find_latest_dataframe_file(_ctx_value(context, self._game_dir_key), self._file_stem)
+        if not path or not os.path.exists(path):
+            if not self._warned_missing:
+                logger.info("LoadPoseTrunk: no %s CSV found; skipping load", self._file_stem)
+                self._warned_missing = True
+            return None
+        self._pose_dataframe = PoseDataFrame(input_file=path, write_interval=100)
+        return self._pose_dataframe
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
-        df = context.get("pose_dataframe")
+        df = self._ensure_dataframe(context)
         if df is None or not df.has_input_data():
             return {}
 
@@ -239,10 +344,10 @@ class LoadPoseTrunk(Trunk):
                 pose_results.append({"predictions": [pose_ds]})
 
         data["pose_results"] = pose_results
-        return {"data": data}
+        return {"data": data, "pose_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id", "pose_dataframe"}
+        return {"data", "frame_id"}
 
     def output_keys(self):
-        return {"data"}
+        return {"data", "pose_dataframe"}

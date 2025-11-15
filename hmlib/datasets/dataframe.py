@@ -1,7 +1,8 @@
 import json
 import os
+from pathlib import Path
 from dataclasses import asdict, dataclass, is_dataclass
-from typing import Any, Dict, Iterable, List, Optional, Type, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Type, Union
 
 import numpy as np
 import pandas as pd
@@ -186,3 +187,30 @@ class DataFrameDatasetIterator:
 
 #     def forward(self, data: Dict[str, Any]) -> Dict[str, Any]:
 #         return data
+
+
+def find_latest_dataframe_file(game_dir: Optional[str], stem: str, extension: str = ".csv") -> Optional[str]:
+    """Return the newest CSV path for a dataframe in ``game_dir``.
+
+    Looks for ``{stem}.csv`` and ``{stem}-N.csv`` files, returning the one with
+    the highest numeric suffix (treating the bare filename as suffix 0).
+    """
+    if not game_dir:
+        return None
+    base_path = Path(game_dir)
+    if not base_path.is_dir():
+        return None
+    candidates: List[Tuple[int, Path]] = []
+    main_file = base_path / f"{stem}{extension}"
+    if main_file.exists():
+        candidates.append((0, main_file))
+    pattern = f"{stem}-*{extension}"
+    for path in base_path.glob(pattern):
+        suffix = path.stem[len(stem) + 1 :]
+        if not suffix.isdigit():
+            continue
+        candidates.append((int(suffix), path))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return str(candidates[0][1])

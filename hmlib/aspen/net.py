@@ -1,5 +1,6 @@
 import importlib
 import contextlib
+import logging
 import os
 import threading
 from dataclasses import dataclass
@@ -8,6 +9,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import networkx as nx
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -247,6 +250,16 @@ class AspenNet(torch.nn.Module):
             return True
         except Exception:
             return False
+
+    def finalize(self) -> None:
+        """Invoke ``finalize`` on all trunks if they provide it."""
+        for node in self.nodes:
+            finalize_fn = getattr(node.module, "finalize", None)
+            if callable(finalize_fn):
+                try:
+                    finalize_fn()
+                except Exception:
+                    logger.exception("Aspen trunk %s finalize failed", node.name)
 
     # endregion
 

@@ -26,7 +26,7 @@ from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import get_clip_box, get_config, get_game_dir, get_nested_value, set_nested_value, update_config
-from hmlib.datasets.dataframe import DataFrameDataset
+from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
@@ -38,10 +38,6 @@ from hmlib.log import get_root_logger, logger
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tasks.tracking import run_mmtrack
-from hmlib.tracking_utils.action_dataframe import ActionDataFrame
-from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
-from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
-from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
@@ -284,15 +280,6 @@ def is_stitching(input_video: str) -> bool:
 
 def _main(args, num_gpu):
     dataloader = None
-    tracking_dataframe = None
-    tracking_dataframe_ds = None
-    detection_dataframe = None
-    detection_dataframe_ds = None
-    pose_dataframe = None
-    pose_dataframe_ds = None
-    action_dataframe = None
-    action_dataframe_ds = None
-
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
 
@@ -370,6 +357,20 @@ def _main(args, num_gpu):
 
         results_folder = os.path.join(".", "output_workdirs", args.game_id)
         os.makedirs(results_folder, exist_ok=True)
+        args.work_dir = results_folder
+        try:
+            args.game_dir = get_game_dir(args.game_id, assert_exists=False)
+        except Exception:
+            args.game_dir = None
+
+        tracking_data_path = find_latest_dataframe_file(args.game_dir, "tracking")
+        detection_data_path = find_latest_dataframe_file(args.game_dir, "detections")
+        pose_data_path = find_latest_dataframe_file(args.game_dir, "pose")
+        action_data_path = find_latest_dataframe_file(args.game_dir, "actions")
+        args.tracking_data_path = tracking_data_path
+        args.detection_data_path = detection_data_path
+        args.pose_data_path = pose_data_path
+        args.action_data_path = action_data_path
 
         # Initialize lightweight profiler and attach to args for downstream use
         try:
@@ -381,79 +382,9 @@ def _main(args, num_gpu):
             profiler = None
         setattr(args, "profiler", profiler)
 
-        if args.save_tracking_data or args.input_tracking_data or not args.input_tracking_data:
-            if args.input_tracking_data:
-                args.input_tracking_data = args.input_tracking_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
-            tracking_dataframe = TrackingDataFrame(
-                input_file=args.input_tracking_data,
-                output_file=(
-                    os.path.join(results_folder, "tracking.csv") if args.input_tracking_data is None else None
-                ),
-                input_batch_size=args.batch_size,
-                write_interval=100,
-            )
-            if args.input_tracking_data:
-                tracking_dataframe_ds = DataFrameDataset(dataframe=tracking_dataframe)
-                dataloader.append_dataset(
-                    name="tracking_dataframe",
-                    dataset=tracking_dataframe_ds,
-                )
-
-        if args.save_detection_data or args.input_detection_data or not args.input_detection_data:
-            if args.input_detection_data:
-                args.input_detection_data = args.input_detection_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
-            detection_dataframe = DetectionDataFrame(
-                input_file=args.input_detection_data,
-                output_file=(
-                    os.path.join(results_folder, "detections.csv") if args.input_detection_data is None else None
-                ),
-                input_batch_size=args.batch_size,
-                write_interval=100,
-            )
-            if args.input_detection_data:
-                detection_dataframe_ds = DataFrameDataset(dataframe=detection_dataframe)
-                dataloader.append_dataset(
-                    name="detection_dataframe",
-                    dataset=detection_dataframe_ds,
-                )
-
-        # Pose dataframe wiring
-        if args.save_pose_data or args.input_pose_data or not args.input_pose_data:
-            if args.input_pose_data:
-                args.input_pose_data = args.input_pose_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
-            pose_dataframe = PoseDataFrame(
-                input_file=args.input_pose_data,
-                output_file=(os.path.join(results_folder, "pose.csv") if args.input_pose_data is None else None),
-                input_batch_size=args.batch_size,
-                write_interval=100,
-            )
-            if args.input_pose_data:
-                pose_dataframe_ds = DataFrameDataset(dataframe=pose_dataframe)
-                dataloader.append_dataset(
-                    name="pose_dataframe",
-                    dataset=pose_dataframe_ds,
-                )
-
-        # Action dataframe wiring (optional)
-        if args.save_action_data or args.input_action_data:
-            if args.input_action_data:
-                args.input_action_data = args.input_action_data.replace("${GAME_DIR}", get_game_dir(args.game_id))
-            action_dataframe = ActionDataFrame(
-                input_file=args.input_action_data,
-                output_file=(os.path.join(results_folder, "actions.csv") if args.input_action_data is None else None),
-                input_batch_size=args.batch_size,
-                write_interval=100,
-            )
-            if args.input_action_data:
-                action_dataframe_ds = DataFrameDataset(dataframe=action_dataframe)
-                dataloader.append_dataset(
-                    name="action_dataframe",
-                    dataset=action_dataframe_ds,
-                )
-
-        using_precalculated_tracking = tracking_dataframe is not None and tracking_dataframe.has_input_data()
-        using_precalculated_detections = detection_dataframe is not None and detection_dataframe.has_input_data()
-        # using_precalculated_pose = pose_dataframe is not None and pose_dataframe.has_input_data()
+        using_precalculated_tracking = bool(tracking_data_path)
+        using_precalculated_detections = bool(detection_data_path)
+        # using_precalculated_pose = bool(pose_data_path)
 
         actual_device_count = torch.cuda.device_count()
         if not actual_device_count:
@@ -810,7 +741,7 @@ def _main(args, num_gpu):
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
-                    original_image_only=tracking_dataframe is not None,
+                    original_image_only=True,
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                 )
@@ -843,7 +774,7 @@ def _main(args, num_gpu):
                     decoder_device=(torch.device(args.decoder_device) if args.decoder_device else None),
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
-                    original_image_only=tracking_dataframe is not None,
+                    original_image_only=True,
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                 )
@@ -852,11 +783,6 @@ def _main(args, num_gpu):
                 except Exception:
                     pass
                 dataloader.append_dataset("pano", pano_dataloader)
-
-            if tracking_dataframe_ds is not None:
-                tracking_dataframe_ds.set_seek_base(int(args.start_frame + 0.5))
-            if detection_dataframe_ds is not None:
-                detection_dataframe_ds.set_seek_base(int(args.start_frame + 0.5))
 
             if args.end_zones:
                 # Try far_left and far_right videos if they exist
@@ -1053,10 +979,6 @@ def _main(args, num_gpu):
                 pose_inferencer=pose_inferencer,
                 config=vars(args),
                 device=main_device,
-                tracking_dataframe=tracking_dataframe,
-                detection_dataframe=detection_dataframe,
-                pose_dataframe=pose_dataframe,
-                action_dataframe=action_dataframe,
                 fp16=args.fp16,
                 input_cache_size=args.cache_size,
                 progress_bar=progress_bar,
@@ -1097,23 +1019,10 @@ def _main(args, num_gpu):
                             return f"{root}{cext}"
                         return f"{root}-{suffix_num}{cext}"
 
-                    candidates = [
-                        (
-                            args.save_tracking_data,
-                            os.path.join(results_folder, "tracking.csv"),
-                            with_index("tracking.csv"),
-                        ),
-                        (
-                            args.save_detection_data,
-                            os.path.join(results_folder, "detections.csv"),
-                            with_index("detections.csv"),
-                        ),
-                        (args.save_pose_data, os.path.join(results_folder, "pose.csv"), with_index("pose.csv")),
-                        (args.save_action_data, os.path.join(results_folder, "actions.csv"), with_index("actions.csv")),
-                        (args.save_camera_data, os.path.join(results_folder, "camera.csv"), with_index("camera.csv")),
-                    ]
-                    for enabled, src, dst_name in candidates:
-                        if enabled and os.path.exists(src):
+                    if args.save_camera_data:
+                        src = os.path.join(results_folder, "camera.csv")
+                        if os.path.exists(src):
+                            dst_name = with_index("camera.csv")
                             dst = os.path.join(game_video_dir, dst_name)
                             try:
                                 shutil.copy2(src, dst)
@@ -1138,26 +1047,6 @@ def _main(args, num_gpu):
             if dataloader is not None and hasattr(dataloader, "close"):
                 try:
                     dataloader.close()
-                except:
-                    traceback.print_exc()
-            if tracking_dataframe is not None:
-                try:
-                    tracking_dataframe.flush()
-                except:
-                    traceback.print_exc()
-            if detection_dataframe is not None:
-                try:
-                    detection_dataframe.flush()
-                except:
-                    traceback.print_exc()
-            if pose_dataframe is not None:
-                try:
-                    pose_dataframe.flush()
-                except:
-                    traceback.print_exc()
-            if action_dataframe is not None:
-                try:
-                    action_dataframe.flush()
                 except:
                     traceback.print_exc()
         except Exception as ex:

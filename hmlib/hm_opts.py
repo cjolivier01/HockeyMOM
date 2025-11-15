@@ -144,50 +144,6 @@ class hm_opts(object):
         # Feature Cache (pipeline state caching: detection/tracking/pose/action)
         #
         cache = parser.add_argument_group("Feature Cache")
-        cache.add_argument(
-            "--input-tracking-data",
-            type=str,
-            default=None,
-            help="Input tracking data file and use instead of AI calling tracker",
-        )
-        cache.add_argument(
-            "--save-tracking-data",
-            action="store_true",
-            help="Save tracking data to results.csv",
-        )
-        cache.add_argument(
-            "--input-detection-data",
-            type=str,
-            default=None,
-            help="Input detection data file and use instead of AI calling tracker",
-        )
-        cache.add_argument(
-            "--save-detection-data",
-            action="store_true",
-            help="Save detection data to results.csv",
-        )
-        cache.add_argument(
-            "--input-pose-data",
-            type=str,
-            default=None,
-            help="Input pose data file and use instead of running pose inference",
-        )
-        cache.add_argument(
-            "--save-pose-data",
-            action="store_true",
-            help="Save pose data to results.csv",
-        )
-        cache.add_argument(
-            "--input-action-data",
-            type=str,
-            default=None,
-            help="Input per-frame action data file and use instead of running action inference",
-        )
-        cache.add_argument(
-            "--save-action-data",
-            action="store_true",
-            help="Save action data to actions.csv",
-        )
 
         #
         # Visualization & Plotting

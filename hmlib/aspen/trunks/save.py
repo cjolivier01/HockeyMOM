@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 import json
@@ -7,7 +8,23 @@ import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
+from hmlib.tracking_utils.action_dataframe import ActionDataFrame
+from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
+from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
+from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
+
 from .base import Trunk
+
+
+def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
+    if not key:
+        return None
+    if key in context:
+        return context[key]
+    shared = context.get("shared")
+    if isinstance(shared, dict):
+        return shared.get(key)
+    return None
 
 
 class SaveDetectionsTrunk(Trunk):
@@ -20,14 +37,35 @@ class SaveDetectionsTrunk(Trunk):
       - detection_dataframe: DetectionDataFrame
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(
+        self,
+        enabled: bool = True,
+        work_dir_key: str = "work_dir",
+        output_filename: str = "detections.csv",
+        write_interval: int = 100,
+    ):
         super().__init__(enabled=enabled)
+        self._work_dir_key = work_dir_key
+        self._output_filename = output_filename
+        self._write_interval = write_interval
+        self._detection_dataframe: Optional[DetectionDataFrame] = None
+
+    def _ensure_dataframe(self, context: Dict[str, Any]) -> Optional[DetectionDataFrame]:
+        if self._detection_dataframe is not None:
+            return self._detection_dataframe
+        work_dir = _ctx_value(context, self._work_dir_key)
+        if not work_dir:
+            return None
+        os.makedirs(work_dir, exist_ok=True)
+        output_path = os.path.join(work_dir, self._output_filename)
+        self._detection_dataframe = DetectionDataFrame(output_file=output_path, write_interval=self._write_interval)
+        return self._detection_dataframe
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
 
-        df = context.get("detection_dataframe")
+        df = self._ensure_dataframe(context)
         if df is None:
             return {}
 
@@ -81,13 +119,17 @@ class SaveDetectionsTrunk(Trunk):
                     pose_indices=pose_indices,
                 )
 
-        return {}
+        return {"detection_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id", "detection_dataframe"}
+        return {"data", "frame_id"}
 
     def output_keys(self):
-        return set()
+        return {"detection_dataframe"}
+
+    def finalize(self):
+        if self._detection_dataframe is not None:
+            self._detection_dataframe.close()
 
 
 class SaveTrackingTrunk(Trunk):
@@ -102,16 +144,42 @@ class SaveTrackingTrunk(Trunk):
       - action_results: Optional per-frame action result list (from ActionFromPoseTrunk)
     """
 
-    def __init__(self, enabled: bool = True, pose_iou_thresh: float = 0.3):
+    def __init__(
+        self,
+        enabled: bool = True,
+        pose_iou_thresh: float = 0.3,
+        work_dir_key: str = "work_dir",
+        output_filename: str = "tracking.csv",
+        write_interval: int = 100,
+    ):
         super().__init__(enabled=enabled)
         # Default fallback IoU threshold if we must infer mapping
         self._pose_iou_thresh = float(pose_iou_thresh)
+        self._work_dir_key = work_dir_key
+        self._output_filename = output_filename
+        self._write_interval = write_interval
+        self._tracking_dataframe: Optional[TrackingDataFrame] = None
+
+    def _ensure_dataframe(self, context: Dict[str, Any]) -> Optional[TrackingDataFrame]:
+        if self._tracking_dataframe is not None:
+            return self._tracking_dataframe
+        work_dir = _ctx_value(context, self._work_dir_key)
+        if not work_dir:
+            return None
+        os.makedirs(work_dir, exist_ok=True)
+        output_path = os.path.join(work_dir, self._output_filename)
+        self._tracking_dataframe = TrackingDataFrame(
+            output_file=output_path,
+            input_batch_size=1,
+            write_interval=self._write_interval,
+        )
+        return self._tracking_dataframe
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
 
-        df = context.get("tracking_dataframe")
+        df = self._ensure_dataframe(context)
         if df is None:
             return {}
 
@@ -260,13 +328,17 @@ class SaveTrackingTrunk(Trunk):
                     pose_indices=pose_indices,
                     action_info=action_results,
                 )
-        return {}
+        return {"tracking_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id", "tracking_dataframe", "jersey_results", "action_results"}
+        return {"data", "frame_id", "jersey_results", "action_results"}
 
     def output_keys(self):
-        return set()
+        return {"tracking_dataframe"}
+
+    def finalize(self):
+        if self._tracking_dataframe is not None:
+            self._tracking_dataframe.close()
 
 
 class SavePoseTrunk(Trunk):
@@ -281,8 +353,29 @@ class SavePoseTrunk(Trunk):
       - pose_dataframe: PoseDataFrame
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(
+        self,
+        enabled: bool = True,
+        work_dir_key: str = "work_dir",
+        output_filename: str = "pose.csv",
+        write_interval: int = 100,
+    ):
         super().__init__(enabled=enabled)
+        self._work_dir_key = work_dir_key
+        self._output_filename = output_filename
+        self._write_interval = write_interval
+        self._pose_dataframe: Optional[PoseDataFrame] = None
+
+    def _ensure_dataframe(self, context: Dict[str, Any]) -> Optional[PoseDataFrame]:
+        if self._pose_dataframe is not None:
+            return self._pose_dataframe
+        work_dir = _ctx_value(context, self._work_dir_key)
+        if not work_dir:
+            return None
+        os.makedirs(work_dir, exist_ok=True)
+        output_path = os.path.join(work_dir, self._output_filename)
+        self._pose_dataframe = PoseDataFrame(output_file=output_path, write_interval=self._write_interval)
+        return self._pose_dataframe
 
     @staticmethod
     def _to_list(x):
@@ -317,7 +410,7 @@ class SavePoseTrunk(Trunk):
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
-        df = context.get("pose_dataframe")
+        df = self._ensure_dataframe(context)
         if df is None:
             return {}
 
@@ -344,13 +437,17 @@ class SavePoseTrunk(Trunk):
                 except Exception:
                     simp = self._simplify_pose_item(item)
                     df.add_frame_records(frame_id=frame_id0 + i, pose_json=json.dumps(simp))
-        return {}
+        return {"pose_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id", "pose_dataframe"}
+        return {"data", "frame_id"}
 
     def output_keys(self):
-        return set()
+        return {"pose_dataframe"}
+
+    def finalize(self):
+        if self._pose_dataframe is not None:
+            self._pose_dataframe.close()
 
 
 class SaveActionsTrunk(Trunk):
@@ -367,15 +464,36 @@ class SaveActionsTrunk(Trunk):
       - tracking_dataframe: TrackingDataFrame (will update action columns)
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(
+        self,
+        enabled: bool = True,
+        work_dir_key: str = "work_dir",
+        output_filename: str = "actions.csv",
+        write_interval: int = 100,
+    ):
         super().__init__(enabled=enabled)
+        self._work_dir_key = work_dir_key
+        self._output_filename = output_filename
+        self._write_interval = write_interval
+        self._action_dataframe: Optional[ActionDataFrame] = None
+
+    def _ensure_action_dataframe(self, context: Dict[str, Any]) -> Optional[ActionDataFrame]:
+        if self._action_dataframe is not None:
+            return self._action_dataframe
+        work_dir = _ctx_value(context, self._work_dir_key)
+        if not work_dir:
+            return None
+        os.makedirs(work_dir, exist_ok=True)
+        output_path = os.path.join(work_dir, self._output_filename)
+        self._action_dataframe = ActionDataFrame(output_file=output_path, write_interval=self._write_interval)
+        return self._action_dataframe
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
 
         df = context.get("tracking_dataframe")
-        action_df = context.get("action_dataframe")
+        action_df = context.get("action_dataframe") or self._ensure_action_dataframe(context)
         if df is None and action_df is None:
             return {}
         data: Dict[str, Any] = context.get("data", {})
@@ -419,10 +537,14 @@ class SaveActionsTrunk(Trunk):
                     action_df.add_frame_sample(frame_id=frame_id0 + i, data_samples=actions)
                 except Exception:
                     action_df.add_frame_records(frame_id=frame_id0 + i, action_json=json.dumps(actions))
-        return {}
+        return {"action_dataframe": action_df} if action_df is not None else {}
 
     def input_keys(self):
-        return {"data", "frame_id", "tracking_dataframe", "action_results", "action_dataframe"}
+        return {"data", "frame_id", "tracking_dataframe", "action_results"}
 
     def output_keys(self):
-        return set()
+        return {"action_dataframe"}
+
+    def finalize(self):
+        if self._action_dataframe is not None:
+            self._action_dataframe.close()

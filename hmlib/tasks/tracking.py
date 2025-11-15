@@ -10,11 +10,10 @@ import hmlib.tracking_utils.segm_boundaries
 
 # AspenNet graph runner
 from hmlib.aspen import AspenNet
+from hmlib.config import get_game_dir
+from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.log import logger
-from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
-from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.timer import Timer
-from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import cuda_stream_scope
 from hmlib.utils.iterators import CachedIterator
@@ -28,10 +27,6 @@ def run_mmtrack(
     dataloader,
     postprocessor,
     progress_bar: Optional[ProgressBar] = None,
-    tracking_dataframe: TrackingDataFrame = None,
-    detection_dataframe: DetectionDataFrame = None,
-    pose_dataframe: PoseDataFrame = None,
-    action_dataframe: Any = None,
     device: torch.device = None,
     input_cache_size: int = 2,
     fp16: bool = False,
@@ -40,6 +35,7 @@ def run_mmtrack(
     profiler: Any = None,
 ):
     mean_tracker: Optional[MeanTracker] = None
+    aspen_net: Optional[AspenNet] = None
     if config is None:
         config = {}
     try:
@@ -110,16 +106,23 @@ def run_mmtrack(
                 # Add that table-maker to the progress bar
                 progress_bar.add_table_callback(_table_callback)
 
-            using_precalculated_tracking = (
-                tracking_dataframe is not None and tracking_dataframe.has_input_data()
-            )
-            using_precalculated_detection = (
-                detection_dataframe is not None and detection_dataframe.has_input_data()
-            )
-            using_precalculated_pose = pose_dataframe is not None and pose_dataframe.has_input_data()
+            game_dir = config.get("game_dir")
+            if not game_dir and config.get("game_id"):
+                try:
+                    game_dir = get_game_dir(config.get("game_id"), assert_exists=False)
+                except Exception:
+                    game_dir = None
+            work_dir = config.get("work_dir") or config.get("results_folder")
+            tracking_data_path = config.get("tracking_data_path") or find_latest_dataframe_file(game_dir, "tracking")
+            detection_data_path = config.get("detection_data_path") or find_latest_dataframe_file(game_dir, "detections")
+            pose_data_path = config.get("pose_data_path") or find_latest_dataframe_file(game_dir, "pose")
+            action_data_path = config.get("action_data_path") or find_latest_dataframe_file(game_dir, "actions")
+
+            using_precalculated_tracking = bool(tracking_data_path)
+            using_precalculated_detection = bool(detection_data_path)
+            using_precalculated_pose = bool(pose_data_path)
 
             # Build AspenNet if a config is provided under config['aspen']
-            aspen_net: Optional[AspenNet] = None
             aspen_cfg: Optional[Dict[str, Any]] = None
             cfg_aspen = config.get("aspen")
             if isinstance(cfg_aspen, dict):
@@ -274,15 +277,17 @@ def run_mmtrack(
                     device=device,
                     using_precalculated_tracking=using_precalculated_tracking,
                     using_precalculated_detection=using_precalculated_detection,
-                    tracking_dataframe=tracking_dataframe,
-                    detection_dataframe=detection_dataframe,
-                    pose_dataframe=pose_dataframe,
-                    action_dataframe=action_dataframe,
                     plot_pose=bool(config.get("plot_pose", False)),
                     # Propagate CLI flag to BoundariesTrunk -> IceRinkSegmBoundaries(draw)
                     plot_ice_mask=bool(config.get("plot_ice_mask", False)),
                     # Boundary + identity context for trunks
                     game_id=config.get("game_id"),
+                    game_dir=game_dir,
+                    work_dir=work_dir,
+                    tracking_data_path=tracking_data_path,
+                    detection_data_path=detection_data_path,
+                    pose_data_path=pose_data_path,
+                    action_data_path=action_data_path,
                     original_clip_box=config.get("original_clip_box"),
                     top_border_lines=config.get("top_border_lines"),
                     bottom_border_lines=config.get("bottom_border_lines"),
@@ -382,11 +387,10 @@ def run_mmtrack(
     except Exception as ex:
         raise
     finally:
-        if tracking_dataframe is not None:
-            tracking_dataframe.close()
-        if detection_dataframe is not None:
-            detection_dataframe.close()
-        if pose_dataframe is not None:
-            pose_dataframe.close()
+        if aspen_net is not None:
+            try:
+                aspen_net.finalize()
+            except Exception:
+                logger.exception("AspenNet finalize failed")
         if mean_tracker is not None:
             mean_tracker.close()
