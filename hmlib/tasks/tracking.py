@@ -131,57 +131,6 @@ def run_mmtrack(
                 trunks_cfg = aspen_cfg.get("trunks", {}) or {}
                 initial_args = config.get("initial_args", {}) or {}
 
-                # Dynamically disable pose trunk if not requested, unless loading pose or
-                # a downstream trunk (e.g., pose_to_det) requires it.
-                # if "pose" in trunks_cfg and not using_precalculated_pose:
-                #     requires_pose = any(name in trunks_cfg for name in ("pose_to_det", "pose_bbox_adapter"))
-                #     if not requires_pose:
-                #         trunks_cfg["pose"]["enabled"] = False
-
-                # Replace compute trunks with loader variants if using precomputed data
-                # changes = []
-                # if "detector" in trunks_cfg and using_precalculated_detection:
-                #     trunks_cfg["detector"]["class"] = "hmlib.aspen.trunks.load.LoadDetectionsTrunk"
-                #     if "detector_factory" in trunks_cfg:
-                #         trunks_cfg["detector_factory"]["enabled"] = False
-                #     changes.append("swap detector->LoadDetectionsTrunk; disable detector_factory")
-                # if "tracker" in trunks_cfg and using_precalculated_tracking:
-                #     trunks_cfg["tracker"]["class"] = "hmlib.aspen.trunks.load.LoadTrackingTrunk"
-                #     if "model_factory" in trunks_cfg:
-                #         trunks_cfg["model_factory"]["enabled"] = False
-                #     if "boundaries" in trunks_cfg:
-                #         trunks_cfg["boundaries"]["enabled"] = False
-                #     changes.append("swap tracker->LoadTrackingTrunk; disable model_factory,boundaries")
-                # if "pose" in trunks_cfg and using_precalculated_pose:
-                #     trunks_cfg["pose"]["class"] = "hmlib.aspen.trunks.load.LoadPoseTrunk"
-                #     changes.append("swap pose->LoadPoseTrunk")
-
-                # Default to saving when not loading; explicit flags still honored by presence of dataframes
-                # save_detection = not using_precalculated_detection
-                # save_tracking = not using_precalculated_tracking
-                # save_pose = not using_precalculated_pose
-
-                # save_detection = True
-                # save_tracking = True
-                # save_pose = True
-
-                # def _append_trunk(name: str, cls: str, depends_on: str):
-                #     if name not in trunks_cfg:
-                #         trunks_cfg[name] = {"class": cls, "depends": [depends_on], "params": {}}
-
-                # if "detector" in trunks_cfg and save_detection and trunks_cfg.get("detector", {}).get("enabled", True):
-                #     _append_trunk("save_detections", "hmlib.aspen.trunks.save.SaveDetectionsTrunk", "detector")
-                #     changes.append("append save_detections")
-                # if "tracker" in trunks_cfg and save_tracking and trunks_cfg.get("tracker", {}).get("enabled", True):
-                #     _append_trunk("save_tracking", "hmlib.aspen.trunks.save.SaveTrackingTrunk", "tracker")
-                #     changes.append("append save_tracking")
-                # if "pose" in trunks_cfg and save_pose and trunks_cfg.get("pose", {}).get("enabled", True):
-                #     _append_trunk("save_pose", "hmlib.aspen.trunks.save.SavePoseTrunk", "pose")
-                #     changes.append("append save_pose")
-
-                # if changes:
-                #     logger.info("Aspen trunk patch: " + ", ".join(changes))
-
                 aspen_cfg["trunks"] = trunks_cfg
 
                 pipeline_cfg = dict(aspen_cfg.get("pipeline", {}) or {})
@@ -322,6 +271,9 @@ def run_mmtrack(
                     if detect_timer is None:
                         detect_timer = Timer()
 
+                    # cuda_stream.synchronize()
+                    # continue
+
                     if aspen_net is not None:
                         # Execute the configured DAG
                         # Prepare per-iteration context
@@ -348,6 +300,7 @@ def run_mmtrack(
                                 out_context = aspen_net(iter_context)
                         else:
                             out_context = aspen_net(iter_context)
+
                         # Update stats for progress bar
                         nr_tracks = int(out_context.get("nr_tracks", 0))
                         max_tracking_id = out_context.get("max_tracking_id", 0)
@@ -363,6 +316,8 @@ def run_mmtrack(
                         )
 
                     # Removed legacy per-frame post-processing branch
+
+                    # cuda_stream.synchronize()
 
                     if detect_timer is not None and cur_iter % 50 == 0:
                         # print(
