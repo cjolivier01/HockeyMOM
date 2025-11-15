@@ -680,6 +680,9 @@ class PlayTracker(torch.nn.Module):
             # Optionally use transformer-based controller
             use_transformer = self._camera_controller == "transformer" and self._camera_model is not None
 
+            # Always sync camera UI controls so sliders affect tracking even without plotting.
+            self._apply_ui_controls()
+
             if self._playtracker is not None:
                 assert not use_transformer, "Cannot use transformer with C++ PlayTracker"
                 online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
@@ -743,39 +746,6 @@ class PlayTracker(torch.nn.Module):
                         color=(255, 255, 255),
                         thickness=2,
                     )
-                    # UI overlay and C++ live tuning
-                    self._apply_ui_controls()
-                    try:
-                        camera_cfg = self._args.game_config["rink"]["camera"]
-                        bkd = camera_cfg.get("breakaway_detection", {})
-                        dir_delay = int(camera_cfg.get("stop_on_dir_change_delay", 10))
-                        cancel_opp = bool(camera_cfg.get("cancel_stop_on_opposite_dir", 1))
-                        hyst = int(camera_cfg.get("stop_cancel_hysteresis_frames", 2))
-                        cooldown = int(camera_cfg.get("stop_delay_cooldown_frames", 2))
-                        postns = int(bkd.get("post_nonstop_stop_delay_count", 6))
-                        ov_delay = int(bkd.get("overshoot_stop_delay_count", 6))
-                        ov_scale = float(bkd.get("overshoot_scale_speed_ratio", 0.7))
-                        # Read selection + constraints from trackbars
-                        apply_fast = cv2.getTrackbarPos("ApplyFast", self._ui_window_name) if self._camera_ui_enabled else 1
-                        apply_follower = cv2.getTrackbarPos("ApplyFollower", self._ui_window_name) if self._camera_ui_enabled else 1
-                        msx = cv2.getTrackbarPos("MaxSpdXx10", self._ui_window_name) / 10.0 if self._camera_ui_enabled else 30.0
-                        msy = cv2.getTrackbarPos("MaxSpdYx10", self._ui_window_name) / 10.0 if self._camera_ui_enabled else 30.0
-                        maxx = cv2.getTrackbarPos("MaxAccXx10", self._ui_window_name) / 10.0 if self._camera_ui_enabled else 10.0
-                        maxy = cv2.getTrackbarPos("MaxAccYx10", self._ui_window_name) / 10.0 if self._camera_ui_enabled else 10.0
-                        if apply_fast:
-                            lb = self._playtracker.get_live_box(0)
-                            lb.set_braking(dir_delay, cancel_opp, hyst, cooldown, postns)
-                            lb.set_translation_constraints(msx, msy, maxx, maxy)
-                        if apply_follower:
-                            lb = self._playtracker.get_live_box(1)
-                            lb.set_braking(dir_delay, cancel_opp, hyst, cooldown, postns)
-                            lb.set_translation_constraints(msx, msy, maxx, maxy)
-                        self._playtracker.set_breakaway_braking(ov_delay, ov_scale)
-                    except Exception:
-                        pass
-                    online_im = self._draw_ui_overlay(online_im)
-                    # UI overlay for C++ path
-                    self._apply_ui_controls()
                     online_im = self._draw_ui_overlay(online_im)
 
                 if (
@@ -805,9 +775,6 @@ class PlayTracker(torch.nn.Module):
                         color=(128, 255, 128),
                         thickness=4,
                     )
-                if self._args.plot_moving_boxes:
-                    self._apply_ui_controls()
-                    online_im = self._draw_ui_overlay(online_im)
 
             else:
                 largest_bbox = None
@@ -1208,26 +1175,26 @@ class PlayTracker(torch.nn.Module):
             return
         try:
             # Read trackbars
-            dir_delay = cv2.getTrackbarPos("DirDelay", self._ui_window_name)
-            cancel_opp = cv2.getTrackbarPos("CancelOpp", self._ui_window_name)
-            hyst = cv2.getTrackbarPos("Hyst", self._ui_window_name)
-            cooldown = cv2.getTrackbarPos("Cooldown", self._ui_window_name)
-            ov_delay = cv2.getTrackbarPos("OvDelay", self._ui_window_name)
-            postns = cv2.getTrackbarPos("PostNS", self._ui_window_name)
+            dir_delay = int(cv2.getTrackbarPos("DirDelay", self._ui_window_name))
+            cancel_opp = bool(cv2.getTrackbarPos("CancelOpp", self._ui_window_name))
+            hyst = int(cv2.getTrackbarPos("Hyst", self._ui_window_name))
+            cooldown = int(cv2.getTrackbarPos("Cooldown", self._ui_window_name))
+            ov_delay = int(cv2.getTrackbarPos("OvDelay", self._ui_window_name))
+            postns = int(cv2.getTrackbarPos("PostNS", self._ui_window_name))
             ov_scal = cv2.getTrackbarPos("OvScaleX100", self._ui_window_name) / 100.0
-            ttg = cv2.getTrackbarPos("TTGFrames", self._ui_window_name)
+            ttg = int(cv2.getTrackbarPos("TTGFrames", self._ui_window_name))
 
             # Update YAML-like config so all downstream reads are consistent
             camera_cfg = self._args.game_config["rink"]["camera"]
-            camera_cfg["stop_on_dir_change_delay"] = int(dir_delay)
-            camera_cfg["cancel_stop_on_opposite_dir"] = bool(cancel_opp)
-            camera_cfg["stop_cancel_hysteresis_frames"] = int(hyst)
-            camera_cfg["stop_delay_cooldown_frames"] = int(cooldown)
+            camera_cfg["stop_on_dir_change_delay"] = dir_delay
+            camera_cfg["cancel_stop_on_opposite_dir"] = cancel_opp
+            camera_cfg["stop_cancel_hysteresis_frames"] = hyst
+            camera_cfg["stop_delay_cooldown_frames"] = cooldown
             bkd = camera_cfg.setdefault("breakaway_detection", {})
-            bkd["overshoot_stop_delay_count"] = int(ov_delay)
-            bkd["post_nonstop_stop_delay_count"] = int(postns)
+            bkd["overshoot_stop_delay_count"] = ov_delay
+            bkd["post_nonstop_stop_delay_count"] = postns
             bkd["overshoot_scale_speed_ratio"] = float(ov_scal)
-            camera_cfg["time_to_dest_speed_limit_frames"] = int(ttg)
+            camera_cfg["time_to_dest_speed_limit_frames"] = ttg
 
             # Stitch rotation degrees (-90..+90)
             try:
@@ -1269,8 +1236,8 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     pass
             # Read selection + constraints
-            apply_fast = cv2.getTrackbarPos("ApplyFast", self._ui_window_name)
-            apply_follower = cv2.getTrackbarPos("ApplyFollower", self._ui_window_name)
+            apply_fast = bool(cv2.getTrackbarPos("ApplyFast", self._ui_window_name))
+            apply_follower = bool(cv2.getTrackbarPos("ApplyFollower", self._ui_window_name))
             msx = cv2.getTrackbarPos("MaxSpdXx10", self._ui_window_name) / 10.0
             msy = cv2.getTrackbarPos("MaxSpdYx10", self._ui_window_name) / 10.0
             maxx = cv2.getTrackbarPos("MaxAccXx10", self._ui_window_name) / 10.0
@@ -1293,11 +1260,25 @@ class PlayTracker(torch.nn.Module):
             if isinstance(self._current_roi_aspect, MovingBox):
                 mba = self._current_roi_aspect
                 mba._stop_on_dir_change_delay = torch.tensor(int(dir_delay), dtype=torch.int64, device=mba.device)
-                mba._cancel_stop_on_opposite_dir = bool(cancel_opp)
+                mba._cancel_stop_on_opposite_dir = cancel_opp
                 mba._cancel_hysteresis_frames = torch.tensor(int(hyst), dtype=torch.int64, device=mba.device)
                 mba._stop_delay_cooldown_frames = torch.tensor(int(cooldown), dtype=torch.int64, device=mba.device)
                 mba._post_nonstop_stop_delay = torch.tensor(int(postns), dtype=torch.int64, device=mba.device)
+            if self._playtracker is not None:
+                try:
+                    if apply_fast:
+                        lb = self._playtracker.get_live_box(0)
+                        lb.set_braking(dir_delay, cancel_opp, hyst, cooldown, postns)
+                        lb.set_translation_constraints(msx, msy, maxx, maxy)
+                    if apply_follower:
+                        lb = self._playtracker.get_live_box(1)
+                        lb.set_braking(dir_delay, cancel_opp, hyst, cooldown, postns)
+                        lb.set_translation_constraints(msx, msy, maxx, maxy)
+                    self._playtracker.set_breakaway_braking(ov_delay, ov_scal)
+                except Exception:
+                    pass
             # For Python-only breakaway values, we read from args.game_config in calculate_breakaway
+            self._handle_ui_keyboard()
         except Exception:
             pass
 
@@ -1344,7 +1325,15 @@ class PlayTracker(torch.nn.Module):
                 (255, 255, 255),
                 thickness=2,
             )
-            # Handle key events
+            self._handle_ui_keyboard()
+        except Exception:
+            pass
+        return img
+
+    def _handle_ui_keyboard(self):
+        if not self._camera_ui_enabled or not self._ui_inited:
+            return
+        try:
             k = cv2.waitKey(1) & 0xFF
             if k == ord('r') or k == ord('R'):
                 self._reset_ui_controls()
@@ -1352,7 +1341,6 @@ class PlayTracker(torch.nn.Module):
                 self._save_ui_config()
         except Exception:
             pass
-        return img
 
     def _reset_ui_controls(self):
         if not self._camera_ui_enabled or not self._ui_inited:
