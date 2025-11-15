@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional
+from importlib import import_module
+from typing import Any, Dict, List, Optional, Type
 
 import torch
 from mmengine.structures import InstanceData
@@ -29,10 +30,35 @@ class TrackerTrunk(Trunk):
       - max_tracking_id: int
     """
 
-    def __init__(self, enabled: bool = True, cpp_tracker: bool = True):
+    def __init__(
+        self,
+        enabled: bool = True,
+        cpp_tracker: bool = True,
+        tracker_class: Optional[str] = None,
+        tracker_kwargs: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(enabled=enabled)
         self._cpp_tracker = bool(cpp_tracker)
-        self._hm_tracker: Optional[HmTracker] = None
+        if tracker_class is None:
+            default_class = "hockeymom.core.HmTracker" if cpp_tracker else "hockeymom.core.HmByteTrackerCuda"
+            self._tracker_class_path = default_class
+        else:
+            self._tracker_class_path = tracker_class
+        self._tracker_kwargs = dict(tracker_kwargs or {})
+        self._hm_tracker: Optional[Any] = None
+
+    @property
+    def tracker_class(self) -> str:
+        """Fully-qualified tracker class path used for instantiation."""
+        return self._tracker_class_path
+
+    def _resolve_tracker_class(self):
+        module_name, _, attr = self._tracker_class_path.rpartition(".")
+        if not module_name:
+            raise ValueError(f"tracker_class must be a module dotted path, got '{self._tracker_class_path}'")
+        module = import_module(module_name)
+        tracker_cls = getattr(module, attr)
+        return tracker_cls
 
     def _ensure_tracker(self, image_size: torch.Size):
         if self._hm_tracker is not None:
@@ -66,7 +92,14 @@ class TrackerTrunk(Trunk):
         config.return_user_ids = False
         config.return_track_age = False
         config.prediction_mode = HmTrackerPredictionMode.BoundingBox
-        self._hm_tracker = HmTracker(config)
+        tracker_cls = self._resolve_tracker_class()
+        init_kwargs = dict(self._tracker_kwargs)
+        try:
+            self._hm_tracker = tracker_cls(config, **init_kwargs)
+        except TypeError:
+            if init_kwargs:
+                raise
+            self._hm_tracker = tracker_cls(config)
 
     # post-detection pipeline deprecated; pruning handled by a dedicated trunk
 

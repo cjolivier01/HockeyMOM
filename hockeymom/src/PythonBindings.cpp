@@ -7,6 +7,7 @@
 #include "cupano/pano/cudaPano.h"
 #include "cupano/pano/cudaPano3.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
+#include "hockeymom/csrc/bytetrack/BYTETrackerCuda.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
 #include "hockeymom/csrc/kmeans/kmeans.h"
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
@@ -851,6 +852,23 @@ void init_tracking(::pybind11::module_& m) {
       .def(
           "track",
           &hm::tracker::BYTETracker::track,
+          py::arg("data"),
+          py::call_guard<py::gil_scoped_release>());
+
+  py::class_<
+      hm::tracker::BYTETrackerCuda,
+      std::shared_ptr<hm::tracker::BYTETrackerCuda>>(m, "HmByteTrackerCuda")
+      .def(
+          py::init([](hm::tracker::ByteTrackConfig config, const std::string& device) {
+            return std::make_shared<hm::tracker::BYTETrackerCuda>(
+                std::move(config), c10::Device(device));
+          }),
+          py::arg("config") = hm::tracker::ByteTrackConfig(),
+          py::arg("device") = std::string("cuda:0"))
+      .def("num_tracks", &hm::tracker::BYTETrackerCuda::num_tracks)
+      .def(
+          "track",
+          &hm::tracker::BYTETrackerCuda::track,
           py::arg("data"),
           py::call_guard<py::gil_scoped_release>());
 

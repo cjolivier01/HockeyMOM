@@ -95,11 +95,6 @@ aspen:
           type: TrackDataPreprocessor
           pad_size_divisor: 32
           use_det_processor: true
-          # batch_augments:
-          #   - type: BatchSyncRandomResize
-          #     random_size_range: [576, 1024]
-          #     size_divisor: 32
-          #     interval: 10
 
     boundaries:
       class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
@@ -125,7 +120,10 @@ aspen:
     tracker:
       class: hmlib.aspen.trunks.tracker.TrackerTrunk
       depends: [detector, ice_boundaries, model_factory, boundaries]
-      params: {}
+      params:
+        # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable CUDA ByteTrack
+        # tracker_kwargs:
+        #   device: cuda:0
 
     # Optional camera controller (rule-based by default). Enable transformer by
     # setting controller: transformer and model_path to your checkpoint.

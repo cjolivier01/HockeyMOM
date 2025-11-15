@@ -50,6 +50,7 @@ from ._hockeymom import (
     HmByteTrackConfig,
     HmByteTracker,
     HmTracker,
+    HmByteTrackerCuda,
     HmTrackerPredictionMode,
     ImageBlender,
     ImageBlenderMode,
@@ -71,6 +72,12 @@ try:
 except:
     EnBlender = None
 
+
+# REMOVEME(colivier)
+# class HmByteTrackerCuda:
+#     pass
+
+
 __all__ = [
     "ImageRemapper",
     "ImageBlender",
@@ -84,6 +91,7 @@ __all__ = [
     "RemapImageInfo",
     "HmTracker",
     "HmByteTracker",
+    "HmByteTrackerCuda",
     "HmByteTrackConfig",
     "RemapperConfig",
     "HmTrackerPredictionMode",
@@ -241,6 +249,18 @@ _doc(
 _doc(
     HmByteTracker,
     """BYTETracker variant integrated with HockeyMOM pipeline (player detection).""",
+)
+_doc(
+    HmByteTrackerCuda,
+    """High-performance CUDA BYTETracker.
+
+    Args:
+        config: `HmByteTrackConfig` with thresholds / buffering options.
+        device: Torch device string (default ``"cuda:0"``).
+
+    Returns tracked tensors directly on the target CUDA device without host
+    synchronization for the heavy math (Kalman, IoU, assignment).
+    """,
 )
 
 _doc(
