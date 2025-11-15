@@ -93,9 +93,10 @@ class LoadDetectionsTrunk(Trunk):
         frame_id0: int = int(context.get("frame_id", -1))
         video_len = len(track_data_sample)
         for i in range(video_len):
+            fid: int = frame_id0 + i
             img_data_sample = track_data_sample[i]
             ds = getattr(df, "get_sample_by_frame", None)
-            det_ds = ds(frame_id=frame_id0 + i) if callable(ds) else None
+            det_ds = ds(frame_id=fid) if callable(ds) else None
             if det_ds is None:
                 # Attach empty detections to mirror detector behavior
                 inst = InstanceData()
@@ -107,7 +108,7 @@ class LoadDetectionsTrunk(Trunk):
                 inst = getattr(det_ds, "pred_instances", None)
                 if inst is None:
                     # fall back to dict-based path
-                    rec = df.get_data_dict_by_frame(frame_id=frame_id0 + i)
+                    rec = df.get_data_dict_by_frame(frame_id=fid)
                     if rec is None:
                         inst = InstanceData()
                         inst.scores = torch.empty((0,), dtype=torch.float32)
@@ -119,7 +120,7 @@ class LoadDetectionsTrunk(Trunk):
                         inst.labels = torch.as_tensor(rec.get("labels", np.empty((0,), dtype=np.int64)))
                         inst.bboxes = torch.as_tensor(rec.get("bboxes", np.empty((0, 4), dtype=np.float32)))
                 img_data_sample.pred_instances = inst
-
+            img_data_sample.set_metainfo({"frame_id": int(fid)})
         return {"data": data, "detection_dataframe": df}
 
     def input_keys(self):
@@ -334,9 +335,11 @@ class LoadPoseTrunk(Trunk):
         pose_results: List[Any] = []
         for i in range(video_len):
             get_s = getattr(df, "get_sample_by_frame", None)
-            pose_ds = get_s(frame_id=frame_id0 + i) if callable(get_s) else None
+            fid: int = frame_id0 + i
+            pose_ds = get_s(frame_id=fid) if callable(get_s) else None
+            pose_ds.set_metainfo({"frame_id": int(fid)})
             if pose_ds is None:
-                rec = df.get_data_dict_by_frame(frame_id=frame_id0 + i)
+                rec = df.get_data_dict_by_frame(frame_id=fid)
                 if rec is None:
                     pose_results.append({"predictions": []})
                 else:
