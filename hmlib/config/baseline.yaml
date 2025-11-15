@@ -141,6 +141,7 @@ game:
     right: null
 
   stitching:
+    stitch-rotate-degrees: 0
     frame_offsets:
       left: null
       right: null

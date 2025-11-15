@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Union
 
 import yaml
 
-from hmlib.config import get_nested_value, set_nested_value
+from hmlib.config import get_game_config_private, get_nested_value, set_nested_value
 
 
 def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
@@ -991,6 +991,31 @@ class hm_opts(object):
                         ):
                             print(f"Setting attribute {k} to {v}")
                             setattr(opt, k, v)
+
+        # YAML-derived defaults for stitch_rotate_degrees (CLI wins).
+        # Preferred source is consolidated game_config when available; otherwise
+        # fall back to the per-game private config under $HOME/Videos/<game-id>/config.yaml.
+        try:
+            if getattr(opt, "stitch_rotate_degrees", None) is None:
+                val = None
+                game_cfg = getattr(opt, "game_config", None)
+                if isinstance(game_cfg, dict):
+                    val = get_nested_value(game_cfg, "game.stitching.stitch-rotate-degrees", None)
+                    if val is None:
+                        val = get_nested_value(game_cfg, "game.stitching.stitch_rotate_degrees", None)
+                if val is None and getattr(opt, "game_id", None):
+                    cfg_priv = get_game_config_private(game_id=opt.game_id)
+                    val = get_nested_value(cfg_priv, "game.stitching.stitch-rotate-degrees", None)
+                    if val is None:
+                        val = get_nested_value(cfg_priv, "game.stitching.stitch_rotate_degrees", None)
+                if val is not None:
+                    try:
+                        opt.stitch_rotate_degrees = float(val)
+                    except Exception:
+                        pass
+        except Exception:
+            # Non-fatal if config missing or malformed
+            pass
 
         # Map select CLI camera options into YAML-style config (if not already present)
         # This lets downstream code read from args.game_config['rink']['camera']

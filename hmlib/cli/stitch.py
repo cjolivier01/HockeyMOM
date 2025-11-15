@@ -368,7 +368,10 @@ def _main(args) -> None:
 
 
 def main() -> None:
-    _main(hm_opts.parser(parser=make_parser()).parse_args())
+    parser = hm_opts.parser(parser=make_parser())
+    args = parser.parse_args()
+    args = hm_opts.init(args, parser=parser)
+    _main(args)
 
 
 if __name__ == "__main__":
