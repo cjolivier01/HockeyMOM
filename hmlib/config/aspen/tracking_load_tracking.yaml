@@ -58,13 +58,16 @@ aspen:
       depends: [image_prep]
       params: {}
 
-    # ice_boundaries:
-    #   class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
-    #   depends: [load_tracking, ice_config]
-    #   params: {}
+    camera_controller:
+      class: hmlib.aspen.trunks.camera_controller.CameraControllerTrunk
+      depends: [load_tracking]
+      params:
+        controller: rule
+        model_path: null
+        window: 8
 
     postprocess:
       class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
-      depends: [load_tracking]
+      depends: [load_tracking, camera_controller]
       params: {}
 
