@@ -221,7 +221,16 @@ class hm_opts(object):
             "--profile-with-stack",
             dest="profile_with_stack",
             action="store_true",
-            help="Capture Python stack traces in profiler events (adds overhead)",
+            default=None,
+            help="Capture Python stack traces in profiler events (default when --profile is set; adds overhead)",
+        )
+        prof.add_argument(
+            "--no-profile-stack",
+            "--profile-no-stack",
+            dest="profile_with_stack",
+            action="store_false",
+            default=None,
+            help="Disable stack trace capture for profiling runs.",
         )
         prof.add_argument(
             "--profile-export-per-iter",
@@ -566,7 +575,7 @@ class hm_opts(object):
         )
         parser.add_argument(
             "--decoder-device",
-            default=None,
+            default="cuda",
             type=str,
             help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
         )

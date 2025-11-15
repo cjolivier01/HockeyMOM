@@ -140,13 +140,17 @@ class HmProfiler:
 def build_profiler_from_args(args, save_dir_fallback: Optional[str] = None) -> HmProfiler:
     enabled = bool(getattr(args, "profile", False) or getattr(args, "profiler", False))
     save_dir = getattr(args, "profile_dir", None) or save_dir_fallback
+    profile_with_stack = getattr(args, "profile_with_stack", None)
+    if profile_with_stack is None:
+        profile_with_stack = bool(enabled)
+
     opts = ProfilerOptions(
         enabled=enabled,
         save_dir=save_dir,
         export_per_iter=bool(getattr(args, "profile_export_per_iter", False)),
         record_shapes=bool(getattr(args, "profile_record_shapes", False)),
         profile_memory=bool(getattr(args, "profile_memory", False)),
-        with_stack=bool(getattr(args, "profile_with_stack", False)),
+        with_stack=bool(profile_with_stack),
         include_cuda=bool(getattr(args, "profile_gpu", False)),
         trace_basename=str(getattr(args, "profile_trace_basename", "trace")),
     )
