@@ -1132,6 +1132,25 @@ class PlayTracker(torch.nn.Module):
             # Apply to fast and/or follower boxes
             tb("ApplyFast", 1, 1)
             tb("ApplyFollower", 1, 1)
+
+            # --- Stitch rotate degrees (-90..+90 mapped to 0..180) ---
+            try:
+                # Prefer consolidated game_config runtime value; fall back to CLI/defaults
+                rot_cfg = None
+                try:
+                    rot_cfg = self._args.game_config.get("game", {}).get("stitching", {}).get(
+                        "stitch-rotate-degrees"
+                    )
+                except Exception:
+                    rot_cfg = None
+                if rot_cfg is None:
+                    rot_cfg = getattr(self._args, "stitch_rotate_degrees", 0.0)
+                rot_cfg = 0.0 if rot_cfg is None else float(rot_cfg)
+                # Map -90..+90 -> 0..180
+                tb("StitchRot", 180, int(max(-90.0, min(90.0, rot_cfg)) + 90.0))
+            except Exception:
+                # Non-fatal if config missing
+                tb("StitchRot", 180, 90)
             # Speeds/accels (scale sliders by x10 to allow decimals)
             # Initialize from YAML if present, else use reasonable defaults
             msx = int(10 * float(self._args.game_config["rink"]["camera"].get("max_speed_x", 30.0)))
@@ -1158,6 +1177,7 @@ class PlayTracker(torch.nn.Module):
                 MaxSpdYx10=msy,
                 MaxAccXx10=maxx,
                 MaxAccYx10=maxy,
+                StitchRot=cv2.getTrackbarPos("StitchRot", self._ui_window_name) if cv2.getWindowProperty(self._ui_window_name, 0) is not None else 90,
             )
             self._ui_inited = True
             # ---- Color controls window ----
@@ -1208,6 +1228,15 @@ class PlayTracker(torch.nn.Module):
             bkd["post_nonstop_stop_delay_count"] = int(postns)
             bkd["overshoot_scale_speed_ratio"] = float(ov_scal)
             camera_cfg["time_to_dest_speed_limit_frames"] = int(ttg)
+
+            # Stitch rotation degrees (-90..+90)
+            try:
+                rot_slider = cv2.getTrackbarPos("StitchRot", self._ui_window_name)
+                rot_deg = float(rot_slider - 90)
+                game_cfg = self._args.game_config.setdefault("game", {}).setdefault("stitching", {})
+                game_cfg["stitch-rotate-degrees"] = rot_deg
+            except Exception:
+                pass
             # --- Color controls (second window) ---
             if self._ui_color_inited:
                 try:
@@ -1278,6 +1307,14 @@ class PlayTracker(torch.nn.Module):
         try:
             camera_cfg = self._args.game_config["rink"]["camera"]
             bkd = camera_cfg.get("breakaway_detection", {})
+            # Show current panorama rotate degrees if set
+            try:
+                rot_deg = (
+                    self._args.game_config.get("game", {}).get("stitching", {}).get("stitch-rotate-degrees", 0.0)
+                )
+                rot_text = f" Rot={float(rot_deg):+.1f}deg"
+            except Exception:
+                rot_text = ""
             text = (
                 f"DirDelay={camera_cfg.get('stop_on_dir_change_delay', 0)} "
                 f"Cancel={int(bool(camera_cfg.get('cancel_stop_on_opposite_dir', 0)))} "
@@ -1286,6 +1323,7 @@ class PlayTracker(torch.nn.Module):
                 f"OvDelay={bkd.get('overshoot_stop_delay_count', 0)} "
                 f"PostNS={bkd.get('post_nonstop_stop_delay_count', 0)} "
                 f"OvScale={bkd.get('overshoot_scale_speed_ratio', 0.0):.2f}"
+                f"{rot_text}"
             )
             img = vis.plot_text(
                 img,
@@ -1336,6 +1374,15 @@ class PlayTracker(torch.nn.Module):
             priv.setdefault("rink", {}).setdefault("camera", {})
             camera_cfg = self._args.game_config["rink"]["camera"]
             priv["rink"]["camera"] = camera_cfg
+            # Also persist game.stitching.stitch-rotate-degrees if present
+            try:
+                stitch_cfg = self._args.game_config.get("game", {}).get("stitching", {})
+                if isinstance(stitch_cfg, dict) and "stitch-rotate-degrees" in stitch_cfg:
+                    priv.setdefault("game", {}).setdefault("stitching", {})[
+                        "stitch-rotate-degrees"
+                    ] = stitch_cfg["stitch-rotate-degrees"]
+            except Exception:
+                pass
             save_private_config(game_id=game_id, data=priv, verbose=True)
         except Exception:
             pass

@@ -105,53 +105,142 @@ def prune_chapters(videos: VideosDict) -> Tuple[VideosDict, VideosDict]:
     return videos, {}
 
 
+def _find_vendor_chapter_pairs(directory: str) -> List[Tuple[Tuple[int, int], str]]:
+    """Scan a directory for known vendor MP4 chapter files and return ordered pairs.
+
+    Returns a list of ((video_id, chapter_num), full_path) sorted by (video_id, chapter_num).
+    Supports GoPro and Insta360 naming conventions.
+    """
+    pairs: List[Tuple[Tuple[int, int], str]] = []
+
+    # GoPro
+    for f in find_matching_files(re_pattern=GOPRO_FILE_PATTERN, directory=directory):
+        try:
+            vid, ch = gopro_get_video_and_chapter(f)
+            pairs.append(((vid, ch), f))
+        except Exception:
+            continue
+
+    # Insta360
+    for f in find_matching_files(re_pattern=INSTA360_FILE_PATTERN, directory=directory):
+        try:
+            vid, ch = insta360_get_video_and_chapter(f)
+            pairs.append(((vid, ch), f))
+        except Exception:
+            continue
+
+    pairs.sort(key=lambda x: x[0])
+    return pairs
+
+
+def _pairs_to_linear_chapter_map(pairs: List[Tuple[Tuple[int, int], str]]) -> VideoChapter:
+    """Flatten vendor chapter pairs into a linear 1..N->file mapping."""
+    return {i + 1: f for i, ((_, _), f) in enumerate(pairs)}
+
+
+def _collect_lr_chapters(directory: str, side: str, renumber: bool = False) -> Optional[VideoChapter]:
+    """Collect left/right single or part files into a chapter map.
+
+    If renumber=True, chapters are returned as 1..N in file order; otherwise
+    they retain the part number from the filename (e.g., left-3.mp4 -> 3).
+    """
+    side = side.lower()
+    assert side in {"left", "right"}
+
+    if side == "left":
+        single_pat, parts_pat = LEFT_FILE_PATTERN, LEFT_PART_FILE_PATTERN
+    else:
+        single_pat, parts_pat = RIGHT_FILE_PATTERN, RIGHT_PART_FILE_PATTERN
+
+    files = find_matching_files(re_pattern=single_pat, directory=directory)
+    if files:
+        return {1: files[0]}
+
+    files = find_matching_files(re_pattern=parts_pat, directory=directory)
+    if files:
+        files = sorted(files, key=lambda f: get_lr_part_number(f))
+        if renumber:
+            return {i + 1: f for i, f in enumerate(files)}
+        else:
+            return {get_lr_part_number(f): f for f in files}
+
+    return None
+
+
 def get_available_videos(dir_name: str, prune: bool = False) -> VideosDict:
     """
     Get available videos in the given directory
 
     :return: # Video # / left|right -> Chapter # -> filename
     """
-    gopro_files: List[str] = find_matching_files(re_pattern=GOPRO_FILE_PATTERN, directory=dir_name)
-    # Video # / left|right -> Chapter # -> filename
+    # Prefer camera-specific subdirectories cam1, cam2, ... when present.
+    # This avoids filename collisions when multiple cameras produce the same
+    # chapter filenames. Each camX directory is treated as a separate camera and
+    # its files are collected as the chapter list for that camera key.
+    try:
+        cam_dirs = [
+            d
+            for d in os.listdir(dir_name)
+            if os.path.isdir(os.path.join(dir_name, d)) and re.match(r"^cam\d+$", d, re.IGNORECASE)
+        ]
+    except Exception:
+        cam_dirs = []
+
+    def _sorted_cam_dirs(names: List[str]) -> List[str]:
+        def cam_index(name: str) -> int:
+            try:
+                m = re.search(r"(\d+)", name)
+                return int(m.group(1)) if m else 0
+            except Exception:
+                return 0
+        return sorted(names, key=cam_index)
+
+    def _collect_chapters_for_dir(d: str) -> VideoChapter:
+        """Collect and order chapter files inside a directory d.
+
+        Strategy: prefer vendor-specific patterns (GoPro, Insta360) if found;
+        otherwise fall back to left*/right* patterns. Output keys are 1..N in
+        the discovered order (synthetic), so downstream expects consecutive ints.
+        """
+        pairs = _find_vendor_chapter_pairs(d)
+        if pairs:
+            return _pairs_to_linear_chapter_map(pairs)
+        # Plain left/right single file or parts
+        left_map = _collect_lr_chapters(d, side="left", renumber=True)
+        if left_map:
+            return left_map
+        right_map = _collect_lr_chapters(d, side="right", renumber=True)
+        if right_map:
+            return right_map
+        return {}
+
+    if cam_dirs:
+        videos_dict: VideosDict = OrderedDict()
+        for cam_name in _sorted_cam_dirs(cam_dirs):
+            cam_path = os.path.join(dir_name, cam_name)
+            chapter_map = _collect_chapters_for_dir(cam_path)
+            if chapter_map:
+                videos_dict[cam_name] = chapter_map
+        if prune:
+            videos_dict, discarded_videos = prune_chapters(videos=videos_dict)
+            if discarded_videos:
+                print(f"Discarding videos: {discarded_videos}")
+        if videos_dict:
+            return videos_dict
+
+    # Fallback: scan the root directory as before
+    # Vendor-specific files (merge by video-id)
     videos_dict: VideosDict = OrderedDict()
-    for file in gopro_files:
-        video, chapter = gopro_get_video_and_chapter(filename=file)
-        if video not in videos_dict:
-            videos_dict[video] = {}
-        videos_dict[video][chapter] = file
+    for (vid, ch), f in _find_vendor_chapter_pairs(dir_name):
+        videos_dict.setdefault(vid, {})[ch] = f
 
-    insta360_files: List[str] = find_matching_files(re_pattern=INSTA360_FILE_PATTERN, directory=dir_name)
-    for file in insta360_files:
-        video, chapter = insta360_get_video_and_chapter(filename=file)
-        if video not in videos_dict:
-            videos_dict[video] = {}
-        videos_dict[video][chapter] = file
-
-    # Plain left file
-    files: List[str] = find_matching_files(re_pattern=LEFT_FILE_PATTERN, directory=dir_name)
-    if files:
-        assert len(files) == 1
-        videos_dict["left"] = {}
-        videos_dict["left"][1] = files[0]
-    else:
-        files = find_matching_files(re_pattern=LEFT_PART_FILE_PATTERN, directory=dir_name)
-        if files:
-            videos_dict["left"] = {}
-            for file in sorted(files):
-                videos_dict["left"][get_lr_part_number(file)] = file
-
-    # Plain right file
-    files: List[str] = find_matching_files(re_pattern=RIGHT_FILE_PATTERN, directory=dir_name)
-    if files:
-        assert len(files) == 1
-        videos_dict["right"] = {}
-        videos_dict["right"][1] = files[0]
-    else:
-        files = find_matching_files(re_pattern=RIGHT_PART_FILE_PATTERN, directory=dir_name)
-        if files:
-            videos_dict["right"] = {}
-            for file in sorted(files):
-                videos_dict["right"][get_lr_part_number(file)] = file
+    # Plain left/right
+    left_map = _collect_lr_chapters(dir_name, side="left", renumber=False)
+    if left_map:
+        videos_dict["left"] = left_map
+    right_map = _collect_lr_chapters(dir_name, side="right", renumber=False)
+    if right_map:
+        videos_dict["right"] = right_map
     if prune:
         videos_dict, discarded_videos = prune_chapters(videos=videos_dict)
         if discarded_videos:
@@ -337,8 +426,11 @@ def configure_game_videos(
     # Make sure they both have the same chapters
     if write_results:
         assert videos_dict["left"].keys() == videos_dict["right"].keys()
-        set_nested_value(private_config, "game.videos.left", [Path(p).name for p in left_list])
-        set_nested_value(private_config, "game.videos.right", [Path(p).name for p in right_list])
+        # Persist relative paths so subdirectories (e.g., cam1/, cam2/) are preserved
+        rel_left = [os.path.relpath(p, start=dir_name) for p in left_list]
+        rel_right = [os.path.relpath(p, start=dir_name) for p in right_list]
+        set_nested_value(private_config, "game.videos.left", rel_left)
+        set_nested_value(private_config, "game.videos.right", rel_right)
         save_private_config(game_id=game_id, data=private_config)
     return {
         "left": left_list,

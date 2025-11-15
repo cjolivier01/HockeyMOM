@@ -256,7 +256,12 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
         self._video_left_info = BasicVideoInfo(",".join(videos["left"]["files"]))
         self._video_right_info = BasicVideoInfo(",".join(videos["right"]["files"]))
-        self._dir_name = _get_dir_name(str(videos["left"]["files"][0]))
+        # Prefer the project directory for all stitching artifacts (mappings, masks)
+        # so it stays consistent with configure_video_stitching outputs.
+        if self._pto_project_file:
+            self._dir_name = Path(self._pto_project_file).parent
+        else:
+            self._dir_name = _get_dir_name(str(videos["left"]["files"][0]))
         # This would affect number of frames, but actually it's supported
         # for stitching later if one os a modulus of the other
         assert np.isclose(self._video_left_info.fps, self._video_right_info.fps)
