@@ -5,7 +5,6 @@ from contextlib import contextmanager
 from threading import Lock
 from typing import Callable, List, Optional, Tuple, Union
 
-import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset
