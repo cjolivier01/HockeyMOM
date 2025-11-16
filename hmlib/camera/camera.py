@@ -223,6 +223,10 @@ class HockeyMOM:
         return self._speed_scale
 
     @property
+    def fps_speed_scale(self) -> float:
+        return self._fps_speed_scale
+
+    @property
     def video(self):
         return self._video_frame
 

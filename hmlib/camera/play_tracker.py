@@ -181,7 +181,7 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             # Frames-to-destination speed limiting (scaled by fps)
             ttg_frames = int(args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10))
-            current_roi_config.time_to_dest_speed_limit_frames = int(ttg_frames * speed_scale)
+            current_roi_config.time_to_dest_speed_limit_frames = int(ttg_frames * self._hockey_mom.fps_speed_scale)
 
             #
             # Create and configure `AllLivingBoxConfig` for `_current_roi_aspect`
@@ -241,52 +241,6 @@ class PlayTracker(torch.nn.Module):
                     getattr(args, "stop_delay_cooldown_frames", 0),
                 )
             )
-            cancel_hyst = int(
-                camera_cfg.get(
-                    "stop_cancel_hysteresis_frames",
-                    getattr(args, "stop_cancel_hysteresis_frames", 0),
-                )
-            )
-            cooldown_frames = int(
-                camera_cfg.get(
-                    "stop_delay_cooldown_frames",
-                    getattr(args, "stop_delay_cooldown_frames", 0),
-                )
-            )
-            current_roi_aspect_config.stop_translation_on_dir_change_delay = stop_dir_delay
-            current_roi_aspect_config.cancel_stop_on_opposite_dir = cancel_stop
-            current_roi_aspect_config.cancel_stop_hysteresis_frames = cancel_hyst
-            current_roi_aspect_config.stop_delay_cooldown_frames = cooldown_frames
-            ttg_frames = int(args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10))
-            current_roi_aspect_config.time_to_dest_speed_limit_frames = int(ttg_frames * speed_scale)
-
-            # Prefer YAML; fall back to CLI hm_opts defaults/overrides
-            camera_cfg = args.game_config["rink"]["camera"]
-            stop_dir_delay = int(
-                camera_cfg.get(
-                    "stop_on_dir_change_delay",
-                    getattr(args, "stop_on_dir_change_delay", 0),
-                )
-            )
-            cancel_stop = bool(
-                camera_cfg.get(
-                    "cancel_stop_on_opposite_dir",
-                    bool(getattr(args, "cancel_stop_on_opposite_dir", 0)),
-                )
-            )
-            cancel_hyst = int(
-                camera_cfg.get(
-                    "stop_cancel_hysteresis_frames",
-                    getattr(args, "stop_cancel_hysteresis_frames", 0),
-                )
-            )
-            cooldown_frames = int(
-                camera_cfg.get(
-                    "stop_delay_cooldown_frames",
-                    getattr(args, "stop_delay_cooldown_frames", 0),
-                )
-            )
-
             current_roi_aspect_config.stop_translation_on_dir_change_delay = stop_dir_delay
             current_roi_aspect_config.cancel_stop_on_opposite_dir = cancel_stop
             current_roi_aspect_config.cancel_stop_hysteresis_frames = cancel_hyst
