@@ -58,6 +58,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         result_as_dict: bool = False,
         adjust_exposure: Optional[float] = None,
         no_cuda_streams: bool = False,
+        async_mode: bool = True,
     ):
         if isinstance(path, list):
             self._path_list = path
@@ -88,6 +89,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._adjust_exposure = adjust_exposure
         self._multi_width_img_info = multi_width_img_info
         self._original_image_only = original_image_only
+        self._async_mode = bool(async_mode)
         self.width_t = None
         self.height_t = None
         self._scale_color_tensor = None
@@ -287,7 +289,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self._open_video()
 
             # Create the CUDA stream outside of the main loop
-            if self._cuda_stream is None and self._device.type == "cuda":
+            if (
+                self._async_mode
+                and not self._no_cuda_streams
+                and self._cuda_stream is None
+                and self._device.type == "cuda"
+            ):
                 self._cuda_stream = torch.cuda.Stream(self._device)
 
             while True:
@@ -316,17 +323,22 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         return
 
     def _start_worker(self):
+        assert self._async_mode
         self._thread = threading.Thread(target=self._next_frame_worker, name="MOTVideoNextFrameWorker")
         self._thread.start()
         self._to_worker_queue.put("ok")
         self._next_counter = 0
 
     def close(self):
-        if self._thread is None:
-            return
-        self._to_worker_queue.put("stop")
-        self._thread.join()
-        self._thread = None
+        if self._async_mode:
+            if self._thread is None:
+                return
+            self._to_worker_queue.put("stop")
+            self._thread.join()
+            self._thread = None
+        else:
+            # In synchronous mode, just close any open video or embedded loader.
+            self._close_video()
         if self._path_list is not None:
             print(
                 f"MOTLoadVideoWithOrig delivered {self._frame_read_count} frames for file {str(self._path_list[self._current_path_index])}"
@@ -341,8 +353,13 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     iterator=self._embedded_data_loader_iter,
                     cache_size=self._embedded_data_loader_cache_size,
                 )
-        if self._thread is None:
-            self._start_worker()
+        if self._async_mode:
+            if self._thread is None:
+                self._start_worker()
+        else:
+            # Synchronous mode: open video lazily on first iteration if needed.
+            if self.cap is None:
+                self._open_video()
         return self
 
     def _read_next_image(self):
@@ -398,10 +415,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 raise
         # END READ NEXT IMAGE
 
-        default_stream = (
-            torch.cuda.current_stream(img0.device) if (isinstance(img0, torch.Tensor) and self._is_cuda()) else None
-        )
-        cuda_stream = self._cuda_stream
+        cuda_stream = self._cuda_stream if self._async_mode else None
+        default_stream = None
+        if cuda_stream is not None and isinstance(img0, torch.Tensor) and self._is_cuda():
+            default_stream = torch.cuda.current_stream(img0.device)
 
         with cuda_stream_scope(cuda_stream), torch.no_grad():
 
@@ -598,8 +615,14 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             prof = getattr(self, "_profiler", None)
             qctx = prof.rf("dataloader.dequeue") if getattr(prof, "enabled", False) else _contextlib.nullcontext()
             with qctx:
-                self._to_worker_queue.put("ok")
-                results = self._from_worker_queue.get()
+                if self._async_mode:
+                    self._to_worker_queue.put("ok")
+                    results = self._from_worker_queue.get()
+                else:
+                    try:
+                        results = self._get_next_batch()
+                    except Exception as ex:
+                        results = ex
             if isinstance(results, Exception):
                 if not isinstance(results, StopIteration):
                     print(results)
@@ -637,14 +660,27 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             assert frame_number > 0  # 1-based
             if frame_number == self._next_frame_id:
                 return
-            self._to_worker_queue.put(f"seek:{frame_number}")
-            while True:
-                response = self._from_worker_queue.get()
-                if isinstance(response, Exception):
-                    raise response
-                if isinstance(response, str) and response == "seek_ok":
-                    break
-                    # otherwise it's probably a queued frame, so discard it
+            if self._async_mode:
+                self._to_worker_queue.put(f"seek:{frame_number}")
+                while True:
+                    response = self._from_worker_queue.get()
+                    if isinstance(response, Exception):
+                        raise response
+                    if isinstance(response, str) and response == "seek_ok":
+                        break
+                        # otherwise it's probably a queued frame, so discard it
+            else:
+                # Best-effort synchronous seek for file-backed videos; embedded loaders are unsupported.
+                if self._embedded_data_loader is not None:
+                    raise NotImplementedError("seek is not supported for embedded data loaders in sync mode")
+                if self.cap is None:
+                    self._open_video()
+                if self.cap is None:
+                    raise RuntimeError("Video capture is not initialized")
+                # Note: frame_number here is assumed to be the underlying frame index.
+                self.cap.seek(frame_number=int(frame_number) * self._frame_step)
+                self._vid_iter = iter(self.cap)
+                self._next_frame_id = torch.tensor([frame_number], dtype=torch.int32)
         return
 
     def __len__(self):
