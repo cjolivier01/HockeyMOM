@@ -647,6 +647,11 @@ def _main(args, num_gpu):
         #     )
         #     pose_inferencer.filter_args = filter_args
 
+        if args.max_frames or args.max_time:
+            if args.no_audio:
+                print("Disabling audio extraction due to max-frames/max-time limit")
+                args.no_audio = True
+
         postprocessor = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
@@ -792,8 +797,8 @@ def _main(args, num_gpu):
                 ]
                 ez_count = 0
                 for vid_name, vid_path in other_videos:
-                        if os.path.exists(vid_path):
-                            extra_dataloader = MOTLoadVideoWithOrig(
+                    if os.path.exists(vid_path):
+                        extra_dataloader = MOTLoadVideoWithOrig(
                                 path=vid_path,
                                 start_frame_number=args.start_frame,
                                 batch_size=args.batch_size,
@@ -802,12 +807,12 @@ def _main(args, num_gpu):
                                 original_image_only=True,
                                 no_cuda_streams=args.no_cuda_streams,
                             )
-                        try:
-                            extra_dataloader.set_profiler(getattr(args, "profiler", None))
-                        except Exception:
-                            pass
-                        dataloader.append_dataset(vid_name, extra_dataloader)
-                        ez_count += 1
+                    try:
+                        extra_dataloader.set_profiler(getattr(args, "profiler", None))
+                    except Exception:
+                        pass
+                    dataloader.append_dataset(vid_name, extra_dataloader)
+                    ez_count += 1
                 if not ez_count:
                     raise ValueError("--end-zones specified, but no end-zone videos found")
 
