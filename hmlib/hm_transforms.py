@@ -944,14 +944,25 @@ class HmImageColorAdjust:
         if self.white_balance is not None:
             assert isinstance(self.white_balance, (list, tuple)) and len(self.white_balance) == 3
 
+    @staticmethod
+    def _isclose(a, b, atol=1e-6):
+        # Fast isclose for float or tensor
+        if isinstance(a, (float, int)) and isinstance(b, (float, int)):
+            return abs(a - b) <= atol
+        if hasattr(a, "device"):
+            assert False  # This will cause a sync
+            return (torch.abs(torch.tensor(a) - torch.tensor(b)) <= atol).all().item()
+        return np.isclose(a, b, atol=atol).all() if hasattr(a, "__iter__") else abs(a - b) <= atol
+
     def _has_any_adjustment(self) -> bool:
-        if self.white_balance is not None:
+        # Only return True if any adjustment is non-identity
+        if self.white_balance is not None and not self._isclose(self.white_balance, [1.0, 1.0, 1.0]):
             return True
-        if self.brightness is not None:
+        if self.brightness is not None and not self._isclose(self.brightness, 1.0):
             return True
-        if self.contrast is not None:
+        if self.contrast is not None and not self._isclose(self.contrast, 1.0):
             return True
-        if self.gamma is not None:
+        if self.gamma is not None and not self._isclose(self.gamma, 1.0):
             return True
         return False
 
@@ -960,7 +971,7 @@ class HmImageColorAdjust:
         # img expected: NCHW or CHW float or uint8
         dtype = img.dtype
         if not torch.is_floating_point(img):
-            img = img.to(torch.float32)
+            img = img.to(torch.float16)
         if img.ndim == 3:
             g = torch.tensor(gains, dtype=img.dtype).to(device=img.device, non_blocking=True).view(3, 1, 1)
         else:
@@ -978,7 +989,7 @@ class HmImageColorAdjust:
             return img
         dtype = img.dtype
         if not torch.is_floating_point(img):
-            img = img.to(torch.float32)
+            img = img.to(torch.float16)
         img = img * float(factor)
         img = img.clamp(0.0, 255.0)
         if dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
@@ -991,7 +1002,7 @@ class HmImageColorAdjust:
             return img
         dtype = img.dtype
         if not torch.is_floating_point(img):
-            img = img.to(torch.float32)
+            img = img.to(torch.float16)
         # Compute per-image mean intensity and scale around it
         if img.ndim == 3:
             # CHW
@@ -1011,31 +1022,44 @@ class HmImageColorAdjust:
             return img
         dtype = img.dtype
         if not torch.is_floating_point(img):
-            img = img.to(torch.float32)
+            img = img.to(torch.float16)
         # Normalize to [0,1] assuming 0..255 images, apply gamma, then scale back
-        img01 = (img / 255.0).clamp(0.0, 1.0)
-        img01 = torch.pow(img01, float(gamma))
-        img = (img01 * 255.0).clamp(0.0, 255.0)
+        img01 = img / 255.0
+        img01.clamp_(0.0, 1.0)
+        img01.pow_(float(gamma))
+        img01.mul_(255.0)
+        img01.clamp_(0.0, 255.0)
+        # img = (img01 * 255.0).clamp(0.0, 255.0)
         if dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
             img = img.to(dtype)
         return img
 
     def _adjust_tensor(self, t: torch.Tensor) -> torch.Tensor:
-        # Ensure CHW or NCHW layout for arithmetic
+        # Only convert dtype/layout if any adjustment is non-identity
+        need_adjust = self._has_any_adjustment()
+        if not need_adjust:
+            return t
         icf = is_channels_first(t)
+        orig_dtype = t.dtype
+        # Only convert once if needed
         if not icf:
             t = make_channels_first(t)
-        # Apply per selected adjustments
-        if self.white_balance is not None:
+        if not torch.is_floating_point(t):
+            t = t.to(torch.float16)
+        # Apply adjustments
+        if self.white_balance is not None and not self._isclose(self.white_balance, [1.0, 1.0, 1.0]):
             t = HmImageColorAdjust._apply_white_balance(t, self.white_balance)
-        if self.brightness is not None:
+        if self.brightness is not None and not self._isclose(self.brightness, 1.0):
             t = HmImageColorAdjust._apply_brightness(t, self.brightness)
-        if self.contrast is not None:
+        if self.contrast is not None and not self._isclose(self.contrast, 1.0):
             t = HmImageColorAdjust._apply_contrast(t, self.contrast)
-        if self.gamma is not None:
+        if self.gamma is not None and not self._isclose(self.gamma, 1.0):
             t = HmImageColorAdjust._apply_gamma(t, self.gamma)
+        # Restore layout and dtype if needed
         if not icf:
             t = make_channels_last(t)
+        if t.dtype != orig_dtype:
+            t = t.to(orig_dtype)
         return t
 
     def _adjust_numpy(self, a: np.ndarray) -> np.ndarray:
