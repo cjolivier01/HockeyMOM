@@ -106,6 +106,7 @@ class HmProfiler:
             record_shapes=bool(self._opts.record_shapes),
             profile_memory=bool(self._opts.profile_memory),
             with_stack=bool(self._opts.with_stack),
+            with_cuda=bool(self._opts.include_cuda),
         )
         if self._opts.export_per_iter and self._opts.save_dir:
             kwargs["on_trace_ready"] = _on_trace_ready  # type: ignore[assignment]
