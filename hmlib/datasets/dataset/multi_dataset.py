@@ -44,11 +44,6 @@ class MultiDatasetWrapper(Dataset):
     def has_dataset(self, name: str) -> bool:
         return name in self._datasets
 
-    # def seek(self, pos: int):
-    #     for ds in self._datasets.values():
-    #         if hasattr(ds, "seek"):
-    #             ds.seek(pos)
-
     def _get_iterator(self, name: str) -> Iterable[Any]:
         return self._iters[name]
 
