@@ -9,6 +9,7 @@ from threading import Thread
 from typing import Any, Dict, Optional, Union
 
 import torch
+
 from hmlib.bbox.box_functions import aspect_ratio, height, width
 from hmlib.builder import HM
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
@@ -16,12 +17,11 @@ from hmlib.camera.play_tracker import PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer, TimeTracker
+from hmlib.ui import Shower
 from hmlib.utils.containers import create_queue
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import MAX_VIDEO_WIDTH
-
-from hmlib.ui import Shower
 
 
 ##
@@ -311,9 +311,6 @@ class CamTrackPostProcessor:
                 video_out_pipeline=self._video_out_pipeline,
                 device=self._video_out_device,
                 skip_final_save=self._args.skip_final_video_save,
-                image_channel_adjustment=self._args.game_config["rink"]["camera"][
-                    "image_channel_adjustment"
-                ],
                 no_cuda_streams=self._no_cuda_streams,
             )
             self._video_output_campp.start()

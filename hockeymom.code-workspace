@@ -29,9 +29,6 @@
     },
     {
       "path": "../jersey-number-pipeline"
-    },
-    {
-      "path": "../pytorch/audio"
     }
   ],
   "settings": {
