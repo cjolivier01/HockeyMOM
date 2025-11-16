@@ -233,6 +233,20 @@ class hm_opts(object):
             help="Export one trace per iteration (large runs; adds I/O)",
         )
         prof.add_argument(
+            "--profile-step",
+            dest="profile_step",
+            type=int,
+            default=None,
+            help="Start profiler at this 1-based iteration index (default: start immediately)",
+        )
+        prof.add_argument(
+            "--profile-step-count",
+            dest="profile_step_count",
+            type=int,
+            default=1,
+            help="Number of iterations to profile once started (default: 1)",
+        )
+        prof.add_argument(
             "--py-trace-out",
             dest="py_trace_out",
             type=str,

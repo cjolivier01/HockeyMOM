@@ -257,6 +257,10 @@ def stitch_videos(
 
                     cuda_stream.synchronize()
 
+                    # Per-iteration profiler step for gated profiling windows
+                    if getattr(profiler, "enabled", False):
+                        profiler.step()
+
                     if i > 1:
                         dataset_timer.toc()
                     if (i + 1) % 20 == 0:
@@ -385,6 +389,7 @@ def _main(args) -> None:
             configure_only=args.configure_only,
             lowmem=gpu_allocator.is_single_lowmem_gpu(),
             post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
+            args=args,
         )
 
     if args.configure_only:

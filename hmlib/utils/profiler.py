@@ -26,6 +26,10 @@ class ProfilerOptions:
     with_stack: bool = False
     include_cuda: bool = False
     trace_basename: str = "trace"
+    # Optional step-gating: enable profiling only for a window of iterations.
+    # These are expressed in zero-based iteration indices internally.
+    start_step_idx: Optional[int] = None
+    step_count: Optional[int] = None
 
 
 class HmProfiler:
@@ -40,7 +44,12 @@ class HmProfiler:
     def __init__(self, opts: Optional[ProfilerOptions] = None):
         self._opts: ProfilerOptions = opts or ProfilerOptions(enabled=False)
         self._prof: Optional[torch.profiler.profile] = None
+        # _step counts iterations while the profiler is active (for trace naming)
         self._step: int = 0
+        # _global_step counts all logical iterations (for step-gating)
+        self._global_step: int = 0
+        # Whether the profiling window is currently active
+        self._active: bool = False
         self._closed: bool = False
 
         # Lazily ensure save dir exists if profiling is enabled
@@ -53,6 +62,8 @@ class HmProfiler:
     # Cheap flag
     @property
     def enabled(self) -> bool:
+        # "Enabled" reflects whether profiling was requested; actual recording
+        # may still be gated on step indices.
         return bool(self._opts.enabled)
 
     # record_function wrapper
@@ -101,6 +112,8 @@ class HmProfiler:
 
         self._prof = torch.profiler.profile(**kwargs)  # type: ignore[arg-type]
         self._prof.__enter__()
+        self._active = True
+        self._step = 0
         return self
 
     def __exit__(self, exc_type, exc, tb):
@@ -127,13 +140,45 @@ class HmProfiler:
             except Exception:
                 pass
 
+        self._active = False
         return False
 
     def step(self):
-        if not self.enabled or self._prof is None:
+        """
+        Advance the logical iteration counter and, if configured, drive the
+        underlying torch.profiler window (start/step/stop).
+        """
+        if not self.enabled:
             return
+
+        # Global iteration index (used for gating)
+        self._global_step += 1
+
+        # Resolve gating configuration (convert None -> "always on")
+        start_idx = self._opts.start_step_idx
+        step_count = self._opts.step_count
+
+        # If no explicit start index is configured, start immediately on first step()
+        if start_idx is None:
+            start_idx = 0
+
+        # If profiling window hasn't started yet and we've reached the start index,
+        # lazily enter the torch.profiler context.
+        if not self._active and not self._closed and self._global_step - 1 >= start_idx:
+            # Avoid re-entering if already active/closed
+            self.__enter__()
+
+        # If we're not currently active or profiler failed to initialize, nothing to do.
+        if not self._active or self._prof is None:
+            return
+
+        # Step the underlying profiler and bump active-step counter.
         self._prof.step()
         self._step += 1
+
+        # If a finite window is configured and we've consumed it, close the profiler.
+        if step_count is not None and step_count > 0 and self._step >= step_count:
+            self.__exit__(None, None, None)
 
 
 # Convenience factory from argparse-like args
@@ -144,6 +189,24 @@ def build_profiler_from_args(args, save_dir_fallback: Optional[str] = None) -> H
     if profile_with_stack is None:
         profile_with_stack = bool(enabled)
 
+    # Step-gated profiling: map 1-based CLI step to 0-based internal index.
+    raw_start_step = getattr(args, "profile_step", None)
+    start_step_idx = None
+    if raw_start_step is not None:
+        try:
+            # Clamp to zero or above; interpret as 1-based from CLI.
+            start_step_idx = max(int(raw_start_step) - 1, 0)
+        except Exception:
+            start_step_idx = 0
+
+    raw_step_count = getattr(args, "profile_step_count", None)
+    step_count = None
+    if raw_step_count is not None:
+        try:
+            step_count = max(int(raw_step_count), 1)
+        except Exception:
+            step_count = 1
+
     opts = ProfilerOptions(
         enabled=enabled,
         save_dir=save_dir,
@@ -153,6 +216,8 @@ def build_profiler_from_args(args, save_dir_fallback: Optional[str] = None) -> H
         with_stack=bool(profile_with_stack),
         include_cuda=True,
         trace_basename=str(getattr(args, "profile_trace_basename", "trace")),
+        start_step_idx=start_step_idx,
+        step_count=step_count,
     )
     return HmProfiler(opts)
 
