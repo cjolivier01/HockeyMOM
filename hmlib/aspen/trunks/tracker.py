@@ -1,5 +1,6 @@
+import logging
 from importlib import import_module
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import torch
 from mmengine.structures import InstanceData
@@ -9,6 +10,8 @@ from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
 
 from .base import Trunk
 
+
+logger = logging.getLogger(__name__)
 
 class TrackerTrunk(Trunk):
     """
@@ -46,6 +49,9 @@ class TrackerTrunk(Trunk):
             self._tracker_class_path = tracker_class
         self._tracker_kwargs = dict(tracker_kwargs or {})
         self._hm_tracker: Optional[Any] = None
+        self._static_tracker_max_detections: Optional[int] = None
+        self._static_tracker_max_tracks: Optional[int] = None
+        self._static_tracker_overflow_warned = False
 
     @property
     def tracker_class(self) -> str:
@@ -100,6 +106,7 @@ class TrackerTrunk(Trunk):
             if init_kwargs:
                 raise
             self._hm_tracker = tracker_cls(config)
+        self._update_static_tracker_limits()
 
     # post-detection pipeline deprecated; pruning handled by a dedicated trunk
 
@@ -198,16 +205,16 @@ class TrackerTrunk(Trunk):
             assert len(det_labels) == ll1 and len(det_scores) == ll1
             # Ensure tracker receives torch tensors
             # (already tensors above)
-            results = self._hm_tracker.track(
-                data=dict(
-                    frame_id=torch.tensor([frame_id], dtype=torch.int64),
-                    bboxes=det_bboxes,
-                    labels=det_labels,
-                    scores=det_scores,
-                )
+            tracker_payload = self._prepare_tracker_inputs(
+                frame_id=frame_id,
+                det_bboxes=det_bboxes,
+                det_labels=det_labels,
+                det_scores=det_scores,
             )
+            results = self._hm_tracker.track(tracker_payload)
+            results, frame_track_count = self._trim_tracker_outputs(results)
             ids = results.get("user_ids", results.get("ids"))
-            ll2 = len(ids)
+            ll2 = frame_track_count
             assert len(results["bboxes"]) == ll2 and len(results["scores"]) == ll2 and len(results["labels"]) == ll2
 
             pred_track_instances = InstanceData(
@@ -292,3 +299,105 @@ class TrackerTrunk(Trunk):
 
     def output_keys(self):
         return {"data", "nr_tracks", "max_tracking_id"}
+
+    def _prepare_tracker_inputs(
+        self,
+        frame_id: int,
+        det_bboxes: torch.Tensor,
+        det_labels: torch.Tensor,
+        det_scores: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        if not self._using_static_tracker():
+            return dict(
+                frame_id=torch.tensor([frame_id], dtype=torch.int64),
+                bboxes=det_bboxes,
+                labels=det_labels,
+                scores=det_scores,
+            )
+        return self._build_static_tracker_inputs(frame_id, det_bboxes, det_labels, det_scores)
+
+    def _build_static_tracker_inputs(
+        self,
+        frame_id: int,
+        det_bboxes: torch.Tensor,
+        det_labels: torch.Tensor,
+        det_scores: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        assert self._static_tracker_max_detections is not None
+        max_det = self._static_tracker_max_detections
+        bboxes = det_bboxes.to(dtype=torch.float32)
+        labels = det_labels.to(dtype=torch.long)
+        scores = det_scores.to(dtype=torch.float32)
+        total = int(bboxes.shape[0])
+        kept = min(total, max_det)
+        if total > max_det:
+            keep_idx = torch.topk(scores, k=max_det).indices
+            keep_idx, _ = torch.sort(keep_idx)
+            bboxes = bboxes.index_select(0, keep_idx)
+            labels = labels.index_select(0, keep_idx)
+            scores = scores.index_select(0, keep_idx)
+            if not self._static_tracker_overflow_warned:
+                logger.warning(
+                    "Tracker detections (%d) exceed max_detections (%d); discarding lowest scores.",
+                    total,
+                    max_det,
+                )
+                self._static_tracker_overflow_warned = True
+
+        padded_bboxes = bboxes.new_zeros((max_det, 4))
+        padded_labels = labels.new_zeros((max_det,))
+        padded_scores = scores.new_zeros((max_det,))
+        if kept:
+            padded_bboxes[:kept].copy_(bboxes[:kept])
+            padded_labels[:kept].copy_(labels[:kept])
+            padded_scores[:kept].copy_(scores[:kept])
+
+        return {
+            "frame_id": torch.tensor([frame_id], dtype=torch.int64),
+            "bboxes": padded_bboxes,
+            "labels": padded_labels,
+            "scores": padded_scores,
+            "num_detections": torch.tensor([kept], dtype=torch.long),
+        }
+
+    def _trim_tracker_outputs(
+        self, results: Dict[str, torch.Tensor]
+    ) -> Tuple[Dict[str, torch.Tensor], int]:
+        num_tracks_tensor = results.get("num_tracks")
+        if num_tracks_tensor is None:
+            ids = results.get("user_ids", results.get("ids"))
+            count = len(ids) if ids is not None else 0
+            return results, count
+
+        try:
+            num_tracks = int(num_tracks_tensor.reshape(-1)[0].item())
+        except Exception:
+            num_tracks = 0
+        trimmed = dict(results)
+        for key in ("user_ids", "ids", "bboxes", "labels", "scores"):
+            tensor = trimmed.get(key)
+            if tensor is not None:
+                trimmed[key] = tensor[:num_tracks]
+        return trimmed, num_tracks
+
+    def _update_static_tracker_limits(self) -> None:
+        self._static_tracker_max_detections = None
+        self._static_tracker_max_tracks = None
+        tracker = self._hm_tracker
+        if tracker is None:
+            return
+        try:
+            max_det = getattr(tracker, "max_detections")
+            max_tracks = getattr(tracker, "max_tracks")
+        except AttributeError:
+            return
+        try:
+            self._static_tracker_max_detections = int(max_det)
+            self._static_tracker_max_tracks = int(max_tracks)
+            self._static_tracker_overflow_warned = False
+        except (TypeError, ValueError):
+            self._static_tracker_max_detections = None
+            self._static_tracker_max_tracks = None
+
+    def _using_static_tracker(self) -> bool:
+        return self._static_tracker_max_detections is not None

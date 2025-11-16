@@ -71,6 +71,7 @@ class HmTracker:
 class HmByteTrackConfig: ...
 class HmByteTracker(HmTracker): ...
 class HmByteTrackerCuda(HmTracker): ...
+class HmByteTrackerCudaStatic(HmTracker): ...
 
 class PlayTrackerConfig: ...
 class PlayTracker:
@@ -92,7 +93,7 @@ def show_cuda_tensor(label: str, img_cuda: torch.Tensor, wait: bool = ..., strea
 __all__ = [
     'ImageRemapper', 'ImageBlender', 'ImageBlenderMode', 'CudaStitchPanoU8',
     'CudaStitchPanoF32', 'CudaStitchPano3U8', 'CudaStitchPano3F32', 'BlenderConfig',
-    'ImageStitcher', 'RemapImageInfo', 'HmTracker', 'HmByteTracker', 'HmByteTrackerCuda', 'HmByteTrackConfig',
+    'ImageStitcher', 'RemapImageInfo', 'HmTracker', 'HmByteTracker', 'HmByteTrackerCuda', 'HmByteTrackerCudaStatic', 'HmByteTrackConfig',
     'RemapperConfig', 'HmTrackerPredictionMode', 'StitchImageInfo', 'EnBlender', 'PlayTracker',
     'PlayTrackerConfig', 'AllLivingBoxConfig', 'BBox', 'LivingBox', 'WHDims', 'GrowShrink',
     'compute_kmeans_clusters', 'show_cuda_tensor'

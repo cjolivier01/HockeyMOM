@@ -51,6 +51,7 @@ from ._hockeymom import (
     HmByteTracker,
     HmTracker,
     HmByteTrackerCuda,
+    HmByteTrackerCudaStatic,
     HmTrackerPredictionMode,
     ImageBlender,
     ImageBlenderMode,
@@ -92,6 +93,7 @@ __all__ = [
     "HmTracker",
     "HmByteTracker",
     "HmByteTrackerCuda",
+    "HmByteTrackerCudaStatic",
     "HmByteTrackConfig",
     "RemapperConfig",
     "HmTrackerPredictionMode",
@@ -260,6 +262,23 @@ _doc(
 
     Returns tracked tensors directly on the target CUDA device without host
     synchronization for the heavy math (Kalman, IoU, assignment).
+    """,
+)
+
+_doc(
+    HmByteTrackerCudaStatic,
+    """Static-shape CUDA BYTETracker wrapper.
+
+    Creates a CUDA tracker whose inputs/outputs keep fixed shapes suitable for
+    CUDA graph capture or engines requiring static dimensions. Detection tensors
+    must be padded to ``max_detections`` and provide a ``num_detections`` scalar;
+    outputs are padded to ``max_tracks`` with a matching ``num_tracks`` entry.
+
+    Args:
+        config: ``HmByteTrackConfig`` thresholds and tracker knobs.
+        max_detections: Maximum number of detections accepted per frame.
+        max_tracks: Maximum number of active tracks returned.
+        device: Torch device string (default ``"cuda:0"``).
     """,
 )
 

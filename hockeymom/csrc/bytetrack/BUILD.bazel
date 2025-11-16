@@ -7,6 +7,7 @@ cc_library(
     srcs = [
         "BYTETracker.cpp",
         "BYTETrackerCuda.cpp",
+        "BYTETrackerCudaStatic.cpp",
         "BaseTracker.cpp",
         "HmTracker.cpp",
         "STrack.cpp",
@@ -15,6 +16,7 @@ cc_library(
     hdrs = [
         "BYTETracker.h",
         "BYTETrackerCuda.h",
+        "BYTETrackerCudaStatic.h",
         "BaseTracker.h",
         "HmTracker.h",
         "STrack.h",

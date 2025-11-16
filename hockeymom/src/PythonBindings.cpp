@@ -8,6 +8,7 @@
 #include "cupano/pano/cudaPano3.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/BYTETrackerCuda.h"
+#include "hockeymom/csrc/bytetrack/BYTETrackerCudaStatic.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
 #include "hockeymom/csrc/kmeans/kmeans.h"
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
@@ -871,6 +872,37 @@ void init_tracking(::pybind11::module_& m) {
           &hm::tracker::BYTETrackerCuda::track,
           py::arg("data"),
           py::call_guard<py::gil_scoped_release>());
+
+  py::class_<
+      hm::tracker::BYTETrackerCudaStatic,
+      std::shared_ptr<hm::tracker::BYTETrackerCudaStatic>>(m, "HmByteTrackerCudaStatic")
+      .def(
+          py::init([](hm::tracker::ByteTrackConfig config,
+                      int64_t max_detections,
+                      int64_t max_tracks,
+                      const std::string& device) {
+            return std::make_shared<hm::tracker::BYTETrackerCudaStatic>(
+                std::move(config),
+                max_detections,
+                max_tracks,
+                c10::Device(device));
+          }),
+          py::arg("config") = hm::tracker::ByteTrackConfig(),
+          py::arg("max_detections") = 256,
+          py::arg("max_tracks") = 256,
+          py::arg("device") = std::string("cuda:0"))
+      .def("num_tracks", &hm::tracker::BYTETrackerCudaStatic::num_tracks)
+      .def(
+          "track",
+          &hm::tracker::BYTETrackerCudaStatic::track,
+          py::arg("data"),
+          py::call_guard<py::gil_scoped_release>())
+      .def_property_readonly(
+          "max_detections",
+          &hm::tracker::BYTETrackerCudaStatic::max_detections)
+      .def_property_readonly(
+          "max_tracks",
+          &hm::tracker::BYTETrackerCudaStatic::max_tracks);
 
   /**
    *  _    _        _______              _
