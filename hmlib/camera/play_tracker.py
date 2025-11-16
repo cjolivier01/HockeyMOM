@@ -31,8 +31,6 @@ from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
-
-# from hmlib.tracking_utils.boundaries import BoundaryLines
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
