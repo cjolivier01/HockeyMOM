@@ -14,7 +14,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import VideoStreamReader
@@ -393,37 +393,41 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if current_count >= len(self) * self._batch_size or (self._max_frames and current_count >= self._max_frames):
             raise StopIteration
 
-        # BEGIN READ NEXT IMAGE
-        while True:
-            try:
-                prof = getattr(self, "_profiler", None)
-                rctx = (
-                    prof.rf("dataloader.read_next_image")
-                    if getattr(prof, "enabled", False)
-                    else _contextlib.nullcontext()
-                )
-                with rctx:
-                    res, img0 = self._read_next_image()
-                if not res or img0 is None:
-                    print(f"Error loading frame: {self._count + self._start_frame_number}")
-                    raise StopIteration()
-                else:
-                    break
-            except StopIteration:
-                if self.goto_next_video():
-                    continue
-                raise
-        # END READ NEXT IMAGE
-
         cuda_stream = self._cuda_stream if self._async_mode else None
-        default_stream = None
-        if cuda_stream is not None and isinstance(img0, torch.Tensor) and self._is_cuda():
-            default_stream = torch.cuda.current_stream(img0.device)
 
         with cuda_stream_scope(cuda_stream), torch.no_grad():
 
-            if default_stream is not None and cuda_stream is not None:
-                cuda_stream.wait_stream(default_stream)
+            # BEGIN READ NEXT IMAGE
+            while True:
+                try:
+                    prof = getattr(self, "_profiler", None)
+                    rctx = (
+                        prof.rf("dataloader.read_next_image")
+                        if getattr(prof, "enabled", False)
+                        else _contextlib.nullcontext()
+                    )
+                    with rctx:
+                        res, img0 = self._read_next_image()
+                    if not res or img0 is None:
+                        print(f"Error loading frame: {self._count + self._start_frame_number}")
+                        raise StopIteration()
+                    else:
+                        break
+                except StopIteration:
+                    if self.goto_next_video():
+                        continue
+                    raise
+            # END READ NEXT IMAGE
+
+            torch.cuda.synchronize()
+
+            # if self._path_list:
+            #     show_image(
+            #         # show_cuda_tensor(
+            #         self._path_list[0],
+            #         make_visible_image(img0),
+            #         wait=False,
+            #     )
 
             if isinstance(img0, np.ndarray):
                 img0 = torch.from_numpy(img0)

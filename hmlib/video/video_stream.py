@@ -114,9 +114,7 @@ def clamp_max_video_dimensions(
     wh_f = wh.to(torch.float)
     new_width = torch.ones_like(wh[0]) * max_width
     new_height = new_width.to(torch.float) / (wh_f[0] / wh_f[1])
-    result_wh = torch.where(
-        wh[0] <= new_width, wh, torch.tensor([new_width, new_height.to(new_width.dtype)])
-    )
+    result_wh = torch.where(wh[0] <= new_width, wh, torch.tensor([new_width, new_height.to(new_width.dtype)]))
     return result_wh[0], result_wh[1]
 
 
@@ -211,10 +209,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
 
         self._stream_fps = stream_fps
         self._stream_frame_indexes = set(
-            [
-                int(i)
-                for i in np.linspace(0, np.round(self._fps) - 1, self._stream_fps, endpoint=False)
-            ]
+            [int(i) for i in np.linspace(0, np.round(self._fps) - 1, self._stream_fps, endpoint=False)]
         )
         self._width = width
         self._height = height
@@ -495,6 +490,8 @@ class TAStreamReaderIterator:
             raise StopIteration()
         frame = next_chunk[0]
         assert len(frame) == self._batch_size
+        # We have to synchronize with the null stream first (so hopefully nothing else is running on that)
+        torch.cuda.default_stream(frame.device).synchronize()
         with torch.no_grad():
             frame = yuv_to_bgr_float(frame)
         return frame
@@ -702,9 +699,7 @@ class VideoStreamReader:
             self._torchaudio_stream = True
             self._add_stream()
         elif self._type == "torchvision":
-            self._video_in = torchvision.io.VideoReader(
-                src=self._filename, stream="video", num_threads=32
-            )
+            self._video_in = torchvision.io.VideoReader(src=self._filename, stream="video", num_threads=32)
             self._meta = self._video_in.get_metadata()
         elif self._type == "cv2":
             self._video_in = cv2.VideoCapture(self._filename)

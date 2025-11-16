@@ -1108,13 +1108,17 @@ class PlayTracker(torch.nn.Module):
                 Post_Nonstop_Stop_Delay_Frames=postns,
                 Overshoot_Speed_Ratio_x100=ov_scale,
                 Time_To_Dest_Speed_Limit_Frames=ttg,
-                Apply_To_Fast_Box=1,
+                Apply_To_Fast_Box=0,
                 Apply_To_Follower_Box=1,
                 Max_Speed_X_x10=msx,
                 Max_Speed_Y_x10=msy,
                 Max_Accel_X_x10=maxx,
                 Max_Accel_Y_x10=maxy,
-                Stitch_Rotate_Degrees=cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name) if cv2.getWindowProperty(self._ui_window_name, 0) is not None else 90,
+                Stitch_Rotate_Degrees=(
+                    cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
+                    if cv2.getWindowProperty(self._ui_window_name, 0) is not None
+                    else 90
+                ),
             )
             self._ui_inited = True
             # ---- Color controls window ----

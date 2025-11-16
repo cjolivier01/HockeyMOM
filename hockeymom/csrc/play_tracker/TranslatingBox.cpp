@@ -265,7 +265,13 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
           const FloatValue limit = std::abs(dist) / static_cast<FloatValue>(config_.time_to_dest_speed_limit_frames);
           // Clamp magnitude to at most limit
           const FloatValue vmax = limit;
-          v = clamp(v, -vmax, vmax);
+          auto v1 = clamp(v, -vmax, vmax);
+          if (v1 != v) {
+            // std::cout << "FPS-clamped speed from " << v << " to " << v1 << " over dist "
+            //           << dist << " in " << config_.time_to_dest_speed_limit_frames
+            //           << " frames.\n";
+          }
+          v = v1;
         }
       }
     }
