@@ -594,16 +594,16 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                     self._post_stitch_rotate_degrees,
                                     use_cache=True,
                                 )
-                            # if self._show_image_components:
-                            #     for blended_image in blended_stream_tensor:
-                            #         show_image(
-                            #             # show_cuda_tensor(
-                            #             "blended",
-                            #             make_visible_image(blended_image),
-                            #             wait=False,
-                            #             # stream=int(stream.cuda_stream),
-                            #             enable_resizing=0.2,
-                            #         )
+                            if self._show_image_components:
+                                for blended_image in blended_stream_tensor:
+                                    show_image(
+                                        # show_cuda_tensor(
+                                        "blended",
+                                        make_visible_image(blended_image),
+                                        wait=False,
+                                        # stream=int(stream.cuda_stream),
+                                        enable_resizing=0.2,
+                                    )
                         else:
                             blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
                             # Optional rotation (keep same size)
