@@ -158,7 +158,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if not torch.is_floating_point(t):
             t = t.to(torch.float16, non_blocking=True)
 
-        if True:
+        if False:
             if not hasattr(self, "_image_channel_adders_tensor"):
                 self._image_channel_adders_tensor = torch.tensor(self._image_channel_adders, dtype=t.dtype).to(
                     device=t.device, non_blocking=True
@@ -492,7 +492,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 # Optional per-channel additive offsets for input images
                 if self._image_channel_adders is not None:
                     img0 = self._apply_channel_adders(img0)
+
+                # Synchronizing here makes it a lot faster for some reason
                 # cuda_stream.synchronize()
+
                 original_img0 = img0
 
                 if not self._original_image_only:
