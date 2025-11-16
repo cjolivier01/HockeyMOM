@@ -1041,18 +1041,18 @@ class PlayTracker(torch.nn.Module):
             ov_scale = int(100 * float(bkd.get("overshoot_scale_speed_ratio", 0.7)))
             ttg = int(camera_cfg.get("time_to_dest_speed_limit_frames", 10))
 
-            tb("DirDelay", 60, stop_dir_delay)
-            tb("CancelOpp", 1, cancel_stop)
-            tb("Hyst", 10, hyst)
-            tb("Cooldown", 30, cooldown)
-            tb("OvDelay", 60, ov_delay)
-            tb("PostNS", 60, postns)
-            tb("OvScaleX100", 200, ov_scale)
-            tb("TTGFrames", 120, ttg)
+            tb("Stop_Direction_Change_Delay_Frames", 60, stop_dir_delay)
+            tb("Cancel_Stop_On_Opposite_Direction", 1, cancel_stop)
+            tb("Stop_Cancel_Hysteresis_Frames", 10, hyst)
+            tb("Stop_Delay_Cooldown_Frames", 30, cooldown)
+            tb("Overshoot_Stop_Delay_Frames", 60, ov_delay)
+            tb("Post_Nonstop_Stop_Delay_Frames", 60, postns)
+            tb("Overshoot_Speed_Ratio_x100", 200, ov_scale)
+            tb("Time_To_Dest_Speed_Limit_Frames", 120, ttg)
             # Translation constraints and target selection
             # Apply to fast and/or follower boxes
-            tb("ApplyFast", 1, 1)
-            tb("ApplyFollower", 1, 1)
+            tb("Apply_To_Fast_Box", 1, 1)
+            tb("Apply_To_Follower_Box", 1, 1)
 
             # --- Stitch rotate degrees (-90..+90 mapped to 0..180) ---
             try:
@@ -1068,37 +1068,37 @@ class PlayTracker(torch.nn.Module):
                     rot_cfg = getattr(self._args, "stitch_rotate_degrees", 0.0)
                 rot_cfg = 0.0 if rot_cfg is None else float(rot_cfg)
                 # Map -90..+90 -> 0..180
-                tb("StitchRot", 180, int(max(-90.0, min(90.0, rot_cfg)) + 90.0))
+                tb("Stitch_Rotate_Degrees", 180, int(max(-90.0, min(90.0, rot_cfg)) + 90.0))
             except Exception:
                 # Non-fatal if config missing
-                tb("StitchRot", 180, 90)
+                tb("Stitch_Rotate_Degrees", 180, 90)
             # Speeds/accels (scale sliders by x10 to allow decimals)
             # Initialize from YAML if present, else use reasonable defaults
             msx = int(10 * float(self._args.game_config["rink"]["camera"].get("max_speed_x", 30.0)))
             msy = int(10 * float(self._args.game_config["rink"]["camera"].get("max_speed_y", 30.0)))
             maxx = int(10 * float(self._args.game_config["rink"]["camera"].get("max_accel_x", 10.0)))
             maxy = int(10 * float(self._args.game_config["rink"]["camera"].get("max_accel_y", 10.0)))
-            tb("MaxSpdXx10", 2000, msx)
-            tb("MaxSpdYx10", 2000, msy)
-            tb("MaxAccXx10", 1000, maxx)
-            tb("MaxAccYx10", 1000, maxy)
+            tb("Max_Speed_X_x10", 2000, msx)
+            tb("Max_Speed_Y_x10", 2000, msy)
+            tb("Max_Accel_X_x10", 1000, maxx)
+            tb("Max_Accel_Y_x10", 1000, maxy)
             # Save defaults for reset
             self._ui_defaults = dict(
-                DirDelay=stop_dir_delay,
-                CancelOpp=cancel_stop,
-                Hyst=hyst,
-                Cooldown=cooldown,
-                OvDelay=ov_delay,
-                PostNS=postns,
-                OvScaleX100=ov_scale,
-                TTGFrames=ttg,
-                ApplyFast=1,
-                ApplyFollower=1,
-                MaxSpdXx10=msx,
-                MaxSpdYx10=msy,
-                MaxAccXx10=maxx,
-                MaxAccYx10=maxy,
-                StitchRot=cv2.getTrackbarPos("StitchRot", self._ui_window_name) if cv2.getWindowProperty(self._ui_window_name, 0) is not None else 90,
+                Stop_Direction_Change_Delay_Frames=stop_dir_delay,
+                Cancel_Stop_On_Opposite_Direction=cancel_stop,
+                Stop_Cancel_Hysteresis_Frames=hyst,
+                Stop_Delay_Cooldown_Frames=cooldown,
+                Overshoot_Stop_Delay_Frames=ov_delay,
+                Post_Nonstop_Stop_Delay_Frames=postns,
+                Overshoot_Speed_Ratio_x100=ov_scale,
+                Time_To_Dest_Speed_Limit_Frames=ttg,
+                Apply_To_Fast_Box=1,
+                Apply_To_Follower_Box=1,
+                Max_Speed_X_x10=msx,
+                Max_Speed_Y_x10=msy,
+                Max_Accel_X_x10=maxx,
+                Max_Accel_Y_x10=maxy,
+                Stitch_Rotate_Degrees=cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name) if cv2.getWindowProperty(self._ui_window_name, 0) is not None else 90,
             )
             self._ui_inited = True
             # ---- Color controls window ----
@@ -1110,14 +1110,14 @@ class PlayTracker(torch.nn.Module):
                     pass
                 def tb2(name, maxv, init):
                     cv2.createTrackbar(name, self._ui_color_window_name, int(init), int(maxv), lambda v: None)
-                tb2("WB_K_Enable", 1, 0)
-                tb2("WB_Kelvin", 15000, 6500)
-                tb2("WB_R_x100", 300, 100)
-                tb2("WB_G_x100", 300, 100)
-                tb2("WB_B_x100", 300, 100)
-                tb2("Bright_x100", 300, 100)
-                tb2("Contr_x100", 300, 100)
-                tb2("Gamma_x100", 300, 100)
+                tb2("White_Balance_Kelvin_Enable", 1, 0)
+                tb2("White_Balance_Kelvin_Temperature", 15000, 6500)
+                tb2("White_Balance_Red_Gain_x100", 300, 100)
+                tb2("White_Balance_Green_Gain_x100", 300, 100)
+                tb2("White_Balance_Blue_Gain_x100", 300, 100)
+                tb2("Brightness_Multiplier_x100", 300, 100)
+                tb2("Contrast_Multiplier_x100", 300, 100)
+                tb2("Gamma_Multiplier_x100", 300, 100)
                 self._ui_color_inited = True
             except Exception:
                 self._ui_color_inited = False
@@ -1129,14 +1129,14 @@ class PlayTracker(torch.nn.Module):
             return
         try:
             # Read trackbars
-            dir_delay = int(cv2.getTrackbarPos("DirDelay", self._ui_window_name))
-            cancel_opp = bool(cv2.getTrackbarPos("CancelOpp", self._ui_window_name))
-            hyst = int(cv2.getTrackbarPos("Hyst", self._ui_window_name))
-            cooldown = int(cv2.getTrackbarPos("Cooldown", self._ui_window_name))
-            ov_delay = int(cv2.getTrackbarPos("OvDelay", self._ui_window_name))
-            postns = int(cv2.getTrackbarPos("PostNS", self._ui_window_name))
-            ov_scal = cv2.getTrackbarPos("OvScaleX100", self._ui_window_name) / 100.0
-            ttg = int(cv2.getTrackbarPos("TTGFrames", self._ui_window_name))
+            dir_delay = int(cv2.getTrackbarPos("Stop_Direction_Change_Delay_Frames", self._ui_window_name))
+            cancel_opp = bool(cv2.getTrackbarPos("Cancel_Stop_On_Opposite_Direction", self._ui_window_name))
+            hyst = int(cv2.getTrackbarPos("Stop_Cancel_Hysteresis_Frames", self._ui_window_name))
+            cooldown = int(cv2.getTrackbarPos("Stop_Delay_Cooldown_Frames", self._ui_window_name))
+            ov_delay = int(cv2.getTrackbarPos("Overshoot_Stop_Delay_Frames", self._ui_window_name))
+            postns = int(cv2.getTrackbarPos("Post_Nonstop_Stop_Delay_Frames", self._ui_window_name))
+            ov_scal = cv2.getTrackbarPos("Overshoot_Speed_Ratio_x100", self._ui_window_name) / 100.0
+            ttg = int(cv2.getTrackbarPos("Time_To_Dest_Speed_Limit_Frames", self._ui_window_name))
 
             # Update YAML-like config so all downstream reads are consistent
             camera_cfg = self._args.game_config["rink"]["camera"]
@@ -1152,7 +1152,7 @@ class PlayTracker(torch.nn.Module):
 
             # Stitch rotation degrees (-90..+90)
             try:
-                rot_slider = cv2.getTrackbarPos("StitchRot", self._ui_window_name)
+                rot_slider = cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
                 rot_deg = float(rot_slider - 90)
                 game_cfg = self._args.game_config.setdefault("game", {}).setdefault("stitching", {})
                 game_cfg["stitch-rotate-degrees"] = rot_deg
@@ -1163,14 +1163,14 @@ class PlayTracker(torch.nn.Module):
                 try:
                     color_win = self._ui_color_window_name
                     # Read back color trackbars
-                    wbk_enable = cv2.getTrackbarPos("WB_K_Enable", color_win)
-                    kelvin = cv2.getTrackbarPos("WB_Kelvin", color_win)
-                    r100 = cv2.getTrackbarPos("WB_R_x100", color_win)
-                    g100 = cv2.getTrackbarPos("WB_G_x100", color_win)
-                    b100 = cv2.getTrackbarPos("WB_B_x100", color_win)
-                    br100 = cv2.getTrackbarPos("Bright_x100", color_win)
-                    ct100 = cv2.getTrackbarPos("Contr_x100", color_win)
-                    gm100 = cv2.getTrackbarPos("Gamma_x100", color_win)
+                    wbk_enable = cv2.getTrackbarPos("White_Balance_Kelvin_Enable", color_win)
+                    kelvin = cv2.getTrackbarPos("White_Balance_Kelvin_Temperature", color_win)
+                    r100 = cv2.getTrackbarPos("White_Balance_Red_Gain_x100", color_win)
+                    g100 = cv2.getTrackbarPos("White_Balance_Green_Gain_x100", color_win)
+                    b100 = cv2.getTrackbarPos("White_Balance_Blue_Gain_x100", color_win)
+                    br100 = cv2.getTrackbarPos("Brightness_Multiplier_x100", color_win)
+                    ct100 = cv2.getTrackbarPos("Contrast_Multiplier_x100", color_win)
+                    gm100 = cv2.getTrackbarPos("Gamma_Multiplier_x100", color_win)
 
                     color_cfg = camera_cfg.setdefault("color", {})
                     # Kelvin WB overrides manual gains when enabled
@@ -1190,12 +1190,12 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     pass
             # Read selection + constraints
-            apply_fast = bool(cv2.getTrackbarPos("ApplyFast", self._ui_window_name))
-            apply_follower = bool(cv2.getTrackbarPos("ApplyFollower", self._ui_window_name))
-            msx = cv2.getTrackbarPos("MaxSpdXx10", self._ui_window_name) / 10.0
-            msy = cv2.getTrackbarPos("MaxSpdYx10", self._ui_window_name) / 10.0
-            maxx = cv2.getTrackbarPos("MaxAccXx10", self._ui_window_name) / 10.0
-            maxy = cv2.getTrackbarPos("MaxAccYx10", self._ui_window_name) / 10.0
+            apply_fast = bool(cv2.getTrackbarPos("Apply_To_Fast_Box", self._ui_window_name))
+            apply_follower = bool(cv2.getTrackbarPos("Apply_To_Follower_Box", self._ui_window_name))
+            msx = cv2.getTrackbarPos("Max_Speed_X_x10", self._ui_window_name) / 10.0
+            msy = cv2.getTrackbarPos("Max_Speed_Y_x10", self._ui_window_name) / 10.0
+            maxx = cv2.getTrackbarPos("Max_Accel_X_x10", self._ui_window_name) / 10.0
+            maxy = cv2.getTrackbarPos("Max_Accel_Y_x10", self._ui_window_name) / 10.0
             # Apply to Python movers (live)
             if isinstance(self._current_roi, MovingBox) and apply_fast:
                 mb = self._current_roi
@@ -1251,13 +1251,13 @@ class PlayTracker(torch.nn.Module):
             except Exception:
                 rot_text = ""
             text = (
-                f"DirDelay={camera_cfg.get('stop_on_dir_change_delay', 0)} "
-                f"Cancel={int(bool(camera_cfg.get('cancel_stop_on_opposite_dir', 0)))} "
-                f"Hyst={camera_cfg.get('stop_cancel_hysteresis_frames', 0)} "
-                f"CD={camera_cfg.get('stop_delay_cooldown_frames', 0)} "
-                f"OvDelay={bkd.get('overshoot_stop_delay_count', 0)} "
-                f"PostNS={bkd.get('post_nonstop_stop_delay_count', 0)} "
-                f"OvScale={bkd.get('overshoot_scale_speed_ratio', 0.0):.2f}"
+                f"DirChangeDelay={camera_cfg.get('stop_on_dir_change_delay', 0)} "
+                f"CancelOpposite={int(bool(camera_cfg.get('cancel_stop_on_opposite_dir', 0)))} "
+                f"Hysteresis={camera_cfg.get('stop_cancel_hysteresis_frames', 0)} "
+                f"Cooldown={camera_cfg.get('stop_delay_cooldown_frames', 0)} "
+                f"OvershotDelay={bkd.get('overshoot_stop_delay_count', 0)} "
+                f"PostNonstop={bkd.get('post_nonstop_stop_delay_count', 0)} "
+                f"OvershotRatio={bkd.get('overshoot_scale_speed_ratio', 0.0):.2f}"
                 f"{rot_text}"
             )
             img = vis.plot_text(
