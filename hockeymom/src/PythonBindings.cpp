@@ -1087,9 +1087,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "unsticky_translation_size_ratio",
           &TranslatingBoxConfig::unsticky_translation_size_ratio)
-      .def_readwrite(
-          "pan_smoothing_alpha",
-          &TranslatingBoxConfig::pan_smoothing_alpha)
+      // .def_readwrite(
+      //     "pan_smoothing_alpha",
+      //     &TranslatingBoxConfig::pan_smoothing_alpha)
       .def_readwrite(
           "post_nonstop_stop_delay_count",
           &TranslatingBoxConfig::post_nonstop_stop_delay_count);

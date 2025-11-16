@@ -43,18 +43,18 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
   Point center_current = bbox.center();
   Point center_dest = dest_box.center();
   // Apply simple low-pass filtering to the target to avoid jerky pans.
-  if (config_.pan_smoothing_alpha > 0.0f) {
-    if (!state_.filtered_target_center.has_value()) {
-      state_.filtered_target_center = center_dest;
-    } else {
-      Point f = *state_.filtered_target_center;
-      const FloatValue a = clamp(config_.pan_smoothing_alpha, 0.0f, 1.0f);
-      f.x = f.x + a * (center_dest.x - f.x);
-      f.y = f.y + a * (center_dest.y - f.y);
-      state_.filtered_target_center = f;
-    }
-    center_dest = *state_.filtered_target_center;
-  }
+  // if (config_.pan_smoothing_alpha > 0.0f) {
+  //   if (!state_.filtered_target_center.has_value()) {
+  //     state_.filtered_target_center = center_dest;
+  //   } else {
+  //     Point f = *state_.filtered_target_center;
+  //     const FloatValue a = clamp(config_.pan_smoothing_alpha, 0.0f, 1.0f);
+  //     f.x = f.x + a * (center_dest.x - f.x);
+  //     f.y = f.y + a * (center_dest.y - f.y);
+  //     state_.filtered_target_center = f;
+  //   }
+  //   center_dest = *state_.filtered_target_center;
+  // }
   PointDiff total_diff = center_dest - center_current;
   // Reset single-frame cancel flash indicators
   state_.canceled_stop_x = false;

@@ -52,8 +52,8 @@ from .living_box import PyLivingBox, from_bbox, to_bbox
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
 
-# _CPP_PLAYTRACKER: bool = True and _CPP_BOXES
-_CPP_PLAYTRACKER: bool = False and _CPP_BOXES
+_CPP_PLAYTRACKER: bool = True and _CPP_BOXES
+# _CPP_PLAYTRACKER: bool = False and _CPP_BOXES
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -115,6 +115,7 @@ class PlayTracker(torch.nn.Module):
         self._horizontal_image_gaussian_distribution = None
         self._boundaries = None
         self._cluster_man: Optional[ClusterMan] = None
+        self._cluster_centroids: Optional[torch.Tensor] = None
         self._original_clip_box = original_clip_box
         self._progress_bar = progress_bar
         self._camera_ui_enabled = bool(getattr(args, "camera_ui", 0))
@@ -123,6 +124,13 @@ class PlayTracker(torch.nn.Module):
         self._ui_color_window_name = "Tracker Controls (Color)"
         self._ui_color_inited = False
         self._ui_defaults = {}
+
+        cluster_centroids = getattr(args, "cluster_centroids", None)
+        if cluster_centroids is not None:
+            centroids_tensor = torch.as_tensor(cluster_centroids, dtype=torch.float32).cpu()
+            if centroids_tensor.ndim != 2 or centroids_tensor.shape[1] != 2:
+                raise ValueError("cluster_centroids must be shaped (N, 2)")
+            self._cluster_centroids = centroids_tensor
 
         self._jersey_tracker = JerseyTracker(show=args.plot_jersey_numbers)
         self._action_tracker = ActionTracker(show=getattr(args, 'plot_actions', False))
@@ -139,6 +147,7 @@ class PlayTracker(torch.nn.Module):
         self._last_temporal_box = None
         self._last_sticky_temporal_box = None
         self._frame_counter: int = 0
+        self._initial_box_applied: bool = False
 
         play_width = width(self._play_box)
         play_height = height(self._play_box)
@@ -161,10 +170,6 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.max_speed_y = self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale
             current_roi_config.max_accel_x = self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
             current_roi_config.max_accel_y = self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
-            # Smooth target following to reduce jerky pans
-            current_roi_config.pan_smoothing_alpha = args.game_config["rink"]["camera"].get(
-                "pan_smoothing_alpha", 0.18
-            )
 
             # Resizing
             current_roi_config.max_speed_w = self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale / 1.8
@@ -260,9 +265,6 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.unsticky_translation_size_ratio = args.game_config["rink"]["camera"][
                 "unsticky_translation_size_ratio"
             ]
-            current_roi_aspect_config.pan_smoothing_alpha = args.game_config["rink"]["camera"].get(
-                "pan_smoothing_alpha", 0.18
-            )
             current_roi_aspect_config.sticky_sizing = True
             current_roi_aspect_config.scale_dest_width = args.game_config["rink"]["camera"]["follower_box_scale_width"]
             current_roi_aspect_config.scale_dest_height = args.game_config["rink"]["camera"][
@@ -371,7 +373,6 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
                 stop_delay_cooldown_frames=cooldown_frames,
-                pan_smoothing_alpha=args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
                 color=(255, 128, 64),
                 thickness=5,
                 device=self._device,
@@ -405,7 +406,6 @@ class PlayTracker(torch.nn.Module):
                 unsticky_translation_size_ratio=self._args.game_config["rink"]["camera"][
                     "unsticky_translation_size_ratio"
                 ],
-                pan_smoothing_alpha=self._args.game_config["rink"]["camera"].get("pan_smoothing_alpha", 0.18),
                 sticky_sizing=True,
                 scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
                 scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
@@ -417,7 +417,9 @@ class PlayTracker(torch.nn.Module):
                 post_nonstop_stop_delay=post_nonstop,
                 cancel_hysteresis_frames=cancel_hyst,
                 stop_delay_cooldown_frames=cooldown_frames,
-                time_to_dest_speed_limit_frames=int(args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10) * speed_scale),
+                time_to_dest_speed_limit_frames=int(
+                    args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10) * speed_scale
+                ),
             )
 
         if self._camera_ui_enabled:
@@ -473,7 +475,8 @@ class PlayTracker(torch.nn.Module):
         """
         Set the initial tracking boxes
         """
-        assert self._frame_counter <= 1, "Not currently meant for setting at runtime"
+        if (self._frame_counter > 1) and (not getattr(self._args, "no_wide_start", False)):
+            raise AssertionError("Not currently meant for setting at runtime")
         frame_box = self.get_arena_box()
         fw, fh = width(frame_box), height(frame_box)
         # Should fit in the video frame
@@ -493,6 +496,7 @@ class PlayTracker(torch.nn.Module):
             clamp_box=frame_box,
         )
         self._current_roi_aspect.set_bbox(to_bbox(box_roi, self._cpp_boxes))
+        self._initial_box_applied = True
 
     def get_cluster_boxes(
         self,
@@ -501,6 +505,9 @@ class PlayTracker(torch.nn.Module):
         cluster_counts: List[int],
         centroids: Optional[torch.Tensor] = None,
     ):
+        if centroids is None:
+            centroids = self._cluster_centroids
+
         if self._cluster_man is None:
 
             if False and centroids is None:
@@ -801,6 +808,13 @@ class PlayTracker(torch.nn.Module):
                     else:
                         cluster_enclosing_box = self.get_arena_box()
                     current_box = cluster_enclosing_box
+                elif self._args.plot_cluster_tracking and not cluster_boxes_map:
+                    # Populate cluster boxes for visualization even if camera boxes are external.
+                    cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
+                        online_tlwhs, online_ids, cluster_counts=cluster_counts
+                    )
+                    if cluster_boxes_map:
+                        cluster_enclosing_box = get_enclosing_box(cluster_boxes)
 
             # Compute per-player representative points for minimap
             if isinstance(online_tlwhs, torch.Tensor) and online_tlwhs.numel() > 0:
@@ -958,9 +972,15 @@ class PlayTracker(torch.nn.Module):
                 # Clamp to arena
                 current_box = clamp_box(current_box, self._play_box)
 
-                # Maybe set initial box sizes if we aren't starting with a wide frame
-                if self._frame_counter == 1 and self._args.no_wide_start:
-                    self.set_initial_tracking_box(current_box)
+                # Maybe set initial box sizes when --no-wide-start is enabled
+                if self._args.no_wide_start and (not self._initial_box_applied):
+                    has_valid_cluster_box = bool(cluster_boxes_map)
+                    box_is_full_frame = torch.allclose(
+                        current_box.to(dtype=torch.float32, device=self._play_box.device),
+                        self._play_box,
+                    )
+                    if has_valid_cluster_box or (not box_is_full_frame):
+                        self.set_initial_tracking_box(current_box)
 
                 # Apply through ROI moving boxes (fast follower + aspect follower)
                 roi_input_box = (

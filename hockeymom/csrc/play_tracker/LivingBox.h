@@ -172,7 +172,7 @@ struct TranslatingBoxConfig {
   FloatValue sticky_translation_gaussian_mult{5.0};
   FloatValue unsticky_translation_size_ratio{0.75};
   // Smooth the target center before computing velocity (0 disables)
-  FloatValue pan_smoothing_alpha{0.18};
+  // FloatValue pan_smoothing_alpha{0.18};
   // Optional braking after a nonstop (breakaway catch-up) window ends
   IntValue post_nonstop_stop_delay_count{0};
   // Hysteresis for cancel-on-opposite during braking (consecutive frames)
