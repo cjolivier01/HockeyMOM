@@ -167,7 +167,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # Only add to RGB channels; preserve alpha if present
         t[:, 0:3, :, :] = t[:, 0:3, :, :] + add
 
-        t = t.clamp(0.0, 255.0)
+        t.clamp_(0.0, 255.0)
 
         # Clamp and restore dtype
         if orig_dtype in (

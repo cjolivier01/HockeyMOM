@@ -158,7 +158,8 @@ def yuv_to_bgr_float(frames: torch.Tensor, dtype: torch.dtype = torch.float16, n
     rgb = torch.stack([b, g, r], -1)
     rgb *= 255
     # rgb = (rgb * 255).clamp(0, 255)
-    return rgb.clamp(0, 255)
+    rgb.clamp_(0, 255)
+    return rgb
 
 
 def time_to_frame(time_str: str, fps: float):
