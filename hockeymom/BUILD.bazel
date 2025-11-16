@@ -1,6 +1,25 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python//python:packaging.bzl", "py_wheel")
+load("@bazel_skylib//lib:selects.bzl", "selects")
 load("@py_soabi//:soabi.bzl", "SOABI", "PLATFORM", "ABI")  # Now this load will succeed
+
+config_setting(
+    name = "arm64",
+    constraint_values = ["@platforms//cpu:arm64"],
+)
+
+config_setting(
+    name = "aarch64",
+    constraint_values = ["@platforms//cpu:aarch64"],
+)
+
+selects.config_setting_group(
+    name = "arm64_or_aarch64",
+    match_any = [
+        ":arm64",
+        ":aarch64",
+    ],
+)
 
 
 # Use a genrule to rename _hockeymom.so to include the SOABI.
@@ -23,8 +42,10 @@ py_wheel(
     deps = [
         ":hockeymom_ext",
         ":hockeymom",
-        "@multiblend//:multiblend",
-    ],
+    ] + select({
+        ":arm64_or_aarch64": [],
+        "//conditions:default": ["@multiblend//:multiblend"],
+    }),
 )
 
 py_library(
