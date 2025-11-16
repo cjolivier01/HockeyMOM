@@ -52,8 +52,8 @@ from .living_box import PyLivingBox, from_bbox, to_bbox
 _CPP_BOXES: bool = True
 # _CPP_BOXES: bool = False
 
-_CPP_PLAYTRACKER: bool = True and _CPP_BOXES
-# _CPP_PLAYTRACKER: bool = False and _CPP_BOXES
+# _CPP_PLAYTRACKER: bool = True and _CPP_BOXES
+_CPP_PLAYTRACKER: bool = False and _CPP_BOXES
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -630,6 +630,9 @@ class PlayTracker(torch.nn.Module):
             cluster_counts = [3, 2]
 
             vis_ignored_tracking_ids: Union[Set[int], None] = set()
+            cluster_boxes_map: Dict[int, Union[BBox, torch.Tensor]] = {}
+            cluster_enclosing_box: Optional[torch.Tensor] = None
+            removed_cluster_outlier_box: Dict[int, Union[BBox, torch.Tensor]] = {}
 
             # Optionally use transformer-based controller
             use_transformer = self._camera_controller == "transformer" and self._camera_model is not None
@@ -657,6 +660,9 @@ class PlayTracker(torch.nn.Module):
 
                 cluster_enclosing_box = from_bbox(playtracker_results.final_cluster_box)
                 cluster_boxes_map = playtracker_results.cluster_boxes
+                removed_cluster_outlier_box = getattr(
+                    playtracker_results, "removed_cluster_outlier_box", {}
+                )
                 # cluster_boxes = [cluster_enclosing_box, cluster_enclosing_box]
 
                 fast_roi_bounding_box = from_bbox(playtracker_results.tracking_boxes[0])
@@ -893,10 +899,10 @@ class PlayTracker(torch.nn.Module):
                             label=f"cluster_box_{cc}",
                             opacity_percent=20,
                         )
-                    if cc in playtracker_results.removed_cluster_outlier_box:
+                    if cc in removed_cluster_outlier_box:
                         online_im = vis.plot_alpha_rectangle(
                             online_im,
-                            from_bbox(playtracker_results.removed_cluster_outlier_box[cc]),
+                            from_bbox(removed_cluster_outlier_box[cc]),
                             color=cluster_box_colors[cc],
                             label=f"OUTLIER({cc})",
                             opacity_percent=75,
