@@ -200,12 +200,6 @@ class hm_opts(object):
             help="Directory to write profiler traces (defaults under output_workdirs/<game_id>/profiler)",
         )
         prof.add_argument(
-            "--profile-gpu",
-            dest="profile_gpu",
-            action="store_true",
-            help="Include CUDA GPU activities if available",
-        )
-        prof.add_argument(
             "--profile-record-shapes",
             dest="profile_record_shapes",
             action="store_true",

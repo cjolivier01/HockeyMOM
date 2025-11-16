@@ -160,7 +160,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if not torch.is_floating_point(t):
             t = t.to(torch.float16, non_blocking=True)
 
-        if False:
+        if True:
             if not hasattr(self, "_image_channel_adders_tensor"):
                 self._image_channel_adders_tensor = torch.tensor(self._image_channel_adders, dtype=t.dtype).to(
                     device=t.device, non_blocking=True

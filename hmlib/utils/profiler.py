@@ -151,7 +151,7 @@ def build_profiler_from_args(args, save_dir_fallback: Optional[str] = None) -> H
         record_shapes=bool(getattr(args, "profile_record_shapes", False)),
         profile_memory=bool(getattr(args, "profile_memory", False)),
         with_stack=bool(profile_with_stack),
-        include_cuda=bool(getattr(args, "profile_gpu", False)),
+        include_cuda=True,
         trace_basename=str(getattr(args, "profile_trace_basename", "trace")),
     )
     return HmProfiler(opts)

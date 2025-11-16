@@ -177,11 +177,14 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         minimize_blend: bool = True,
         python_blender: bool = True,
         no_cuda_streams: bool = False,
+        async_mode: bool = False,
         show_image_components: bool = False,
         post_stitch_rotate_degrees: Optional[float] = None,
         profiler: Any = None,
     ):
         super().__init__()
+        if not async_mode:
+            no_cuda_streams = True
         # max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
         self._no_cuda_streams = no_cuda_streams
@@ -209,6 +212,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._minimize_blend = minimize_blend
         self._show_image_components = show_image_components
         self._remapping_cuda = self._remapping_device.type == "cuda"
+        self._async_mode = bool(async_mode)
         self._remapping_stream = None
         # Optional rotation after stitching (degrees, about image center)
         self._post_stitch_rotate_degrees: Optional[float] = post_stitch_rotate_degrees
@@ -399,6 +403,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 frame_step=frame_step_1,
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_left,
+                async_mode=self._async_mode,
             )
         )
         dataloaders.append(
@@ -415,6 +420,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 frame_step=frame_step_2,
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_right,
+                async_mode=self._async_mode,
             )
         )
         stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders, input_queueue_size=max_input_queue_size)
@@ -456,81 +462,14 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
     def close(self):
         for stitching_worker in self._stitching_workers.values():
             stitching_worker.close()
-        self._stop_coordinator_thread()
+        if self._async_mode:
+            self._stop_coordinator_thread()
         self._stitching_workers.clear()
         if self._video_output is not None:
             self._video_output.stop()
             self._video_output = None
         if self._mean_tracker is not None:
             self._mean_tracker.close()
-
-    def _adjust_exposures(self, images: List[torch.Tensor]) -> List[torch.Tensor]:
-        # We assume 0 is left, 1 is right, so we chop right 1/4 of
-        # left image and left 1/4 of right image for the exposure comparison
-        if self._exposure_adjustment is None:
-            torch.cuda.synchronize()
-            self._exposure_adjustment = []
-            # self._exposure_adjustment: List[float] = None
-            # TODO: would be good to only check the rink segmentation area
-            means: List[torch.Tensor] = []
-            max_mean = -1
-            min_mean = 256
-            max_index = -1
-            for i, img in enumerate(images):
-                img = make_channels_first(img)
-                w = int(image_width(img))
-                h = int(image_height(img))
-                slice_w = w // 6
-                slice_h = h // 3
-                slice_h_width: int = h // 6
-                slice_top = int(slice_h)
-                slice_bottom = int(slice_h + h // 3)
-                if i == 0:
-                    # Left image
-                    img = img[:, :, slice_top:slice_bottom, w - slice_w :]
-                elif i == 1:
-                    # Right image
-                    img = img[:, :, slice_top:slice_bottom, :slice_w]
-                else:
-                    assert False  # oops
-
-                if not torch.is_floating_point(img):
-                    img = img.to(torch.float)
-
-                this_mean = torch.mean(img)
-                means.append(this_mean)
-                if this_mean > max_mean:
-                    max_mean = this_mean
-                    max_index = i
-                if this_mean < min_mean:
-                    # TODO: Can we adjust them all an equal-ish amount?
-                    min_mean = this_mean
-            max_exposure_ratio = 0
-            for i, m in enumerate(means):
-                if i == max_index:
-                    self._exposure_adjustment.append(None)
-                    continue
-                exposure_ratio = max_mean / m
-                if exposure_ratio > max_exposure_ratio:
-                    max_exposure_ratio = exposure_ratio
-                self._exposure_adjustment.append(exposure_ratio)
-            exposure_diff = abs(1.0 - max_exposure_ratio)
-            exposure_diff_half = exposure_diff / 2
-            for i, e_ratio in enumerate(self._exposure_adjustment):
-                if e_ratio is None:
-                    self._exposure_adjustment[i] = 1 - exposure_diff_half
-                elif e_ratio < 1:
-                    self._exposure_adjustment[i] += exposure_diff_half
-                else:
-                    self._exposure_adjustment[i] = e_ratio - exposure_diff_half
-
-        if self._exposure_adjustment is not None and not self._exposure_adjustment:
-            # No exposure entries
-            return images
-        for i, exp in enumerate(self._exposure_adjustment):
-            if exp is not None:
-                images[i] *= exp
-        return images
 
     @staticmethod
     def ensure_rgba(tensor: torch.Tensor) -> torch.Tensor:
@@ -591,14 +530,18 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                         img = img.to(self._dtype, non_blocking=True)
                     return img
 
-                if self._remapping_cuda and self._remapping_stream is None:
+                if self._remapping_cuda and not self._no_cuda_streams and self._remapping_stream is None:
                     self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
 
-                stream = self._remapping_stream
+                stream = self._remapping_stream if self._async_mode else None
                 with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False, stream=stream):
                     with cuda_stream_scope(stream), torch.no_grad():
                         imgs_1 = to_tensor(imgs_1)
                         imgs_2 = to_tensor(imgs_2)
+                        if self._stitcher is None:
+                            # Lazily construct the stitcher on first use (async or sync).
+                            self._create_stitcher()
+
                         if isinstance(self._stitcher, CudaStitchPanoF32 | CudaStitchPanoU8):
                             imgs_1 = make_channels_last(self.ensure_rgba(imgs_1)).contiguous()
                             imgs_2 = make_channels_last(self.ensure_rgba(imgs_2)).contiguous()
@@ -633,7 +576,12 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                         # stream=int(stream.cuda_stream),
                                         enable_resizing=0.2,
                                     )
-                            self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
+                            stream_handle = (
+                                stream.cuda_stream
+                                if stream is not None
+                                else torch.cuda.current_stream(imgs_1.device).cuda_stream
+                            )
+                            self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream_handle)
                             # Optional rotation (keep same size)
                             if (
                                 self._post_stitch_rotate_degrees is not None
@@ -655,8 +603,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                         enable_resizing=0.2,
                                     )
                         else:
-                            if self._auto_adjust_exposure:
-                                imgs_1, imgs_2 = self._adjust_exposures(images=[imgs_1, imgs_2])
                             blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
                             # Optional rotation (keep same size)
                             if (
@@ -684,6 +630,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             self._ordering_queue.put((ex, None))
 
     def _start_coordinator_thread(self):
+        assert self._async_mode
         assert self._coordinator_thread is None
         for _ in range(max(1, min(self._max_input_queue_size, self._max_frames))):
             # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
@@ -703,31 +650,36 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             self._coordinator_thread.join()
             self._coordinator_thread = None
 
+    def _create_stitcher(self) -> None:
+        if self._stitcher is not None:
+            return
+        assert self._remapping_device.type != "cpu"
+        from hmlib.stitching.blender2 import create_stitcher
+
+        self._stitcher = create_stitcher(
+            dir_name=self._dir_name,
+            batch_size=self._batch_size,
+            left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
+            right_image_size_wh=(
+                self._video_right_info.width,
+                self._video_right_info.height,
+            ),
+            device=self._remapping_device,
+            dtype=self._dtype if self._python_blender else torch.uint8,
+            python_blender=self._python_blender,
+            minimize_blend=self._minimize_blend,
+            blend_mode=self._blend_mode,
+            add_alpha_channel=False,
+            auto_adjust_exposure=self._auto_adjust_exposure,
+        )
+
     def _coordinator_thread_worker(self, next_requested_frame, *args, **kwargs):
         try:
             #
             # Create the stitcher
             #
             assert self._stitcher is None
-            assert self._remapping_device.type != "cpu"
-            from hmlib.stitching.blender2 import create_stitcher
-
-            self._stitcher = create_stitcher(
-                dir_name=self._dir_name,
-                batch_size=self._batch_size,
-                left_image_size_wh=(self._video_left_info.width, self._video_left_info.height),
-                right_image_size_wh=(
-                    self._video_right_info.width,
-                    self._video_right_info.height,
-                ),
-                device=self._remapping_device,
-                dtype=self._dtype if self._python_blender else torch.uint8,
-                python_blender=self._python_blender,
-                minimize_blend=self._minimize_blend,
-                blend_mode=self._blend_mode,
-                add_alpha_channel=False,
-                auto_adjust_exposure=self._auto_adjust_exposure,
-            )
+            self._create_stitcher()
 
             frame_count = 0
             while frame_count < self._max_frames:
@@ -780,7 +732,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                     max_for_worker = distribute_items_detailed(self._max_frames, self._num_workers)[
                         worker_number
                     ]  # TODO: call just once
-                self._stitching_workers[worker_number] = iter(
+                worker_iter = iter(
                     self.create_stitching_worker(
                         rank=worker_number,
                         start_frame_number=self._start_frame_number,
@@ -790,7 +742,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                         remapping_device=self._remapping_device,
                     )
                 )
-            self._start_coordinator_thread()
+                self._stitching_workers[worker_number] = worker_iter
+            if self._async_mode:
+                self._start_coordinator_thread()
         return self
 
     def get_next_frame(self, frame_id: int):
@@ -798,58 +752,82 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         assert frame_id == self._current_frame
         # INFO(f"Dequeing frame id: {self._current_frame}...")
         # stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
-        rctx = (
-            self._profiler.rf("stitch.dequeue")
-            if getattr(self._profiler, "enabled", False)
-            else contextlib.nullcontext()
-        )
-        with rctx:
-            frame_id, stitched_frame = self._ordering_queue.get()
+        if self._async_mode:
+            rctx = (
+                self._profiler.rf("stitch.dequeue")
+                if getattr(self._profiler, "enabled", False)
+                else contextlib.nullcontext()
+            )
+            with rctx:
+                frame_id, stitched_frame = self._ordering_queue.get()
+        else:
+            # Synchronous mode: directly compute the frame on the current thread,
+            # reusing the same queue-based contract via a temporary queue.
+            rctx = (
+                self._profiler.rf("stitch.dequeue")
+                if getattr(self._profiler, "enabled", False)
+                else contextlib.nullcontext()
+            )
+            # tmp_queue = create_queue(mp=False)
+            # orig_queue = self._ordering_queue
+            # self._ordering_queue = tmp_queue
+            try:
+                with rctx:
+                    self._prepare_next_frame(frame_id)
+                frame_id, stitched_frame = self._ordering_queue.get()
+            finally:
+                # self._ordering_queue = orig_queue
+                pass
+
         if isinstance(frame_id, Exception):
             raise frame_id
         if stitched_frame is not None:
-            # INFO(f"Locally dequeued frame id: {self._current_frame}")
-            if not self._max_frames or self._next_requested_frame < self._start_frame_number + self._max_frames:
-                # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
-                self._to_coordinator_queue.put(self._next_requested_frame)
-                self._next_requested_frame += self._batch_size
-            else:
-                # We were pre-requesting future frames, but we're past the
-                # frames we want, so don't ask for anymore and just return these
-                # (running out what's in the queue)
-                # INFO(
-                #     f"Next frame {self._next_requested_frame} would be above the max allowed frames, so not queueing"
-                # )
-                pass
+            if self._async_mode:
+                # INFO(f"Locally dequeued frame id: {self._current_frame}")
+                if not self._max_frames or self._next_requested_frame < self._start_frame_number + self._max_frames:
+                    # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
+                    self._to_coordinator_queue.put(self._next_requested_frame)
+                    self._next_requested_frame += self._batch_size
+                else:
+                    # We were pre-requesting future frames, but we're past the
+                    # frames we want, so don't ask for anymore and just return these
+                    # (running out what's in the queue)
+                    # INFO(
+                    #     f"Next frame {self._next_requested_frame} would be above the max allowed frames, so not queueing"
+                    # )
+                    pass
 
             self._next_frame_timer.toc()
             self._next_frame_counter += 1
         else:
             # No more frames
             pass
-
         return stitched_frame
 
     def __next__(self):
         # INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         # print(f"self._from_coordinator_queue size: {self._from_coordinator_queue.qsize()}")
         self._next_timer.tic()
-        qctx = (
-            self._profiler.rf("stitch.queue_receive")
-            if getattr(self._profiler, "enabled", False)
-            else contextlib.nullcontext()
-        )
-        with qctx:
-            status = self._from_coordinator_queue.get()
-        # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
-        if isinstance(status, Exception):
-            self.close()
-            raise status
+        if self._async_mode:
+            qctx = (
+                self._profiler.rf("stitch.queue_receive")
+                if getattr(self._profiler, "enabled", False)
+                else contextlib.nullcontext()
+            )
+            with qctx:
+                status = self._from_coordinator_queue.get()
+            # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
+            if isinstance(status, Exception):
+                self.close()
+                raise status
+            else:
+                status, frame_id = status
+                assert status == "ok"
+                # print(f"self._from_coordinator_queue.get() = {frame_id}, self._current_frame = {self._current_frame} ")
+                assert frame_id == self._current_frame
         else:
-            status, frame_id = status
-            assert status == "ok"
-            # print(f"self._from_coordinator_queue.get() = {frame_id}, self._current_frame = {self._current_frame} ")
-            assert frame_id == self._current_frame
+            # In synchronous mode, we generate the next frame directly.
+            frame_id = self._current_frame
 
         # self._next_timer.tic()
         nctx = (
