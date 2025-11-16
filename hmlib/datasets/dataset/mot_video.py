@@ -158,14 +158,28 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if not torch.is_floating_point(t):
             t = t.to(torch.float16, non_blocking=True)
 
-        # Build adder tensor and apply to first 3 channels only
-        add = torch.tensor(self._image_channel_adders, dtype=t.dtype, device=t.device)
-        if t.ndim == 4:
-            add = add.view(1, 3, 1, 1)
+        if True:
+            if not hasattr(self, "_image_channel_adders_tensor"):
+                self._image_channel_adders_tensor = torch.tensor(self._image_channel_adders, dtype=t.dtype).to(
+                    device=t.device, non_blocking=True
+                )
+                if t.ndim == 4:
+                    self._image_channel_adders_tensor = self._image_channel_adders_tensor.view(1, 3, 1, 1)
+                else:
+                    self._image_channel_adders_tensor = self._image_channel_adders_tensor.view(3, 1, 1)
+            # Build adder tensor and apply to first 3 channels only
+            # Only add to RGB channels; preserve alpha if present
+            # t[:, 0:3, :, :] = t[:, 0:3, :, :] + self._image_channel_adders_tensor
+            t[:, 0:3, :, :] += self._image_channel_adders_tensor
         else:
-            add = add.view(3, 1, 1)
-        # Only add to RGB channels; preserve alpha if present
-        t[:, 0:3, :, :] = t[:, 0:3, :, :] + add
+            add = torch.tensor(self._image_channel_adders, dtype=t.dtype, device=t.device)
+            if t.ndim == 4:
+                add = add.view(1, 3, 1, 1)
+            else:
+                add = add.view(3, 1, 1)
+            # Only add to RGB channels; preserve alpha if present
+            # t[:, 0:3, :, :] = t[:, 0:3, :, :] + add
+            t[:, 0:3, :, :] += add
 
         t.clamp_(0.0, 255.0)
 
@@ -302,9 +316,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         return
 
     def _start_worker(self):
-        self._thread = threading.Thread(
-            target=self._next_frame_worker, name="MOTVideoNextFrameWorker"
-        )
+        self._thread = threading.Thread(target=self._next_frame_worker, name="MOTVideoNextFrameWorker")
         self._thread.start()
         self._to_worker_queue.put("ok")
         self._next_counter = 0
@@ -361,16 +373,18 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def _get_next_batch(self):
         current_count = self._count.item()
-        if current_count >= len(self) * self._batch_size or (
-            self._max_frames and current_count >= self._max_frames
-        ):
+        if current_count >= len(self) * self._batch_size or (self._max_frames and current_count >= self._max_frames):
             raise StopIteration
 
         # BEGIN READ NEXT IMAGE
         while True:
             try:
                 prof = getattr(self, "_profiler", None)
-                rctx = prof.rf("dataloader.read_next_image") if getattr(prof, "enabled", False) else _contextlib.nullcontext()
+                rctx = (
+                    prof.rf("dataloader.read_next_image")
+                    if getattr(prof, "enabled", False)
+                    else _contextlib.nullcontext()
+                )
                 with rctx:
                     res, img0 = self._read_next_image()
                 if not res or img0 is None:
@@ -411,11 +425,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if self._device.type != "cpu" and img0.device != self._device:
                 img0 = img0.to(self._device, non_blocking=True)
 
-            if (
-                self._adjust_exposure is not None
-                and self._adjust_exposure != 0
-                and self._adjust_exposure != 1
-            ):
+            if self._adjust_exposure is not None and self._adjust_exposure != 0 and self._adjust_exposure != 1:
                 if isinstance(img0, StreamTensor):
                     img0 = img0.get()
                 if not torch.is_floating_point(img0.dtype):
@@ -482,6 +492,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 # Optional per-channel additive offsets for input images
                 if self._image_channel_adders is not None:
                     img0 = self._apply_channel_adders(img0)
+                # cuda_stream.synchronize()
                 original_img0 = img0
 
                 if not self._original_image_only:

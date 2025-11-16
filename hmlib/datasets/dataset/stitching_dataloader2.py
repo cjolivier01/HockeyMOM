@@ -26,19 +26,8 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensor,
-    copy_gpu_to_gpu_async,
-    cuda_stream_scope,
-)
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-    make_visible_image,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -644,7 +633,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                         # stream=int(stream.cuda_stream),
                                         enable_resizing=0.2,
                                     )
-                            # stream.synchronize()
                             self._stitcher.process(imgs_1, imgs_2, blended_stream_tensor, stream.cuda_stream)
                             # Optional rotation (keep same size)
                             if (
@@ -810,7 +798,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         assert frame_id == self._current_frame
         # INFO(f"Dequeing frame id: {self._current_frame}...")
         # stitched_frame = self._ordering_queue.dequeue_key(self._current_frame)
-        rctx = self._profiler.rf("stitch.dequeue") if getattr(self._profiler, "enabled", False) else contextlib.nullcontext()
+        rctx = (
+            self._profiler.rf("stitch.dequeue")
+            if getattr(self._profiler, "enabled", False)
+            else contextlib.nullcontext()
+        )
         with rctx:
             frame_id, stitched_frame = self._ordering_queue.get()
         if isinstance(frame_id, Exception):
@@ -842,7 +834,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         # INFO(f"\nBEGIN next() self._from_coordinator_queue.get() {self._current_frame}")
         # print(f"self._from_coordinator_queue size: {self._from_coordinator_queue.qsize()}")
         self._next_timer.tic()
-        qctx = self._profiler.rf("stitch.queue_receive") if getattr(self._profiler, "enabled", False) else contextlib.nullcontext()
+        qctx = (
+            self._profiler.rf("stitch.queue_receive")
+            if getattr(self._profiler, "enabled", False)
+            else contextlib.nullcontext()
+        )
         with qctx:
             status = self._from_coordinator_queue.get()
         # INFO(f"END next() self._from_coordinator_queue.get( {self._current_frame})\n")
@@ -856,7 +852,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             assert frame_id == self._current_frame
 
         # self._next_timer.tic()
-        nctx = self._profiler.rf("stitch.get_next_frame") if getattr(self._profiler, "enabled", False) else contextlib.nullcontext()
+        nctx = (
+            self._profiler.rf("stitch.get_next_frame")
+            if getattr(self._profiler, "enabled", False)
+            else contextlib.nullcontext()
+        )
         with nctx:
             stitched_frame = self.get_next_frame(frame_id=frame_id)
 
@@ -868,7 +868,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._batch_count += 1
 
         # Code doesn't handle strided channels efficiently
-        pctx = self._profiler.rf("stitch.prepare_frame") if getattr(self._profiler, "enabled", False) else contextlib.nullcontext()
+        pctx = (
+            self._profiler.rf("stitch.prepare_frame")
+            if getattr(self._profiler, "enabled", False)
+            else contextlib.nullcontext()
+        )
         with pctx:
             stitched_frame = self.prepare_frame_for_video(
                 stitched_frame,
@@ -1009,7 +1013,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         )
 
         A = S_inv @ M_inv @ S  # 3x3
-        theta = A[:2, :].unsqueeze(0).repeat(B, 1, 1).contiguous()  # Bx2x3
+        theta = A[:2, :].unsqueeze(0).repeat(B, 1, 1)  # Bx2x3
 
         # --- Cached affine grid ---
         def make_grid():
@@ -1030,7 +1034,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             y = y.to(dtype=orig_dtype)
 
         if was_channels_last:
-            y = y.permute(0, 2, 3, 1).contiguous()
+            y = y.permute(0, 2, 3, 1)
 
         return y
 
