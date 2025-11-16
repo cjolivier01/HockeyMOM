@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+import copy
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -53,6 +54,7 @@ _CPP_BOXES: bool = True
 _CPP_PLAYTRACKER: bool = True and _CPP_BOXES
 # _CPP_PLAYTRACKER: bool = False and _CPP_BOXES
 
+_MISSING = object()
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
     tlwhs = tlbrs.clone()
@@ -102,6 +104,7 @@ class PlayTracker(torch.nn.Module):
         self._cpp_boxes = cpp_boxes
         self._cpp_playtracker = cpp_playtracker
         self._playtracker: Union[PlayTracker, None] = None
+        self._ui_dirty_paths: Set[Tuple[str, ...]] = set()
         self._hockey_mom: HockeyMOM = hockey_mom
         # Amount to scale speed-related calculations based upon non-standard fps
         self._play_box = clamp_box(play_box, hockey_mom._video_frame.bounding_box())
@@ -135,6 +138,24 @@ class PlayTracker(torch.nn.Module):
         # Cache for rink_profile (combined_mask, centroid, etc.) pulled from data samples meta
         self._rink_profile_cache = None
 
+        camera_cfg = self._args.game_config.setdefault("rink", {}).setdefault("camera", {})
+        self._camera_base_speed_x = float(self._hockey_mom._camera_box_max_speed_x.detach().cpu().item())
+        self._camera_base_speed_y = float(self._hockey_mom._camera_box_max_speed_y.detach().cpu().item())
+        self._camera_base_accel_x = float(self._hockey_mom._camera_box_max_accel_x.detach().cpu().item())
+        self._camera_base_accel_y = float(self._hockey_mom._camera_box_max_accel_y.detach().cpu().item())
+        camera_cfg.setdefault("max_speed_ratio_x", 1.0)
+        camera_cfg.setdefault("max_speed_ratio_y", 1.0)
+        camera_cfg.setdefault("max_accel_ratio_x", 1.0)
+        camera_cfg.setdefault("max_accel_ratio_y", 1.0)
+        self._max_speed_ratio_x = float(camera_cfg.get("max_speed_ratio_x", 1.0))
+        self._max_speed_ratio_y = float(camera_cfg.get("max_speed_ratio_y", 1.0))
+        self._max_accel_ratio_x = float(camera_cfg.get("max_accel_ratio_x", 1.0))
+        self._max_accel_ratio_y = float(camera_cfg.get("max_accel_ratio_y", 1.0))
+        self._camera_speed_x = self._hockey_mom._camera_box_max_speed_x * self._max_speed_ratio_x
+        self._camera_speed_y = self._hockey_mom._camera_box_max_speed_y * self._max_speed_ratio_y
+        self._camera_accel_x = self._hockey_mom._camera_box_max_accel_x * self._max_accel_ratio_x
+        self._camera_accel_y = self._hockey_mom._camera_box_max_accel_y * self._max_accel_ratio_y
+
         # Tracking specific ids
         self._track_ids: Set[int] = set()
         if args.track_ids:
@@ -164,16 +185,16 @@ class PlayTracker(torch.nn.Module):
             current_roi_config = AllLivingBoxConfig()
 
             # Translation
-            current_roi_config.max_speed_x = self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale
-            current_roi_config.max_speed_y = self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale
-            current_roi_config.max_accel_x = self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
-            current_roi_config.max_accel_y = self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
+            current_roi_config.max_speed_x = self._camera_speed_x * 1.5 / speed_scale
+            current_roi_config.max_speed_y = self._camera_speed_y * 1.5 / speed_scale
+            current_roi_config.max_accel_x = self._camera_accel_x * 1.1 / speed_scale
+            current_roi_config.max_accel_y = self._camera_accel_y * 1.1 / speed_scale
 
             # Resizing
-            current_roi_config.max_speed_w = self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale / 1.8
-            current_roi_config.max_speed_h = self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale / 1.8
-            current_roi_config.max_accel_w = self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale
-            current_roi_config.max_accel_h = self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale
+            current_roi_config.max_speed_w = self._camera_speed_x * 1.5 / speed_scale / 1.8
+            current_roi_config.max_speed_h = self._camera_speed_y * 1.5 / speed_scale / 1.8
+            current_roi_config.max_accel_w = self._camera_accel_x * 1.1 / speed_scale
+            current_roi_config.max_accel_h = self._camera_accel_y * 1.1 / speed_scale
 
             current_roi_config.max_width = play_width
             current_roi_config.max_height = play_height
@@ -194,22 +215,22 @@ class PlayTracker(torch.nn.Module):
             kEXTRA_FOLLOWING_SCALE_DOWN = 1
 
             current_roi_aspect_config.max_speed_x = (
-                self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
+                self._camera_speed_x * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
             )
             current_roi_aspect_config.max_speed_y = (
-                self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
+                self._camera_speed_y * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
             )
             current_roi_aspect_config.max_accel_x = (
-                self._hockey_mom._camera_box_max_accel_x / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
+                self._camera_accel_x / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
             )
             current_roi_aspect_config.max_accel_y = (
-                self._hockey_mom._camera_box_max_accel_y / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
+                self._camera_accel_y / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
             )
 
-            current_roi_aspect_config.max_speed_w = self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale / 1.8
-            current_roi_aspect_config.max_speed_h = self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale / 1.8
-            current_roi_aspect_config.max_accel_w = self._hockey_mom._camera_box_max_accel_x / speed_scale
-            current_roi_aspect_config.max_accel_h = self._hockey_mom._camera_box_max_accel_y / speed_scale
+            current_roi_aspect_config.max_speed_w = self._camera_speed_x * 1 / speed_scale / 1.8
+            current_roi_aspect_config.max_speed_h = self._camera_speed_y * 1 / speed_scale / 1.8
+            current_roi_aspect_config.max_accel_w = self._camera_accel_x / speed_scale
+            current_roi_aspect_config.max_accel_h = self._camera_accel_y / speed_scale
 
             current_roi_aspect_config.max_width = play_width
             current_roi_aspect_config.max_height = play_height
@@ -361,10 +382,10 @@ class PlayTracker(torch.nn.Module):
                 label="Current ROI",
                 bbox=start_box.clone(),
                 arena_box=self.get_arena_box(),
-                max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1.5 / speed_scale,
-                max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1.5 / speed_scale,
-                max_accel_x=self._hockey_mom._camera_box_max_accel_x * 1.1 / speed_scale,
-                max_accel_y=self._hockey_mom._camera_box_max_accel_y * 1.1 / speed_scale,
+                max_speed_x=self._camera_speed_x * 1.5 / speed_scale,
+                max_speed_y=self._camera_speed_y * 1.5 / speed_scale,
+                max_accel_x=self._camera_accel_x * 1.1 / speed_scale,
+                max_accel_y=self._camera_accel_y * 1.1 / speed_scale,
                 max_width=play_width,
                 max_height=play_height,
                 stop_on_dir_change=False,
@@ -385,10 +406,10 @@ class PlayTracker(torch.nn.Module):
                 label="AspectRatio",
                 bbox=start_box.clone(),
                 arena_box=self.get_arena_box(),
-                max_speed_x=self._hockey_mom._camera_box_max_speed_x * 1 / speed_scale,
-                max_speed_y=self._hockey_mom._camera_box_max_speed_y * 1 / speed_scale,
-                max_accel_x=self._hockey_mom._camera_box_max_accel_x.clone() / speed_scale,
-                max_accel_y=self._hockey_mom._camera_box_max_accel_y.clone() / speed_scale,
+                max_speed_x=self._camera_speed_x * 1 / speed_scale,
+                max_speed_y=self._camera_speed_y * 1 / speed_scale,
+                max_accel_x=self._camera_accel_x * 1 / speed_scale,
+                max_accel_y=self._camera_accel_y * 1 / speed_scale,
                 max_width=play_width,
                 max_height=play_height,
                 stop_on_dir_change=True,
@@ -1097,11 +1118,10 @@ class PlayTracker(torch.nn.Module):
                 # Non-fatal if config missing
                 tb("Stitch_Rotate_Degrees", 180, 90)
             # Speeds/accels (scale sliders by x10 to allow decimals)
-            # Initialize from YAML if present, else use reasonable defaults
-            msx = int(10 * float(self._args.game_config["rink"]["camera"].get("max_speed_x", 30.0)))
-            msy = int(10 * float(self._args.game_config["rink"]["camera"].get("max_speed_y", 30.0)))
-            maxx = int(10 * float(self._args.game_config["rink"]["camera"].get("max_accel_x", 10.0)))
-            maxy = int(10 * float(self._args.game_config["rink"]["camera"].get("max_accel_y", 10.0)))
+            msx = int(10 * self._camera_base_speed_x * float(camera_cfg.get("max_speed_ratio_x", 1.0)))
+            msy = int(10 * self._camera_base_speed_y * float(camera_cfg.get("max_speed_ratio_y", 1.0)))
+            maxx = int(10 * self._camera_base_accel_x * float(camera_cfg.get("max_accel_ratio_x", 1.0)))
+            maxy = int(10 * self._camera_base_accel_y * float(camera_cfg.get("max_accel_ratio_y", 1.0)))
             tb("Max_Speed_X_x10", 2000, msx)
             tb("Max_Speed_Y_x10", 2000, msy)
             tb("Max_Accel_X_x10", 1000, maxx)
@@ -1164,22 +1184,29 @@ class PlayTracker(torch.nn.Module):
 
             # Update YAML-like config so all downstream reads are consistent
             camera_cfg = self._args.game_config["rink"]["camera"]
-            camera_cfg["stop_on_dir_change_delay"] = dir_delay
-            camera_cfg["cancel_stop_on_opposite_dir"] = cancel_opp
-            camera_cfg["stop_cancel_hysteresis_frames"] = hyst
-            camera_cfg["stop_delay_cooldown_frames"] = cooldown
-            bkd = camera_cfg.setdefault("breakaway_detection", {})
-            bkd["overshoot_stop_delay_count"] = ov_delay
-            bkd["post_nonstop_stop_delay_count"] = postns
-            bkd["overshoot_scale_speed_ratio"] = float(ov_scal)
-            camera_cfg["time_to_dest_speed_limit_frames"] = ttg
+            self._set_ui_config_value(("rink", "camera", "stop_on_dir_change_delay"), int(dir_delay))
+            self._set_ui_config_value(("rink", "camera", "cancel_stop_on_opposite_dir"), bool(cancel_opp))
+            self._set_ui_config_value(("rink", "camera", "stop_cancel_hysteresis_frames"), int(hyst))
+            self._set_ui_config_value(("rink", "camera", "stop_delay_cooldown_frames"), int(cooldown))
+            self._set_ui_config_value(
+                ("rink", "camera", "breakaway_detection", "overshoot_stop_delay_count"), int(ov_delay)
+            )
+            self._set_ui_config_value(
+                ("rink", "camera", "breakaway_detection", "post_nonstop_stop_delay_count"), int(postns)
+            )
+            self._set_ui_config_value(
+                ("rink", "camera", "breakaway_detection", "overshoot_scale_speed_ratio"), float(ov_scal)
+            )
+            self._set_ui_config_value(
+                ("rink", "camera", "time_to_dest_speed_limit_frames"),
+                int(ttg),
+            )
 
             # Stitch rotation degrees (-90..+90)
             try:
                 rot_slider = cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
                 rot_deg = float(rot_slider - 90)
-                game_cfg = self._args.game_config.setdefault("game", {}).setdefault("stitching", {})
-                game_cfg["stitch-rotate-degrees"] = rot_deg
+                self._set_ui_config_value(("game", "stitching", "stitch-rotate-degrees"), float(rot_deg))
             except Exception:
                 pass
             # --- Color controls (second window) ---
@@ -1196,21 +1223,23 @@ class PlayTracker(torch.nn.Module):
                     ct100 = cv2.getTrackbarPos("Contrast_Multiplier_x100", color_win)
                     gm100 = cv2.getTrackbarPos("Gamma_Multiplier_x100", color_win)
 
-                    color_cfg = camera_cfg.setdefault("color", {})
-                    # Kelvin WB overrides manual gains when enabled
                     if int(wbk_enable) > 0:
-                        color_cfg["white_balance_temp"] = f"{int(max(1000, min(40000, kelvin)))}k"
-                        color_cfg.pop("white_balance", None)
+                        kelvin_val = f"{int(max(1000, min(40000, kelvin)))}k"
+                        self._set_ui_config_value(("rink", "camera", "color", "white_balance_temp"), kelvin_val)
+                        self._set_ui_config_value(("rink", "camera", "color", "white_balance"), _MISSING)
                     else:
                         # Map 50..200 -> 0.5..2.0
                         rgain = max(1, r100) / 100.0
                         ggain = max(1, g100) / 100.0
                         bgain = max(1, b100) / 100.0
-                        color_cfg["white_balance"] = [float(rgain), float(ggain), float(bgain)]
-                        color_cfg.pop("white_balance_temp", None)
-                    color_cfg["brightness"] = max(1, br100) / 100.0
-                    color_cfg["contrast"] = max(1, ct100) / 100.0
-                    color_cfg["gamma"] = max(1, gm100) / 100.0
+                        self._set_ui_config_value(
+                            ("rink", "camera", "color", "white_balance"),
+                            [float(bgain), float(ggain), float(rgain)],
+                        )
+                        self._set_ui_config_value(("rink", "camera", "color", "white_balance_temp"), _MISSING)
+                    self._set_ui_config_value(("rink", "camera", "color", "brightness"), max(1, br100) / 100.0)
+                    self._set_ui_config_value(("rink", "camera", "color", "contrast"), max(1, ct100) / 100.0)
+                    self._set_ui_config_value(("rink", "camera", "color", "gamma"), max(1, gm100) / 100.0)
                 except Exception:
                     pass
             # Read selection + constraints
@@ -1220,6 +1249,26 @@ class PlayTracker(torch.nn.Module):
             msy = cv2.getTrackbarPos("Max_Speed_Y_x10", self._ui_window_name) / 10.0
             maxx = cv2.getTrackbarPos("Max_Accel_X_x10", self._ui_window_name) / 10.0
             maxy = cv2.getTrackbarPos("Max_Accel_Y_x10", self._ui_window_name) / 10.0
+            if self._camera_base_speed_x > 0:
+                self._set_ui_config_value(
+                    ("rink", "camera", "max_speed_ratio_x"),
+                    float(msx / max(self._camera_base_speed_x, 1e-6)),
+                )
+            if self._camera_base_speed_y > 0:
+                self._set_ui_config_value(
+                    ("rink", "camera", "max_speed_ratio_y"),
+                    float(msy / max(self._camera_base_speed_y, 1e-6)),
+                )
+            if self._camera_base_accel_x > 0:
+                self._set_ui_config_value(
+                    ("rink", "camera", "max_accel_ratio_x"),
+                    float(maxx / max(self._camera_base_accel_x, 1e-6)),
+                )
+            if self._camera_base_accel_y > 0:
+                self._set_ui_config_value(
+                    ("rink", "camera", "max_accel_ratio_y"),
+                    float(maxy / max(self._camera_base_accel_y, 1e-6)),
+                )
             # Apply to Python movers (live)
             if isinstance(self._current_roi, MovingBox) and apply_fast:
                 mb = self._current_roi
@@ -1329,27 +1378,92 @@ class PlayTracker(torch.nn.Module):
         except Exception:
             pass
 
+    def _values_equal(self, a, b) -> bool:
+        if a is _MISSING or b is _MISSING:
+            return a is b
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            return abs(float(a) - float(b)) < 1e-6
+        return a == b
+
+    def _set_config_value(
+        self,
+        root: Dict[str, Any],
+        path: Tuple[str, ...],
+        value: Any,
+        *,
+        mark_dirty: bool = False,
+        cleanup_empty: bool = False,
+    ) -> bool:
+        cur = root
+        parents: List[Tuple[Dict[str, Any], str]] = []
+        for key in path[:-1]:
+            if key not in cur or not isinstance(cur[key], dict):
+                if value is _MISSING:
+                    # nothing to delete
+                    return False
+                cur[key] = {}
+            parents.append((cur, key))
+            cur = cur[key]
+        leaf = path[-1]
+        current = cur.get(leaf, _MISSING)
+        if value is _MISSING:
+            if leaf not in cur:
+                return False
+            del cur[leaf]
+            if cleanup_empty:
+                while parents:
+                    parent, key = parents.pop()
+                    child = parent[key]
+                    if isinstance(child, dict) and not child:
+                        del parent[key]
+                    else:
+                        break
+            if mark_dirty:
+                self._ui_dirty_paths.add(path)
+            return True
+        if self._values_equal(current, value):
+            return False
+        cur[leaf] = copy.deepcopy(value)
+        if mark_dirty:
+            self._ui_dirty_paths.add(path)
+        return True
+
+    def _set_ui_config_value(self, path: Tuple[str, ...], value: Any):
+        self._set_config_value(self._args.game_config, path, value, mark_dirty=True)
+
+    def _get_config_path_value(self, path: Tuple[str, ...]):
+        cur: Any = self._args.game_config
+        for key in path:
+            if not isinstance(cur, dict) or key not in cur:
+                return _MISSING
+            cur = cur[key]
+        return cur
+
+    def _set_priv_path(self, priv: Dict[str, Any], path: Tuple[str, ...], value: Any) -> bool:
+        return self._set_config_value(priv, path, value, mark_dirty=False, cleanup_empty=True)
+
+    def _delete_priv_path(self, priv: Dict[str, Any], path: Tuple[str, ...]) -> bool:
+        return self._set_config_value(priv, path, _MISSING, mark_dirty=False, cleanup_empty=True)
+
     def _save_ui_config(self):
         # Save current game_config to private config.yaml if game_id is present
         try:
             game_id = getattr(self._args, "game_id", None)
             if not game_id:
                 return
+            if not self._ui_dirty_paths:
+                return
             priv = get_game_config_private(game_id=game_id) or {}
-            # Merge in camera section from current args
-            priv.setdefault("rink", {}).setdefault("camera", {})
-            camera_cfg = self._args.game_config["rink"]["camera"]
-            priv["rink"]["camera"] = camera_cfg
-            # Also persist game.stitching.stitch-rotate-degrees if present
-            try:
-                stitch_cfg = self._args.game_config.get("game", {}).get("stitching", {})
-                if isinstance(stitch_cfg, dict) and "stitch-rotate-degrees" in stitch_cfg:
-                    priv.setdefault("game", {}).setdefault("stitching", {})[
-                        "stitch-rotate-degrees"
-                    ] = stitch_cfg["stitch-rotate-degrees"]
-            except Exception:
-                pass
-            save_private_config(game_id=game_id, data=priv, verbose=True)
+            dirty = False
+            for path in list(self._ui_dirty_paths):
+                current_value = self._get_config_path_value(path)
+                if current_value is _MISSING:
+                    dirty |= self._delete_priv_path(priv, path)
+                else:
+                    dirty |= self._set_priv_path(priv, path, current_value)
+            if dirty:
+                save_private_config(game_id=game_id, data=priv, verbose=True)
+            self._ui_dirty_paths.clear()
         except Exception:
             pass
 

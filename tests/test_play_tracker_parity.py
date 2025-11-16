@@ -91,6 +91,16 @@ def _create_args(**overrides) -> SimpleNamespace:
         "cluster_centroids": copy.deepcopy(DEFAULT_CLUSTER_CENTROIDS),
     }
 
+    ratio_keys = (
+        "max_speed_ratio_x",
+        "max_speed_ratio_y",
+        "max_accel_ratio_x",
+        "max_accel_ratio_y",
+    )
+    for key in ratio_keys:
+        if key in overrides:
+            cfg["rink"]["camera"][key] = float(overrides[key])
+
     if "cam_ignore_largest" in overrides:
         value = overrides["cam_ignore_largest"]
         cfg["rink"]["tracking"]["cam_ignore_largest"] = value
@@ -99,8 +109,9 @@ def _create_args(**overrides) -> SimpleNamespace:
     if "cluster_centroids" in overrides:
         args_dict["cluster_centroids"] = copy.deepcopy(overrides["cluster_centroids"])
 
+    skip_keys = {"cam_ignore_largest", "cluster_centroids", *ratio_keys}
     for key, value in overrides.items():
-        if key in {"cam_ignore_largest", "cluster_centroids"}:
+        if key in skip_keys:
             continue
         args_dict[key] = value
 
@@ -267,3 +278,15 @@ def should_apply_no_wide_start_after_initial_empty_frame():
     play_box = tracker.play_box
     second_frame_box = output["current_box"][1]
     assert not torch.allclose(second_frame_box, play_box)
+
+
+def should_match_when_speed_ratios_change():
+    overrides = {
+        "max_speed_ratio_x": 0.7,
+        "max_speed_ratio_y": 0.9,
+        "max_accel_ratio_x": 1.3,
+        "max_accel_ratio_y": 0.8,
+    }
+    py_results, cpp_results = _run_play_trackers(overrides)
+    assert_close(py_results["current_box"], cpp_results["current_box"], atol=1e-4, rtol=0)
+    assert_close(py_results["current_fast_box_list"], cpp_results["current_fast_box_list"], atol=1e-4, rtol=0)
