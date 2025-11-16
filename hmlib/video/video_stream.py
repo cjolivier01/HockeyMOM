@@ -6,6 +6,8 @@ import numpy as np
 import torch
 import torchaudio
 import torchvision
+from torchaudio.io import StreamReader as StreamingMediaDecoder
+from torchaudio.io import StreamWriter as StreamingMediaEncoder
 from typeguard import typechecked
 
 from hmlib.log import logger
@@ -396,9 +398,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
             ext = _EXTENSION_MAPPING.get(self._container_type, self._container_type)
             if not self._filename.endswith("." + ext):
                 self._filename += "." + ext
-        self._video_out = torchaudio.io.StreamWriter(
-            dst=self._filename, format=self._container_type
-        )
+        self._video_out = StreamingMediaEncoder(dst=self._filename, format=self._container_type)
         self._add_stream()
         self._video_f = self._video_out.open()
 
@@ -481,7 +481,8 @@ class VideoReaderIterator:
 
 
 class TAStreamReaderIterator:
-    def __init__(self, sr: torchaudio.io.StreamReader, batch_size: int = 1):
+
+    def __init__(self, sr: StreamingMediaDecoder, batch_size: int = 1):
         self._iter = sr.stream()
         self._chunk = None
         self._chunk_position = 0
@@ -696,7 +697,7 @@ class VideoStreamReader:
                 )
                 self._type = "cv2"
         if self._type == "torchaudio":
-            self._video_in = torchaudio.io.StreamReader(src=self._filename)
+            self._video_in = StreamingMediaDecoder(src=self._filename)
             self._torchaudio_stream = True
             self._add_stream()
         elif self._type == "torchvision":
