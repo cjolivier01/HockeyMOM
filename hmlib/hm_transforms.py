@@ -1,3 +1,9 @@
+"""Custom image and tensor transforms used in HockeyMOM pipelines.
+
+Extends MMDetection/MMPose-style transforms with GPU-aware resizing,
+stream-compatible interpolation and mixed tensor/NumPy handling.
+"""
+
 import math
 import numbers
 import time
@@ -61,15 +67,11 @@ def update_data_pipeline(
 
 
 def extract_subimage(img: torch.Tensor, bbox: torch.Tensor) -> torch.Tensor:
-    """
-    Extracts a subimage from an image tensor based on a bounding box.
+    """Extract a subimage from an image tensor based on a bounding box.
 
-    Parameters:
-        img (torch.Tensor): The source image tensor of shape (C, H, W).
-        bbox (torch.Tensor): The bounding box tensor with values (top, left, bottom, right).
-
-    Returns:
-        torch.Tensor: The extracted subimage.
+    @param img: Source image tensor of shape ``(C, H, W)`` or ``(H, W, C)``.
+    @param bbox: Bounding box tensor with values ``(top, left, bottom, right)``.
+    @return: Extracted subimage tensor.
     """
     left, top, right, bottom = bbox
     # Ensure coordinates are within image dimensions

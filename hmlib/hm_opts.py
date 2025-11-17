@@ -11,6 +11,16 @@ from hmlib.config import get_game_config_private, get_nested_value, set_nested_v
 
 
 def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
+    """Copy known CLI options from one namespace-like object to another.
+
+    Uses the provided parser to discover option names, then copies any
+    attributes with matching names from ``src`` to ``dest``.
+
+    @param src: Source object (typically parsed args).
+    @param dest: Destination object to mutate.
+    @param parser: Parser used to determine which attributes to copy.
+    @return: The updated ``dest`` object.
+    """
     fake_parsed = parser.parse_known_args()
     item_keys = sorted(fake_parsed[0].__dict__.keys())
     for item_name in item_keys:
@@ -1146,6 +1156,7 @@ class hm_opts(object):
 
 
 def preferred_arg(preferred_arg: Any, backup_arg: Any):
+    """Return ``preferred_arg`` if not ``None``, otherwise ``backup_arg``."""
     if preferred_arg is not None:
         return preferred_arg
     return backup_arg

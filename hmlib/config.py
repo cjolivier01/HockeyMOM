@@ -31,10 +31,12 @@ class Game:
 
 
 def get_root_dir() -> str:
+    """Return the root directory of the hmlib installation."""
     return ROOT_DIR
 
 
 def prepend_root_dir(path: str) -> str:
+    """Join a relative path against :data:`ROOT_DIR` if needed."""
     if not path:
         return ROOT_DIR
     if path[0] != "/":
@@ -43,6 +45,12 @@ def prepend_root_dir(path: str) -> str:
 
 
 def get_game_dir(game_id: str, assert_exists: bool = True) -> Optional[str]:
+    """Return the video directory for a given game id.
+
+    @param game_id: Game identifier string.
+    @param assert_exists: If True, raise if the directory does not exist.
+    @return: Absolute path to ``$HOME/Videos/<game_id>`` or ``None``.
+    """
     if not game_id:
         raise AttributeError("No valid Game ID specified")
     game_video_dir = os.path.join(GAME_DIR_BASE, game_id)
@@ -71,6 +79,7 @@ def get_game_config_file_name(game: Game, root_dir: Optional[str] = None) -> Pat
 
 
 def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
+    """Load a YAML config from disk and optionally merge into a base dict."""
     if os.path.exists(yaml_file_path):
         with open(yaml_file_path, "r") as file:
             try:
@@ -88,14 +97,13 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
 
 
 def load_yaml_files_ordered(paths: Sequence[str], base: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    Load multiple YAML files in order and merge them into a single dictionary.
+    """Load multiple YAML files in order and merge them into a dictionary.
+
     Later files override earlier values and add new fields.
 
-    - paths: list/sequence of YAML file paths (absolute or relative)
-    - base: optional starting dictionary to merge into
-
-    Returns: merged dictionary.
+    @param paths: Sequence of YAML file paths (absolute or ROOT_DIR-relative).
+    @param base: Optional starting dictionary to merge into.
+    @return: Merged configuration dictionary.
     """
     merged: Dict[str, Any] = {} if base is None else dict(base)
     for p in paths:
@@ -140,6 +148,7 @@ def save_config_file(root_dir: str, config_type: str, config_name: str, data: di
 
 
 def baseline_config(root_dir: str) -> Dict[str, Any]:
+    """Load the baseline configuration from ``config/baseline.yaml``."""
     return load_config_file(root_dir=root_dir, config_type=".", config_name="baseline")
 
 
@@ -193,10 +202,10 @@ def get_config(
     rink: Optional[str] = None,
     camera: Optional[str] = None,
 ):
-    """
-    Get a consolidated configuration.
-    Direct parameters override parameters whihc are in the higher-level yaml
-    (i.e. a specified 'rink' to this function overrides the 'rink' in the game config)
+    """Return a consolidated configuration from baseline + rink + camera + game.
+
+    Direct parameters override higher-level YAML (e.g. an explicit ``rink``
+    argument overrides the rink specified in the game config).
     """
     consolidated_config: Dict[str, Any] = baseline_config(root_dir=root_dir)
     game_config: Dict[str, Any] = dict()
@@ -235,6 +244,13 @@ def update_config(baseline_config: dict, config_type: str, config_name: str, roo
 
 @lru_cache
 def get_clip_box(game_id: str, root_dir: Optional[str] = None, use_rink_boundary: bool = False):
+    """Return the configured clip box for a game, optionally derived from rink.
+
+    @param game_id: Game identifier.
+    @param root_dir: Optional config root; defaults to :data:`ROOT_DIR`.
+    @param use_rink_boundary: If True, fall back to rink boundary bbox.
+    @return: Clip box as ``[x1, y1, x2, y2]`` or ``None``.
+    """
     game_config = get_game_config(game_id=game_id, root_dir=root_dir)
     if game_config:
         game = game_config.get("game", None)

@@ -1,3 +1,5 @@
+"""Helpers for working with SLURM environment variables and node lists."""
+
 import os
 import socket
 
@@ -30,12 +32,10 @@ node_lists = [
 
 
 def set_slurm_env_variables(node_list, tasks_per_node):
-    """
-    Set virtual Slurm environment variables based on the node list and tasks per node.
+    """Set mock SLURM environment variables for local testing.
 
-    Args:
-    - node_list (list of str): List of node names
-    - tasks_per_node (int): Number of tasks per node
+    @param node_list: List of node names.
+    @param tasks_per_node: Number of tasks per node.
     """
     # Setting SLURM_JOB_NODELIST and SLURM_TASKS_PER_NODE
     os.environ["SLURM_JOB_NODELIST"] = ",".join(node_list)
@@ -77,6 +77,7 @@ def add_string_numbers(a: str, b: str) -> str:
 
 
 def slurm_parse_int(s):
+    """Parse the leading integer from a SLURM range token."""
     for i, c in enumerate(s):
         if c not in "0123456789":
             return s[:i], s[i:]
@@ -84,6 +85,7 @@ def slurm_parse_int(s):
 
 
 def string_range(a, b):
+    """Return a list of stringified ints from a (inclusive) to b (exclusive)."""
     results = [a]
     next_num = a
     while int(next_num) + 1 != int(b):
@@ -93,7 +95,7 @@ def string_range(a, b):
 
 
 def slurm_parse_brackets(s):
-    # parse a "bracket" expression (including closing ']')
+    """Parse a SLURM-style bracket range expression (including closing ']')."""
     lst = []
     while len(s) > 0:
         if s[0] == ",":
@@ -112,7 +114,7 @@ def slurm_parse_brackets(s):
 
 
 def slurm_parse_node(s):
-    # parse a "node" expression
+    """Parse a single SLURM node expression into a list of hostnames."""
     for i, c in enumerate(s):
         if c == ",":  # name,...
             return [s[:i]], s[i + 1 :]
@@ -127,6 +129,7 @@ def slurm_parse_node(s):
 
 
 def slurm_parse_list(s):
+    """Expand a SLURM nodelist string into a list of hostnames."""
     lst = []
     while len(s) > 0:
         v, s = slurm_parse_node(s)
@@ -148,9 +151,12 @@ def _get_first_hostname(nodelist):
 
 
 def get_dist_url(hostname, port=29500, protocol="tcp"):
+    """Generate a PyTorch dist-url using the given hostname and port.
+
+    Returns ``None`` when running on a single machine.
+    """
     if get_num_machines() < 2:
         return None
-    """Generate a PyTorch dist-url using the given hostname and port."""
     ip = socket.gethostbyname(hostname)
     os.environ["MASTER_PORT"] = f"{port}"
     os.environ["MASTER_ADDR"] = ip
@@ -158,6 +164,7 @@ def get_dist_url(hostname, port=29500, protocol="tcp"):
 
 
 def get_default_dist_url():
+    """Return a default dist-url based on SLURM environment variables."""
     if "MASTER_ADDR" in os.environ:
         assert "MASTER_PORT" in os.environ
         return get_dist_url(
@@ -174,17 +181,19 @@ def get_default_dist_url():
 
 
 def get_local_rank():
+    """Return the local rank of the current process under SLURM."""
     lr = int(os.environ.get("SLURM_LOCALID", "0"))
     # os.environ["LOCAL_RANK"] = str(lr)
     return lr
 
 
 def get_machine_rank():
+    """Return the machine (node) rank of the current process under SLURM."""
     return int(os.environ.get("SLURM_NODEID", "0"))
 
 
 def get_num_machines():
-    
+    """Return the total number of machines requested under SLURM."""
     num_machines = int(os.environ.get("SLURM_NNODES", "1"))
     # os.environ["WORLD_SIZE"] = str(num_machines)
     return num_machines

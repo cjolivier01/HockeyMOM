@@ -1,3 +1,10 @@
+"""Discover and classify left/right camera videos for a given game.
+
+This module scans game directories for vendor-specific or left/right
+clips, runs ice-rink segmentation to infer orientation, and writes the
+final left/right chapter lists into the game private config.
+"""
+
 import argparse
 import gc
 import os
@@ -40,11 +47,7 @@ VideosDict = Dict[VideosDictKey, VideoChapter]
 
 
 def gopro_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
-    """
-    Get video and chapter number
-
-    Returns: (video number, chapter number)
-    """
+    """Return (video number, chapter number) from a GoPro filename."""
     name = Path(filename).stem
     assert name[0] == "G"
     assert name[1] in {"H", "X"}
@@ -63,17 +66,14 @@ def insta360_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
 
 
 def get_lr_part_number(filename: str) -> int:
-    """
-    Get video and chapter number
-
-    Returns: (video number, chapter number)
-    """
+    """Extract the numeric part index from a left/right-part filename."""
     name = Path(filename).stem
     tokens = name.split("-")
     return int(tokens[-1])
 
 
 def find_matching_files(re_pattern: str, directory: str) -> List[str]:
+    """Return sorted list of filenames in ``directory`` matching ``re_pattern``."""
     # Regex to match the file format 'GLXXXXXX.mp4'
     pattern = re.compile(re_pattern)
 
@@ -90,11 +90,9 @@ def find_matching_files(re_pattern: str, directory: str) -> List[str]:
 
 
 def prune_chapters(videos: VideosDict) -> Tuple[VideosDict, VideosDict]:
-    """
-    Prune out videos that don't have matching chapters.
-    Returns Tuple:
-        0: Videos/chapters with all matching chapters
-        1: Videos/chapters that were extracted
+    """Prune out videos that don't have matching chapters.
+
+    @return: Tuple (kept_videos, discarded_videos).
     """
     matching: VideosDict = {}
     unmatching: VideosDict = {}
@@ -168,10 +166,11 @@ def _collect_lr_chapters(directory: str, side: str, renumber: bool = False) -> O
 
 
 def get_available_videos(dir_name: str, prune: bool = False) -> VideosDict:
-    """
-    Get available videos in the given directory
+    """Discover available videos and chapters under a game directory.
 
-    :return: # Video # / left|right -> Chapter # -> filename
+    @param dir_name: Game directory path.
+    @param prune: If True, drop videos with incomplete chapter sets.
+    @return: Mapping from camera key to chapter-number->filename.
     """
     # Prefer camera-specific subdirectories cam1, cam2, ... when present.
     # This avoids filename collisions when multiple cameras produce the same
@@ -254,6 +253,7 @@ def detect_video_rink_masks(
     device: torch.device = None,
     inference_scale: Optional[float] = None,
 ) -> VideosDict:
+    """Run ice-rink segmentation on the first frame of each video."""
     if device is None:
         gpu_allocator = GpuAllocator(gpus=None)
         device: torch.device = (
@@ -288,6 +288,7 @@ def detect_video_rink_masks(
 
 
 def get_orientation_dict(rink_mask: torch.Tensor) -> Dict[str, float]:
+    """Summarize rink occupancy on each edge of the mask."""
     assert rink_mask.dtype == torch.bool
     assert rink_mask.ndim == 2
     width = image_width(rink_mask)
@@ -308,6 +309,7 @@ def get_orientation_dict(rink_mask: torch.Tensor) -> Dict[str, float]:
 
 
 def get_orientation(rink_mask: torch.Tensor) -> str:
+    """Classify a rink mask as 'left', 'right' or 'UNKNOWN'."""
     assert rink_mask.dtype == torch.bool
     assert rink_mask.ndim == 2
     width = image_width(rink_mask)
@@ -340,6 +342,7 @@ def get_game_videos_analysis(
     device: torch.device = None,
     inference_scale: Optional[float] = None,
 ) -> VideosDict:
+    """Analyze game videos and attach orientation metadata per camera."""
     if videos_dict is None:
         videos_dict = get_available_videos(dir_name=get_game_dir(game_id=game_id))
     videos_dict = detect_video_rink_masks(
@@ -397,6 +400,15 @@ def configure_game_videos(
     device: torch.device = None,
     inference_scale: Optional[float] = None,
 ) -> Dict[str, List[str]]:
+    """Return and optionally persist left/right ordered chapter lists.
+
+    @param game_id: Game identifier.
+    @param force: If True, recompute even if config already has lists.
+    @param write_results: When True, write relative paths to private config.
+    @param device: Optional device for rink segmentation.
+    @param inference_scale: Optional downscale factor for segmentation.
+    @return: Dict with keys ``\"left\"`` and ``\"right\"`` mapping to lists of files.
+    """
     dir_name = get_game_dir(game_id=game_id)
     videos_dict = get_available_videos(dir_name=dir_name)
     if not force and ("left" in videos_dict and "right" in videos_dict):
