@@ -1,3 +1,11 @@
+"""FFmpeg-based video metadata and subprocess helpers.
+
+Provides :class:`BasicVideoInfo` and small utilities around ``ffprobe`` and
+``ffmpeg`` used throughout the hmlib video pipeline.
+
+@see @ref hmlib.video.video_stream "video_stream" for higher-level streaming.
+"""
+
 import ctypes
 import os
 import platform

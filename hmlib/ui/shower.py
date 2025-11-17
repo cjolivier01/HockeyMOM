@@ -1,3 +1,11 @@
+"""Asynchronous image viewer for debugging and live previews.
+
+`Shower` consumes tensors or numpy arrays from a queue and displays them
+via OpenCV or (optionally) Tkinter windows.
+
+@see @ref hmlib.ui.show "show" for simpler one-off display helpers.
+"""
+
 import threading
 import time
 import tkinter as tk

@@ -2,6 +2,18 @@ import torch
 
 
 class MeanTracker:
+    """Track per-frame tensor means against values stored on disk.
+
+    In ``\"output\"`` mode the tracker appends the mean (or integer sum) of
+    each incoming tensor to a text file; in ``\"input\"`` mode it reads the
+    file and asserts that subsequent tensors match the recorded values.
+
+    @param file_path: Path to the text file containing one scalar per line.
+    @param mode: Either ``\"output\"`` (record) or ``\"input\"`` (verify).
+    @see @ref hmlib.utils.video.load_first_video_frame "load_first_video_frame"
+         for a simple producer of tensors to validate.
+    """
+
     def __init__(self, file_path: str, mode="output") -> None:
         self.file_path = file_path
         self.mode = mode

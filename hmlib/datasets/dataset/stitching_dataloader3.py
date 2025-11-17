@@ -1,6 +1,4 @@
-"""
-Experiments in stitching
-"""
+"""Alternative data loader wiring for multi-camera stitching (v3)."""
 
 import argparse
 import os

@@ -1,3 +1,11 @@
+"""Overlay action labels on tracked players in video frames.
+
+This helper keeps the last seen action per tracking id and draws text
+above bounding boxes using the tracking utilities visualization helpers.
+
+@see @ref hmlib.tracking_utils.visualization "tracking_utils.visualization" for text rendering.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -67,4 +75,3 @@ class ActionTracker:
                 thickness=3,
             )
         return image
-

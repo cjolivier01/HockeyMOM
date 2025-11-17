@@ -1,3 +1,9 @@
+"""Boundary handling utilities for clipping / masking tracking regions.
+
+Provides a now-obsolete `BoundaryLines` pipeline transform plus helpers
+to adjust points and boxes relative to a clip box.
+"""
+
 import time
 from typing import List, Optional, Union
 

@@ -1,5 +1,9 @@
-"""
-PyTorch text drawing functions
+"""PyTorch-based text drawing utilities on tensors.
+
+Provides cached glyph rendering to RGB tensors and helpers for annotating
+images with text directly on GPU tensors.
+
+@see @ref hmlib.vis.pt_visualization "pt_visualization" for geometric shapes.
 """
 
 import string

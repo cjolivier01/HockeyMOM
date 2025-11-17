@@ -39,6 +39,9 @@ class HmProfiler:
     - When enabled, creates a torch.profiler.profile context and exposes rf(name)
       for record_function blocks and step() for per-iteration stepping.
     - Exports Perfetto/Chrome trace JSON on close (and optionally per iteration).
+
+    @see @ref build_profiler_from_args "build_profiler_from_args" for CLI integration.
+    @see @ref hmlib.hm_opts.hm_opts "hm_opts" for the corresponding CLI flags.
     """
 
     def __init__(self, opts: Optional[ProfilerOptions] = None):
@@ -183,6 +186,13 @@ class HmProfiler:
 
 # Convenience factory from argparse-like args
 def build_profiler_from_args(args, save_dir_fallback: Optional[str] = None) -> HmProfiler:
+    """Construct an :class:`HmProfiler` from argparse-style CLI options.
+
+    @param args: Namespace-like object with ``profile*`` fields from :mod:`hmlib.hm_opts`.
+    @param save_dir_fallback: Directory used when ``args.profile_dir`` is empty.
+    @return: Configured :class:`HmProfiler` instance.
+    @see @ref HmProfiler "HmProfiler" for the profiling API.
+    """
     enabled = bool(getattr(args, "profile", False) or getattr(args, "profiler", False))
     save_dir = getattr(args, "profile_dir", None) or save_dir_fallback
     profile_with_stack = getattr(args, "profile_with_stack", None)

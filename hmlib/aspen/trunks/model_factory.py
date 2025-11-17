@@ -23,21 +23,22 @@ def _import_class(path: str):
 
 
 class ModelFactoryTrunk(Trunk):
-    """
-    Builds and caches the MMTracking-style model from Aspen YAML.
+    """Trunk that builds and caches the MMTracking-style end-to-end model.
 
-    Params:
-      - model_class: str import path (default: hmlib.models.end_to_end.HmEndToEnd)
-      - data_preprocessor: dict (optional)
-      - detector: dict (optional)
-      - detector_mmconfig: str path to an mmengine-style config that contains a 'model.detector' field (optional)
-      - detector_overrides: dict to update the detector dict after loading from mmconfig (optional)
-      - tracker: dict (optional)
-      - post_tracking_pipeline: List[dict] (optional)
-      - to_device: bool (default True) — move model to context['device'] if present
+    Parameters (YAML fields):
+      - ``model_class``: str import path (default: ``hmlib.models.end_to_end.HmEndToEnd``).
+      - ``data_preprocessor``: dict (optional).
+      - ``detector``: dict (optional).
+      - ``detector_mmconfig``: path to an mmengine config with a ``model.detector`` field (optional).
+      - ``detector_overrides``: dict to update the detector after loading from mmconfig (optional).
+      - ``tracker``: dict (optional).
+      - ``post_tracking_pipeline``: List[dict] (optional).
+      - ``to_device``: bool (default ``True``) – move model to ``context['device']`` if present.
 
     Outputs in context:
-      - model: the constructed model instance
+      - ``model``: the constructed model instance.
+
+    @see @ref hmlib.models.end_to_end.HmEndToEnd "HmEndToEnd" for the default implementation.
     """
 
     def __init__(

@@ -1,5 +1,11 @@
-"""
-Horrible, error-prone audio copying and concatenation function(s)
+"""Utilities for copying, synchronizing and concatenating audio tracks.
+
+These helpers wrap small ``ffmpeg`` pipelines to extract and merge audio
+streams between videos.
+
+@see @ref hmlib.game_audio.transfer_audio "transfer_audio" for game-level usage.
+@see @ref hmlib.stitching.synchronize.synchronize_by_audio "synchronize_by_audio"
+     for audio-based synchronization of multiple cameras.
 """
 
 import argparse
@@ -14,6 +20,11 @@ from hmlib.video.ffmpeg import concatenate_videos
 
 
 def make_parser():
+    """Build an :class:`argparse.ArgumentParser` for the audio utility CLI.
+
+    @return: Configured parser with ``--input-audio`` / ``--input-video`` options.
+    @see @ref copy_audio "copy_audio" for the core implementation invoked by the CLI.
+    """
     parser = argparse.ArgumentParser("YOLOX train parser")
     parser.add_argument(
         "--input-audio",
@@ -42,6 +53,13 @@ def make_parser():
 
 
 def extract_audio(filename: str, force: bool = False) -> str:
+    """Extract an AAC audio track from a video using ``ffmpeg``.
+
+    @param filename: Input video file path.
+    @param force: Overwrite an existing ``.aac`` file if ``True``.
+    @return: Path to the extracted ``.aac`` file, or ``None`` on failure.
+    @see @ref concatenate_audio "concatenate_audio" for merging multiple tracks.
+    """
     audio_file, _ = os.path.splitext(filename)
     audio_file += ".aac"
     if not force and os.path.exists(audio_file):
@@ -67,6 +85,15 @@ def extract_audio(filename: str, force: bool = False) -> str:
 
 
 def concatenate_audio(files) -> tempfile.TemporaryFile:
+    """Concatenate audio tracks from one or more input files.
+
+    Each input file may be a video (audio is extracted first) or an audio
+    file that ``ffmpeg`` can decode.
+
+    @param files: Iterable of filenames whose audio streams will be concatenated.
+    @return: Temporary file handle pointing at the concatenated AAC audio.
+    @see @ref copy_audio "copy_audio" for attaching merged audio to a video.
+    """
     audio_files = [extract_audio(f) for f in files]
 
     # Create a temporary file for the output audio
@@ -109,6 +136,14 @@ def concatenate_audio(files) -> tempfile.TemporaryFile:
 def copy_audio(
     input_audio: Union[str, List[str]], input_video: str, output_video: str, shortest: bool = True
 ):
+    """Copy or merge audio from one or more sources into a target video.
+
+    @param input_audio: Single path, list of paths, or dict with ``\"left\"``/``\"right\"`` keys.
+    @param input_video: Path to the video that will receive the audio track.
+    @param output_video: Output video filename with audio attached.
+    @param shortest: If ``True``, stop when the shortest stream ends (ffmpeg ``-shortest``).
+    @see @ref hmlib.game_audio.transfer_audio "transfer_audio" for a higher-level wrapper.
+    """
     temp_audio_file = None
     audio_source = None
     if isinstance(input_audio, dict) or (isinstance(input_audio, list) and len(input_audio) == 2):

@@ -1,3 +1,9 @@
+"""Tracking-related overlay helpers for drawing boxes, labels and scores.
+
+Bridges between OpenCV-based visualization and PyTorch tensor-based drawing
+functions from :mod:`hmlib.vis`.
+"""
+
 from typing import Dict, List, Tuple, Union, Optional, Set
 
 import cv2

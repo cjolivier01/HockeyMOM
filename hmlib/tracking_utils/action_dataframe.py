@@ -1,3 +1,9 @@
+"""DataFrame wrapper for per-frame action recognition outputs.
+
+Stores JSON-encoded action results (per tracked player) and exposes helpers
+to append frames and convert to/from mmaction ``ActionDataSample`` objects.
+"""
+
 from __future__ import annotations
 
 import json

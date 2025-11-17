@@ -1,3 +1,12 @@
+"""Transformer-based camera pan/zoom controller utilities.
+
+Contains helpers to build per-frame feature vectors from player TLWH boxes
+and a small transformer model for camera movement prediction.
+
+@see @ref hmlib.camera.camera_model_dataset.CameraPanZoomDataset "CameraPanZoomDataset"
+     for the dataset used to train these models.
+"""
+
 import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -20,8 +29,8 @@ def build_frame_features(
     prev_cam_center: Optional[Tuple[float, float]] = None,
     prev_cam_h: Optional[float] = None,
 ) -> np.ndarray:
-    """
-    Build a simple aggregated feature vector for a single frame from player TLWH boxes.
+    """Build a simple aggregated feature vector for one frame.
+
     Features (all normalized):
       - num_players (0..1)
       - mean cx, mean cy
@@ -29,6 +38,12 @@ def build_frame_features(
       - min cx, max cx
       - group width ratio (max x_right - min x_left) / scale_x
       - prev cam cx, cy, prev cam h (if provided else zeros)
+
+    @param tlwh: Array of `[x, y, w, h]` boxes for all players in the frame.
+    @param norm: :class:`CameraNorm` with scaling factors and max player count.
+    @param prev_cam_center: Optional previous camera center `(cx, cy)`.
+    @param prev_cam_h: Optional previous camera height/zoom value.
+    @return: Feature vector as a 1D NumPy array.
     """
     if tlwh is None or len(tlwh) == 0:
         n = 0
@@ -161,4 +176,3 @@ def unpack_checkpoint(ckpt: Dict[str, torch.Tensor]) -> Tuple[Dict[str, torch.Te
     window = int(ckpt.get("window", 8))
     norm = CameraNorm(scale_x=float(n["scale_x"]), scale_y=float(n["scale_y"]), max_players=int(n["max_players"]))
     return sd, norm, window
-

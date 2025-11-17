@@ -1,3 +1,13 @@
+"""High-level HockeyMOM Python package.
+
+This package exposes reusable pipelines, CLI helpers and utility code on top of
+the core :mod:`hockeymom` native extension.
+
+@see @ref hmlib.hm_opts "hmlib.hm_opts" for shared CLI options.
+@see @ref hmlib.hm_transforms "hmlib.hm_transforms" for common data transforms.
+@see @ref hmlib.utils.progress_bar.ProgressBar "ProgressBar" for CLI progress UI.
+"""
+
 import importlib
 import os
 import sys
@@ -36,6 +46,15 @@ __all__ = [
 
 
 class LazyImport:
+    """Lazy module proxy that imports on first attribute access.
+
+    This keeps startup overhead low for CLIs by delaying heavy imports until
+    they are actually needed.
+
+    @param module_name: Fully-qualified module path to import.
+    @see @ref hmlib.builder.HM "HM registry" for dynamic pipeline registration.
+    """
+
     def __init__(self, module_name):
         self.module_name = module_name
         self.module = None

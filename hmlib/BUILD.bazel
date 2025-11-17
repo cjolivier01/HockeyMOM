@@ -91,3 +91,13 @@ py_binary(
     main = "cli/camera_annotate.py",
     deps = [":hmlib.lib"],
 )
+
+# Local Doxygen documentation for hmlib Python library
+genrule(
+    name = "doxygen_docs",
+    srcs = ["Doxyfile"] + glob(["**/*.py"]),
+    cmd = "if command -v doxygen >/dev/null 2>&1; then doxygen $(location Doxyfile) && tar -czf $@ -C doxygen_out html xml; else echo 'doxygen missing' > $@; fi",
+    outs = ["hmlib_doxygen_docs.tar.gz"],
+    visibility = ["//visibility:public"],
+    tags = ["manual"],
+)

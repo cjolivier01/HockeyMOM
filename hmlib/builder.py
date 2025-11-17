@@ -1,3 +1,12 @@
+"""Registry helpers for hmlib training and inference pipelines.
+
+This module exposes :data:`DATASETS`, :data:`PIPELINES` (an alias for
+``mmengine.TRANSFORMS``) and :data:`HM` registries used to register Aspen
+trunks and custom components.
+
+@see @ref hmlib.aspen.trunks.base "Aspen trunk base classes" for usage.
+"""
+
 import mmdet
 from mmengine import Registry
 

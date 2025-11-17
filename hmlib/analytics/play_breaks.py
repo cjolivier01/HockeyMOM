@@ -1,3 +1,5 @@
+"""Helpers for detecting low-activity (break) segments in games."""
+
 from typing import Dict, List, Tuple
 
 
@@ -9,16 +11,15 @@ def find_low_velocity_ranges(
     frame_step: int = 1,
     min_tracks: int = 7,
 ) -> List[Tuple[int, int]]:
-    """
-    Identifies ranges of frame_ids where at least 80% of tracking IDs have a velocity of less than 3
-    for at least 30 consecutive frames.
+    """Identify frame ranges where most players move below a velocity threshold.
 
-    Args:
-    data (Dict[int, Dict[int, float]]): Dictionary with frame_id as keys and another dictionary of
-                                        {tracking_id: velocity} as values.
-
-    Returns:
-    List[Tuple[int, int]]: List of tuples, where each tuple is a range of frame_ids.
+    @param data: Mapping of frame id to ``{tracking_id: velocity}`` entries.
+    @param min_velocity: Maximum velocity considered “slow” (units per frame/second).
+    @param min_frames: Minimum contiguous span of frames to consider a break.
+    @param min_slow_track_ratio: Fraction of players that must be slower than ``min_velocity``.
+    @param frame_step: Step size when scanning frames.
+    @param min_tracks: Minimum number of tracks required for a frame to be considered.
+    @return: List of ``(start_frame, end_frame)`` tuples marking slow periods.
     """
     low_velocity_frames = []
 

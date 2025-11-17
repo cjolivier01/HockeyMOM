@@ -54,7 +54,11 @@ def _get_stream_llist(device: torch.device) -> Union[LinkedList, None]:
 
 @contextmanager
 def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
-    """A context manager that works even if the resource is None."""
+    """Context manager that activates a CUDA stream if provided.
+
+    @param stream: CUDA stream instance or ``None``.
+    @return: Context manager yielding the active stream or ``None``.
+    """
     if stream is None:
         # If the resource is None, yield nothing but still enter the with block
         yield None
@@ -67,8 +71,11 @@ def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
 def record_stream_event(
     tensor: torch.Tensor, stream: Optional[torch.cuda.Stream] = None
 ) -> Optional[torch.cuda.Event]:
-    """
-    Centralized event record maker
+    """Record a blocking CUDA event on the given tensor's stream.
+
+    @param tensor: Tensor whose device determines the CUDA stream context.
+    @param stream: Optional explicit stream; defaults to the current stream on the tensor device.
+    @return: Created :class:`torch.cuda.Event` or ``None`` when the tensor is on CPU.
     """
     assert tensor is not None
     if tensor.device.type != "cuda":
@@ -82,6 +89,15 @@ def record_stream_event(
 
 
 class GpuAllocator:
+    """Helper for allocating GPUs based on compute capability, cores, or memory.
+
+    The allocator tracks assigned devices and exposes strategies such as
+    :meth:`allocate_modern`, :meth:`allocate_fast` and :meth:`get_largest_mem_gpu`.
+
+    @param gpus: Comma-separated string or list of GPU indices allowed for allocation.
+    @see @ref hmlib.utils.progress_bar.ProgressBar "ProgressBar" for CLI integration.
+    """
+
     def __init__(self, gpus: str | List[int]):
         if gpus is None:
             gpus = [i for i in range(torch.cuda.device_count())]
@@ -202,6 +218,20 @@ class StreamTensorBase:
 
 
 class StreamTensor(StreamTensorBase):
+    """Tensor wrapper that tracks a CUDA stream and synchronization event.
+
+    Synchronization is deferred until :meth:`wait` or :meth:`get` is called,
+    allowing callers to compose asynchronous operations more easily.
+
+    @param tensor: Underlying tensor produced on a device.
+    @param stream: CUDA stream that produced the tensor.
+    @param event: Optional CUDA event used for synchronization.
+    @param owns_stream: Whether this wrapper is responsible for returning the stream.
+    @param verbose: Emit timing information when syncs exceed a threshold.
+    @param print_thresh: Threshold in seconds for logging sync durations.
+    @see @ref StreamCheckpoint "StreamCheckpoint" for one-shot checkpoints.
+    """
+
     def __init__(
         self,
         tensor: torch.Tensor,
@@ -415,12 +445,25 @@ def copy_gpu_to_gpu_async(
 def tensor_call(
     tensor: Union[torch.Tensor, StreamTensor], fn: Callable, *args, **kwargs
 ) -> Union[torch.Tensor, StreamTensor]:
+    """Invoke a function on a tensor or :class:`StreamTensor`.
+
+    @param tensor: Plain tensor or :class:`StreamTensor` wrapper.
+    @param fn: Callable applied to the underlying tensor.
+    @return: Result tensor, or a :class:`StreamTensor` wrapping the result.
+    """
     if isinstance(tensor, torch.Tensor):
         return fn(tensor, *args, **kwargs)
     return tensor.call_with_checkpoint(fn, *args, **kwargs)
 
 
 class StreamCheckpoint(StreamTensor):
+    """StreamTensor variant that records a synchronization event on construction.
+
+    @param tensor: Underlying tensor to checkpoint.
+    @param stream: CUDA stream used for the checkpoint.
+    @param event: Optional pre-existing CUDA event.
+    """
+
     def __init__(
         self,
         tensor: torch.Tensor,

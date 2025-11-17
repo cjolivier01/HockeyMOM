@@ -20,6 +20,16 @@ def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
 
 
 class hm_opts(object):
+    """Shared command-line options used by most HockeyMOM tools.
+
+    The :meth:`parser` static method populates an :class:`argparse.ArgumentParser`
+    with all common flags (I/O, caching, profiling, Aspen, ONNX/TensorRT, UI, etc.),
+    and instances of :class:`hm_opts` hold the parsed values.
+
+    @see @ref hmlib.utils.profiler.HmProfiler "HmProfiler" for profiling options.
+    @see @ref hmlib.utils.progress_bar.ProgressBar "ProgressBar" for progress UI controls.
+    """
+
     def __init__(self, parser: argparse.ArgumentParser = None):
         if parser is None:
             parser = argparse.ArgumentParser()

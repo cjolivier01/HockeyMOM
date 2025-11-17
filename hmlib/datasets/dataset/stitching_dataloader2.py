@@ -1,5 +1,7 @@
-"""
-Experiments in stitching
+"""Data loader wiring for multi-camera stitching experiments (v2).
+
+Connects MOT-style datasets, GPU stitching kernels and optional caching to
+produce input batches for the main stitching CLIs.
 """
 
 from __future__ import annotations

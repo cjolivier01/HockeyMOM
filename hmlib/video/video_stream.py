@@ -1,3 +1,11 @@
+"""Unified video reader/writer built on top of torchaudio/ffmpeg.
+
+Supports streaming decode, NVENC-friendly sizing and optional tensor-aware
+interfaces used across the stitching and tracking CLIs.
+
+@see @ref hmlib.video.ffmpeg "ffmpeg" for low-level FFmpeg helpers.
+"""
+
 import os
 from typing import Dict, Literal, Optional, Tuple, Union
 

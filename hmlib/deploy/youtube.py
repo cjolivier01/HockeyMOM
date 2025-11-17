@@ -1,3 +1,5 @@
+"""Helper for uploading rendered videos to YouTube and adding them to playlists."""
+
 from typing import List
 
 from google_auth_oauthlib.flow import InstalledAppFlow

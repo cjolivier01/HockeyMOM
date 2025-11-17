@@ -1,5 +1,13 @@
 from __future__ import absolute_import, division, print_function
 
+"""High-level stitched video writer and visualization utilities.
+
+This module coordinates GPU streams, color transforms, overlays and IO to
+produce the final rendered videos used by many CLIs.
+
+@see @ref hmlib.video.video_stream "video_stream" for the underlying encoder.
+"""
+
 import contextlib
 import math
 import os

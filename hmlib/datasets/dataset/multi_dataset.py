@@ -1,3 +1,5 @@
+"""Wrapper that combines multiple datasets into a dict-like dataset."""
+
 import math
 from collections import OrderedDict
 from typing import Any, Dict, Iterable, List, Set, Union

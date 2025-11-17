@@ -1,3 +1,9 @@
+"""Unsharp masking filters for sharpening hockey video frames.
+
+These utilities operate on float image tensors and are typically wired into
+Aspen pipelines via :class:`hmlib.transforms.video_frame.HmUnsharpMask`.
+"""
+
 import math
 import torch
 from torch import Tensor

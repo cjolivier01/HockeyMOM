@@ -1,3 +1,5 @@
+"""Video dataset helpers for MOT-style tracking and stitching pipelines."""
+
 import contextlib as _contextlib
 import threading
 import traceback

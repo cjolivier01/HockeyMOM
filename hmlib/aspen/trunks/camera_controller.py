@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Aspen trunk that computes per-frame camera boxes (pan/zoom)."""
+
 from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
 

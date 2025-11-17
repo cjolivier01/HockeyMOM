@@ -1,3 +1,11 @@
+"""Transforms that operate on per-frame video tensors (cropping, sharpening).
+
+These classes are registered as mmengine transforms and typically appear in
+Aspen pipelines to prepare frames for downstream models.
+
+@see @ref hmlib.hm_opts.hm_opts "hm_opts" for CLI flags that configure video-frame behavior.
+"""
+
 from typing import Any, Dict, List, Union
 
 import torch
@@ -16,8 +24,11 @@ from hmlib.utils.image import (
 
 
 def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
-    """
-    Give up on the stream and get the sync'd tensor
+    """Convert a possibly streamed tensor to a concrete :class:`torch.Tensor`.
+
+    @param tensor: Plain tensor or :class:`hmlib.utils.gpu.StreamTensor`.
+    @return: Synchronized tensor on the same device.
+    @see @ref hmlib.utils.gpu.StreamTensor "StreamTensor" for details.
     """
     if isinstance(tensor, StreamTensor):
         tensor._verbose = True
@@ -28,6 +39,14 @@ def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
 
 @TRANSFORMS.register_module()
 class HmCropToVideoFrame:
+    """Crop camera images to a fixed video frame aspect and size.
+
+    Expects ``results`` to contain a list of images under ``\"img\"`` and
+    bounding boxes under ``\"camera_box\"``. The cropped, resized tensors
+    are stacked back into ``results[\"img\"]``.
+
+    @see @ref HmUnsharpMask "HmUnsharpMask" for optional sharpening later in the pipeline.
+    """
 
     def __init__(self, crop_image: bool = True, unsharp_mask: bool = True):
         self._crop_image = crop_image
@@ -88,6 +107,13 @@ class HmCropToVideoFrame:
 
 @TRANSFORMS.register_module()
 class HmUnsharpMask:
+    """Apply an unsharp mask filter to images in a pipeline result dict.
+
+    @param enabled: If ``True``, apply the filter to each call.
+    @param image_label: Key inside ``results`` that holds the image tensor.
+    @see @ref hmlib.algo.unsharp_mask.unsharp_mask "unsharp_mask" for implementation details.
+    """
+
     def __init__(self, enabled: bool = False, image_label: str = "img") -> None:
         self._enabled = enabled
         self._image_label = image_label

@@ -3,10 +3,13 @@ exports_files(
 )
 
 
-# Aggregated docs alias: extend deps with future hmlib docs target when added.
-alias(
+# Aggregated docs target: builds all available Doxygen docs (hockeymom core + hmlib).
+filegroup(
     name = "all_doxygen_docs",
-    actual = "//hockeymom:doxygen_docs",
+    srcs = [
+        "//hockeymom:doxygen_docs",
+        "//hmlib:doxygen_docs",
+    ],
     visibility = ["//visibility:public"],
 )
 

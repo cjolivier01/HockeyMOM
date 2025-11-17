@@ -1,4 +1,10 @@
-"""PyTorch geometric shape drawing helpers that run efficiently on GPU tensors."""
+"""PyTorch geometric shape drawing helpers that run efficiently on GPU tensors.
+
+Includes functions for drawing boxes, lines and circles, used heavily by
+visualizers and tracking overlays.
+
+@see @ref hmlib.vis.pt_text "pt_text" for text overlays.
+"""
 
 import math
 from typing import Tuple, Union

@@ -1,3 +1,5 @@
+"""Helpers for generating matchup icon images for deployment UIs."""
+
 import os
 from typing import Dict
 

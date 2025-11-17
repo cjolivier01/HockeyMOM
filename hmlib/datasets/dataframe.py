@@ -1,3 +1,9 @@
+"""DataFrame-backed datasets for tracking, camera, and action results.
+
+Defines :class:`HmDataFrameBase` and helpers for reading/writing CSV-based
+frame data plus a thin :class:`Dataset` wrapper for training.
+"""
+
 import json
 import os
 from pathlib import Path

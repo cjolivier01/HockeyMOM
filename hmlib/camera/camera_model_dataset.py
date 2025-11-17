@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""Dataset for training transformer-based camera pan/zoom models.
+
+Wraps tracking and camera CSVs into sliding windows of frame-level features
+and target camera boxes.
+
+@see @ref hmlib.camera.camera_transformer "camera_transformer" for model details.
+"""
+
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 

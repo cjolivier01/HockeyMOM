@@ -1,3 +1,9 @@
+"""Execution engine for Aspen trunk graphs.
+
+Constructs a directed acyclic graph of trunks, then runs them in
+topological order while sharing a mutable context dictionary.
+"""
+
 import importlib
 import contextlib
 import logging
@@ -23,13 +29,14 @@ class _Node:
 
 
 class AspenNet(torch.nn.Module):
-    """
-    A configurable directed-acyclic graph runner for "trunks".
+    """Configurable directed-acyclic graph runner for Aspen trunks.
 
-    - Loads a YAML-like dict (already parsed) with nodes definitions.
+    - Loads a YAML-like dict (already parsed) with node definitions.
     - Each node has: name, class (import path), depends (list), and params.
     - Executes nodes in topological order, passing and accumulating a
       shared context dict across nodes.
+
+    @see @ref hmlib.aspen.trunks.base.Trunk "Trunk" for the trunk interface.
     """
 
     def __init__(self, graph_cfg: Dict[str, Any], shared: Optional[Dict[str, Any]] = None, minimal_context: bool = False):

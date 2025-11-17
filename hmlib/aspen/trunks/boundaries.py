@@ -1,3 +1,5 @@
+"""Aspen trunk for managing rink boundary transforms in configs."""
+
 from typing import Any, Dict, Optional
 
 from hmlib.utils.pipeline import update_pipeline_item

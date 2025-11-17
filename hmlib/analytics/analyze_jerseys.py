@@ -1,3 +1,12 @@
+"""Analytics utilities for jersey usage and crowded-play detection.
+
+This script operates on tracking dataframes to derive jersey intervals,
+crowded periods and related summaries, and is often paired with CLI tools.
+
+@see @ref hmlib.analytics.play_breaks.find_low_velocity_ranges "find_low_velocity_ranges"
+     for complementary break detection logic.
+"""
+
 import argparse
 import json
 import math

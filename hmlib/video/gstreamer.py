@@ -1,3 +1,9 @@
+"""GStreamer-based transcoding experiments.
+
+This module is currently experimental and not used in the main pipeline,
+but demonstrates how to wire GStreamer pipelines for video processing.
+"""
+
 import argparse
 import sys
 import traceback

@@ -1,14 +1,9 @@
 def format_duration_to_hhmmss(seconds: float, decimals: int = 4) -> str:
-    """
-    Convert a duration in seconds to a formatted string in HH:MM:SS.ssss format,
-    with customizable precision for the seconds.
+    """Convert a duration to an ``HH:MM:SS.ssss``-style string.
 
-    Args:
-    seconds (float): The duration in seconds.
-    decimals (int): The number of decimal places for the seconds.
-
-    Returns:
-    str: The formatted duration as a string.
+    @param seconds: Duration in seconds.
+    @param decimals: Number of decimal places for the seconds field.
+    @return: The formatted duration as a string.
     """
     # Calculate hours, minutes, and the remaining seconds
     hours = int(seconds // 3600)
@@ -25,6 +20,12 @@ def format_duration_to_hhmmss(seconds: float, decimals: int = 4) -> str:
 
 
 def hhmmss_to_duration_seconds(time_str: str) -> float:
+    """Parse an ``HH:MM:SS(.sss)`` or ``MM:SS(.sss)`` string into seconds.
+
+    @param time_str: Duration string such as ``\"01:23:45.6\"`` or ``\"3:21\"``.
+    @return: Total duration in seconds as a float.
+    @see @ref format_duration_to_hhmmss "format_duration_to_hhmmss" for the inverse.
+    """
     # Split the time duration string into components
     h = 0
     m = 0

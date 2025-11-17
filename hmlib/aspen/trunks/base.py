@@ -1,3 +1,5 @@
+"""Base interfaces and helpers for Aspen pipeline trunks."""
+
 from typing import Any, Dict, Iterable, Set
 
 import torch
@@ -34,4 +36,3 @@ class DeleteKey:
 
     def __repr__(self) -> str:
         return "<DeleteKey>"
-

@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""Rich terminal progress bar and table utilities for HockeyMOM CLIs.
+
+Provides ANSI-based and optional curses-based status views used by many
+command-line tools in :mod:`hmlib`.
+
+@see @ref ProgressBar "ProgressBar" for the main iteration helper.
+"""
+
 import contextlib
 import logging
 import shutil
@@ -318,8 +326,9 @@ class CallbackStreamHandler(logging.StreamHandler):
 
 
 class ScrollOutput:
-    """
-    Class for maintaining a dynamioc text scrolling area
+    """Maintain a simple scrolling text buffer for log output.
+
+    @param lines: Maximum number of lines to retain in the buffer.
     """
 
     def __init__(self, lines=4):
@@ -404,6 +413,24 @@ class ScrollOutput:
 
 
 class ProgressBar:
+    """Two-column progress table with optional GPU metrics and curses UI.
+
+    This class wraps an iterator (or manual counter) and renders progress
+    alongside arbitrary key-value statistics in a terminal-friendly format.
+
+    @param table_map: Initial key-value mapping displayed in the header table.
+    @param total: Total number of iterations expected.
+    @param iterator: Optional iterator to wrap; if provided, the bar is iterable.
+    @param scroll_output: Optional :class:`ScrollOutput` used for log lines.
+    @param bar_length: Explicit bar width; inferred from terminal when ``None``.
+    @param update_rate: Refresh interval in iterations.
+    @param table_callback: Optional callback to mutate ``table_map`` on refresh.
+    @param use_curses: Enable curses-based UI when available.
+    @param enable_gpu_metrics: Toggle GPU utilization summary in the table.
+    @param enable_cuda_sync_counter: Toggle CUDA stream sync counter display.
+    @see @ref hmlib.utils.profiler.HmProfiler "HmProfiler" for complementary profiling.
+    """
+
     def __init__(
         self,
         table_map: OrderedDict[Any, Any] = OrderedDict(),

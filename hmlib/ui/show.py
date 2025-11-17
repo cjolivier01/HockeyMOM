@@ -1,3 +1,9 @@
+"""Convenience helpers for quickly displaying tensors and images.
+
+These wrappers handle GPU tensors, PIL images and numpy arrays and route
+them through OpenCV windows for ad-hoc inspection.
+"""
+
 from typing import Optional, Union
 
 import cv2

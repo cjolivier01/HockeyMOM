@@ -1,3 +1,11 @@
+"""Camera viewport helpers and trajectory history for pan/zoom control.
+
+Provides utilities for tracking bounding-box histories and computing simple
+speed/trajectory metrics used by the camera controller.
+
+@see @ref hmlib.camera.camera_transformer "camera_transformer" for transformer-based control.
+"""
+
 from typing import List, Set, Union
 
 import numpy as np

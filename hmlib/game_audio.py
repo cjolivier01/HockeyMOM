@@ -1,3 +1,13 @@
+"""Helpers for transferring audio into rendered game videos.
+
+This module chooses a suitable output filename (usually under a game-specific
+directory) and delegates to :func:`hmlib.audio.copy_audio` for the actual
+audio copy or merge.
+
+@see @ref hmlib.audio.copy_audio "copy_audio" for the lower-level ffmpeg wrapper.
+@see @ref hmlib.config.get_game_dir "get_game_dir" for game directory resolution.
+"""
+
 import os
 from pathlib import Path
 from typing import List, Optional, Union
@@ -14,6 +24,16 @@ def transfer_audio(
     output_av_path: Optional[str] = None,
     max_iterations: int = 1000,
 ) -> Path:
+    """Attach audio from one or more source files to a rendered game video.
+
+    @param game_id: Game identifier used to resolve the target directory.
+    @param input_av_files: Single path or list of paths containing the audio to copy.
+    @param video_source_file: Video file that should receive the audio track.
+    @param output_av_path: Optional explicit output path; auto-generated when ``None``.
+    @param max_iterations: Max attempts when searching for a free destination filename.
+    @return: Path to the resulting video file with audio merged in.
+    @see @ref hmlib.audio.copy_audio "copy_audio" for the underlying ffmpeg call.
+    """
     if not output_av_path:
         game_video_dir = get_game_dir(game_id)
         # TODO: Use hmlib.utils.path functions for this (or create as needed)
