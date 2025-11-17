@@ -1,3 +1,5 @@
+"""Whole-body pose model config: RTMPose-L 384x288 on COCO-WholeBody."""
+
 # Copyright (c) OpenMMLab. All rights reserved.
 from mmengine.hooks import (
     CheckpointHook,

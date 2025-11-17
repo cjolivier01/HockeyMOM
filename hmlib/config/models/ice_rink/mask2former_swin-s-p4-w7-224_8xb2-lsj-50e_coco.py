@@ -1,3 +1,5 @@
+"""Mask2Former Swin-S config adapted for ice rink segmentation."""
+
 auto_scale_lr = dict(base_batch_size=16, enable=True)
 backbone_embed_multi = dict(decay_mult=0.0, lr_mult=0.1)
 backbone_norm_multi = dict(decay_mult=0.0, lr_mult=0.1)

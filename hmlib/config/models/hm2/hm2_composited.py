@@ -1,3 +1,5 @@
+"""End-to-end hm2 config that composes detector, tracker, pose, and scoreboard."""
+
 #
 # Joined version of hm_end_to_end.py
 #

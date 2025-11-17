@@ -1,3 +1,5 @@
+"""Pose model config: RTMPose-M trained on CrowdPose + HARPET 256x192."""
+
 auto_scale_lr = dict(base_batch_size=512)
 backend_args = dict(backend='local')
 base_lr = 0.0005

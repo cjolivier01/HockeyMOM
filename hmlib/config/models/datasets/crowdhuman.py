@@ -1,3 +1,5 @@
+"""Dataset definition for CrowdHuman training used by hm2 detection models."""
+
 _base_ = [
     "./coco_classes.py",
 ]

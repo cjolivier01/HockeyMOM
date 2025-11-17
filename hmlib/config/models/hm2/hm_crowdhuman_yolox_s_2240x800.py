@@ -1,3 +1,5 @@
+"""Hm2 detector-only config: YOLOX-S trained on CrowdHuman."""
+
 auto_scale_lr = dict(base_batch_size=64)
 backend_args = None
 base_lr = 0.0006000000000000001

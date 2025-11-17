@@ -1,3 +1,5 @@
+"""Top-level hm2 config for the HmEndToEnd model and scoreboard overlays."""
+
 _base_ = [
     "./hm_bytetrack.py",
 ]

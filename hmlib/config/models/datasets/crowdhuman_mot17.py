@@ -1,3 +1,5 @@
+"""Composite dataset configuration mixing CrowdHuman and MOT17 annotations."""
+
 _base_ = [
     "./crowdhuman.py",
 ]
@@ -45,4 +47,3 @@ data = dict(
         ),
     ),
 )
-

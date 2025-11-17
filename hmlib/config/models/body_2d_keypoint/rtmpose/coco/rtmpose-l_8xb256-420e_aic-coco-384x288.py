@@ -1,3 +1,5 @@
+"""Pose model config: RTMPose-L, AIC-COCO 384x288, used for 2D keypoints."""
+
 #
 # BEGIN DEFAULT RUNTIME
 #

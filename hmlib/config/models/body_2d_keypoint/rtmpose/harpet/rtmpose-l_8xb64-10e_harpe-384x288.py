@@ -1,3 +1,5 @@
+"""Pose model config: RTMPose-L trained on HARPET 384x288 for 2D keypoints."""
+
 from hmlib.visualization import PytorchPoseLocalVisualizer
 
 auto_scale_lr = dict(base_batch_size=256)

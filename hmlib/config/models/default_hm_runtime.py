@@ -1,3 +1,5 @@
+"""Default runtime settings (logging, dist, LR scaling) for hm2 configs."""
+
 checkpoint_config = dict(interval=10)
 # yapf:disable
 log_config = dict(

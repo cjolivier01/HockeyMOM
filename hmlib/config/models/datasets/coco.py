@@ -1,3 +1,5 @@
+"""Dataset definition for COCO-style training used by hm2 detection models."""
+
 # _base_ = [
 #     "./coco_classes.py",
 # ]

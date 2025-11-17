@@ -1,4 +1,7 @@
 # pylint: disable=use-dict-literal
+# pylint: disable=use-dict-literal
+"""Hm2 configuration that wires YOLOX detector with ByteTrack tracking."""
+
 _base_ = ["../../../../openmm/mmdetection/configs/yolox/yolox_s_8xb8-300e_coco.py"]
 
 dataset_type = "MOTChallengeDataset"

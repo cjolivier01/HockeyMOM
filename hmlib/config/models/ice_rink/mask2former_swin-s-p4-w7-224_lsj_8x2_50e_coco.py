@@ -1,3 +1,5 @@
+"""Mask2Former Swin-S training recipe for ice rink segmentation dataset."""
+
 dataset_type = 'CocoIceRinkDataset'
 data_root = 'data/IceRink/'
 img_norm_cfg = dict(
