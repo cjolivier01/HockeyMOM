@@ -1,3 +1,10 @@
+"""Helpers for reading/writing Hugin PTO files and homographies.
+
+This module parses PTO control points and image transforms, optionally
+replaces or augments them using :func:`calculate_control_points`, and
+provides utilities for building homography matrices and applying them.
+"""
+
 import math
 import os
 import re
@@ -17,7 +24,7 @@ _CONTROL_POINTS_LINE = "# control points"
 
 
 def load_pto_file(file_path: str) -> List[str]:
-    """Load the content of a .pto file into a list of lines."""
+    """Load the content of a PTO file into a list of lines."""
     with open(file_path, "r") as file:
         lines = file.readlines()
     # trim trailing whitespace
@@ -27,7 +34,7 @@ def load_pto_file(file_path: str) -> List[str]:
 
 
 def parse_pto_content(lines: List[str]) -> Dict[str, str]:
-    """Parse the loaded .pto content to extract and possibly modify data."""
+    """Parse PTO content to a simple ``key=value`` dict."""
     parsed_data: Dict[str, str] = {}
     for line in lines:
         if line.startswith("#"):  # Skip comments
@@ -40,13 +47,18 @@ def parse_pto_content(lines: List[str]) -> Dict[str, str]:
 
 
 def save_pto_file(file_path: str, data: List[str]):
-    """Save modified data back to a .pto file."""
+    """Save modified PTO file content back to disk."""
     with open(file_path, "w") as file:
         for line in data:
             file.write(f"{line}\n")
 
 
 def remove_control_points(lines: List[str]) -> Tuple[List[str], int]:
+    """Remove existing control-point lines from a PTO file.
+
+    @param lines: PTO file lines.
+    @return: Tuple ``(new_lines, prev_control_point_count)``.
+    """
     prev_control_point_count: int = 0
     new_lines: List[str] = []
     for line in lines:
@@ -124,6 +136,20 @@ def configure_control_points(
     output_directory: Optional[str] = None,
     use_hugin: bool = False,
 ) -> None:
+    """Populate or update control points in a Hugin PTO project.
+
+    If existing control points are present and ``use_hugin`` is true,
+    they are reused unless ``force`` is set. Otherwise, LightGlue-based
+    control points are computed and written back to the PTO file.
+
+    @param project_file_path: Path to PTO project file.
+    @param image0: Left image filename.
+    @param image1: Right image filename.
+    @param max_control_points: Cap on number of control points to keep.
+    @param force: If True, always recompute control points.
+    @param output_directory: Optional output dir for debug visualizations.
+    @param use_hugin: If True, prefer Hugin control points when present.
+    """
     #  c n0 N1 x5162 y1173 X1416.1875 Y1252.78125 t0
     torch.manual_seed(1)
     pto_file = load_pto_file(project_file_path)
@@ -223,7 +249,7 @@ def parse_pto_transformations(lines: List[str]) -> List[Dict[str, Any]]:
 
 
 def euler_to_rotation_matrix(yaw: float, pitch: float, roll: float) -> np.ndarray:
-    """Convert yaw, pitch, roll to a 3×3 rotation matrix."""
+    """Convert yaw/pitch/roll Euler angles to a 3×3 rotation matrix."""
     yaw, pitch, roll = map(math.radians, [yaw, pitch, roll])
 
     Rz: np.ndarray = np.array(
@@ -242,7 +268,7 @@ def euler_to_rotation_matrix(yaw: float, pitch: float, roll: float) -> np.ndarra
 
 
 def compute_homography(params: Dict[str, Any]) -> np.ndarray:
-    """Compute the homography matrix from extracted .pto parameters."""
+    """Compute an approximate homography matrix from PTO parameters."""
     R: np.ndarray = euler_to_rotation_matrix(params["yaw"], params["pitch"], params["roll"])
 
     # Compute focal length from FOV

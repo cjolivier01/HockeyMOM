@@ -1,3 +1,12 @@
+"""High-level helpers for configuring two-camera stitching projects.
+
+This module wraps Hugin PTO generation, control-point creation, seam
+estimation and per-game synchronization into reusable functions.
+
+@see @ref hmlib.stitching.control_points.calculate_control_points "calculate_control_points"
+@see @ref hmlib.stitching.hugin.configure_control_points "configure_control_points"
+"""
+
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -97,6 +106,7 @@ def _apply_color_adders_to_image_file(image_path: str, adders: Optional[List[flo
 
 
 def get_multiblend_bin() -> str:
+    """Return the path to the `multiblend` binary, preferring a local build."""
     parent_dir: str = os.path.join(os.path.join(os.path.dirname(hockeymom.__file__)), "..")
     multiblend_app_name: str = "multiblend"
     local_multiblend: str = os.path.join(parent_dir, multiblend_app_name)
@@ -106,6 +116,7 @@ def get_multiblend_bin() -> str:
 
 
 def get_tiff_tag_value(tiff_tag):
+    """Decode a TIFF rational tag into a Python scalar."""
     if len(tiff_tag.value) == 1:
         return tiff_tag.value
     assert len(tiff_tag.value) == 2
@@ -114,6 +125,7 @@ def get_tiff_tag_value(tiff_tag):
 
 
 def is_older_than(file1: str, file2: str):
+    """Return True if `file2` is older than `file1`, or None if missing."""
     try:
         mtime1 = os.path.getmtime(file1)
         mtime2 = os.path.getmtime(file2)
@@ -123,6 +135,7 @@ def is_older_than(file1: str, file2: str):
 
 
 def get_image_geo_position(tiff_image_file: str):
+    """Return integer pixel position (x, y) from a mapping TIFF file."""
     xpos, ypos = 0, 0
     with tifffile.TiffFile(tiff_image_file) as tif:
         tags = tif.pages[0].tags
@@ -137,6 +150,7 @@ def get_image_geo_position(tiff_image_file: str):
 
 
 def get_extracted_frame_image_file(video_name: str, dir_name: Optional[str] = None):
+    """Return the PNG path used when extracting a frame from a video file."""
     if dir_name:
         video_name = os.path.join(dir_name, video_name)
     file_name_without_extension, _ = os.path.splitext(video_name)
@@ -149,6 +163,14 @@ def extract_frames(
     video_right: str,
     right_frame_number: int,
 ):
+    """Extract one frame from each side video to PNGs on disk.
+
+    @param video_left: Absolute path to left video.
+    @param left_frame_number: Frame index to extract from left video.
+    @param video_right: Absolute path to right video.
+    @param right_frame_number: Frame index to extract from right video.
+    @return: Tuple of paths ``(left_png, right_png)``.
+    """
     # Absolute paths
     assert "/" in video_left
     assert "/" in video_right
@@ -182,6 +204,18 @@ def build_stitching_project(
     scale: Optional[float] = None,
     force: bool = False,
 ):
+    """Create or update a Hugin PTO project and seam masks for two images.
+
+    @param project_file_path: Output PTO project path.
+    @param image_files: List of two input image paths (left, right).
+    @param max_control_points: Maximum number of control points to use.
+    @param skip_if_exists: If True, reuse existing project when up-to-date.
+    @param test_blend: Whether to create/test seam masks using `enblend`.
+    @param fov: Horizontal field-of-view in degrees.
+    @param scale: Optional scale factor passed to `autooptimiser`.
+    @param force: If True, always rebuild, ignoring mtimes.
+    @return: True on success, False if seam quality tests fail.
+    """
     pto_path = Path(project_file_path)
     dir_name = pto_path.parent
     hm_project = project_file_path
@@ -342,6 +376,18 @@ def load_or_calculate_control_points(
     device: Optional[torch.device] = None,
     save: bool = True,
 ) -> Dict[str, torch.Tensor]:
+    """Load game-specific control points or compute them with LightGlue.
+
+    @param game_id: Game identifier used to resolve private config.
+    @param image0: First image (path or tensor).
+    @param image1: Second image (path or tensor).
+    @param force: If True, ignore cached control points and recompute.
+    @param device: Optional device for LightGlue/SuperPoint.
+    @param max_control_points: Maximum number of points to keep.
+    @param output_directory: Optional directory for debug visualizations.
+    @param save: If True, persist control points into game config.
+    @return: Dict with at least ``m_kpts0`` and ``m_kpts1`` tensors.
+    """
     config = get_game_config_private(game_id=game_id)
     control_points = get_nested_value(config, "game.stitching.control_points") if not force else {}
     if force or not control_points:
@@ -369,6 +415,23 @@ def configure_video_stitching(
     audio_sync_seconds: int = 15,
     force: bool = False,
 ):
+    """Configure a two-camera stitching project from game videos.
+
+    Uses audio-based synchronization, frame extraction, optional per-side
+    color adjustment and Hugin PTO generation to produce mapping TIFFs.
+
+    @param dir_name: Game directory containing videos and config.
+    @param video_left: Left-side video filename or path.
+    @param video_right: Right-side video filename or path.
+    @param max_control_points: Max number of control points to search.
+    @param project_file_name: PTO filename inside ``dir_name``.
+    @param left_frame_offset: Manually specified left frame offset (or None).
+    @param right_frame_offset: Manually specified right frame offset (or None).
+    @param base_frame_offset: Global offset added to both sides.
+    @param audio_sync_seconds: Seconds of audio used for synchronization.
+    @param force: If True, recompute PTO and seam even if up-to-date.
+    @return: Tuple ``(pto_project_file, left_frame_offset, right_frame_offset)``.
+    """
     if left_frame_offset is None or right_frame_offset is None:
         frame_offsets = configure_synchronization(
             game_id=dir_name.split("/")[-1],

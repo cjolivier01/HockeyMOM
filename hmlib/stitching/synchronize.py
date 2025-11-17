@@ -1,3 +1,5 @@
+"""Audio-based synchronization utilities for multi-camera stitching."""
+
 import os
 from typing import Dict
 
@@ -24,6 +26,15 @@ def synchronize_by_audio(
     device: torch.device = None,
     verbose: bool = True,
 ):
+    """Estimate relative frame offset between two videos from audio tracks.
+
+    @param file1_path: First video path.
+    @param file2_path: Second video path.
+    @param seconds: Number of initial seconds to use for correlation.
+    @param device: Optional CUDA device for GPU-based correlation.
+    @param verbose: If True, print progress messages.
+    @return: Tuple ``(left_frame_offset, right_frame_offset)``.
+    """
     # Load the videos
     if verbose:
         print("Openning videos...")
@@ -90,6 +101,15 @@ def configure_synchronization(
     audio_sync_seconds: float = 15.0,
     force: bool = False,
 ) -> Dict[str, float]:
+    """Load or compute audio-based frame offsets and persist them to config.
+
+    @param game_id: Game identifier (used to locate private config).
+    @param video_left: Absolute path to left video.
+    @param video_right: Absolute path to right video.
+    @param audio_sync_seconds: Seconds of audio used for correlation.
+    @param force: If True, ignore any cached offsets and recompute.
+    @return: Mapping with ``\"left\"`` and ``\"right\"`` frame offsets.
+    """
     config = get_game_config_private(game_id=game_id)
     frame_offsets = (
         get_nested_value(config, "game.stitching.frame_offsets", None) if not force else dict()

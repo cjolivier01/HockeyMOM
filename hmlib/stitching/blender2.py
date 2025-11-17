@@ -1,5 +1,7 @@
-"""
-Experiments in stitching
+"""Experimental high-level stitching CLI combining remap + blend stages.
+
+Supports both Python and CUDA-based blending paths, seam-mask generation
+and optional Laplacian blending via :class:`hmlib.stitching.laplacian_blend.LaplacianBlend`.
 """
 
 import argparse
@@ -48,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 def make_parser():
+    """Build an :class:`argparse.ArgumentParser` for the stitcher CLI."""
     parser = argparse.ArgumentParser("Image Remapper")
     parser = hm_opts.parser(parser)
     parser.add_argument(
@@ -230,6 +233,7 @@ class PtImageBlender(torch.jit.ScriptModule):
 
 
 def make_cv_compatible_tensor(tensor):
+    """Convert a tensor or array to a contiguous H×W×C NumPy array."""
     if isinstance(tensor, torch.Tensor):
         assert tensor.dim() == 3
         if tensor.size(0) == 3 or tensor.size(0) == 4:
@@ -286,6 +290,15 @@ def make_seam_and_xor_masks(
     use_enblend_tool: bool = True,
     # use_enblend_tool: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compute seam and XOR masks for a pair of mapping images.
+
+    @param dir_name: Directory containing mapping TIFFs and seam files.
+    @param basename: Mapping base name, e.g. ``"mapping_"``.
+    @param images_and_positions: Optional pre-loaded image/position structs.
+    @param force: If True, regenerate even when seam file exists and is fresh.
+    @param use_enblend_tool: If True, call external `enblend` for seam masks.
+    @return: Triplet ``(seam_tensor, xor_mask_tensor, xor_scaled_tensor)``.
+    """
     assert images_and_positions is None or len(images_and_positions) == 2
     seam_filename = os.path.join(dir_name, "seam_file.png")
     xor_filename = os.path.join(dir_name, "xor_file.png")
@@ -361,6 +374,7 @@ def create_blender_config(
     lazy_init: bool = False,
     interpolation: str = "bilinear",
 ) -> core.BlenderConfig:
+    """Construct a :class:`core.BlenderConfig` for Laplacian or hard-seam."""
     config = core.BlenderConfig()
     if not mode or mode == "multiblend":
         # Nothing needed for legacy multiblend mode
@@ -395,6 +409,7 @@ def my_draw_box(
     color: Tuple[int, int, int],
     thickness: int = 4,
 ) -> torch.Tensor:
+    """Thin wrapper around :func:`draw_box` that tolerates None bounds."""
     if x1 is None:
         x1 = 0
     if y1 is None:
@@ -425,9 +440,7 @@ class CanvasInfo:
 
 
 def get_canvas_info(size_1: List[int], xy_pos_1: List[int], size_2: List[int], xy_pos_2: List[int]) -> CanvasInfo:
-    """
-    returns (height, width)
-    """
+    """Return canvas dimensions and remapped positions for two images."""
     h1, w1 = size_1[-2:]
     h2, w2 = size_2[-2:]
     x1, y1 = xy_pos_1
@@ -468,6 +481,7 @@ class SmartRemapperBlender(torch.nn.Module):
         device: torch.device,
         add_alpha_channel: bool = False,
     ) -> None:
+        """Compose remapping of two images and blending into a single module."""
         super().__init__()
         self._remapper_1 = remapper_1
         self._remapper_2 = remapper_2
@@ -911,6 +925,7 @@ def create_stitcher(
     use_cuda_pano: bool = True,
     auto_adjust_exposure: bool = True,
 ):
+    """Create an ImageStitcher or CUDA panorama stitcher from mapping files."""
     if use_cuda_pano:
         assert dir_name
         size1 = WHDims(left_image_size_wh[0], left_image_size_wh[1])
@@ -1036,6 +1051,31 @@ def blend_video(
     draw: bool = False,
     use_cuda_pano: bool = False,
 ) -> None:
+    """Blend two camera videos into a stitched panorama video.
+
+    @param opts: Parsed CLI options (hm_opts).
+    @param video_file_1: Left video path (or basename under ``dir_name``).
+    @param video_file_2: Right video path.
+    @param dir_name: Base directory for videos and mapping files.
+    @param device: CUDA device used for blending.
+    @param dtype: Torch dtype for processing (float/half/uint8).
+    @param lfo: Optional left frame offset.
+    @param rfo: Optional right frame offset.
+    @param show: If True, display frames during processing.
+    @param show_scaled: Optional scaling factor for display.
+    @param start_frame_number: Start frame index for reading.
+    @param output_video: Optional output video path; if None, no file is written.
+    @param max_width: Clamp output width for display/encoding.
+    @param batch_size: Number of frames processed per batch.
+    @param skip_final_video_save: Skip final file save for VideoOutput.
+    @param blend_mode: Blend mode ('laplacian' or 'hard-seam').
+    @param queue_size: VideoOutput queue size.
+    @param minimize_blend: If True, restrict blending to overlap region.
+    @param add_alpha_channel: If True, include alpha channel in output.
+    @param overlap_pad: Padding in pixels around seam overlap.
+    @param draw: If True, draw debug boxes over blends.
+    @param use_cuda_pano: If True, use CUDA panorama stitcher instead of Python.
+    """
     if "/" not in video_file_1:
         video_file_1 = os.path.join(dir_name, video_file_1)
     if "/" not in video_file_2:
@@ -1215,6 +1255,7 @@ def gpu_index(want: int = 1):
 
 
 def main(args):
+    """Entry point for the `blender2.py` stitching CLI."""
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     gpu_allocator = GpuAllocator(gpus=args.gpus)
     if not args.video_dir and args.game_id:

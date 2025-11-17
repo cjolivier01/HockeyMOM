@@ -1,7 +1,4 @@
-"""
-Remap an image given mapping png files (usually produced by hugin's nona,
-which is usual;;ly base dupon some homography matrix)
-"""
+"""CLI entry point for remapping video frames using Hugin mapping TIFFs."""
 
 import argparse
 import os
@@ -27,6 +24,7 @@ logger = get_root_logger()
 
 
 def make_parser():
+    """Build an :class:`argparse.ArgumentParser` for the remapper CLI."""
     parser = argparse.ArgumentParser("Image Remapper")
     return parser
 
@@ -63,6 +61,7 @@ def create_remapper_config(
     device: str,
     interpolation: str = "bilinear",
 ) -> core.RemapperConfig:
+    """Build a :class:`core.RemapperConfig` from mapping TIFFs and image size."""
     x_file = os.path.join(dir_name, f"{basename}000{image_index}_x.tif")
     y_file = os.path.join(dir_name, f"{basename}000{image_index}_y.tif")
     x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
@@ -95,6 +94,7 @@ def remap_video(
     batch_size: int = 1,
     device: torch.device = torch.device("cuda"),
 ):
+    """Stream a video, remap each batch of frames, and optionally preview."""
     cap = VideoStreamReader(os.path.join(dir_name, video_file), type="cv2")
     if not cap or not cap.isOpened():
         raise AssertionError(f"Could not open video file: {os.path.join(dir_name, video_file)}")
@@ -142,6 +142,7 @@ def remap_video(
 
 
 def main(args) -> None:
+    """Main entry point for the `remapper` CLI."""
     remap_video(
         args,
         "GX010100.MP4",

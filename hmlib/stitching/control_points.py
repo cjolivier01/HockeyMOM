@@ -1,3 +1,9 @@
+"""Control-point utilities for panorama stitching.
+
+Provides LightGlue-based control point extraction and simple coordinate
+filters used when building Hugin projects for two-camera stitching.
+"""
+
 import gc
 import os
 from pathlib import Path
@@ -14,21 +20,16 @@ from hmlib.utils.image import (
 
 
 def evenly_spaced_indices(n_points, n_samples):
-    """Generate indices to pick n_samples evenly spaced from n_points."""
+    """Generate indices to pick ``n_samples`` evenly spaced from ``n_points``."""
     return torch.linspace(0, n_points - 1, steps=n_samples).long()
 
 
 def select_evenly_spaced(batch, n_samples):
-    """
-    Selects a subset of points that are most evenly spaced over the Y range.
+    """Select a subset of points that are evenly spaced in Y.
 
-    Args:
-    - batch (torch.Tensor): A tensor of shape (N, 2) where N is the number of points,
-                            and the second dimension represents (X, Y) coordinates.
-    - n_samples (int): Number of samples to select.
-
-    Returns:
-    - torch.Tensor: Indices of the selected points in the original batch.
+    @param batch: Tensor of shape ``(N, 2)`` with ``(x, y)`` coordinates.
+    @param n_samples: Number of sample indices to return.
+    @return: 1D tensor of indices into ``batch``.
     """
     # Sort the points based on Y values
     _, sorted_indices = torch.sort(batch[:, 1])
@@ -43,17 +44,7 @@ def select_evenly_spaced(batch, n_samples):
 
 
 def indices_below_y_threshold(batch: torch.Tensor, y_threshold: float):
-    """
-    Returns indices of points where the Y value is less than the given threshold.
-
-    Args:
-    - batch (torch.Tensor): A tensor of shape (N, 2) where N is the number of points,
-                            and the second dimension represents (X, Y) coordinates.
-    - threshold (float): The Y value threshold.
-
-    Returns:
-    - torch.Tensor: Indices of the points where Y values are below the threshold.
-    """
+    """Return indices of points whose Y is greater than ``y_threshold``."""
     # Find the indices where Y value is below the threshold
     indices = (batch[:, 1] > y_threshold).nonzero().squeeze()
 
@@ -61,17 +52,7 @@ def indices_below_y_threshold(batch: torch.Tensor, y_threshold: float):
 
 
 def indices_below_x_threshold(batch: torch.Tensor, x_threshold: float):
-    """
-    Returns indices of points where the Y value is less than the given threshold.
-
-    Args:
-    - batch (torch.Tensor): A tensor of shape (N, 2) where N is the number of points,
-                            and the second dimension represents (X, Y) coordinates.
-    - threshold (float): The Y value threshold.
-
-    Returns:
-    - torch.Tensor: Indices of the points where Y values are below the threshold.
-    """
+    """Return indices of points whose X is less than ``x_threshold``."""
     # Find the indices where X value is below the threshold
     indices = (batch[:, 1] < x_threshold).nonzero().squeeze()
 
@@ -79,17 +60,7 @@ def indices_below_x_threshold(batch: torch.Tensor, x_threshold: float):
 
 
 def indices_above_x_threshold(batch: torch.Tensor, x_threshold: float):
-    """
-    Returns indices of points where the Y value is less than the given threshold.
-
-    Args:
-    - batch (torch.Tensor): A tensor of shape (N, 2) where N is the number of points,
-                            and the second dimension represents (X, Y) coordinates.
-    - threshold (float): The Y value threshold.
-
-    Returns:
-    - torch.Tensor: Indices of the points where Y values are below the threshold.
-    """
+    """Return indices of points whose X is greater than ``x_threshold``."""
     # Find the indices where X value is below the threshold
     indices = (batch[:, 1] > x_threshold).nonzero().squeeze()
 
@@ -97,17 +68,7 @@ def indices_above_x_threshold(batch: torch.Tensor, x_threshold: float):
 
 
 def indices_of_min_x(points: torch.Tensor, N: int):
-    """
-    Returns the indices of the N points with the smallest X values from two batches.
-
-    Args:
-    - batch1 (torch.Tensor): A tensor of shape (N1, 2) representing the first batch of points.
-    - batch2 (torch.Tensor): A tensor of shape (N2, 2) representing the second batch of points.
-    - N (int): The number of points to return.
-
-    Returns:
-    - torch.Tensor: Indices of the N points with the smallest X values.
-    """
+    """Return indices of the ``N`` points with smallest X in a set."""
     # Concatenate the two batches
 
     # Sort based on the X values and get the indices
@@ -118,6 +79,7 @@ def indices_of_min_x(points: torch.Tensor, N: int):
 
 
 def cvtcolor_bgr_to_rgb(image_bgr: torch.Tensor) -> torch.Tensor:
+    """Convert BGR image tensor(s) to RGB."""
     if image_bgr.ndim == 3:
         return image_bgr[[2, 1, 0], :, :]
     return image_bgr[:, [2, 1, 0], :, :]
@@ -126,6 +88,12 @@ def cvtcolor_bgr_to_rgb(image_bgr: torch.Tensor) -> torch.Tensor:
 def compute_destination_size_wh(
     img: torch.Tensor, homography_matrix: torch.Tensor
 ) -> Tuple[int, int]:
+    """Compute destination width/height after applying a homography.
+
+    @param img: Source image tensor (H, W or B, C, H, W).
+    @param homography_matrix: 3×3 homography matrix (torch or NumPy).
+    @return: Tuple ``(new_width, new_height)``.
+    """
     width = image_width(img)
     height = image_height(img)
     corners = np.array(
@@ -169,6 +137,16 @@ def calculate_control_points(
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
 ) -> Dict[str, torch.Tensor]:
+    """Compute LightGlue control points for a pair of images.
+
+    @param image0: First image (path or tensor).
+    @param image1: Second image (path or tensor).
+    @param max_control_points: Maximum number of matched points to keep.
+    @param device: Optional PyTorch device for inference.
+    @param max_num_keypoints: Maximum raw detector keypoints per image.
+    @param output_directory: Optional directory for LightGlue visualizations.
+    @return: Dict containing tensors ``m_kpts0`` and ``m_kpts1`` (Nx2).
+    """
 
     from lightglue import LightGlue, SuperPoint, viz2d
     from lightglue.utils import load_image, rbd

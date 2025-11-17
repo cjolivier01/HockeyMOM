@@ -1,3 +1,9 @@
+"""Laplacian pyramid based image blending utilities.
+
+Implements multi-level blending on tensors and is used by the Python
+blender path of the stitching pipeline.
+"""
+
 from typing import List, Optional, Tuple
 
 import cv2
@@ -12,6 +18,15 @@ from hmlib.utils.image import make_visible_image
 def create_gaussian_kernel(
     size=5, device=torch.device("cpu"), channels=3, sigma=1, dtype=torch.float
 ):
+    """Create a separable Gaussian kernel tensor for convolution.
+
+    @param size: Kernel side length (odd).
+    @param device: Target device.
+    @param channels: Number of output channels.
+    @param sigma: Standard deviation of the Gaussian.
+    @param dtype: Torch dtype.
+    @return: Tensor of shape ``(channels, 1, size, size)``.
+    """
     # Create Gaussian Kernel. In Numpy
     ax = np.linspace(-(size - 1) / 2.0, (size - 1) / 2.0, size)
     # print(ax)
@@ -105,6 +120,7 @@ def simple_make_full(
     canvas_h: int,
     adjust_origin: bool = False,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor, Optional[torch.Tensor]]:
+    """Pad two images (and optional masks) into a common canvas."""
 
     h1 = img_1.shape[2]
     w1 = img_1.shape[3]
@@ -263,6 +279,7 @@ def _simple_blend_in_place(
 
 
 def get_alpha_mask(img: torch.Tensor) -> torch.Tensor:
+    """Return a boolean mask where RGBA alpha channel is zero."""
     assert img.ndim == 4
     mask = (img[:, 3:4] == 0).squeeze(0).squeeze(0)
     return mask
@@ -280,6 +297,16 @@ class LaplacianBlend(torch.jit.ScriptModule):
         seam_mask: Optional[torch.Tensor] = None,
         xor_mask: Optional[torch.Tensor] = None,
     ):
+        """Create a LaplacianBlend instance.
+
+        @param max_levels: Number of pyramid levels.
+        @param channels: Number of image channels.
+        @param kernel_size: Gaussian kernel size.
+        @param sigma: Gaussian sigma.
+        @param dtype: Working dtype (usually float).
+        @param seam_mask: Optional mask defining left/right regions.
+        @param xor_mask: Optional XOR mask (for debugging).
+        """
         super().__init__()
         self.max_levels: int = max_levels
         self.kernel_size: int = kernel_size
