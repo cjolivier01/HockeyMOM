@@ -1,5 +1,11 @@
 from __future__ import absolute_import, division, print_function
 
+"""Camera tracking head that bridges detection outputs to post-processing.
+
+This module wires the `HockeyMOM` camera logic and the `CamTrackPostProcessor`
+into an `HM`-registered head that can be used in hm2 configs.
+"""
+
 import os
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +20,7 @@ from hmlib.bbox.box_functions import width, height, center, make_box_at_center, 
 
 
 def to_rgb_non_planar(image):
+    """Convert CHW tensors to HWC tensors for OpenCV/visualization."""
     if isinstance(image, torch.Tensor):
         if (
             len(image.shape) == 4
@@ -46,6 +53,7 @@ def get_open_files_count():
 
 @HM.register_module()
 class CamTrackHead:
+    """Entry head that owns `HockeyMOM` and its tracking post-processor."""
     # TODO: Get rid of this class entirely, since it's just a
     # bounce to the postprocessor and al the init crap
     # can be a function or somthing in the postprocessor file?
@@ -131,6 +139,7 @@ class CamTrackHead:
         self,
         results: Dict[str, Any],
     ):
+        """Run camera tracking post-processing for a batch of detections."""
         self._counter += 1
         if self._counter % 100 == 0:
             logger.info(f"open file count: {get_open_files_count()}")
@@ -163,6 +172,7 @@ class CamTrackHead:
         return results
 
     def on_first_image(self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device):
+        """Initialize `HockeyMOM` and the post-processor on the first frame."""
         assert self._hockey_mom is None
 
         self._hockey_mom = HockeyMOM(

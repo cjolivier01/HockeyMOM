@@ -1,3 +1,5 @@
+"""Camera box motion primitives used for smoothing pan/zoom behavior."""
+
 from typing import Optional, Tuple, Union
 
 import cv2

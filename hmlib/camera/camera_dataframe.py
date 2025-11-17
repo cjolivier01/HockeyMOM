@@ -1,4 +1,9 @@
-from typing import Any, Dict, Optional
+"""DataFrame wrapper for storing per-frame camera bounding boxes.
+
+Used by camera training and analysis tools to persist camera TLWH boxes.
+"""
+
+from typing import Any, Dict, Optional, List
 
 import numpy as np
 import pandas as pd
@@ -9,6 +14,7 @@ from hmlib.tracking_utils.tracking_dataframe import convert_tlbr_to_tlwh
 
 
 class CameraTrackingDataFrame(HmDataFrameBase):
+    """DataFrame-based storage for camera TLWH boxes."""
 
     def __init__(self, *args, input_batch_size: int, **kwargs):
         fields: List[str] = [
@@ -26,6 +32,12 @@ class CameraTrackingDataFrame(HmDataFrameBase):
         tlbr: Optional[np.ndarray] = None,
         tlwh: Optional[np.ndarray] = None,
     ):
+        """Append tracking records for a given frame.
+
+        @param frame_id: Frame index.
+        @param tlbr: Optional Nx4 TLBR array.
+        @param tlwh: Optional Nx4 TLWH array; if None, derived from ``tlbr``.
+        """
         if tlwh is None:
             assert tlbr is not None
             tlwh = convert_tlbr_to_tlwh(tlbr)
@@ -58,6 +70,10 @@ class CameraTrackingDataFrame(HmDataFrameBase):
 
     # Function to extract tracking info by frame
     def get_data_dict_by_frame(self, frame_id: int) -> Dict[str, Any]:
+        """Return a dict of camera tracking data for a frame.
+
+        The dict contains keys: ``frame_id`` and ``bboxes`` (TLWH array).
+        """
         assert self.batch_size == 1
         frame_id = int(frame_id)
         assert frame_id  # First frame is 1

@@ -1,3 +1,5 @@
+"""End-zone camera selection and exposure matching for multi-view videos."""
+
 import copy
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -18,6 +20,7 @@ ZONE_RIGHT: str = "RIGHT"
 
 
 class EndZones(torch.nn.Module):
+    """Switch between main and far-end camera views based on play position."""
 
     def __init__(
         self,

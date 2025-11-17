@@ -1,3 +1,9 @@
+"""Clustering helpers used for grouping tracked player positions.
+
+Provides a small wrapper around k-means (either via fast_pytorch_kmeans or
+the C++ `compute_kmeans_clusters` binding) and a manager for multi-k setups.
+"""
+
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -6,6 +12,7 @@ from hockeymom.core import compute_kmeans_clusters
 
 
 class ClusterSnapshot:
+    """Single k-means snapshot for a fixed number of clusters."""
 
     def __init__(
         self,
@@ -100,6 +107,7 @@ class ClusterSnapshot:
 
 
 class ClusterMan:
+    """Manage multiple ClusterSnapshot instances for different cluster counts."""
 
     def __init__(
         self,

@@ -1,3 +1,5 @@
+"""Python-side helpers for visualizing and working with LivingBox instances."""
+
 from typing import Optional, Tuple
 
 import cv2
@@ -23,6 +25,7 @@ from hockeymom.core import AllLivingBoxConfig, BBox, LivingBox, WHDims
 
 
 def to_bbox(tensor: torch.Tensor, is_cpp: bool) -> BBox:
+    """Convert a tensor `[x1, y1, x2, y2]` into a BBox (if using C++ boxes)."""
     if not is_cpp:
         return tensor
     if isinstance(tensor, BBox):
@@ -44,6 +47,7 @@ def from_bbox(bbox: BBox, device: torch.device = torch.device("cpu")) -> torch.T
 
 
 class PyLivingBox(LivingBox):
+    """Subclass of C++ `LivingBox` with extra drawing helpers for debugging."""
 
     def __init__(self, *args, color: Tuple[int, int, int], thickness: int, **kwargs) -> None:
         super().__init__(*args, **kwargs)

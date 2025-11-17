@@ -1,5 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
+"""High-level play tracker that controls camera pan/zoom from detections."""
+
 import argparse
 import copy
 from collections import deque
@@ -89,15 +91,16 @@ class PlayTracker(torch.nn.Module):
         cpp_boxes: bool = _CPP_BOXES,
         cpp_playtracker: bool = _CPP_PLAYTRACKER,
     ):
-        """
-        Track the play
+        """Track play and drive camera box based on detections and configs.
 
-        :param hockey_mom: The old HockeyMom object
-        :param play_box: The box allowed for play (assumed the visual play does not exist outside of this box)
-        :param device: Device to use for computations`
-        :param original_clip_box: Clip box that has been applied to the original image (if any)
-        :param progress_bar: Progress bar
-        :param args: _description_
+        @param hockey_mom: `HockeyMOM` instance providing tracker and video state.
+        @param play_box: Box describing the allowed play region in TLBR coords.
+        @param device: Torch device for computations.
+        @param original_clip_box: Clip box applied to original image, if any.
+        @param progress_bar: Optional progress bar for CLI status.
+        @param args: Parsed CLI options (`hm_opts`).
+        @param cpp_boxes: If True, use C++ BBox types internally.
+        @param cpp_playtracker: If True, use the C++ PlayTracker backend.
         """
         super(PlayTracker, self).__init__()
         self._args = args
