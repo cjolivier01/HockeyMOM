@@ -237,11 +237,14 @@ class StreamTensor(StreamTensorBase):
             self._tensor._clear_stream()
         elif self._stream is not None:
             if self._owns_stream:
-                free_stream(self._stream)
+                assert False and "Deprecated path"
+                # free_stream(self._stream)
             self._stream = None
 
     def wait(self, new_stream: Optional[torch.cuda.Stream] = None) -> torch.Tensor:
         assert self._tensor is not None
+        if self._tensor.device.type != "cuda":
+            return self._tensor
         if new_stream is None:
             new_stream = torch.cuda.current_stream(self._tensor.device)
         if self._stream is not None:

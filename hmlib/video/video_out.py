@@ -14,26 +14,28 @@ import torch
 from mmcv.transforms import Compose
 from torchvision.transforms import functional as F
 
-from hmlib.bbox.box_functions import scale_box
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.log import logger
-from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.timer import Timer, TimeTracker
-from hmlib.ui.show import show_image
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.exceptions import raise_exception_in_thread
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope, get_gpu_capabilities
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensor,
+    cuda_stream_scope,
+    get_gpu_capabilities,
+)
 from hmlib.utils.image import (
     ImageColorScaler,
     image_height,
     image_width,
     make_channels_last,
     make_visible_image,
-    rotate_image,
     resize_image,
+    rotate_image,
     to_uint8_image,
 )
 from hmlib.utils.iterators import CachedIterator
@@ -42,7 +44,11 @@ from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import to_tensor_scalar
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
-from .video_stream import VideoStreamWriterInterface, clamp_max_video_dimensions, create_output_video_stream
+from .video_stream import (
+    VideoStreamWriterInterface,
+    clamp_max_video_dimensions,
+    create_output_video_stream,
+)
 
 standard_8k_width: int = 7680
 standard_8k_height: int = 4320
@@ -574,7 +580,6 @@ class VideoOutput:
             img = online_im
             self._mean_tracker(img)
 
-        # torch.cuda.synchronize()
         # if cuda_stream is not None:
         #     cuda_stream.synchronize()
 
@@ -659,7 +664,7 @@ class VideoOutput:
 
         if online_im.ndim == 3:
             online_im = online_im.unsqueeze(0)
-            current_box = current_box.unsqueeze(0)
+            # current_box = current_box.unsqueeze(0)
 
         if self._device is not None and (not self._simple_save or "nvenc" in self._fourcc):
             if isinstance(online_im, np.ndarray):
