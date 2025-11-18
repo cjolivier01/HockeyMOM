@@ -80,7 +80,7 @@ aspen:
         # pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/harpet/rtmpose-l_8xb64-10e_harpe-384x288.py
         # pose_checkpoint: /mnt/data/pretrained/rtmpose_l_harpe_384x288/best_PCK_epoch_86.pth
         pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/harpet/rtmpose-m_8xb64-crowdpose_harpe-256x192.py
-        pose_checkpoint: /mnt/data/pretrained/rtmpose_m_harpe_256x192/best_PCK_epoch_94.pth
+        pose_checkpoint: /mnt/data/pretrained/rtmpose-m_8xb64-crowdpose_harpe-256x192/best_PCK_epoch_1178.pth
         # COCO
         # pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
         # pose_checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
@@ -95,6 +95,11 @@ aspen:
     detector:
       class: hmlib.aspen.trunks.detector.DetectorInferenceTrunk
       depends: [image_prep, detector_factory]
+      params: {}
+
+    save_detections:
+      class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+      depends: [detector]
       params: {}
 
     ice_config:
@@ -112,9 +117,20 @@ aspen:
       depends: [detector, ice_boundaries, model_factory, boundaries]
       params: {}
 
+    save_tracking:
+      class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+      depends: [tracker]
+      params: {}
+
+
     pose:
       class: hmlib.aspen.trunks.pose.PoseTrunk
       depends: [tracker, pose_factory]
+      params: {}
+
+    save_pose:
+      class: hmlib.aspen.trunks.save.SavePoseTrunk
+      depends: [pose]
       params: {}
 
     postprocess:

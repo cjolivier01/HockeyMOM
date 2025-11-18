@@ -108,6 +108,11 @@ aspen:
       params: {}
 
     # Save outputs to dataframes (order matters so actions/jerseys are included)
+    save_actions:
+      class: hmlib.aspen.trunks.save.SaveActionsTrunk
+      depends: [actions]
+      params: {}
+
     save_detections:
       class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
       depends: [pose_to_det]

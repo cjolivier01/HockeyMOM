@@ -70,9 +70,19 @@ aspen:
       depends: [image_prep, pose_factory]
       params: {}
 
+    save_pose:
+      class: hmlib.aspen.trunks.save.SavePoseTrunk
+      depends: [pose]
+      params: {}
+
     pose_to_det:
       class: hmlib.aspen.trunks.pose_to_det.PoseToDetTrunk
       depends: [pose]
+      params: {}
+
+    save_detections:
+      class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+      depends: [pose_to_det]
       params: {}
 
     ice_config:
@@ -88,6 +98,11 @@ aspen:
     tracker:
       class: hmlib.aspen.trunks.tracker.TrackerTrunk
       depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
+      params: {}
+
+    save_tracking:
+      class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+      depends: [pose, tracker]
       params: {}
 
     postprocess:
