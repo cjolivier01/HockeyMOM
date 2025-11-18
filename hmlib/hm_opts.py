@@ -216,7 +216,7 @@ class hm_opts(object):
             "--profile-dir",
             dest="profile_dir",
             type=str,
-            default=None,
+            default=".",
             help="Directory to write profiler traces (defaults under output_workdirs/<game_id>/profiler)",
         )
         prof.add_argument(
