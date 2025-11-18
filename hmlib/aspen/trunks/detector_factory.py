@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -117,6 +118,7 @@ class DetectorFactoryTrunk(Trunk):
                         fp16=bool(self._trt_cfg.get("fp16", True)),
                         int8=bool(self._trt_cfg.get("int8", False)),
                         calib_frames=int(self._trt_cfg.get("calib_frames", 0)),
+                        profiler=self._profiler,
                     )
                 except Exception as ex:
                     # Fall back to next option if TRT init fails
@@ -137,6 +139,7 @@ class DetectorFactoryTrunk(Trunk):
                         quantize_int8=bool(self._onnx_cfg.get("quantize_int8", False)),
                         calib_frames=int(self._onnx_cfg.get("calib_frames", 0)),
                         game_id=str(context.get("game_id", "")),
+                        profiler=self._profiler,
                     )
                 except Exception as ex:
                     # Fall back to PyTorch if ONNX init fails
@@ -178,7 +181,19 @@ class _BackboneNeckWrapper(torch.nn.Module):
         return feats, feats, feats
 
 
-class _OnnxDetectorWrapper:
+class _ProfilerMixin:
+    def __init__(self, profiler: Optional[Any], label: str):
+        self._profiler = profiler
+        self._profile_label = label
+
+    def _profile_scope(self, suffix: Optional[str] = None):
+        if self._profiler is None:
+            return nullcontext()
+        name = self._profile_label if suffix is None else f"{self._profile_label}.{suffix}"
+        return self._profiler.rf(name)
+
+
+class _OnnxDetectorWrapper(_ProfilerMixin):
     """Wraps YOLOX detector to run backbone+neck in ONNX Runtime, then decodes
     with the existing PyTorch YOLOX head to produce InstanceData results.
 
@@ -196,7 +211,9 @@ class _OnnxDetectorWrapper:
         quantize_int8: bool = False,
         calib_frames: int = 0,
         game_id: str = "",
+        profiler: Optional[Any] = None,
     ):
+        super().__init__(profiler=profiler, label="onnx_predictor")
         self.model = model
         self.onnx_path = onnx_path
         self.force_export = force_export
@@ -393,95 +410,92 @@ class _OnnxDetectorWrapper:
         except StopIteration:
             dev = torch.device("cpu")
         if self._use_cuda and x.is_cuda:
-            # CUDA I/O binding with zero-copy via ptr
-            io = self._ort_sess.io_binding()
-            input_name = self._ort_sess.get_inputs()[0].name
-            xc = self._preprocess_gpu(x)
-            # Bind input GPU memory
-            io.bind_input(
-                name=input_name,
-                device_type="cuda",
-                device_id=int(xc.device.index or 0),
-                element_type=np.float32,
-                shape=list(xc.shape),
-                buffer_ptr=int(xc.data_ptr()),
-            )
-            # Bind outputs to CUDA to avoid host copies
-            for out in self._ort_sess.get_outputs():
-                io.bind_output(out.name, device_type="cuda")
-            self._ort_sess.run_with_iobinding(io)
-            ort_outs = io.get_outputs()
-            # Convert OrtValues (on CUDA) to torch via DLPack
-            outs_t: List[torch.Tensor] = []
-            try:
-                from torch.utils.dlpack import from_dlpack  # type: ignore
+            with self._profile_scope("preprocess"):
+                xc = self._preprocess_gpu(x)
+            with self._profile_scope("engine"):
+                io = self._ort_sess.io_binding()
+                input_name = self._ort_sess.get_inputs()[0].name
+                io.bind_input(
+                    name=input_name,
+                    device_type="cuda",
+                    device_id=int(xc.device.index or 0),
+                    element_type=np.float32,
+                    shape=list(xc.shape),
+                    buffer_ptr=int(xc.data_ptr()),
+                )
+                for out in self._ort_sess.get_outputs():
+                    io.bind_output(out.name, device_type="cuda")
+                self._ort_sess.run_with_iobinding(io)
+                ort_outs = io.get_outputs()
+            with self._profile_scope("postprocess"):
+                outs_t: List[torch.Tensor] = []
+                try:
+                    from torch.utils.dlpack import from_dlpack  # type: ignore
 
-                for ov in ort_outs:
-                    outs_t.append(from_dlpack(ov.to_dlpack()).to(device=dev))
-            except Exception:
-                # Fallback: copy to CPU numpy and back to torch
-                for ov in ort_outs:
-                    np_arr = np.array(ov)  # copies from device
-                    outs_t.append(torch.from_numpy(np_arr).to(device=dev))
-            return outs_t
-        # CPU path
-        x_np = self._preprocess(x)
-        outs = self._ort_sess.run(None, {self._ort_sess.get_inputs()[0].name: x_np})
-        return [torch.from_numpy(o).to(device=dev) for o in outs]
+                    for ov in ort_outs:
+                        outs_t.append(from_dlpack(ov.to_dlpack()).to(device=dev))
+                except Exception:
+                    for ov in ort_outs:
+                        np_arr = np.array(ov)
+                        outs_t.append(torch.from_numpy(np_arr).to(device=dev))
+                return outs_t
+        with self._profile_scope("preprocess"):
+            x_np = self._preprocess(x)
+        with self._profile_scope("engine"):
+            outs = self._ort_sess.run(None, {self._ort_sess.get_inputs()[0].name: x_np})
+        with self._profile_scope("postprocess"):
+            return [torch.from_numpy(o).to(device=dev) for o in outs]
 
     def predict(self, imgs: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
-        # imgs: (N, C, H, W)
-        assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
-        N = imgs.size(0)
-        try:
-            dev = next(self.model.parameters()).device
-        except StopIteration:
-            dev = torch.device("cpu")
-        # Calibration capture (CPU) if requested
-        if self.quantize_int8 and not self._quantized and self.calib_target > 0:
-            # Store only up to calib_target samples
-            remaining = max(0, self.calib_target - len(self._calib_inputs))
-            if remaining > 0:
-                take = min(N, remaining)
-                for i in range(take):
-                    x_np = self._preprocess(imgs[i : i + 1])
-                    self._calib_inputs.append(x_np.copy())
-        # Run ORT for the whole batch
-        outs = self._run_ort(imgs)
-        feats: List[torch.Tensor] = [o for o in outs[:3]]
-        with torch.inference_mode():
-            cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
-            # Collect per-frame img_metas
-            metas = []
-            for i in range(N):
-                try:
-                    metas.append(getattr(data_samples[i], "metainfo", {}))
-                except Exception:
-                    metas.append({})
-            result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
-                cls_scores=cls_scores,
-                bbox_preds=bbox_preds,
-                objectnesses=objectnesses,
-                batch_img_metas=metas,
-                cfg=None,
-                rescale=True,
-                with_nms=True,
-            )
-        # Optional: try to quantize after gathering enough samples
-        self._maybe_quantize_after_calib()
-        # Wrap results to mimic mmdet return objects
-        results: List[Any] = []
-        for inst in result_list:
+        with self._profile_scope():
+            assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
+            N = imgs.size(0)
+            try:
+                dev = next(self.model.parameters()).device
+            except StopIteration:
+                dev = torch.device("cpu")
+            if self.quantize_int8 and not self._quantized and self.calib_target > 0:
+                remaining = max(0, self.calib_target - len(self._calib_inputs))
+                if remaining > 0:
+                    take = min(N, remaining)
+                    with self._profile_scope("calibration"):
+                        for i in range(take):
+                            x_np = self._preprocess(imgs[i : i + 1])
+                            self._calib_inputs.append(x_np.copy())
+            outs = self._run_ort(imgs)
+            feats: List[torch.Tensor] = [o for o in outs[:3]]
+            with torch.inference_mode():
+                with self._profile_scope("head"):
+                    cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
+                    metas = []
+                    for i in range(N):
+                        try:
+                            metas.append(getattr(data_samples[i], "metainfo", {}))
+                        except Exception:
+                            metas.append({})
+                    result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                        cls_scores=cls_scores,
+                        bbox_preds=bbox_preds,
+                        objectnesses=objectnesses,
+                        batch_img_metas=metas,
+                        cfg=None,
+                        rescale=True,
+                        with_nms=True,
+                    )
+            results: List[Any] = []
+            with self._profile_scope("postprocess"):
+                self._maybe_quantize_after_calib()
+                for inst in result_list:
 
-            class _Wrap:
-                def __init__(self, inst_):
-                    self.pred_instances = inst_
+                    class _Wrap:
+                        def __init__(self, inst_):
+                            self.pred_instances = inst_
 
-            results.append(_Wrap(inst))
-        return results
+                    results.append(_Wrap(inst))
+            return results
 
 
-class _TrtDetectorWrapper:
+class _TrtDetectorWrapper(_ProfilerMixin):
     """Backbone+neck with TensorRT via torch2trt; decode with PyTorch YOLOX head.
 
     Builds the engine on-the-fly and caches to disk. Exposes a .predict compatible
@@ -496,7 +510,9 @@ class _TrtDetectorWrapper:
         fp16: bool = True,
         int8: bool = False,
         calib_frames: int = 0,
+        profiler: Optional[Any] = None,
     ):
+        super().__init__(profiler=profiler, label="trt_predictor")
         self.model = model
         self.engine_path = Path(engine_path)
         self.force_build = bool(force_build)
@@ -633,69 +649,68 @@ class _TrtDetectorWrapper:
         return x
 
     def predict(self, imgs: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
-        assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
-        results: List[Any] = []
-        try:
-            dev = next(self.model.parameters()).device
-        except StopIteration:
-            dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # Initialize calibration dataset if needed
-        if self.int8 and self._calib_dataset is None and self.calib_frames > 0:
+        with self._profile_scope():
+            assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
+            results: List[Any] = []
             try:
-                from torch2trt import ListDataset  # type: ignore
-            except Exception:
-                ListDataset = None
-            if ListDataset is not None:
-                self._calib_dataset = ListDataset()
-        for i in range(imgs.size(0)):
-            data_sample = data_samples[i]
-            try:
-                img_meta = getattr(data_sample, "metainfo", {})
-            except Exception:
-                img_meta = {}
-            x = imgs[i : i + 1].to(device=dev, non_blocking=True)
-            x = self._preprocess(x)
-            # Calibration capture if INT8 requested
-            if self.int8 and self._calib_dataset is not None and self._trt_module is None:
-                if len(self._calib_dataset) < max(0, self.calib_frames):
-                    # Store GPU tensor for calibration (must match module device)
-                    self._calib_dataset.insert([x.detach()])
-                if len(self._calib_dataset) >= max(0, self.calib_frames):
-                    # Attempt to build the INT8 engine now that we have enough samples
+                dev = next(self.model.parameters()).device
+            except StopIteration:
+                dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            if self.int8 and self._calib_dataset is None and self.calib_frames > 0:
+                try:
+                    from torch2trt import ListDataset  # type: ignore
+                except Exception:
+                    ListDataset = None
+                if ListDataset is not None:
+                    self._calib_dataset = ListDataset()
+            for i in range(imgs.size(0)):
+                data_sample = data_samples[i]
+                try:
+                    img_meta = getattr(data_sample, "metainfo", {})
+                except Exception:
+                    img_meta = {}
+                with self._profile_scope("preprocess"):
+                    x = imgs[i : i + 1].to(device=dev, non_blocking=True)
+                    x = self._preprocess(x)
+                if self.int8 and self._calib_dataset is not None and self._trt_module is None:
+                    with self._profile_scope("calibration"):
+                        if len(self._calib_dataset) < max(0, self.calib_frames):
+                            self._calib_dataset.insert([x.detach()])
+                        if len(self._calib_dataset) >= max(0, self.calib_frames):
+                            self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
+                with self._profile_scope("engine"):
                     self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
-
-            # Ensure engine exists (fp16/fp32 path or after INT8 build)
-            self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
-            if self._trt_module is not None:
-                feats = self._trt_module(x)
-            else:
-                # Fallback to PyTorch backbone+neck during warm-up/calibration
-                if self._wrapper_module is None:
-                    self._wrapper_module = _BackboneNeckWrapper(self.model).eval().to(dev)
+                    if self._trt_module is not None:
+                        feats = self._trt_module(x)
+                    else:
+                        if self._wrapper_module is None:
+                            self._wrapper_module = _BackboneNeckWrapper(self.model).eval().to(dev)
+                        with torch.inference_mode():
+                            feats = self._wrapper_module(x)
+                    if isinstance(feats, torch.Tensor):
+                        feats = [feats, feats, feats]
+                    elif isinstance(feats, (list, tuple)):
+                        feats = list(feats)
+                    else:
+                        feats = [torch.as_tensor(feats)]
                 with torch.inference_mode():
-                    feats = self._wrapper_module(x)
-            if isinstance(feats, torch.Tensor):
-                feats = [feats, feats, feats]
-            elif isinstance(feats, (list, tuple)):
-                feats = list(feats)
-            else:
-                feats = [torch.as_tensor(feats)]
-            with torch.inference_mode():
-                cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
-                result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
-                    cls_scores=cls_scores,
-                    bbox_preds=bbox_preds,
-                    objectnesses=objectnesses,
-                    batch_img_metas=[img_meta],
-                    cfg=None,
-                    rescale=True,
-                    with_nms=True,
-                )
-            inst = result_list[0]
+                    with self._profile_scope("head"):
+                        cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
+                        result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                            cls_scores=cls_scores,
+                            bbox_preds=bbox_preds,
+                            objectnesses=objectnesses,
+                            batch_img_metas=[img_meta],
+                            cfg=None,
+                            rescale=True,
+                            with_nms=True,
+                        )
+                inst = result_list[0]
 
-            class _Wrap:
-                def __init__(self, inst_):
-                    self.pred_instances = inst_
+                class _Wrap:
+                    def __init__(self, inst_):
+                        self.pred_instances = inst_
 
-            results.append(_Wrap(inst))
-        return results
+                with self._profile_scope("postprocess"):
+                    results.append(_Wrap(inst))
+            return results
