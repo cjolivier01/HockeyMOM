@@ -92,6 +92,7 @@ class IceRinkSegmBoundariesTrunk(Trunk):
                 "scores": det_scores,
                 "prune_list": ["det_bboxes", "labels", "scores"],
                 "data_samples": data.get("data_samples"),
+                "rink_profile": context.get("rink_profile"),
             }
             if original_images is not None:
                 pd_input["original_images"] = original_images
@@ -174,7 +175,7 @@ class IceRinkSegmBoundariesTrunk(Trunk):
         return {"data": data}
 
     def input_keys(self):
-        return {"data", "game_id", "original_clip_box", "plot_ice_mask"}
+        return {"data", "game_id", "original_clip_box", "plot_ice_mask", "rink_profile"}
 
     def output_keys(self):
         return {"data"}
@@ -248,20 +249,13 @@ class IceRinkSegmConfigTrunk(Trunk):
                 )
             except Exception:
                 self._rink_profile = None
-
+        results = dict(data=data)
         if self._rink_profile is not None:
-            # Attach to every frame's metainfo for downstream consumers
-            for i in range(len(track_data_sample)):
-                try:
-                    track_data_sample[i].set_metainfo({"rink_profile": self._rink_profile})
-                except Exception:
-                    # Best-effort only
-                    pass
-
-        return {"data": data}
+            results["rink_profile"] = self._rink_profile
+        return results
 
     def input_keys(self):
         return {"data", "game_id", "device"}
 
     def output_keys(self):
-        return {"data"}
+        return {"data", "rink_profile"}

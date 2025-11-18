@@ -103,8 +103,7 @@ class IceRinkSegmBoundaries(SegmBoundaries):
 
     def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         if self._segment_mask is None:
-            metainfo = data["data_samples"].video_data_samples[0].metainfo
-            self._rink_profile = metainfo.get("rink_profile")
+            self._rink_profile = data.get("rink_profile")
             if self._rink_profile is not None:
                 self.set_segment_mask_and_centroid(
                     segment_mask=self._rink_profile["combined_mask"],
