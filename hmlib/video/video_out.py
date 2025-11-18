@@ -381,6 +381,8 @@ class VideoOutput:
         self._progress_bar = progress_bar
 
     def start(self):
+        if not self._async_output:
+            return
         assert self._imgproc_thread is None and "Video output thread was already started"
         self._imgproc_thread = Thread(
             target=self._final_image_processing_wrapper,
