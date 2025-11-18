@@ -11,12 +11,12 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
+from hmlib.bbox.box_functions import center, clamp_box, height, make_box_at_center, width
 from hmlib.builder import HM
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import HockeyMOM
 from hmlib.log import logger
 from hmlib.utils.image import image_height, image_width
-from hmlib.bbox.box_functions import width, height, center, make_box_at_center, clamp_box
 
 
 def to_rgb_non_planar(image):
@@ -117,11 +117,11 @@ class CamTrackHead:
         return not self._hockey_mom is None
 
     @staticmethod
-    def calculate_play_box(results: Dict[str, Any], scale: float = 1.3) -> List[int]:
+    def calculate_play_box(results: Dict[str, Any], context: Dict[str, Any], scale: float = 1.3) -> List[int]:
         # Use the first video_data_sample's rink_profile to seed the play box
         track_container = results["data_samples"]
         video_data_sample = track_container.video_data_samples[0]
-        play_box = torch.tensor(video_data_sample.metainfo["rink_profile"]["combined_bbox"], dtype=torch.int64)
+        play_box = torch.tensor(context["rink_profile"]["combined_bbox"], dtype=torch.int64)
         ww, hh = width(play_box), height(play_box)
         cc = center(play_box)
         play_box = make_box_at_center(cc, ww * scale, hh * scale)
@@ -138,6 +138,7 @@ class CamTrackHead:
     def process_tracking(
         self,
         results: Dict[str, Any],
+        context: Dict[str, Any],
     ):
         """Run camera tracking post-processing for a batch of detections."""
         self._counter += 1
@@ -155,7 +156,7 @@ class CamTrackHead:
             # first_data_sample = results['data_samples'][0]
             # play_box = first_data_sample.metainfo['rink_profile']['combined_bbox']
 
-            arena = self.calculate_play_box(results)
+            arena = self.calculate_play_box(results, context)
 
             assert isinstance(original_shape, torch.Size)
             frame_id = getattr(video_data_sample, "frame_id", None)
