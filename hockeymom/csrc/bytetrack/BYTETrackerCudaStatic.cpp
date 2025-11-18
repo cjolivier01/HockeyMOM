@@ -1,6 +1,12 @@
 #include "BYTETrackerCudaStatic.h"
 
 #include <ATen/Functions.h>
+#include <ATen/cuda/CUDAContext.h>
+
+#include <thrust/copy.h>
+#include <thrust/device_ptr.h>
+#include <thrust/execution_policy.h>
+#include <thrust/iterator/counting_iterator.h>
 
 namespace hm {
 namespace tracker {
@@ -49,6 +55,47 @@ void copy_prefix(at::Tensor& dst, const at::Tensor& src, T count) {
   dst.slice(0, 0, count).copy_(src);
 }
 
+at::Tensor build_index_tensor_cuda(const at::Tensor& mask) {
+  auto mask_bool = mask.to(at::kBool).contiguous();
+  auto numel = mask_bool.numel();
+  auto options = at::TensorOptions().dtype(at::kLong).device(mask.device());
+  auto out = at::empty({numel}, options);
+  if (numel == 0) {
+    return out.narrow(0, 0, 0);
+  }
+  auto stream = at::cuda::getCurrentCUDAStream(mask.device().index());
+  auto begin = thrust::make_counting_iterator<int64_t>(0);
+  auto mask_ptr = mask_bool.data_ptr<bool>();
+  auto out_ptr = out.data_ptr<int64_t>();
+  thrust::device_ptr<const bool> mask_dev(mask_ptr);
+  thrust::device_ptr<int64_t> out_dev(out_ptr);
+  auto end = thrust::copy_if(
+      thrust::cuda::par.on(stream.stream()),
+      begin,
+      begin + numel,
+      mask_dev,
+      out_dev,
+      [] __device__(bool keep) { return keep; });
+  auto count = static_cast<int64_t>(end - out_dev);
+  return out.narrow(0, 0, count);
+}
+
+at::Tensor build_index_tensor_cpu(const at::Tensor& mask) {
+  auto mask_bool = mask.to(at::kBool).contiguous();
+  auto numel = mask_bool.numel();
+  auto options = at::TensorOptions().dtype(at::kLong).device(mask.device());
+  auto out = at::empty({numel}, options);
+  auto mask_ptr = mask_bool.data_ptr<bool>();
+  auto out_ptr = out.data_ptr<int64_t>();
+  int64_t count = 0;
+  for (int64_t i = 0; i < numel; ++i) {
+    if (mask_ptr[i]) {
+      out_ptr[count++] = i;
+    }
+  }
+  return out.narrow(0, 0, count);
+}
+
 } // namespace
 
 BYTETrackerCudaStatic::BYTETrackerCudaStatic(
@@ -56,17 +103,11 @@ BYTETrackerCudaStatic::BYTETrackerCudaStatic(
     int64_t max_detections,
     int64_t max_tracks,
     c10::Device device)
-    : config_(std::move(config)),
-      tracker_(config_, device),
+    : BYTETrackerCuda(std::move(config), device),
       max_detections_(max_detections),
-      max_tracks_(max_tracks),
-      device_(std::move(device)) {
+      max_tracks_(max_tracks) {
   TORCH_CHECK(max_detections_ > 0, "max_detections must be positive");
   TORCH_CHECK(max_tracks_ > 0, "max_tracks must be positive");
-}
-
-void BYTETrackerCudaStatic::reset() {
-  tracker_.reset();
 }
 
 std::unordered_map<std::string, at::Tensor> BYTETrackerCudaStatic::track(
@@ -108,17 +149,17 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCudaStatic::track(
   std::unordered_map<std::string, at::Tensor> tracker_input;
   tracker_input.emplace(kFrameIdKey, frame_id_tensor);
   auto trimmed_bboxes = slice_rows(det_bboxes, max_detections_, num_detections)
-                            .to(device_, at::kFloat);
+                            .to(device(), at::kFloat);
   auto trimmed_labels = slice_rows(det_labels, max_detections_, num_detections)
-                            .to(device_, at::kLong);
+                            .to(device(), at::kLong);
   auto trimmed_scores = slice_rows(det_scores, max_detections_, num_detections)
-                            .to(device_, at::kFloat);
+                            .to(device(), at::kFloat);
 
   tracker_input.emplace(kBBoxesKey, trimmed_bboxes);
   tracker_input.emplace(kLabelsKey, trimmed_labels);
   tracker_input.emplace(kScoresKey, trimmed_scores);
 
-  auto tracker_output = tracker_.track(std::move(tracker_input));
+  auto tracker_output = run_tracker(std::move(tracker_input));
 
   auto ids = tracker_output.at(kIdsKey);
   auto labels = tracker_output.at(kLabelsKey);
@@ -135,10 +176,10 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCudaStatic::track(
       max_tracks_,
       ")");
 
-  auto id_options = at::TensorOptions().dtype(at::kLong).device(device_);
-  auto label_options = at::TensorOptions().dtype(labels.scalar_type()).device(device_);
-  auto score_options = at::TensorOptions().dtype(scores.scalar_type()).device(device_);
-  auto bbox_options = at::TensorOptions().dtype(bboxes.scalar_type()).device(device_);
+  auto id_options = at::TensorOptions().dtype(at::kLong).device(device());
+  auto label_options = at::TensorOptions().dtype(labels.scalar_type()).device(device());
+  auto score_options = at::TensorOptions().dtype(scores.scalar_type()).device(device());
+  auto bbox_options = at::TensorOptions().dtype(bboxes.scalar_type()).device(device());
 
   auto padded_ids = at::full({max_tracks_}, -1, id_options);
   auto padded_labels = at::zeros({max_tracks_}, label_options);
@@ -150,7 +191,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCudaStatic::track(
   copy_prefix(padded_scores, scores.reshape({-1}), num_tracks);
   copy_prefix(padded_bboxes, bboxes.reshape({-1, 4}), num_tracks);
 
-  auto long_options = at::TensorOptions().dtype(at::kLong).device(device_);
+  auto long_options = at::TensorOptions().dtype(at::kLong).device(device());
   data[kIdsKey] = padded_ids;
   data[kLabelsKey] = padded_labels;
   data[kScoresKey] = padded_scores;
@@ -161,6 +202,16 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCudaStatic::track(
       at::full({1}, num_detections, long_options);
 
   return data;
+}
+
+at::Tensor BYTETrackerCudaStatic::mask_indices(const at::Tensor& mask) const {
+  if (!mask.defined() || mask.numel() == 0) {
+    return at::empty({0}, mask.options().dtype(at::kLong));
+  }
+  if (mask.is_cuda()) {
+    return build_index_tensor_cuda(mask);
+  }
+  return build_index_tensor_cpu(mask);
 }
 
 } // namespace tracker

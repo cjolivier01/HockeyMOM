@@ -114,6 +114,11 @@ at::Tensor BYTETrackerCuda::ensure_vector(
 
 std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
     std::unordered_map<std::string, at::Tensor>&& data) {
+  return run_tracker(std::move(data));
+}
+
+std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::run_tracker(
+    std::unordered_map<std::string, at::Tensor>&& data) {
   auto frame_id_tensor = data.at(kFrameIdKey);
   TORCH_CHECK(
       frame_id_tensor.numel() >= 1,
@@ -133,7 +138,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
   if (track_ids_.size(0) == 0) {
     track_calls_since_last_empty_ = 0;
     auto valid = (scores > config_.init_track_thr);
-    auto keep = valid.nonzero().squeeze(-1);
+    auto keep = mask_indices(valid);
     if (keep.numel() == 0) {
       data[kIdsKey] = at::empty({0}, labels.options());
       data[kBBoxesKey] = at::empty({0, 4}, bboxes.options());
@@ -178,8 +183,8 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
     auto second_mask =
         (~first_mask) & (scores > config_.obj_score_thrs_low);
 
-    auto first_idx = first_mask.nonzero().squeeze(-1);
-    auto second_idx = second_mask.nonzero().squeeze(-1);
+    auto first_idx = mask_indices(first_mask);
+    auto second_idx = mask_indices(second_mask);
 
     auto first_bboxes =
         first_idx.numel() ? bboxes.index_select(0, first_idx)
@@ -219,8 +224,8 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
     auto unconfirmed_mask =
         states.eq(static_cast<int64_t>(TrackState::Tentative));
 
-    auto confirmed_idx = confirmed_mask.nonzero().squeeze(-1);
-    auto unconfirmed_idx = unconfirmed_mask.nonzero().squeeze(-1);
+    auto confirmed_idx = mask_indices(confirmed_mask);
+    auto unconfirmed_idx = mask_indices(unconfirmed_mask);
 
     MatchResult first_match;
     if (confirmed_idx.numel() > 0 && first_bboxes.size(0) > 0) {
@@ -232,7 +237,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
           config_.weight_iou_with_det_scores,
           config_.match_iou_thrs_high);
       auto valid_det = first_match.det_to_track >= 0;
-      auto det_valid_idx = valid_det.nonzero().squeeze(-1);
+      auto det_valid_idx = mask_indices(valid_det);
       if (det_valid_idx.numel() > 0) {
         auto matched_tracks_subset =
             first_match.det_to_track.index_select(0, det_valid_idx);
@@ -250,7 +255,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
     // Unmatched detections from first step
     auto unmatched_first_mask =
         first_det_ids.lt(0);
-    auto unmatched_first_idx = unmatched_first_mask.nonzero().squeeze(-1);
+    auto unmatched_first_idx = mask_indices(unmatched_first_mask);
     auto first_unmatch_bboxes =
         unmatched_first_idx.numel()
         ? first_bboxes.index_select(0, unmatched_first_idx)
@@ -281,7 +286,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
           config_.weight_iou_with_det_scores,
           config_.match_iou_thrs_tentative);
       auto valid_det = tentative_match.det_to_track >= 0;
-      auto det_valid_idx = valid_det.nonzero().squeeze(-1);
+      auto det_valid_idx = mask_indices(valid_det);
       if (det_valid_idx.numel() > 0) {
         auto matched_tracks_subset =
             tentative_match.det_to_track.index_select(0, det_valid_idx);
@@ -306,7 +311,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
           track_last_frame_.index_select(0, confirmed_idx)
               .eq(frame_id - 1);
       auto selectable_mask = track_unmatched_mask & recent_mask;
-      second_selected_idx = selectable_mask.nonzero().squeeze(-1);
+      second_selected_idx = mask_indices(selectable_mask);
     } else {
       second_selected_idx = confirmed_idx.new_empty({0});
     }
@@ -322,7 +327,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
           /*weight_with_scores=*/false,
           config_.match_iou_thrs_low);
       auto valid_det = second_match.det_to_track >= 0;
-      auto det_valid_idx = valid_det.nonzero().squeeze(-1);
+      auto det_valid_idx = mask_indices(valid_det);
       if (det_valid_idx.numel() > 0) {
         auto matched_tracks_subset =
             second_match.det_to_track.index_select(0, det_valid_idx);
@@ -341,7 +346,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
     auto first_match_bboxes = first_bboxes;
     auto first_unmatch_bboxes_all = first_unmatch_bboxes;
     auto second_valid_mask = second_det_ids.ge(0);
-    auto second_valid_idx = second_valid_mask.nonzero().squeeze(-1);
+    auto second_valid_idx = mask_indices(second_valid_mask);
 
     auto cat_bboxes = std::vector<at::Tensor>{
         first_match_bboxes,
@@ -369,7 +374,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
     auto combined_track_indices = at::cat(cat_track_indices, 0);
 
     auto new_track_mask = combined_ids.lt(0);
-    auto new_track_idx = new_track_mask.nonzero().squeeze(-1);
+    auto new_track_idx = mask_indices(new_track_mask);
     auto new_track_count = new_track_idx.size(0);
     if (new_track_count > 0) {
       auto new_ids = at::arange(
@@ -382,7 +387,7 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCuda::track(
     ids = combined_ids;
 
     auto matched_tracks = combined_track_indices.ge(0);
-    auto matched_track_idx = matched_tracks.nonzero().squeeze(-1);
+    auto matched_track_idx = mask_indices(matched_tracks);
     at::Tensor matched_global_idx;
     if (matched_track_idx.numel() > 0) {
       matched_global_idx =
@@ -448,7 +453,7 @@ void BYTETrackerCuda::predict_tracks(int64_t frame_id) {
   auto not_prev_frame =
       track_last_frame_.ne(frame_id - 1);
   auto degrade_mask = confirmed_mask & not_prev_frame;
-  auto degrade_idx = degrade_mask.nonzero().squeeze(-1);
+  auto degrade_idx = mask_indices(degrade_mask);
   if (degrade_idx.numel() > 0) {
     auto values =
         track_mean_.index({degrade_idx, 7}) / 2.0;
@@ -470,11 +475,11 @@ void BYTETrackerCuda::remove_stale_tracks(int64_t frame_id) {
       track_states_.eq(static_cast<int64_t>(TrackState::Tentative)) &
       track_last_frame_.ne(frame_id);
   auto remove_mask = too_long | stale_tent;
-  auto remove_idx = remove_mask.nonzero().squeeze(-1);
+  auto remove_idx = mask_indices(remove_mask);
   if (remove_idx.numel() == 0) {
     return;
   }
-  auto keep_idx = (~remove_mask).nonzero().squeeze(-1);
+  auto keep_idx = mask_indices(~remove_mask);
   track_ids_ = track_ids_.index_select(0, keep_idx);
   track_states_ = track_states_.index_select(0, keep_idx);
   track_labels_ = track_labels_.index_select(0, keep_idx);
@@ -497,7 +502,7 @@ void BYTETrackerCuda::mark_unmatched_tracking(
     matched_mask.index_put_({matched_indices}, true);
   }
   auto to_lose_mask = tracking_mask & (~matched_mask);
-  auto lose_idx = to_lose_mask.nonzero().squeeze(-1);
+  auto lose_idx = mask_indices(to_lose_mask);
   if (lose_idx.numel() > 0) {
     track_states_.index_put_(
         {lose_idx}, static_cast<int64_t>(TrackState::Lost));
@@ -537,7 +542,7 @@ void BYTETrackerCuda::update_tracks(
   auto tent_mask =
       states.eq(static_cast<int64_t>(TrackState::Tentative)) &
       hits.ge(config_.num_tentatives);
-  auto tent_idx = tent_mask.nonzero().squeeze(-1);
+  auto tent_idx = mask_indices(tent_mask);
   if (tent_idx.numel() > 0) {
     auto to_activate = track_indices.index_select(0, tent_idx);
     track_states_.index_put_(
@@ -545,7 +550,7 @@ void BYTETrackerCuda::update_tracks(
   }
   auto lost_mask =
       states.eq(static_cast<int64_t>(TrackState::Lost));
-  auto lost_idx = lost_mask.nonzero().squeeze(-1);
+  auto lost_idx = mask_indices(lost_mask);
   if (lost_idx.numel() > 0) {
     auto to_activate = track_indices.index_select(0, lost_idx);
     track_states_.index_put_(
@@ -748,6 +753,14 @@ BYTETrackerCuda::MatchResult BYTETrackerCuda::assign_tracks(
   result.track_to_det = track_to_det;
   result.det_to_track = det_to_track;
   return result;
+}
+
+at::Tensor BYTETrackerCuda::mask_indices(const at::Tensor& mask) const {
+  if (!mask.defined() || mask.numel() == 0) {
+    return at::empty({0}, mask.options().dtype(at::kLong));
+  }
+  auto mask_bool = mask.to(at::kBool);
+  return mask_bool.nonzero().squeeze(-1);
 }
 
 } // namespace tracker

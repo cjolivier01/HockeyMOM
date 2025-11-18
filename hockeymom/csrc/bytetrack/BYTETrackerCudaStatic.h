@@ -7,7 +7,7 @@
 namespace hm {
 namespace tracker {
 
-class BYTETrackerCudaStatic {
+class BYTETrackerCudaStatic : public BYTETrackerCuda {
  public:
   explicit BYTETrackerCudaStatic(
       ByteTrackConfig config,
@@ -17,14 +17,12 @@ class BYTETrackerCudaStatic {
 
   ~BYTETrackerCudaStatic() = default;
 
-  void reset();
-
   std::size_t num_tracks() const {
-    return tracker_.num_tracks();
+    return BYTETrackerCuda::num_tracks();
   }
 
   std::unordered_map<std::string, at::Tensor> track(
-      std::unordered_map<std::string, at::Tensor>&& data);
+      std::unordered_map<std::string, at::Tensor>&& data) override;
 
   int64_t max_detections() const {
     return max_detections_;
@@ -34,14 +32,13 @@ class BYTETrackerCudaStatic {
     return max_tracks_;
   }
 
+ protected:
+  at::Tensor mask_indices(const at::Tensor& mask) const override;
+
  private:
-  ByteTrackConfig config_;
-  BYTETrackerCuda tracker_;
   int64_t max_detections_;
   int64_t max_tracks_;
-  c10::Device device_;
 };
 
 } // namespace tracker
 } // namespace hm
-

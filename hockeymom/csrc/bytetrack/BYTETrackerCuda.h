@@ -16,7 +16,7 @@ class BYTETrackerCuda {
       ByteTrackConfig config,
       c10::Device device = c10::Device(c10::kCUDA, 0));
 
-  ~BYTETrackerCuda() = default;
+  virtual ~BYTETrackerCuda() = default;
 
   void reset();
 
@@ -24,10 +24,19 @@ class BYTETrackerCuda {
     return static_cast<std::size_t>(track_ids_.size(0));
   }
 
-  std::unordered_map<std::string, at::Tensor> track(
+  virtual std::unordered_map<std::string, at::Tensor> track(
       std::unordered_map<std::string, at::Tensor>&& data);
 
- private:
+ protected:
+  std::unordered_map<std::string, at::Tensor> run_tracker(
+      std::unordered_map<std::string, at::Tensor>&& data);
+
+  virtual at::Tensor mask_indices(const at::Tensor& mask) const;
+
+  const c10::Device& device() const {
+    return device_;
+  }
+
   enum class TrackState : int64_t { Tentative = 0, Tracking = 1, Lost = 2 };
 
   at::Tensor ensure_bboxes(const at::Tensor& tensor) const;
