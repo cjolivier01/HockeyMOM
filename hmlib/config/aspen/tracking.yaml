@@ -127,11 +127,11 @@ aspen:
       depends: [detector, ice_boundaries, model_factory, boundaries]
       params:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
-        tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
-        tracker_kwargs:
-          device: cuda:0
-          max_detections: 256
-          max_tracks: 100
+        # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
+        # tracker_kwargs:
+        #   device: cuda:0
+        #   max_detections: 256
+        #   max_tracks: 100
 
     save_tracking:
       class: hmlib.aspen.trunks.save.SaveTrackingTrunk
