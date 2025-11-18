@@ -130,8 +130,8 @@ aspen:
         tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
         tracker_kwargs:
           device: cuda:0
-          max_detections: 512
-          max_tracks: 512
+          max_detections: 256
+          max_tracks: 100
 
     save_tracking:
       class: hmlib.aspen.trunks.save.SaveTrackingTrunk
