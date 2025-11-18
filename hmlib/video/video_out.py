@@ -661,10 +661,11 @@ class VideoOutput:
         else:
             current_boxes = current_boxes.clone()
 
+        current_boxes = current_boxes.to(online_im.device, non_blocking=True)
+
         if isinstance(online_im, StreamTensor):
             online_im._verbose = True
             online_im = online_im.get()
-            # online_im = online_im.wait(torch.cuda.current_stream())
 
         # if self._end_zones is not None:
         #     online_im = self._end_zones.draw(online_im)
@@ -692,9 +693,9 @@ class VideoOutput:
                 results["img"] = online_im
                 results = self._end_zones(results)
                 online_im = results.pop("img")
-        #
-        # END END-ZONE
-        #
+            #
+            # END END-ZONE
+            #
 
         #
         # Optional runtime panorama rotation via camera UI
