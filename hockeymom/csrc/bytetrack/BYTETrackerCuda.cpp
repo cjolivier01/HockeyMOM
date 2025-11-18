@@ -10,7 +10,7 @@
 #include <ATen/ops/eye.h>
 #include <ATen/ops/full.h>
 #include <ATen/ops/matmul.h>
-#include <ATen/ops/nonzero.h>
+#include <ATen/ops/masked_select.h>
 #include <ATen/ops/scalar_tensor.h>
 #include <ATen/ops/sum.h>
 #include <ATen/ops/where.h>
@@ -760,7 +760,9 @@ at::Tensor BYTETrackerCuda::mask_indices(const at::Tensor& mask) const {
     return at::empty({0}, mask.options().dtype(at::kLong));
   }
   auto mask_bool = mask.to(at::kBool);
-  return mask_bool.nonzero().squeeze(-1);
+  auto options = at::TensorOptions().dtype(at::kLong).device(mask.device());
+  auto indices = at::arange(mask_bool.size(0), options);
+  return indices.masked_select(mask_bool);
 }
 
 } // namespace tracker

@@ -1,12 +1,6 @@
 #include "BYTETrackerCudaStatic.h"
 
 #include <ATen/Functions.h>
-#include <ATen/cuda/CUDAContext.h>
-
-#include <thrust/copy.h>
-#include <thrust/device_ptr.h>
-#include <thrust/execution_policy.h>
-#include <thrust/iterator/counting_iterator.h>
 
 namespace hm {
 namespace tracker {
@@ -53,47 +47,6 @@ void copy_prefix(at::Tensor& dst, const at::Tensor& src, T count) {
     return;
   }
   dst.slice(0, 0, count).copy_(src);
-}
-
-at::Tensor build_index_tensor_cuda(const at::Tensor& mask) {
-  auto mask_bool = mask.to(at::kBool).contiguous();
-  auto numel = mask_bool.numel();
-  auto options = at::TensorOptions().dtype(at::kLong).device(mask.device());
-  auto out = at::empty({numel}, options);
-  if (numel == 0) {
-    return out.narrow(0, 0, 0);
-  }
-  auto stream = at::cuda::getCurrentCUDAStream(mask.device().index());
-  auto begin = thrust::make_counting_iterator<int64_t>(0);
-  auto mask_ptr = mask_bool.data_ptr<bool>();
-  auto out_ptr = out.data_ptr<int64_t>();
-  thrust::device_ptr<const bool> mask_dev(mask_ptr);
-  thrust::device_ptr<int64_t> out_dev(out_ptr);
-  auto end = thrust::copy_if(
-      thrust::cuda::par.on(stream.stream()),
-      begin,
-      begin + numel,
-      mask_dev,
-      out_dev,
-      [] __device__(bool keep) { return keep; });
-  auto count = static_cast<int64_t>(end - out_dev);
-  return out.narrow(0, 0, count);
-}
-
-at::Tensor build_index_tensor_cpu(const at::Tensor& mask) {
-  auto mask_bool = mask.to(at::kBool).contiguous();
-  auto numel = mask_bool.numel();
-  auto options = at::TensorOptions().dtype(at::kLong).device(mask.device());
-  auto out = at::empty({numel}, options);
-  auto mask_ptr = mask_bool.data_ptr<bool>();
-  auto out_ptr = out.data_ptr<int64_t>();
-  int64_t count = 0;
-  for (int64_t i = 0; i < numel; ++i) {
-    if (mask_ptr[i]) {
-      out_ptr[count++] = i;
-    }
-  }
-  return out.narrow(0, 0, count);
 }
 
 } // namespace
@@ -202,16 +155,6 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCudaStatic::track(
       at::full({1}, num_detections, long_options);
 
   return data;
-}
-
-at::Tensor BYTETrackerCudaStatic::mask_indices(const at::Tensor& mask) const {
-  if (!mask.defined() || mask.numel() == 0) {
-    return at::empty({0}, mask.options().dtype(at::kLong));
-  }
-  if (mask.is_cuda()) {
-    return build_index_tensor_cuda(mask);
-  }
-  return build_index_tensor_cpu(mask);
 }
 
 } // namespace tracker
