@@ -32,6 +32,9 @@ class BYTETrackerCudaStatic : public BYTETrackerCuda {
     return max_tracks_;
   }
 
+ protected:
+  at::Tensor mask_indices(const at::Tensor& mask) const override;
+
  private:
   int64_t max_detections_;
   int64_t max_tracks_;

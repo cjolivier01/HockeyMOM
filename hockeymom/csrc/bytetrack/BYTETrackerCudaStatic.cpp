@@ -2,6 +2,8 @@
 
 #include <ATen/Functions.h>
 
+#include <vector>
+
 namespace hm {
 namespace tracker {
 namespace {
@@ -155,6 +157,29 @@ std::unordered_map<std::string, at::Tensor> BYTETrackerCudaStatic::track(
       at::full({1}, num_detections, long_options);
 
   return data;
+}
+
+at::Tensor BYTETrackerCudaStatic::mask_indices(const at::Tensor& mask) const {
+  if (!mask.defined() || mask.numel() == 0) {
+    return at::empty({0}, mask.options().dtype(at::kLong));
+  }
+  auto mask_cpu = mask.to(at::kCPU, at::kBool);
+  auto numel = mask_cpu.numel();
+  const bool* mask_ptr = mask_cpu.data_ptr<bool>();
+  std::vector<int64_t> indices;
+  indices.reserve(numel);
+  for (int64_t i = 0; i < numel; ++i) {
+    if (mask_ptr[i]) {
+      indices.push_back(i);
+    }
+  }
+  auto options = at::TensorOptions().dtype(at::kLong).device(device());
+  auto out = at::empty({static_cast<int64_t>(indices.size())}, options);
+  if (!indices.empty()) {
+    auto cpu_tensor = at::from_blob(indices.data(), {static_cast<int64_t>(indices.size())}, at::TensorOptions().dtype(at::kLong));
+    out.copy_(cpu_tensor);
+  }
+  return out;
 }
 
 } // namespace tracker
