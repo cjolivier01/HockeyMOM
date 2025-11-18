@@ -421,8 +421,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     raise
             # END READ NEXT IMAGE
 
-            torch.cuda.synchronize()
-
             # if self._path_list:
             #     show_image(
             #         # show_cuda_tensor(
