@@ -1113,15 +1113,6 @@ def main():
         setattr(args, t, True)
 
     game_config["initial_args"] = vars(args)
-    # if args.tracker is None:
-    #     args.tracker = get_nested_value(game_config, "model.tracker.type")
-    # elif args.tracker != get_nested_value(game_config, "model.tracker.type"):
-    #     game_config = update_config(
-    #         root_dir=ROOT_DIR,
-    #         baseline_config=game_config,
-    #         config_type="models",
-    #         config_name="tracker_" + args.tracker,
-    #     )
     args.game_config = game_config
     args = hm_opts.init(args)
 
@@ -1165,8 +1156,8 @@ def main():
 if __name__ == "__main__":
     try:
         # get off the NULL stream right away
-        # with torch.cuda.stream(torch.cuda.Stream(torch.device("cuda"))):
-        main()
+        with torch.cuda.stream(torch.cuda.Stream(torch.device("cuda"))):
+            main()
     except Exception as e:
         print(f"Exception during processing: {e}")
         traceback.print_exc()

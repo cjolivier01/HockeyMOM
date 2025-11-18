@@ -4,8 +4,8 @@ Constructs a directed acyclic graph of trunks, then runs them in
 topological order while sharing a mutable context dictionary.
 """
 
-import importlib
 import contextlib
+import importlib
 import logging
 import os
 import threading
@@ -15,6 +15,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import networkx as nx
 import torch
+
+from hmlib.aspen.trunks.base import Trunk
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +107,8 @@ class AspenNet(torch.nn.Module):
                 module = _NoOpTrunk(name=name)
             else:
                 module = self._instantiate(cls_path, params)
+            if isinstance(module, Trunk):
+                module.set_profiler(self._profiler)
             node = _Node(name=name, cls_path=cls_path, depends=depends, params=params, module=module)
             setattr(self, f"trunk_{name}", module)
             self.nodes.append(node)
@@ -273,11 +277,14 @@ class AspenNet(torch.nn.Module):
     def _execute_node(self, node: _Node, context: Dict[str, Any]) -> None:
         trunk = node.module
         subctx = self._make_subcontext(trunk, context) if self.minimal_context else context
-        if getattr(self._profiler, "enabled", False):
-            name = f"aspen.trunk.{node.name}"
-            with self._profiler.rf(name):
-                out = trunk(subctx) or {}
+        name = f"aspen.trunk.{node.name}"
+        if isinstance(trunk, Trunk):
+            prof_ctx = trunk.profile_scope(name)
+        elif getattr(self._profiler, "enabled", False):
+            prof_ctx = self._profiler.rf(name)
         else:
+            prof_ctx = contextlib.nullcontext()
+        with prof_ctx:
             out = trunk(subctx) or {}
 
         declared = set(getattr(trunk, "output_keys", lambda: set())())

@@ -263,7 +263,7 @@ class hm_opts(object):
             "--profile-step-count",
             dest="profile_step_count",
             type=int,
-            default=1,
+            default=0,
             help="Number of iterations to profile once started (default: 1)",
         )
         prof.add_argument(

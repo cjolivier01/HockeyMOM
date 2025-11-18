@@ -209,13 +209,7 @@ def build_profiler_from_args(args, save_dir_fallback: Optional[str] = None) -> H
         except Exception:
             start_step_idx = 0
 
-    raw_step_count = getattr(args, "profile_step_count", None)
-    step_count = None
-    if raw_step_count is not None:
-        try:
-            step_count = max(int(raw_step_count), 1)
-        except Exception:
-            step_count = 1
+    step_count = getattr(args, "profile_step_count", 0)
 
     opts = ProfilerOptions(
         enabled=enabled,
