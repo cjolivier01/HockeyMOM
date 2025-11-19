@@ -189,7 +189,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             no_cuda_streams = True
         # max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
-        self._no_cuda_streams = no_cuda_streams
+        self._no_cuda_streams = no_cuda_streams or not async_mode
         self._dtype = dtype
         self._verbose = verbose
         self._batch_size = batch_size
