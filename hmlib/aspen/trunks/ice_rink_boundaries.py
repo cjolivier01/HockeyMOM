@@ -23,9 +23,17 @@ class IceRinkSegmBoundariesTrunk(Trunk):
       - data: with per-frame pred_instances filtered by rink mask; optionally overlayed mask
     """
 
-    def __init__(self, enabled: bool = True, det_thresh: float = 0.05):
+    def __init__(
+        self,
+        enabled: bool = True,
+        det_thresh: float = 0.05,
+        max_detections_in_mask: Optional[int] = None,
+    ):
         super().__init__(enabled=enabled)
         self._det_thresh = float(det_thresh)
+        self._max_detections_in_mask: Optional[int] = (
+            int(max_detections_in_mask) if max_detections_in_mask is not None else None
+        )
         self._segm = None
 
     def _ensure_pipeline(self, context: Dict[str, Any], draw: bool):
@@ -97,12 +105,44 @@ class IceRinkSegmBoundariesTrunk(Trunk):
             if original_images is not None:
                 pd_input["original_images"] = original_images
 
-            # Reuse the pipeline module's forward for pruning and optional drawing
-            out = self._segm.forward(pd_input)
+        # Reuse the pipeline module's forward for pruning and optional drawing
+        out = self._segm.forward(pd_input)
 
-            new_bboxes = out["det_bboxes"]
-            new_labels = out["labels"]
-            new_scores = out["scores"]
+        new_bboxes = out["det_bboxes"]
+        new_labels = out["labels"]
+        new_scores = out["scores"]
+
+        # Optionally limit the number of detections that survive the rink mask.
+        # This keeps only the top scores within the mask and avoids wasting
+        # downstream static-detector capacity on low-score in-mask items.
+        if self._max_detections_in_mask is not None:
+            try:
+                if isinstance(new_scores, torch.Tensor):
+                    scores_t = new_scores
+                else:
+                    scores_t = torch.as_tensor(new_scores)
+                total = int(scores_t.numel())
+                if total > self._max_detections_in_mask:
+                    k = int(self._max_detections_in_mask)
+                    topk_idx = torch.topk(scores_t, k=k).indices
+                    # Sort indices to keep detections in score-descending but
+                    # stable order for downstream consumers.
+                    topk_idx, _ = torch.sort(topk_idx)
+                    if isinstance(new_bboxes, torch.Tensor):
+                        new_bboxes = new_bboxes.index_select(0, topk_idx)
+                    else:
+                        new_bboxes = torch.as_tensor(new_bboxes).index_select(0, topk_idx)
+                    if isinstance(new_labels, torch.Tensor):
+                        new_labels = new_labels.index_select(0, topk_idx)
+                    else:
+                        new_labels = torch.as_tensor(new_labels).index_select(0, topk_idx)
+                    if isinstance(new_scores, torch.Tensor):
+                        new_scores = new_scores.index_select(0, topk_idx)
+                    else:
+                        new_scores = scores_t.index_select(0, topk_idx)
+            except Exception:
+                # If anything goes wrong, fall back to un-capped outputs.
+                pass
 
             # Try to propagate source pose indices through post-det filtering
             new_src_pose_idx: Optional[torch.Tensor] = None
@@ -150,7 +190,9 @@ class IceRinkSegmBoundariesTrunk(Trunk):
                                 for j in range(len(nb)):
                                     if new_src_pose_idx[j] < 0 and best_iou[j] > 0:
                                         try:
-                                            new_src_pose_idx[j] = int(det_src_pose_idx[int(best_idx[j].item())])
+                                            new_src_pose_idx[j] = int(
+                                                det_src_pose_idx[int(best_idx[j].item())]
+                                            )
                                         except Exception:
                                             pass
             except Exception:

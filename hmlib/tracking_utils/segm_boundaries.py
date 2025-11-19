@@ -40,7 +40,8 @@ class SegmBoundaries:
         self._lower_bbox_bottom_by_height_ratio = lower_bbox_bottom_by_height_ratio
         self._normalization_scale: float | None = None
         self._draw = draw
-        self._color_mask = torch.tensor([0, 255, 0], dtype=torch.uint8).reshape(3, 1)
+        # shape (3, 1, 1) so it broadcasts over (C, H, W)
+        self._color_mask = torch.tensor([0, 255, 0], dtype=torch.uint8).reshape(3, 1, 1)
         self.set_segment_mask_and_centroid(segment_mask, centroid)
 
     def set_segment_mask_and_centroid(self, segment_mask: torch.Tensor, centroid: torch.Tensor):
@@ -75,7 +76,13 @@ class SegmBoundaries:
             img = make_channels_first(img)
             if not torch.is_floating_point(img):
                 img = img.to(torch.float, non_blocking=True)
-            img[:, :, self._segment_mask] = img[:, :, self._segment_mask] * (1 - alpha) + self._color_mask * alpha
+            # Broadcast mask over channels to avoid boolean indexing with dynamic shapes
+            mask = self._segment_mask
+            if mask.dtype != torch.bool:
+                mask = mask.to(torch.bool)
+            # (1, H, W) -> (C, H, W) via broadcasting
+            mask = mask.unsqueeze(0)
+            img = torch.where(mask, img * (1 - alpha) + self._color_mask * alpha, img)
         if self._centroid is not None:
             img = ptv.draw_filled_square(
                 img,
@@ -120,58 +127,74 @@ class SegmBoundaries:
         return bottoms
 
     def prune_items_index(self, batch_item_bboxes: Union[torch.Tensor, np.ndarray]):
+        # Ensure bboxes are a torch tensor
+        if isinstance(batch_item_bboxes, np.ndarray):
+            bboxes = torch.from_numpy(batch_item_bboxes)
+        else:
+            bboxes = batch_item_bboxes
+
         if (
             self._raise_bbox_center_by_height_ratio or self._raise_bbox_center_by_height_ratio != 1
         ) or (
             self._lower_bbox_bottom_by_height_ratio or self._lower_bbox_bottom_by_height_ratio != 1
         ):
-            bbox_heights = calculate_box_heights(batch_item_bboxes)
+            bbox_heights = calculate_box_heights(bboxes)
         else:
             bbox_heights = None
 
-        all_centers = self.get_centers(bbox_tlbr=batch_item_bboxes)
+        all_centers = self.get_centers(bbox_tlbr=bboxes)
 
         # Center points are for the bottom of the rink (usually top of the wall),
         # so we may want to move it up a bit (reduce Y, since Y is up)
         if self._raise_bbox_center_by_height_ratio or self._raise_bbox_center_by_height_ratio != 1:
             all_centers[:, 1] -= bbox_heights * self._raise_bbox_center_by_height_ratio
 
-        all_bottoms = self.get_bottoms(bbox_tlbr=batch_item_bboxes)
+        all_bottoms = self.get_bottoms(bbox_tlbr=bboxes)
 
         # Bottom points are for the top of the rink, since we can see the ice on the far
         # side at the bottom of the wall, so we may want to move that down a little (larger Y)
         if self._lower_bbox_bottom_by_height_ratio or self._lower_bbox_bottom_by_height_ratio != 1:
             all_bottoms[:, 1] -= bbox_heights * self._lower_bbox_bottom_by_height_ratio
 
+        # Choose center vs bottom points based on centroid
+        y_threshold = self._centroid[1]
+        if isinstance(y_threshold, torch.Tensor) and y_threshold.numel() == 1:
+            y_threshold = y_threshold.item()
         points = select_points(
-            y_threshold=self._centroid[1],
+            y_threshold=y_threshold,
             points_when_above=all_bottoms,
             points_when_below=all_centers,
         )
 
-        valid_x = (points[:, 0] >= 0) & (points[:, 0] < self._segment_mask.shape[1])
-        valid_y = (points[:, 1] >= 0) & (points[:, 1] < self._segment_mask.shape[0])
+        if not isinstance(points, torch.Tensor):
+            points = torch.as_tensor(points)
+
+        # Move the segment mask to the same device as the points once
+        if self._segment_mask.device != points.device:
+            self._segment_mask = self._segment_mask.to(device=points.device, non_blocking=True)
+
+        height = int(self._segment_mask.shape[0])
+        width = int(self._segment_mask.shape[1])
+
+        # Valid coordinates inside the mask bounds
+        valid_x = (points[:, 0] >= 0) & (points[:, 0] < width)
+        valid_y = (points[:, 1] >= 0) & (points[:, 1] < height)
         valid_points = valid_x & valid_y
 
-        # Filter points to keep only valid ones
-        valid_points_indices = torch.where(valid_points)[0]
-        valid_points_filtered = points[valid_points_indices]
+        # Clamp coordinates to valid range for indexing, then mask out invalid ones later.
+        xs = points[:, 0].to(dtype=torch.long)
+        ys = points[:, 1].to(dtype=torch.long)
+        xs = xs.clamp(0, width - 1)
+        ys = ys.clamp(0, height - 1)
 
-        if self._segment_mask.device != valid_points_filtered.device:
-            self._segment_mask = self._segment_mask.to(
-                device=valid_points_filtered.device, non_blocking=True
-            )
+        # Sample mask at all candidate points (fixed shape: one value per bbox)
+        mask_values = self._segment_mask[ys, xs]
+        if mask_values.dtype != torch.bool:
+            mask_values = mask_values.to(torch.bool)
 
-        # Check mask values at these points
-        mask_values = self._segment_mask[
-            valid_points_filtered[:, 1].to(torch.long, non_blocking=True),
-            valid_points_filtered[:, 0].to(torch.long, non_blocking=True),
-        ]
-
-        # Get indices of valid points where the mask is also True
-        final_indices = valid_points_indices[mask_values]
-
-        return final_indices
+        # Keep boxes with valid coordinates that also lie inside the rink mask
+        keep_mask = valid_points & mask_values
+        return keep_mask
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
