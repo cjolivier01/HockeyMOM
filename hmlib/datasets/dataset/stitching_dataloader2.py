@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from cuda_stacktrace import CudaStackTracer
+#from cuda_stacktrace import CudaStackTracer
 
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
@@ -536,7 +536,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                     self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
 
                 stream = self._remapping_stream if self._async_mode else None
-                with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False, stream=stream):
+                with contextlib.nullcontext(): # CudaStackTracer(functions="cudaStreamSynchronize", enabled=False, stream=stream):
                     with cuda_stream_scope(stream), torch.no_grad():
                         imgs_1 = to_tensor(imgs_1)
                         imgs_2 = to_tensor(imgs_2)
