@@ -2373,7 +2373,6 @@ int enblend_main(
     std::vector<std::string> input_files) {
   std::vector<std::string> args;
   args.push_back("python");
-  // args.push_back("--timing");
   args.push_back("-o");
   args.push_back(output_image_file_name);
   for (const auto& s : input_files) {

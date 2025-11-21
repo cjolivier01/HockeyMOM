@@ -1,0 +1,569 @@
+from typing import Any, Dict, Optional, List
+
+import torch
+
+from .base import Trunk
+
+
+class PoseInferencerFactoryTrunk(Trunk):
+    """
+    Builds and caches an MMPoseInferencer and exposes it via context['pose_inferencer'].
+
+    Params:
+      - pose_config: str path to pose2d config (mmengine-style path or alias)
+      - pose_checkpoint: Optional[str] checkpoint path/URL
+      - device: Optional[str] device string (overrides context['device'] if provided)
+      - show_progress: bool (default False)
+      - filter_args: Optional[Dict] default preprocess/forward args (bbox_thr, nms_thr, etc.)
+    """
+
+    def __init__(
+        self,
+        pose_config: Optional[str] = None,
+        pose_checkpoint: Optional[str] = None,
+        device: Optional[str] = None,
+        show_progress: bool = False,
+        filter_args: Optional[Dict[str, Any]] = None,
+        disable_internal_detector: bool = False,
+        enabled: bool = True,
+        onnx: Optional[Dict[str, Any]] = None,
+        trt: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(enabled=enabled)
+        self._pose_config = pose_config
+        self._pose_checkpoint = pose_checkpoint
+        self._device = device
+        self._show_progress = bool(show_progress)
+        self._filter_args = dict(filter_args or {})
+        self._disable_internal_detector = bool(disable_internal_detector)
+        self._inferencer = None
+        # ONNX runtime/export options for pose (backbone+neck)
+        self._onnx_cfg: Dict[str, Any] = dict(onnx or {})
+        self._onnx_runner: Optional[_OnnxPoseRunner] = None
+        # TensorRT options for pose (backbone+neck)
+        self._trt_cfg: Dict[str, Any] = dict(trt or {})
+        self._trt_runner: Optional[_TrtPoseRunner] = None
+
+    def _default_filter_args(self, pose_config: Optional[str]) -> Dict[str, Any]:
+        # Defaults taken from hmtrack CLI logic
+        args = dict(bbox_thr=0.2, nms_thr=0.3, pose_based_nms=False)
+        if not pose_config:
+            return args
+        # Customize by model string
+        spec = {
+            "yoloxpose": dict(bbox_thr=0.01, nms_thr=0.65, pose_based_nms=True),
+            "rtmo": dict(bbox_thr=0.1, nms_thr=0.65, pose_based_nms=True),
+            "rtmp": dict(kpt_thr=0.3, pose_based_nms=False, disable_norm_pose_2d=False),
+        }
+        for k, v in spec.items():
+            if k in pose_config:
+                args.update(v)
+                break
+        return args
+
+    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
+        if not self.enabled:
+            return {}
+        if self._inferencer is None:
+            from mmpose.apis.inferencers import MMPoseInferencer
+
+            cfg = self._pose_config
+            ckpt = self._pose_checkpoint
+            dev = self._device
+            if dev is None:
+                device_obj = context.get("device")
+                if device_obj is not None:
+                    dev = str(device_obj)
+            # Skip initializing MMPose's own detector when requested or when
+            # detections are already provided upstream.
+            det_model = None
+            try:
+                if self._disable_internal_detector or bool(
+                    context.get("using_precalculated_detection", False)
+                ):
+                    det_model = "whole_image"
+            except Exception:
+                det_model = None
+
+            inferencer = MMPoseInferencer(
+                pose2d=cfg,
+                pose2d_weights=ckpt,
+                device=dev,
+                det_model=det_model,
+                show_progress=self._show_progress,
+            )
+            # Merge default + provided filter args
+            fa = self._default_filter_args(cfg)
+            fa.update(self._filter_args)
+            inferencer.filter_args = fa
+            self._inferencer = inferencer
+
+            # Initialize optional accelerators using underlying inferencer's model
+            try:
+                # Prefer TensorRT if enabled
+                if bool(self._trt_cfg.get("enable", False)):
+                    pose_impl = getattr(self._inferencer, "inferencer", None)
+                    if pose_impl is not None and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown":
+                        self._trt_runner = _TrtPoseRunner(
+                            model=pose_impl.model,
+                            engine_path=str(self._trt_cfg.get("engine", "pose.engine")),
+                            force_build=bool(self._trt_cfg.get("force_build", False)),
+                            fp16=bool(self._trt_cfg.get("fp16", True)),
+                            int8=bool(self._trt_cfg.get("int8", False)),
+                            calib_frames=int(self._trt_cfg.get("calib_frames", 0)),
+                        )
+                        setattr(self._inferencer, "_hm_trt_runner", self._trt_runner)
+                # Otherwise, enable ONNX if requested
+                if self._trt_runner is None and bool(self._onnx_cfg.get("enable", False)):
+                    pose_impl = getattr(self._inferencer, "inferencer", None)
+                    if pose_impl is not None and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown":
+                        self._onnx_runner = _OnnxPoseRunner(
+                            model=pose_impl.model,
+                            onnx_path=str(self._onnx_cfg.get("path", "pose.onnx")),
+                            force_export=bool(self._onnx_cfg.get("force_export", False)),
+                            quantize_int8=bool(self._onnx_cfg.get("quantize_int8", False)),
+                            calib_frames=int(self._onnx_cfg.get("calib_frames", 0)),
+                        )
+                        # Attach for PoseTrunk to pick up
+                        setattr(self._inferencer, "_hm_onnx_runner", self._onnx_runner)
+            except Exception:
+                # Non-fatal; fall back to PyTorch model
+                self._onnx_runner = None
+                self._trt_runner = None
+
+        context["pose_inferencer"] = self._inferencer
+        return {"pose_inferencer": self._inferencer}
+
+    def input_keys(self):
+        return {"device"}
+
+    def output_keys(self):
+        return {"pose_inferencer"}
+
+
+class _BackboneNeckWrapper(torch.nn.Module):
+    """Expose backbone+neck forward for pose export.
+
+    Returns a single feature map tensor or a tuple of tensors, depending on the model.
+    """
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.backbone = model.backbone
+        self.neck = getattr(model, "neck", None)
+
+    def forward(self, x: torch.Tensor):  # type: ignore[override]
+        feats = self.backbone(x)
+        if self.neck is not None:
+            feats = self.neck(feats)
+        return feats
+
+
+class _OnnxPoseRunner:
+    """Run pose model with ONNX Runtime for backbone+neck, then decode with PyTorch head.
+
+    This integrates with PoseTrunk's bypass path by attaching to the inferencer
+    as `._hm_onnx_runner` so PoseTrunk can optionally use it.
+    """
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        onnx_path: str,
+        force_export: bool = False,
+        quantize_int8: bool = False,
+        calib_frames: int = 0,
+    ):
+        self.model = model
+        self.onnx_path = onnx_path
+        self.force_export = force_export
+        self.quantize_int8 = bool(quantize_int8)
+        self.calib_target = int(calib_frames or 0)
+        self._calib_inputs: List[Any] = []
+        self._quantized = False
+        self._ort_sess = None
+        self._providers = None
+        self._use_cuda = False
+        self._export_and_create_session()
+
+    def _export_and_create_session(self) -> None:
+        import os
+        export_needed = self.force_export or (not os.path.exists(self.onnx_path))
+        if export_needed:
+            wrapper = _BackboneNeckWrapper(self.model).eval()
+            try:
+                device = next(self.model.parameters()).device
+            except StopIteration:
+                device = torch.device("cpu")
+            wrapper.to(device)
+            # Use a typical person crop size; dynamic H/W enabled
+            sample = torch.randn(1, 3, 256, 192, device=device, dtype=torch.float32)
+            with torch.no_grad():
+                torch.onnx.export(
+                    wrapper,
+                    sample,
+                    self.onnx_path,
+                    export_params=True,
+                    opset_version=13,
+                    do_constant_folding=True,
+                    input_names=["images"],
+                    output_names=["feats"],
+                    dynamic_axes={
+                        "images": {0: "batch", 2: "height", 3: "width"},
+                        "feats": {0: "batch"},
+                    },
+                )
+        import onnxruntime as ort  # type: ignore
+        # Session options with higher optimization level
+        so = ort.SessionOptions()
+        try:
+            so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        except Exception:
+            pass
+        so.enable_mem_pattern = True
+        so.enable_cpu_mem_arena = True
+        avail = ort.get_available_providers()
+        if "CUDAExecutionProvider" in avail:
+            self._providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            self._use_cuda = True
+        else:
+            self._providers = ["CPUExecutionProvider"]
+            self._use_cuda = False
+        self._ort_sess = ort.InferenceSession(self.onnx_path, sess_options=so, providers=self._providers)  # type: ignore
+
+    def _run_feats(self, x: torch.Tensor) -> Any:
+        import numpy as np
+        x = x.to(torch.float32)
+        # Calibration capture from CPU
+        if self.quantize_int8 and not self._quantized and self.calib_target > 0:
+            try:
+                x_np = x.detach().to("cpu").numpy()
+                self._calib_inputs.append(x_np.copy())
+            except Exception:
+                pass
+        try:
+            dev = next(self.model.parameters()).device
+        except StopIteration:
+            dev = torch.device("cpu")
+        if self._use_cuda and x.is_cuda:
+            io = self._ort_sess.io_binding()
+            input_name = self._ort_sess.get_inputs()[0].name
+            xc = x.contiguous()
+            io.bind_input(
+                name=input_name,
+                device_type="cuda",
+                device_id=int(xc.device.index or 0),
+                element_type=np.float32,
+                shape=list(xc.shape),
+                buffer_ptr=int(xc.data_ptr()),
+            )
+            for out in self._ort_sess.get_outputs():
+                io.bind_output(out.name, device_type="cuda")
+            self._ort_sess.run_with_iobinding(io)
+            ort_outs = io.get_outputs()
+            outs_t: List[torch.Tensor] = []
+            try:
+                from torch.utils.dlpack import from_dlpack  # type: ignore
+                for ov in ort_outs:
+                    outs_t.append(from_dlpack(ov.to_dlpack()).to(device=dev))
+            except Exception:
+                for ov in ort_outs:
+                    np_arr = np.array(ov)
+                    outs_t.append(torch.from_numpy(np_arr).to(device=dev))
+            if len(outs_t) == 1:
+                return outs_t[0]
+            return outs_t
+        # CPU fallback
+        x_np = x.detach().to("cpu").numpy()
+        outputs = self._ort_sess.run(None, {self._ort_sess.get_inputs()[0].name: x_np})
+        if len(outputs) == 1:
+            out = torch.from_numpy(outputs[0]).to(device=dev)
+            return out
+        return [torch.from_numpy(o).to(device=dev) for o in outputs]
+
+    def _maybe_quantize_after_calib(self) -> None:
+        if not self.quantize_int8 or self._quantized:
+            return
+        if self.calib_target <= 0 or len(self._calib_inputs) < self.calib_target:
+            return
+        try:
+            from onnxruntime.quantization import CalibrationDataReader, QuantType, QuantFormat, quantize_static  # type: ignore
+        except Exception:
+            self._calib_inputs = []
+            return
+        input_name = self._ort_sess.get_inputs()[0].name
+        class _Reader(CalibrationDataReader):  # type: ignore
+            def __init__(self, name, samples): self.name, self._it = name, iter(samples)
+            def get_next(self):
+                try:
+                    x = next(self._it)
+                    return {self.name: x}
+                except StopIteration:
+                    return None
+        q_path = self.onnx_path.replace('.onnx', '.int8.onnx')
+        try:
+            quantize_static(
+                model_input=self.onnx_path,
+                model_output=q_path,
+                calibration_data_reader=_Reader(input_name, self._calib_inputs),
+                quant_format=QuantFormat.QDQ,
+                activation_type=QuantType.QUInt8,
+                weight_type=QuantType.QInt8,
+                per_channel=True,
+            )
+            import onnxruntime as ort  # type: ignore
+            self._ort_sess = ort.InferenceSession(q_path, providers=self._providers)
+            self._quantized = True
+        except Exception:
+            pass
+        finally:
+            self._calib_inputs = []
+
+    def forward(self, proc_inputs: Dict[str, Any]):
+        """Best-effort ONNX-backed forward. Falls back to model if decoding fails."""
+        try:
+            inputs = proc_inputs["inputs"]  # Tensor (N,C,H,W)
+            datas = proc_inputs.get("data_samples", None)
+            feats = self._run_feats(inputs)
+            # Decode with model head if available
+            head = getattr(self.model, "head", None)
+            if head is not None and hasattr(head, "predict") and datas is not None:
+                with torch.no_grad():
+                    preds = head.predict(feats, datas)
+                # Quantize after gathering calibration frames
+                self._maybe_quantize_after_calib()
+                return preds
+        except Exception:
+            pass
+        # Fallback: run model directly
+        with torch.no_grad():
+            try:
+                return self.model.test_step(proc_inputs)
+            except Exception:
+                try:
+                    return self.model(**proc_inputs)
+                except Exception:
+                    return []
+
+
+class _TrtPoseRunner:
+    """Run pose backbone+neck with TensorRT via torch2trt; decode with PyTorch head."""
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        engine_path: str,
+        force_build: bool = False,
+        fp16: bool = True,
+        int8: bool = False,
+        calib_frames: int = 0,
+    ):
+        self.model = model
+        self.engine_path = engine_path
+        self.force_build = bool(force_build)
+        self.fp16 = bool(fp16)
+        self.int8 = bool(int8)
+        self.calib_frames = int(calib_frames or 0)
+        self._trt_module = None
+        self._calib_dataset = None
+        self._wrapper_module = None
+        self._build_or_load()
+
+    def _build_or_load(self) -> None:
+        try:
+            import torch2trt  # type: ignore
+        except Exception as ex:
+            raise RuntimeError("torch2trt is required for TensorRT pose path but is not available") from ex
+        import os
+        # Try to load an existing engine at the provided path; otherwise, defer building
+        if (not self.force_build) and os.path.exists(self.engine_path):
+            try:
+                trt_mod = torch2trt.TRTModule()
+                import torch as _torch
+
+                trt_mod.load_state_dict(_torch.load(self.engine_path))
+                self._trt_module = trt_mod
+                return
+            except Exception:
+                pass
+        # Defer building until first inputs are seen so shapes/dtypes are known
+        return
+
+    def _ensure_trt_engine(self, shape: torch.Size, dtype: torch.dtype) -> None:
+        if self._trt_module is not None:
+            return
+        try:
+            import torch2trt  # type: ignore
+        except Exception:
+            return
+        from pathlib import Path as _Path
+        import os
+        # Append shape (and int8 tag) to engine filename to specialize per input
+        base = _Path(self.engine_path)
+        portions = [base.stem]
+        if self.int8:
+            portions.append("int8")
+        for dim in shape:
+            portions.append(str(dim))
+        engine_path = base.with_stem("_".join(portions))
+        if (not self.force_build) and os.path.exists(engine_path):
+            try:
+                trt_mod = torch2trt.TRTModule()
+                import torch as _torch
+                trt_mod.load_state_dict(_torch.load(engine_path))
+                self._trt_module = trt_mod
+                return
+            except Exception:
+                pass
+        # Build engine now
+        try:
+            try:
+                dev = next(self.model.parameters()).device
+            except StopIteration:
+                dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
+            with torch.inference_mode():
+                if self.int8:
+                    if self._calib_dataset is None or len(self._calib_dataset) == 0:
+                        return
+                    trt_mod = torch2trt.torch2trt(
+                        wrapper,
+                        self._calib_dataset,
+                        int8_mode=True,
+                        int8_calib_dataset=self._calib_dataset,
+                        fp16_mode=False,
+                        max_workspace_size=1 << 28,
+                    )
+                else:
+                    sample = torch.randn(*shape, device=dev, dtype=dtype)
+                    trt_mod = torch2trt.torch2trt(
+                        wrapper,
+                        [sample],
+                        fp16_mode=self.fp16,
+                        max_batch_size=shape[0],
+                        max_workspace_size=1 << 28,
+                    )
+            try:
+                import torch as _torch
+                _torch.save(trt_mod.state_dict(), engine_path)
+            except Exception:
+                pass
+            self._trt_module = trt_mod
+        except Exception as ex:
+            print(f"TRT build for pose failed: {ex}")
+
+    def _maybe_build_int8(self, sample_shape: torch.Size, sample_dtype: torch.dtype):
+        if self._trt_module is not None:
+            return
+        if not self.int8:
+            return
+        if self.calib_frames <= 0:
+            return
+        try:
+            import torch2trt  # type: ignore
+        except Exception:
+            return
+        import os
+        # Prepare dataset and build when enough samples
+        if self._calib_dataset is None:
+            try:
+                from torch2trt import ListDataset  # type: ignore
+            except Exception:
+                return
+            self._calib_dataset = ListDataset()
+        if len(self._calib_dataset) < self.calib_frames:
+            return
+        # Build INT8 engine
+        try:
+            dev = next(self.model.parameters()).device
+        except StopIteration:
+            dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
+        try:
+            with torch.inference_mode():
+                trt_mod = torch2trt.torch2trt(
+                    wrapper,
+                    self._calib_dataset,
+                    int8_mode=True,
+                    int8_calib_dataset=self._calib_dataset,
+                    fp16_mode=False,
+                    max_workspace_size=1 << 28,
+                )
+            # Save
+            try:
+                import torch as _torch
+                _torch.save(trt_mod.state_dict(), self.engine_path)
+            except Exception:
+                pass
+            self._trt_module = trt_mod
+        except Exception as ex:
+            # Fallback: try building non-int8 engine to proceed
+            print(f"Pose INT8 build failed, falling back to non-INT8: {ex}")
+            try:
+                with torch.inference_mode():
+                    trt_mod = torch2trt.torch2trt(
+                        wrapper,
+                        [torch.randn(*sample_shape, device=dev, dtype=sample_dtype)],
+                        fp16_mode=self.fp16,
+                        max_batch_size=1,
+                        max_workspace_size=1 << 28,
+                    )
+                try:
+                    import torch as _torch
+                    _torch.save(trt_mod.state_dict(), self.engine_path)
+                except Exception:
+                    pass
+                self._trt_module = trt_mod
+            except Exception:
+                self._trt_module = None
+
+    def _run_feats(self, x: torch.Tensor):
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        # Use TRT if available, otherwise fallback to PyTorch forward
+        if self._trt_module is not None:
+            with torch.inference_mode():
+                return self._trt_module(x)
+        with torch.inference_mode():
+            if self._wrapper_module is None:
+                self._wrapper_module = _BackboneNeckWrapper(self.model).eval().to(x.device)
+            return self._wrapper_module(x)
+
+    def forward(self, proc_inputs: Dict[str, Any]):
+        try:
+            inputs = proc_inputs["inputs"]  # Tensor (N,C,H,W)
+            datas = proc_inputs.get("data_samples", None)
+            # Calibration capture for INT8; defer fp16/fp32 build to first inputs
+            if self.int8:
+                if self._calib_dataset is None and self.calib_frames > 0:
+                    try:
+                        from torch2trt import ListDataset  # type: ignore
+                        self._calib_dataset = ListDataset()
+                    except Exception:
+                        self._calib_dataset = None
+                if self._calib_dataset is not None and len(self._calib_dataset) < self.calib_frames:
+                    # store GPU tensors for calibration to match module device
+                    for i in range(inputs.size(0)):
+                        self._calib_dataset.insert([inputs[i : i + 1].detach()])
+                # Try to build INT8 engine once enough samples collected
+                self._ensure_trt_engine(inputs.shape, inputs.dtype)
+            else:
+                # Lazy build for fp16/fp32 path
+                self._ensure_trt_engine(inputs.shape, inputs.dtype)
+            feats = self._run_feats(inputs)
+            head = getattr(self.model, "head", None)
+            if head is not None and hasattr(head, "predict") and datas is not None:
+                with torch.inference_mode():
+                    preds = head.predict(feats, datas)
+                return preds
+        except Exception:
+            pass
+        # Fallback to model
+        with torch.no_grad():
+            try:
+                return self.model.test_step(proc_inputs)
+            except Exception:
+                try:
+                    return self.model(**proc_inputs)
+                except Exception:
+                    return []

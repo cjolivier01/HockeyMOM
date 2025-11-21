@@ -1,0 +1,102 @@
+aspen:
+  minimal_context: true
+  inference_pipeline:
+    - type: LoadImageFromFile
+    - type: HmCrop
+      keys: [img]
+      save_clipped_images: true
+    - type: HmImageToTensor
+      keys: [img]
+      scale_factor: 255.0
+    - type: HmResize
+      img_scale: [1312, 480]
+      keep_ratio: true
+      interpolation: area
+    - type: HmPad
+      pad_val: 114.0
+      size_divisor: 32
+    - type: mmdet.PackTrackInputs
+      meta_keys: [img_metas]
+  video_out_pipeline:
+    - type: HmConfigureScoreboard
+    - type: HmCaptureScoreboard
+    - type: HmPerspectiveRotation
+      pre_clip: true
+    - type: HmCropToVideoFrame
+    - type: HmRenderScoreboard
+      image_labels: [img, end_zone_img]
+    - type: HmUnsharpMask
+      enabled: false
+      image_label: img
+    - type: HmImageOverlays
+      watermark_config:
+        image: images/sports_ai_watermark.png
+  trunks:
+    image_prep:
+      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      depends: []
+      params: {}
+    model_factory:
+      class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+      depends: []
+      params:
+        model_class: hmlib.models.end_to_end.HmEndToEnd
+        # post_* pipelines not used for rink mask
+        post_tracking_pipeline:
+          - type: HmNumberClassifier
+            image_label: original_images
+            enabled: false
+    detector_factory:
+      class: hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk
+      depends: []
+      params:
+        detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_x.detector.yaml
+        data_preprocessor:
+          type: TrackDataPreprocessor
+          pad_size_divisor: 32
+          use_det_processor: true
+          batch_augments:
+            - type: BatchSyncRandomResize
+              random_size_range: [576, 1024]
+              size_divisor: 32
+              interval: 10
+    boundaries:
+      class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+      depends: [model_factory]
+      params: {}
+    detector:
+      class: hmlib.aspen.trunks.detector.DetectorInferenceTrunk
+      depends: [image_prep, detector_factory]
+      params: {}
+    save_detections:
+      class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+      depends: [detector]
+      params: {}
+    ice_config:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      depends: [image_prep]
+      params: {}
+    ice_boundaries:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      depends: [detector, ice_config]
+      params: {}
+    tracker:
+      class: hmlib.aspen.trunks.tracker.TrackerTrunk
+      depends: [detector, ice_boundaries, model_factory, boundaries]
+      params: {}
+    pose:
+      class: hmlib.aspen.trunks.pose.PoseTrunk
+      depends: [tracker]
+      params: {}
+    save_pose:
+      class: hmlib.aspen.trunks.save.SavePoseTrunk
+      depends: [pose]
+      params: {}
+    save_tracking:
+      class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+      depends: [pose]
+      params: {}
+    postprocess:
+      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      depends: [pose]
+      params: {}

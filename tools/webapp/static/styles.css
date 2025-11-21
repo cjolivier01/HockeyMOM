@@ -1,0 +1,78 @@
+/* Simple modern UI inspired by Hudl aesthetics (no branding assets) */
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --text: #e6e8ec;
+  --muted: #9aa4b2;
+  --accent: #ff6a13; /* vibrant orange */
+  --accent-2: #ff8a4c;
+  --success: #28a745;
+  --danger: #d81b60; /* magenta */
+  --warn: #ffc107;
+  --border: #242835;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  line-height: 1.5;
+}
+
+.site-header {
+  background: #0c0e13;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.nav-wrap { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.25rem; max-width: 1200px; margin: 0 auto; }
+.brand { display: inline-flex; align-items: center; gap: .5rem; text-decoration: none; }
+.brand-badge { width: 28px; height: 28px; border-radius: 6px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: inline-block; }
+.brand-title { color: var(--text); font-weight: 700; letter-spacing: .4px; }
+
+.nav-links a { color: var(--muted); text-decoration: none; margin-left: 1rem; font-weight: 600; }
+.nav-links a:hover { color: var(--text); }
+
+.container { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
+.hero { padding: 3rem 0 2rem; text-align: center; }
+.hero h1 { font-size: 2.1rem; margin: 0 0 .5rem; }
+.hero p { color: var(--muted); margin: 0 0 1rem; }
+
+.btn { display: inline-block; background: #1f2430; color: var(--text); border: 1px solid var(--border); padding: .6rem 1rem; border-radius: 8px; text-decoration: none; font-weight: 700; transition: .15s; }
+.btn:hover { filter: brightness(1.1); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #101114; }
+.btn.secondary { background: #1c212c; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #101114; }
+
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
+.card h3 { margin: 0 0 .5rem; }
+
+form { margin: 1rem 0; }
+.form-row { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .75rem; }
+input[type=text], input[type=password], input[type=email], input[type=file], select, input[type=number], input[type=datetime-local] {
+  background: #12151c; color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: .6rem .75rem; width: 100%;
+}
+button { cursor: pointer; }
+
+.flash { padding: .65rem .9rem; border-radius: 10px; margin: .5rem 0; font-weight: 600; }
+.flash.error { background: #31161a; border: 1px solid #4a1a22; color: #ffb3be; }
+.flash.success { background: #14291d; border: 1px solid #1f3b2a; color: #abf5c0; }
+
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--border); text-align: left; }
+thead th { background: #12151c; color: var(--muted); font-weight: 700; }
+tbody tr:hover { background: #151924; }
+
+.status-badge { display: inline-block; padding: .2rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 800; }
+.status-COMPLETED { background: rgba(40,167,69,.15); color: #7bdfa1; border: 1px solid rgba(40,167,69,.3); }
+.status-RUNNING, .status-SUBMITTED, .status-PENDING { background: rgba(255,106,19,.15); color: #ffb58a; border: 1px solid rgba(255,106,19,.35); }
+.status-FAILED, .status-CANCELLED, .status-TIMEOUT { background: rgba(220,53,69,.12); color: #ff9aa7; border: 1px solid rgba(220,53,69,.3); }
+
+.muted { color: var(--muted); }
+.spacer { height: 1rem; }

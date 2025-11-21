@@ -1,0 +1,19 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+INCLUDE_PREFIX = "hockeymom/csrc/ui"
+
+cc_library(
+    name = "hm_render_set",
+    srcs = glob(["*.cpp"]),
+    hdrs = glob(["*.h"]),
+    include_prefix = INCLUDE_PREFIX,
+    visibility = ["//visibility:public"],
+    copts = [
+        "-fopenmp",
+        "-fPIC",
+        "-Wno-error=comment",
+    ],
+    deps=[
+      "@jetson-utils//display",
+    ]
+)

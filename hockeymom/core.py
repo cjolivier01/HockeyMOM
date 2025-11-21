@@ -1,80 +1,340 @@
-import numpy as np
-from typing import List
+"""HockeyMOM Python core re‑exports.
 
-# Functions
-from ._hockeymom import (
-    _hello_world,
-    _enblend,
-    _nona_process_images,
-    _add_to_stitching_data_loader,
-)
+This module provides a thin, documented Python façade over the C++ / CUDA
+implementations that are exposed via the compiled extension module
+`hockeymom._hockeymom` (pybind11 + Torch).  All heavy‑lifting (image
+remapping, multi‑camera stitching, blending, tracking, play detection, k‑means
+clustering utilities, etc.) lives in optimized native code; here we **only**
+re‑export public symbols and attach rich docstrings so that IDEs, static type
+checkers and generated docs have something useful to display.
 
-# Classes
+Implementation note:
+    * Runtime types & methods are defined in C++; we cannot change their
+        signatures here, but we can attach / override the `__doc__` attributes.
+    * For tooling (mypy / editors) a parallel stub file `core.pyi` is generated
+        with the same public API and type hints.  Update **both** this file and the
+        stub if you add or remove symbols.
+    * Docstrings use a hybrid style: first line summary, followed by extended
+        description and `Args / Returns / Raises` (Google style) plus lightweight
+        Doxygen tags (e.g. ``@param``) so that either documentation toolchain can
+        parse them.
+
+Environment assumptions:
+    * Most tensor arguments are expected to be `torch.Tensor` with layouts noted
+        per method (commonly HWC for uint8 image data or CHW for float batches).
+    * CUDA vs CPU execution is controlled by each config's `.device` or by the
+        tensor device.
+
+High‑level components:
+    * Remapping / Stitching (`RemapperConfig`, `ImageRemapper`, `ImageStitcher`,
+        `CudaStitchPano*`) – geometric warping & panorama composition.
+    * Blending (`BlenderConfig`, `ImageBlender`, optional `EnBlender`) – seam
+        handling & Laplacian / multi‑band / exposure compensation.
+    * Tracking (`HmTracker`, `HmByteTracker`, `PlayTracker`, `LivingBox`,
+        `BBox`) – object & play sequence tracking utilities.
+    * Utilities (`compute_kmeans_clusters`, `show_cuda_tensor`, `WHDims`,
+        `GrowShrink`) – helper operations and simple data containers.
+
+If you need details not covered here, inspect `hockeymom/src/PythonBindings.cpp`.
+"""
+
 from ._hockeymom import (
-    HMPostprocessConfig,
-    #ImagePostProcessor,
-    HmNona,
-    EnBlender,
-    StitchingDataLoader,
-    ImageRemapper,
-    RemapperConfig,
-    ImageBlender,
-    ImageStitcher,
-    RemapImageInfo,
-    StreamTensor,
-    StitchImageInfo,
+    AllLivingBoxConfig,
+    BBox,
     BlenderConfig,
+    CudaStitchPano3F32,
+    CudaStitchPano3U8,
+    CudaStitchPanoF32,
+    CudaStitchPanoU8,
+    GrowShrink,
+    HmByteTrackConfig,
+    HmByteTracker,
+    HmTracker,
+    HmByteTrackerCuda,
+    HmByteTrackerCudaStatic,
+    HmTrackerPredictionMode,
+    ImageBlender,
     ImageBlenderMode,
-    #SortedRGBImageQueue,
-    #SortedPyArrayUin8Queue,
-    SortedTensorQueue,
-    FFmpegVideoWriter,
+    ImageRemapper,
+    ImageStitcher,
+    LivingBox,
+    PlayTracker,
+    PlayTrackerConfig,
+    RemapImageInfo,
+    RemapperConfig,
+    StitchImageInfo,
+    WHDims,
+    compute_kmeans_clusters,
+    show_cuda_tensor,
 )
+
+try:
+    from ._hockeymom import EnBlender
+except:
+    EnBlender = None
+
+
+# REMOVEME(colivier)
+# class HmByteTrackerCuda:
+#     pass
+
 
 __all__ = [
-    "hello_world",
-    "enblend",
-    "HmNona",
-    "StitchingDataLoader",
-    "RemapperConfig",
     "ImageRemapper",
     "ImageBlender",
     "ImageBlenderMode",
+    "CudaStitchPanoU8",
+    "CudaStitchPanoF32",
+    "CudaStitchPano3U8",
+    "CudaStitchPano3F32",
     "BlenderConfig",
     "ImageStitcher",
     "RemapImageInfo",
-    "StreamTensor",
+    "HmTracker",
+    "HmByteTracker",
+    "HmByteTrackerCuda",
+    "HmByteTrackerCudaStatic",
+    "HmByteTrackConfig",
+    "RemapperConfig",
+    "HmTrackerPredictionMode",
     "StitchImageInfo",
-    "SortedTensorQueue",
-    "nona_process_images",
     "EnBlender",
-    "FFmpegVideoWriter",
+    "PlayTracker",
+    "PlayTrackerConfig",
+    "AllLivingBoxConfig",
+    "BBox",
+    "LivingBox",
+    "WHDims",
+    "GrowShrink",
+    "compute_kmeans_clusters",
+    "show_cuda_tensor",
 ]
 
 
-def hello_world():
-    _hello_world()
+def _doc(target, text: str):  # pragma: no cover - trivial helper
+    """Attach a docstring to a pybind11 exported object if possible."""
+    try:
+        if getattr(target, "__doc__", None):  # keep original at end
+            target.__doc__ = text.rstrip() + "\n\nOriginal:\n" + target.__doc__
+        else:
+            target.__doc__ = text
+    except Exception:
+        pass
+    return target
 
 
-def enblend(output_file: str, input_files: List[str]) -> int:
-    return _enblend(output_file, input_files)
+_doc(
+    RemapperConfig,
+    """Configuration for a single image remap / warp.
 
+    @param src_width: Source image width in pixels.
+    @param src_height: Source image height in pixels.
+    @param x_pos: X offset of the (possibly remapped) image inside a panorama canvas.
+    @param y_pos: Y offset of the (possibly remapped) image inside a panorama canvas.
+    @param col_map: Optional (H, W) float/half tensor of destination X coordinates.
+    @param row_map: Optional (H, W) float/half tensor of destination Y coordinates.
+    @param dtype: Torch dtype string name for output (e.g. 'uint8', 'float32').
+    @param add_alpha_channel: If True, append an opaque alpha channel to output.
+    @param interpolation: Interpolation mode ('nearest', 'bilinear', ...).
+    @param batch_size: Number of images processed in parallel.
+    @param device: 'cpu' or 'cuda:<idx>'.
+    """,
+)
 
-def nona_process_images(nona: HmNona, image_left: np.array, image_right: np.array):
-    return _nona_process_images(nona, image_left, image_right)
+_doc(
+    BlenderConfig,
+    """Multi‑band / seam blending configuration.
 
+    Attributes:
+        mode: Blend strategy – 'gpu-hard-seam', 'laplacian', maybe 'multiblend'.
+        levels: Number of pyramid levels (0 = auto / minimal).
+        seam: Optional torch.Tensor seam mask (H, W) or (H, W, 1/3).
+        xor_map: Optional debugging seam XOR map.
+        lazy_init: Defer GPU allocations until first use.
+        interpolation: Interpolation for internal resampling.
+        device: Target device (e.g. 'cuda:0').
+    """,
+)
 
-def close_stitching_data_loader(
-    data_loader: StitchingDataLoader,
-    frame_id: int,
-) -> int:
-    return _add_to_stitching_data_loader(data_loader, frame_id, None, None)
+_doc(
+    ImageRemapper,
+    """Warp an input image tensor into a destination canvas using `RemapperConfig`.
 
+    Typical usage:
+        cfg = RemapperConfig(src_width=1920, src_height=1080, ...)
+        remapper = ImageRemapper(cfg)
+        out = remapper.remap(image)  # image: [H, W, C] or batched variant.
+    """,
+)
 
-def add_to_stitching_data_loader(
-    data_loader: StitchingDataLoader,
-    frame_id: int,
-    image_left: np.array,
-    image_right: np.array,
-) -> int:
-    return _add_to_stitching_data_loader(data_loader, frame_id, image_left, image_right)
+_doc(
+    ImageBlender,
+    """Blend (composite) multiple already remapped images into a seamless panorama.
+
+    Expects images with overlapping regions; uses seams or multi‑band blending
+    depending on `BlenderConfig.mode`.
+    """,
+)
+
+_doc(
+    ImageBlenderMode,
+    """Enum‑like container of blend mode constants exposed from C++.""",
+)
+
+_doc(
+    ImageStitcher,
+    """High‑level convenience wrapper orchestrating remap + blend for 2+ cameras.""",
+)
+
+_doc(
+    CudaStitchPanoU8,
+    """Fast CUDA panorama pipeline (uint8) – feeds raw device pointers (HWC/BGR).
+
+    See also: `CudaStitchPanoF32`, multi‑input variants `CudaStitchPano3*`.
+    """,
+)
+_doc(
+    CudaStitchPanoF32,
+    """Fast CUDA panorama pipeline (float32).  Allows higher precision blending.""",
+)
+_doc(
+    CudaStitchPano3U8,
+    """Three‑camera CUDA panorama (uint8).""",
+)
+_doc(
+    CudaStitchPano3F32,
+    """Three‑camera CUDA panorama (float32).""",
+)
+
+_doc(
+    RemapImageInfo,
+    """Lightweight struct describing an image remap (sizes, offsets, maybe maps).""",
+)
+_doc(
+    StitchImageInfo,
+    """Struct describing stitched panorama metadata (canvas size, etc.).""",
+)
+
+_doc(
+    WHDims,
+    """Width / Height dimensions helper.
+
+    Fields:
+        width (int)
+        height (int)
+    """,
+)
+
+_doc(
+    GrowShrink,
+    """Enum / configuration for growth vs shrink logic (tracking or mask ops).""",
+)
+
+_doc(
+    HmTrackerPredictionMode,
+    """Enum controlling tracker state prediction strategy (e.g. linear, kalman).""",
+)
+
+_doc(
+    HmTracker,
+    """Base multi‑object tracker (Kalman / BYTE fusion) exposed from C++.
+
+    Provides frame‑wise `update(detections)` interface (see C++ binding for exact
+    argument contract).  Tracks are typically returned as tensors / lists of
+    structs with IDs, boxes, confidences.
+    """,
+)
+_doc(
+    HmByteTrackConfig,
+    """Configuration knobs for BYTETracker (iou thresholds, track age limits, etc.).""",
+)
+_doc(
+    HmByteTracker,
+    """BYTETracker variant integrated with HockeyMOM pipeline (player detection).""",
+)
+_doc(
+    HmByteTrackerCuda,
+    """High-performance CUDA BYTETracker.
+
+    Args:
+        config: `HmByteTrackConfig` with thresholds / buffering options.
+        device: Torch device string (default ``"cuda:0"``).
+
+    Returns tracked tensors directly on the target CUDA device without host
+    synchronization for the heavy math (Kalman, IoU, assignment).
+    """,
+)
+
+_doc(
+    HmByteTrackerCudaStatic,
+    """Static-shape CUDA BYTETracker wrapper.
+
+    Creates a CUDA tracker whose inputs/outputs keep fixed shapes suitable for
+    CUDA graph capture or engines requiring static dimensions. Detection tensors
+    must be padded to ``max_detections`` and provide a ``num_detections`` scalar;
+    outputs are padded to ``max_tracks`` with a matching ``num_tracks`` entry.
+
+    Args:
+        config: ``HmByteTrackConfig`` thresholds and tracker knobs.
+        max_detections: Maximum number of detections accepted per frame.
+        max_tracks: Maximum number of active tracks returned.
+        device: Torch device string (default ``"cuda:0"``).
+    """,
+)
+
+_doc(
+    PlayTrackerConfig,
+    """Configuration for play / sequence level tracker (heuristics & thresholds).""",
+)
+_doc(
+    PlayTracker,
+    """High‑level play detector that aggregates object tracks into semantic plays.""",
+)
+
+_doc(
+    AllLivingBoxConfig,
+    """Aggregate config affecting all `LivingBox` instances (e.g., decay, merge).""",
+)
+_doc(
+    LivingBox,
+    """Temporal box primitive with lifecycle (appears, persists, expires).""",
+)
+_doc(
+    BBox,
+    """Axis‑aligned bounding box container (x1, y1, x2, y2[, score, id]).""",
+)
+
+_doc(
+    compute_kmeans_clusters,
+    """Run k‑means on a (N, D) feature tensor.
+
+    Args:
+        data: torch.Tensor[N, D] float – input features.
+        k: Number of clusters.
+        max_iter: Optional iteration cap.
+
+    Returns:
+        (centers, assignments) – implementation specific; see C++ binding.
+    """,
+)
+
+_doc(
+    show_cuda_tensor,
+    """Render a CUDA uint8 H×W×3 tensor in a native window (debug visualization).
+
+    Args:
+        label: Window title / render surface key.
+        img_cuda: torch.ByteTensor[H, W, 3] on CUDA device (BGR ordering assumed).
+        wait: If True, block for a short period / event loop iteration.
+        stream: Optional CUDA stream pointer (int) for synchronization.
+    """,
+)
+
+if EnBlender is not None:  # pragma: no cover - optional component
+    _doc(
+        EnBlender,
+        """Alternative (likely CPU / external lib) blender implementation.
+
+        Present only when compiled without NO_CPP_BLENDING. API mirrors `ImageBlender`.
+        """,
+    )

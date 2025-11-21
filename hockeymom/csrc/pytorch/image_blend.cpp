@@ -1,4 +1,5 @@
 #include "hockeymom/csrc/pytorch/image_blend.h"
+#include "hockeymom/csrc/pytorch/image_utils.h"
 
 #include <torch/nn/functional.h>
 
@@ -10,33 +11,6 @@ namespace {
 bool verbose = false;
 
 constexpr std::size_t kMinPixelSizeForImage = 16;
-
-std::int64_t image_width(const at::Tensor& t) {
-  const int ndims = t.ndimension();
-  TORCH_CHECK(
-      ndims == 2 || (ndims == 4 && t.size(1) == 3),
-      "Wrong numebr of dims to determine width, or not channels-first: ",
-      ndims);
-  return t.size(-1);
-}
-
-std::int64_t image_height(const at::Tensor& t) {
-  const int ndims = t.ndimension();
-  TORCH_CHECK(
-      ndims == 2 || (ndims == 4 && t.size(1) == 3),
-      "Wrong numebr of dims to determine height, or not channels-first: ",
-      ndims);
-  return t.size(-2);
-}
-
-std::array<std::int64_t, 2> image_size(const at::Tensor& t) {
-  const int ndims = t.ndimension();
-  TORCH_CHECK(
-      ndims == 2 || (ndims == 4 && t.size(1) == 3),
-      "Wrong numebr of dims to determine height, or not channels-first: ",
-      ndims);
-  return std::array<std::int64_t, 2>{t.size(-2), t.size(-1)};
-}
 
 void prettyPrintTensor(const torch::Tensor& tensor) {
   auto sizes = tensor.sizes();
@@ -205,7 +179,6 @@ void ImageBlender::init() {
 void ImageBlender::create_masks() {
   int canvas_h = seam_.size(0);
   int canvas_w = seam_.size(1);
-
   // The canvas width pyramid
   level_canvas_dims_.reserve(levels_);
   level_canvas_dims_.clear();
@@ -455,6 +428,9 @@ at::Tensor ImageBlender::hard_seam_blend(
            torch::indexing::Slice(),
            condition_right_}));
 
+  // TODO: fix xor map stuff
+  // canvas = at::where(xor_map_ > 0, ())
+
   return canvas;
 }
 
@@ -564,7 +540,6 @@ at::Tensor ImageBlender::blend(
   left_small_gaussian_blurred *= mask_left;
   right_small_gaussian_blurred *= mask_right;
   return left_small_gaussian_blurred + right_small_gaussian_blurred;
-  // return right_small_gaussian_blurred;
 #else
   at::Tensor F_2 = left_small_gaussian_blurred * mask_left +
       right_small_gaussian_blurred * mask_right;
@@ -586,8 +561,12 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
     image_left = std::move(image_1);
     image_right = std::move(image_2);
   }
-  image_left = image_left.to(dtype_, /*non_blocking=*/true);
-  image_right = image_right.to(dtype_, /*non_blocking=*/true);
+  if (image_left.dtype() != dtype_) {
+    image_left = image_left.to(dtype_, /*non_blocking=*/true);
+  }
+  if (image_right.dtype() != dtype_) {
+    image_right = image_right.to(dtype_, /*non_blocking=*/true);
+  }
 
   if (verbose) {
     std::cout << "image_left size=" << image_left.sizes()
@@ -631,19 +610,6 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
   for (int this_level = levels_ - 1; this_level >= 0; this_level--) {
     const ImageSize& canvas_dims = level_canvas_dims_.at(this_level);
 
-    // at::Tensor F_1 = upsample(F_2, {canvas_dims.h, canvas_dims.w});
-    // at::Tensor upsampled_F1 = gaussian_conv2d(F_1, gussian_kernel_);
-    // at::Tensor L_left = left_laplacian.at(this_level);
-    // at::Tensor L_right = right_laplacian.at(this_level);
-
-    // if (!make_all_full_first_) {
-    //   auto res = make_full(L_left, xy_pos_1, L_right, xy_pos_2, this_level);
-    //   L_left = res.first;
-    //   L_right = res.second;
-    // }
-    // at::Tensor L_c = blend(std::move(L_left), std::move(L_right),
-    // this_level); F_2 = L_c + upsampled_F1;
-
     at::Tensor L_left;
     at::Tensor L_right;
 
@@ -666,10 +632,8 @@ at::Tensor ImageBlender::laplacian_pyramid_blend(
 
     F_2 = L_c;
     F_2 += upsampled_F1;
-
-    // F_2 = L_c + upsampled_F1;
   }
-
+  // show_image("blended output", F_2, /*wait=*/false, /*scale=*/0.1);
   return F_2;
 }
 

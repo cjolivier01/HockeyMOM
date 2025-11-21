@@ -3,5 +3,7 @@
 
 add_subdirectory(eigen)
 add_subdirectory(abseil-cpp)
-#add_subdirectory(opencv-python/opencv)
-add_subdirectory(hugin)
+# add_subdirectory(opencv-python/opencv)
+# if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
+#   add_subdirectory(hugin)
+# endif()

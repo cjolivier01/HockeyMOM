@@ -1,0 +1,15 @@
+exports_files(
+    ["Pipfile", "Pipfile.lock", "pyproject.toml"]
+)
+
+
+# Aggregated docs target: builds all available Doxygen docs (hockeymom core + hmlib).
+filegroup(
+    name = "all_doxygen_docs",
+    srcs = [
+        "//hockeymom:doxygen_docs",
+        "//hmlib:doxygen_docs",
+    ],
+    visibility = ["//visibility:public"],
+)
+

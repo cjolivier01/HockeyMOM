@@ -1,0 +1,103 @@
+load("@rules_python//python:defs.bzl", "py_binary")
+load("//tools/python/library:defs.bzl", "python_library", "wheel")
+
+_SOURCES = glob(
+    [
+        "**/*.py",
+        "**/*.pyi",
+    ],
+    exclude = ["scripts/**"],
+)
+
+python_library(
+    name = "hmlib",
+    srcs = _SOURCES,
+    imports = [".."],  # Add the parent directory to PYTHONPATH
+    test_deps = [
+    ],
+    version = "0.1.0",
+    visibility = ["//visibility:public"],
+    wheel = wheel(
+        name = "hmlib",
+        entry_points = {
+            "console_scripts": [
+                "hmtrack = hmlib.cli.hmtrack:main",
+                "hmstitch = hmlib.cli.stitch:main",
+                "hmcreate_control_points = hmlib.cli.create_control_points:main",
+                "hmplayers = hmlib.cli.players:main",
+                "hmfind_ice_rink = hmlib.cli.find_ice_rink:main",
+                "hmvideo_clipper = hmlib.cli.video_clipper:main",
+                "hmanalyze_shifts = hmlib.cli.analyze_shifts:main",
+                "hmpostprocess_shifts = hmlib.cli.postprocess_shifts:main",
+                "hmorientation = hmlib.cli.hmorientation:main",
+            "hmconcatenate_videos = hmlib.cli.concatenate_videos:main",
+            "hmcaha_sync = hmlib.cli.caha_sync:main",
+            "hmcaha_summary = hmlib.cli.caha_summary:main",
+            "hmcaha_game = hmlib.cli.caha_game:main",
+            "hmcamera_annotate = hmlib.cli.camera_annotate:main",
+        ],
+        },
+        requires = [
+        ],
+    ),
+    wheel_deps = [
+        ":wheel_data_files",
+    ],
+)
+
+filegroup(
+    name = "wheel_data_files",
+    srcs = [
+        "images/sports_ai_watermark.png",
+        "pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth",
+        "pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth",
+        "py.typed",
+        # "@multiblend//:multiblend",
+    ] + glob(["**/*.yaml"]),
+    visibility = ["//visibility:public"],
+)
+
+py_binary(
+    name = "bdist_wheel",
+    srcs = ["scripts/bdist_wheel.py"],
+    data = [":hmlib.wheel"],
+    tags = ["python-wheel"],
+)
+
+py_binary(
+    name = "hm_caha_sync",
+    srcs = ["cli/caha_sync.py"],
+    main = "cli/caha_sync.py",
+    deps = [":hmlib.lib"],
+)
+
+py_binary(
+    name = "hm_caha_summary",
+    srcs = ["cli/caha_summary.py"],
+    main = "cli/caha_summary.py",
+    deps = [":hmlib.lib"],
+)
+
+py_binary(
+    name = "hm_caha_game",
+    srcs = ["cli/caha_game.py"],
+    main = "cli/caha_game.py",
+    deps = [":hmlib.lib"],
+)
+
+py_binary(
+    name = "hm_camera_annotate",
+    srcs = ["cli/camera_annotate.py"],
+    main = "cli/camera_annotate.py",
+    deps = [":hmlib.lib"],
+)
+
+# Local Doxygen documentation for hmlib Python library
+genrule(
+    name = "doxygen_docs",
+    srcs = ["Doxyfile"] + glob(["**/*.py"]),
+    cmd = "if command -v doxygen >/dev/null 2>&1; then doxygen $(location Doxyfile) && tar -czf $@ -C doxygen_out html xml; else echo 'doxygen missing' > $@; fi",
+    outs = ["hmlib_doxygen_docs.tar.gz"],
+    visibility = ["//visibility:public"],
+    tags = ["manual"],
+)

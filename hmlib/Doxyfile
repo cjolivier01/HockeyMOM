@@ -1,0 +1,40 @@
+# Doxyfile for hmlib – high-level Python library
+
+PROJECT_NAME           = "hmlib"
+PROJECT_NUMBER         = 0.1
+PROJECT_BRIEF          = "High-level HockeyMOM Python library (pipelines, CLI, utilities)"
+
+OUTPUT_DIRECTORY       = doxygen_out
+RECURSIVE              = YES
+FILE_PATTERNS          = *.py
+
+# Limit to this package tree
+EXCLUDE                = ../external ../openmm ../hockeymom ../buildfiles ../bazel-* ../env ../output_workdirs
+EXCLUDE_PATTERNS       = */__pycache__/* */tests/*
+
+GENERATE_HTML          = YES
+GENERATE_XML           = YES
+GENERATE_LATEX         = NO
+QUIET                  = YES
+JAVADOC_AUTOBRIEF      = YES
+MULTILINE_CPP_IS_BRIEF = YES
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+EXTRACT_ANON_NSPACES   = YES
+FULL_PATH_NAMES        = NO
+
+WARN_AS_ERROR          = NO
+WARN_IF_UNDOCUMENTED   = NO
+WARN_LOGFILE           = doxygen.warnings.log
+
+HAVE_DOT               = NO
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+
+# README discovery (none by default; module docstrings provide entry points)
+USE_MDFILE_AS_MAINPAGE =
+MARKDOWN_SUPPORT       = YES
+SHOW_INCLUDE_FILES     = NO
+SEARCHENGINE           = NO
+

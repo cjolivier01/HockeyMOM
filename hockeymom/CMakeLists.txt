@@ -15,19 +15,36 @@ find_package(yaml-cpp REQUIRED)
 
 set(
   SOURCES
-  csrc/camera/Camera.cpp
-  csrc/mblend/mblend.cpp
-  csrc/stitcher/HmNona.cpp
-  csrc/common/Gpu.cpp
-  csrc/dataloader/StitchingDataLoader.cpp
-  csrc/postprocess/ImagePostProcess.cpp
+  # csrc/camera/Camera.cpp
+  # csrc/dataloader/StitchingDataLoader.cpp
   csrc/pytorch/image_remap.cpp
   csrc/pytorch/image_blend.cpp
   csrc/pytorch/image_stitch.cpp
-  csrc/video/video_writer.cpp
+  csrc/pytorch/image_utils.cpp
+  csrc/pytorch/smart_image_stitch.cpp
 )
 
-set(CMAKE_PREFIX_PATH "$ENV{HOME}/src/pytorch/share/cmake/Torch")
+if(FALSE AND CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
+  set(
+    BLEND_SOURCES
+    csrc/mblend/mblend.cpp
+    csrc/stitcher/HmNona.cpp
+    csrc/common/Gpu.cpp
+  )
+  list(APPEND SOURCES ${BLEND_SOURCES})
+else()
+  set(BLEND_SOURCES)
+  add_compile_options(-DNO_CPP_BLENDING)
+endif()
+
+# set(CMAKE_PREFIX_PATH "$ENV{HOME}/src/pytorch/share/cmake/Torch")
+
+file(GLOB_RECURSE BYTETRACK_SOURCES
+        csrc/bytetrack/**.cpp
+        csrc/bytetrack/**.h
+)
+
+list(APPEND SOURCES ${BYTETRACK_SOURCES})
 
 # set(
 #   PROTO_FILES
@@ -43,7 +60,10 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 add_library(hm SHARED ${SOURCES} ${PROTO_SRCS})
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -msse4.1 -pthread")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -pthread")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.1 ")
+endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math")
@@ -80,7 +100,7 @@ set(
 
 
 target_link_libraries(hm PUBLIC ${ABSL_LIBRARIES})
-target_link_libraries(hm PRIVATE yaml-cpp)
+# target_link_libraries(hm PRIVATE yaml-cpp)
 
 # alphamat aruco bgsegm bioinspired calib3d ccalib core cudaarithm cudabgsegm
 # cudacodec cudafeatures2d cudafilters cudaimgproc cudalegacy cudaobjdetect cudaoptflow
@@ -100,11 +120,20 @@ set(TORCH_PYTHON_LIBS torch_python)
 
 target_include_directories(hm PUBLIC ./include)
 #set_target_properties(hm PROPERTIES INSTALL_RPATH "$ORIGIN:/usr/local/lib")
-target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
+# if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
+#   target_link_libraries(hm PRIVATE ${HM_HUGIN_COMMON_LIBS} huginbase)
+# endif()
+# target_link_libraries(hm PUBLIC ${HM_HUGIN_COMMON_LIBS})
+target_link_libraries(hm PUBLIC png jpeg tiff)
 #target_link_libraries(hm PRIVATE OpenGL::OpenGL)
-target_link_libraries(hm PRIVATE glfw)
+# target_link_libraries(hm PRIVATE glfw)
 target_link_libraries(hm PUBLIC ${TORCH_LIBRARIES})
 target_link_libraries(hm PUBLIC ${FFMPEG_LIBS})
+
+if (WITH_OPENCV)
+  target_link_libraries(hm PUBLIC opencv_core opencv_highgui opencv_imgcodecs ${OpenCV_LIBS})
+endif()
+
 #target_link_libraries(hm PUBLIC opencv_core opencv_highgui opencv_imgcodecs)
 
 set_target_properties(
@@ -113,7 +142,7 @@ set_target_properties(
   BUILD_WITH_INSTALL_RPATH TRUE
 )
 
-include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
+# include_directories(${HOCKEYMOM_TOP_SRC_DIR}/external/hugin/src)
 include_directories(${HOCKEYMOM_BINARY_DIR}/src)
 
 file(GLOB_RECURSE PYXMOLPP_SOURCES
@@ -127,6 +156,8 @@ target_link_libraries(_hockeymom PUBLIC hm)
 target_link_libraries(_hockeymom PRIVATE ${ABSL_LIBRARIES})
 target_link_libraries(_hockeymom PRIVATE ${TORCH_LIBRARIES})
 target_link_libraries(_hockeymom PRIVATE ${TORCH_PYTHON_LIBS})
+target_link_libraries(_hockeymom PUBLIC play_tracker)
+target_link_libraries(_hockeymom PUBLIC kmeans)
 #message(FATAL_ERROR " TORCH_LIBRARIES=${TORCH_LIBRARIES}")
 set_target_properties(
   _hockeymom PROPERTIES 
@@ -135,3 +166,5 @@ set_target_properties(
 )
 add_subdirectory(csrc)
 
+# Stuff we need to configure stitching
+# add_dependencies(hm pto_gen nona autooptimiser)

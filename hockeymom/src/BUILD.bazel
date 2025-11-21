@@ -1,0 +1,24 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python//python:packaging.bzl", "py_wheel")
+load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
+load("@py_soabi//:soabi.bzl", "SOABI")  # Now this load will succeed
+
+pybind_extension(
+  name = "_hockeymom",
+  srcs = [
+    "PythonBindings.cpp",
+  ],
+  deps = [
+    "//hockeymom/csrc/bytetrack:bytetrack",
+    "//hockeymom/csrc/pytorch:pytorch_stitch",
+    "//hockeymom/csrc/kmeans:kmeans",
+    "//hockeymom/csrc/play_tracker:play_tracker",
+    "//hockeymom/csrc/ui:hm_render_set",
+    "@libtorch//:libtorch_python",
+    "@hm-cupano//src/pano:cuda_pano",
+  ],
+  copts = [
+    "-DNO_CPP_BLENDING=1",
+  ],
+  visibility = ["//visibility:public"],
+)

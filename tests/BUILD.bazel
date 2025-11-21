@@ -1,0 +1,58 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+
+py_test(
+    name = "simple_run",
+    srcs = ["simple_run.py"],
+    deps = [
+        # Add any dependencies your test requires, e.g.,
+        # "//my_project/my_module:my_library",
+        # "@my_python_deps//:pytest", # if using pytest
+        # "//hmlib:hmlib",
+    ],
+)
+
+py_test(
+    name = "test_unified_config",
+    srcs = ["test_unified_config.py"],
+    data = [
+        "//hmlib:wheel_data_files",  # include YAMLs under hmlib/**
+    ],
+)
+
+py_test(
+    name = "test_dataframe_samples",
+    srcs = ["test_dataframe_samples.py"],
+    data = [
+        "//hmlib:wheel_data_files",
+    ],
+)
+
+py_test(
+    name = "test_tracking_pose_load_tracking",
+    srcs = ["test_tracking_pose_load_tracking.py"],
+    data = [
+        "//hmlib:wheel_data_files",
+    ],
+)
+
+py_test(
+    name = "test_webapp_hockey",
+    srcs = ["test_webapp_hockey.py"],
+)
+
+py_test(
+    name = "test_box_equivalence",
+    srcs = ["test_box_equivalence.py"],
+    data = [
+        "//hmlib:wheel_data_files",
+    ],
+)
+
+py_test(
+    name = "test_bytetrack_cuda",
+    srcs = ["test_bytetrack_cuda.py"],
+    deps = [
+        "//hockeymom:hockeymom",
+    ],
+)

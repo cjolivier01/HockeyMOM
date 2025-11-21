@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HM WebApp</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="nav-wrap">
+      <a class="brand" href="/">
+        <span class="brand-badge"></span>
+        <span class="brand-title">HM</span>
+      </a>
+      <nav class="nav-links">
+        {% if session.get('user_id') %}
+          <a href="/games">Jobs: Upload</a>
+          <a href="/teams">Teams</a>
+          <a href="/schedule">Schedule</a>
+          <a href="/leagues">Leagues</a>
+          <a href="/jobs">Jobs</a>
+          <a href="/logout">Logout</a>
+        {% else %}
+          <a href="/login">Login</a>
+          <a href="/register" class="btn primary" style="margin-left:1rem">Get Started</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+  <div class="container">
+    {% if session.get('user_id') and user_leagues %}
+      <form method="post" action="/league/select" style="margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+        <label for="league_id">League:</label>
+        <select name="league_id" id="league_id" onchange="this.form.submit()">
+          <option value="">(My Data)</option>
+          {% for L in user_leagues %}
+            <option value="{{ L.id }}" {% if selected_league_id==L.id %}selected{% endif %}>{{ L.name }}{% if L.is_shared %} (shared){% endif %}</option>
+          {% endfor %}
+        </select>
+      </form>
+    {% endif %}
+    {% for m in get_flashed_messages(category_filter=['error']) %}
+      <div class="flash error">{{ m }}</div>
+    {% endfor %}
+    {% for m in get_flashed_messages(category_filter=['success']) %}
+      <div class="flash success">{{ m }}</div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

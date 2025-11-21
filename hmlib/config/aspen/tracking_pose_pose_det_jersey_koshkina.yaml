@@ -1,0 +1,145 @@
+aspen:
+  minimal_context: true
+
+  inference_pipeline:
+    - type: LoadImageFromFile
+    - type: HmCrop
+      keys: [img]
+      save_clipped_images: true
+    - type: HmImageToTensor
+      keys: [img]
+    - type: HmResize
+      img_scale: [1312, 480]
+      keep_ratio: true
+      interpolation: area
+    - type: HmPad
+      pad_val: 114.0
+      size_divisor: 32
+    - type: mmdet.PackTrackInputs
+      meta_keys: [img_metas]
+
+  video_out_pipeline:
+    - type: HmConfigureScoreboard
+    - type: HmCaptureScoreboard
+    - type: HmPerspectiveRotation
+      pre_clip: true
+    - type: HmCropToVideoFrame
+    - type: HmRenderScoreboard
+      image_labels: [img, end_zone_img]
+    - type: HmUnsharpMask
+      enabled: false
+      image_label: img
+    - type: HmImageOverlays
+      watermark_config:
+        image: images/sports_ai_watermark.png
+
+  trunks:
+    image_prep:
+      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      depends: []
+      params: {}
+
+    model_factory:
+      class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+      depends: []
+      params:
+        model_class: hmlib.models.end_to_end.HmEndToEnd
+        # post_* pipelines not used for rink mask
+        post_tracking_pipeline: []
+
+    boundaries:
+      class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+      depends: [model_factory]
+      params: {}
+
+    pose_factory:
+      class: hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk
+      depends: []
+      params:
+        pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
+        pose_checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
+        show_progress: false
+
+    pose:
+      class: hmlib.aspen.trunks.pose.PoseTrunk
+      depends: [image_prep, pose_factory]
+      params: {}
+
+    save_pose:
+      class: hmlib.aspen.trunks.save.SavePoseTrunk
+      depends: [pose]
+      params: {}
+
+    pose_to_det:
+      class: hmlib.aspen.trunks.pose_to_det.PoseToDetTrunk
+      depends: [pose]
+      params: {}
+
+    save_detections:
+      class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+      depends: [pose_to_det]
+      params: {}
+
+    ice_config:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      depends: [image_prep]
+      params: {}
+
+    ice_boundaries:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      depends: [pose_to_det, ice_config]
+      params: {}
+
+    tracker:
+      class: hmlib.aspen.trunks.tracker.TrackerTrunk
+      depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
+      params: {}
+
+    jersey_numbers:
+      class: hmlib.aspen.trunks.jersey_koshkina.KoshkinaJerseyNumberTrunk
+      depends: [tracker]
+      params:
+        # ROI selection: bbox (default), pose, or sam
+        roi_mode: pose
+
+        # Configure PARSeq STR (jersey-number pipeline)
+        parseq_weights: "pretrained/parseq/jersey/hockey/epoch=3-step=95-val_accuracy=98.7903-val_NED=99.3952.ckpt"
+        parseq_device: cuda
+        # Legacy STR fields are ignored by this trunk but kept for compatibility
+        str_backend: parseq
+        # parseq_weights: /abs/path/to/parseq.ckpt   # optional; if omitted, tries pretrained
+        # parseq_device: cuda                        # optional; defaults to image device
+
+        # Legibility filtering
+        legibility_enabled: true
+        legibility_weights: pretrained/legibility_classifier/hockey/legibility_resnet34_hockey_20240201.pth
+        legibility_threshold: 0.5
+
+        # ReID occlusion/outlier removal
+        reid_enabled: false
+        reid_backend: resnet   # 'resnet' or 'centroid'
+        reid_backbone: resnet34
+        reid_threshold: 3.0
+        # centroid_reid_path: /abs/path/to/centroid-reid  # optional; or set env HM_CENTROID_REID_PATH
+        # centroid_reid_device: cuda
+
+        # SAM refinement (optional; requires segment_anything)
+        sam_enabled: false
+        # roi_mode: sam
+        # sam_checkpoint: /abs/path/to/sam_vit_b.pth
+        # sam_model_type: vit_b
+        # sam_device: cuda
+
+        # OCR thresholds when using MMOCR
+        det_thresh: 0.5
+        rec_thresh: 0.8
+
+    save_tracking:
+      class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+      depends: [jersey_numbers, pose]
+      params: {}
+
+    postprocess:
+      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      depends: [jersey_numbers]
+      params: {}

@@ -1,0 +1,73 @@
+aspen:
+  minimal_context: true
+
+  # Inherit the same inference pipeline and video_out_pipeline details from
+  # tracking_pose.yaml where appropriate. We omit detector and tracker trunks
+  # in favor of loading tracking results from a CSV via LoadTrackingTrunk.
+
+  inference_pipeline:
+    - type: LoadImageFromFile
+    - type: HmCrop
+      keys: [img]
+      save_clipped_images: true
+    - type: HmImageToTensor
+      keys: [img]
+    - type: HmResize
+      img_scale: [1312, 480]
+      keep_ratio: true
+      interpolation: area
+    - type: HmPad
+      pad_val: 114.0
+      size_divisor: 32
+    - type: mmdet.PackTrackInputs
+      meta_keys: [img_metas, hm_real_time_fps]
+    - type: HmRealTime
+      enabled: false
+      scale: 1.0
+
+  video_out_pipeline:
+    - type: HmConfigureScoreboard
+    - type: HmCaptureScoreboard
+    - type: HmPerspectiveRotation
+      pre_clip: true
+    - type: HmCropToVideoFrame
+    - type: HmRenderScoreboard
+      image_labels: [img, end_zone_img]
+    - type: HmUnsharpMask
+      enabled: false
+      image_label: img
+    - type: HmImageOverlays
+      watermark_config:
+        image: images/sports_ai_watermark.png
+
+  trunks:
+    image_prep:
+      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      depends: []
+      params: {}
+
+    # Ice rink segmentation support (optional but kept for parity)
+    ice_config:
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      depends: [image_prep]
+      params: {}
+
+    # Load tracking results from CSV instead of running the tracker/detector
+    load_tracking:
+      class: hmlib.aspen.trunks.load.LoadTrackingTrunk
+      depends: [image_prep]
+      params: {}
+
+    camera_controller:
+      class: hmlib.aspen.trunks.camera_controller.CameraControllerTrunk
+      depends: [load_tracking]
+      params:
+        controller: rule
+        model_path: null
+        window: 8
+
+    postprocess:
+      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      depends: [load_tracking, camera_controller]
+      params: {}
+

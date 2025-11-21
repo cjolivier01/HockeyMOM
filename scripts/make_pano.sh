@@ -16,32 +16,21 @@ PROJECT_FILE="hm_project.pto"
 # Optimize the project
 
 # auto-level, auto-size
-autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
-#autooptimiser -a -m -l -o autooptimiser_out.pto "${PROJECT_FILE}"
+if [ "$(uname -p)" == "aarch64" ]; then
+  autooptimiser -x 0.75 -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
+else
+  autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
+fi
 
-# autooptimiser -s -m -n -o autooptimiser_out.pto "${PROJECT_FILE}"
-
-
-# no auto size
-# autooptimiser -a -m -l -o autooptimiser_out.pto "${PROJECT_FILE}"
-
-# no optimize
-# cp "${PROJECT_FILE}" autooptimiser_out.pto
-
-#autooptimiser -a -m -o autooptimiser_out.pto "${PROJECT_FILE}"
-
-# Remap the images
-#nona -m TIFF_m -z NONE --bigtiff --clip-exposure -o nona my_project.pto
-nona --bigtiff -m TIFF_m -z NONE --bigtiff -o nona autooptimiser_out.pto
-
-#nona -m TIFF_m -o nona my_project.pto
-
-#echo "Making mapping files..."
+echo "Making mapping files..."
 nona --bigtiff -m TIFF_m -z NONE -c -o mapping_ autooptimiser_out.pto
 
 # Blend the images to create the panorama
-#enblend -o panorama.tif nona*.tif
-$HOME/src/multiblend/src/multiblend -o panorama.tif nona*.tif
+#enblend -o panorama.tif mapping_????.tif
+#enblend --verbose=1 --save-masks=seam_file.png -o panorama.tif  mapping_0000.tif mapping_0001.tif
+# enblend --verbose=1 --save-masks=seam_file.png -o panorama.tif mapping_????.tif
+# enblend -v --save-masks=seam_file.png -o panorama.tif  mapping_????.tif
+multiblend --save-seams=seam_file.png -o panorama.tif mapping_????.tif
 
 #
 # mapping files

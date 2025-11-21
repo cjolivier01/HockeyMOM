@@ -1,6 +1,5 @@
 #pragma once
 
-#include "hockeymom/csrc/mblend/threadpool.h"
 #include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
 
@@ -19,18 +18,6 @@ namespace hm {
 
 namespace ops {
 
-class StreamTensor {
- public:
-  StreamTensor() = default;
-  StreamTensor(at::Tensor tensor);
-  StreamTensor(c10::cuda::CUDAStream stream, at::Tensor tensor);
-  at::Tensor get();
-
- private:
-  std::unique_ptr<c10::cuda::CUDAStream> stream_{nullptr};
-  at::Tensor tensor_;
-};
-
 struct RemapImageInfo {
   std::size_t src_width{0};
   std::size_t src_height{0};
@@ -41,11 +28,21 @@ struct RemapImageInfo {
   std::size_t pad_value{0};
 };
 
+struct ImageStitcherConfig {
+  std::size_t batch_size{1};
+  std::vector<RemapImageInfo> remap_image_info;
+  ImageBlender::Mode blender_mode{ImageBlender::Mode::Laplacian};
+  bool half{false};
+  std::size_t levels{6};
+  at::Tensor seam;
+  at::Tensor xor_map;
+  bool lazy_init{false};
+  std::optional<std::string> interpolation{std::nullopt};
+};
+
 struct StitchImageInfo {
   at::Tensor image;
   std::vector<int> xy_pos;
-  //std::optional<cudaStream_t> cuda_stream;
-  //std::optional<torch::cuda::Stream> cuda_stream;
 };
 
 class ImageStitcher {
@@ -59,7 +56,6 @@ class ImageStitcher {
       ImageBlender::Mode blender_mode,
       bool half,
       std::size_t levels,
-      bool remap_on_async_stream,
       at::Tensor seam,
       at::Tensor xor_map,
       bool lazy_init,
@@ -72,9 +68,6 @@ class ImageStitcher {
   std::vector<RemapImageInfo> remap_image_infos_;
   std::vector<std::unique_ptr<ImageRemapper>> remappers_;
   std::unique_ptr<ImageBlender> blender_;
-  std::unique_ptr<Eigen::ThreadPool> thread_pool_;
-  std::unique_ptr<HmThreadPool> remap_thread_pool_;
-  bool remap_on_async_stream_;
   bool initialized_{false};
 };
 

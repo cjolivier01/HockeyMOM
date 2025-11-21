@@ -1,0 +1,274 @@
+workspace(
+    name="hockeymom",
+)
+
+# Make secrets available for build and publish. These should be set on the host.
+load("//tools/environment:defs.bzl", "environment")
+environment(
+    name="secrets",
+    variables={
+        "PYPI_URL": "http://localhost:6006",
+        "PYPI_USERNAME": "admin",
+        "PYPI_PASSWORD": "password",
+        "IMAGE_REGISTRY": "localhost:15000",
+    },
+)
+
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+
+git_repository(
+    name = "rules_cuda",
+    # v0.2.3 breaks some lubcupti for our version of bazel
+    commit = "3f2429254ec956220557e79ea9d5f5e8871c2907",
+    remote = "https://github.com/bazel-contrib/rules_cuda",
+)
+
+load("@rules_cuda//cuda:repositories.bzl", "register_detected_cuda_toolchains", "rules_cuda_dependencies")
+
+rules_cuda_dependencies()
+
+register_detected_cuda_toolchains()
+
+load("//bazel:py_soabi.bzl", "py_soabi")
+py_soabi(name = "py_soabi")
+
+# Install lcov dependencies:
+load("//tools/coverage/lcov:repositories.bzl", "install_lcov_dependencies")
+install_lcov_dependencies()
+
+http_archive(
+    name="bazel_skylib",
+    urls=[
+        "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz",
+        "https://github.com/bazelbuild/bazel-skylib/releases/download/1.3.0/bazel-skylib-1.3.0.tar.gz",
+    ],
+    sha256="74d544d96f4a5bb630d465ca8bbcfe231e3594e5aae57e1edbf17a6eb3ca2506",
+)
+load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
+bazel_skylib_workspace()
+
+
+# Fetch C++ rules
+http_archive(
+    name="rules_cc",
+    urls=["https://github.com/bazelbuild/rules_cc/releases/download/0.0.4/rules_cc-0.0.4.tar.gz"],
+    sha256="af6cc82d87db94585bceeda2561cb8a9d55ad435318ccb4ddfee18a43580fb5d",
+    strip_prefix="rules_cc-0.0.4",
+)
+load("@rules_cc//cc:repositories.bzl", "rules_cc_dependencies", "rules_cc_toolchains")
+rules_cc_dependencies()
+rules_cc_toolchains()
+
+
+# Fetch Python rules:
+http_archive(
+    name="rules_python",
+    sha256="8c8fe44ef0a9afc256d1e75ad5f448bb59b81aba149b8958f02f7b3a98f5d9b4",
+    strip_prefix="rules_python-0.13.0",
+    url="https://github.com/bazelbuild/rules_python/archive/refs/tags/0.13.0.tar.gz",
+)
+
+http_archive(
+  name = "pybind11_bazel",
+  strip_prefix = "pybind11_bazel-34206c29f891dbd5f6f5face7b91664c2ff7185c",
+  urls = ["https://github.com/pybind/pybind11_bazel/archive/34206c29f891dbd5f6f5face7b91664c2ff7185c.zip"],
+  sha256 = "8d0b776ea5b67891f8585989d54aa34869fc12f14bf33f1dc7459458dd222e95",
+)
+
+http_archive(
+  name = "pybind11",
+  build_file = "@pybind11_bazel//:pybind11.BUILD",
+  strip_prefix = "pybind11-a54eab92d265337996b8e4b4149d9176c2d428a6",
+  urls = ["https://github.com/pybind/pybind11/archive/a54eab92d265337996b8e4b4149d9176c2d428a6.tar.gz"],
+  sha256 = "c9375b7453bef1ba0106849c83881e6b6882d892c9fae5b2572a2192100ffb8a",
+)
+
+load("@pybind11_bazel//:python_configure.bzl", "python_configure")
+python_configure(name = "local_config_python")
+
+# Fetch Go rules (used by Docker rules):
+# http_archive(
+#     name="io_bazel_rules_go",
+#     sha256="e0015762cdeb5a2a9c48f96fb079c6a98e001d44ec23ad4fa2ca27208c5be4fb",
+#     urls=[
+#         "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.24.14/rules_go-v0.24.14.tar.gz",
+#         "https://github.com/bazelbuild/rules_go/releases/download/v0.24.14/rules_go-v0.24.14.tar.gz",
+#     ],
+# )
+
+# load("@io_bazel_rules_go//go:deps.bzl", "go_rules_dependencies")
+# go_rules_dependencies()
+# load("//tools/go:repositories.bzl", "go_register_toolchains")
+# go_register_toolchains()
+
+
+# Fetch Docker rules:
+http_archive(
+    name="io_bazel_rules_docker",
+    sha256="b1e80761a8a8243d03ebca8845e9cc1ba6c82ce7c5179ce2b295cd36f7e394bf",
+    urls=["https://github.com/bazelbuild/rules_docker/releases/download/v0.25.0/rules_docker-v0.25.0.tar.gz"],
+)
+
+load("@io_bazel_rules_docker//repositories:repositories.bzl", container_repositories="repositories")
+container_repositories()
+
+load("@io_bazel_rules_docker//repositories:deps.bzl", container_deps="deps")
+container_deps(go_repository_default_config="@//:WORKSPACE.bazel")
+
+
+load("//tools/packaging/docker:repositories.bzl", local_container_repositories="repositories")
+local_container_repositories()
+
+
+# Register Python toolchain and repositories
+
+# This must happen after `local_container_repositories` above, to ensure the correct Python
+# toolchain is used for Docker images). Otherwise Python itself will be loaded as the final
+# layer in the image. See https://github.com/bazelbuild/rules_docker/issues/1858
+load("@rules_python//python:repositories.bzl", "python_register_toolchains")
+
+python_register_toolchains(
+    name="python",
+    # Available versions are listed in @rules_python//python:versions.bzl.
+    python_version="3.10.2",
+)
+load("@python//:defs.bzl", "interpreter")
+
+
+# Create a central repo that knows about the dependencies needed from Pipfile.lock
+# Each dependency will only be loaded if needed by a target.
+load("//tools/python/pipenv:defs.bzl", "pipenv_parse")
+pipenv_parse(
+    name="python_deps",
+    pipfile="//:Pipfile",
+    pipfile_lock="//:Pipfile.lock",
+    python_interpreter_target=interpreter,
+)
+
+# Create repos for each dependency in python_deps
+load("@python_deps//:requirements.bzl", "install_deps")
+install_deps()
+
+################################ Eigen Setup ################################
+http_archive(
+    name = "eigen",
+    sha256 = "0215c6593c4ee9f1f7f28238c4e8995584ebf3b556e9dbf933d84feb98d5b9ef",
+    strip_prefix = "eigen-3.3.8",
+    urls = [
+        "https://gitlab.com/libeigen/eigen/-/archive/3.3.8/eigen-3.3.8.tar.bz2",
+    ],
+    build_file_content =
+"""
+# TODO(keir): Replace this with a better version, like from TensorFlow.
+# See https://github.com/ceres-solver/ceres-solver/issues/337.
+cc_library(
+    name = 'eigen',
+    srcs = [],
+    includes = ['.'],
+    hdrs = glob(['Eigen/**']),
+    visibility = ['//visibility:public'],
+)
+""")
+
+################################ Abseil Setup #################################
+
+git_repository(
+    name = "com_google_absl",
+    remote = "https://github.com/abseil/abseil-cpp.git",
+    commit = "9ac7062b1860d895fb5a8cbf58c3e9ef8f674b5f",
+)
+
+################################ PyTorch Setup ################################
+
+load("//bazel:dependencies.bzl", "conda_repository")
+
+conda_repository(
+    name = "libpython",
+    build_file = "@//buildfiles/third_party:libpython.BUILD",
+    # the {python} gets filled in at repo-fetch time
+    files = ["lib/libpython{python}.so"],
+)
+
+conda_repository(
+    name = "libtorch",
+    build_file = "@//buildfiles/third_party:pytorch.BUILD",
+    # the {python} gets filled in at repo-fetch time
+    package_dir = "lib/python{python}/site-packages/torch",
+    strip_prefix = "lib/python{python}/site-packages/torch",
+)
+
+
+################################ HockeyMOM Sub-Modules ################################
+git_repository(
+     name = "hm-cupano",
+     commit = "c7fea11d2c7edfc91c6b18a3be49f9ec46c4d52d",
+     remote = "ssh://git@github.com/cjolivier01/hm-cupano",
+ )
+
+git_repository(
+     name = "jetson-utils",
+     branch = "colivier/hm",
+     remote = "ssh://git@github.com/cjolivier01/jetson-utils",
+)
+
+#local_repository(
+#    name = "hm-cupano",
+#    path = "../hm-cupano",
+#)
+
+#local_repository(
+#    name = "jetson-utils",
+#    path = "../jetson-utils",
+#)
+
+################################ Multiblend ################################
+git_repository(
+    name = "multiblend",
+    commit = "4fe978fbd6b89a61dbcc290e22e656e5ed0cefd8",
+    remote = "ssh://git@github.com/cjolivier01/multiblend",
+)
+
+################################ Other Modules ################################
+new_local_repository(
+    name = "opencv_linux",
+    build_file = "@//buildfiles/third_party:opencv_linux.BUILD",
+    path = "/usr/include",
+)
+
+new_local_repository(
+    name = "glibconfig_x86",
+    build_file = "@//buildfiles/third_party:glibconfig.BUILD",
+    path = "/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+)
+
+new_local_repository(
+    name = "glibconfig_aarch64",
+    build_file = "@//buildfiles/third_party:glibconfig.BUILD",
+    path = "/usr/lib/aarch64-linux-gnu/glib-2.0/include",
+)
+
+new_local_repository(
+    name = "glib",
+    build_file = "@//buildfiles/third_party:glib_nobuild.BUILD",
+    path = "/usr",
+)
+
+new_local_repository(
+    name = "json_glib",
+    build_file = "@//buildfiles/third_party:json_glib.BUILD",
+    path = "/usr",
+)
+
+new_local_repository(
+    name = "gstreamer",
+    build_file = "@//buildfiles/third_party:gstreamer_nobuild.BUILD",
+    path = "/usr",
+)
+
+new_local_repository(
+    name = "libsoup",
+    build_file = "@//buildfiles/third_party:libsoup.BUILD",
+    path = "/usr",
+)

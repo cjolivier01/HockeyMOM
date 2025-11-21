@@ -12,7 +12,10 @@
 #WRAPPER_CMD="echo"
 
 #STITCHING_ARGS="--save-stitched"
-#SAVE_DATA_ARGS="--save-tracking-data --save-camera-data"
+# Legacy hmtrack flags for saving detections/tracks were removed, so only use the
+# still-supported camera CSV option here to avoid CLI errors.
+SAVE_DATA_ARGS="--save-camera-data"
+# EXPOSURE="--stitch-auto-adjust-exposure=1"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -22,9 +25,9 @@ fi
 set -x
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
-  PYTHONPATH="$(pwd)/build:$(pwd)/src" \
-  ${WRAPPER_CMD} python src/hmtrack.py \
+  PYTHONPATH="$(pwd):$(pwd)/src" \
+  ${WRAPPER_CMD} python -m hmlib.cli.hmtrack \
   ${SAVE_DATA_ARGS} \
-  --stitch-auto-adjust-exposure \
+  ${EXPOSURE} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   ${VIDEO} $@

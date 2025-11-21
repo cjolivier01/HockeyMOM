@@ -1,5 +1,4 @@
 cython
-numpy==1.23.5
 terminaltables
 seaborn
 xtcocotools
@@ -14,7 +13,6 @@ progress
 motmetrics
 matplotlib
 openpyxl
-Pillow-simd
 psutil
 filterpy
 ffmpegio
@@ -30,6 +28,7 @@ tifffile
 scikit-build
 scikit-learn
 kornia
+pandas
 lmdb
 loguru
 thop

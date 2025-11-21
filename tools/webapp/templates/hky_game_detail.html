@@ -1,0 +1,97 @@
+{% extends 'layout.html' %}
+{% block content %}
+<h2>Edit Game</h2>
+<div class="card">
+  <form method="post">
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+      <div>
+        <h3 style="margin-top:0">{{ game['team1_name'] }}</h3>
+      </div>
+      <div>
+        <h3 style="margin-top:0">{{ game['team2_name'] }}</h3>
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+      <div class="form-row">
+        <label class="muted">Team 1 Score</label>
+        <input type="number" name="team1_score" value="{{ game['team1_score'] if game['team1_score'] is not none else '' }}" min="0">
+      </div>
+      <div class="form-row">
+        <label class="muted">Team 2 Score</label>
+        <input type="number" name="team2_score" value="{{ game['team2_score'] if game['team2_score'] is not none else '' }}" min="0">
+      </div>
+    </div>
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+      <div class="form-row">
+        <label class="muted">Date/Time</label>
+        <input type="datetime-local" name="starts_at" value="{{ (game['starts_at'] or '')|replace(' ', 'T') }}">
+      </div>
+      <div class="form-row">
+        <label class="muted">Location</label>
+        <input type="text" name="location" value="{{ game['location'] or '' }}">
+      </div>
+    </div>
+    <div class="form-row">
+      <label><input type="checkbox" name="is_final" {% if game['is_final'] %}checked{% endif %}> Final</label>
+    </div>
+
+    <h3>Player Stats</h3>
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+      <div>
+        <h4>{{ game['team1_name'] }}</h4>
+        <table>
+          <thead>
+            <tr><th>#</th><th>Name</th><th>G</th><th>A</th><th>S</th><th>PIM</th><th>+/-</th></tr>
+          </thead>
+          <tbody>
+            {% for p in team1_players %}
+              {% set s = stats_by_pid.get(p['id'], {}) %}
+              <tr>
+                <td>{{ p['jersey_number'] or '' }}</td>
+                <td>{{ p['name'] }}</td>
+                <td><input type="number" name="ps_goals_{{ p['id'] }}" value="{{ s.get('goals','') }}" min="0" style="width:80px"></td>
+                <td><input type="number" name="ps_assists_{{ p['id'] }}" value="{{ s.get('assists','') }}" min="0" style="width:80px"></td>
+                <td><input type="number" name="ps_shots_{{ p['id'] }}" value="{{ s.get('shots','') }}" min="0" style="width:80px"></td>
+                <td><input type="number" name="ps_pim_{{ p['id'] }}" value="{{ s.get('pim','') }}" min="0" style="width:80px"></td>
+                <td><input type="number" name="ps_plusminus_{{ p['id'] }}" value="{{ s.get('plus_minus','') }}" style="width:80px"></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="7" class="muted">No players</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h4>{{ game['team2_name'] }}</h4>
+        <table>
+          <thead>
+            <tr><th>#</th><th>Name</th><th>G</th><th>A</th><th>S</th><th>PIM</th><th>+/-</th></tr>
+          </thead>
+          <tbody>
+            {% for p in team2_players %}
+              {% set s = stats_by_pid.get(p['id'], {}) %}
+              <tr>
+                <td>{{ p['jersey_number'] or '' }}</td>
+                <td>{{ p['name'] }}</td>
+                <td><input type="number" name="ps_goals_{{ p['id'] }}" value="{{ s.get('goals','') }}" min="0" style="width:80px"></td>
+                <td><input type="number" name="ps_assists_{{ p['id'] }}" value="{{ s.get('assists','') }}" min="0" style="width:80px"></td>
+                <td><input type="number" name="ps_shots_{{ p['id'] }}" value="{{ s.get('shots','') }}" min="0" style="width:80px"></td>
+                <td><input type="number" name="ps_pim_{{ p['id'] }}" value="{{ s.get('pim','') }}" min="0" style="width:80px"></td>
+                <td><input type="number" name="ps_plusminus_{{ p['id'] }}" value="{{ s.get('plus_minus','') }}" style="width:80px"></td>
+              </tr>
+            {% else %}
+              <tr><td colspan="7" class="muted">No players</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:1rem;">
+      <button class="btn primary" type="submit">Save</button>
+      <a class="btn" href="/schedule">Back</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+

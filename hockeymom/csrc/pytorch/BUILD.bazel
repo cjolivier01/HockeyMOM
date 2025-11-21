@@ -1,0 +1,43 @@
+load("@rules_cuda//cuda:defs.bzl", "cuda_library")
+
+cc_library(
+    name = "pytorch_stitch",
+    srcs = glob(
+        ["*.cpp"],
+        exclude = ["bytetrack_cuda_ops.cpp"],
+    ),
+    hdrs = glob(
+        ["*.h"],
+        exclude = ["bytetrack_cuda_ops.h"],
+    ),
+    copts = [
+        "-fopenmp",
+        "-fPIC",
+        "-Wno-error=comment",
+    ],
+    includes=[
+      ".",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+      "@libtorch",
+      "@local_cuda//:cuda_runtime",
+    ],
+)
+
+cuda_library(
+    name = "bytetrack_cuda_ops",
+    srcs = [
+        "bytetrack_cuda_ops.cpp",
+        "bytetrack_cuda_kernels.cu",
+    ],
+    hdrs = ["bytetrack_cuda_ops.h"],
+    features = [
+        "-coverage",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@libtorch",
+        "@local_cuda//:cuda_runtime",
+    ],
+)

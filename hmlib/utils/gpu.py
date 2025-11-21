@@ -1,0 +1,745 @@
+import time
+from contextlib import contextmanager, nullcontext
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+
+import numpy as np
+import torch
+
+from hmlib.log import logger
+
+from .containers import LinkedList
+
+_CUDA_STREAMS: Dict[int, LinkedList] = {}
+_CUDA_STREAMS_SET: Set[torch.cuda.Stream] = set()
+
+
+def _get_stream_llist(device: torch.device) -> Union[LinkedList, None]:
+    assert isinstance(device, torch.device)
+    if device.type != "cuda":
+        return None
+    device_index = device.index
+    llist = _CUDA_STREAMS.get(device_index, None)
+    if llist is None:
+        llist = LinkedList()
+        _CUDA_STREAMS[device_index] = llist
+    return llist
+
+
+# def allocate_stream(device: torch.device) -> torch.cuda.Stream | None:
+#     llist = _get_stream_llist(device)
+#     if llist is None:
+#         return None
+#     try:
+#         stream = llist.pop_back()
+#         assert stream in _CUDA_STREAMS_SET
+#         _CUDA_STREAMS_SET.remove(stream)
+#         return stream
+#     except IndexError:
+#         return torch.cuda.Stream(device)
+
+
+# def free_stream(stream: torch.cuda.Stream) -> None:
+#     # if stream is None:
+#     #     return
+#     # llist = _get_stream_llist(device=stream.device)
+#     # if llist is None:
+#     #     return
+#     # if stream in _CUDA_STREAMS_SET:
+#     #     print("OOPS! uoisdhfwiofhuiwehuof")
+#     # assert stream not in _CUDA_STREAMS_SET
+#     # _CUDA_STREAMS_SET.add(stream)
+#     # llist.push_front(stream)
+#     pass
+
+
+@contextmanager
+def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
+    """Context manager that activates a CUDA stream if provided.
+
+    @param stream: CUDA stream instance or ``None``.
+    @return: Context manager yielding the active stream or ``None``.
+    """
+    if stream is None:
+        # If the resource is None, yield nothing but still enter the with block
+        yield None
+    else:
+        # If the resource is not None, use it as a normal context manager
+        with torch.cuda.stream(stream) as r:
+            yield r
+
+
+def record_stream_event(
+    tensor: torch.Tensor, stream: Optional[torch.cuda.Stream] = None
+) -> Optional[torch.cuda.Event]:
+    """Record a blocking CUDA event on the given tensor's stream.
+
+    @param tensor: Tensor whose device determines the CUDA stream context.
+    @param stream: Optional explicit stream; defaults to the current stream on the tensor device.
+    @return: Created :class:`torch.cuda.Event` or ``None`` when the tensor is on CPU.
+    """
+    assert tensor is not None
+    if tensor.device.type != "cuda":
+        return None
+    if stream is None:
+        stream = torch.cuda.current_stream(tensor.device)
+    assert stream is not None
+    event = torch.cuda.Event(blocking=True)
+    stream.record_event(event)
+    return event
+
+
+class GpuAllocator:
+    """Helper for allocating GPUs based on compute capability, cores, or memory.
+
+    The allocator tracks assigned devices and exposes strategies such as
+    :meth:`allocate_modern`, :meth:`allocate_fast` and :meth:`get_largest_mem_gpu`.
+
+    @param gpus: Comma-separated string or list of GPU indices allowed for allocation.
+    @see @ref hmlib.utils.progress_bar.ProgressBar "ProgressBar" for CLI integration.
+    """
+
+    def __init__(self, gpus: str | List[int]):
+        if gpus is None:
+            gpus = [i for i in range(torch.cuda.device_count())]
+        elif isinstance(gpus, str):
+            gpus = gpus.split(",")
+        if hasattr(gpus, "__iter__"):
+            gpus = [int(i) for i in gpus]
+        gpu_count = min(torch.cuda.device_count(), len(gpus))
+        self._gpus = gpus[: gpu_count + 1]
+        self._used_gpus: Dict = dict()
+        self._named_allocations: Dict = dict()
+        self._last_allocated: int = None
+        self._is_single_lowmem_gpu: Union[bool, None] = None
+
+        self._all_gpu_info = get_gpu_capabilities()
+        for i, gpu_info in enumerate(self._all_gpu_info):
+            print(f"GPU {i}: {gpu_info['name']}")
+
+    def __getitem__(self, index: int) -> Dict[str, Any]:
+        return self._all_gpu_info[index]
+
+    def __len__(self) -> int:
+        return len(self._all_gpu_info)
+
+    def allocate_modern(self, name: Optional[Union[str, None]] = None):
+        """
+        Allocate GPU with highest compute capability
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
+        index, caps = get_gpu_with_highest_compute_capability(
+            allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
+        )
+        if index is not None:
+            assert index not in self._used_gpus
+            self._used_gpus[index] = caps
+            if name:
+                self._named_allocations[name] = index
+            self._last_allocated = index
+            return index
+        else:
+            return self._last_allocated
+
+    def get_modern(self, name: Optional[Union[str, None]] = None):
+        """
+        Allocate GPU with highest compute capability
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
+        index, caps = get_gpu_with_highest_compute_capability(allowed_gpus=self._gpus)
+        if index is not None:
+            return index
+        else:
+            return self._last_allocated
+
+    def allocate_fast(self, name: Optional[Union[str, None]] = None):
+        """
+        Allocate GPU with the most multiprocessing cores
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
+        index, caps = get_gpu_with_most_multiprocessors(
+            allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
+        )
+        if index is not None:
+            assert index not in self._used_gpus
+            self._used_gpus[index] = caps
+            if name:
+                self._named_allocations[name] = index
+            self._last_allocated = index
+            return index
+        else:
+            return self._last_allocated
+
+    def free_count(self):
+        """
+        How many GPU's remain to be allocated?
+        """
+        return len(self._gpus) - len(self._used_gpus)
+
+    def get_largest_mem_gpu(self, name: Optional[Union[str, None]] = None):
+        """
+        Allocate GPU with highest compute capability
+        """
+        if name and name in self._named_allocations:
+            # Name overrides modern/fast
+            return self._named_allocations[name]
+        index, caps = get_gpu_with_largest_mem(allowed_gpus=self._gpus)
+        if index is not None:
+            return index
+        else:
+            return self._last_allocated
+
+    def is_single_lowmem_gpu(self, low_threshold_mb: int = 8192) -> bool:
+        """
+        Return True if we are dealing with a single, low-memory GPU
+        """
+        if torch.cuda.device_count() != 1:
+            # Assume zero is not a relevant use-case
+            return False
+        if self._is_single_lowmem_gpu is None:
+            index, caps = get_gpu_with_largest_mem(allowed_gpus=self._gpus)
+            if index is None:
+                # No allowed GPUs, so we aren't under any
+                # GPU memory constraint
+                self._is_single_lowmem_gpu = False
+            else:
+                self._is_single_lowmem_gpu = float(caps["total_memory"]) * 1024 <= low_threshold_mb
+        return self._is_single_lowmem_gpu
+
+
+class StreamTensorBase:
+    def size(self, index: int) -> int:
+        assert False and "Not implemented"
+
+
+class StreamTensor(StreamTensorBase):
+    """Tensor wrapper that tracks a CUDA stream and synchronization event.
+
+    Synchronization is deferred until :meth:`wait` or :meth:`get` is called,
+    allowing callers to compose asynchronous operations more easily.
+
+    @param tensor: Underlying tensor produced on a device.
+    @param stream: CUDA stream that produced the tensor.
+    @param event: Optional CUDA event used for synchronization.
+    @param owns_stream: Whether this wrapper is responsible for returning the stream.
+    @param verbose: Emit timing information when syncs exceed a threshold.
+    @param print_thresh: Threshold in seconds for logging sync durations.
+    @see @ref StreamCheckpoint "StreamCheckpoint" for one-shot checkpoints.
+    """
+
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        stream: Optional[torch.cuda.Stream] = None,
+        event: Optional[torch.cuda.Event] = None,
+        owns_stream: Optional[bool] = None,
+        verbose: Optional[bool] = True,
+        print_thresh: Optional[float] = 0.001,
+    ):
+        assert not isinstance(stream, StreamTensorBase)
+        assert isinstance(tensor, torch.Tensor)
+        self._tensor = tensor
+        self._stream = stream
+        self._event = event
+        self._print_thresh = print_thresh
+        self._owns_stream = owns_stream
+        self._sync_duraton = None
+        self._verbose = verbose
+        assert self._event is None
+
+    def new_checkpoint(self):
+        assert self._stream is not None
+        assert torch.cuda.current_stream(self.ref().device) == self._stream
+        assert self._event is not None
+        self._event = record_stream_event(self.ref(), stream=self._stream)
+        self._event.record()
+
+    def _clear_stream(self):
+        self._event = None
+        if isinstance(self._tensor, StreamTensor):
+            assert False
+            assert self._stream is None
+            self._tensor._clear_stream()
+        elif self._stream is not None:
+            if self._owns_stream:
+                assert False and "Deprecated path"
+                # free_stream(self._stream)
+            self._stream = None
+
+    def wait(self, new_stream: Optional[torch.cuda.Stream] = None) -> torch.Tensor:
+        assert self._tensor is not None
+        if self._tensor.device.type != "cuda":
+            return self._tensor
+        if new_stream is None:
+            new_stream = torch.cuda.current_stream(self._tensor.device)
+        if self._stream is not None:
+            # Probably not necessary, or you want to call synchronize on the event
+            assert self._stream != new_stream
+        if self._event is not None:
+            self._event.wait(new_stream)
+            self._event = None
+        else:
+            assert self._stream is None
+        self._clear_stream()
+        t = self._tensor
+        return t
+
+    def cpu(self) -> torch.Tensor:
+        return self.get().cpu()
+
+    def get(self) -> torch.Tensor:
+        return self.wait()
+
+        assert self._tensor is not None
+        if self._stream is not None:
+            if self._event is not None:
+                # with torch.cuda.stream(self._stream):
+                with nullcontext():
+                    start = time.time()
+                    self._event.synchronize()
+                    self._sync_duraton = time.time() - start
+                self._event = None
+            else:
+                assert False
+                self._stream.synchronize()
+            self._clear_stream()
+        elif self._event is not None:
+            start = time.time()
+            self._event.synchronize()
+            self._sync_duraton = time.time() - start
+            self._event = None
+            self._clear_stream()
+        if (
+            self._verbose
+            and self._sync_duraton is not None
+            and self._sync_duraton > self._print_thresh
+        ):
+            logger.info(
+                f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
+            )
+            pass
+        t = self._tensor
+        return t
+
+    @property
+    def sync_duration(self):
+        if self._sync_duraton is None:
+            return -1
+        return self._sync_duraton
+
+    @property
+    def stream(self):
+        if isinstance(self._tensor, StreamTensor):
+            return self._tensor.stream
+        return self._stream
+
+    @property
+    def dtype(self):
+        return self._tensor.dtype
+
+    @property
+    def device(self):
+        return self._tensor.device
+
+    @property
+    def ndim(self):
+        return self._tensor.ndim
+
+    def size(self, index: int) -> int:
+        return self._tensor.size(index)
+
+    @property
+    def shape(self):
+        return self._tensor.shape
+
+    @property
+    def owns_stream(self):
+        if isinstance(self._tensor, StreamTensor):
+            return self._tensor.owns_stream
+        return self._owns_stream
+
+    def ref(self):
+        if isinstance(self._tensor, StreamTensor):
+            return self._tensor.ref()
+        return self._tensor
+
+    def _set_ref(self, tensor: torch.Tensor):
+        """
+        Set tensor to some modified version of itself that does not need compute, such as permute()
+        """
+        if isinstance(self._tensor, StreamTensor):
+            self._tensor._set_ref(tensor)
+        else:
+            self._tensor = tensor
+
+    def call_with_checkpoint(self, fn, *args, **kwargs):
+        assert False
+        assert self._owns_stream
+        if torch.cuda.current_stream(self.device) == self._stream:
+            self._set_ref(fn(self.ref(), *args, **kwargs))
+            self._event = record_stream_event(self.ref(), stream=self._stream)
+        else:
+            assert self._stream is not None
+            with torch.cuda.stream(self._stream):
+                self._set_ref(fn(self.ref(), *args, **kwargs))
+                self._event = record_stream_event(self.ref(), stream=self._stream)
+        return self
+
+    def __truediv__(self, other):
+        assert isinstance(other, (int, float))
+        assert self.owns_stream
+        with torch.cuda.stream(self._stream):
+            self._set_ref(self.ref() / other)
+            self._event = record_stream_event(self.ref(), stream=self._stream)
+
+    def permute(self, *args, **kwargs):
+        self._set_ref(self.ref().permute(*args, **kwargs))
+        return self
+
+    def unsqueeze(self, *args, **kwargs):
+        self._set_ref(self.ref().unsqueeze(*args, **kwargs))
+        return self
+
+    def squeeze(self, *args, **kwargs):
+        self._set_ref(self.ref().squeeze(*args, **kwargs))
+        return self
+
+    def to(self, *args, **kwargs):
+        assert False and "Not implemented"
+
+    def __len__(self):
+        return self._tensor.shape[0]
+
+
+def copy_gpu_to_gpu_async(
+    tensor: torch.Tensor,
+    dest_device: torch.device,
+    src_stream: torch.cuda.Stream = None,
+    dest_stream: torch.cuda.Stream = None,
+) -> Tuple[torch.Tensor, torch.cuda.Event]:
+    if tensor.device == dest_device:
+        return tensor, None
+    if isinstance(tensor, StreamTensor):
+        tensor = tensor.wait()
+    if src_stream is None:
+        src_stream = torch.cuda.current_stream(tensor.device)
+    if dest_stream is None:
+        dest_stream = torch.cuda.current_stream(dest_device)
+    with cuda_stream_scope(src_stream):
+        tensor_dest = torch.empty_like(tensor, device=dest_device)
+        tensor_dest.copy_(tensor, non_blocking=True)
+        src_event = torch.cuda.Event(blocking=True)
+        src_stream.record_event(src_event)
+    with cuda_stream_scope(src_stream):
+        dest_stream.wait_event(src_event)
+        dest_event = torch.cuda.Event(blocking=True)
+        dest_stream.record_event(dest_event)
+    return tensor_dest, dest_event
+
+
+def tensor_call(
+    tensor: Union[torch.Tensor, StreamTensor], fn: Callable, *args, **kwargs
+) -> Union[torch.Tensor, StreamTensor]:
+    """Invoke a function on a tensor or :class:`StreamTensor`.
+
+    @param tensor: Plain tensor or :class:`StreamTensor` wrapper.
+    @param fn: Callable applied to the underlying tensor.
+    @return: Result tensor, or a :class:`StreamTensor` wrapping the result.
+    """
+    if isinstance(tensor, torch.Tensor):
+        return fn(tensor, *args, **kwargs)
+    return tensor.call_with_checkpoint(fn, *args, **kwargs)
+
+
+class StreamCheckpoint(StreamTensor):
+    """StreamTensor variant that records a synchronization event on construction.
+
+    @param tensor: Underlying tensor to checkpoint.
+    @param stream: CUDA stream used for the checkpoint.
+    @param event: Optional pre-existing CUDA event.
+    """
+
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        stream: Optional[torch.cuda.Stream] = None,
+        event: Optional[torch.cuda.Event] = None,
+        owns_stream: Optional[bool] = None,
+        verbose: Optional[bool] = True,
+        print_thresh: Optional[float] = 0.001,
+    ):
+        assert isinstance(tensor, torch.Tensor)
+        super(StreamCheckpoint, self).__init__(
+            tensor=tensor,
+            stream=stream,
+            event=event,
+            owns_stream=owns_stream,
+            verbose=verbose,
+            print_thresh=print_thresh,
+        )
+        self._event = record_stream_event(tensor, self._stream)
+
+
+class StreamTensorToDevice(StreamTensor):
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        device: torch.device,
+        stream: Union[None, torch.cuda.Stream] = None,
+        verbose: bool = True,
+    ):
+        assert False
+        if isinstance(tensor, np.ndarray):
+            tensor = torch.from_numpy(tensor)
+        super(StreamTensorToDevice, self).__init__(tensor=tensor, verbose=verbose)
+        if tensor.device == device:
+            return
+        if stream is None:
+            stream = allocate_stream(tensor.device) if device.type == "cuda" else None
+            self._stream = stream
+            self._owns_stream = True
+        with torch.cuda.stream(stream=stream):
+            self._tensor = tensor.to(device, non_blocking=True)
+            assert self._event is None
+            self._event = torch.cuda.Event(blocking=True)
+            self._event.record()
+
+
+class StreamTensorToDtype(StreamTensor):
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        dtype: torch.dtype,
+        contiguous: bool = False,
+        scale_down_factor: float = None,
+    ):
+        assert False
+        if isinstance(tensor, np.ndarray):
+            tensor = torch.from_numpy(tensor)
+        super(StreamTensorToDtype, self).__init__(tensor=tensor)
+        assert tensor.dtype != dtype
+
+        if isinstance(tensor, StreamTensor):
+            self._stream = tensor._stream
+            with torch.cuda.stream(stream=self._stream):
+                self._tensor = tensor.ref().to(dtype=dtype, non_blocking=True)
+                if scale_down_factor and scale_down_factor != 1:
+                    self._tensor /= scale_down_factor
+                if contiguous:
+                    self._tensor = self._tensor.contiguous()
+                self._event = torch.cuda.Event(blocking=True)
+                self._event.record()
+        else:
+            self._stream = allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
+            with torch.cuda.stream(stream=self._stream):
+                self._tensor = tensor.to(dtype=dtype, non_blocking=True)
+                if contiguous:
+                    self._tensor = self._tensor.contiguous()
+                self._event = torch.cuda.Event(blocking=True)
+                self._event.record()
+
+
+def get_gpu_capabilities():
+    if not torch.cuda.is_available():
+        return []
+    num_gpus = torch.cuda.device_count()
+    gpu_info = []
+    for i in range(num_gpus):
+        properties = torch.cuda.get_device_properties(i)
+        gpu_info.append(
+            {
+                "name": properties.name,
+                "index": i,
+                "compute_capability": f"{properties.major}.{properties.minor}",
+                "total_memory": properties.total_memory / (1024**3),  # Convert bytes to GB
+                "properties": properties,
+            }
+        )
+    return gpu_info
+
+
+def get_gpu_with_highest_compute_capability(
+    allowed_gpus: Union[List[int], None] = None,
+    disallowed_gpus: Union[List[int], Set[int], Dict[int, Any], None] = None,
+) -> Tuple[Union[int, None], Union[Dict, None]]:
+    gpus = get_gpu_capabilities()
+    if gpus is None:
+        return None, None
+    sorted_gpus = sorted(gpus, key=lambda x: float(x["compute_capability"]))
+    for _, gpu in enumerate(reversed(sorted_gpus)):
+        index = gpu["index"]
+        if allowed_gpus is not None and index not in allowed_gpus:
+            continue
+        if disallowed_gpus is not None and index in disallowed_gpus:
+            continue
+        return index, gpu
+    return None, None
+
+
+def get_gpu_with_largest_mem(
+    allowed_gpus: Union[List[int], None] = None,
+    disallowed_gpus: Union[List[int], Set[int], Dict[int, Any], None] = None,
+) -> Tuple[Union[int, None], Union[Dict, None]]:
+    gpus = get_gpu_capabilities()
+    if gpus is None:
+        return None, None
+    sorted_gpus = sorted(gpus, key=lambda x: float(x["total_memory"]))
+    for _, gpu in enumerate(reversed(sorted_gpus)):
+        index = gpu["index"]
+        if allowed_gpus is not None and index not in allowed_gpus:
+            continue
+        if disallowed_gpus is not None and index in disallowed_gpus:
+            continue
+        return index, gpu
+    return None, None
+
+
+def get_gpu_with_most_multiprocessors(
+    allowed_gpus: Union[List[int], None] = None,
+    disallowed_gpus: Union[List[int], Set[int], None] = None,
+) -> Tuple[Union[int, None], Union[Dict, None]]:
+    gpus = get_gpu_capabilities()
+    if gpus is None:
+        return None, None
+    sorted_gpus = sorted(gpus, key=lambda x: float(x["properties"].multi_processor_count))
+    candidates = []
+    last_count = 0
+    for _, gpu in enumerate(reversed(sorted_gpus)):
+        index = gpu["index"]
+        if allowed_gpus is not None and index not in allowed_gpus:
+            continue
+        if disallowed_gpus is not None and index in disallowed_gpus:
+            continue
+        if last_count:
+            if gpu["properties"].multi_processor_count == last_count:
+                candidates.append(index)
+        else:
+            last_count = gpu["properties"].multi_processor_count
+            candidates.append(index)
+    if not candidates:
+        return None, None
+    candidates = sorted(candidates)
+    return candidates[0], gpus[candidates[0]]
+
+
+def _check_is(dev: Union[torch.device, None], flag: bool):
+    if dev is not None:
+        assert isinstance(dev, torch.device)
+    assert (flag and dev is not None) or (not flag and dev is None)
+
+
+def select_gpus(
+    allowed_gpus: List[int],
+    rank: Union[int, None] = None,
+    gpu_allocator: Union[GpuAllocator, None] = None,
+    inference: bool = True,
+    is_stitching: bool = True,
+    is_detecting: bool = True,
+    is_multipose: bool = False,
+    is_encoding: bool = True,
+    is_camera: bool = True,
+    stitch_with_fastest: bool = True,
+    verbose: bool = True,
+) -> Tuple[Dict[str, torch.device], bool]:
+    #
+    # BEGIN GPU SELECTION
+    #
+    if gpu_allocator is None:
+        gpu_allocator = GpuAllocator(gpus=allowed_gpus)
+
+    stitching_device: Union[torch.device, None] = None
+    video_encoding_device: Union[torch.device, None] = None
+    detection_device: Union[torch.device, None] = None
+    multipose_device: Union[torch.device, None] = None
+    camera_device = torch.device("cpu")
+    if is_multipose:
+        # Multi-Pose gets the biggest, baddest one
+        multipose_device = torch.device("cuda", gpu_allocator.allocate_fast())
+    if inference:
+        if is_multipose:
+            if is_detecting:
+                detection_device = multipose_device
+        else:
+            if stitch_with_fastest:
+                if is_stitching:
+                    if gpu_allocator.free_count() or not is_detecting:
+                        stitching_device = torch.device("cuda", gpu_allocator.allocate_fast())
+                    else:
+                        stitching_device = detection_device
+
+            if is_detecting:
+                if gpu_allocator.free_count():
+                    detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
+                else:
+                    if is_multipose:
+                        assert multipose_device is not None
+                        detection_device = multipose_device
+                    elif detection_device is None:
+                        detection_device = stitching_device
+                        assert detection_device is not None
+
+        if is_encoding:
+            # Always used most modern GPU for encoding
+            video_encoding_device = torch.device("cuda", gpu_allocator.get_modern())
+            # if gpu_allocator.free_count():
+            #     video_encoding_device = torch.device("cuda", gpu_allocator.allocate_modern())
+            # else:
+            #     video_encoding_device = (
+            #         detection_device if not multipose_device else multipose_device
+            #     )
+            # if video_encoding_device is None:
+            #     video_encoding_device = torch.device("cuda", gpu_allocator.allocate_modern())
+
+        if is_stitching and stitching_device is None:
+            if gpu_allocator.free_count():
+                stitching_device = torch.device("cuda", gpu_allocator.allocate_fast())
+            else:
+                stitching_device = detection_device
+    else:
+        if rank is not None:
+            for i in range(rank):
+                _ = gpu_allocator.allocate_fast()
+            detection_device = torch.device("cuda", gpu_allocator.allocate_fast())
+        if is_stitching and stitching_device is None:
+            stitching_device = detection_device
+
+    if False:
+        # just always have encoder be detection device
+        if video_encoding_device is not None and detection_device is not None:
+            video_encoding_device = detection_device
+
+    #
+    # END GPU SELECTION
+    #
+    gpus = dict()
+    _check_is(stitching_device, is_stitching)
+    _check_is(detection_device, is_detecting)
+    _check_is(multipose_device, is_multipose)
+    _check_is(stitching_device, is_stitching)
+    _check_is(camera_device, is_camera)
+    _check_is(video_encoding_device, is_encoding)
+    if detection_device is not None:
+        gpus["detection"] = detection_device
+    if stitching_device is not None:
+        gpus["stitching"] = stitching_device
+    if multipose_device is not None:
+        gpus["multipose"] = multipose_device
+    if camera_device is not None:
+        gpus["camera"] = camera_device
+    if video_encoding_device is not None:
+        gpus["encoder"] = video_encoding_device
+
+    if verbose:
+        for k in sorted(gpus.keys()):
+            device = gpus[k]
+            if device.type != "cuda":
+                continue
+            name = gpu_allocator[device.index]["name"]
+            print(f"{k} device: {device} ({name})")
+
+    return gpus, gpu_allocator.is_single_lowmem_gpu(), gpu_allocator

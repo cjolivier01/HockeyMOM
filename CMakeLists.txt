@@ -33,6 +33,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(WITH_OPENCV 1)
+
 # set(CMAKE_CXX_STANDARD 14)
 
 # OpenCV config
@@ -74,7 +76,7 @@ SET(BUILD_EXAMPLES OFF)
 # SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/opencv-python/opencv_contrib/modules")
 # SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_SOURCE_DIR}/opencv_contrib/modules")
 # MESSAGE(FATAL " OPENCV_EXTRA_MODULES_PATH=${OPENCV_EXTRA_MODULES_PATH}")
-SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_LIST_DIR}/external/opencv-python/opencv_contrib/modules/")
+# SET(OPENCV_EXTRA_MODULES_PATH "${CMAKE_CURRENT_LIST_DIR}/external/opencv-python/opencv_contrib/modules/")
 
 # include_directories(${CMAKE_CURRENT_LIST_DIR}/external/opencv-python/opencv/include/opencv2)
 # Detect compiler version (does not seem to work)
@@ -143,6 +145,17 @@ include_directories(${SWSCALE_INCLUDE_DIRS})
 
 set(FFMPEG_LIBS ${AVCODEC_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVUTIL_LIBRARIES} ${SWSCALE_LIBRARIES})
 
+if (WITH_OPENCV)
+  # cudaimgproc
+  find_package(OpenCV REQUIRED core highgui)
+  set(OpenCV_ENABLE_OPENGL TRUE)  # Print OpenCV version and directories (optional but helpful for debugging)
+  message(STATUS "OpenCV version: ${OpenCV_VERSION}")
+  message(STATUS "OpenCV include dirs: ${OpenCV_INCLUDE_DIRS}")
+  message(STATUS "OpenCV libraries: ${OpenCV_LIBS}")
+  add_compile_options(-DWITH_OPENCV=1)
+  include_directories(${OpenCV_INCLUDE_DIRS})
+endif()
+
 # message(FATAL_ERROR " FFMPEG_LIBS=${FFMPEG_LIBS}")
 
 #
@@ -190,8 +203,10 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 # And the external dir next
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external)
 
-# Include hugin sources as include dirs
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/hugin/src/hugin_base)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "i686|x86|i386")
+  # Include hugin sources as include dirs
+  include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external/hugin/src/hugin_base)
+endif()
 
 find_package(OpenGL REQUIRED
   PATHS /home/colivier/.conda/envs/ubuntu-gpu

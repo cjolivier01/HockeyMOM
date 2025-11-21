@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -65,7 +66,7 @@ struct BlenderConfig {
   std::string mode = std::string(kBlendModeMultiblend);
   int levels{0};
   at::Tensor seam;
-  at::Tensor xor_map;
+  std::optional<at::Tensor> xor_map;
   bool lazy_init{false};
   std::string interpolation;
   std::string device = std::string("cpu");
