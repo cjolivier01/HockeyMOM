@@ -179,7 +179,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         minimize_blend: bool = True,
         python_blender: bool = True,
         no_cuda_streams: bool = False,
-        async_mode: bool = False,
+        async_mode: bool = True,
         show_image_components: bool = False,
         post_stitch_rotate_degrees: Optional[float] = None,
         profiler: Any = None,
