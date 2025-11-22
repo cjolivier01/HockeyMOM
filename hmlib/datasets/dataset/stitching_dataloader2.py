@@ -537,7 +537,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
                         if isinstance(self._stitcher, CudaStitchPanoF32 | CudaStitchPanoU8):
 
-                            if True or self._show_image_components:
+                            if self._show_image_components:
                                 for img1, img2 in zip(imgs_1, imgs_2):
                                     t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
                                     t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
@@ -591,15 +591,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                     self._post_stitch_rotate_degrees,
                                     use_cache=True,
                                 )
-                            if False or self._show_image_components:
-                                for blended_image in blended_stream_tensor:
-                                    show_image(
-                                        "blended",
-                                        make_visible_image(blended_image),
-                                        wait=False,
-                                        # stream=int(stream.cuda_stream),
-                                        enable_resizing=0.2,
-                                    )
                         else:
                             blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
                             # Optional rotation (keep same size)
@@ -611,6 +602,16 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                     blended_stream_tensor,
                                     self._post_stitch_rotate_degrees,
                                     use_cache=True,
+                                )
+
+                        if self._show_image_components:
+                            for blended_image in blended_stream_tensor:
+                                show_image(
+                                    "blended",
+                                    make_visible_image(blended_image),
+                                    wait=False,
+                                    # stream=int(stream.cuda_stream),
+                                    enable_resizing=0.2,
                                 )
 
                         if stream is not None:
