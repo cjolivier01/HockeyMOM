@@ -179,7 +179,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         minimize_blend: bool = True,
         python_blender: bool = True,
         no_cuda_streams: bool = False,
-        async_mode: bool = True,
+        async_mode: bool = False,
         show_image_components: bool = False,
         post_stitch_rotate_degrees: Optional[float] = None,
         profiler: Any = None,
@@ -213,7 +213,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._python_blender = python_blender
         self._minimize_blend = minimize_blend
         self._show_image_components = show_image_components
-        self._remapping_cuda = self._remapping_device.type == "cuda"
         self._async_mode = bool(async_mode)
         self._remapping_stream = None
         # Optional rotation after stitching (degrees, about image center)
@@ -524,15 +523,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
             with torch.no_grad():
 
-                def _prepare_image(img: torch.Tensor):
-                    img = make_channels_first(img)
-                    if img.device != self._remapping_device:
-                        img = copy_gpu_to_gpu_async(img, device=self._remapping_device)
-                    if img.dtype != self._dtype:
-                        img = img.to(self._dtype, non_blocking=True)
-                    return img
-
-                if self._remapping_cuda and not self._no_cuda_streams and self._remapping_stream is None:
+                if not self._no_cuda_streams and self._remapping_stream is None:
                     self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
 
                 stream = self._remapping_stream if self._async_mode else None
@@ -545,23 +536,12 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                             self._create_stitcher()
 
                         if isinstance(self._stitcher, CudaStitchPanoF32 | CudaStitchPanoU8):
-                            imgs_1 = make_channels_last(self.ensure_rgba(imgs_1))
-                            imgs_2 = make_channels_last(self.ensure_rgba(imgs_2))
-                            assert imgs_1.dtype == torch.uint8
-                            blended_stream_tensor = torch.empty(
-                                [
-                                    imgs_1.shape[0],
-                                    self._stitcher.canvas_height(),
-                                    self._stitcher.canvas_width(),
-                                    imgs_1.shape[-1],
-                                ],
-                                dtype=imgs_1.dtype,
-                                device=imgs_1.device,
-                            )
-                            if self._show_image_components:
+
+                            if True or self._show_image_components:
                                 for img1, img2 in zip(imgs_1, imgs_2):
                                     t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
                                     t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
+                                    torch.cuda.synchronize()
                                     # show_cuda_tensor(
                                     show_image(
                                         "img-1",
@@ -578,6 +558,21 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                         # stream=int(stream.cuda_stream),
                                         enable_resizing=0.2,
                                     )
+
+                            imgs_1 = make_channels_last(self.ensure_rgba(imgs_1))
+                            imgs_2 = make_channels_last(self.ensure_rgba(imgs_2))
+                            assert imgs_1.dtype == torch.uint8
+
+                            blended_stream_tensor = torch.empty(
+                                [
+                                    imgs_1.shape[0],
+                                    self._stitcher.canvas_height(),
+                                    self._stitcher.canvas_width(),
+                                    imgs_1.shape[-1],
+                                ],
+                                dtype=imgs_1.dtype,
+                                device=imgs_1.device,
+                            )
                             stream_handle = (
                                 stream.cuda_stream
                                 if stream is not None
@@ -596,10 +591,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                     self._post_stitch_rotate_degrees,
                                     use_cache=True,
                                 )
-                            if self._show_image_components:
+                            if False or self._show_image_components:
                                 for blended_image in blended_stream_tensor:
                                     show_image(
-                                        # show_cuda_tensor(
                                         "blended",
                                         make_visible_image(blended_image),
                                         wait=False,

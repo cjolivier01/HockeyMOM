@@ -26,16 +26,12 @@ from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.log import logger
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.timer import Timer, TimeTracker
+from hmlib.ui import show_image
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.exceptions import raise_exception_in_thread
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensor,
-    cuda_stream_scope,
-    get_gpu_capabilities,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope, get_gpu_capabilities
 from hmlib.utils.image import (
     ImageColorScaler,
     image_height,
@@ -52,11 +48,7 @@ from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import to_tensor_scalar
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
-from .video_stream import (
-    VideoStreamWriterInterface,
-    clamp_max_video_dimensions,
-    create_output_video_stream,
-)
+from .video_stream import VideoStreamWriterInterface, clamp_max_video_dimensions, create_output_video_stream
 
 standard_8k_width: int = 7680
 standard_8k_height: int = 4320
@@ -81,27 +73,6 @@ def slow_to_tensor(
             return tensor.wait()
         return tensor.get()
     return tensor
-
-
-def quick_show(img: torch.Tensor, wait: bool = False):
-    if img.ndim == 4:
-        for s_img in img:
-            cv2.imshow(
-                "online_im",
-                make_visible_image(
-                    s_img,
-                ),
-            )
-            cv2.waitKey(1)
-    else:
-        assert img.ndim == 3
-        cv2.imshow(
-            "online_im",
-            make_visible_image(
-                img,
-            ),
-        )
-        cv2.waitKey(1 if not wait else 0)
 
 
 def get_best_codec(
@@ -590,20 +561,11 @@ class VideoOutput:
             img = online_im
             self._mean_tracker(img)
 
-        # if cuda_stream is not None:
-        #     cuda_stream.synchronize()
-
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
                 if not isinstance(online_im, StreamTensor):
                     online_im = StreamCheckpoint(tensor=online_im)
                 with cuda_stream_scope(default_cuda_stream):
-                    # IMPORTANT:
-                    # The encode is going to use the default stream,
-                    # so call write() under that stream so that any actions
-                    # taken while pushing occur on the same stream as the
-                    # ultimate encoding
-                    # online_im = online_im.get()
                     self._output_videos[self.VIDEO_DEFAULT].write(online_im)
 
             if self.VIDEO_END_ZONES in self._output_videos:
@@ -613,19 +575,14 @@ class VideoOutput:
                 if not isinstance(ez_img, StreamTensor):
                     ez_img = StreamCheckpoint(tensor=ez_img)
                 with cuda_stream_scope(default_cuda_stream):
-                    # IMPORTANT:
-                    # The encode is going to use the default stream,
-                    # so call write() under that stream so that any actions
-                    # taken while pushing occur on the same stream as the
-                    # ultimate encoding
                     self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
+
         if self.has_args() and self._args.show_image:
             online_im = slow_to_tensor(online_im)
             for show_img in online_im:
-                if cuda_stream is not None:
-                    cuda_stream.synchronize()
                 # show_img = ez_img
                 self._shower.show(show_img)
+                # show_image("image", show_img, wait=False)
 
         # Save frames as individual frames
         if self._save_frame_dir:

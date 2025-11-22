@@ -63,28 +63,6 @@ class VideoStreamWriterInterface:
     pass
 
 
-# def clamp_image_to_max_area(
-#     width: int, height: int, max_area: int = MAX_PIXEL_AREA
-# ) -> Tuple[int, int, bool]:
-#     # Calculate the current area
-#     current_area: int = width * height
-
-#     # Check if the current area is within the limit
-#     if current_area <= max_area:
-#         return width, height, False  # No scaling needed
-
-#     # Calculate the scaling factor
-#     scaling_factor: float = (
-#         max_area / current_area
-#     ) ** 0.5  # Square root of the ratio of max_area to current_area
-
-#     # Calculate new dimensions
-#     new_width = int(width * scaling_factor)
-#     new_height = int(height * scaling_factor)
-
-#     return new_width, new_height, True
-
-
 def video_size(
     width: int, height: int, codec: Optional[str] = None, max_width: Optional[int] = None
 ) -> Tuple[int | Literal[True]] | Tuple[int | Literal[False]]:
