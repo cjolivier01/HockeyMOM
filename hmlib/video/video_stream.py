@@ -499,9 +499,13 @@ class TAStreamReaderIterator:
         frame = next_chunk[0]
         assert len(frame) == self._batch_size
         # We have to synchronize with the null stream first (so hopefully nothing else is running on that)
-        torch.cuda.default_stream(frame.device).synchronize()
+        current_stream = torch.cuda.current_stream(frame.device)
+        default_stream = torch.cuda.default_stream(frame.device)
+        if current_stream.stream_id != default_stream.stream_id:
+            current_stream.wait_stream(default_stream)
         with torch.no_grad():
             frame = yuv_to_bgr_float(frame)
+        default_stream.wait_stream(current_stream)
         return frame
 
 
