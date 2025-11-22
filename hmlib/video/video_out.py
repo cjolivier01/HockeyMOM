@@ -318,6 +318,14 @@ class VideoOutput:
             assert len(image_channel_adjustment) == 3
             self._image_color_scaler = ImageColorScaler(image_channel_adjustment)
 
+        self._prof = getattr(self._args, "profiler", None) if self.has_args() else None
+        self._fctx = (
+            self._prof.rf("video_out.forward") if getattr(self._prof, "enabled", False) else contextlib.nullcontext()
+        )
+        self._sctx = (
+            self._prof.rf("video_out.save_frame") if getattr(self._prof, "enabled", False) else contextlib.nullcontext()
+        )
+
         # Record initial CLI-configured post-stitch rotation so we can apply
         # runtime deltas from the camera UI without double-rotating
         try:
@@ -373,13 +381,10 @@ class VideoOutput:
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if not self._async_output:
             with cuda_stream_scope(self._cuda_stream):
-                prof = getattr(self._args, "profiler", None) if self.has_args() else None
-                fctx = prof.rf("video_out.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
-                sctx = prof.rf("video_out.save_frame") if getattr(prof, "enabled", False) else contextlib.nullcontext()
-                with fctx:
+                with self._fctx:
                     results = self.forward(results)
                 assert results["img"].device == self._device
-                with sctx:
+                with self._sctx:
                     results = self.save_frame(
                         results,
                         cuda_stream=self._cuda_stream,
@@ -498,12 +503,9 @@ class VideoOutput:
 
                     batch_size = results["img"].size(0)
 
-                    prof = getattr(self._args, "profiler", None) if self.has_args() else None
-                    fctx = prof.rf("video_out.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
-                    sctx = prof.rf("video_out.save_frame") if getattr(prof, "enabled", False) else contextlib.nullcontext()
-                    with fctx:
+                    with self._fctx:
                         results = self.forward(results)
-                    with sctx:
+                    with self._sctx:
                         results = self.save_frame(
                             results, cuda_stream=cuda_stream, default_cuda_stream=default_cuda_stream
                         )
@@ -598,8 +600,6 @@ class VideoOutput:
         return results
 
     def forward(self, results) -> Dict[str, Any]:
-
-        # visualization_config = self._visualization_config
 
         online_im = results.pop("img")
         frame_ids = results.get("frame_ids")
@@ -760,7 +760,7 @@ class VideoOutput:
                 new_height=self._output_frame_height,
             )
 
-        online_im = to_uint8_image(online_im, non_blocking=True)
+        online_im = to_uint8_image(online_im)
 
         # Move to CPU last (if necessary)
         if online_im.device.type != "cpu" and self._device.type == "cpu":
