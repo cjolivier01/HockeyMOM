@@ -758,7 +758,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                     pass
 
                 with torch.inference_mode():
-                    with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False and self._pass == 10):
+                    with CudaStackTracer(functions="cudaStreamSynchronize", enabled=True and self._pass == 10):
                         with self._profile_scope("head"):
                             cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
                             result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
