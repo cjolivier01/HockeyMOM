@@ -5,9 +5,53 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
+from cuda_stacktrace import CudaStackTracer
 from mmengine.structures import InstanceData
 
 from .base import Trunk
+
+
+def _strip_static_padding(instances: InstanceData) -> InstanceData:
+    """Remove padded detections when static outputs are enabled."""
+    if instances is None:
+        return instances
+    num_valid = getattr(instances, "num_valid_after_nms",
+                        getattr(instances, "num_valid", None))
+    if isinstance(num_valid, torch.Tensor):
+        if num_valid.numel() == 0:
+            return instances[:0]
+        if num_valid.device.type == "cpu":
+            try:
+                keep = int(num_valid)
+            except Exception:
+                return instances
+        else:
+            device = None
+            for attr in ("bboxes", "scores", "labels"):
+                try:
+                    tensor = getattr(instances, attr)
+                except Exception:
+                    tensor = None
+                if torch.is_tensor(tensor):
+                    device = tensor.device
+                    break
+            if device is None:
+                return instances
+            keep_mask = torch.arange(len(instances), device=device) < num_valid.to(device=device)
+            try:
+                return instances[keep_mask]
+            except Exception:
+                return instances
+    else:
+        try:
+            keep = int(num_valid)
+        except Exception:
+            return instances
+    if keep < 0:
+        keep = 0
+    if keep >= len(instances):
+        return instances
+    return instances[:keep]
 
 
 class DetectorFactoryTrunk(Trunk):
@@ -33,6 +77,7 @@ class DetectorFactoryTrunk(Trunk):
         enabled: bool = True,
         onnx: Optional[Dict[str, Any]] = None,
         trt: Optional[Dict[str, Any]] = None,
+        static_detections: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(enabled=enabled)
         self._detector_dict = detector
@@ -46,6 +91,14 @@ class DetectorFactoryTrunk(Trunk):
         # TensorRT options
         self._trt_cfg: Dict[str, Any] = dict(trt or {})
         self._trt_wrapper: Optional[_TrtDetectorWrapper] = None
+        # Optional static detection outputs (fixed-shape top-k)
+        try:
+            trt_static = dict(self._trt_cfg.get("static_detections", {}) or {})
+        except Exception:
+            trt_static = {}
+        self._static_detections: Dict[str, Any] = dict(trt_static)
+        if static_detections:
+            self._static_detections.update(static_detections)
 
     def _load_detector_from_yaml(self, path: str) -> Dict[str, Any]:
         import yaml
@@ -100,6 +153,12 @@ class DetectorFactoryTrunk(Trunk):
 
             if hasattr(model, "init_weights"):
                 model.init_weights()
+
+            if self._static_detections:
+                head = getattr(model, "bbox_head", None)
+                setter = getattr(head, "set_static_detections", None)
+                if callable(setter):
+                    setter(**self._static_detections)
 
             if self._to_device and "device" in context and isinstance(context["device"], torch.device):
                 model = model.to(context["device"])  # type: ignore[assignment]
@@ -491,7 +550,7 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
                         def __init__(self, inst_):
                             self.pred_instances = inst_
 
-                    results.append(_Wrap(inst))
+                    results.append(_Wrap(_strip_static_padding(inst)))
             return results
 
 
@@ -525,6 +584,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         self._std = None
         self._swap_rgb = False
         self._calib_dataset = None
+        self._pass: int = 0
 
         # Gather data_preprocessor normalization like ONNX path
         try:
@@ -693,24 +753,33 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         feats = list(feats)
                     else:
                         feats = [torch.as_tensor(feats)]
+
+                if self._pass == 10:
+                    pass
+
                 with torch.inference_mode():
-                    with self._profile_scope("head"):
-                        cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
-                        result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
-                            cls_scores=cls_scores,
-                            bbox_preds=bbox_preds,
-                            objectnesses=objectnesses,
-                            batch_img_metas=[img_meta],
-                            cfg=None,
-                            rescale=True,
-                            with_nms=True,
-                        )
+                    with CudaStackTracer(functions="cudaStreamSynchronize", enabled=True and self._pass == 10):
+                        with self._profile_scope("head"):
+                            cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
+                            result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                                cls_scores=cls_scores,
+                                bbox_preds=bbox_preds,
+                                objectnesses=objectnesses,
+                                batch_img_metas=[img_meta],
+                                cfg=None,
+                                rescale=True,
+                                with_nms=True,
+                            )
                 inst = result_list[0]
+
+                if self._pass == 10:
+                    pass
 
                 class _Wrap:
                     def __init__(self, inst_):
                         self.pred_instances = inst_
 
                 with self._profile_scope("postprocess"):
-                    results.append(_Wrap(inst))
+                    results.append(_Wrap(_strip_static_padding(inst)))
+            self._pass += 1
             return results

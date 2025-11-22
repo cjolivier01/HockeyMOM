@@ -437,6 +437,26 @@ def _main(args, num_gpu):
                     args.detector_onnx_enable or args.detector_onnx_path or args.detector_onnx_quantize_int8
                 )
                 trunks_cfg = args.aspen.setdefault("trunks", {}) or {}
+                # Optional static detection outputs (fixed-shape top-k)
+                static_det_enable = bool(getattr(args, "detector_static_detections", False))
+                static_det_max = int(getattr(args, "detector_static_max_detections", 0) or 0)
+                if static_det_enable and "detector" in trunks_cfg:
+                    df = trunks_cfg.setdefault(
+                        "detector_factory",
+                        {
+                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk",
+                            "depends": [],
+                            "params": {},
+                        },
+                    )
+                    df_params = df.setdefault("params", {}) or {}
+                    static_cfg = df_params.setdefault("static_detections", {}) or {}
+                    static_cfg["enable"] = True
+                    if static_det_max > 0:
+                        static_cfg["max_detections"] = static_det_max
+                    df_params["static_detections"] = static_cfg
+                    df["params"] = df_params
+                    trunks_cfg["detector_factory"] = df
                 if onnx_enable and "detector" in trunks_cfg:
                     df = trunks_cfg.setdefault(
                         "detector_factory",
