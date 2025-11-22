@@ -318,13 +318,13 @@ class VideoOutput:
             assert len(image_channel_adjustment) == 3
             self._image_color_scaler = ImageColorScaler(image_channel_adjustment)
 
-        self._prof = getattr(self._args, "profiler", None) if self.has_args() else None
-        self._fctx = (
-            self._prof.rf("video_out.forward") if getattr(self._prof, "enabled", False) else contextlib.nullcontext()
-        )
-        self._sctx = (
-            self._prof.rf("video_out.save_frame") if getattr(self._prof, "enabled", False) else contextlib.nullcontext()
-        )
+        # Record initial CLI-configured post-stitch rotation so we can apply
+        # runtime deltas from the camera UI without double-rotating
+        try:
+            init_rot = getattr(self._args, "stitch_rotate_degrees", None) if self.has_args() else None
+            self._initial_stitch_rotate_degrees = float(init_rot) if init_rot is not None else 0.0
+        except Exception:
+            self._initial_stitch_rotate_degrees = 0.0
 
         self._video_out_pipeline = video_out_pipeline
         if self._video_out_pipeline is not None:
@@ -371,17 +371,15 @@ class VideoOutput:
             self._shower = None
 
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        # torch.cuda.synchronize()
-        # show_image("video_out", results["img"], wait=False, enable_resizing=0.2)
-        # self._shower.show(results["img"]) if self._shower is not None else None
         if not self._async_output:
             with cuda_stream_scope(self._cuda_stream):
-                if isinstance(results["img"], StreamTensor):
-                    results["img"] = results["img"].wait()
-                with self._fctx:
+                prof = getattr(self._args, "profiler", None) if self.has_args() else None
+                fctx = prof.rf("video_out.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                sctx = prof.rf("video_out.save_frame") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                with fctx:
                     results = self.forward(results)
                 assert results["img"].device == self._device
-                with self._sctx:
+                with sctx:
                     results = self.save_frame(
                         results,
                         cuda_stream=self._cuda_stream,
@@ -475,13 +473,13 @@ class VideoOutput:
         cuda_stream = None
 
         if self._device.type == "cuda":
-            default_cuda_stream = torch.cuda.default_stream(self._device)
+            default_cuda_stream = torch.cuda.current_stream(self._device)
             cuda_stream = torch.cuda.Stream(self._device)
 
         mean_track_mode = None
         if mean_track_mode and self._mean_tracker is None:
             self._mean_tracker = MeanTracker(file_path="video_out.txt", mode=mean_track_mode)
-        # torch.cuda.synchronize()
+
         with cuda_stream_scope(cuda_stream):
             iqueue = IterableQueue(self._imgproc_queue)
             imgproc_iter = iter(iqueue)
@@ -496,22 +494,16 @@ class VideoOutput:
                     except StopIteration:
                         break
 
-                    if isinstance(results["img"], StreamTensor):
-                        results["img"] = results["img"].wait()
-
-                    # torch.cuda.synchronize()
-
                     timer.tic()
 
                     batch_size = results["img"].size(0)
 
-                    with self._fctx:
-                        # torch.cuda.synchronize()
+                    prof = getattr(self._args, "profiler", None) if self.has_args() else None
+                    fctx = prof.rf("video_out.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                    sctx = prof.rf("video_out.save_frame") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                    with fctx:
                         results = self.forward(results)
-                    with self._sctx:
-                        # default_cuda_stream.wait_stream(default_cuda_stream)
-                        # cuda_stream.synchronize()
-                        # torch.cuda.synchronize()
+                    with sctx:
                         results = self.save_frame(
                             results, cuda_stream=cuda_stream, default_cuda_stream=default_cuda_stream
                         )
@@ -591,7 +583,6 @@ class VideoOutput:
                 # show_img = ez_img
                 self._shower.show(show_img)
                 # show_image("image", show_img, wait=False)
-                pass
 
         # Save frames as individual frames
         if self._save_frame_dir:
@@ -607,6 +598,8 @@ class VideoOutput:
         return results
 
     def forward(self, results) -> Dict[str, Any]:
+
+        # visualization_config = self._visualization_config
 
         online_im = results.pop("img")
         frame_ids = results.get("frame_ids")
@@ -660,6 +653,33 @@ class VideoOutput:
             #
             # END END-ZONE
             #
+
+        #
+        # Optional runtime panorama rotation via camera UI
+        #
+        try:
+            runtime_rot = None
+            if self.has_args():
+                try:
+                    runtime_rot = (
+                        self._args.game_config.get("game", {}).get("stitching", {}).get("stitch-rotate-degrees")
+                    )
+                except Exception:
+                    runtime_rot = None
+            if runtime_rot is not None:
+                # Apply delta from initial CLI-configured rotation to avoid double-rotate
+                delta = float(runtime_rot) - float(self._initial_stitch_rotate_degrees)
+                if abs(delta) > 1e-6:
+                    imgs = []
+                    for img in online_im:
+                        # Center about the middle of the panorama
+                        cx = int(image_width(img) / 2)
+                        cy = int(image_height(img) / 2)
+                        imgs.append(rotate_image(img, angle=float(delta), rotation_point=[cx, cy]))
+                    online_im = torch.stack(imgs) if isinstance(imgs[0], torch.Tensor) else imgs
+        except Exception:
+            # Non-fatal
+            pass
 
         #
         # Video-out pipeline
@@ -740,7 +760,7 @@ class VideoOutput:
                 new_height=self._output_frame_height,
             )
 
-        online_im = to_uint8_image(online_im)
+        online_im = to_uint8_image(online_im, non_blocking=True)
 
         # Move to CPU last (if necessary)
         if online_im.device.type != "cpu" and self._device.type == "cpu":

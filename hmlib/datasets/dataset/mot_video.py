@@ -62,7 +62,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         result_as_dict: bool = False,
         adjust_exposure: Optional[float] = None,
         no_cuda_streams: bool = False,
-        async_mode: bool = True,
+        async_mode: bool = False,
     ):
         self._instance_id = MOTLoadVideoWithOrig._instance_counter
         MOTLoadVideoWithOrig._instance_counter += 1
