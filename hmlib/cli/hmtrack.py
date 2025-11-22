@@ -416,12 +416,12 @@ def _main(args, num_gpu):
 
         data_pipeline = None
 
-        if not args.exp_file:
-            args.exp_file = get_nested_value(game_config, "model.end_to_end.config")
-            args.exp_file = os.path.join(ROOT_DIR, args.exp_file)
-        if not args.checkpoint:
-            args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
-            args.checkpoint = os.path.join(ROOT_DIR, args.checkpoint)
+        # if not args.exp_file:
+        #     args.exp_file = get_nested_value(game_config, "model.end_to_end.config")
+        #     args.exp_file = os.path.join(ROOT_DIR, args.exp_file)
+        # if not args.checkpoint:
+        #     args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
+        #     args.checkpoint = os.path.join(ROOT_DIR, args.checkpoint)
 
         # Keep mmengine config path in args.exp_file; do not override --config list
 

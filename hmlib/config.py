@@ -39,6 +39,9 @@ def prepend_root_dir(path: str) -> str:
     """Join a relative path against :data:`ROOT_DIR` if needed."""
     if not path:
         return ROOT_DIR
+    if "://" in path:
+        # Likely a URL
+        return path
     if path[0] != "/":
         return os.path.join(ROOT_DIR, path)
     return path
