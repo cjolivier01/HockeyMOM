@@ -637,7 +637,7 @@ class hm_opts(object):
         parser.add_argument(
             "--async-post-processing",
             type=int,
-            default=1,
+            default=0,
             help="Async post-processing",
         )
         parser.add_argument(
