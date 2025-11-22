@@ -379,8 +379,13 @@ class VideoOutput:
             self._shower = None
 
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        # torch.cuda.synchronize()
+        # show_image("video_out", results["img"], wait=False, enable_resizing=0.2)
+        # self._shower.show(results["img"]) if self._shower is not None else None
         if not self._async_output:
             with cuda_stream_scope(self._cuda_stream):
+                if isinstance(results["img"], StreamTensor):
+                    results["img"] = results["img"].wait()
                 with self._fctx:
                     results = self.forward(results)
                 assert results["img"].device == self._device
@@ -478,13 +483,13 @@ class VideoOutput:
         cuda_stream = None
 
         if self._device.type == "cuda":
-            default_cuda_stream = torch.cuda.current_stream(self._device)
+            default_cuda_stream = torch.cuda.default_stream(self._device)
             cuda_stream = torch.cuda.Stream(self._device)
 
         mean_track_mode = None
         if mean_track_mode and self._mean_tracker is None:
             self._mean_tracker = MeanTracker(file_path="video_out.txt", mode=mean_track_mode)
-
+        # torch.cuda.synchronize()
         with cuda_stream_scope(cuda_stream):
             iqueue = IterableQueue(self._imgproc_queue)
             imgproc_iter = iter(iqueue)
@@ -499,13 +504,22 @@ class VideoOutput:
                     except StopIteration:
                         break
 
+                    if isinstance(results["img"], StreamTensor):
+                        results["img"] = results["img"].wait()
+
+                    # torch.cuda.synchronize()
+
                     timer.tic()
 
                     batch_size = results["img"].size(0)
 
                     with self._fctx:
+                        # torch.cuda.synchronize()
                         results = self.forward(results)
                     with self._sctx:
+                        # default_cuda_stream.wait_stream(default_cuda_stream)
+                        # cuda_stream.synchronize()
+                        # torch.cuda.synchronize()
                         results = self.save_frame(
                             results, cuda_stream=cuda_stream, default_cuda_stream=default_cuda_stream
                         )
@@ -585,6 +599,7 @@ class VideoOutput:
                 # show_img = ez_img
                 self._shower.show(show_img)
                 # show_image("image", show_img, wait=False)
+                pass
 
         # Save frames as individual frames
         if self._save_frame_dir:
