@@ -51,9 +51,7 @@ RUN apt-get install -y \
   && apt-get clean
 
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
-# CUDA 12.3, CUDNN 8 (this package "libcudnn8-dev" seems to be built for CUDA 12.2)
 RUN apt-get install -y \
-  libcudnn8-dev \
   cuda-toolkit-13-0 \
   cudnn9-cuda-13 \
   libffmpeg-nvenc-dev \
