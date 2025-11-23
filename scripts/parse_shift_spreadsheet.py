@@ -64,8 +64,33 @@ def sanitize_name(s: str) -> str:
 
 
 def is_period_label(x: object) -> bool:
-    s = str(x).strip()
-    return bool(re.fullmatch(r"Period\s+[1-9]\d*", s))
+    return parse_period_label(x) is not None
+
+
+def parse_period_label(x: object) -> Optional[int]:
+    """
+    Extract the period number from a label.
+    Handles variants like 'Period 1', '1st Period', '1st Period (Blue team)'.
+    """
+    try:
+        s = str(x).strip()
+    except Exception:
+        return None
+    if not s:
+        return None
+    m = re.search(r"(?i)(\d+)(?:st|nd|rd|th)?\s*period", s)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
+    m = re.search(r"(?i)period\s*(\d+)", s)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
+    return None
 
 
 def _int_floor_seconds_component(sec_str: str) -> int:
@@ -140,6 +165,28 @@ def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
             continue
         groups.setdefault(lab, []).append(idx)
     return groups
+
+
+def _normalize_header_label(label: str) -> str:
+    """Normalize header label for comparison (case/spacing/punctuation insensitive)."""
+    return re.sub(r"[^a-z0-9]+", "", label.lower())
+
+
+def _resolve_header_columns(groups: Dict[str, List[int]], *candidates: str) -> List[int]:
+    """Return columns for the first candidate label that matches after normalization."""
+    norm_map = {_normalize_header_label(k): v for k, v in groups.items() if k}
+    for cand in candidates:
+        key = _normalize_header_label(cand)
+        cols = norm_map.get(key)
+        if cols:
+            return cols
+    # Fallback: allow substring match to tolerate slight label variants
+    for cand in candidates:
+        key = _normalize_header_label(cand)
+        for norm_label, cols in norm_map.items():
+            if cols and key and key in norm_label:
+                return cols
+    return []
 
 
 def extract_pairs_from_row(row: pd.Series, start_cols: List[int], end_cols: List[int]) -> List[Tuple[str, str]]:
@@ -278,12 +325,18 @@ def find_period_blocks(df: pd.DataFrame) -> List[Tuple[int, int, int]]:
     # Use position-based indexing for robustness: some Excel files may not
     # create a column label "0" even with header=None, so df[0] can KeyError.
     col0 = df.iloc[:, 0]
-    idxs = [i for i, v in col0.items() if is_period_label(v)]
-    idxs.append(len(df))
+    starts: List[int] = []
+    periods: List[int] = []
+    for i, v in col0.items():
+        pnum = parse_period_label(v)
+        if pnum is None:
+            continue
+        starts.append(i)
+        periods.append(pnum)
+    starts.append(len(df))
     blocks = []
-    for i in range(len(idxs) - 1):
-        period_num = int(str(df.iloc[idxs[i], 0]).strip().split()[-1])
-        blocks.append((period_num, idxs[i], idxs[i + 1]))
+    for i in range(len(periods)):
+        blocks.append((periods[i], starts[i], starts[i + 1]))
     return blocks
 
 
@@ -293,7 +346,7 @@ def find_header_row(df: pd.DataFrame, start: int, end: int) -> Optional[int]:
     Often pattern is: 'Period', blank, header.
     """
     for r in range(start, min(end, start + 12)):
-        if str(df.iloc[r, 0]).strip().lower() == "jersey no":
+        if str(df.iloc[r, 0]).strip().lower() in ["jersey no", "jersey number"]:
             return r
     # Fallback (Period + blank + header)
     return start + 2 if start + 2 < end else None
@@ -1024,10 +1077,15 @@ def _parse_per_player_layout(
         header = df.iloc[header_row_idx]
         groups = forward_fill_header_labels(header)
 
-        start_sb_cols = groups.get(LABEL_START_SB, [])
-        end_sb_cols = groups.get(LABEL_END_SB, [])
-        start_v_cols = groups.get(LABEL_START_V, [])
-        end_v_cols = groups.get(LABEL_END_V, [])
+        start_sb_cols = _resolve_header_columns(
+            groups,
+            LABEL_START_SB,
+            "Shift start (Scoreboard time)",
+            "Shift Start (Scoreboard time)",
+        )
+        end_sb_cols = _resolve_header_columns(groups, LABEL_END_SB, "Shift end (Scoreboard time)")
+        start_v_cols = _resolve_header_columns(groups, LABEL_START_V)
+        end_v_cols = _resolve_header_columns(groups, LABEL_END_V)
         for lab, cols in [
             (LABEL_START_SB, start_sb_cols),
             (LABEL_END_SB, end_sb_cols),

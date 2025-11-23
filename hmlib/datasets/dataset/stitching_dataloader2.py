@@ -936,7 +936,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             self._persist_init_or_assert(True, x_work, extras)
 
         # --- Angle-dependent tensors ---
-        angle = torch.tensor(degrees * math.pi / 180.0, device=device, dtype=torch.float32)
+        angle = torch.tensor(-degrees * math.pi / 180.0, device=device, dtype=torch.float32)
         cos_a = torch.cos(angle)
         sin_a = torch.sin(angle)
 

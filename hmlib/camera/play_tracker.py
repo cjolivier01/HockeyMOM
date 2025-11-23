@@ -29,7 +29,7 @@ from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
-from hmlib.config import get_game_config_private, get_nested_value, save_private_config, set_nested_value
+from hmlib.config import get_game_config_private, get_nested_value, save_private_config
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
@@ -141,7 +141,6 @@ class PlayTracker(torch.nn.Module):
         self._ui_controls_dirty = True
         self._stitch_rotation_controller = getattr(args, "stitch_rotation_controller", None)
         self._stitch_slider_enabled = False
-        self._stitch_slider_signed = False
 
         cluster_centroids = getattr(args, "cluster_centroids", None)
         if cluster_centroids is not None:
@@ -1073,14 +1072,10 @@ class PlayTracker(torch.nn.Module):
     def _stitch_deg_to_slider(self, degrees: float) -> int:
         """Convert signed degrees (-90..+90) to slider position (left=positive)."""
         deg = max(-90.0, min(90.0, float(degrees)))
-        if self._stitch_slider_signed:
-            return int(round(deg))
         return int(max(0, min(180, round(90 - deg))))
 
     def _slider_to_stitch_deg(self, position: int) -> float:
         """Convert slider position to signed degrees (-90..+90), left=positive."""
-        if self._stitch_slider_signed:
-            return float(max(-90, min(90, position)))
         return float(90 - position)
 
     def _current_stitch_rotation_degrees(self) -> Optional[float]:
@@ -1116,39 +1111,20 @@ class PlayTracker(torch.nn.Module):
                     setattr(ctrl, "post_stitch_rotate_degrees", degrees)
             except Exception:
                 pass
-        try:
-            set_nested_value(
-                self._args.game_config,
-                "game.stitching.stitch-rotate-degrees",
-                degrees,
-            )
-        except Exception:
-            pass
+        self._set_config_value(
+            self._args.game_config,
+            ("game", "stitching", "stitch-rotate-degrees"),
+            degrees,
+            mark_dirty=True,
+        )
 
     def _configure_stitch_slider(self, desired_degrees: float):
-        """Try to expose stitch slider as signed (-90..90); fall back to 0..180 mapping."""
+        """Set the 0..180 slider position based on desired degrees (-90..+90)."""
         if not self._stitch_slider_enabled:
             return
         slider_name = "Stitch_Rotate_Degrees"
         win = self._ui_window_name
         desired_degrees = max(-90.0, min(90.0, float(desired_degrees)))
-        supports_minmax = hasattr(cv2, "setTrackbarMin") and hasattr(cv2, "setTrackbarMax")
-        if supports_minmax:
-            try:
-                self._stitch_slider_signed = True
-                cv2.setTrackbarMin(slider_name, win, -90)
-                cv2.setTrackbarMax(slider_name, win, 90)
-                cv2.setTrackbarPos(slider_name, win, self._stitch_deg_to_slider(desired_degrees))
-                self._on_trackbar(None)
-                return
-            except Exception:
-                self._stitch_slider_signed = False
-                try:
-                    cv2.setTrackbarMin(slider_name, win, 0)
-                    cv2.setTrackbarMax(slider_name, win, 180)
-                except Exception:
-                    pass
-        self._stitch_slider_signed = False
         try:
             cv2.setTrackbarPos(slider_name, win, self._stitch_deg_to_slider(desired_degrees))
         except Exception:
@@ -1240,10 +1216,10 @@ class PlayTracker(torch.nn.Module):
             tb("Time_To_Dest_Speed_Limit_Frames", 120, ttg)
             # Translation constraints and target selection
             # Apply to fast and/or follower boxes
-            tb("Apply_To_Fast_Box", 1, 1)
+            tb("Apply_To_Fast_Box", 1, 0)
             tb("Apply_To_Follower_Box", 1, 1)
 
-            # --- Stitch rotate degrees (signed slider if supported) ---
+            # --- Stitch rotate degrees (0..180 slider mapped to -90..+90 degrees) ---
             self._stitch_slider_enabled = self._stitch_rotation_controller is not None
             if self._stitch_slider_enabled:
                 try:
