@@ -326,14 +326,6 @@ class VideoOutput:
             self._prof.rf("video_out.save_frame") if getattr(self._prof, "enabled", False) else contextlib.nullcontext()
         )
 
-        # Record initial CLI-configured post-stitch rotation so we can apply
-        # runtime deltas from the camera UI without double-rotating
-        try:
-            init_rot = getattr(self._args, "stitch_rotate_degrees", None) if self.has_args() else None
-            self._initial_stitch_rotate_degrees = float(init_rot) if init_rot is not None else 0.0
-        except Exception:
-            self._initial_stitch_rotate_degrees = 0.0
-
         self._video_out_pipeline = video_out_pipeline
         if self._video_out_pipeline is not None:
             self._video_out_pipeline = Compose(self._video_out_pipeline)
@@ -668,33 +660,6 @@ class VideoOutput:
             #
             # END END-ZONE
             #
-
-        #
-        # Optional runtime panorama rotation via camera UI
-        #
-        try:
-            runtime_rot = None
-            if self.has_args():
-                try:
-                    runtime_rot = (
-                        self._args.game_config.get("game", {}).get("stitching", {}).get("stitch-rotate-degrees")
-                    )
-                except Exception:
-                    runtime_rot = None
-            if runtime_rot is not None:
-                # Apply delta from initial CLI-configured rotation to avoid double-rotate
-                delta = float(runtime_rot) - float(self._initial_stitch_rotate_degrees)
-                if abs(delta) > 1e-6:
-                    imgs = []
-                    for img in online_im:
-                        # Center about the middle of the panorama
-                        cx = int(image_width(img) / 2)
-                        cy = int(image_height(img) / 2)
-                        imgs.append(rotate_image(img, angle=float(delta), rotation_point=[cx, cy]))
-                    online_im = torch.stack(imgs) if isinstance(imgs[0], torch.Tensor) else imgs
-        except Exception:
-            # Non-fatal
-            pass
 
         #
         # Video-out pipeline

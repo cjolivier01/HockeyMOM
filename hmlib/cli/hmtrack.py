@@ -745,6 +745,10 @@ def _main(args, num_gpu):
                     post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
                     profiler=getattr(args, "profiler", None),
                 )
+                try:
+                    cam_args.stitch_rotation_controller = stitched_dataset
+                except Exception:
+                    pass
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
                 mot_dataloader = MOTLoadVideoWithOrig(
