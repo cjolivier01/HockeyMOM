@@ -1247,6 +1247,10 @@ def _write_player_stats_text_and_csv(
             w.writeheader()
             for r in csv_rows:
                 w.writerow(r)
+    try:
+        pd.DataFrame(csv_rows).to_excel(outdir / "player_stats.xlsx", index=False, columns=cols)
+    except Exception:
+        pass
 
 
 def _write_event_summaries_and_clips(
