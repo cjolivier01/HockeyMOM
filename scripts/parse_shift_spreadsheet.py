@@ -31,12 +31,14 @@ Example:
 
 import argparse
 import datetime
+import os
 import re
 import statistics
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 import pandas as pd
 
@@ -184,6 +186,18 @@ def _normalize_sb_end_time(t: str) -> str:
     return t
 
 
+@contextmanager
+def _working_directory(path: Path) -> Iterator[None]:
+    """Temporarily switch working directory, creating it if needed."""
+    prev = Path.cwd()
+    path.mkdir(parents=True, exist_ok=True)
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(prev)
+
+
 # ----------------------------- parsing sheet -----------------------------
 
 
@@ -223,10 +237,13 @@ class GoalEvent:
     kind: str  # "GF" or "GA"
     period: int
     t_str: str
+    scorer: Optional[str] = None
+    assists: List[str] = field(default_factory=list)
     t_sec: int = field(init=False)
 
     def __post_init__(self) -> None:
         self.t_str = self.t_str.strip()
+        self.assists = [a for a in self.assists if a]
         self.t_sec = parse_flex_time_to_seconds(self.t_str)
 
     def __str__(self) -> str:  # preserve prior textual representation
@@ -247,6 +264,40 @@ def parse_goal_token(token: str) -> GoalEvent:
     period = int(m.group(2))
     t_str = m.group(3)
     return GoalEvent(kind, period, t_str)
+
+
+def _normalize_jersey_number(token: Any) -> Optional[str]:
+    if token is None:
+        return None
+    try:
+        text = str(token).strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+    m = re.search(r"(\d+)", text)
+    if not m:
+        return None
+    num = m.group(1).lstrip("0")
+    return num or "0"
+
+
+def _extract_jersey_number(cell: Any) -> Optional[str]:
+    if isinstance(cell, dict):
+        cell = cell.get("text") or cell.get("link") or ""
+    return _normalize_jersey_number(cell)
+
+
+def _scoring_numbers_from_row(row: Any) -> Tuple[Optional[str], List[str]]:
+    if not isinstance(row, dict):
+        return None, []
+    scorer = _extract_jersey_number(row.get("goal"))
+    assists: List[str] = []
+    for key in ("assist1", "assist2"):
+        num = _extract_jersey_number(row.get(key))
+        if num:
+            assists.append(num)
+    return scorer, assists
 
 
 def load_goals(goals_inline: Iterable[str], goals_file: Optional[Path]) -> List[GoalEvent]:
@@ -289,7 +340,11 @@ def goals_from_t2s(game_id: int, *, side: str) -> List[GoalEvent]:
 
     events: List[GoalEvent] = []
 
-    def _mk_event(kind: str, period_val, time_val) -> Optional[GoalEvent]:
+    def _mk_event(kind: str, row: Any) -> Optional[GoalEvent]:
+        if not isinstance(row, dict):
+            return None
+        period_val = row.get("period")
+        time_val = row.get("time")
         if period_val is None or time_val is None:
             return None
         try:
@@ -304,16 +359,17 @@ def goals_from_t2s(game_id: int, *, side: str) -> List[GoalEvent]:
             return None
         mm = sec // 60
         ss = sec % 60
-        return GoalEvent(kind, per, f"{mm}:{ss:02d}")
+        scorer_num, assist_nums = _scoring_numbers_from_row(row)
+        return GoalEvent(kind, per, f"{mm}:{ss:02d}", scorer=scorer_num, assists=assist_nums)
 
     # Home goals are GF if side == home else GA
     for row in home_sc:
-        ev = _mk_event("GF" if side == "home" else "GA", row.get("period"), row.get("time"))
+        ev = _mk_event("GF" if side == "home" else "GA", row)
         if ev:
             events.append(ev)
     # Away goals are GF if side == away else GA
     for row in away_sc:
-        ev = _mk_event("GF" if side == "away" else "GA", row.get("period"), row.get("time"))
+        ev = _mk_event("GF" if side == "away" else "GA", row)
         if ev:
             events.append(ev)
 
@@ -1152,7 +1208,7 @@ def _write_player_stats_text_and_csv(
     all_periods_seen: List[int],
 ) -> None:
     periods = sorted(all_periods_seen)
-    summary_cols = ["player", "shifts", "plus_minus", "gf_counted", "ga_counted"]
+    summary_cols = ["player", "goals", "assists", "shifts", "plus_minus", "gf_counted", "ga_counted"]
     sb_cols = ["sb_toi_total", "sb_avg", "sb_median", "sb_longest", "sb_shortest"]
     video_cols = ["video_toi_total"]
     period_toi_cols = [f"P{p}_toi" for p in periods]
@@ -1502,6 +1558,48 @@ def process_sheet(
 
     stats_table_rows: List[Dict[str, str]] = []
     all_periods_seen: set[int] = set()
+
+    jersey_to_players: Dict[str, List[str]] = {}
+    for pk in sb_pairs_by_player.keys():
+        jersey_part = pk.split("_", 1)[0]
+        candidates = {jersey_part}
+        norm = _normalize_jersey_number(jersey_part)
+        if norm:
+            candidates.add(norm)
+        for cand in candidates:
+            jersey_to_players.setdefault(cand, []).append(pk)
+
+    goal_assist_counts: Dict[str, Dict[str, int]] = {
+        pk: {"goals": 0, "assists": 0} for pk in sb_pairs_by_player.keys()
+    }
+
+    def _match_player_keys(num_token: Any) -> List[str]:
+        matches: List[str] = []
+        candidates: set[str] = set()
+        if num_token is not None:
+            try:
+                txt = str(num_token).strip()
+                if txt:
+                    candidates.add(txt)
+            except Exception:
+                pass
+        norm = _normalize_jersey_number(num_token)
+        if norm:
+            candidates.add(norm)
+        for cand in candidates:
+            matches.extend(jersey_to_players.get(cand, []))
+        return list(dict.fromkeys(matches))  # dedupe while preserving order
+
+    for ev in goals:
+        if ev.kind != "GF":
+            continue
+        if ev.scorer:
+            for pk in _match_player_keys(ev.scorer):
+                goal_assist_counts[pk]["goals"] += 1
+        for ast in ev.assists:
+            for pk in _match_player_keys(ast):
+                goal_assist_counts[pk]["assists"] += 1
+
     for player_key, sb_list in sb_pairs_by_player.items():
         sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
         for period, a, b in sb_list:
@@ -1542,6 +1640,8 @@ def process_sheet(
                         counted_ga.append(f"P{period}:{ev.t_str}")
                         counted_ga_by_period[period] = counted_ga_by_period.get(period, 0) + 1
 
+        scoring_counts = goal_assist_counts.get(player_key, {"goals": 0, "assists": 0})
+
         stats_lines = []
         stats_lines.append(f"Player: {player_key}")
         stats_lines.append(f"Shifts (scoreboard): {shift_summary['num_shifts']}")
@@ -1550,6 +1650,8 @@ def process_sheet(
         stats_lines.append(f"Median shift: {shift_summary['toi_median']}")
         stats_lines.append(f"Longest shift: {shift_summary['toi_longest']}")
         stats_lines.append(f"Shortest shift: {shift_summary['toi_shortest']}")
+        stats_lines.append(f"Goals (T2S): {scoring_counts.get('goals', 0)}")
+        stats_lines.append(f"Assists (T2S): {scoring_counts.get('assists', 0)}")
         if per_period_toi_map:
             stats_lines.append("Per-period TOI (scoreboard):")
             for period in sorted(per_period_toi_map.keys()):
@@ -1582,6 +1684,8 @@ def process_sheet(
 
         row_map: Dict[str, str] = {
             "player": player_key,
+            "goals": str(scoring_counts.get("goals", 0)),
+            "assists": str(scoring_counts.get("assists", 0)),
             "shifts": shift_summary["num_shifts"],
             "plus_minus": str(plus_minus),
             "sb_toi_total": shift_summary["toi_total"],
@@ -1675,6 +1779,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help=("TimeToScore game id. If set and no --goal/--goals-file provided, fetch goals from T2S."),
     )
+    p.add_argument(
+        "--hockey-db-dir",
+        type=Path,
+        default=Path.home() / ".cache" / "hockeymom",
+        help="Directory for the hockey_league.db used when fetching TimeToScore goals (default: ~/.cache/hockeymom).",
+    )
     side_group = p.add_mutually_exclusive_group()
     side_group.add_argument(
         "--home",
@@ -1696,6 +1806,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_arg_parser().parse_args()
+    hockey_db_dir = args.hockey_db_dir.expanduser()
     goals = load_goals(args.goal, args.goals_file)
 
     # If no manual goals provided, but a T2S game id is given, use T2S.
@@ -1712,7 +1823,8 @@ def main() -> None:
             )
             sys.exit(2)
         try:
-            goals = goals_from_t2s(int(args.t2s), side=side)
+            with _working_directory(hockey_db_dir):
+                goals = goals_from_t2s(int(args.t2s), side=side)
             if not goals:
                 print(
                     f"[t2s] No goals found for game {args.t2s}; continuing without GF/GA.",
