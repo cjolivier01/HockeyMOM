@@ -138,9 +138,7 @@ class PlayTracker(torch.nn.Module):
         self._ui_color_window_name = "Tracker Controls (Color)"
         self._ui_color_inited = False
         self._ui_defaults = {}
-        self._ui_controls_dirty = True
-        self._stitch_rotation_controller = getattr(args, "stitch_rotation_controller", None)
-        self._stitch_slider_enabled = False
+        self._stitch_slider_signed = False
 
         cluster_centroids = getattr(args, "cluster_centroids", None)
         if cluster_centroids is not None:
@@ -1065,10 +1063,6 @@ class PlayTracker(torch.nn.Module):
         except Exception:
             return 6500
 
-    def _on_trackbar(self, _value: Any):
-        # Mark that UI controls changed so we can skip the heavy read when idle.
-        self._ui_controls_dirty = True
-
     def _stitch_deg_to_slider(self, degrees: float) -> int:
         """Convert signed degrees (-90..+90) to slider position (left=positive)."""
         deg = max(-90.0, min(90.0, float(degrees)))
@@ -1076,60 +1070,21 @@ class PlayTracker(torch.nn.Module):
 
     def _slider_to_stitch_deg(self, position: int) -> float:
         """Convert slider position to signed degrees (-90..+90), left=positive."""
+        if self._stitch_slider_signed:
+            return float(max(-90, min(90, position)))
         return float(90 - position)
 
-    def _current_stitch_rotation_degrees(self) -> Optional[float]:
-        """Read the current post-stitch rotation from controller or config."""
-        ctrl = self._stitch_rotation_controller
-        if ctrl is not None:
-            try:
-                getter = getattr(ctrl, "get_post_stitch_rotate_degrees", None)
-                if callable(getter):
-                    return getter()
-                val = getattr(ctrl, "post_stitch_rotate_degrees", None)
-                if callable(val):
-                    val = val()
-                return val
-            except Exception:
-                pass
-        try:
-            return (
-                self._args.game_config.get("game", {}).get("stitching", {}).get("stitch-rotate-degrees")
-            )
-        except Exception:
-            return None
-
-    def _set_stitch_rotation_degrees(self, degrees: Optional[float]) -> None:
-        """Apply post-stitch rotation to the controller and keep config in sync."""
-        ctrl = self._stitch_rotation_controller
-        if ctrl is not None:
-            try:
-                setter = getattr(ctrl, "set_post_stitch_rotate_degrees", None)
-                if callable(setter):
-                    setter(degrees)
-                else:
-                    setattr(ctrl, "post_stitch_rotate_degrees", degrees)
-            except Exception:
-                pass
-        self._set_config_value(
-            self._args.game_config,
-            ("game", "stitching", "stitch-rotate-degrees"),
-            degrees,
-            mark_dirty=True,
-        )
-
     def _configure_stitch_slider(self, desired_degrees: float):
-        """Set the 0..180 slider position based on desired degrees (-90..+90)."""
-        if not self._stitch_slider_enabled:
-            return
+        """Try to expose stitch slider as signed (-90..90); fall back to 0..180 mapping."""
         slider_name = "Stitch_Rotate_Degrees"
         win = self._ui_window_name
         desired_degrees = max(-90.0, min(90.0, float(desired_degrees)))
+        self._stitch_slider_signed = False
         try:
             cv2.setTrackbarPos(slider_name, win, self._stitch_deg_to_slider(desired_degrees))
         except Exception:
             pass
-        self._on_trackbar(None)
+        return
 
     def _color_slider_defaults(self) -> Dict[str, int]:
         defaults: Dict[str, int] = {
@@ -1191,11 +1146,12 @@ class PlayTracker(torch.nn.Module):
     def _init_ui_controls(self):
         try:
             cv2.namedWindow(self._ui_window_name, cv2.WINDOW_NORMAL)
+            self._stitch_slider_signed = False
             camera_cfg = self._camera_cfg()
             bkd = self._breakaway_cfg()
             # Trackbar ranges
             def tb(name, maxv, init):
-                cv2.createTrackbar(name, self._ui_window_name, int(init), int(maxv), self._on_trackbar)
+                cv2.createTrackbar(name, self._ui_window_name, int(init), int(maxv), lambda v: None)
 
             stop_dir_delay = int(self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay"))
             cancel_stop = 1 if bool(self._initial_camera_value("cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir")) else 0
@@ -1216,22 +1172,29 @@ class PlayTracker(torch.nn.Module):
             tb("Time_To_Dest_Speed_Limit_Frames", 120, ttg)
             # Translation constraints and target selection
             # Apply to fast and/or follower boxes
-            tb("Apply_To_Fast_Box", 1, 0)
+            tb("Apply_To_Fast_Box", 1, 1)
             tb("Apply_To_Follower_Box", 1, 1)
 
-            # --- Stitch rotate degrees (0..180 slider mapped to -90..+90 degrees) ---
-            self._stitch_slider_enabled = self._stitch_rotation_controller is not None
-            if self._stitch_slider_enabled:
+            # --- Stitch rotate degrees (signed slider if supported) ---
+            try:
+                self._stitch_slider_signed = False
+                # Prefer consolidated game_config runtime value; fall back to CLI/defaults
+                rot_cfg = None
                 try:
-                    rot_cfg = self._current_stitch_rotation_degrees()
-                    if rot_cfg is None:
-                        rot_cfg = 0.0
-                    rot_cfg = float(rot_cfg)
-                    slider_pos = self._stitch_deg_to_slider(rot_cfg)
-                    tb("Stitch_Rotate_Degrees", 180, slider_pos)
-                    self._configure_stitch_slider(rot_cfg)
+                    rot_cfg = self._args.game_config.get("game", {}).get("stitching", {}).get(
+                        "stitch-rotate-degrees"
+                    )
                 except Exception:
-                    self._stitch_slider_enabled = False
+                    rot_cfg = None
+                if rot_cfg is None:
+                    rot_cfg = getattr(self._args, "stitch_rotate_degrees", 0.0)
+                rot_cfg = 0.0 if rot_cfg is None else float(rot_cfg)
+                slider_pos = self._stitch_deg_to_slider(rot_cfg)
+                tb("Stitch_Rotate_Degrees", 180, slider_pos)
+                self._configure_stitch_slider(rot_cfg)
+            except Exception:
+                # Non-fatal if config missing
+                tb("Stitch_Rotate_Degrees", 180, self._stitch_deg_to_slider(0.0))
             # Speeds/accels (scale sliders by x10 to allow decimals)
             msx = int(10 * self._camera_base_speed_x * float(camera_cfg["max_speed_ratio_x"]))
             msy = int(10 * self._camera_base_speed_y * float(camera_cfg["max_speed_ratio_y"]))
@@ -1257,16 +1220,12 @@ class PlayTracker(torch.nn.Module):
                 Max_Speed_Y_x10=msy,
                 Max_Accel_X_x10=maxx,
                 Max_Accel_Y_x10=maxy,
+                Stitch_Rotate_Degrees=(
+                    cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
+                    if cv2.getWindowProperty(self._ui_window_name, 0) is not None
+                    else self._stitch_deg_to_slider(0.0)
+                ),
             )
-            if self._stitch_slider_enabled:
-                try:
-                    self._ui_defaults["Stitch_Rotate_Degrees"] = (
-                        cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
-                        if cv2.getWindowProperty(self._ui_window_name, 0) is not None
-                        else self._stitch_deg_to_slider(self._current_stitch_rotation_degrees() or 0.0)
-                    )
-                except Exception:
-                    pass
             self._ui_inited = True
             # ---- Color controls window ----
             try:
@@ -1276,7 +1235,7 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     pass
                 def tb2(name, maxv, init):
-                    cv2.createTrackbar(name, self._ui_color_window_name, int(init), int(maxv), self._on_trackbar)
+                    cv2.createTrackbar(name, self._ui_color_window_name, int(init), int(maxv), lambda v: None)
                 tb2("White_Balance_Kelvin_Enable", 1, 0)
                 tb2("White_Balance_Kelvin_Temperature", 15000, 6500)
                 tb2("White_Balance_Red_Gain_x100", 300, 100)
@@ -1306,14 +1265,6 @@ class PlayTracker(torch.nn.Module):
         if not self._camera_ui_enabled or not self._ui_inited:
             return
         try:
-            # Still poll keyboard every frame for responsiveness
-            self._handle_ui_keyboard()
-        except Exception:
-            pass
-        if not self._ui_controls_dirty:
-            return
-        try:
-            self._ui_controls_dirty = False
             # Read trackbars
             dir_delay = int(cv2.getTrackbarPos("Stop_Direction_Change_Delay_Frames", self._ui_window_name))
             cancel_opp = bool(cv2.getTrackbarPos("Cancel_Stop_On_Opposite_Direction", self._ui_window_name))
@@ -1345,13 +1296,12 @@ class PlayTracker(torch.nn.Module):
             )
 
             # Stitch rotation degrees
-            if self._stitch_slider_enabled:
-                try:
-                    rot_slider = cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
-                    rot_deg = self._slider_to_stitch_deg(rot_slider)
-                    self._set_stitch_rotation_degrees(float(rot_deg))
-                except Exception:
-                    pass
+            try:
+                rot_slider = cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
+                rot_deg = self._slider_to_stitch_deg(rot_slider)
+                self._set_ui_config_value(("game", "stitching", "stitch-rotate-degrees"), float(rot_deg))
+            except Exception:
+                pass
             # --- Color controls (second window) ---
             if self._ui_color_inited:
                 try:
@@ -1445,9 +1395,8 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     pass
             # For Python-only breakaway values, we read from args.game_config in calculate_breakaway
+            self._handle_ui_keyboard()
         except Exception:
-            # If we failed to read UI, try again next frame
-            self._ui_controls_dirty = True
             pass
 
     def _draw_ui_overlay(self, img):
@@ -1458,8 +1407,10 @@ class PlayTracker(torch.nn.Module):
             bkd = self._breakaway_cfg()
             # Show current panorama rotate degrees if set
             try:
-                rot_deg = self._current_stitch_rotation_degrees()
-                rot_text = f" Rot={float(rot_deg):+.1f}deg" if rot_deg is not None else ""
+                rot_deg = (
+                    self._args.game_config.get("game", {}).get("stitching", {}).get("stitch-rotate-degrees", 0.0)
+                )
+                rot_text = f" Rot={float(rot_deg):+.1f}deg"
             except Exception:
                 rot_text = ""
             text = (
@@ -1519,7 +1470,6 @@ class PlayTracker(torch.nn.Module):
                         continue
                     win = self._ui_color_window_name
                 cv2.setTrackbarPos(name, win, int(val))
-            self._ui_controls_dirty = True
         except Exception:
             pass
 

@@ -1169,7 +1169,7 @@ def _write_scoreboard_times(outdir: Path, sb_pairs_by_player: Dict[str, List[Tup
         p.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
-def _write_global_summary_csv(outdir: Path, sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]]) -> None:
+def _write_global_summary_csv(stats_dir: Path, sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]]) -> None:
     summary_rows = []
     for player_key, sb_list in sb_pairs_by_player.items():
         all_pairs = [(a, b) for (_, a, b) in sb_list]
@@ -1195,7 +1195,7 @@ def _write_global_summary_csv(outdir: Path, sb_pairs_by_player: Dict[str, List[T
         }
         summary_rows.append(row)
     if summary_rows:
-        pd.DataFrame(summary_rows).sort_values(by="player").to_csv(outdir / "summary_stats.csv", index=False)
+        pd.DataFrame(summary_rows).sort_values(by="player").to_csv(stats_dir / "summary_stats.csv", index=False)
 
 
 def _compute_player_stats(
@@ -1303,7 +1303,7 @@ def _build_stats_dataframe(
 
 
 def _write_player_stats_text_and_csv(
-    outdir: Path,
+    stats_dir: Path,
     stats_table_rows: List[Dict[str, str]],
     all_periods_seen: List[int],
 ) -> None:
@@ -1323,21 +1323,21 @@ def _write_player_stats_text_and_csv(
     lines.append(fmt_row(["-" * w for w in widths]))
     for row in rows_for_print:
         lines.append(fmt_row(row))
-    (outdir / "player_stats.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (stats_dir / "player_stats.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     import csv  # local import
 
     csv_rows = [dict(zip(cols, row)) for row in rows_for_print]
     try:
-        pd.DataFrame(csv_rows).to_csv(outdir / "player_stats.csv", index=False, columns=cols)
+        pd.DataFrame(csv_rows).to_csv(stats_dir / "player_stats.csv", index=False, columns=cols)
     except Exception:
-        with (outdir / "player_stats.csv").open("w", newline="", encoding="utf-8") as f:
+        with (stats_dir / "player_stats.csv").open("w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=cols)
             w.writeheader()
             for r in csv_rows:
                 w.writerow(r)
     try:
-        pd.DataFrame(csv_rows).to_excel(outdir / "player_stats.xlsx", index=False, columns=cols)
+        pd.DataFrame(csv_rows).to_excel(stats_dir / "player_stats.xlsx", index=False, columns=cols)
     except Exception:
         pass
 
@@ -1496,13 +1496,14 @@ def _infer_side_from_rosters(t2s_id: int, jersey_numbers: set[str], hockey_db_di
 
 def _write_event_summaries_and_clips(
     outdir: Path,
+    stats_dir: Path,
     event_log_context: EventLogContext,
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
 ) -> None:
     evt_by_team = event_log_context.event_counts_by_type_team
     rows_evt = [{"event_type": et, "team": tm, "count": cnt} for (et, tm), cnt in sorted(evt_by_team.items())]
     if rows_evt:
-        pd.DataFrame(rows_evt).to_csv(outdir / "event_summary.csv", index=False)
+        pd.DataFrame(rows_evt).to_csv(stats_dir / "event_summary.csv", index=False)
 
     player_event_rows = event_log_context.event_player_rows or []
     if player_event_rows:
@@ -1521,7 +1522,7 @@ def _write_event_summaries_and_clips(
                 'video_time': _fmt_v(r.get('video_s')),
                 'game_time': _fmt_g(r.get('game_s')),
             })
-        pd.DataFrame(rows).to_csv(outdir / "event_players.csv", index=False)
+        pd.DataFrame(rows).to_csv(stats_dir / "event_players.csv", index=False)
 
     instances = event_log_context.event_instances or {}
 
@@ -1791,6 +1792,8 @@ def process_sheet(
     format_dir = "event_log" if used_event_log else "per_player"
     outdir = outdir / format_dir
     outdir.mkdir(parents=True, exist_ok=True)
+    stats_dir = outdir / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
 
     # Per-player time files and clip scripts
     _write_video_times_and_scripts(outdir, video_pairs_by_player)
@@ -1925,7 +1928,7 @@ def process_sheet(
         for period, pairs in sorted(sb_by_period.items()):
             stats_lines.append(f"Shifts in Period {period}: {len(pairs)}")
 
-        (outdir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
+        (stats_dir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
 
         row_map: Dict[str, str] = {
             "player": player_key,
@@ -1965,15 +1968,15 @@ def process_sheet(
         stats_table_rows.append(row_map)
 
     # Global CSV
-    _write_global_summary_csv(outdir, sb_pairs_by_player)
+    _write_global_summary_csv(stats_dir, sb_pairs_by_player)
 
     # Event summaries
     if event_log_context is not None:
-        _write_event_summaries_and_clips(outdir, event_log_context, conv_segments_by_period)
+        _write_event_summaries_and_clips(outdir, stats_dir, event_log_context, conv_segments_by_period)
 
     # Consolidated player stats
     if stats_table_rows:
-        _write_player_stats_text_and_csv(outdir, stats_table_rows, sorted(all_periods_seen))
+        _write_player_stats_text_and_csv(stats_dir, stats_table_rows, sorted(all_periods_seen))
 
     # Goals windows
     _write_goal_window_files(outdir, goals, conv_segments_by_period)
