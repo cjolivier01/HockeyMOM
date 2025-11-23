@@ -51,9 +51,7 @@ RUN apt-get install -y \
   && apt-get clean
 
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
-# CUDA 12.3, CUDNN 8 (this package "libcudnn8-dev" seems to be built for CUDA 12.2)
 RUN apt-get install -y \
-  libcudnn8-dev \
   cuda-toolkit-13-0 \
   cudnn9-cuda-13 \
   libffmpeg-nvenc-dev \
@@ -86,7 +84,7 @@ RUN apt-get install -y \
   && apt-get clean
 
 RUN apt-get install -y libmkl-full-dev && apt-get clean
-RUN apt-get install -y  libwxgtk3.0-gtk3-dev && apt-get clean
+RUN apt-get install -y libwxgtk3.2-dev && apt-get clean
 
 ####################################################################
 #
@@ -100,8 +98,8 @@ ARG GID
 ENV SHELL=/bin/bash
 
 # Create a new user with the provided USERNAME, UID, and GID
-RUN groupadd -g $GID $USERNAME \
-    && useradd -m -s /bin/bash -u $UID -g $GID -G sudo $USERNAME
+RUN groupadd $USERNAME
+RUN useradd -m -s /bin/bash -g $USERNAME -G sudo $USERNAME
 
 # Set a password for the user
 # RUN echo "$USERNAME:password" | chpasswd
