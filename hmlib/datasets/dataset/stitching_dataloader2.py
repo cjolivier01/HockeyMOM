@@ -356,8 +356,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
     def batch_size(self) -> int:
         return self._batch_size
 
-    @property
-    def post_stitch_rotate_degrees(self) -> Optional[float]:
+    def get_post_stitch_rotate_degrees(self) -> Optional[float]:
         return self._post_stitch_rotate_degrees
 
     def set_post_stitch_rotate_degrees(self, degrees: Optional[float]) -> None:
