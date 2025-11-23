@@ -198,6 +198,51 @@ def _working_directory(path: Path) -> Iterator[None]:
         os.chdir(prev)
 
 
+def _duration_to_seconds(val: str) -> int:
+    try:
+        return parse_flex_time_to_seconds(str(val)) if val not in ("", None) else 0
+    except Exception:
+        return 0
+
+
+def _format_duration(total_seconds: int) -> str:
+    return seconds_to_mmss_or_hhmmss(total_seconds)
+
+
+def _collect_sheet_jerseys(xls_path: Path, sheet_name: Optional[str], keep_goalies: bool) -> set[str]:
+    df = pd.read_excel(xls_path, sheet_name=(0 if sheet_name is None else sheet_name), header=None)
+    (
+        used_event_log,
+        _video_pairs_by_player,
+        sb_pairs_by_player,
+        _conv_segments_by_period,
+        event_log_context,
+    ) = _parse_event_log_layout(df)
+    if not used_event_log:
+        (
+            _video_pairs_by_player,
+            sb_pairs_by_player,
+            _conv_segments_by_period,
+            _validation_errors,
+        ) = _parse_per_player_layout(df, keep_goalies=keep_goalies, skip_validation=True)
+
+    jerseys: set[str] = set()
+    for pk in sb_pairs_by_player.keys():
+        jersey_part = pk.split("_", 1)[0]
+        norm = _normalize_jersey_number(jersey_part)
+        if norm:
+            jerseys.add(norm)
+
+    if not jerseys and event_log_context is not None:
+        for lst in (event_log_context.team_roster or {}).values():
+            for num in lst or []:
+                norm = _normalize_jersey_number(num)
+                if norm:
+                    jerseys.add(norm)
+
+    return jerseys
+
+
 # ----------------------------- parsing sheet -----------------------------
 
 
@@ -298,6 +343,41 @@ def _scoring_numbers_from_row(row: Any) -> Tuple[Optional[str], List[str]]:
         if num:
             assists.append(num)
     return scorer, assists
+
+
+def _infer_t2s_from_filename(path: Path) -> Optional[int]:
+    stem = path.stem
+    m = re.search(r"^(.*)-(\d+)$", stem)
+    if not m:
+        return None
+    try:
+        return int(m.group(2))
+    except Exception:
+        return None
+
+
+def _base_label_from_path(path: Any) -> str:
+    p = Path(path)
+    stem = p.stem
+    m = re.search(r"^(.*)-\d+$", stem)
+    base = m.group(1) if m else stem
+    return base or stem
+
+
+def _parse_input_token(token: str, base_dir: Optional[Path] = None) -> Tuple[Path, Optional[str]]:
+    raw = token.strip()
+    side: Optional[str] = None
+    if ":" in raw:
+        raw_path, suffix = raw.rsplit(":", 1)
+        if suffix.upper() in {"HOME", "AWAY"}:
+            side = suffix.lower()
+            raw = raw_path
+    p = Path(raw)
+    if base_dir and not p.is_absolute():
+        p = (base_dir / p).resolve()
+    else:
+        p = p.expanduser()
+    return p, side
 
 
 def load_goals(goals_inline: Iterable[str], goals_file: Optional[Path]) -> List[GoalEvent]:
@@ -1202,11 +1282,9 @@ def _compute_player_stats(
     return row_map, per_counts, {**{k: 0 for k in []}}, per_period_toi_map
 
 
-def _write_player_stats_text_and_csv(
-    outdir: Path,
-    stats_table_rows: List[Dict[str, str]],
-    all_periods_seen: List[int],
-) -> None:
+def _build_stats_dataframe(
+    stats_table_rows: List[Dict[str, str]], all_periods_seen: List[int]
+) -> Tuple[pd.DataFrame, List[str]]:
     periods = sorted(all_periods_seen)
     summary_cols = ["player", "goals", "assists", "shifts", "plus_minus", "gf_counted", "ga_counted"]
     sb_cols = ["sb_toi_total", "sb_avg", "sb_median", "sb_longest", "sb_shortest"]
@@ -1220,6 +1298,17 @@ def _write_player_stats_text_and_csv(
     rows_for_print: List[List[str]] = []
     for r in sorted(stats_table_rows, key=lambda x: x.get("player", "")):
         rows_for_print.append([r.get(c, "") for c in cols])
+    df = pd.DataFrame(rows_for_print, columns=cols)
+    return df, cols
+
+
+def _write_player_stats_text_and_csv(
+    outdir: Path,
+    stats_table_rows: List[Dict[str, str]],
+    all_periods_seen: List[int],
+) -> None:
+    df, cols = _build_stats_dataframe(stats_table_rows, all_periods_seen)
+    rows_for_print = df.values.tolist()
 
     widths = [len(c) for c in cols]
     for row in rows_for_print:
@@ -1251,6 +1340,158 @@ def _write_player_stats_text_and_csv(
         pd.DataFrame(csv_rows).to_excel(outdir / "player_stats.xlsx", index=False, columns=cols)
     except Exception:
         pass
+
+
+def _aggregate_stats_rows(
+    stats_sets: List[Tuple[List[Dict[str, str]], List[int]]]
+) -> Tuple[List[Dict[str, str]], List[int]]:
+    agg: Dict[str, Dict[str, Any]] = {}
+    all_periods: set[int] = set()
+
+    def _ensure(player: str) -> Dict[str, Any]:
+        if player not in agg:
+            agg[player] = {
+                "player": player,
+                "goals": 0,
+                "assists": 0,
+                "shifts": 0,
+                "plus_minus": 0,
+                "gf_counted": 0,
+                "ga_counted": 0,
+                "sb_toi_total_sec": 0,
+                "video_toi_total_sec": 0,
+                "sb_longest_sec": 0,
+                "sb_shortest_sec": None,
+            }
+        return agg[player]
+
+    for rows, periods in stats_sets:
+        for p in periods:
+            all_periods.add(p)
+        for row in rows:
+            player = row.get("player", "")
+            if not player:
+                continue
+            dest = _ensure(player)
+            dest["goals"] += int(str(row.get("goals", 0) or 0))
+            dest["assists"] += int(str(row.get("assists", 0) or 0))
+            dest["shifts"] += int(str(row.get("shifts", 0) or 0))
+            dest["plus_minus"] += int(str(row.get("plus_minus", 0) or 0))
+            dest["gf_counted"] += int(str(row.get("gf_counted", 0) or 0))
+            dest["ga_counted"] += int(str(row.get("ga_counted", 0) or 0))
+            dest["sb_toi_total_sec"] += _duration_to_seconds(row.get("sb_toi_total", ""))
+            dest["video_toi_total_sec"] += _duration_to_seconds(row.get("video_toi_total", ""))
+            longest = _duration_to_seconds(row.get("sb_longest", ""))
+            if longest > dest["sb_longest_sec"]:
+                dest["sb_longest_sec"] = longest
+            shortest = _duration_to_seconds(row.get("sb_shortest", ""))
+            if shortest > 0:
+                if dest["sb_shortest_sec"] is None or shortest < dest["sb_shortest_sec"]:
+                    dest["sb_shortest_sec"] = shortest
+            # per-period counts and toi
+            for key, val in row.items():
+                if not isinstance(key, str):
+                    continue
+                if re.fullmatch(r"P\d+_shifts", key):
+                    dest[key] = dest.get(key, 0) + int(str(val or 0))
+                elif re.fullmatch(r"P\d+_GF", key):
+                    dest[key] = dest.get(key, 0) + int(str(val or 0))
+                elif re.fullmatch(r"P\d+_GA", key):
+                    dest[key] = dest.get(key, 0) + int(str(val or 0))
+                elif re.fullmatch(r"P\d+_toi", key):
+                    dest[key] = dest.get(key, 0) + _duration_to_seconds(val or "")
+
+    aggregated_rows: List[Dict[str, str]] = []
+    for player, data in sorted(agg.items(), key=lambda x: x[0]):
+        shifts = data["shifts"] or 0
+        total_sec = data["sb_toi_total_sec"]
+        avg_sec = int(total_sec / shifts) if shifts else 0
+        row: Dict[str, str] = {
+            "player": player,
+            "goals": str(data["goals"]),
+            "assists": str(data["assists"]),
+            "shifts": str(shifts),
+            "plus_minus": str(data["plus_minus"]),
+            "gf_counted": str(data["gf_counted"]),
+            "ga_counted": str(data["ga_counted"]),
+            "sb_toi_total": _format_duration(total_sec),
+            "sb_avg": _format_duration(avg_sec) if shifts else "",
+            "sb_median": "",
+            "sb_longest": _format_duration(data["sb_longest_sec"]),
+            "sb_shortest": _format_duration(data["sb_shortest_sec"] or 0) if data["sb_shortest_sec"] else "",
+            "video_toi_total": _format_duration(data["video_toi_total_sec"]),
+        }
+        for p in sorted(all_periods):
+            toi_key = f"P{p}_toi"
+            shift_key = f"P{p}_shifts"
+            gf_key = f"P{p}_GF"
+            ga_key = f"P{p}_GA"
+            if toi_key in data:
+                row[toi_key] = _format_duration(int(data[toi_key]))
+            if shift_key in data:
+                row[shift_key] = str(data[shift_key])
+            if gf_key in data:
+                row[gf_key] = str(data[gf_key])
+            if ga_key in data:
+                row[ga_key] = str(data[ga_key])
+        aggregated_rows.append(row)
+
+    return aggregated_rows, sorted(all_periods)
+
+
+def _write_consolidated_workbook(
+    out_path: Path, sheets: List[Tuple[str, pd.DataFrame]]
+) -> None:
+    try:
+        with pd.ExcelWriter(out_path) as writer:
+            for name, df in sheets:
+                safe_name = re.sub(r"[:\\\\/?*\\[\\]]", "_", name or "Sheet")[:31]
+                df.to_excel(writer, sheet_name=safe_name, index=False)
+    except Exception:
+        pass
+
+
+def _infer_side_from_rosters(t2s_id: int, jersey_numbers: set[str], hockey_db_dir: Path) -> Optional[str]:
+    if t2s_api is None:
+        return None
+    try:
+        with _working_directory(hockey_db_dir):
+            info = t2s_api.get_game_details(int(t2s_id))
+    except Exception as e:
+        print(f"[t2s] Failed to load game {t2s_id} for side inference: {e}", file=sys.stderr)
+        return None
+    stats = (info or {}).get("stats") or {}
+    home_players = stats.get("homePlayers") or []
+    away_players = stats.get("awayPlayers") or []
+
+    def _nums(rows: Any) -> set[str]:
+        out: set[str] = set()
+        for r in rows or []:
+            num = _normalize_jersey_number((r or {}).get("number"))
+            if num:
+                out.add(num)
+        return out
+
+    home_set = _nums(home_players)
+    away_set = _nums(away_players)
+
+    if not jersey_numbers:
+        print(f"[t2s] Cannot infer side for game {t2s_id}: no jersey numbers found in sheet.", file=sys.stderr)
+        return None
+    if not home_set and not away_set:
+        print(f"[t2s] Cannot infer side for game {t2s_id}: no roster numbers in TimeToScore stats.", file=sys.stderr)
+        return None
+
+    home_overlap = len(jersey_numbers & home_set)
+    away_overlap = len(jersey_numbers & away_set)
+
+    if home_overlap == away_overlap:
+        print(
+            f"[t2s] Cannot infer side for game {t2s_id}: overlap tie (home={home_overlap}, away={away_overlap}).",
+            file=sys.stderr,
+        )
+        return None
+    return "home" if home_overlap > away_overlap else "away"
 
 
 def _write_event_summaries_and_clips(
@@ -1523,7 +1764,7 @@ def process_sheet(
     keep_goalies: bool,
     goals: List[GoalEvent],
     skip_validation: bool = False,
-) -> Path:
+) -> Tuple[Path, List[Dict[str, str]], List[int]]:
     target_sheet = 0 if sheet_name is None else sheet_name
     df = pd.read_excel(xls_path, sheet_name=target_sheet, header=None)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -1744,7 +1985,7 @@ def process_sheet(
     if (not used_event_log) and (not skip_validation) and validation_errors > 0:
         print(f"[validation] Completed with {validation_errors} issue(s). See messages above.", file=sys.stderr)
 
-    return outdir
+    return outdir, stats_table_rows, sorted(all_periods_seen)
 
 
 # ----------------------------- CLI -----------------------------
@@ -1754,7 +1995,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Extract per-player shifts & stats from an Excel sheet like 'dh-tv-12-1.xls'."
     )
-    p.add_argument("--input", "-i", type=Path, required=True, help="Path to input .xls/.xlsx file.")
+    p.add_argument(
+        "--input",
+        "-i",
+        dest="inputs",
+        action="append",
+        type=str,
+        default=[],
+        help="Path to input .xls/.xlsx file. Can repeat for multiple games. "
+        "Append ':HOME' or ':AWAY' to override side for that file.",
+    )
+    p.add_argument(
+        "--file-list",
+        type=Path,
+        default=None,
+        help="Path to a text file containing one .xls/.xlsx path per line (comments/# allowed). "
+        "Useful for ordering multiple inputs.",
+    )
     p.add_argument("--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet).")
     p.add_argument("--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory.")
     p.add_argument(
@@ -1811,47 +2068,139 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_arg_parser().parse_args()
     hockey_db_dir = args.hockey_db_dir.expanduser()
-    goals = load_goals(args.goal, args.goals_file)
+    input_entries: List[Tuple[Path, Optional[str]]] = []
+    if args.file_list:
+        try:
+            base_dir = args.file_list.expanduser().resolve().parent
+            with args.file_list.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    p, side = _parse_input_token(line, base_dir=base_dir)
+                    input_entries.append((p, side))
+        except Exception as e:
+            print(f"Error reading --file-list: {e}", file=sys.stderr)
+            sys.exit(2)
+    for tok in args.inputs or []:
+        p, side = _parse_input_token(tok)
+        input_entries.append((p, side))
 
-    # If no manual goals provided, but a T2S game id is given, use T2S.
-    if not goals and args.t2s is not None:
-        side: Optional[str]
-        if args.home:
-            side = "home"
-        elif args.away:
-            side = "away"
-        else:
+    if not input_entries:
+        print("Error: at least one --input or --file-list entry is required.", file=sys.stderr)
+        sys.exit(2)
+
+    base_outdir = args.outdir.expanduser()
+    multiple_inputs = len(input_entries) > 1
+    results: List[Dict[str, Any]] = []
+
+    def _resolve_goals_for_file(t2s_id: Optional[int], side: Optional[str]) -> List[GoalEvent]:
+        g = load_goals(args.goal, args.goals_file)
+        if g:
+            return g
+        if t2s_id is None:
+            return g
+        if side is None:
             print(
-                "Error: --t2s was provided but neither --home nor --away was specified.",
+                f"Error: T2S game id {t2s_id} provided but side could not be determined (provide --home/--away or :HOME/:AWAY).",
                 file=sys.stderr,
             )
             sys.exit(2)
         try:
             with _working_directory(hockey_db_dir):
-                goals = goals_from_t2s(int(args.t2s), side=side)
-            if not goals:
+                g = goals_from_t2s(int(t2s_id), side=side)
+            if not g:
                 print(
-                    f"[t2s] No goals found for game {args.t2s}; continuing without GF/GA.",
+                    f"[t2s] No goals found for game {t2s_id}; continuing without GF/GA.",
                     file=sys.stderr,
                 )
             else:
-                for g in reversed(sorted([str(g) for g in goals])):
-                    print(g)
+                for gg in reversed(sorted([str(x) for x in g])):
+                    print(f"[t2s:{t2s_id}] {gg}")
         except Exception as e:  # noqa: BLE001
-            print(f"[t2s] Failed to fetch goals for game {args.t2s}: {e}", file=sys.stderr)
-            # proceed with empty goals
-    final_outdir = process_sheet(
-        xls_path=args.input,
-        sheet_name=args.sheet,
-        outdir=args.outdir,
-        keep_goalies=args.keep_goalies,
-        goals=goals,
-        skip_validation=args.skip_validation,
-    )
-    try:
-        print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
-    except Exception:
-        print("✅ Done.")
+            print(f"[t2s] Failed to fetch goals for game {t2s_id}: {e}", file=sys.stderr)
+        return g
+
+    for idx, (in_path, path_side) in enumerate(input_entries):
+        t2s_id = _infer_t2s_from_filename(in_path) or args.t2s
+        label = _base_label_from_path(in_path)
+        outdir = base_outdir if not multiple_inputs else base_outdir / label
+        manual_goals = load_goals(args.goal, args.goals_file)
+
+        jersey_numbers = set()
+        if t2s_id is not None and not manual_goals:
+            try:
+                jersey_numbers = _collect_sheet_jerseys(in_path, args.sheet, args.keep_goalies)
+            except Exception as e:
+                print(f"Error parsing sheet for jersey numbers ({in_path}): {e}", file=sys.stderr)
+
+        side_override: Optional[str] = path_side or ("home" if args.home else ("away" if args.away else None))
+        inferred_side: Optional[str] = None
+        if manual_goals:
+            side_to_use = side_override
+        else:
+            if side_override:
+                side_to_use = side_override
+            elif t2s_id is not None:
+                inferred_side = _infer_side_from_rosters(int(t2s_id), jersey_numbers, hockey_db_dir)
+                side_to_use = inferred_side
+            else:
+                side_to_use = None
+
+        if t2s_id is not None and not manual_goals and side_to_use is None:
+            print(f"Error: could not determine side (home/away) for {in_path}; provide :HOME/:AWAY or --home/--away.", file=sys.stderr)
+            sys.exit(2)
+
+        goals = _resolve_goals_for_file(t2s_id, side_to_use)
+        final_outdir, stats_rows, periods = process_sheet(
+            xls_path=in_path,
+            sheet_name=args.sheet,
+            outdir=outdir,
+            keep_goalies=args.keep_goalies,
+            goals=goals,
+            skip_validation=args.skip_validation,
+        )
+        results.append(
+            {
+                "label": label,
+                "t2s_id": t2s_id,
+                "order": idx,
+                "outdir": final_outdir,
+                "stats": stats_rows,
+                "periods": periods,
+            }
+        )
+        try:
+            print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
+        except Exception:
+            print("✅ Done.")
+
+    if multiple_inputs:
+        agg_rows, agg_periods = _aggregate_stats_rows([(r["stats"], r["periods"]) for r in results])
+        agg_df, _ = _build_stats_dataframe(agg_rows, agg_periods)
+        sheets: List[Tuple[str, pd.DataFrame]] = [("Cumulative", agg_df)]
+        has_t2s = any(r.get("t2s_id") is not None for r in results)
+        ordered_results = (
+            sorted(
+                results,
+                key=lambda r: (
+                    0 if r.get("t2s_id") is not None else 1,
+                    r.get("t2s_id") if r.get("t2s_id") is not None else float("inf"),
+                    r.get("order", 0),
+                ),
+            )
+            if has_t2s
+            else results
+        )
+        for r in ordered_results:
+            df, _ = _build_stats_dataframe(r["stats"], r["periods"])
+            sheets.append((r["label"], df))
+        consolidated_path = base_outdir / "player_stats_consolidated.xlsx"
+        _write_consolidated_workbook(consolidated_path, sheets)
+        try:
+            print(f"📊 Consolidated workbook: {consolidated_path.resolve()}")
+        except Exception:
+            print("📊 Consolidated workbook written.")
 
 
 if __name__ == "__main__":
