@@ -84,7 +84,7 @@ RUN apt-get install -y \
   && apt-get clean
 
 RUN apt-get install -y libmkl-full-dev && apt-get clean
-RUN apt-get install -y  libwxgtk3.0-gtk3-dev && apt-get clean
+RUN apt-get install -y libwxgtk3.2-dev && apt-get clean
 
 ####################################################################
 #
