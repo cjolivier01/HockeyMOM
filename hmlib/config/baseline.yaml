@@ -6,6 +6,14 @@ camera:
   make: null
   model: null
   output-fps: null
+  color:
+    white_balance:
+      - 1.0
+      - 1.0
+      - 1.0
+    brightness: 1.0
+    contrast: 1.0
+    gamma: 1.0
   mount:
     - offset_80:
       resolution: null

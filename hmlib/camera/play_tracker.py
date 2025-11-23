@@ -57,6 +57,16 @@ _CPP_PLAYTRACKER: bool = True and _CPP_BOXES
 # _CPP_PLAYTRACKER: bool = False and _CPP_BOXES
 
 _MISSING = object()
+_COLOR_TRACKBARS = {
+    "White_Balance_Kelvin_Enable",
+    "White_Balance_Kelvin_Temperature",
+    "White_Balance_Red_Gain_x100",
+    "White_Balance_Green_Gain_x100",
+    "White_Balance_Blue_Gain_x100",
+    "Brightness_Multiplier_x100",
+    "Contrast_Multiplier_x100",
+    "Gamma_Multiplier_x100",
+}
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
     tlwhs = tlbrs.clone()
@@ -128,6 +138,7 @@ class PlayTracker(torch.nn.Module):
         self._ui_color_window_name = "Tracker Controls (Color)"
         self._ui_color_inited = False
         self._ui_defaults = {}
+        self._stitch_slider_signed = False
 
         cluster_centroids = getattr(args, "cluster_centroids", None)
         if cluster_centroids is not None:
@@ -1043,9 +1054,99 @@ class PlayTracker(torch.nn.Module):
         return results
 
     # ---------------------- UI Controls ----------------------
+    def _kelvin_slider_value(self, value: Any) -> int:
+        try:
+            sval = str(value).lower()
+            if sval.endswith("k"):
+                sval = sval[:-1]
+            return int(max(1000, min(15000, float(sval))))
+        except Exception:
+            return 6500
+
+    def _stitch_deg_to_slider(self, degrees: float) -> int:
+        """Convert signed degrees (-90..+90) to slider position (left=positive)."""
+        deg = max(-90.0, min(90.0, float(degrees)))
+        return int(max(0, min(180, round(90 - deg))))
+
+    def _slider_to_stitch_deg(self, position: int) -> float:
+        """Convert slider position to signed degrees (-90..+90), left=positive."""
+        if self._stitch_slider_signed:
+            return float(max(-90, min(90, position)))
+        return float(90 - position)
+
+    def _configure_stitch_slider(self, desired_degrees: float):
+        """Try to expose stitch slider as signed (-90..90); fall back to 0..180 mapping."""
+        slider_name = "Stitch_Rotate_Degrees"
+        win = self._ui_window_name
+        desired_degrees = max(-90.0, min(90.0, float(desired_degrees)))
+        self._stitch_slider_signed = False
+        try:
+            cv2.setTrackbarPos(slider_name, win, self._stitch_deg_to_slider(desired_degrees))
+        except Exception:
+            pass
+        return
+
+    def _color_slider_defaults(self) -> Dict[str, int]:
+        defaults: Dict[str, int] = {
+            "White_Balance_Kelvin_Enable": 0,
+            "White_Balance_Kelvin_Temperature": 6500,
+            "White_Balance_Red_Gain_x100": 100,
+            "White_Balance_Green_Gain_x100": 100,
+            "White_Balance_Blue_Gain_x100": 100,
+            "Brightness_Multiplier_x100": 100,
+            "Contrast_Multiplier_x100": 100,
+            "Gamma_Multiplier_x100": 100,
+        }
+        try:
+            base_cfg: Dict[str, Any] = {}
+            top_camera = self._args.game_config.get("camera", {}) if isinstance(self._args.game_config, dict) else {}
+            if isinstance(top_camera, dict):
+                base_cfg.update(top_camera.get("color", {}) or top_camera)
+            rink_camera = (
+                self._args.game_config.get("rink", {}).get("camera", {})
+                if isinstance(self._args.game_config, dict)
+                else {}
+            )
+            if isinstance(rink_camera, dict):
+                base_cfg.update(rink_camera.get("color", {}) or rink_camera)
+            color_cfg = base_cfg
+        except Exception:
+            color_cfg = {}
+        wbk = color_cfg.get("white_balance_temp")
+        wb = color_cfg.get("white_balance")
+        if wbk is not None:
+            defaults["White_Balance_Kelvin_Enable"] = 1
+            defaults["White_Balance_Kelvin_Temperature"] = self._kelvin_slider_value(wbk)
+        elif isinstance(wb, (list, tuple)) and len(wb) == 3:
+            b, g, r = wb
+            try:
+                defaults["White_Balance_Red_Gain_x100"] = int(max(1.0, min(300.0, float(r) * 100.0)))
+                defaults["White_Balance_Green_Gain_x100"] = int(max(1.0, min(300.0, float(g) * 100.0)))
+                defaults["White_Balance_Blue_Gain_x100"] = int(max(1.0, min(300.0, float(b) * 100.0)))
+            except Exception:
+                pass
+        for cfg_key, slider_key in (
+            ("brightness", "Brightness_Multiplier_x100"),
+            ("contrast", "Contrast_Multiplier_x100"),
+            ("gamma", "Gamma_Multiplier_x100"),
+        ):
+            if cfg_key in color_cfg:
+                try:
+                    val = color_cfg[cfg_key]
+                    defaults[slider_key] = int(max(1.0, min(300.0, float(val) * 100.0)))
+                except Exception:
+                    pass
+        return defaults
+
+    def _set_ui_color_value(self, key: str, value: Any):
+        # Update both rink-scoped and global camera color blocks so GLOBAL.* lookups stay in sync.
+        self._set_ui_config_value(("rink", "camera", "color", key), value)
+        self._set_ui_config_value(("camera", "color", key), value)
+
     def _init_ui_controls(self):
         try:
             cv2.namedWindow(self._ui_window_name, cv2.WINDOW_NORMAL)
+            self._stitch_slider_signed = False
             camera_cfg = self._camera_cfg()
             bkd = self._breakaway_cfg()
             # Trackbar ranges
@@ -1074,8 +1175,9 @@ class PlayTracker(torch.nn.Module):
             tb("Apply_To_Fast_Box", 1, 1)
             tb("Apply_To_Follower_Box", 1, 1)
 
-            # --- Stitch rotate degrees (-90..+90 mapped to 0..180) ---
+            # --- Stitch rotate degrees (signed slider if supported) ---
             try:
+                self._stitch_slider_signed = False
                 # Prefer consolidated game_config runtime value; fall back to CLI/defaults
                 rot_cfg = None
                 try:
@@ -1087,11 +1189,12 @@ class PlayTracker(torch.nn.Module):
                 if rot_cfg is None:
                     rot_cfg = getattr(self._args, "stitch_rotate_degrees", 0.0)
                 rot_cfg = 0.0 if rot_cfg is None else float(rot_cfg)
-                # Map -90..+90 -> 0..180
-                tb("Stitch_Rotate_Degrees", 180, int(max(-90.0, min(90.0, rot_cfg)) + 90.0))
+                slider_pos = self._stitch_deg_to_slider(rot_cfg)
+                tb("Stitch_Rotate_Degrees", 180, slider_pos)
+                self._configure_stitch_slider(rot_cfg)
             except Exception:
                 # Non-fatal if config missing
-                tb("Stitch_Rotate_Degrees", 180, 90)
+                tb("Stitch_Rotate_Degrees", 180, self._stitch_deg_to_slider(0.0))
             # Speeds/accels (scale sliders by x10 to allow decimals)
             msx = int(10 * self._camera_base_speed_x * float(camera_cfg["max_speed_ratio_x"]))
             msy = int(10 * self._camera_base_speed_y * float(camera_cfg["max_speed_ratio_y"]))
@@ -1120,7 +1223,7 @@ class PlayTracker(torch.nn.Module):
                 Stitch_Rotate_Degrees=(
                     cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
                     if cv2.getWindowProperty(self._ui_window_name, 0) is not None
-                    else 90
+                    else self._stitch_deg_to_slider(0.0)
                 ),
             )
             self._ui_inited = True
@@ -1141,6 +1244,17 @@ class PlayTracker(torch.nn.Module):
                 tb2("Brightness_Multiplier_x100", 300, 100)
                 tb2("Contrast_Multiplier_x100", 300, 100)
                 tb2("Gamma_Multiplier_x100", 300, 100)
+                # Apply defaults from current config so UI reflects runtime values
+                color_defaults = self._color_slider_defaults()
+                for name, val in color_defaults.items():
+                    try:
+                        cv2.setTrackbarPos(name, self._ui_color_window_name, int(val))
+                    except Exception:
+                        pass
+                try:
+                    self._ui_defaults.update(color_defaults)
+                except Exception:
+                    pass
                 self._ui_color_inited = True
             except Exception:
                 self._ui_color_inited = False
@@ -1181,10 +1295,10 @@ class PlayTracker(torch.nn.Module):
                 int(ttg),
             )
 
-            # Stitch rotation degrees (-90..+90)
+            # Stitch rotation degrees
             try:
                 rot_slider = cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
-                rot_deg = float(rot_slider - 90)
+                rot_deg = self._slider_to_stitch_deg(rot_slider)
                 self._set_ui_config_value(("game", "stitching", "stitch-rotate-degrees"), float(rot_deg))
             except Exception:
                 pass
@@ -1204,21 +1318,18 @@ class PlayTracker(torch.nn.Module):
 
                     if int(wbk_enable) > 0:
                         kelvin_val = f"{int(max(1000, min(40000, kelvin)))}k"
-                        self._set_ui_config_value(("rink", "camera", "color", "white_balance_temp"), kelvin_val)
-                        self._set_ui_config_value(("rink", "camera", "color", "white_balance"), _MISSING)
+                        self._set_ui_color_value("white_balance_temp", kelvin_val)
+                        self._set_ui_color_value("white_balance", _MISSING)
                     else:
                         # Map 50..200 -> 0.5..2.0
                         rgain = max(1, r100) / 100.0
                         ggain = max(1, g100) / 100.0
                         bgain = max(1, b100) / 100.0
-                        self._set_ui_config_value(
-                            ("rink", "camera", "color", "white_balance"),
-                            [float(bgain), float(ggain), float(rgain)],
-                        )
-                        self._set_ui_config_value(("rink", "camera", "color", "white_balance_temp"), _MISSING)
-                    self._set_ui_config_value(("rink", "camera", "color", "brightness"), max(1, br100) / 100.0)
-                    self._set_ui_config_value(("rink", "camera", "color", "contrast"), max(1, ct100) / 100.0)
-                    self._set_ui_config_value(("rink", "camera", "color", "gamma"), max(1, gm100) / 100.0)
+                        self._set_ui_color_value("white_balance", [float(bgain), float(ggain), float(rgain)])
+                        self._set_ui_color_value("white_balance_temp", _MISSING)
+                    self._set_ui_color_value("brightness", max(1, br100) / 100.0)
+                    self._set_ui_color_value("contrast", max(1, ct100) / 100.0)
+                    self._set_ui_color_value("gamma", max(1, gm100) / 100.0)
                 except Exception:
                     pass
             # Read selection + constraints
@@ -1353,7 +1464,12 @@ class PlayTracker(torch.nn.Module):
             return
         try:
             for name, val in self._ui_defaults.items():
-                cv2.setTrackbarPos(name, self._ui_window_name, int(val))
+                win = self._ui_window_name
+                if name in _COLOR_TRACKBARS:
+                    if not self._ui_color_inited:
+                        continue
+                    win = self._ui_color_window_name
+                cv2.setTrackbarPos(name, win, int(val))
         except Exception:
             pass
 

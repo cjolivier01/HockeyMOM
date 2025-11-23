@@ -25,7 +25,15 @@ import hmlib.transforms
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.camera.camera_head import CamTrackHead
-from hmlib.config import get_clip_box, get_config, get_game_dir, get_nested_value, set_nested_value, update_config
+from hmlib.config import (
+    get_clip_box,
+    get_config,
+    get_game_dir,
+    get_nested_value,
+    resolve_global_refs,
+    set_nested_value,
+    update_config,
+)
 from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
@@ -580,23 +588,6 @@ def _main(args, num_gpu):
                             ice_rink_inference_scale=getattr(args, "ice_rink_inference_scale", None),
                         ),
                     )
-                # Thread CLI color adjustments into HmImageColorAdjust (no-op if nothing set)
-                color_cfg = {}
-                if getattr(args, "white_balance", None) is not None:
-                    # argparse with nargs=3 yields a list of 3 floats
-                    color_cfg["white_balance"] = [float(x) for x in args.white_balance]
-                # Kelvin temperature option (e.g., 3500k)
-                wbk = getattr(args, "white_balance_k", None) or getattr(args, "white_balance_temp", None)
-                if wbk is not None:
-                    color_cfg["white_balance_temp"] = wbk
-                if getattr(args, "color_brightness", None) is not None:
-                    color_cfg["brightness"] = float(args.color_brightness)
-                if getattr(args, "color_contrast", None) is not None:
-                    color_cfg["contrast"] = float(args.color_contrast)
-                if getattr(args, "color_gamma", None) is not None:
-                    color_cfg["gamma"] = float(args.color_gamma)
-                if color_cfg:
-                    update_pipeline_item(pipeline, "HmImageColorAdjust", color_cfg)
                 # Apply clip box if present
                 orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
                 if orig_clip_box:
@@ -931,46 +922,6 @@ def _main(args, num_gpu):
                             device=gpus["encoder"],
                         ),
                     )
-                    # Ensure color adjust step exists; update from CLI if provided
-                    try:
-                        # See if it's already present
-                        present = False
-                        for step in (video_out_pipeline if isinstance(video_out_pipeline, list) else video_out_pipeline.get("pipeline", [])):
-                            if isinstance(step, dict) and step.get("type") == "HmImageColorAdjust":
-                                present = True
-                                break
-                        color_cfg = {}
-                        if getattr(args, "white_balance", None) is not None:
-                            color_cfg["white_balance"] = [float(x) for x in args.white_balance]
-                        wbk = getattr(args, "white_balance_k", None) or getattr(args, "white_balance_temp", None)
-                        if wbk is not None:
-                            color_cfg["white_balance_temp"] = wbk
-                        if getattr(args, "color_brightness", None) is not None:
-                            color_cfg["brightness"] = float(args.color_brightness)
-                        if getattr(args, "color_contrast", None) is not None:
-                            color_cfg["contrast"] = float(args.color_contrast)
-                        if getattr(args, "color_gamma", None) is not None:
-                            color_cfg["gamma"] = float(args.color_gamma)
-                        if not present:
-                            # Insert before overlays if possible
-                            plist = video_out_pipeline if isinstance(video_out_pipeline, list) else video_out_pipeline.get("pipeline", None)
-                            if plist is not None:
-                                insert_at = None
-                                for idx, step in enumerate(plist):
-                                    if isinstance(step, dict) and step.get("type") == "HmImageOverlays":
-                                        insert_at = idx
-                                        break
-                                new_step = dict(type="HmImageColorAdjust")
-                                if color_cfg:
-                                    new_step.update(color_cfg)
-                                if insert_at is None:
-                                    plist.append(new_step)
-                                else:
-                                    plist.insert(insert_at, new_step)
-                        elif color_cfg:
-                            update_pipeline_item(video_out_pipeline, "HmImageColorAdjust", color_cfg)
-                    except Exception:
-                        traceback.print_exc()
                 # TODO: get rid of one of these args things, merging them below
                 postprocessor = CamTrackHead(
                     opt=args,
@@ -1125,6 +1076,8 @@ def main():
         merged_extra = load_yaml_files_ordered(additional_cfg_paths)
         if merged_extra:
             game_config = recursive_update(game_config, merged_extra)
+
+    game_config = resolve_global_refs(game_config)
 
     # Set up the task flags
     args.tracking = False

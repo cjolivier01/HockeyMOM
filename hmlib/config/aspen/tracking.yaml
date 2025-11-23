@@ -25,9 +25,10 @@ aspen:
       # white_balance: [1.05, 1.0, 0.95]
       # or temperature in Kelvin (e.g., 3500k):
       # white_balance_temp: 3500k
-      # brightness: 1.0
-      # contrast: 1.0
-      # gamma: 1.0
+      white_balance: GLOBAL.camera.color.white_balance
+      brightness: GLOBAL.camera.color.brightness
+      contrast: GLOBAL.camera.color.contrast
+      gamma: GLOBAL.camera.color.gamma
     - type: HmPad
       pad_val: 114.0
       # size_divisor: 32
@@ -53,11 +54,10 @@ aspen:
     - type: HmImageColorAdjust
       # Runtime-tunable via camera UI (PlayTracker) or CLI
       # Defaults to no-op; UI writes values under rink.camera.color
-      # white_balance: [1.0, 1.0, 1.0]
-      # white_balance_temp: 6500k
-      # brightness: 1.0
-      # contrast: 1.0
-      # gamma: 1.0
+      # white_balance: GLOBAL.camera.color.white_balance
+      # brightness: GLOBAL.camera.color.brightness
+      # contrast: GLOBAL.camera.color.contrast
+      # gamma: GLOBAL.camera.color.gamma
     - type: HmUnsharpMask
       enabled: false
       image_label: img

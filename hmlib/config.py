@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import yaml
 
@@ -204,6 +204,7 @@ def get_config(
     game_id: Optional[str] = None,
     rink: Optional[str] = None,
     camera: Optional[str] = None,
+    resolve_globals: bool = True,
 ):
     """Return a consolidated configuration from baseline + rink + camera + game.
 
@@ -224,7 +225,9 @@ def get_config(
         private_config = get_game_config_private(game_id=game_id)
     if camera is None:
         camera = get_item("camera", [game_config, rink_config])
-        if camera:
+        if isinstance(camera, str):
+            camera_config = get_camera_config(camera=camera, root_dir=root_dir)
+        elif camera and isinstance(camera, dict) and "name" in camera:
             camera_config = get_camera_config(camera=camera["name"], root_dir=root_dir)
     if rink is None:
         rink = get_nested_value(game_config, "game.rink")
@@ -234,6 +237,8 @@ def get_config(
     consolidated_config = recursive_update(consolidated_config, rink_config)
     consolidated_config = recursive_update(consolidated_config, game_config)
     consolidated_config = recursive_update(consolidated_config, private_config)
+    if resolve_globals:
+        consolidated_config = resolve_global_refs(consolidated_config)
     return consolidated_config
 
 
@@ -339,3 +344,58 @@ def set_nested_value(dct, key_str, set_to, noset_value=None):
                 current[key] = dict()
                 current = current[key]
     return get_nested_value(dct, key_str)
+
+
+GLOBAL_REF_PREFIX = "GLOBAL."
+
+
+def _lookup_path(config: Dict[str, Any], path_parts: Sequence[str]) -> Tuple[bool, Any]:
+    cur: Any = config
+    for key in path_parts:
+        if isinstance(cur, dict) and key in cur:
+            cur = cur[key]
+        else:
+            return False, None
+    return True, cur
+
+
+def _resolve_global_value(config: Dict[str, Any], value: Any, seen: Optional[Set[str]] = None) -> Any:
+    if seen is None:
+        seen = set()
+    if isinstance(value, str) and value.startswith(GLOBAL_REF_PREFIX):
+        path_str = value[len(GLOBAL_REF_PREFIX) :]
+        if path_str in seen:
+            return value
+        seen.add(path_str)
+        ok, resolved = _lookup_path(config, [p for p in path_str.split(".") if p])
+        if not ok:
+            return value
+        return _resolve_global_value(config, resolved, seen)
+    return value
+
+
+def resolve_global_refs(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Replace ``GLOBAL.*`` string references with values from the merged config.
+
+    Example::
+        brightness: GLOBAL.camera.color.brightness
+
+    Args:
+        config: Merged configuration dictionary.
+    Returns:
+        The same dict with references resolved in-place.
+    """
+
+    def _walk(node: Any, root: Dict[str, Any]) -> Any:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                node[k] = _walk(v, root)
+            return node
+        if isinstance(node, list):
+            for i, v in enumerate(node):
+                node[i] = _walk(v, root)
+            return node
+        return _resolve_global_value(root, node)
+
+    _walk(config, config)
+    return config
