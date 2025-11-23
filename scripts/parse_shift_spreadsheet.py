@@ -209,6 +209,31 @@ def _format_duration(total_seconds: int) -> str:
     return seconds_to_mmss_or_hhmmss(total_seconds)
 
 
+def _autosize_columns(writer: pd.ExcelWriter, sheet_name: str, df: pd.DataFrame) -> None:
+    """Best-effort column auto-width for Excel sheets."""
+    try:
+        col_widths = []
+        for col in df.columns:
+            max_len = max(
+                [len(str(col))] + [len(str(x)) for x in df[col].astype(str).fillna("")]
+            )
+            col_widths.append(min(max_len + 2, 80))
+        if writer.engine == "openpyxl":
+            from openpyxl.utils import get_column_letter
+
+            ws = writer.sheets.get(sheet_name)
+            if ws:
+                for i, width in enumerate(col_widths, 1):
+                    ws.column_dimensions[get_column_letter(i)].width = width
+        elif writer.engine == "xlsxwriter":
+            ws = writer.sheets.get(sheet_name)
+            if ws:
+                for i, width in enumerate(col_widths):
+                    ws.set_column(i, i, width)
+    except Exception:
+        pass
+
+
 def _collect_sheet_jerseys(xls_path: Path, sheet_name: Optional[str], keep_goalies: bool) -> set[str]:
     df = pd.read_excel(xls_path, sheet_name=(0 if sheet_name is None else sheet_name), header=None)
     (
@@ -1337,7 +1362,9 @@ def _write_player_stats_text_and_csv(
             for r in csv_rows:
                 w.writerow(r)
     try:
-        pd.DataFrame(csv_rows).to_excel(stats_dir / "player_stats.xlsx", index=False, columns=cols)
+        with pd.ExcelWriter(stats_dir / "player_stats.xlsx") as writer:
+            df.to_excel(writer, sheet_name="player_stats", index=False, columns=cols)
+            _autosize_columns(writer, "player_stats", df)
     except Exception:
         pass
 
@@ -1447,6 +1474,7 @@ def _write_consolidated_workbook(
             for name, df in sheets:
                 safe_name = re.sub(r"[:\\\\/?*\\[\\]]", "_", name or "Sheet")[:31]
                 df.to_excel(writer, sheet_name=safe_name, index=False)
+                _autosize_columns(writer, safe_name, df)
     except Exception:
         pass
 
