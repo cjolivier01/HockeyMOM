@@ -339,6 +339,19 @@ class hm_opts(object):
             action="store_true",
             help="Force rebuilding the detector TensorRT engine even if it exists.",
         )
+        trt_det.add_argument(
+            "--detector-static-detections",
+            dest="detector_static_detections",
+            action="store_true",
+            help="Enable fixed-shape detector head outputs to avoid dynamic-mask stream sync.",
+        )
+        trt_det.add_argument(
+            "--detector-static-max-detections",
+            dest="detector_static_max_detections",
+            type=int,
+            default=0,
+            help="Max detections to keep when static detections are enabled (default: use model test_cfg).",
+        )
         #
         # TensorRT options (Pose)
         #
@@ -624,7 +637,7 @@ class hm_opts(object):
         parser.add_argument(
             "--async-post-processing",
             type=int,
-            default=1,
+            default=0,
             help="Async post-processing",
         )
         parser.add_argument(

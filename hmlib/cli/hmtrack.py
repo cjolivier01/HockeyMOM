@@ -25,7 +25,15 @@ import hmlib.transforms
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.camera.camera_head import CamTrackHead
-from hmlib.config import get_clip_box, get_config, get_game_dir, get_nested_value, set_nested_value, update_config
+from hmlib.config import (
+    get_clip_box,
+    get_config,
+    get_game_dir,
+    get_nested_value,
+    resolve_global_refs,
+    set_nested_value,
+    update_config,
+)
 from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
@@ -416,12 +424,12 @@ def _main(args, num_gpu):
 
         data_pipeline = None
 
-        if not args.exp_file:
-            args.exp_file = get_nested_value(game_config, "model.end_to_end.config")
-            args.exp_file = os.path.join(ROOT_DIR, args.exp_file)
-        if not args.checkpoint:
-            args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
-            args.checkpoint = os.path.join(ROOT_DIR, args.checkpoint)
+        # if not args.exp_file:
+        #     args.exp_file = get_nested_value(game_config, "model.end_to_end.config")
+        #     args.exp_file = os.path.join(ROOT_DIR, args.exp_file)
+        # if not args.checkpoint:
+        #     args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
+        #     args.checkpoint = os.path.join(ROOT_DIR, args.checkpoint)
 
         # Keep mmengine config path in args.exp_file; do not override --config list
 
@@ -437,6 +445,26 @@ def _main(args, num_gpu):
                     args.detector_onnx_enable or args.detector_onnx_path or args.detector_onnx_quantize_int8
                 )
                 trunks_cfg = args.aspen.setdefault("trunks", {}) or {}
+                # Optional static detection outputs (fixed-shape top-k)
+                static_det_enable = bool(getattr(args, "detector_static_detections", False))
+                static_det_max = int(getattr(args, "detector_static_max_detections", 0) or 0)
+                if static_det_enable and "detector" in trunks_cfg:
+                    df = trunks_cfg.setdefault(
+                        "detector_factory",
+                        {
+                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk",
+                            "depends": [],
+                            "params": {},
+                        },
+                    )
+                    df_params = df.setdefault("params", {}) or {}
+                    static_cfg = df_params.setdefault("static_detections", {}) or {}
+                    static_cfg["enable"] = True
+                    if static_det_max > 0:
+                        static_cfg["max_detections"] = static_det_max
+                    df_params["static_detections"] = static_cfg
+                    df["params"] = df_params
+                    trunks_cfg["detector_factory"] = df
                 if onnx_enable and "detector" in trunks_cfg:
                     df = trunks_cfg.setdefault(
                         "detector_factory",
@@ -560,23 +588,6 @@ def _main(args, num_gpu):
                             ice_rink_inference_scale=getattr(args, "ice_rink_inference_scale", None),
                         ),
                     )
-                # Thread CLI color adjustments into HmImageColorAdjust (no-op if nothing set)
-                color_cfg = {}
-                if getattr(args, "white_balance", None) is not None:
-                    # argparse with nargs=3 yields a list of 3 floats
-                    color_cfg["white_balance"] = [float(x) for x in args.white_balance]
-                # Kelvin temperature option (e.g., 3500k)
-                wbk = getattr(args, "white_balance_k", None) or getattr(args, "white_balance_temp", None)
-                if wbk is not None:
-                    color_cfg["white_balance_temp"] = wbk
-                if getattr(args, "color_brightness", None) is not None:
-                    color_cfg["brightness"] = float(args.color_brightness)
-                if getattr(args, "color_contrast", None) is not None:
-                    color_cfg["contrast"] = float(args.color_contrast)
-                if getattr(args, "color_gamma", None) is not None:
-                    color_cfg["gamma"] = float(args.color_gamma)
-                if color_cfg:
-                    update_pipeline_item(pipeline, "HmImageColorAdjust", color_cfg)
                 # Apply clip box if present
                 orig_clip_box = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
                 if orig_clip_box:
@@ -734,6 +745,10 @@ def _main(args, num_gpu):
                     post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
                     profiler=getattr(args, "profiler", None),
                 )
+                try:
+                    cam_args.stitch_rotation_controller = stitched_dataset
+                except Exception:
+                    pass
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
                 mot_dataloader = MOTLoadVideoWithOrig(
@@ -911,46 +926,6 @@ def _main(args, num_gpu):
                             device=gpus["encoder"],
                         ),
                     )
-                    # Ensure color adjust step exists; update from CLI if provided
-                    try:
-                        # See if it's already present
-                        present = False
-                        for step in (video_out_pipeline if isinstance(video_out_pipeline, list) else video_out_pipeline.get("pipeline", [])):
-                            if isinstance(step, dict) and step.get("type") == "HmImageColorAdjust":
-                                present = True
-                                break
-                        color_cfg = {}
-                        if getattr(args, "white_balance", None) is not None:
-                            color_cfg["white_balance"] = [float(x) for x in args.white_balance]
-                        wbk = getattr(args, "white_balance_k", None) or getattr(args, "white_balance_temp", None)
-                        if wbk is not None:
-                            color_cfg["white_balance_temp"] = wbk
-                        if getattr(args, "color_brightness", None) is not None:
-                            color_cfg["brightness"] = float(args.color_brightness)
-                        if getattr(args, "color_contrast", None) is not None:
-                            color_cfg["contrast"] = float(args.color_contrast)
-                        if getattr(args, "color_gamma", None) is not None:
-                            color_cfg["gamma"] = float(args.color_gamma)
-                        if not present:
-                            # Insert before overlays if possible
-                            plist = video_out_pipeline if isinstance(video_out_pipeline, list) else video_out_pipeline.get("pipeline", None)
-                            if plist is not None:
-                                insert_at = None
-                                for idx, step in enumerate(plist):
-                                    if isinstance(step, dict) and step.get("type") == "HmImageOverlays":
-                                        insert_at = idx
-                                        break
-                                new_step = dict(type="HmImageColorAdjust")
-                                if color_cfg:
-                                    new_step.update(color_cfg)
-                                if insert_at is None:
-                                    plist.append(new_step)
-                                else:
-                                    plist.insert(insert_at, new_step)
-                        elif color_cfg:
-                            update_pipeline_item(video_out_pipeline, "HmImageColorAdjust", color_cfg)
-                    except Exception:
-                        traceback.print_exc()
                 # TODO: get rid of one of these args things, merging them below
                 postprocessor = CamTrackHead(
                     opt=args,
@@ -1105,6 +1080,8 @@ def main():
         merged_extra = load_yaml_files_ordered(additional_cfg_paths)
         if merged_extra:
             game_config = recursive_update(game_config, merged_extra)
+
+    game_config = resolve_global_refs(game_config)
 
     # Set up the task flags
     args.tracking = False

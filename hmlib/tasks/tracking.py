@@ -271,9 +271,6 @@ def run_mmtrack(
                     if detect_timer is None:
                         detect_timer = Timer()
 
-                    # cuda_stream.synchronize()
-                    # continue
-
                     if aspen_net is not None:
                         # Execute the configured DAG
                         # Prepare per-iteration context
@@ -287,8 +284,6 @@ def run_mmtrack(
                             cuda_stream=cuda_stream,
                             detect_timer=detect_timer,
                             mean_tracker=mean_tracker,
-                            # using_precalculated_tracking=using_precalculated_tracking,
-                            # using_precalculated_detection=using_precalculated_detection,
                         )
                         # Merge shared into context for trunks convenience
                         iter_context.update(aspen_net.shared)
@@ -314,10 +309,6 @@ def run_mmtrack(
                         raise RuntimeError(
                             "AspenNet config is required. Legacy non-Aspen pipeline has been removed."
                         )
-
-                    # Removed legacy per-frame post-processing branch
-
-                    # cuda_stream.synchronize()
 
                     if detect_timer is not None and cur_iter % 50 == 0:
                         # print(

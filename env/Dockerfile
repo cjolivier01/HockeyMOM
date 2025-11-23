@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.3.2-base-ubuntu22.04
+FROM nvidia/cuda:13.0.0-base-ubuntu24.04 
 
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update
 
 # Install necessary packages
-RUN apt-get install -y wget ssh openssh-server
+RUN apt-get install -y wget ssh openssh-server curl
 
 # Update package list and install essential build tools
 RUN apt-get update && apt-get install -y \
@@ -51,11 +51,9 @@ RUN apt-get install -y \
   && apt-get clean
 
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
-# CUDA 12.3, CUDNN 8 (this package "libcudnn8-dev" seems to be built for CUDA 12.2)
 RUN apt-get install -y \
-  cuda-12-3 \
-  libcudnn8-dev \
-  cuda-toolkit-12-3 \
+  cuda-toolkit-13-0 \
+  cudnn9-cuda-13 \
   libffmpeg-nvenc-dev \
   && apt-get clean
 
@@ -86,7 +84,7 @@ RUN apt-get install -y \
   && apt-get clean
 
 RUN apt-get install -y libmkl-full-dev && apt-get clean
-RUN apt-get install -y  libwxgtk3.0-gtk3-dev && apt-get clean
+RUN apt-get install -y libwxgtk3.2-dev && apt-get clean
 
 ####################################################################
 #
@@ -100,8 +98,8 @@ ARG GID
 ENV SHELL=/bin/bash
 
 # Create a new user with the provided USERNAME, UID, and GID
-RUN groupadd -g $GID $USERNAME \
-    && useradd -m -s /bin/bash -u $UID -g $GID -G sudo $USERNAME
+RUN groupadd $USERNAME
+RUN useradd -m -s /bin/bash -g $USERNAME -G sudo $USERNAME
 
 # Set a password for the user
 # RUN echo "$USERNAME:password" | chpasswd
@@ -295,7 +293,7 @@ RUN mkdir /wheels
 # ####################################################################
 USER $USERNAME
 WORKDIR /home/$USERNAME/src
-RUN git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
+RUN git clone https://github.com/cjolivier01/pytorch --branch=v2.9.0 --recursive
 
 WORKDIR /home/$USERNAME/src/pytorch
 USER root
@@ -304,7 +302,7 @@ RUN pip install -r requirements.txt
 USER $USERNAME
 RUN \
   MAX_JOBS=12 \
-  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+  TORCH_CUDA_ARCH_LIST="7.5;8.9;9.0;10.0;10.3;11.0;12.0;12.1" \
   BUILD_TEST=0 \
   USE_CUDA=1 \
   USE_NUMPY=1 \
@@ -330,6 +328,7 @@ RUN \
   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
   BUILD_TEST=0 \
   USE_CUDA=1 \
+  USE_CUDNN=1 \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \

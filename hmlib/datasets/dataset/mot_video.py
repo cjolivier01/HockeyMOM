@@ -36,6 +36,8 @@ def optional_with(resource):
 
 class MOTLoadVideoWithOrig(Dataset):  # for inference
 
+    _instance_counter: int = 0
+
     def __init__(
         self,
         path: Union[str, List[str]],
@@ -60,8 +62,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         result_as_dict: bool = False,
         adjust_exposure: Optional[float] = None,
         no_cuda_streams: bool = False,
-        async_mode: bool = False,
+        async_mode: bool = True,
     ):
+        self._instance_id = MOTLoadVideoWithOrig._instance_counter
+        MOTLoadVideoWithOrig._instance_counter += 1
         if isinstance(path, list):
             self._path_list = path
         elif path:
@@ -500,13 +504,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                         del data_item["clipped_image"]
 
                 if isinstance(img, list):
+                    assert False  # if this a valid path anymore?
                     assert len(img) == 1
                     img = img[0]
-                    data = data_item
-                else:
-                    # mmcv2, trying not to use that weird DataContainer class,
-                    # whatever the Hell that is supposed to be for
-                    data = data_item
+                data = data_item
             else:
                 if isinstance(img0, StreamTensor):
                     img0 = img0.get()
@@ -526,7 +527,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img = self.make_letterbox_images(make_channels_first(img0))
                 else:
                     if self._dtype is not None and self._dtype != original_img0.dtype:
-                        original_img0 = original_img0.to(self._dtype, non_blocking=True)
+                        original_img0 = original_img0.to(self._dtype)
                     img = original_img0
 
             if self.width_t is None:
@@ -592,12 +593,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if self._original_image_only:
             if not isinstance(original_img0, StreamTensor):
                 original_img0 = _wrap_original_image(original_img0)
-            if self._result_as_dict:
-                return dict(
-                    original_imgs=original_img0,
-                    imgs_info=imgs_info,
-                    ids=ids,
-                )
             return dict(img=original_img0, imgs_info=imgs_info, frame_ids=ids)
         else:
             if cuda_stream is not None:
@@ -637,7 +632,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             self._timer_counter += self._batch_size
             if self._log_messages and self._next_counter and self._next_counter % 20 == 0:
-                logger.info(
+                self._logger.info(
                     "Video Dataset frame delivery {} ({:.2f} fps)".format(
                         self._timer_counter,
                         self._batch_size * 1.0 / max(1e-5, self._timer.average_time),

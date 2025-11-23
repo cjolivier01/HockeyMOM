@@ -914,6 +914,8 @@ class HmImageColorAdjust:
     - brightness: float, multiplicative gain (>1 brighter)
     - contrast: float, contrast factor (>1 more contrast)
     - gamma: float, gamma exponent (>1 darker)
+    - config_ref: optional dict-like object containing runtime values; if provided,
+      values are refreshed from ``config_paths`` before each call.
 
     Args:
         keys (list[str]): Result dict keys to process (default: ["img"]).
@@ -921,7 +923,16 @@ class HmImageColorAdjust:
         brightness (float | None): Multiplicative brightness.
         contrast (float | None): Contrast factor.
         gamma (float | None): Gamma exponent applied to normalized [0, 1].
+        config_ref (dict | None): Live config dict to read overrides from.
+        config_paths (list[list[str]] | list[tuple[str]] | None): Ordered list of
+            nested paths to search within ``config_ref`` for color settings. Defaults
+            to ``[('rink','camera','color'), ('rink','camera')]`` when a
+            ``config_ref`` is provided.
+        refresh_from_config (bool): If True, pull values from ``config_ref`` on each
+            call (noop when ``config_ref`` is ``None``).
     """
+
+    _NOT_PROVIDED = object()
 
     def __init__(
         self,
@@ -931,6 +942,9 @@ class HmImageColorAdjust:
         brightness: Optional[float] = None,
         contrast: Optional[float] = None,
         gamma: Optional[float] = None,
+        config_ref: Optional[Dict[str, Any]] = None,
+        config_paths: Optional[List[Union[List[str], Tuple[str, ...], str]]] = None,
+        refresh_from_config: bool = True,
     ):
         self.keys = keys or ["img"]
         # If a Kelvin temperature is provided, convert to per-channel gains.
@@ -941,10 +955,102 @@ class HmImageColorAdjust:
         self.brightness = brightness
         self.contrast = contrast
         self.gamma = gamma
+        self._refresh_from_config_enabled = bool(refresh_from_config)
+        # Default search paths if a config reference is provided.
+        if config_ref is not None and config_paths is None:
+            config_paths = [("rink", "camera", "color"), ("rink", "camera")]
+        self.config_ref = config_ref
+        self._config_paths: List[Tuple[str, ...]] = self._normalize_paths(config_paths)
 
         # Validate white balance gains if provided
         if self.white_balance is not None:
             assert isinstance(self.white_balance, (list, tuple)) and len(self.white_balance) == 3
+
+    @staticmethod
+    def _normalize_paths(config_paths: Optional[List[Union[List[str], Tuple[str, ...], str]]]) -> List[Tuple[str, ...]]:
+        if not config_paths:
+            return []
+        normalized: List[Tuple[str, ...]] = []
+        for path in config_paths:
+            if isinstance(path, str):
+                parts = [p for p in path.replace("/", ".").split(".") if p]
+                if parts:
+                    normalized.append(tuple(parts))
+            elif isinstance(path, (list, tuple)):
+                tup = tuple(path)
+                if tup:
+                    normalized.append(tup)
+        return normalized
+
+    @staticmethod
+    def _get_nested_dict(cfg: Any, path: Tuple[str, ...]) -> Optional[Dict[str, Any]]:
+        cur = cfg
+        for key in path:
+            if not isinstance(cur, dict) or key not in cur:
+                return None
+            cur = cur[key]
+        return cur if isinstance(cur, dict) else None
+
+    def _pick_first(self, sources: List[Dict[str, Any]], keys: Tuple[str, ...]):
+        for src in sources:
+            for key in keys:
+                if key in src:
+                    return src[key]
+        return self._NOT_PROVIDED
+
+    def _set_scalar_from_config(self, attr: str, value: Any):
+        if value is self._NOT_PROVIDED:
+            return
+        try:
+            setattr(self, attr, None if value is None else float(value))
+        except Exception:
+            # Leave existing value if conversion fails
+            pass
+
+    def _refresh_from_config(self) -> None:
+        if not self._refresh_from_config_enabled or self.config_ref is None:
+            return
+        cfg_dict: Optional[Dict[str, Any]] = None
+        for path in self._config_paths:
+            cfg_dict = self._get_nested_dict(self.config_ref, path)
+            if cfg_dict is not None:
+                break
+        if cfg_dict is None and isinstance(self.config_ref, dict):
+            cfg_dict = self.config_ref
+        if not isinstance(cfg_dict, dict):
+            return
+        sources: List[Dict[str, Any]] = []
+        color_sub = cfg_dict.get("color") if isinstance(cfg_dict, dict) else None
+        if isinstance(color_sub, dict):
+            sources.append(color_sub)
+        sources.append(cfg_dict)
+        wb_temp = self._pick_first(sources, ("white_balance_temp", "white_balance_k"))
+        wb = self._pick_first(sources, ("white_balance",))
+        brightness = self._pick_first(sources, ("brightness", "color_brightness"))
+        contrast = self._pick_first(sources, ("contrast", "color_contrast"))
+        gamma = self._pick_first(sources, ("gamma", "color_gamma"))
+
+        if wb_temp is not self._NOT_PROVIDED:
+            if wb_temp is None:
+                self.white_balance = None
+            else:
+                try:
+                    self.white_balance = self._gains_from_kelvin(wb_temp)
+                except Exception:
+                    pass
+        elif wb is not self._NOT_PROVIDED:
+            if wb is None:
+                self.white_balance = None
+            else:
+                try:
+                    if isinstance(wb, (list, tuple)) and len(wb) == 3:
+                        self.white_balance = [float(x) for x in wb]
+                except Exception:
+                    pass
+
+        self._set_scalar_from_config("brightness", brightness)
+        self._set_scalar_from_config("contrast", contrast)
+        self._set_scalar_from_config("gamma", gamma)
 
     @staticmethod
     def _isclose(a, b, atol=1e-6):
@@ -1097,6 +1203,7 @@ class HmImageColorAdjust:
         return a
 
     def __call__(self, results):
+        self._refresh_from_config()
         if not self._has_any_adjustment():
             return results
         for key in self.keys:

@@ -10,11 +10,11 @@ command-line tools in :mod:`hmlib`.
 
 import contextlib
 import logging
+import os
 import shutil
 import sys
-import time
-import os
 import threading as _threading
+import time
 from collections import OrderedDict, deque
 from typing import Any, Callable, Iterator, List, Optional
 
@@ -545,7 +545,7 @@ class ProgressBar:
                 time.sleep(0.1)  # Simulating work by sleeping
         # Record GPU metrics per frame without polling to avoid overhead
         try:
-            if self._enable_gpu_metrics and self._gpu_metrics is not None:
+            if self._enable_gpu_metrics and self._gpu_metrics is not None and self._counter % 250 == 0:
                 last_util = self._gpu_metrics.last_utilization()
                 if last_util is not None:
                     self._gpu_frame_history.append(int(last_util))
@@ -803,7 +803,7 @@ class _GPUMetrics:
     _instance: Optional["_GPUMetrics"] = None
     _lock = _threading.Lock()
 
-    def __init__(self, device_index: int = 0, interval_s: float = 0.5):
+    def __init__(self, device_index: int = 0, interval_s: float = 1.0):
         self._device_index = max(0, int(device_index))
         self._interval_s = max(0.1, float(interval_s))
         self._last_util: Optional[int] = None
@@ -875,7 +875,8 @@ class _GPUMetrics:
                 return None
         # Fallback to nvidia-smi with minimal query
         try:
-            import subprocess, shlex
+            import shlex
+            import subprocess
 
             cmd = "nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits"
             proc = subprocess.run(
