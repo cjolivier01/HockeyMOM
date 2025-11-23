@@ -295,7 +295,7 @@ RUN mkdir /wheels
 # ####################################################################
 USER $USERNAME
 WORKDIR /home/$USERNAME/src
-RUN git clone https://github.com/pytorch/pytorch --branch=v2.2.1 --recursive
+RUN git clone https://github.com/cjolivier01/pytorch --branch=v2.9.0 --recursive
 
 WORKDIR /home/$USERNAME/src/pytorch
 USER root
@@ -304,7 +304,7 @@ RUN pip install -r requirements.txt
 USER $USERNAME
 RUN \
   MAX_JOBS=12 \
-  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
+  TORCH_CUDA_ARCH_LIST="7.5;8.9;9.0;10.0;10.3;11.0;12.0;12.1" \
   BUILD_TEST=0 \
   USE_CUDA=1 \
   USE_NUMPY=1 \
