@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.3.2-base-ubuntu22.04
+FROM nvidia/cuda:13.0.0-base-ubuntu24.04 
 
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update
 
 # Install necessary packages
-RUN apt-get install -y wget ssh openssh-server
+RUN apt-get install -y wget ssh openssh-server curl
 
 # Update package list and install essential build tools
 RUN apt-get update && apt-get install -y \
@@ -53,9 +53,9 @@ RUN apt-get install -y \
 # Install NVIDIA driver dependencies and the NVIDIA codec SDK
 # CUDA 12.3, CUDNN 8 (this package "libcudnn8-dev" seems to be built for CUDA 12.2)
 RUN apt-get install -y \
-  cuda-12-3 \
   libcudnn8-dev \
-  cuda-toolkit-12-3 \
+  cuda-toolkit-13-0 \
+  cudnn9-cuda-13 \
   libffmpeg-nvenc-dev \
   && apt-get clean
 
@@ -330,6 +330,7 @@ RUN \
   TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
   BUILD_TEST=0 \
   USE_CUDA=1 \
+  USE_CUDNN=1 \
   USE_NUMPY=1 \
   USE_ROCM=OFF \
   BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
