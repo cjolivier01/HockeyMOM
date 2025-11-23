@@ -98,8 +98,8 @@ ARG GID
 ENV SHELL=/bin/bash
 
 # Create a new user with the provided USERNAME, UID, and GID
-RUN groupadd -g $GID $USERNAME \
-    && useradd -m -s /bin/bash -u $UID -g $GID -G sudo $USERNAME
+RUN groupadd $USERNAME
+RUN useradd -m -s /bin/bash -g $USERNAME -G sudo $USERNAME
 
 # Set a password for the user
 # RUN echo "$USERNAME:password" | chpasswd
