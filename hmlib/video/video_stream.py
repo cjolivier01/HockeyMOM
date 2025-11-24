@@ -641,6 +641,7 @@ class VideoStreamReader:
             decoder_option=decoder_options,
             format=format,
             hw_accel=hw_accel,
+            buffer_chunk_size=-1,
         )
 
     def isOpened(self):
