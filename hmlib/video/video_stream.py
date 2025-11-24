@@ -308,7 +308,6 @@ class VideoStreamWriter(VideoStreamWriterInterface):
                 encoder_frame_rate=self._fps,
                 codec_config=self._codec_config,
                 hw_accel=str(self._device),
-                buffer_chunk_size=-1,
             )
 
     def bgr_to_rgb(self, batch: torch.Tensor):
@@ -642,6 +641,7 @@ class VideoStreamReader:
             decoder_option=decoder_options,
             format=format,
             hw_accel=hw_accel,
+            buffer_chunk_size=-1,
         )
 
     def isOpened(self):
