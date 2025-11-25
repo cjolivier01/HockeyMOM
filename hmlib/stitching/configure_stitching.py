@@ -31,6 +31,19 @@ from hmlib.video.video_stream import extract_frame_image
 from .synchronize import configure_synchronization
 
 
+def _resolve_local_binary(executable: str) -> Optional[str]:
+    """Return a package-local binary path if available.
+
+    Prefers `<hmlib_root>/bin/<executable>` both for Bazel runfiles
+    and for installed wheels.
+    """
+    base_dir = Path(__file__).resolve().parent.parent
+    bin_path = base_dir / "bin" / executable
+    if bin_path.is_file() and os.access(bin_path, os.X_OK):
+        return str(bin_path)
+    return None
+
+
 def _get_color_adjustment_adders(game_id: str) -> Tuple[Optional[List[float]], Optional[List[float]]]:
     """Return per-side RGB adders from game config, if present.
 
@@ -106,13 +119,19 @@ def _apply_color_adders_to_image_file(image_path: str, adders: Optional[List[flo
 
 
 def get_multiblend_bin() -> str:
-    """Return the path to the `multiblend` binary, preferring a local build."""
-    parent_dir: str = os.path.join(os.path.join(os.path.dirname(hockeymom.__file__)), "..")
-    multiblend_app_name: str = "multiblend"
-    local_multiblend: str = os.path.join(parent_dir, multiblend_app_name)
-    if os.path.exists(local_multiblend):
-        return os.path.realpath(local_multiblend)
-    return multiblend_app_name
+    """Return the path to the `multiblend` binary, preferring a workspace-local build."""
+    resolved = _resolve_local_binary("multiblend")
+    if resolved is not None:
+        return resolved
+    return "multiblend"
+
+
+def get_enblend_bin() -> str:
+    """Return the path to the `enblend` binary, preferring a workspace-local build."""
+    resolved = _resolve_local_binary("enblend")
+    if resolved is not None:
+        return resolved
+    return "enblend"
 
 
 def get_tiff_tag_value(tiff_tag):
@@ -300,7 +319,7 @@ def build_stitching_project(
         os.system(" ".join(cmd))
         seam_file: str = os.path.join(dir_name, "seam_file.png")
         cmd = [
-            "enblend",
+            get_enblend_bin(),
             f"--save-masks={seam_file}",
             "-o",
             os.path.join(dir_name, "panorama.tif"),
