@@ -38,10 +38,11 @@ py_wheel(
     python_tag = ABI,
     abi = ABI,
     platform = PLATFORM,
-    tags = ["python-wheel"],
+    tags = ["python-wheel", "manual"],
     deps = [
         ":hockeymom_ext",
         ":hockeymom",
+        "@enblend-enfuse//:enblend"
     ] + select({
         ":arm64_or_aarch64": [],
         "//conditions:default": ["@multiblend//:multiblend"],
@@ -63,7 +64,7 @@ py_binary(
     name = "bdist_wheel",
     srcs = ["scripts/bdist_wheel.py"],
     data = [":hockeymom_wheel"],
-    tags = ["python-wheel"],
+    tags = ["python-wheel", "manual"],
 )
 
 # Local Doxygen documentation for hockeymom C++/CUDA & pybind layer

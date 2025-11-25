@@ -12,6 +12,11 @@ _SOURCES = glob(
 python_library(
     name = "hmlib",
     srcs = _SOURCES,
+    data = [
+        "py.typed",
+        ":embed_enblend",
+        ":embed_multiblend",
+    ],
     imports = [".."],  # Add the parent directory to PYTHONPATH
     test_deps = [
     ],
@@ -45,9 +50,27 @@ python_library(
     ],
 )
 
+genrule(
+    name = "embed_multiblend",
+    srcs = ["@multiblend//:multiblend"],
+    outs = ["bin/multiblend"],
+    cmd = "cp $(location @multiblend//:multiblend) $@ && chmod +x $@",
+    visibility = ["//visibility:public"],
+)
+
+genrule(
+    name = "embed_enblend",
+    srcs = ["@enblend-enfuse//src:enblend"],
+    outs = ["bin/enblend"],
+    cmd = "cp $(location @enblend-enfuse//src:enblend) $@ && chmod +x $@",
+    visibility = ["//visibility:public"],
+)
+
 filegroup(
     name = "wheel_data_files",
     srcs = [
+        ":embed_enblend",
+        ":embed_multiblend",
         "images/sports_ai_watermark.png",
         "pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth",
         "pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth",
@@ -61,7 +84,7 @@ py_binary(
     name = "bdist_wheel",
     srcs = ["scripts/bdist_wheel.py"],
     data = [":hmlib.wheel"],
-    tags = ["python-wheel"],
+    tags = ["python-wheel", "manual"],
 )
 
 py_binary(

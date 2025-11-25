@@ -45,7 +45,7 @@ def python_wheel(
         stamp = stamp,
         version = version,
         strip_path_prefixes = strip_path_prefixes,
-        tags = tags + ["python-wheel"],
+        tags = tags + ["python-wheel", "manual"],
         **kwargs
     )
 

@@ -230,6 +230,169 @@ git_repository(
     remote = "ssh://git@github.com/cjolivier01/multiblend",
 )
 
+################################ Enblend/Enfuse ################################
+
+git_repository(
+    name = "enblend-enfuse",
+    commit = "211ec910fed567ac12b6e1ba455e77764585c367",
+    remote = "ssh://git@github.com/cjolivier01/enblend-enfuse",
+)
+
+new_local_repository(
+    name = "boost",
+    path = "/usr",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "filesystem",
+    hdrs = glob(["include/boost/**/*.hpp"]),
+    includes = ["include"],
+    linkopts = ["-lboost_filesystem", "-lboost_system"],
+    visibility = ["//visibility:public"],
+)
+cc_library(
+    name = "system",
+    hdrs = glob(["include/boost/**/*.hpp"]),
+    includes = ["include"],
+    linkopts = ["-lboost_system"],
+    visibility = ["//visibility:public"],
+)
+cc_library(
+    name = "algorithm",
+    hdrs = glob(["include/boost/**/*.hpp"]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+cc_library(
+    name = "math",
+    hdrs = glob(["include/boost/**/*.hpp"]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+new_local_repository(
+    name = "gsl",
+    path = "/usr",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "gsl",
+    hdrs = glob(["include/gsl/*.h"]),
+    includes = ["include"],
+    linkopts = ["-lgsl", "-lgslcblas"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+new_local_repository(
+    name = "vigra",
+    path = "/usr",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "vigra",
+    hdrs = glob(["include/vigra/**/*.hxx", "include/vigra/**/*.h"]),
+    includes = ["include"],
+    linkopts = ["-lvigraimpex"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+new_local_repository(
+    name = "libtiff",
+    path = "/usr",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "tiff",
+    hdrs = glob(["include/tiff*.h"]),
+    includes = ["include"],
+    linkopts = ["-ltiff"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+new_local_repository(
+    name = "libjpeg",
+    path = "/usr",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "jpeg",
+    hdrs = glob(["include/j*.h"]),
+    includes = ["include"],
+    linkopts = ["-ljpeg"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+new_local_repository(
+    name = "libpng",
+    path = "/usr",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "png",
+    hdrs = glob(["include/png*.h", "include/libpng*/*.h"]),
+    includes = ["include"],
+    linkopts = ["-lpng"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+new_local_repository(
+    name = "lcms2",
+    path = "/usr",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "lcms2",
+    hdrs = glob(["include/lcms2*.h"]),
+    includes = ["include"],
+    linkopts = ["-llcms2"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+new_local_repository(
+    name = "openexr",
+    path = "/usr",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "openexr",
+    hdrs = glob(["include/OpenEXR/*.h", "include/OpenEXR/*.hpp"]),
+    includes = ["include"],
+    linkopts = ["-lOpenEXR", "-lIlmImf", "-lImath", "-lIex", "-lHalf"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+new_local_repository(
+    name = "exiv2",
+    path = "/usr",
+    build_file_content = """
+load("@rules_cc//cc:defs.bzl", "cc_library")
+cc_library(
+    name = "exiv2",
+    hdrs = glob(["include/exiv2/*.hpp"]),
+    includes = ["include"],
+    linkopts = ["-lexiv2"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
+
+
 ################################ Other Modules ################################
 new_local_repository(
     name = "opencv_linux",

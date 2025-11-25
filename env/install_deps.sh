@@ -8,6 +8,7 @@ sudo apt install -y \
   libexiv2-dev \
   libfftw3-dev \
   libopenexr-dev \
+  libvigraimpex-dev \
   libx264-dev \
   libx265-dev \
   libvpx-dev \
