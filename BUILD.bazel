@@ -13,3 +13,12 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
+config_setting(
+    name = "with_openexr",
+    define_values = {"with_openexr": "true"},
+)
+
+config_setting(
+    name = "with_exiv2",
+    define_values = {"with_exiv2": "true"},
+)
