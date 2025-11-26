@@ -726,6 +726,12 @@ def _main(args, num_gpu):
                     },
                 }
                 stitch_cache_size = args.cache_size if args.stitch_cache_size is None else args.stitch_cache_size
+                # Optional per-camera stitching color pipelines from Aspen config
+                left_stitch_pipeline_cfg = None
+                right_stitch_pipeline_cfg = None
+                if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
+                    left_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get("left_stitch_pipeline")
+                    right_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get("right_stitch_pipeline")
                 stitched_dataset = StitchDataset(
                     videos=stitch_videos,
                     pto_project_file=pto_project_file,
@@ -744,6 +750,9 @@ def _main(args, num_gpu):
                     no_cuda_streams=args.no_cuda_streams,
                     post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
                     profiler=getattr(args, "profiler", None),
+                    config_ref=args.game_config,
+                    left_color_pipeline=left_stitch_pipeline_cfg,
+                    right_color_pipeline=right_stitch_pipeline_cfg,
                 )
                 try:
                     cam_args.stitch_rotation_controller = stitched_dataset
