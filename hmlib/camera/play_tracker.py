@@ -136,8 +136,13 @@ class PlayTracker(torch.nn.Module):
         self._ui_window_name = "Tracker Controls"
         self._ui_inited = False
         self._ui_color_window_name = "Tracker Controls (Color)"
+        self._ui_color_left_window_name = "Tracker Controls (Left Color)"
+        self._ui_color_right_window_name = "Tracker Controls (Right Color)"
         self._ui_color_inited = False
-        self._ui_defaults = {}
+        self._ui_color_left_inited = False
+        self._ui_color_right_inited = False
+        # Per-window slider defaults: {window_name: {slider_name: default_value}}
+        self._ui_defaults: Dict[str, Dict[str, int]] = {}
         self._ui_controls_dirty = True
         self._stitch_rotation_controller = getattr(args, "stitch_rotation_controller", None)
         self._stitch_slider_enabled = False
@@ -1131,7 +1136,7 @@ class PlayTracker(torch.nn.Module):
             pass
         self._on_trackbar(None)
 
-    def _color_slider_defaults(self) -> Dict[str, int]:
+    def _base_color_slider_defaults(self, color_cfg: Dict[str, Any]) -> Dict[str, int]:
         defaults: Dict[str, int] = {
             "White_Balance_Kelvin_Enable": 0,
             "White_Balance_Kelvin_Temperature": 6500,
@@ -1142,21 +1147,6 @@ class PlayTracker(torch.nn.Module):
             "Contrast_Multiplier_x100": 100,
             "Gamma_Multiplier_x100": 100,
         }
-        try:
-            base_cfg: Dict[str, Any] = {}
-            top_camera = self._args.game_config.get("camera", {}) if isinstance(self._args.game_config, dict) else {}
-            if isinstance(top_camera, dict):
-                base_cfg.update(top_camera.get("color", {}) or top_camera)
-            rink_camera = (
-                self._args.game_config.get("rink", {}).get("camera", {})
-                if isinstance(self._args.game_config, dict)
-                else {}
-            )
-            if isinstance(rink_camera, dict):
-                base_cfg.update(rink_camera.get("color", {}) or rink_camera)
-            color_cfg = base_cfg
-        except Exception:
-            color_cfg = {}
         wbk = color_cfg.get("white_balance_temp")
         wb = color_cfg.get("white_balance")
         if wbk is not None:
@@ -1183,10 +1173,83 @@ class PlayTracker(torch.nn.Module):
                     pass
         return defaults
 
+    def _color_slider_defaults(self) -> Dict[str, int]:
+        # Global stitched camera color defaults from top-level + rink camera.
+        try:
+            base_cfg: Dict[str, Any] = {}
+            top_camera = self._args.game_config.get("camera", {}) if isinstance(self._args.game_config, dict) else {}
+            if isinstance(top_camera, dict):
+                base_cfg.update(top_camera.get("color", {}) or top_camera)
+            rink_camera = (
+                self._args.game_config.get("rink", {}).get("camera", {})
+                if isinstance(self._args.game_config, dict)
+                else {}
+            )
+            if isinstance(rink_camera, dict):
+                base_cfg.update(rink_camera.get("color", {}) or rink_camera)
+            color_cfg = base_cfg
+        except Exception:
+            color_cfg = {}
+        return self._base_color_slider_defaults(color_cfg)
+
+    def _stitch_side_color_defaults(self, side: str) -> Dict[str, int]:
+        # Per-side stitching defaults under game.stitching.<side>.color (if present).
+        cfg: Dict[str, Any] = {}
+        try:
+            if isinstance(self._args.game_config, dict):
+                game_cfg = self._args.game_config.get("game", {})
+                stitching = game_cfg.get("stitching", {}) if isinstance(game_cfg, dict) else {}
+                side_cfg = stitching.get(side, {}) if isinstance(stitching, dict) else {}
+                if isinstance(side_cfg, dict):
+                    color_sub = side_cfg.get("color", {}) or side_cfg
+                    if isinstance(color_sub, dict):
+                        cfg.update(color_sub)
+        except Exception:
+            pass
+        return self._base_color_slider_defaults(cfg)
+
+    def _set_ui_color_value_at_prefixes(self, prefixes: List[Tuple[str, ...]], key: str, value: Any):
+        for prefix in prefixes:
+            self._set_ui_config_value(prefix + (key,), value)
+
     def _set_ui_color_value(self, key: str, value: Any):
         # Update both rink-scoped and global camera color blocks so GLOBAL.* lookups stay in sync.
-        self._set_ui_config_value(("rink", "camera", "color", key), value)
-        self._set_ui_config_value(("camera", "color", key), value)
+        self._set_ui_color_value_at_prefixes(
+            prefixes=[("rink", "camera", "color"), ("camera", "color")],
+            key=key,
+            value=value,
+        )
+
+    def _apply_color_window(self, window_name: str, prefixes: List[Tuple[str, ...]]) -> None:
+        """Read color sliders from a window and update config under given prefixes."""
+        try:
+            color_win = window_name
+            wbk_enable = cv2.getTrackbarPos("White_Balance_Kelvin_Enable", color_win)
+            kelvin = cv2.getTrackbarPos("White_Balance_Kelvin_Temperature", color_win)
+            r100 = cv2.getTrackbarPos("White_Balance_Red_Gain_x100", color_win)
+            g100 = cv2.getTrackbarPos("White_Balance_Green_Gain_x100", color_win)
+            b100 = cv2.getTrackbarPos("White_Balance_Blue_Gain_x100", color_win)
+            br100 = cv2.getTrackbarPos("Brightness_Multiplier_x100", color_win)
+            ct100 = cv2.getTrackbarPos("Contrast_Multiplier_x100", color_win)
+            gm100 = cv2.getTrackbarPos("Gamma_Multiplier_x100", color_win)
+
+            if int(wbk_enable) > 0:
+                kelvin_val = f"{int(max(1000, min(40000, kelvin)))}k"
+                self._set_ui_color_value_at_prefixes(prefixes, "white_balance_temp", kelvin_val)
+                self._set_ui_color_value_at_prefixes(prefixes, "white_balance", _MISSING)
+            else:
+                rgain = max(1, r100) / 100.0
+                ggain = max(1, g100) / 100.0
+                bgain = max(1, b100) / 100.0
+                self._set_ui_color_value_at_prefixes(
+                    prefixes, "white_balance", [float(bgain), float(ggain), float(rgain)]
+                )
+                self._set_ui_color_value_at_prefixes(prefixes, "white_balance_temp", _MISSING)
+            self._set_ui_color_value_at_prefixes(prefixes, "brightness", max(1, br100) / 100.0)
+            self._set_ui_color_value_at_prefixes(prefixes, "contrast", max(1, ct100) / 100.0)
+            self._set_ui_color_value_at_prefixes(prefixes, "gamma", max(1, gm100) / 100.0)
+        except Exception:
+            pass
 
     def _init_ui_controls(self):
         try:
@@ -1241,8 +1304,8 @@ class PlayTracker(torch.nn.Module):
             tb("Max_Speed_Y_x10", 2000, msy)
             tb("Max_Accel_X_x10", 1000, maxx)
             tb("Max_Accel_Y_x10", 1000, maxy)
-            # Save defaults for reset
-            self._ui_defaults = dict(
+            # Save defaults for reset (per main controls window)
+            self._ui_defaults[self._ui_window_name] = dict(
                 Stop_Direction_Change_Delay_Frames=stop_dir_delay,
                 Cancel_Stop_On_Opposite_Direction=cancel_stop,
                 Stop_Cancel_Hysteresis_Frames=hyst,
@@ -1260,7 +1323,7 @@ class PlayTracker(torch.nn.Module):
             )
             if self._stitch_slider_enabled:
                 try:
-                    self._ui_defaults["Stitch_Rotate_Degrees"] = (
+                    self._ui_defaults[self._ui_window_name]["Stitch_Rotate_Degrees"] = (
                         cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
                         if cv2.getWindowProperty(self._ui_window_name, 0) is not None
                         else self._stitch_deg_to_slider(self._current_stitch_rotation_degrees() or 0.0)
@@ -1268,15 +1331,17 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     pass
             self._ui_inited = True
-            # ---- Color controls window ----
+            # ---- Color controls window (stitched panorama) ----
             try:
                 cv2.namedWindow(self._ui_color_window_name, cv2.WINDOW_NORMAL)
                 try:
                     cv2.moveWindow(self._ui_color_window_name, 520, 50)
                 except Exception:
                     pass
+
                 def tb2(name, maxv, init):
                     cv2.createTrackbar(name, self._ui_color_window_name, int(init), int(maxv), self._on_trackbar)
+
                 tb2("White_Balance_Kelvin_Enable", 1, 0)
                 tb2("White_Balance_Kelvin_Temperature", 15000, 6500)
                 tb2("White_Balance_Red_Gain_x100", 300, 100)
@@ -1293,12 +1358,85 @@ class PlayTracker(torch.nn.Module):
                     except Exception:
                         pass
                 try:
-                    self._ui_defaults.update(color_defaults)
+                    self._ui_defaults[self._ui_color_window_name] = dict(color_defaults)
                 except Exception:
                     pass
                 self._ui_color_inited = True
             except Exception:
                 self._ui_color_inited = False
+
+            # ---- Left/right stitching color controls (optional) ----
+            enable_stitch_side_ui = bool(getattr(self._args, "force_stitching", False))
+            if enable_stitch_side_ui:
+                # Left stitching color window
+                try:
+                    cv2.namedWindow(self._ui_color_left_window_name, cv2.WINDOW_NORMAL)
+                    try:
+                        cv2.moveWindow(self._ui_color_left_window_name, 520, 300)
+                    except Exception:
+                        pass
+
+                    def tb_left(name, maxv, init):
+                        cv2.createTrackbar(
+                            name, self._ui_color_left_window_name, int(init), int(maxv), self._on_trackbar
+                        )
+
+                    for name, maxv in (
+                        ("White_Balance_Kelvin_Enable", 1),
+                        ("White_Balance_Kelvin_Temperature", 15000),
+                        ("White_Balance_Red_Gain_x100", 300),
+                        ("White_Balance_Green_Gain_x100", 300),
+                        ("White_Balance_Blue_Gain_x100", 300),
+                        ("Brightness_Multiplier_x100", 300),
+                        ("Contrast_Multiplier_x100", 300),
+                        ("Gamma_Multiplier_x100", 300),
+                    ):
+                        tb_left(name, maxv, 100 if "Enable" not in name and "Temperature" not in name else 0)
+                    left_defaults = self._stitch_side_color_defaults("left")
+                    for name, val in left_defaults.items():
+                        try:
+                            cv2.setTrackbarPos(name, self._ui_color_left_window_name, int(val))
+                        except Exception:
+                            pass
+                    self._ui_defaults[self._ui_color_left_window_name] = dict(left_defaults)
+                    self._ui_color_left_inited = True
+                except Exception:
+                    self._ui_color_left_inited = False
+
+                # Right stitching color window
+                try:
+                    cv2.namedWindow(self._ui_color_right_window_name, cv2.WINDOW_NORMAL)
+                    try:
+                        cv2.moveWindow(self._ui_color_right_window_name, 520, 550)
+                    except Exception:
+                        pass
+
+                    def tb_right(name, maxv, init):
+                        cv2.createTrackbar(
+                            name, self._ui_color_right_window_name, int(init), int(maxv), self._on_trackbar
+                        )
+
+                    for name, maxv in (
+                        ("White_Balance_Kelvin_Enable", 1),
+                        ("White_Balance_Kelvin_Temperature", 15000),
+                        ("White_Balance_Red_Gain_x100", 300),
+                        ("White_Balance_Green_Gain_x100", 300),
+                        ("White_Balance_Blue_Gain_x100", 300),
+                        ("Brightness_Multiplier_x100", 300),
+                        ("Contrast_Multiplier_x100", 300),
+                        ("Gamma_Multiplier_x100", 300),
+                    ):
+                        tb_right(name, maxv, 100 if "Enable" not in name and "Temperature" not in name else 0)
+                    right_defaults = self._stitch_side_color_defaults("right")
+                    for name, val in right_defaults.items():
+                        try:
+                            cv2.setTrackbarPos(name, self._ui_color_right_window_name, int(val))
+                        except Exception:
+                            pass
+                    self._ui_defaults[self._ui_color_right_window_name] = dict(right_defaults)
+                    self._ui_color_right_inited = True
+                except Exception:
+                    self._ui_color_right_inited = False
         except Exception:
             self._camera_ui_enabled = False
 
@@ -1352,36 +1490,25 @@ class PlayTracker(torch.nn.Module):
                     self._set_stitch_rotation_degrees(float(rot_deg))
                 except Exception:
                     pass
-            # --- Color controls (second window) ---
+            # --- Color controls (stitched + left/right stitching) ---
             if self._ui_color_inited:
-                try:
-                    color_win = self._ui_color_window_name
-                    # Read back color trackbars
-                    wbk_enable = cv2.getTrackbarPos("White_Balance_Kelvin_Enable", color_win)
-                    kelvin = cv2.getTrackbarPos("White_Balance_Kelvin_Temperature", color_win)
-                    r100 = cv2.getTrackbarPos("White_Balance_Red_Gain_x100", color_win)
-                    g100 = cv2.getTrackbarPos("White_Balance_Green_Gain_x100", color_win)
-                    b100 = cv2.getTrackbarPos("White_Balance_Blue_Gain_x100", color_win)
-                    br100 = cv2.getTrackbarPos("Brightness_Multiplier_x100", color_win)
-                    ct100 = cv2.getTrackbarPos("Contrast_Multiplier_x100", color_win)
-                    gm100 = cv2.getTrackbarPos("Gamma_Multiplier_x100", color_win)
-
-                    if int(wbk_enable) > 0:
-                        kelvin_val = f"{int(max(1000, min(40000, kelvin)))}k"
-                        self._set_ui_color_value("white_balance_temp", kelvin_val)
-                        self._set_ui_color_value("white_balance", _MISSING)
-                    else:
-                        # Map 50..200 -> 0.5..2.0
-                        rgain = max(1, r100) / 100.0
-                        ggain = max(1, g100) / 100.0
-                        bgain = max(1, b100) / 100.0
-                        self._set_ui_color_value("white_balance", [float(bgain), float(ggain), float(rgain)])
-                        self._set_ui_color_value("white_balance_temp", _MISSING)
-                    self._set_ui_color_value("brightness", max(1, br100) / 100.0)
-                    self._set_ui_color_value("contrast", max(1, ct100) / 100.0)
-                    self._set_ui_color_value("gamma", max(1, gm100) / 100.0)
-                except Exception:
-                    pass
+                # Global stitched color adjustments
+                self._apply_color_window(
+                    self._ui_color_window_name,
+                    prefixes=[("rink", "camera", "color"), ("camera", "color")],
+                )
+            if self._ui_color_left_inited:
+                # Left camera in stitching dataloader
+                self._apply_color_window(
+                    self._ui_color_left_window_name,
+                    prefixes=[("game", "stitching", "left", "color")],
+                )
+            if self._ui_color_right_inited:
+                # Right camera in stitching dataloader
+                self._apply_color_window(
+                    self._ui_color_right_window_name,
+                    prefixes=[("game", "stitching", "right", "color")],
+                )
             # Read selection + constraints
             apply_fast = bool(cv2.getTrackbarPos("Apply_To_Fast_Box", self._ui_window_name))
             apply_follower = bool(cv2.getTrackbarPos("Apply_To_Follower_Box", self._ui_window_name))
@@ -1512,13 +1639,13 @@ class PlayTracker(torch.nn.Module):
         if not self._camera_ui_enabled or not self._ui_inited:
             return
         try:
-            for name, val in self._ui_defaults.items():
-                win = self._ui_window_name
-                if name in _COLOR_TRACKBARS:
-                    if not self._ui_color_inited:
-                        continue
-                    win = self._ui_color_window_name
-                cv2.setTrackbarPos(name, win, int(val))
+            for win, sliders in self._ui_defaults.items():
+                for name, val in sliders.items():
+                    try:
+                        cv2.setTrackbarPos(name, win, int(val))
+                    except Exception:
+                        # Ignore missing windows/trackbars
+                        pass
             self._ui_controls_dirty = True
         except Exception:
             pass

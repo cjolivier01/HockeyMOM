@@ -989,6 +989,9 @@ class hm_opts(object):
             opt.cache_size = 0
             opt.stitch_cache_size = 0
 
+        if opt.show_scaled:
+            opt.show_image = True
+
         for key in hm_opts.CONFIG_TO_ARGS:
             nested_item = get_nested_value(getattr(opt, "game_config", {}), key, None)
             if nested_item is None:

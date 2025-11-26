@@ -7,6 +7,7 @@ produce input batches for the main stitching CLIs.
 from __future__ import annotations
 
 import contextlib
+import copy
 import math
 import os
 import threading
@@ -19,6 +20,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from cuda_stacktrace import CudaStackTracer
+from mmcv.transforms import Compose
 
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
@@ -183,6 +185,10 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         show_image_components: bool = False,
         post_stitch_rotate_degrees: Optional[float] = None,
         profiler: Any = None,
+        # Optional live config and per-camera color pipelines (from Aspen YAML).
+        config_ref: Optional[Dict[str, Any]] = None,
+        left_color_pipeline: Optional[List[Dict[str, Any]]] = None,
+        right_color_pipeline: Optional[List[Dict[str, Any]]] = None,
     ):
         super().__init__()
         if not async_mode:
@@ -218,6 +224,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         # Optional rotation after stitching (degrees, about image center)
         self._post_stitch_rotate_degrees: Optional[float] = post_stitch_rotate_degrees
         self._profiler = profiler
+        self._config_ref: Optional[Dict[str, Any]] = config_ref
+        self._left_color_pipeline_cfg: Optional[List[Dict[str, Any]]] = left_color_pipeline
+        self._right_color_pipeline_cfg: Optional[List[Dict[str, Any]]] = right_color_pipeline
+        self._left_color_pipeline: Optional[Compose] = None
+        self._right_color_pipeline: Optional[Compose] = None
 
         # Optimize the roi box
         if image_roi is not None:
@@ -334,6 +345,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             self._channel_add_left = None
             self._channel_add_right = None
 
+        # Optional per-camera color adjustment pipelines (left/right) applied
+        # before stitching. These mirror the standard inference/video_out
+        # HmImageColorAdjust transform but operate on the individual streams.
+        self._build_color_pipelines()
+
     def __delete__(self):
         if hasattr(self, "close"):
             self.close()
@@ -361,6 +377,28 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
     def set_post_stitch_rotate_degrees(self, degrees: Optional[float]) -> None:
         self._post_stitch_rotate_degrees = degrees
+
+    def _build_color_pipelines(self) -> None:
+        """Instantiate optional left/right color pipelines from config specs."""
+        self._left_color_pipeline = None
+        self._right_color_pipeline = None
+
+        def _make_pipeline(spec: Optional[List[Dict[str, Any]]]) -> Optional[Compose]:
+            if not spec:
+                return None
+            try:
+                pipeline = Compose(copy.deepcopy(spec))
+                if self._config_ref is not None:
+                    for tf in getattr(pipeline, "transforms", []):
+                        # Bind live config so HmImageColorAdjust picks up runtime changes.
+                        if tf.__class__.__name__ == "HmImageColorAdjust":
+                            setattr(tf, "config_ref", self._config_ref)
+                return pipeline
+            except Exception:
+                return None
+
+        self._left_color_pipeline = _make_pipeline(self._left_color_pipeline_cfg)
+        self._right_color_pipeline = _make_pipeline(self._right_color_pipeline_cfg)
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]
@@ -537,6 +575,23 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                     with cuda_stream_scope(stream), torch.no_grad():
                         imgs_1 = to_tensor(imgs_1)
                         imgs_2 = to_tensor(imgs_2)
+                        # Optional per-camera color pipelines for left/right inputs.
+                        if self._left_color_pipeline is not None:
+                            try:
+                                data_1 = {"img": imgs_1}
+                                data_1 = self._left_color_pipeline(data_1)
+                                if "img" in data_1:
+                                    imgs_1 = data_1["img"]
+                            except Exception:
+                                pass
+                        if self._right_color_pipeline is not None:
+                            try:
+                                data_2 = {"img": imgs_2}
+                                data_2 = self._right_color_pipeline(data_2)
+                                if "img" in data_2:
+                                    imgs_2 = data_2["img"]
+                            except Exception:
+                                pass
                         if self._stitcher is None:
                             # Lazily construct the stitcher on first use (async or sync).
                             self._create_stitcher()
