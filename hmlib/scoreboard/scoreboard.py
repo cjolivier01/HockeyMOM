@@ -80,13 +80,16 @@ class Scoreboard(torch.nn.Module):
                 )
             self._src_pts[:] -= clip_box[0:2]
 
-        self._bbox_src = int_bbox(get_bbox(self._src_pts))
+        bbox_tensor = int_bbox(get_bbox(self._src_pts))
+        bbox_tuple: Tuple[int, int, int, int] = tuple(int(v) for v in bbox_tensor.tolist())
+        self._bbox_src = bbox_tuple
+        x0, y0, x1, y1 = self._bbox_src
 
-        self._src_pts[:, 0] -= self._bbox_src[0]
-        self._src_pts[:, 1] -= self._bbox_src[1]
+        self._src_pts[:, 0] -= x0
+        self._src_pts[:, 1] -= y0
 
-        src_width = self._bbox_src[2] - self._bbox_src[0]
-        src_height = self._bbox_src[3] - self._bbox_src[1]
+        src_width = x1 - x0
+        src_height = y1 - y0
 
         if auto_aspect:
             #
@@ -116,21 +119,21 @@ class Scoreboard(torch.nn.Module):
             else:
                 dest_height = dest_height_new
 
-        self._dest_width = dest_width
-        self._dest_height = dest_height
+        self._dest_width = int(dest_width)
+        self._dest_height = int(dest_height)
 
         totw = max(self._dest_width, src_width)
         toth = max(self._dest_height, src_height)
         if totw > src_width or toth > src_height:
             ratio_w = totw / src_width
             ratio_h = toth / src_height
-            self._dest_w = totw
-            self._dest_h = toth
+            self._dest_w = int(totw)
+            self._dest_h = int(toth)
             self._src_pts[:, 0] *= ratio_w
             self._src_pts[:, 1] *= ratio_h
         else:
-            self._dest_w = src_width
-            self._dest_h = src_height
+            self._dest_w = int(src_width)
+            self._dest_h = int(src_height)
 
         dst_pts = np.array(
             [
@@ -164,12 +167,8 @@ class Scoreboard(torch.nn.Module):
         if self._src_pts is None:
             return None
         original_image = make_channels_first(input_image)
-        src_image = original_image[
-            :,
-            :,
-            self._bbox_src[1] : self._bbox_src[3],
-            self._bbox_src[0] : self._bbox_src[2],
-        ]
+        x0, y0, x1, y1 = self._bbox_src
+        src_image = original_image[:, :, y0:y1, x0:x1]
         src_image = resize_image(
             img=src_image,
             new_width=self._dest_w,
