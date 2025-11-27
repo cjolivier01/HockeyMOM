@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import multiprocessing
 import queue
+import sys
+import time
 from threading import Lock
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 
 class LLNode:
@@ -89,11 +91,22 @@ class LinkedList:
 
 
 class SidebandQueue:
-    def __init__(self):
+
+    def __init__(self, name: Optional[str] = None, warn_after: Optional[float] = None, repeat_warn: bool = False):
+        """Create a SidebandQueue.
+
+        Args:
+            name: Optional name for the queue used in printed warnings.
+            warn_after: Optional default seconds to wait before printing a warning when blocking in `get()`.
+            repeat_warn: If True, repeat the warning every `warn_after` seconds while still waiting.
+        """
         self._q = queue.Queue()
         self._counter = 1
         self._map: Dict[int, Any] = {}
         self._lock = Lock()
+        self._name = name or f"SidebandQueue@{id(self)}"
+        self._warn_after_default = warn_after
+        self._repeat_warn_default = repeat_warn
 
     def put(self, obj: Any):
         with self._lock:
@@ -103,10 +116,82 @@ class SidebandQueue:
             self._map[ctr] = obj
             self._q.put(ctr)
 
-    def get(self) -> Any:
-        ctr = self._q.get()
-        with self._lock:
-            return self._map.pop(ctr)
+    def get(
+        self,
+        block: bool = True,
+        timeout: Optional[float] = None,
+        warn_after: Optional[float] = None,
+        repeat_warn: Optional[bool] = None,
+    ) -> Any:
+        """Get next item from queue.
+
+        Args:
+            block: Whether to block waiting for an item.
+            timeout: Optional total timeout in seconds for the get operation.
+            warn_after: Optional per-queue or per-call seconds to wait before printing a warning.
+            repeat_warn: If True, repeat the warning every `warn_after` seconds while still waiting.
+
+        Behavior:
+            - If `warn_after` is provided (or set on the queue), the method will poll in
+              intervals of up to `warn_after` seconds. If a poll times out, a warning
+              containing the queue name is printed. If `repeat_warn` is False the warning
+              is printed only once; otherwise it is printed every time a `warn_after`
+              segment elapses while still waiting.
+            - If the get eventually succeeds after waiting, and at least one warning was
+              issued, a resumed message is printed with the total waited time.
+        """
+        # Resolve defaults
+        if warn_after is None:
+            warn_after = self._warn_after_default
+        if repeat_warn is None:
+            repeat_warn = self._repeat_warn_default
+
+        # Fast-path: no warning logic requested, just call underlying queue.
+        if warn_after is None:
+            ctr = self._q.get(block=block, timeout=timeout) if block else self._q.get_nowait()
+            with self._lock:
+                return self._map.pop(ctr)
+
+        # If not blocking, warning logic doesn't make sense; just try non-blocking get.
+        if not block:
+            ctr = self._q.get_nowait()
+            with self._lock:
+                return self._map.pop(ctr)
+
+        start = time.time()
+        warned = False
+        try:
+            while True:
+                # compute remaining total timeout (if any)
+                if timeout is not None:
+                    elapsed = time.time() - start
+                    remaining = timeout - elapsed
+                    if remaining <= 0:
+                        raise queue.Empty
+                    seg_timeout = min(warn_after, remaining)
+                else:
+                    seg_timeout = warn_after
+
+                try:
+                    ctr = self._q.get(block=True, timeout=seg_timeout)
+                    with self._lock:
+                        val = self._map.pop(ctr)
+                    if warned:
+                        total_wait = time.time() - start
+                        print(f"SidebandQueue '{self._name}' resumed after waiting {total_wait:.2f}s", file=sys.stderr)
+                    return val
+                except queue.Empty:
+                    # segment timed out without getting an item
+                    if (not warned) or repeat_warn:
+                        print(
+                            f"Warning: SidebandQueue '{self._name}' waiting >= {seg_timeout:.2f}s for item",
+                            file=sys.stderr,
+                        )
+                        warned = True
+                    # loop again (will respect overall timeout if provided)
+        except queue.Empty:
+            # propagate empty to caller
+            raise
 
     def qsize(self):
         return len(self._map)
