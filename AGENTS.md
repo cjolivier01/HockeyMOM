@@ -17,6 +17,11 @@
 - Run tracker locally (example): `EXP_NAME=dev VIDEO=video.mp4 ./hm_run.sh`.
  - Exclude wheels: `bazelisk build --config=no-python-wheels //...` (or `./bld --no-python-wheels`).
 
+### Handy local debugging command
+
+- Run TensorRT-enabled tracking on a short clip (5s) for `chicago-3`:
+  - `PYTHONPATH=$(pwd) python hmlib/cli/hmtrack.py --game-id=chicago-3 --async-post-processing=0 --async-video-out=0 --show-scaled=0.5 --camera-ui=1 --detector-trt-enable --detector-static-detections --detector-static-max-detections=800 --plot-tracking -t=5`
+
 ## Coding Style & Naming Conventions
 - Python: Black (line length 120) and isort; run `./format.sh` before committing.
 - Typing: mypy is configured; prefer typed public APIs in `hmlib/`.

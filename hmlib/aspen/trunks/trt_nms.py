@@ -10,11 +10,12 @@ from mmengine.structures import InstanceData
 @dataclass
 class TrtNmsConfig:
     num_classes: int
-    max_num_boxes: int
-    top_k: int
-    keep_top_k: int
+    max_num_boxes: int  # static input/output size per image
+    top_k: int          # plugin topK (per class * image)
+    keep_top_k: int     # plugin keepTopK (per image, before our own max_per_img)
     score_threshold: float
     iou_threshold: float
+    max_per_img: int
     share_location: bool = True
     background_label_id: int = -1
     is_normalized: bool = False
@@ -51,14 +52,14 @@ class TrtBatchedNMS:
 
         score_thr = 0.0
         iou_thr = 0.5
-        keep_top_k = 100
+        max_per_img = 100
         nms_pre = max_num_boxes
 
         try:
             if test_cfg is not None:
                 # mmengine ConfigDict behaves like a dict
                 score_thr = float(test_cfg.get("score_thr", score_thr))
-                keep_top_k = int(test_cfg.get("max_per_img", keep_top_k))
+                max_per_img = int(test_cfg.get("max_per_img", max_per_img))
                 nms_cfg = test_cfg.get("nms", {}) or {}
                 if "iou_threshold" in nms_cfg:
                     iou_thr = float(nms_cfg["iou_threshold"])
@@ -68,14 +69,26 @@ class TrtBatchedNMS:
         except Exception:
             pass
 
+        # Prefer static max_detections when available (YOLOX static path).
+        static_max = 0
+        try:
+            if bool(getattr(bbox_head, "static_det_enabled", False)):
+                static_max = int(getattr(bbox_head, "static_det_max", 0) or 0)
+        except Exception:
+            static_max = 0
+
         max_top_k = 512 * 8
-        # Limit the engine input size and plugin topK to avoid excessive
-        # workspace and to respect the plugin's topK limit.
         max_num_boxes = int(max_num_boxes)
         nms_pre = int(nms_pre)
+        # Bound max_num_boxes by pre-NMS clamp and plugin limits.
+        if static_max > 0:
+            max_num_boxes = static_max
         max_num_boxes = max(1, min(max_num_boxes, nms_pre, max_top_k))
+
+        # Use full max_num_boxes inside the plugin, and apply max_per_img
+        # explicitly after TensorRT NMS for closer parity with mmcv.batched_nms.
         top_k = max_num_boxes
-        keep_top_k = int(max(1, min(keep_top_k, top_k)))
+        keep_top_k = max_num_boxes
 
         cfg = TrtNmsConfig(
             num_classes=num_classes,
@@ -84,6 +97,7 @@ class TrtBatchedNMS:
             keep_top_k=keep_top_k,
             score_threshold=float(score_thr),
             iou_threshold=float(iou_thr),
+            max_per_img=int(max_per_img),
         )
         return TrtBatchedNMS(cfg)
 
@@ -291,27 +305,68 @@ class TrtBatchedNMS:
             dtype=torch.float32,
         )
         idx = torch.arange(num_boxes, device=device, dtype=torch.long)
-        labels_clamped = labels.to(torch.long).clamp_(0, num_classes - 1)
+        # Avoid in-place ops on tensors that may have been created under
+        # torch.inference_mode() by using out-of-place clamp.
+        labels_clamped = labels.to(torch.long).clamp(0, num_classes - 1)
         scores_full[idx, labels_clamped] = scores.to(torch.float32)
 
         num_det, out_boxes, out_scores, out_classes = self._infer(
             bboxes.to(torch.float32), scores_full
         )
 
-        # num_det has shape [B, 1]
-        num_valid = num_det[0, 0]
+        # num_det has shape [B, 1]; clamp to valid range.
+        try:
+            raw_valid = int(num_det[0, 0])
+        except Exception:
+            raw_valid = out_scores.shape[1]
+        raw_valid = max(0, min(raw_valid, out_scores.shape[1]))
+
+        # Slice to the number of valid detections reported by the plugin.
+        boxes = out_boxes[0][:raw_valid]
+        scores_vec = out_scores[0][:raw_valid]
+        labels_vec = out_classes[0][:raw_valid].to(torch.long)
+
+        # Apply the same max_per_img cap as the original head.
+        max_per = int(self.cfg.max_per_img or 0)
+        if max_per > 0 and boxes.shape[0] > max_per:
+            top_scores, top_idx = scores_vec.topk(max_per)
+            boxes = boxes[top_idx]
+            labels_vec = labels_vec[top_idx]
+            scores_vec = top_scores
+
+        num_valid = boxes.shape[0]
+
+        # Optionally pad back to a static shape for downstream consumers,
+        # mirroring the head's static_detections behavior.
+        if self.cfg.max_num_boxes > 0:
+            pad_to = int(self.cfg.max_num_boxes)
+            padded_bboxes = boxes.new_zeros((pad_to, 4))
+            padded_scores = scores_vec.new_full((pad_to,), float("-inf"))
+            padded_labels = labels_vec.new_full((pad_to,), -1, dtype=labels_vec.dtype)
+            if num_valid > 0:
+                padded_bboxes[:num_valid] = boxes
+                padded_scores[:num_valid] = scores_vec
+                padded_labels[:num_valid] = labels_vec
+            boxes_out = padded_bboxes
+            scores_out = padded_scores
+            labels_out = padded_labels
+        else:
+            boxes_out = boxes
+            scores_out = scores_vec
+            labels_out = labels_vec
 
         new_inst = InstanceData()
-        new_inst.bboxes = out_boxes[0]
-        new_inst.scores = out_scores[0]
-        new_inst.labels = out_classes[0].to(torch.long)
+        new_inst.bboxes = boxes_out
+        new_inst.scores = scores_out
+        new_inst.labels = labels_out
+
         # Propagate static padding metadata so _strip_static_padding can
         # trim back to num_valid on the GPU.
         try:
             new_inst.set_metainfo(
                 dict(
-                    num_valid_after_nms=num_valid,
-                    max_detections=int(self.cfg.keep_top_k),
+                    num_valid_after_nms=torch.as_tensor(num_valid, device=device, dtype=torch.int32),
+                    max_detections=int(self.cfg.max_num_boxes),
                     num_valid_before_nms=int(num_boxes),
                 )
             )
