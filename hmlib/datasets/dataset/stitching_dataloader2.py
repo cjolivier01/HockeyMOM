@@ -33,6 +33,7 @@ from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_asyn
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
+from hmlib.utils.tensor import make_const_tensor
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hockeymom import show_cuda_tensor
 from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
@@ -989,7 +990,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             self._persist_init_or_assert(True, x_work, extras)
 
         # --- Angle-dependent tensors ---
-        angle = torch.tensor(-degrees * math.pi / 180.0, device=device, dtype=torch.float32)
+        angle = make_const_tensor(-degrees * math.pi / 180.0, device=device, dtype=torch.float32)
         cos_a = torch.cos(angle)
         sin_a = torch.sin(angle)
 
@@ -1008,7 +1009,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             center = make_center()
         cx, cy = center[0], center[1]
 
-        def make_S():
+        def make_S() -> torch.Tensor:
             return torch.tensor(
                 [
                     [(W - 1) / 2.0, 0.0, (W - 1) / 2.0],
@@ -1019,7 +1020,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 dtype=torch.float32,
             )
 
-        def make_S_inv():
+        def make_S_inv() -> torch.Tensor:
             return torch.tensor(
                 [
                     [2.0 / (W - 1), 0.0, -1.0],
@@ -1030,12 +1031,17 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 dtype=torch.float32,
             )
 
+        def make_001() -> torch.Tensor:
+            return torch.tensor([0.0, 0.0, 1.0], device=device, dtype=torch.float32)
+
         if use_cache and hasattr(self, "_persist_get"):
             S = self._persist_get("S", make_S, True)
             S_inv = self._persist_get("S_inv", make_S_inv, True)
+            S_001 = self._persist_get("S_001", make_001, True)
         else:
             S = make_S()
             S_inv = make_S_inv()
+            S_001 = make_001()
 
         # --- Compute transform matrices ---
         tx = (1.0 - cos_a) * cx - sin_a * cy
@@ -1044,7 +1050,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             [
                 torch.stack([cos_a, sin_a, tx]),
                 torch.stack([-sin_a, cos_a, ty]),
-                torch.tensor([0.0, 0.0, 1.0], device=device, dtype=torch.float32),
+                S_001,
             ]
         )
 

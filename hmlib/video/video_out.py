@@ -45,7 +45,7 @@ from hmlib.utils.image import (
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
-from hmlib.utils.tensor import to_tensor_scalar
+from hmlib.utils.tensor import make_const_tensor
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
 from .video_stream import VideoStreamWriterInterface, clamp_max_video_dimensions, create_output_video_stream
@@ -206,8 +206,8 @@ class VideoOutput:
         self._dtype = dtype if dtype is not None else torch.get_default_dtype()
         assert self._dtype in _FP_TYPES
 
-        output_frame_width = to_tensor_scalar(output_frame_width, device=device)
-        output_frame_height = to_tensor_scalar(output_frame_height, device=device)
+        output_frame_width = make_const_tensor(output_frame_width, device=device, dtype=torch.int64)
+        output_frame_height = make_const_tensor(output_frame_height, device=device, dtype=torch.int64)
 
         if fourcc == "auto" and device.type == "cuda":
             fourcc = "hevc_nvenc"
