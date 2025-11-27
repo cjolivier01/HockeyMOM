@@ -205,4 +205,4 @@ class ThreadedCachedIterator:
         self._stop()
 
 
-CachedIterator = ThreadedCachedIterator
+CachedIterator = SimpleCachedIterator
