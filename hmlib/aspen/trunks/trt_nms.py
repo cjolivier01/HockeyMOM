@@ -52,6 +52,7 @@ class TrtBatchedNMS:
         bbox_head: torch.nn.Module,
         max_num_boxes: int,
         stream: Optional[torch.cuda.Stream] = None,
+        max_per_img: int = 250,
     ) -> "TrtBatchedNMS":
         """Construct a config from an mmdet/mmyolo bbox head."""
         num_classes = int(getattr(bbox_head, "num_classes", 1))
@@ -59,7 +60,6 @@ class TrtBatchedNMS:
 
         score_thr = 0.0
         iou_thr = 0.5
-        max_per_img = 800
         nms_pre = max_num_boxes
 
         try:
@@ -254,6 +254,7 @@ class TrtBatchedNMS:
         if num_boxes > N:
             # Truncate to the maximum supported by the engine.
             boxes = boxes[:N]
+            scores = scores[:N]
 
         # Pad inputs up to static engine shapes.
         boxes_pad = torch.zeros(
