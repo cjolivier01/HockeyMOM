@@ -243,7 +243,7 @@ def stitch_videos(
             start = None
 
             dataset_timer = Timer()
-            with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False, stream=cuda_stream):
+            with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False):
                 for i, stitched_image in enumerate(data_loader_iter):
                     if configure_only:
                         break
