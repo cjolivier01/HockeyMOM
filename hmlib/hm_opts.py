@@ -519,6 +519,20 @@ class hm_opts(object):
             default=2,
             help="cache size for GPU stream async operations",
         )
+        async_group = parser.add_mutually_exclusive_group()
+        async_group.add_argument(
+            "--async-mode",
+            dest="async_mode",
+            action="store_true",
+            help="Enable async video I/O and CUDA streaming (default).",
+        )
+        async_group.add_argument(
+            "--no-async-dataset",
+            dest="async_mode",
+            action="store_false",
+            help="Disable async dataset loading and use synchronous video I/O.",
+        )
+        parser.set_defaults(async_mode=True)
         parser.add_argument(
             "--no-cuda-streams",
             action="store_true",
@@ -988,6 +1002,8 @@ class hm_opts(object):
             opt.async_video_out = 0
             opt.cache_size = 0
             opt.stitch_cache_size = 0
+            if hasattr(opt, "async_mode"):
+                opt.async_mode = False
 
         if opt.show_scaled:
             opt.show_image = True
