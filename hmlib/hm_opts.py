@@ -352,6 +352,24 @@ class hm_opts(object):
             default=0,
             help="Max detections to keep when static detections are enabled (default: use model test_cfg).",
         )
+        trt_det.add_argument(
+            "--detector-nms-backend",
+            dest="detector_nms_backend",
+            type=str,
+            default="trt",
+            choices=["trt", "torchvision", "head"],
+            help="NMS backend when using TensorRT detector: "
+            "'trt' (TensorRT batched NMS plugin), "
+            "'torchvision' (torchvision.ops.nms per class), or "
+            "'head' (use bbox head's original NMS).",
+        )
+        trt_det.add_argument(
+            "--detector-nms-test",
+            dest="detector_nms_test",
+            action="store_true",
+            help="Debug mode: when using TensorRT detector, run both TensorRT batched NMS "
+            "and torchvision NMS and log basic differences per frame.",
+        )
         #
         # TensorRT options (Pose)
         #
@@ -521,18 +539,11 @@ class hm_opts(object):
         )
         async_group = parser.add_mutually_exclusive_group()
         async_group.add_argument(
-            "--async-mode",
-            dest="async_mode",
-            action="store_true",
-            help="Enable async video I/O and CUDA streaming (default).",
-        )
-        async_group.add_argument(
             "--no-async-dataset",
-            dest="async_mode",
-            action="store_false",
+            dest="no_async_dataset",
+            action="store_true",
             help="Disable async dataset loading and use synchronous video I/O.",
         )
-        parser.set_defaults(async_mode=True)
         parser.add_argument(
             "--no-cuda-streams",
             action="store_true",
@@ -1002,8 +1013,7 @@ class hm_opts(object):
             opt.async_video_out = 0
             opt.cache_size = 0
             opt.stitch_cache_size = 0
-            if hasattr(opt, "async_mode"):
-                opt.async_mode = False
+            opt.no_async_dataset = True
 
         if opt.show_scaled:
             opt.show_image = True

@@ -9,7 +9,7 @@ from cuda_stacktrace import CudaStackTracer
 from mmengine.structures import InstanceData
 
 from .base import Trunk
-from .trt_nms import TrtBatchedNMS
+from .trt_nms import DetectorNMS
 
 
 def _strip_static_padding(instances: InstanceData) -> InstanceData:
@@ -180,6 +180,8 @@ class DetectorFactoryTrunk(Trunk):
                         int8=bool(self._trt_cfg.get("int8", False)),
                         calib_frames=int(self._trt_cfg.get("calib_frames", 0)),
                         profiler=self._profiler,
+                        nms_backend=str(self._trt_cfg.get("nms_backend", "trt")),
+                        nms_test=bool(self._trt_cfg.get("nms_test", False)),
                     )
                 except Exception as ex:
                     # Fall back to next option if TRT init fails
@@ -572,6 +574,8 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         int8: bool = False,
         calib_frames: int = 0,
         profiler: Optional[Any] = None,
+        nms_backend: str = "trt",
+        nms_test: bool = False,
     ):
         super().__init__(profiler=profiler, label="trt_predictor")
         self.model = model
@@ -587,7 +591,17 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         self._swap_rgb = False
         self._calib_dataset = None
         self._pass: int = 0
-        self._trt_nms: Optional[TrtBatchedNMS] = None
+        self._nms_backend: str = str(nms_backend or "trt")
+        self._nms_test: bool = bool(nms_test)
+        compare_backends: List[str] = []
+        if self._nms_test and self._nms_backend.lower() == "trt":
+            compare_backends.append("torchvision")
+        # Centralized NMS dispatcher; handles 'trt', 'torchvision', and 'head'.
+        self._nms = DetectorNMS(
+            bbox_head=getattr(model, "bbox_head", model),
+            backend=self._nms_backend,
+            compare_backends=compare_backends,
+        )
 
         # Gather data_preprocessor normalization like ONNX path
         try:
@@ -759,7 +773,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         feats = list(feats)
                     else:
                         feats = [torch.as_tensor(feats)]
-
+                # torch.cuda.synchronize()
                 with torch.inference_mode():
                     with self._profile_scope("head"):
                         cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
@@ -776,62 +790,16 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         )
                 inst = result_list[0]
 
-                # Lazily initialize the TensorRT NMS wrapper from the bbox
-                # head configuration and the observed number of pre-NMS boxes.
-                if self._trt_nms is None:
-                    try:
-                        max_num_boxes = int(getattr(inst.bboxes, "shape", [0])[0])
-                    except Exception:
-                        max_num_boxes = 0
-                    if max_num_boxes > 0:
-                        try:
-                            self._trt_nms = TrtBatchedNMS.from_bbox_head(
-                                bbox_head=self.model.bbox_head,
-                                max_num_boxes=max_num_boxes,
-                            )
-                        except Exception as ex:
-                            print(f"Failed to initialize TensorRT NMS wrapper, falling back to head NMS: {ex}")
-
-                # Apply TensorRT NMS when available, otherwise fall back to
-                # the original PyTorch NMS path.
-                if self._trt_nms is not None:
-                    try:
-                        inst = self._trt_nms(inst)
-                    except Exception as ex:
-                        print(f"TensorRT NMS execution failed, falling back to head NMS: {ex}")
-                        self._trt_nms = None
-                        with torch.inference_mode():
-                            with self._profile_scope("head_fallback_nms"):
-                                result_list = self.model.bbox_head.predict_by_feat(
-                                    cls_scores=cls_scores,
-                                    bbox_preds=bbox_preds,
-                                    objectnesses=objectnesses,
-                                    batch_img_metas=[img_meta],
-                                    cfg=None,
-                                    rescale=True,
-                                    with_nms=True,
-                                )
-                                inst = result_list[0]
-                else:
-                    # No TensorRT NMS available; use the original head NMS.
-                    with torch.inference_mode():
-                        with self._profile_scope("head_fallback_nms"):
-                            result_list = self.model.bbox_head.predict_by_feat(
-                                cls_scores=cls_scores,
-                                bbox_preds=bbox_preds,
-                                objectnesses=objectnesses,
-                                batch_img_metas=[img_meta],
-                                cfg=None,
-                                rescale=True,
-                                with_nms=True,
-                            )
-                            inst = result_list[0]
+                # Apply configured NMS backend via the centralized dispatcher.
+                with self._profile_scope("nms"):
+                    inst = self._nms.run_single(inst, img_meta)
 
                 class _Wrap:
                     def __init__(self, inst_):
                         self.pred_instances = inst_
 
                 with self._profile_scope("postprocess"):
+                    # torch.cuda.synchronize()
                     results.append(_Wrap(_strip_static_padding(inst)))
 
             if do_trace == 10:
