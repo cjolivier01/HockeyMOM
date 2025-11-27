@@ -748,6 +748,7 @@ def _main(args, num_gpu):
                     python_blender=args.python_blender,
                     minimize_blend=not args.no_minimize_blend,
                     no_cuda_streams=args.no_cuda_streams,
+                    async_mode=getattr(args, "async_mode", True),
                     post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
                     profiler=getattr(args, "profiler", None),
                     config_ref=args.game_config,
@@ -773,6 +774,7 @@ def _main(args, num_gpu):
                     original_image_only=True,
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
+                    async_mode=getattr(args, "async_mode", True),
                 )
                 try:
                     mot_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -806,6 +808,7 @@ def _main(args, num_gpu):
                     original_image_only=True,
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
+                    async_mode=getattr(args, "async_mode", True),
                 )
                 try:
                     pano_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -830,6 +833,7 @@ def _main(args, num_gpu):
                                 device=gpus["encoder"],
                                 original_image_only=True,
                                 no_cuda_streams=args.no_cuda_streams,
+                                async_mode=getattr(args, "async_mode", True),
                             )
                     try:
                         extra_dataloader.set_profiler(getattr(args, "profiler", None))

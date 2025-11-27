@@ -32,6 +32,9 @@
     },
     {
       "path": "../pytorch/audio"
+    },
+    {
+      "path": "../TensorRT"
     }
   ],
   "settings": {

@@ -162,6 +162,8 @@ def stitch_videos(
             python_blender=python_blender,
             post_stitch_rotate_degrees=post_stitch_rotate_degrees,
             profiler=profiler,
+            no_cuda_streams=getattr(args, "no_cuda_streams", False) if args is not None else False,
+            async_mode=getattr(args, "async_mode", True) if args is not None else True,
         )
 
         data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)

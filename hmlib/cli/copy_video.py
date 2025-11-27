@@ -116,6 +116,9 @@ def copy_video(
     dtype: torch.dtype = torch.float16,
     use_video_out: bool = False,
     num_splits: int = 1,
+    max_frames: int = 0,
+    no_cuda_streams: bool = False,
+    async_mode: bool = True,
 ):
     if isinstance(video_file, list):
         video_file = ",".join(video_file)
@@ -126,10 +129,12 @@ def copy_video(
         original_image_only=True,
         start_frame_number=start_frame_number,
         batch_size=batch_size,
-        max_frames=args.max_frames,
+        max_frames=max_frames,
         device=device,
         decoder_device=device,
         dtype=dtype,
+        no_cuda_streams=no_cuda_streams,
+        async_mode=async_mode,
     )
 
     split_number: int = 1
@@ -320,6 +325,9 @@ def main():
             dtype=torch.float16 if args.fp16 else torch.float,
             use_video_out=args.use_video_out,
             num_splits=args.num_splits,
+            max_frames=args.max_frames,
+            no_cuda_streams=getattr(args, "no_cuda_streams", False),
+            async_mode=getattr(args, "async_mode", True),
         )
 
 
