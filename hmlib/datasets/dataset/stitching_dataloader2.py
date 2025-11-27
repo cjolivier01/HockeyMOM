@@ -571,7 +571,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                     self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
 
                 stream = self._remapping_stream if self._async_mode else None
-                with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False, stream=stream):
+                with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False):
                     with cuda_stream_scope(stream), torch.no_grad():
                         imgs_1 = to_tensor(imgs_1)
                         imgs_2 = to_tensor(imgs_2)
