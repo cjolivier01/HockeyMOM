@@ -83,9 +83,7 @@ def record_stream_event(
     if stream is None:
         stream = torch.cuda.current_stream(tensor.device)
     assert stream is not None
-    event = torch.cuda.Event(blocking=True)
-    stream.record_event(event)
-    return event
+    return stream.record_event(None)
 
 
 class GpuAllocator:
@@ -281,7 +279,7 @@ class StreamTensor(StreamTensorBase):
             # Probably not necessary, or you want to call synchronize on the event
             assert self._stream != new_stream
         if self._event is not None:
-            self._event.wait(new_stream)
+            new_stream.wait_event(self._event)
             self._event = None
         else:
             assert self._stream is None

@@ -20,7 +20,7 @@ from hmlib.segm.ice_rink import main as ice_rink_main
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
-from hmlib.utils.gpu import GpuAllocator, StreamTensor
+from hmlib.utils.gpu import GpuAllocator, StreamCheckpoint, StreamTensor
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
@@ -161,8 +161,8 @@ def stitch_videos(
             python_blender=python_blender,
             post_stitch_rotate_degrees=post_stitch_rotate_degrees,
             profiler=profiler,
-            no_cuda_streams=getattr(args, "no_cuda_streams", False) if args is not None else False,
-            async_mode=getattr(args, "async_mode", True) if args is not None else True,
+            no_cuda_streams=args.no_cuda_streams,
+            async_mode=True,
         )
 
         data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
@@ -237,7 +237,7 @@ def stitch_videos(
                     async_output=args.async_video_out,
                 )
             if video_out is not None:
-                video_out.append(dict(frame_ids=frame_ids, img=frame))
+                video_out.append(dict(frame_ids=frame_ids, img=StreamCheckpoint(frame)))
 
         try:
             start = None
@@ -251,6 +251,9 @@ def stitch_videos(
                     stitched_image = stitched_image.get()
 
                 frame_ids = torch.arange(i * batch_size, (i + 1) * batch_size)
+
+                cuda_stream.synchronize()
+
                 _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
 
                 if shower is not None:
@@ -261,8 +264,6 @@ def stitch_videos(
                             )
                     else:
                         shower.show(stitched_image)
-
-                cuda_stream.synchronize()
 
                 # Per-iteration profiler step for gated profiling windows
                 if getattr(profiler, "enabled", False):
