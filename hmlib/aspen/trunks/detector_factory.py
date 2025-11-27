@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-from cuda_stacktrace import CudaStackTracer
 from mmengine.structures import InstanceData
 
 from .base import Trunk
@@ -758,18 +757,17 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                     pass
 
                 with torch.inference_mode():
-                    with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False and self._pass == 10):
-                        with self._profile_scope("head"):
-                            cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
-                            result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
-                                cls_scores=cls_scores,
-                                bbox_preds=bbox_preds,
-                                objectnesses=objectnesses,
-                                batch_img_metas=[img_meta],
-                                cfg=None,
-                                rescale=True,
-                                with_nms=True,
-                            )
+                    with self._profile_scope("head"):
+                        cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
+                        result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                            cls_scores=cls_scores,
+                            bbox_preds=bbox_preds,
+                            objectnesses=objectnesses,
+                            batch_img_metas=[img_meta],
+                            cfg=None,
+                            rescale=True,
+                            with_nms=True,
+                        )
                 inst = result_list[0]
 
                 if self._pass == 10:
