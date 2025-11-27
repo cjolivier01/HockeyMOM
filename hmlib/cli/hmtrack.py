@@ -511,6 +511,7 @@ def _main(args, num_gpu):
                     # NMS backend selection for TensorRT detector
                     trt_cfg["nms_backend"] = getattr(args, "detector_nms_backend", "trt")
                     trt_cfg["nms_test"] = bool(getattr(args, "detector_nms_test", False))
+                    trt_cfg["nms_plugin"] = getattr(args, "detector_trt_nms_plugin", "batched")
                     df_params["trt"] = trt_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
