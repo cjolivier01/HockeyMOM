@@ -376,6 +376,8 @@ class VideoOutput:
         # self._shower.show(results["img"]) if self._shower is not None else None
         if not self._async_output:
             with cuda_stream_scope(self._cuda_stream):
+                if not self._output_videos:
+                    self.create_output_videos()
                 if isinstance(results["img"], StreamTensor):
                     results["img"] = results["img"].wait()
                 with self._fctx:

@@ -179,8 +179,8 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         format: str = "bgr24",
         batch_size: int = 3,
         cache_size: int = 4,
-        # bit_rate: int = int(55e6),
-        bit_rate: int = int(35e6),
+        bit_rate: int = int(55e6),
+        # bit_rate: int = int(35e6),
         device: torch.device = None,
         lossless: bool = int(os.environ.get("HM_LOSSLESS_OUT", "0")) != 0,
         container_type: str = "matroska",
@@ -188,7 +188,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         streaming_drop_frame_interval: int = 3,
         stream_fps: int = 15,
     ):
-        bit_rate = int(35e6)
+        # bit_rate = int(35e6)
         self._filename = filename
         self._container_type = container_type
         self._fps = fps
