@@ -4,34 +4,10 @@
       "path": "."
     },
     {
-      "path": "../HockeyMOM"
-    },
-    {
-      "path": "../../../enblend-enfuse"
-    },
-    {
-      "path": "../../../PCA9685"
-    },
-    {
-      "path": "../../../Adafruit_Python_PlatformDetect"
-    },
-    {
-      "path": "../../../Adafruit_Blinka"
-    },
-    {
-      "path": "../../../opencv-python/opencv"
-    },
-    {
-      "path": "../bazel-python-package-example"
-    },
-    {
       "path": "../hm-cupano"
     },
     {
       "path": "../jersey-number-pipeline"
-    },
-    {
-      "path": "../pytorch/audio"
     },
     {
       "path": "../TensorRT"
