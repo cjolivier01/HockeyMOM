@@ -180,7 +180,7 @@ class AspenNet(torch.nn.Module):
             do_trace: bool = True and self._iter_num == 10
             if do_trace:
                 pass
-            with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+            with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=False and do_trace):
                 for node in self.exec_order:
                     self._execute_node(node, context)
             if do_trace:
