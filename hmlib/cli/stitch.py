@@ -185,10 +185,17 @@ def stitch_videos(
             total_frame_count = len(data_loader)
 
             def _table_callback(table_map: OrderedDict):
-                table_map["Stitching Dataset Delivery FPS"] = "{:.2f}".format(dataset_delivery_fps)
+                processed = frame_count
+                remaining = max(0, total_frame_count - processed)
+                table_map["Frames"] = f"{processed}/{total_frame_count}"
                 if dataset_delivery_fps > 0:
-                    remaining_secs = (total_frame_count - frame_count) / dataset_delivery_fps
-                    table_map["Time Remaining"] = convert_seconds_to_hms(remaining_secs)
+                    remaining_secs = remaining / dataset_delivery_fps
+                    eta = convert_seconds_to_hms(remaining_secs)
+                    table_map["Stitch FPS"] = f"{dataset_delivery_fps:.2f}"
+                    table_map["ETA"] = eta
+                else:
+                    table_map["Stitch FPS"] = "warming up"
+                    table_map["ETA"] = "--:--:--"
 
             scroll_output = ScrollOutput()
 

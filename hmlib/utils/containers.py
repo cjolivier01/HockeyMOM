@@ -211,9 +211,11 @@ class IterableQueue:
         return item
 
 
-def create_queue(mp: bool):
+def create_queue(mp: bool, name: Optional[str] = None, warn_after: Optional[float] = None, repeat_warn: bool = False):
     if mp:
         assert False
         return multiprocessing.Queue()
     else:
-        return SidebandQueue()
+        return SidebandQueue(
+            name=name, warn_after=warn_after if warn_after is not None else 300.0, repeat_warn=repeat_warn
+        )
