@@ -35,6 +35,9 @@
     },
     {
       "path": "../TensorRT"
+    },
+    {
+      "path": "../cuda-stacktrace"
     }
   ],
   "settings": {

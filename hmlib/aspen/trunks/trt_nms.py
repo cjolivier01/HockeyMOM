@@ -27,9 +27,9 @@ class TrtNmsConfig:
 
 
 class TrtBatchedNMS:
-    """Thin TensorRT batched NMS wrapper.
+    """Thin TensorRT NMS wrapper.
 
-    Builds a tiny TensorRT engine that only contains the BatchedNMSDynamic_TRT
+    Builds a tiny TensorRT engine that only contains the EfficientNMS_TRT
     plugin and exposes a callable that takes an InstanceData and returns a
     new InstanceData with NMS applied. The engine is static-shape
     (no dynamic dims) to avoid runtime shape updates and stream syncs.
@@ -151,10 +151,12 @@ class TrtBatchedNMS:
         N = int(self.cfg.max_num_boxes)
         C = int(self.cfg.num_classes)
 
+        # EfficientNMS expects boxes in shape [B, num_boxes, 4] and scores
+        # in shape [B, num_boxes, num_classes].
         boxes = network.add_input(
             name="boxes",
             dtype=trt.DataType.FLOAT,
-            shape=(B, N, 1, 4),
+            shape=(B, N, 4),
         )
         scores = network.add_input(
             name="scores",
@@ -163,9 +165,9 @@ class TrtBatchedNMS:
         )
 
         registry = trt.get_plugin_registry()
-        creator = registry.get_plugin_creator("BatchedNMSDynamic_TRT", "1", "")
+        creator = registry.get_plugin_creator("EfficientNMS_TRT", "1", "")
         if creator is None:
-            raise RuntimeError("BatchedNMSDynamic_TRT plugin not found in TensorRT registry")
+            raise RuntimeError("EfficientNMS_TRT plugin not found in TensorRT registry")
 
         fields = []
 
@@ -173,19 +175,19 @@ class TrtBatchedNMS:
             arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
             fields.append(trt.PluginField(name, arr, ftype))
 
-        add_field("shareLocation", int(bool(self.cfg.share_location)), trt.PluginFieldType.INT32)
-        add_field("backgroundLabelId", int(self.cfg.background_label_id), trt.PluginFieldType.INT32)
-        add_field("numClasses", int(self.cfg.num_classes), trt.PluginFieldType.INT32)
-        add_field("topK", int(self.cfg.top_k), trt.PluginFieldType.INT32)
-        add_field("keepTopK", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
-        add_field("scoreThreshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32)
-        add_field("iouThreshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
-        add_field("isNormalized", int(bool(self.cfg.is_normalized)), trt.PluginFieldType.INT32)
-        add_field("clipBoxes", int(bool(self.cfg.clip_boxes)), trt.PluginFieldType.INT32)
-        add_field("scoreBits", int(self.cfg.score_bits), trt.PluginFieldType.INT32)
-        add_field("caffeSemantics", int(bool(self.cfg.caffe_semantics)), trt.PluginFieldType.INT32)
+        # EfficientNMS parameters
+        add_field("score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32)
+        add_field("iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
+        add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
+        add_field("background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32)
+        # 0 = no activation (scores already in [0,1]), 1 = sigmoid
+        add_field("score_activation", 0, trt.PluginFieldType.INT32)
+        # 0 = per-class NMS, 1 = class-agnostic
+        add_field("class_agnostic", 0, trt.PluginFieldType.INT32)
+        # 0 = boxes in [x1, y1, x2, y2], 1 = [x, y, w, h]
+        add_field("box_coding", 0, trt.PluginFieldType.INT32)
 
-        plugin = creator.create_plugin("batched_nms", trt.PluginFieldCollection(fields))
+        plugin = creator.create_plugin("efficient_nms", trt.PluginFieldCollection(fields))
         layer = network.add_plugin_v2([boxes, scores], plugin)
 
         num_det = layer.get_output(0)
@@ -205,7 +207,7 @@ class TrtBatchedNMS:
 
         # Static shapes; single profile with fixed min/opt/max.
         profile = builder.create_optimization_profile()
-        profile.set_shape("boxes", (B, N, 1, 4), (B, N, 1, 4), (B, N, 1, 4))
+        profile.set_shape("boxes", (B, N, 4), (B, N, 4), (B, N, 4))
         profile.set_shape("scores", (B, N, C), (B, N, C), (B, N, C))
         config.add_optimization_profile(profile)
 
@@ -258,12 +260,12 @@ class TrtBatchedNMS:
 
         # Pad inputs up to static engine shapes.
         boxes_pad = torch.zeros(
-            (B, N, 1, 4), device=device, dtype=torch.float32
+            (B, N, 4), device=device, dtype=torch.float32
         )
         scores_pad = torch.zeros(
             (B, N, C), device=device, dtype=torch.float32
         )
-        boxes_pad[0, : boxes.shape[0], 0, :] = boxes
+        boxes_pad[0, : boxes.shape[0], :] = boxes
         scores_pad[0, : scores.shape[0], :] = scores
 
         num_det = torch.empty((B, 1), device=device, dtype=torch.int32)
