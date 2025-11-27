@@ -19,7 +19,6 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from cuda_stacktrace import CudaStackTracer
 from mmcv.transforms import Compose
 
 from hmlib.config import get_game_config, get_nested_value
@@ -571,112 +570,111 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                     self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
 
                 stream = self._remapping_stream if self._async_mode else None
-                with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False):
-                    with cuda_stream_scope(stream), torch.no_grad():
-                        imgs_1 = to_tensor(imgs_1)
-                        imgs_2 = to_tensor(imgs_2)
-                        # Optional per-camera color pipelines for left/right inputs.
-                        if self._left_color_pipeline is not None:
-                            try:
-                                data_1 = {"img": imgs_1}
-                                data_1 = self._left_color_pipeline(data_1)
-                                if "img" in data_1:
-                                    imgs_1 = data_1["img"]
-                            except Exception:
-                                pass
-                        if self._right_color_pipeline is not None:
-                            try:
-                                data_2 = {"img": imgs_2}
-                                data_2 = self._right_color_pipeline(data_2)
-                                if "img" in data_2:
-                                    imgs_2 = data_2["img"]
-                            except Exception:
-                                pass
-                        if self._stitcher is None:
-                            # Lazily construct the stitcher on first use (async or sync).
-                            self._create_stitcher()
+                with cuda_stream_scope(stream), torch.no_grad():
+                    imgs_1 = to_tensor(imgs_1)
+                    imgs_2 = to_tensor(imgs_2)
+                    # Optional per-camera color pipelines for left/right inputs.
+                    if self._left_color_pipeline is not None:
+                        try:
+                            data_1 = {"img": imgs_1}
+                            data_1 = self._left_color_pipeline(data_1)
+                            if "img" in data_1:
+                                imgs_1 = data_1["img"]
+                        except Exception:
+                            pass
+                    if self._right_color_pipeline is not None:
+                        try:
+                            data_2 = {"img": imgs_2}
+                            data_2 = self._right_color_pipeline(data_2)
+                            if "img" in data_2:
+                                imgs_2 = data_2["img"]
+                        except Exception:
+                            pass
+                    if self._stitcher is None:
+                        # Lazily construct the stitcher on first use (async or sync).
+                        self._create_stitcher()
 
-                        if isinstance(self._stitcher, CudaStitchPanoF32 | CudaStitchPanoU8):
-
-                            if self._show_image_components:
-                                for img1, img2 in zip(imgs_1, imgs_2):
-                                    t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
-                                    t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
-                                    torch.cuda.synchronize()
-                                    # show_cuda_tensor(
-                                    show_image(
-                                        "img-1",
-                                        make_visible_image(t1),
-                                        wait=False,
-                                        # stream=int(stream.cuda_stream),
-                                        enable_resizing=0.2,
-                                    )
-                                    show_image(
-                                        # show_cuda_tensor(
-                                        "img-2",
-                                        make_visible_image(t2),
-                                        wait=False,
-                                        # stream=int(stream.cuda_stream),
-                                        enable_resizing=0.2,
-                                    )
-
-                            imgs_1 = make_channels_last(self.ensure_rgba(imgs_1))
-                            imgs_2 = make_channels_last(self.ensure_rgba(imgs_2))
-                            assert imgs_1.dtype == torch.uint8
-
-                            blended_stream_tensor = torch.empty(
-                                [
-                                    imgs_1.shape[0],
-                                    self._stitcher.canvas_height(),
-                                    self._stitcher.canvas_width(),
-                                    imgs_1.shape[-1],
-                                ],
-                                dtype=imgs_1.dtype,
-                                device=imgs_1.device,
-                            )
-                            stream_handle = (
-                                stream.cuda_stream
-                                if stream is not None
-                                else torch.cuda.current_stream(imgs_1.device).cuda_stream
-                            )
-                            self._stitcher.process(
-                                imgs_1.contiguous(), imgs_2.contiguous(), blended_stream_tensor, stream_handle
-                            )
-                            # Optional rotation (keep same size)
-                            if (
-                                self._post_stitch_rotate_degrees is not None
-                                and abs(self._post_stitch_rotate_degrees) > 1e-6
-                            ):
-                                blended_stream_tensor = self._rotate_tensor_keep_size(
-                                    blended_stream_tensor,
-                                    self._post_stitch_rotate_degrees,
-                                    use_cache=True,
-                                )
-                        else:
-                            blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
-                            # Optional rotation (keep same size)
-                            if (
-                                self._post_stitch_rotate_degrees is not None
-                                and abs(self._post_stitch_rotate_degrees) > 1e-6
-                            ):
-                                blended_stream_tensor = self._rotate_tensor_keep_size(
-                                    blended_stream_tensor,
-                                    self._post_stitch_rotate_degrees,
-                                    use_cache=True,
-                                )
+                    if isinstance(self._stitcher, CudaStitchPanoF32 | CudaStitchPanoU8):
 
                         if self._show_image_components:
-                            for blended_image in blended_stream_tensor:
+                            for img1, img2 in zip(imgs_1, imgs_2):
+                                t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
+                                t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
+                                torch.cuda.synchronize()
+                                # show_cuda_tensor(
                                 show_image(
-                                    "blended",
-                                    make_visible_image(blended_image),
+                                    "img-1",
+                                    make_visible_image(t1),
+                                    wait=False,
+                                    # stream=int(stream.cuda_stream),
+                                    enable_resizing=0.2,
+                                )
+                                show_image(
+                                    # show_cuda_tensor(
+                                    "img-2",
+                                    make_visible_image(t2),
                                     wait=False,
                                     # stream=int(stream.cuda_stream),
                                     enable_resizing=0.2,
                                 )
 
-                        if stream is not None:
-                            blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
+                        imgs_1 = make_channels_last(self.ensure_rgba(imgs_1))
+                        imgs_2 = make_channels_last(self.ensure_rgba(imgs_2))
+                        assert imgs_1.dtype == torch.uint8
+
+                        blended_stream_tensor = torch.empty(
+                            [
+                                imgs_1.shape[0],
+                                self._stitcher.canvas_height(),
+                                self._stitcher.canvas_width(),
+                                imgs_1.shape[-1],
+                            ],
+                            dtype=imgs_1.dtype,
+                            device=imgs_1.device,
+                        )
+                        stream_handle = (
+                            stream.cuda_stream
+                            if stream is not None
+                            else torch.cuda.current_stream(imgs_1.device).cuda_stream
+                        )
+                        self._stitcher.process(
+                            imgs_1.contiguous(), imgs_2.contiguous(), blended_stream_tensor, stream_handle
+                        )
+                        # Optional rotation (keep same size)
+                        if (
+                            self._post_stitch_rotate_degrees is not None
+                            and abs(self._post_stitch_rotate_degrees) > 1e-6
+                        ):
+                            blended_stream_tensor = self._rotate_tensor_keep_size(
+                                blended_stream_tensor,
+                                self._post_stitch_rotate_degrees,
+                                use_cache=True,
+                            )
+                    else:
+                        blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
+                        # Optional rotation (keep same size)
+                        if (
+                            self._post_stitch_rotate_degrees is not None
+                            and abs(self._post_stitch_rotate_degrees) > 1e-6
+                        ):
+                            blended_stream_tensor = self._rotate_tensor_keep_size(
+                                blended_stream_tensor,
+                                self._post_stitch_rotate_degrees,
+                                use_cache=True,
+                            )
+
+                    if self._show_image_components:
+                        for blended_image in blended_stream_tensor:
+                            show_image(
+                                "blended",
+                                make_visible_image(blended_image),
+                                wait=False,
+                                # stream=int(stream.cuda_stream),
+                                enable_resizing=0.2,
+                            )
+
+                    if stream is not None:
+                        blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
 
             self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
             self._ordering_queue.put((ids_1, blended_stream_tensor))
