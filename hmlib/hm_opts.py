@@ -370,6 +370,15 @@ class hm_opts(object):
             help="Debug mode: when using TensorRT detector, run both TensorRT batched NMS "
             "and torchvision NMS and log basic differences per frame.",
         )
+        trt_det.add_argument(
+            "--detector-trt-nms-plugin",
+            dest="detector_trt_nms_plugin",
+            type=str,
+            default="batched",
+            choices=["batched", "efficient"],
+            help="TensorRT NMS plugin to use for detector path when backend is 'trt': "
+            "'batched' (BatchedNMSDynamic_TRT, default) or 'efficient' (EfficientNMS_TRT).",
+        )
         #
         # TensorRT options (Pose)
         #

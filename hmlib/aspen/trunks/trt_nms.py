@@ -8,6 +8,43 @@ from mmengine.structures import InstanceData
 
 from hmlib.utils.tensor import make_const_tensor
 
+_TRT_LOGGER = None
+
+
+def get_trt_logger(trt_module):
+    """Return a process-wide TensorRT logger instance.
+
+    TensorRT uses a single global logger behind the scenes. Creating
+    multiple Logger instances and passing them to Builder/Runtime can
+    trigger warnings about mismatched loggers. To avoid this, we create
+    and cache a single Logger here and reuse it for all engines.
+    """
+    global _TRT_LOGGER
+    if _TRT_LOGGER is not None:
+        return _TRT_LOGGER
+
+    # Prefer the existing global TensorRT logger if available. This avoids
+    # triggering warnings about mismatched loggers when other code has
+    # already created a Builder/Runtime with its own Logger instance.
+    try:
+        get_logger = getattr(trt_module, "get_logger", None)
+    except Exception:
+        get_logger = None
+
+    if callable(get_logger):
+        _TRT_LOGGER = get_logger()
+    else:
+        _TRT_LOGGER = trt_module.Logger(trt_module.Logger.WARNING)
+
+    # Best-effort plugin initialization; non-fatal if this fails or if
+    # plugins were already initialized elsewhere.
+    try:
+        trt_module.init_libnvinfer_plugins(_TRT_LOGGER, "")
+    except Exception:
+        pass
+
+    return _TRT_LOGGER
+
 
 @dataclass
 class TrtNmsConfig:
@@ -24,6 +61,7 @@ class TrtNmsConfig:
     clip_boxes: bool = False
     score_bits: int = 16
     caffe_semantics: bool = True
+    plugin: str = "batched"
 
 
 class TrtBatchedNMS:
@@ -53,6 +91,7 @@ class TrtBatchedNMS:
         max_num_boxes: int,
         stream: Optional[torch.cuda.Stream] = None,
         max_per_img: int = 250,
+        plugin: str = "batched",
     ) -> "TrtBatchedNMS":
         """Construct a config from an mmdet/mmyolo bbox head."""
         num_classes = int(getattr(bbox_head, "num_classes", 1))
@@ -105,6 +144,7 @@ class TrtBatchedNMS:
             score_threshold=float(score_thr),
             iou_threshold=float(iou_thr),
             max_per_img=int(max_per_img),
+            plugin=str(plugin or "batched").lower(),
         )
         return TrtBatchedNMS(cfg, stream=stream)
 
@@ -130,8 +170,7 @@ class TrtBatchedNMS:
         trt = self._trt
         np = self._np
 
-        logger = trt.Logger(trt.Logger.WARNING)
-        trt.init_libnvinfer_plugins(logger, "")
+        logger = get_trt_logger(trt)
 
         builder = trt.Builder(logger)
         flags = int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
@@ -151,44 +190,84 @@ class TrtBatchedNMS:
         N = int(self.cfg.max_num_boxes)
         C = int(self.cfg.num_classes)
 
-        # EfficientNMS expects boxes in shape [B, num_boxes, 4] and scores
-        # in shape [B, num_boxes, num_classes].
-        boxes = network.add_input(
-            name="boxes",
-            dtype=trt.DataType.FLOAT,
-            shape=(B, N, 4),
-        )
-        scores = network.add_input(
-            name="scores",
-            dtype=trt.DataType.FLOAT,
-            shape=(B, N, C),
-        )
-
+        plugin_kind = getattr(self.cfg, "plugin", "batched").lower()
         registry = trt.get_plugin_registry()
-        creator = registry.get_plugin_creator("EfficientNMS_TRT", "1", "")
-        if creator is None:
-            raise RuntimeError("EfficientNMS_TRT plugin not found in TensorRT registry")
 
-        fields = []
+        if plugin_kind == "efficient":
+            # EfficientNMS expects boxes in shape [B, num_boxes, 4] and scores
+            # in shape [B, num_boxes, num_classes].
+            boxes = network.add_input(
+                name="boxes",
+                dtype=trt.DataType.FLOAT,
+                shape=(B, N, 4),
+            )
+            scores = network.add_input(
+                name="scores",
+                dtype=trt.DataType.FLOAT,
+                shape=(B, N, C),
+            )
 
-        def add_field(name: str, value, ftype):
-            arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
-            fields.append(trt.PluginField(name, arr, ftype))
+            creator = registry.get_plugin_creator("EfficientNMS_TRT", "1", "")
+            if creator is None:
+                raise RuntimeError("EfficientNMS_TRT plugin not found in TensorRT registry")
 
-        # EfficientNMS parameters
-        add_field("score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32)
-        add_field("iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
-        add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
-        add_field("background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32)
-        # 0 = no activation (scores already in [0,1]), 1 = sigmoid
-        add_field("score_activation", 0, trt.PluginFieldType.INT32)
-        # 0 = per-class NMS, 1 = class-agnostic
-        add_field("class_agnostic", 0, trt.PluginFieldType.INT32)
-        # 0 = boxes in [x1, y1, x2, y2], 1 = [x, y, w, h]
-        add_field("box_coding", 0, trt.PluginFieldType.INT32)
+            fields = []
 
-        plugin = creator.create_plugin("efficient_nms", trt.PluginFieldCollection(fields))
-        layer = network.add_plugin_v2([boxes, scores], plugin)
+            def add_field(name: str, value, ftype):
+                arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
+                fields.append(trt.PluginField(name, arr, ftype))
+
+            # EfficientNMS parameters
+            add_field("score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32)
+            add_field("iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
+            add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
+            add_field("background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32)
+            # 0 = no activation (scores already in [0,1]), 1 = sigmoid
+            add_field("score_activation", 0, trt.PluginFieldType.INT32)
+            # 0 = per-class NMS, 1 = class-agnostic
+            add_field("class_agnostic", 0, trt.PluginFieldType.INT32)
+            # 0 = boxes in [x1, y1, x2, y2], 1 = [x, y, w, h]
+            add_field("box_coding", 0, trt.PluginFieldType.INT32)
+
+            plugin = creator.create_plugin("efficient_nms", trt.PluginFieldCollection(fields))
+            layer = network.add_plugin_v2([boxes, scores], plugin)
+        else:
+            # Legacy BatchedNMSDynamic_TRT plugin.
+            boxes = network.add_input(
+                name="boxes",
+                dtype=trt.DataType.FLOAT,
+                shape=(B, N, 1, 4),
+            )
+            scores = network.add_input(
+                name="scores",
+                dtype=trt.DataType.FLOAT,
+                shape=(B, N, C),
+            )
+
+            creator = registry.get_plugin_creator("BatchedNMSDynamic_TRT", "1", "")
+            if creator is None:
+                raise RuntimeError("BatchedNMSDynamic_TRT plugin not found in TensorRT registry")
+
+            fields = []
+
+            def add_field(name: str, value, ftype):
+                arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
+                fields.append(trt.PluginField(name, arr, ftype))
+
+            add_field("shareLocation", int(bool(self.cfg.share_location)), trt.PluginFieldType.INT32)
+            add_field("backgroundLabelId", int(self.cfg.background_label_id), trt.PluginFieldType.INT32)
+            add_field("numClasses", int(self.cfg.num_classes), trt.PluginFieldType.INT32)
+            add_field("topK", int(self.cfg.top_k), trt.PluginFieldType.INT32)
+            add_field("keepTopK", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
+            add_field("scoreThreshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32)
+            add_field("iouThreshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
+            add_field("isNormalized", int(bool(self.cfg.is_normalized)), trt.PluginFieldType.INT32)
+            add_field("clipBoxes", int(bool(self.cfg.clip_boxes)), trt.PluginFieldType.INT32)
+            add_field("scoreBits", int(self.cfg.score_bits), trt.PluginFieldType.INT32)
+            add_field("caffeSemantics", int(bool(self.cfg.caffe_semantics)), trt.PluginFieldType.INT32)
+
+            plugin = creator.create_plugin("batched_nms", trt.PluginFieldCollection(fields))
+            layer = network.add_plugin_v2([boxes, scores], plugin)
 
         num_det = layer.get_output(0)
         nmsed_boxes = layer.get_output(1)
@@ -207,8 +286,12 @@ class TrtBatchedNMS:
 
         # Static shapes; single profile with fixed min/opt/max.
         profile = builder.create_optimization_profile()
-        profile.set_shape("boxes", (B, N, 4), (B, N, 4), (B, N, 4))
-        profile.set_shape("scores", (B, N, C), (B, N, C), (B, N, C))
+        if plugin_kind == "efficient":
+            profile.set_shape("boxes", (B, N, 4), (B, N, 4), (B, N, 4))
+            profile.set_shape("scores", (B, N, C), (B, N, C), (B, N, C))
+        else:
+            profile.set_shape("boxes", (B, N, 1, 4), (B, N, 1, 4), (B, N, 1, 4))
+            profile.set_shape("scores", (B, N, C), (B, N, C), (B, N, C))
         config.add_optimization_profile(profile)
 
         serialized = builder.build_serialized_network(network, config)
@@ -251,6 +334,7 @@ class TrtBatchedNMS:
         N = self.cfg.max_num_boxes
         C = self.cfg.num_classes
         K = self.cfg.keep_top_k
+        plugin_kind = getattr(self.cfg, "plugin", "batched").lower()
 
         num_boxes = int(boxes.shape[0])
         if num_boxes > N:
@@ -259,13 +343,17 @@ class TrtBatchedNMS:
             scores = scores[:N]
 
         # Pad inputs up to static engine shapes.
-        boxes_pad = torch.zeros(
-            (B, N, 4), device=device, dtype=torch.float32
-        )
+        if plugin_kind == "efficient":
+            boxes_pad = torch.zeros((B, N, 4), device=device, dtype=torch.float32)
+        else:
+            boxes_pad = torch.zeros((B, N, 1, 4), device=device, dtype=torch.float32)
         scores_pad = torch.zeros(
             (B, N, C), device=device, dtype=torch.float32
         )
-        boxes_pad[0, : boxes.shape[0], :] = boxes
+        if plugin_kind == "efficient":
+            boxes_pad[0, : boxes.shape[0], :] = boxes
+        else:
+            boxes_pad[0, : boxes.shape[0], 0, :] = boxes
         scores_pad[0, : scores.shape[0], :] = scores
 
         num_det = torch.empty((B, 1), device=device, dtype=torch.int32)
@@ -411,20 +499,27 @@ class DetectorNMS:
         bbox_head: torch.nn.Module,
         backend: str = "trt",
         compare_backends: Optional[Sequence[str]] = None,
+        trt_plugin: str = "batched",
     ) -> None:
         self.bbox_head = bbox_head
         self.backend: str = str(backend or "trt").lower()
         self.compare_backends: List[str] = [b.lower() for b in (compare_backends or [])]
+        self.trt_plugin: str = str(trt_plugin or "batched").lower()
         self._trt_nms: Optional[TrtBatchedNMS] = None
 
     def _ensure_trt(self, max_num_boxes: int, stream: Optional[torch.cuda.Stream]) -> None:
         if self._trt_nms is None:
-            self._trt_nms = TrtBatchedNMS.from_bbox_head(self.bbox_head, max_num_boxes=max_num_boxes, stream=stream)
-        else:
-            # If we ever see a larger pre-NMS set, rebuild with the larger
-            # capacity to avoid truncation.
-            if max_num_boxes > self._trt_nms.cfg.max_num_boxes:
-                self._trt_nms = TrtBatchedNMS.from_bbox_head(self.bbox_head, max_num_boxes=max_num_boxes, stream=stream)
+            self._trt_nms = TrtBatchedNMS.from_bbox_head(
+                self.bbox_head,
+                max_num_boxes=max_num_boxes,
+                stream=stream,
+                plugin=self.trt_plugin,
+            )
+        # else:
+        #     # If we ever see a larger pre-NMS set, rebuild with the larger
+        #     # capacity to avoid truncation.
+        #     if max_num_boxes > self._trt_nms.cfg.max_num_boxes:
+        #         self._trt_nms = TrtBatchedNMS.from_bbox_head(self.bbox_head, max_num_boxes=max_num_boxes, stream=stream)
 
     def _run_trt(self, instances: Sequence[InstanceData], img_metas: Sequence[Dict[str, Any]]) -> List[InstanceData]:
         if not instances:

@@ -182,6 +182,7 @@ class DetectorFactoryTrunk(Trunk):
                         profiler=self._profiler,
                         nms_backend=str(self._trt_cfg.get("nms_backend", "trt")),
                         nms_test=bool(self._trt_cfg.get("nms_test", False)),
+                        nms_plugin=str(self._trt_cfg.get("nms_plugin", "batched")),
                     )
                 except Exception as ex:
                     # Fall back to next option if TRT init fails
@@ -576,6 +577,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         profiler: Optional[Any] = None,
         nms_backend: str = "trt",
         nms_test: bool = False,
+        nms_plugin: str = "batched",
     ):
         super().__init__(profiler=profiler, label="trt_predictor")
         self.model = model
@@ -593,6 +595,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         self._pass: int = 0
         self._nms_backend: str = str(nms_backend or "trt")
         self._nms_test: bool = bool(nms_test)
+        self._nms_plugin: str = str(nms_plugin or "batched")
         compare_backends: List[str] = []
         if self._nms_test and self._nms_backend.lower() == "trt":
             compare_backends.append("torchvision")
@@ -601,6 +604,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
             bbox_head=getattr(model, "bbox_head", model),
             backend=self._nms_backend,
             compare_backends=compare_backends,
+            trt_plugin=self._nms_plugin,
         )
 
         # Gather data_preprocessor normalization like ONNX path
