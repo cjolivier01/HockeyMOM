@@ -93,7 +93,7 @@ class DetectorInferenceTrunk(Trunk):
             ), "Batch inference must return one result per frame"
             for img_data_sample, det_sample in zip(batch_data_samples, det_results):
                 # Attach detections to the video data sample for downstream tracker
-                img_data_sample.pred_instances = _strip_static_padding(det_sample.pred_instances)
+                img_data_sample.pred_instances = _strip_static_padding(det_sample.pred_instances, strip=False)
 
         if detect_timer is not None:
             detect_timer.toc()

@@ -12,9 +12,9 @@ from .base import Trunk
 from .trt_nms import DetectorNMS
 
 
-def _strip_static_padding(instances: InstanceData) -> InstanceData:
+def _strip_static_padding(instances: InstanceData, strip: bool) -> InstanceData:
     """Remove padded detections when static outputs are enabled."""
-    if instances is None:
+    if instances is None or not strip:
         return instances
     num_valid = getattr(instances, "num_valid_after_nms",
                         getattr(instances, "num_valid", None))
@@ -729,7 +729,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         do_trace: bool = self._pass == 10
         if do_trace:
             pass
-        with self._profile_scope(), CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=True and do_trace):
+        with self._profile_scope(), CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=False and do_trace):
             assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
             results: List[Any] = []
             try:
@@ -773,7 +773,6 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         feats = list(feats)
                     else:
                         feats = [torch.as_tensor(feats)]
-                # torch.cuda.synchronize()
                 with torch.inference_mode():
                     with self._profile_scope("head"):
                         cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
@@ -799,8 +798,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         self.pred_instances = inst_
 
                 with self._profile_scope("postprocess"):
-                    # torch.cuda.synchronize()
-                    results.append(_Wrap(_strip_static_padding(inst)))
+                    results.append(_Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt")))
 
             if do_trace == 10:
                 pass
