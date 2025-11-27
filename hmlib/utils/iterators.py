@@ -1,13 +1,18 @@
 import time
 from threading import Thread
+from typing import Optional
 
 from .containers import create_queue
 
 
 class SimpleCachedIterator:
-    def __init__(self, iterator, cache_size: int = 2, pre_callback_fn: callable = None):
+
+    def __init__(self, iterator, cache_size: int = 2, pre_callback_fn: callable = None, name: Optional[str] = None):
         self._iterator = iterator
-        self._q = create_queue(mp=False) if cache_size else None
+        if cache_size:
+            self._q = create_queue(mp=False, name="SimpleCachedIterator" if name is None else name)
+        else:
+            self._q = None
         self._pre_callback_fn = pre_callback_fn
         self._eof_reached = False
         self._stopped = False

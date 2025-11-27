@@ -210,8 +210,8 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._auto_adjust_exposure = auto_adjust_exposure
         self._exposure_adjustment: List[float] = None
         self._max_frames = max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
-        self._to_coordinator_queue = create_queue(mp=False)
-        self._from_coordinator_queue = create_queue(mp=False)
+        self._to_coordinator_queue = create_queue(mp=False, name="stitchinbg-to-coordinator")
+        self._from_coordinator_queue = create_queue(mp=False, name="stitching-from-coordinator")
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
@@ -245,7 +245,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._batch_count = 0
         # Temporary until we get the middle-man (StitchingWorkersIterator)
         self._current_worker = 0
-        self._ordering_queue = create_queue(mp=False)
+        self._ordering_queue = create_queue(mp=False, name="stitching-ordering-queue")
         self._coordinator_thread = None
 
         self._next_frame_timer = Timer()
