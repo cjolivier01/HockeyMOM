@@ -89,7 +89,6 @@ def stitch_videos(
     auto_adjust_exposure: Optional[bool] = False,
     minimize_blend: bool = True,
     python_blender: bool = False,
-    async_output: bool = False,
     configure_only: bool = False,
     lowmem: bool = False,
     post_stitch_rotate_degrees: Optional[float] = None,
@@ -218,7 +217,7 @@ def stitch_videos(
 
         video_out = None
 
-        def _maybe_save_frame(frame: torch.Tensor) -> None:
+        def _maybe_save_frame(frame_ids: torch.Tensor, frame: torch.Tensor) -> None:
             nonlocal video_out
             if output_stitched_video_file and video_out is None:
                 video_out = VideoOutput(
@@ -235,10 +234,10 @@ def stitch_videos(
                     original_clip_box=None,
                     progress_bar=progress_bar,
                     cache_size=cache_size,
-                    async_output=async_output,
+                    async_output=args.async_video_out,
                 )
             if video_out is not None:
-                video_out.append(dict(img=frame))
+                video_out.append(dict(frame_ids=frame_ids, img=frame))
 
         try:
             start = None
@@ -251,7 +250,8 @@ def stitch_videos(
                     stitched_image._verbose = False
                     stitched_image = stitched_image.get()
 
-                _maybe_save_frame(frame=stitched_image)
+                frame_ids = torch.arange(i * batch_size, (i + 1) * batch_size)
+                _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
 
                 if shower is not None:
                     if False and stitched_image.device.type == "cuda":

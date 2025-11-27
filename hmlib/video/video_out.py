@@ -264,7 +264,10 @@ class VideoOutput:
         self._save_frame_dir = save_frame_dir
         self._print_interval = print_interval
         self._output_videos: Dict[str, VideoStreamWriterInterface] = {}
-        self._cuda_stream = torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
+        if self._async_output:
+            self._cuda_stream = torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
+        else:
+            self._cuda_stream = None
         self._default_cuda_stream = None
 
         self._bit_rate = bit_rate
