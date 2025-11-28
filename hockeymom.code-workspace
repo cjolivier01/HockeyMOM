@@ -17,6 +17,9 @@
     },
     {
       "path": "../hstream"
+    },
+    {
+      "path": "../jetson-utils"
     }
   ],
   "settings": {
