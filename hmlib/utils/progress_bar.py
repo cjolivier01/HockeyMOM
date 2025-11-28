@@ -542,7 +542,7 @@ class ProgressBar:
             self._run_callbacks(table_map=self.table_map)
             self.refresh()
             if next_item is None:
-                time.sleep(0.1)  # Simulating work by sleeping
+                time.sleep(0.001)  # Simulating work by sleeping
         # Record GPU metrics per frame without polling to avoid overhead
         try:
             if self._enable_gpu_metrics and self._gpu_metrics is not None and self._counter % 250 == 0:

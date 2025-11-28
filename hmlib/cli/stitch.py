@@ -3,6 +3,7 @@ Experiments in stitching
 """
 
 import argparse
+import contextlib
 import os
 import time
 from collections import OrderedDict
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import torch
+from Cython import profile
 
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
@@ -247,57 +249,58 @@ def stitch_videos(
             start = None
 
             dataset_timer = Timer()
-            for i, stitched_image in enumerate(data_loader_iter):
-                if configure_only:
-                    break
-                if not output_stitched_video_file and isinstance(stitched_image, StreamTensor):
-                    stitched_image._verbose = False
-                    stitched_image = stitched_image.get()
+            with profiler if (profiler is not None and profiler.enabled) else contextlib.nullcontext(), torch.no_grad():
+                for i, stitched_image in enumerate(data_loader_iter):
+                    if configure_only:
+                        break
+                    if not output_stitched_video_file and isinstance(stitched_image, StreamTensor):
+                        stitched_image._verbose = False
+                        stitched_image = stitched_image.get()
 
-                frame_ids = torch.arange(i * batch_size, (i + 1) * batch_size)
+                    frame_ids = torch.arange(i * batch_size, (i + 1) * batch_size)
 
-                cuda_stream.synchronize()
+                    cuda_stream.synchronize()
 
-                _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
+                    _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
 
-                if shower is not None:
-                    if False and stitched_image.device.type == "cuda":
-                        for stitched_img in stitched_image:
-                            show_cuda_tensor(
-                                "Stitched Image", stitched_img.clamp(min=0, max=255).to(torch.uint8), False, None
+                    # Per-iteration profiler step for gated profiling windows
+                    if profiler.enabled:
+                        profiler.step()
+
+                    if shower is not None:
+                        if False and stitched_image.device.type == "cuda":
+                            for stitched_img in stitched_image:
+                                show_cuda_tensor(
+                                    "Stitched Image", stitched_img.clamp(min=0, max=255).to(torch.uint8), False, None
+                                )
+                        else:
+                            shower.show(stitched_image)
+
+                    if i > 1:
+                        dataset_timer.toc()
+                    if (i + 1) % 20 == 0:
+                        assert stitched_image.ndim == 4
+                        dataset_delivery_fps = batch_size / max(1e-5, dataset_timer.average_time)
+                        logger.info(
+                            "Dataset frame {} ({:.2f} fps)".format(
+                                i * batch_size,
+                                batch_size / max(1e-5, dataset_timer.average_time),
                             )
-                    else:
-                        shower.show(stitched_image)
-
-                # Per-iteration profiler step for gated profiling windows
-                if getattr(profiler, "enabled", False):
-                    profiler.step()
-
-                if i > 1:
-                    dataset_timer.toc()
-                if (i + 1) % 20 == 0:
-                    assert stitched_image.ndim == 4
-                    dataset_delivery_fps = batch_size / max(1e-5, dataset_timer.average_time)
-                    logger.info(
-                        "Dataset frame {} ({:.2f} fps)".format(
-                            i * batch_size,
-                            batch_size / max(1e-5, dataset_timer.average_time),
                         )
-                    )
-                    if i % 100 == 0:
-                        dataset_timer = Timer()
+                        if i % 100 == 0:
+                            dataset_timer = Timer()
 
-                frame_count += batch_size
+                    frame_count += batch_size
 
-                if i == 1:
-                    start = time.time()
-                dataset_timer.tic()
+                    if i == 1:
+                        start = time.time()
+                    dataset_timer.tic()
 
-                del stitched_image
+                    del stitched_image
 
-            if start is not None:
-                duration = time.time() - start
-                print(f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)")
+                if start is not None:
+                    duration = time.time() - start
+                    print(f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)")
         except StopIteration:
             pass
         finally:
