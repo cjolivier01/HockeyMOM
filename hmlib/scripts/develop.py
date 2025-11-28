@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""
+Install hmlib in editable/develop mode (similar to ``python setup.py develop``).
+
+This writes a ``.pth`` file pointing at the workspace root and creates lightweight
+console entry-point shims in the current Python environment's scripts directory.
+"""
+
+import argparse
+import os
+import sys
+import sysconfig
+from importlib import import_module
+from pathlib import Path
+from textwrap import dedent
+
+
+ENTRY_POINTS = {
+    "hmtrack": "hmlib.cli.hmtrack:main",
+    "hmstitch": "hmlib.cli.stitch:main",
+    "hmcreate_control_points": "hmlib.cli.create_control_points:main",
+    "hmplayers": "hmlib.cli.players:main",
+    "hmfind_ice_rink": "hmlib.cli.find_ice_rink:main",
+    "hmvideo_clipper": "hmlib.cli.video_clipper:main",
+    "hmanalyze_shifts": "hmlib.cli.analyze_shifts:main",
+    "hmpostprocess_shifts": "hmlib.cli.postprocess_shifts:main",
+    "hmorientation": "hmlib.cli.hmorientation:main",
+    "hmconcatenate_videos": "hmlib.cli.concatenate_videos:main",
+    "hmcaha_sync": "hmlib.cli.caha_sync:main",
+    "hmcaha_summary": "hmlib.cli.caha_summary:main",
+    "hmcaha_game": "hmlib.cli.caha_game:main",
+    "hmcamera_annotate": "hmlib.cli.camera_annotate:main",
+}
+
+
+def _find_workspace_root() -> Path:
+    env_root = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
+    if env_root:
+        return Path(env_root).resolve()
+    marker_names = ("WORKSPACE", "WORKSPACE.bazel")
+    here = Path(__file__).resolve()
+    for parent in [here] + list(here.parents):
+        if any((parent / name).exists() for name in marker_names):
+            return parent
+    return Path.cwd().resolve()
+
+
+def _write_pth(site_packages: Path, workspace_root: Path) -> Path:
+    pth_path = site_packages / "hmlib-development.pth"
+    pth_path.write_text(f"{workspace_root}\n", encoding="utf-8")
+    return pth_path
+
+
+def _write_script(scripts_dir: Path, name: str, target: str) -> Path:
+    module_name, func_name = target.split(":")
+    script_path = scripts_dir / name
+    script_body = dedent(
+        f"""\
+        #!{sys.executable}
+        import sys
+        from importlib import import_module
+
+
+        def _main():
+            mod = import_module("{module_name}")
+            func = getattr(mod, "{func_name}")
+            return func()
+
+
+        if __name__ == "__main__":
+            sys.exit(_main())
+        """
+    )
+    script_path.write_text(script_body, encoding="utf-8")
+    script_path.chmod(0o755)
+    return script_path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Install hmlib in develop/editable mode.")
+    parser.add_argument(
+        "--workspace",
+        type=Path,
+        default=None,
+        help="Override the workspace root (defaults to auto-detection).",
+    )
+    args = parser.parse_args()
+
+    workspace_root = (args.workspace or _find_workspace_root()).resolve()
+    site_packages = Path(sysconfig.get_paths()["purelib"])
+    scripts_dir = Path(sysconfig.get_paths()["scripts"])
+    site_packages.mkdir(parents=True, exist_ok=True)
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+
+    pth_file = _write_pth(site_packages, workspace_root)
+    scripts_written = [_write_script(scripts_dir, name, target) for name, target in ENTRY_POINTS.items()]
+
+    print(f"Added {pth_file} pointing to {workspace_root}")
+    print(f"Installed {len(scripts_written)} console entry points into {scripts_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -7,6 +7,8 @@ interfaces used across the stitching and tracking CLIs.
 """
 
 import os
+import platform
+import sys
 from typing import Dict, Literal, Optional, Tuple, Union
 
 import cv2
@@ -24,6 +26,8 @@ from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import make_channels_last, resize_image
 from hmlib.video.ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
+
+JETSON_UTILS_PY_PATH = "/mnt/monster-data/colivier/src/jetson-utils/python/python"
 
 #
 # Live stream:
@@ -50,6 +54,44 @@ MAX_VIDEO_WIDTH = 8000  # 8K is 7680 x 4320
 MAX_NEVC_VIDEO_WIDTH: int = 8192
 
 # MAX_PIXEL_AREA: int = int(7680 * 4320)
+
+
+def _load_jetson_utils():
+    """
+    Best-effort import of jetson_utils Python bindings (used by the GStreamer backend).
+
+    Falls back to the local checkout path when the package is not on sys.path.
+    """
+    bazel_ext_path = "/mnt/monster-data/colivier/src/jetson-utils/bazel-bin/python/bindings"
+    if os.path.isdir(bazel_ext_path) and bazel_ext_path not in sys.path:
+        sys.path.insert(0, bazel_ext_path)
+    if os.path.isdir(JETSON_UTILS_PY_PATH) and JETSON_UTILS_PY_PATH not in sys.path:
+        sys.path.insert(0, JETSON_UTILS_PY_PATH)
+    try:
+        import jetson_utils  # type: ignore
+        return jetson_utils
+    except Exception as exc:
+        raise ImportError(
+            "GStreamer backend requires jetson_utils (DeepStream). "
+            f"Failed to import: {exc}"
+        )
+
+
+def _jetson_codec_from_fourcc(codec: str) -> Optional[str]:
+    codec = codec.lower()
+    if "h265" in codec or "hevc" in codec or "hvc" in codec:
+        return "h265"
+    if "h264" in codec or "avc" in codec:
+        return "h264"
+    if "mjpeg" in codec or "jpeg" in codec:
+        return "mjpeg"
+    if "mpeg4" in codec or "mp4v" in codec:
+        return "mpeg4"
+    if "vp9" in codec:
+        return "vp9"
+    if "vp8" in codec:
+        return "vp8"
+    return None
 
 
 def _max_video_width(codec: str) -> int:
@@ -421,6 +463,55 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         return self.append(images)
 
 
+class GStreamerVideoReaderIterator:
+    def __init__(
+        self,
+        video_source,
+        device: torch.device,
+        batch_size: int = 1,
+        format: str = "rgb8",
+        timeout_ms: int = 5000,
+    ):
+        self._video_source = video_source
+        self._batch_size = batch_size
+        self._format = format
+        self._device = device
+        self._timeout_ms = timeout_ms
+        self.frames_delivered_count = 0
+
+    def _capture_tensor(self) -> torch.Tensor | None:
+        frame = self._video_source.Capture(format=self._format, timeout=self._timeout_ms)
+        if frame is None:
+            return None
+        tensor = torch.as_tensor(frame, device=self._device)
+        if tensor.ndim == 2:
+            tensor = tensor.unsqueeze(-1)
+        if tensor.shape[-1] == 4:
+            tensor = tensor[..., :3]
+        tensor = tensor.permute(2, 0, 1)
+        if tensor.shape[0] == 3:
+            tensor = tensor[[2, 1, 0], ...]
+        tensor = tensor.contiguous()
+        return tensor
+
+    def __next__(self):
+        frames = []
+        for _ in range(self._batch_size):
+            tensor = self._capture_tensor()
+            if tensor is None:
+                if not frames:
+                    raise StopIteration()
+                break
+            frames.append(tensor)
+            self.frames_delivered_count += 1
+        if len(frames) == 1:
+            return frames[0].unsqueeze(0)
+        return torch.stack(frames, dim=0)
+
+    def __iter__(self):
+        return self
+
+
 class CVVideoCaptureIterator:
     def __init__(self, cap: cv2.VideoCapture, batch_size: int = 1):
         self._cap = cap
@@ -571,6 +662,7 @@ class VideoStreamReader:
         self._iter = None
         self._ss = 0.0
         self._torchaudio_stream = False
+        self._gstreamer_stream = False
         self._frames_delivered_count = 0
         self.open()
 
@@ -608,6 +700,13 @@ class VideoStreamReader:
             return VideoReaderIterator(self._video_in, batch_size=self._batch_size)
         elif self._type == "cv2":
             return CVVideoCaptureIterator(self._video_in, batch_size=self._batch_size)
+        elif self._type == "gstreamer":
+            return GStreamerVideoReaderIterator(
+                self._video_in,
+                batch_size=self._batch_size,
+                device=self._device,
+                timeout_ms=5000,
+            )
         elif self._type == "ffmpeg":
             return FFmpegVideoReaderIterator(
                 filename=self._filename,
@@ -661,6 +760,8 @@ class VideoStreamReader:
             self._video_in.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
         elif isinstance(self._video_in, FFMpegVideoReader):
             self._ss = timestamp
+        elif self._gstreamer_stream:
+            logger.warning("GStreamer backend does not currently support seeking; ignoring request")
         else:
             assert False
 
@@ -697,6 +798,32 @@ class VideoStreamReader:
             if not self._video_in.isOpened():
                 self._video_in.release()
                 self._video_in = None
+        elif self._type == "gstreamer":
+            if self._device.type != "cuda":
+                raise AssertionError("GStreamer backend requires a CUDA device (DeepStream decoder outputs to GPU)")
+            ju = _load_jetson_utils()
+            codec_str = _jetson_codec_from_fourcc(self._video_info.codec) or "h264"
+            arch = platform.machine().lower()
+            codec_type = "v4l2" if arch == "aarch64" else "nvdec"
+            if arch != "aarch64":
+                os.environ.setdefault("JETSON_UTILS_NVDEC", "1")
+            options = {
+                "width": int(self._video_info.width),
+                "height": int(self._video_info.height),
+                "framerate": float(self._video_info.fps),
+                "codec": codec_str,
+                "codecType": codec_type,
+                "zeroCopy": False,
+            }
+            self._video_in = ju.videoSource(self._filename, options=options)
+            try:
+                opts = self._video_in.GetOptions()
+                if isinstance(opts, dict) and opts.get("codecType", "").lower() == "cpu":
+                    logger.warning("GStreamer backend is using CPU decode; hardware decode may require DeepStream/V4L2 plugins.")
+            except Exception:
+                # Best-effort; older jetson_utils builds may not expose GetOptions
+                pass
+            self._gstreamer_stream = True
         elif self._type == "ffmpeg":
             self._video_in = FFMpegVideoReader()
         else:
@@ -710,6 +837,8 @@ class VideoStreamReader:
                 pass
             elif isinstance(self._video_in, cv2.VideoCapture):
                 self._video_in.release()
+            elif self._gstreamer_stream and hasattr(self._video_in, "Close"):
+                self._video_in.Close()
             elif isinstance(self._video_in, FFMpegVideoReader):
                 pass
             else:
@@ -718,6 +847,7 @@ class VideoStreamReader:
                 print(f"VideoStreamReader delivered {self._video_in.frames_delivered_count} frames")
             self._video_in = None
             self._iter = None
+            self._gstreamer_stream = False
         return
 
     def read(self):
