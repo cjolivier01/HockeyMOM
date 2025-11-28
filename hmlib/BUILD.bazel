@@ -86,6 +86,12 @@ py_binary(
 )
 
 py_binary(
+    name = "develop",
+    srcs = ["scripts/develop.py"],
+    tags = ["manual"],
+)
+
+py_binary(
     name = "hm_caha_sync",
     srcs = ["cli/caha_sync.py"],
     main = "cli/caha_sync.py",
