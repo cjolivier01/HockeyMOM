@@ -268,7 +268,6 @@ class VideoOutput:
             self._cuda_stream = torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
         else:
             self._cuda_stream = None
-        self._default_cuda_stream = None
 
         self._bit_rate = bit_rate
         self._end_zones = None
@@ -387,11 +386,7 @@ class VideoOutput:
                     results = self.forward(results)
                 assert results["img"].device == self._device
                 with self._sctx:
-                    results = self.save_frame(
-                        results,
-                        cuda_stream=self._cuda_stream,
-                        default_cuda_stream=self._default_cuda_stream,
-                    )
+                    results = self.save_frame(results)
             return results
         else:
             with TimeTracker(
@@ -413,9 +408,6 @@ class VideoOutput:
                 self._imgproc_queue.put(results)
 
     def _final_image_processing_wrapper(self):
-        self._default_cuda_stream = (
-            torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
-        )
         try:
             self._final_image_processing_worker()
         except Exception as ex:
@@ -476,11 +468,9 @@ class VideoOutput:
 
         # last_frame_id = None
 
-        default_cuda_stream = None
         cuda_stream = None
 
-        if self._device.type == "cuda":
-            default_cuda_stream = torch.cuda.default_stream(self._device)
+        if self._device.type == "cuda" and not self._no_cuda_streams:
             cuda_stream = torch.cuda.Stream(self._device)
 
         mean_track_mode = None
@@ -517,9 +507,7 @@ class VideoOutput:
                         # default_cuda_stream.wait_stream(default_cuda_stream)
                         # cuda_stream.synchronize()
                         # torch.cuda.synchronize()
-                        results = self.save_frame(
-                            results, cuda_stream=cuda_stream, default_cuda_stream=default_cuda_stream
-                        )
+                        results = self.save_frame(results)
 
                     timer.toc()
 
@@ -557,8 +545,6 @@ class VideoOutput:
     def save_frame(
         self,
         results: Dict[str, Any],
-        cuda_stream: torch.cuda.Stream,
-        default_cuda_stream: torch.cuda.Stream,
     ) -> Dict[str, Any]:
         online_im = results.pop("img")
         image_w = image_width(online_im)
@@ -578,8 +564,7 @@ class VideoOutput:
             if self.VIDEO_DEFAULT in self._output_videos:
                 if not isinstance(online_im, StreamTensor):
                     online_im = StreamCheckpoint(tensor=online_im)
-                with cuda_stream_scope(default_cuda_stream):
-                    self._output_videos[self.VIDEO_DEFAULT].write(online_im)
+                self._output_videos[self.VIDEO_DEFAULT].write(online_im)
 
             if self.VIDEO_END_ZONES in self._output_videos:
                 ez_img = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
@@ -587,8 +572,7 @@ class VideoOutput:
                     ez_img = online_im
                 if not isinstance(ez_img, StreamTensor):
                     ez_img = StreamCheckpoint(tensor=ez_img)
-                with cuda_stream_scope(default_cuda_stream):
-                    self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
+                self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
 
         if self.has_args() and self._args.show_image:
             online_im = slow_to_tensor(online_im)

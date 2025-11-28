@@ -95,6 +95,7 @@ def stitch_videos(
     args: Optional[argparse.Namespace] = None,
 ):
     cuda_stream = torch.cuda.Stream(remapping_device)
+    torch.cuda.synchronize()
     with torch.cuda.stream(cuda_stream):
         if configure_only:
             cache_size = 0
@@ -161,8 +162,9 @@ def stitch_videos(
             python_blender=python_blender,
             post_stitch_rotate_degrees=post_stitch_rotate_degrees,
             profiler=profiler,
-            no_cuda_streams=args.no_cuda_streams,
-            async_mode=True,
+            # no_cuda_streams=args.no_cuda_streams,
+            no_cuda_streams=True,
+            async_mode=False,
         )
 
         data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
@@ -234,7 +236,9 @@ def stitch_videos(
                     original_clip_box=None,
                     progress_bar=progress_bar,
                     cache_size=cache_size,
-                    async_output=args.async_video_out,
+                    # async_output=args.async_video_out,
+                    no_cuda_streams=True,
+                    async_output=False,
                 )
             if video_out is not None:
                 video_out.append(dict(frame_ids=frame_ids, img=StreamCheckpoint(frame)))
