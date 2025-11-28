@@ -46,12 +46,16 @@ import math
 import shutil
 import subprocess
 import sys
+import threading
+import tempfile
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-# ----------------------------- Data structures -----------------------------
+from hmlib.config import get_game_dir
+
+# ----------------------------- Data structures -----------------------------*** End Patch
 
 @dataclass(frozen=True)
 class VideoStreamInfo:
@@ -545,8 +549,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Normalize (scale/fps/audio) and concatenate inputs to a single HEVC output."
     )
     p.add_argument(
-        "--inputs", nargs="+", required=True,
-        help="Input video files (2 or more)."
+        "--inputs",
+        nargs="+",
+        default=None,
+        help=(
+            "Input video files (2 or more). When omitted, you must provide "
+            "--game-id to auto-discover stitching inputs."
+        ),
     )
     p.add_argument(
         "--clip", dest="clips", action="append", default=[],
@@ -554,7 +563,30 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
              "Provide one --clip per input; omit or use empty string for full."
     )
     p.add_argument(
-        "-o", "--output", required=True, help="Output file path (.mkv or .mp4)."
+        "-o",
+        "--output",
+        default=None,
+        help="Output file path (.mkv or .mp4). Required unless using --game-id with per-side defaults.",
+    )
+    p.add_argument(
+        "--game-id",
+        type=str,
+        default=None,
+        help=(
+            "Optional game identifier. When set, input files are discovered from the "
+            "game's left/right stitching videos using hmlib.orientation.configure_game_videos."
+        ),
+    )
+    side_group = p.add_mutually_exclusive_group()
+    side_group.add_argument(
+        "--left-only",
+        action="store_true",
+        help="When used with --game-id, only use the LEFT stitching videos.",
+    )
+    side_group.add_argument(
+        "--right-only",
+        action="store_true",
+        help="When used with --game-id, only use the RIGHT stitching videos.",
     )
     p.add_argument(
         "--use-gpu", action="store_true",
@@ -616,41 +648,124 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-# ----------------------------- Main -----------------------------------------
+def run_normalize_concat(
+    inputs: Sequence[Path],
+    clips: Sequence[Optional[str]],
+    output: Path,
+    args: argparse.Namespace,
+    force_res_tuple: Optional[Tuple[int, int]] = None,
+    label: Optional[str] = None,
+) -> int:
+    """Probe, normalize, and concatenate a set of inputs into one output.
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    """@brief Program entry.
-    @param argv Arg list.
-    @return Exit code.
+    @param inputs List of input paths.
+    @param clips Per-input clip specs (same length as ``inputs``).
+    @param output Output file path.
+    @param args Parsed CLI args (used for encoder and normalization options).
+    @param force_res_tuple Optional forced resolution (WIDTH, HEIGHT).
+    @param label Optional label for logging (e.g., 'left' or 'right').
+    @return ffmpeg return code (0 on success).
     """
-    args = parse_args(argv)
-
-    require_binary("ffmpeg")
-    require_binary("ffprobe")
-
-    inputs = [Path(s) for s in args.inputs]
     if len(inputs) < 2:
-        sys.exit("Please provide at least two --inputs files.")
-
-    # Align clips list length to inputs
-    clips: List[Optional[str]] = []
-    for i, path in enumerate(inputs):
-        if i < len(args.clips):
-            clips.append(args.clips[i])
-        else:
-            clips.append(None)
+        print(
+            f"Skipping {label or 'concat'}: need at least two inputs (got {len(inputs)}).",
+            file=sys.stderr,
+        )
+        return 1
 
     # Probe all inputs
     infos: List[MediaInfo] = [probe_media(p) for p in inputs]
 
-    # Optional forced resolution
-    force_res_tuple: Optional[Tuple[int, int]] = None
-    if args.force_res:
+    # Fast-path: stream copy if no transforms requested and all inputs match
+    def _can_stream_copy() -> bool:
+        # User-provided transforms/overrides disable copy mode
+        if any(c for c in clips if c and c.strip()):
+            return False
+        if args.force_res or args.force_fps or args.audio_rate:
+            return False
+        if args.aspect_mode != "pad":
+            return False
+        if args.pix_fmt != "yuv420p":
+            return False
+        if args.video_quality != "vbr":
+            return False
+        if args.preset != "p4":
+            return False
+        if args.use_gpu:
+            return False
+        if args.b_v or args.maxrate:
+            return False
+
+        first = infos[0]
+        if not first.v:
+            return False
+        vref = (first.v.width, first.v.height, first.v.avg_frame_rate, first.v.pix_fmt)
+        aref = None
+        if first.a:
+            aref = (first.a.sample_rate, first.a.channels, first.a.channel_layout)
+        for mi in infos[1:]:
+            if not mi.v:
+                return False
+            if (
+                mi.v.width,
+                mi.v.height,
+                mi.v.avg_frame_rate,
+                mi.v.pix_fmt,
+            ) != vref:
+                return False
+            if bool(mi.a) != bool(first.a):
+                return False
+            if aref is not None:
+                assert mi.a
+                if (
+                    mi.a.sample_rate,
+                    mi.a.channels,
+                    mi.a.channel_layout,
+                ) != aref:
+                    return False
+        return True
+
+    if _can_stream_copy():
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt") as tf:
+            for p in inputs:
+                tf.write(f"file '{p}'\n")
+            concat_list_path = tf.name
         try:
-            w_s, h_s = args.force_res.lower().split("x")
-            force_res_tuple = (int(w_s), int(h_s))
-        except Exception as e:
-            sys.exit(f"--force-res expects WIDTHxHEIGHT, e.g., 8192x3052; got: {args.force_res}")
+            cmd = [
+                "ffmpeg",
+                "-hide_banner",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                concat_list_path,
+                "-c",
+                "copy",
+            ]
+            if output.suffix.lower() == ".mp4":
+                cmd += ["-movflags", "+faststart"]
+            if args.overwrite:
+                cmd += ["-y"]
+            cmd.append(str(output))
+
+            print(f"=== Concatenation ({label or 'copy'}) ===")
+            print("=== Stream copy (no re-encode) ===")
+            print(" ".join(shlex_quote(t) for t in cmd))
+
+            if args.dry_run:
+                return 0
+
+            subprocess.run(cmd, check=True)
+            return 0
+        except subprocess.CalledProcessError as e:
+            sys.stderr.write(e.stderr if isinstance(e.stderr, str) else "")
+            return e.returncode
+        finally:
+            try:
+                Path(concat_list_path).unlink(missing_ok=True)
+            except Exception:
+                pass
 
     # Decide target
     target = pick_target_profile(
@@ -672,9 +787,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
 
     # Compose command
-    output = Path(args.output)
     cmd = build_ffmpeg_command(
-        inputs=inputs,
+        inputs=list(inputs),
         filter_complex=filter_complex,
         vmap=vmap,
         amap=amap,
@@ -692,6 +806,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
 
     # Display helpful summary
+    if label:
+        print(f"=== Concatenation ({label}) ===")
+    else:
+        print("=== Concatenation ===")
     print("=== Target Profile ===")
     print(f"  Resolution: {target.width}x{target.height}")
     print(f"  FPS:        {target.fps_rational}")
@@ -705,12 +823,203 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.dry_run:
         return 0
 
-    # Run ffmpeg
     try:
         subprocess.run(cmd, check=True)
+        return 0
     except subprocess.CalledProcessError as e:
         sys.stderr.write(e.stderr if isinstance(e.stderr, str) else "")
-        sys.exit(e.returncode)
+        return e.returncode
+
+
+# ----------------------------- Main -----------------------------------------
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """@brief Program entry.
+    @param argv Arg list.
+    @return Exit code.
+    """
+    args = parse_args(argv)
+
+    require_binary("ffmpeg")
+    require_binary("ffprobe")
+
+    # Normalize video_quality for CPU/x265 when user leaves default NVENC-focused modes.
+    if not args.use_gpu and args.video_quality in {"vbr", "cqp"}:
+        sys.stderr.write(
+            "Warning: --video-quality=vbr/cqp is only supported with --use-gpu; "
+            "falling back to --video-quality=crf for libx265.\n"
+        )
+        args.video_quality = "crf"
+
+    # Resolve input files either from explicit --inputs or from a game-id.
+    inputs: List[Path] = []
+    game_dir: Optional[Path] = None
+    side_ranges: Dict[str, Tuple[int, int]] = {}
+    sides: List[str] = []
+
+    if args.game_id:
+        if args.inputs:
+            sys.exit("Cannot use --inputs together with --game-id; pick one source of inputs.")
+        try:
+            # Lazy import to avoid torch dependency unless needed.
+            from hmlib.orientation import configure_game_videos  # type: ignore
+        except Exception as e:
+            sys.exit(f"Failed to import orientation helpers for --game-id: {e}")
+
+        game_videos = configure_game_videos(
+            game_id=args.game_id,
+            force=False,
+            write_results=False,
+        )
+
+        if args.left_only:
+            sides.append("left")
+        if args.right_only:
+            sides.append("right")
+        if not sides:
+            # Default: concatenate both left and right stitching videos.
+            sides = ["left", "right"]
+
+        idx = 0
+        for side in sides:
+            files = game_videos.get(side) or []
+            if not files:
+                sys.exit(f"No '{side}' stitching videos found for game-id '{args.game_id}'.")
+            start = idx
+            for p in files:
+                inputs.append(Path(p))
+                idx += 1
+            side_ranges[side] = (start, idx)
+
+        try:
+            game_dir = Path(get_game_dir(game_id=args.game_id))
+        except Exception as e:
+            sys.exit(f"Failed to resolve game directory for '{args.game_id}': {e}")
+    else:
+        if not args.inputs:
+            sys.exit("Either --inputs or --game-id must be provided.")
+        inputs = [Path(s) for s in args.inputs]
+
+    if len(inputs) < 2:
+        sys.exit("Please provide at least two input files (from --inputs or discovered via --game-id).")
+
+    # Align clips list length to inputs
+    clips: List[Optional[str]] = []
+    for i, path in enumerate(inputs):
+        if i < len(args.clips):
+            clips.append(args.clips[i])
+        else:
+            clips.append(None)
+
+    # Optional forced resolution (shared across jobs)
+    force_res_tuple: Optional[Tuple[int, int]] = None
+    if args.force_res:
+        try:
+            w_s, h_s = args.force_res.lower().split("x")
+            force_res_tuple = (int(w_s), int(h_s))
+        except Exception:
+            sys.exit(f"--force-res expects WIDTHxHEIGHT, e.g., 8192x3052; got: {args.force_res}")
+
+    # Non-game-id: single concatenation into explicit output.
+    if not args.game_id:
+        if not args.output:
+            sys.exit("When not using --game-id, --output is required.")
+        rc = run_normalize_concat(
+            inputs=inputs,
+            clips=clips,
+            output=Path(args.output),
+            args=args,
+            force_res_tuple=force_res_tuple,
+            label=None,
+        )
+        if rc != 0:
+            sys.exit(rc)
+        return 0
+
+    assert game_dir is not None
+
+    # Game-id mode: build per-side jobs and optionally run them concurrently.
+    jobs: List[Tuple[str, List[Path], List[Optional[str]], Path]] = []
+    for side in sides:
+        start, end = side_ranges[side]
+        side_inputs = inputs[start:end]
+        side_clips = clips[start:end]
+        if not side_inputs:
+            continue
+
+        if args.output:
+            if len(sides) > 1:
+                sys.exit(
+                    "When using --game-id with multiple sides, omit --output or "
+                    "use --left-only/--right-only to target a single side."
+                )
+            output_path = Path(args.output)
+        else:
+            # Default: write <side>.mp4 into the game directory.
+            output_path = game_dir / f"{side}.mp4"
+
+        jobs.append((side, side_inputs, side_clips, output_path))
+
+    if not jobs:
+        sys.exit("No concat jobs were constructed; check inputs and side selection.")
+
+    # Single job: run inline.
+    if len(jobs) == 1:
+        side, side_inputs, side_clips, output_path = jobs[0]
+        rc = run_normalize_concat(
+            inputs=side_inputs,
+            clips=side_clips,
+            output=output_path,
+            args=args,
+            force_res_tuple=force_res_tuple,
+            label=side,
+        )
+        if rc != 0:
+            sys.exit(rc)
+        return 0
+
+    # Multiple jobs: run asynchronously in side threads and propagate errors.
+    results: Dict[str, int] = {}
+    errors: List[Tuple[str, int]] = []
+
+    def worker(side_name: str, in_paths: List[Path], in_clips: List[Optional[str]], out_path: Path) -> None:
+        try:
+            rc = run_normalize_concat(
+                inputs=in_paths,
+                clips=in_clips,
+                output=out_path,
+                args=args,
+                force_res_tuple=force_res_tuple,
+                label=side_name,
+            )
+        except Exception as e:
+            # Capture unexpected errors from ffprobe, filtergraph construction, etc.
+            rc = 1
+            errors.append((side_name, rc))
+            sys.stderr.write(f"Concatenation for side '{side_name}' raised an exception: {e}\n")
+        else:
+            results[side_name] = rc
+            if rc != 0:
+                errors.append((side_name, rc))
+
+    threads: List[threading.Thread] = []
+    for side, side_inputs, side_clips, output_path in jobs:
+        t = threading.Thread(
+            target=worker,
+            args=(side, side_inputs, side_clips, output_path),
+            daemon=False,
+        )
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
+
+    if errors:
+        for side_name, rc in errors:
+            sys.stderr.write(f"Concatenation for side '{side_name}' failed with exit code {rc}\n")
+        # Propagate first non-zero exit code.
+        sys.exit(errors[0][1])
 
     return 0
 

@@ -168,9 +168,9 @@ hmorientation --game-id ev-stockton-1
 
 ## hmconcatenate_videos — Normalize and concatenate multiple videos
 
-Normalize resolution, fps, and audio across inputs, optionally trim each segment, and concatenate to one output using ffmpeg. Supports GPU NVENC and CPU x265 encoders.
+Normalize resolution, fps, and audio across inputs, optionally trim each segment, and concatenate to one or more outputs using ffmpeg. Supports GPU NVENC and CPU x265 encoders.
 
-### Quick start
+### Quick start (manual inputs)
 ```bash
 # NVENC VBR
 hmconcatenate_videos --use-gpu --inputs a.mp4 b.mp4 c.mp4 -o out.mkv \
@@ -183,11 +183,34 @@ hmconcatenate_videos --use-gpu --video-quality lossless --inputs a.mp4 b.mp4 -o 
 hmconcatenate_videos --inputs a.mp4 b.mp4 -o out.mp4 --video-quality crf --crf 20 --preset slow
 ```
 
+### Quick start (game-aware stitching lists)
+```bash
+# Concatenate left and right stitching chapter lists into two outputs under the game dir
+hmconcatenate_videos --game-id ev-stockton-1
+# -> $HOME/Videos/ev-stockton-1/left.mp4
+# -> $HOME/Videos/ev-stockton-1/right.mp4
+
+# Left-only (explicit output)
+hmconcatenate_videos --game-id ev-stockton-1 --left-only -o /tmp/left_concat.mkv
+
+# Right-only (default name in game dir)
+hmconcatenate_videos --game-id ev-stockton-1 --right-only
+# -> $HOME/Videos/ev-stockton-1/right.mp4
+```
+
 ### Notable options
-- `--clip START-END` — Per-input trims; repeat per input or leave empty for full
-- `--aspect-mode pad|crop|stretch` — Aspect handling when normalizing
-- `--force-res WxH`, `--force-fps NUM/DEN` — Force target profile
-- `--audio-rate`, `--audio-channels`, `--audio-bitrate` — Audio normalization
+- Inputs:
+  - `--inputs a.mp4 b.mp4 ...` — Explicit list (2+ files required).
+  - `--game-id <id>` — Discover left/right chapter lists via `hmorientation`/private config.
+  - `--left-only` / `--right-only` — Limit to one side when using `--game-id`.
+  - When `--game-id` is used with both sides active (default), `--output` is optional and defaults to `<game-dir>/left.mp4` and `<game-dir>/right.mp4`.
+  - When `--game-id` is used with a single side, `--output` (if provided) targets that side; otherwise a side-based default is used.
+- Normalization:
+  - `--clip START-END` — Per-input trims; repeat per input or leave empty for full.
+  - `--aspect-mode pad|crop|stretch` — Aspect handling when normalizing.
+  - `--force-res WxH`, `--force-fps NUM/DEN` — Force target profile.
+  - `--audio-rate`, `--audio-channels`, `--audio-bitrate` — Audio normalization.
+  - `--use-gpu` — Use NVENC (hevc_nvenc) and GPU scaling where applicable; otherwise use libx265.
 
 ---
 
