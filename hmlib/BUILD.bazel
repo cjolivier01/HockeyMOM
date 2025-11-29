@@ -17,6 +17,7 @@ python_library(
         ":embed_enblend",
         ":embed_multiblend",
     ],
+    lint_tests = False,
     imports = [".."],  # Add the parent directory to PYTHONPATH
     test_deps = [
     ],

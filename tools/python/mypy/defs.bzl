@@ -7,6 +7,16 @@ def _mypy_test_impl(ctx):
 
     runfiles = _extract_runfiles(ctx)
 
+    # Nothing to typecheck (e.g. files skipped due to invalid names)
+    if not srcs:
+        exe = ctx.actions.declare_file("%s" % ctx.attr.name)
+        ctx.actions.write(
+            output=exe,
+            content="#!/usr/bin/env bash\nexit 0\n",
+            is_executable=True,
+        )
+        return [DefaultInfo(executable=exe, runfiles=runfiles)]
+
     mypy_options = [
         # The following two flags are necessary for bazel implicit namespace package structure:
         "--namespace-packages",
@@ -54,6 +64,9 @@ def _extract_direct_srcs(srcs):
     direct_src_files = []
     for src in srcs:
         for f in src.files.to_list():
+            if "-" in f.short_path:
+                # Skip files with invalid package names (e.g. config files containing hyphens)
+                continue
             if f.extension in VALID_EXTENSIONS:
                 direct_src_files.append(f)
     return direct_src_files
