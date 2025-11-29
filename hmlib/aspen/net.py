@@ -8,6 +8,9 @@ import contextlib
 import importlib
 import logging
 import os
+import re
+import shutil
+import subprocess
 import threading
 from dataclasses import dataclass
 from queue import Queue
@@ -41,8 +44,18 @@ class AspenNet(torch.nn.Module):
     @see @ref hmlib.aspen.trunks.base.Trunk "Trunk" for the trunk interface.
     """
 
-    def __init__(self, graph_cfg: Dict[str, Any], shared: Optional[Dict[str, Any]] = None, minimal_context: bool = False):
+    def __init__(
+        self,
+        name: str,
+        graph_cfg: Dict[str, Any],
+        shared: Optional[Dict[str, Any]] = None,
+        minimal_context: bool = False,
+    ):
         super().__init__()
+        self.name: str = self._normalize_name(name)
+        self._safe_name: str = self._sanitize_name(self.name)
+        self.dot_path: str = os.path.abspath(f"aspennet_{self._safe_name}.dot")
+        self._last_dot_path: Optional[str] = None
         self.shared: Dict[str, Any] = shared or {}
         self.nodes: List[_Node] = []
         # NetworkX DiGraph storing the trunks graph and attributes
@@ -78,7 +91,22 @@ class AspenNet(torch.nn.Module):
         self.exec_order = self._toposort()
         self.training: bool = False
         self._iter_num: int = 0
-        self.save_graphviz("aspennet.dot")
+        self.save_graphviz(self.dot_path)
+
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        if name is None:
+            raise ValueError("AspenNet requires a non-empty name.")
+        normalized = str(name).strip()
+        if not normalized:
+            raise ValueError("AspenNet requires a non-empty name.")
+        return normalized
+
+    @staticmethod
+    def _sanitize_name(name: str) -> str:
+        safe = re.sub(r"[^0-9A-Za-z_.-]+", "_", name).strip("_")
+        safe = safe.lstrip(".")
+        return safe or "aspen"
 
     def train(self, mode: bool = True):
         self.training = mode
@@ -194,12 +222,15 @@ class AspenNet(torch.nn.Module):
     def _dot_lines(self) -> Iterable[str]:
         # Simple DOT writer without extra deps
         yield "digraph AspenNet {"
-        yield "  rankdir=LR;"
+        yield "  rankdir=TB;"
         yield "  node [shape=box, style=rounded];"
+        graph_label = self.name.replace("\\", "\\\\").replace('"', '\\"')
+        yield f'  label="{graph_label}";'
+        yield "  labelloc=t;"
         # Nodes with labels
         for n, data in self.graph.nodes(data=True):
-            label = f"{n}\n{data.get('cls_path', '')}"
-            yield f'  "{n}" [label="{label}"];'
+            node_label = f"{n}\n{data.get('cls_path', '')}"
+            yield f'  "{n}" [label="{node_label}"];'
         # Edges
         for u, v in self.graph.edges():
             yield f'  "{u}" -> "{v}";'
@@ -217,19 +248,36 @@ class AspenNet(torch.nn.Module):
             path: Destination file path (e.g., "graph.dot").
         """
         dot = self.to_dot()
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(dot)
+        self._last_dot_path = os.path.abspath(path)
 
     def display_graphviz(self) -> None:
         """
         Display the trunks graph.
 
         Tries, in order:
+        - xdot executable (if available) for an interactive popup
         - graphviz.Source (if `graphviz` python package is installed)
         - matplotlib via networkx (if matplotlib is available)
         - Prints DOT to stdout as a fallback
         """
         dot = self.to_dot()
+        dot_path = self._last_dot_path or self.dot_path
+
+        # Try xdot binary
+        try:
+            xdot_bin = shutil.which("xdot")
+            if xdot_bin:
+                path = dot_path or os.path.abspath("aspennet.dot")
+                self.save_graphviz(path)
+                subprocess.Popen([xdot_bin, path])
+                return
+        except Exception as ex:
+            print(f"AspenNet: xdot display failed: {ex}")
 
         # Try graphviz Python package
         try:
