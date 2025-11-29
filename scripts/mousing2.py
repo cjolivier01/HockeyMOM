@@ -35,7 +35,8 @@ def draw_spline(event, x, y, flags, param):
                 y = int(np.interp(t, np.linspace(0, 1, len(points)), spline[:, 1]))
                 approximated_points.append((x, y))
             new_segments = [
-                (approximated_points[i], approximated_points[i + 1]) for i in range(len(approximated_points) - 1)
+                (approximated_points[i], approximated_points[i + 1])
+                for i in range(len(approximated_points) - 1)
             ]
             segments.extend(new_segments)
             points = []

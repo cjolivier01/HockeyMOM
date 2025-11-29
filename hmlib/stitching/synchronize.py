@@ -8,7 +8,12 @@ import scipy
 import torch
 import torch.nn.functional as F
 
-from hmlib.config import get_game_config_private, get_nested_value, save_private_config, set_nested_value
+from hmlib.config import (
+    get_game_config_private,
+    get_nested_value,
+    save_private_config,
+    set_nested_value,
+)
 from hmlib.hm_opts import hm_opts
 from hmlib.utils.audio import load_audio_as_tensor
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -106,8 +111,15 @@ def configure_synchronization(
     @return: Mapping with ``\"left\"`` and ``\"right\"`` frame offsets.
     """
     config = get_game_config_private(game_id=game_id)
-    frame_offsets = get_nested_value(config, "game.stitching.frame_offsets", None) if not force else dict()
-    if force or not frame_offsets or frame_offsets.get("left") is None or frame_offsets.get("right") is None:
+    frame_offsets = (
+        get_nested_value(config, "game.stitching.frame_offsets", None) if not force else dict()
+    )
+    if (
+        force
+        or not frame_offsets
+        or frame_offsets.get("left") is None
+        or frame_offsets.get("right") is None
+    ):
         # Calculate by audio
         # game_dir = get_game_dir(game_id=game_id)
         assert "/" in video_left  # should be full path

@@ -8,10 +8,18 @@ import numpy as np
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Detect whistles in a hockey game audio file.")
-    parser.add_argument("--input-file", type=str, default=None, help="Path to the input audio file.")
-    parser.add_argument("--output_file", type=str, help="Path to the output file for results.", default=None)
-    parser.add_argument("--whistle_freq_min", type=float, help="Minimum frequency of whistle (Hz).", default=2000.0)
-    parser.add_argument("--whistle_freq_max", type=float, help="Maximum frequency of whistle (Hz).", default=4000.0)
+    parser.add_argument(
+        "--input-file", type=str, default=None, help="Path to the input audio file."
+    )
+    parser.add_argument(
+        "--output_file", type=str, help="Path to the output file for results.", default=None
+    )
+    parser.add_argument(
+        "--whistle_freq_min", type=float, help="Minimum frequency of whistle (Hz).", default=2000.0
+    )
+    parser.add_argument(
+        "--whistle_freq_max", type=float, help="Maximum frequency of whistle (Hz).", default=4000.0
+    )
     parser.add_argument(
         "--duration_threshold",
         type=float,
@@ -24,7 +32,9 @@ def parse_arguments() -> argparse.Namespace:
         help="Percentile for energy threshold.",
         default=95.0,
     )
-    parser.add_argument("--plot", action="store_true", help="Plot the energy and detected whistles.")
+    parser.add_argument(
+        "--plot", action="store_true", help="Plot the energy and detected whistles."
+    )
     return parser.parse_args()
 
 
@@ -49,7 +59,9 @@ def detect_whistles(
     frequencies = librosa.fft_frequencies(sr=sample_rate)
 
     # Identify the frequency range that corresponds to the whistle
-    whistle_freq_indices = np.where((frequencies >= whistle_freq_min) & (frequencies <= whistle_freq_max))[0]
+    whistle_freq_indices = np.where(
+        (frequencies >= whistle_freq_min) & (frequencies <= whistle_freq_max)
+    )[0]
 
     # Detect energy in the whistle frequency range
     whistle_energy = np.mean(stft_db[whistle_freq_indices, :], axis=0)

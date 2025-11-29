@@ -61,7 +61,8 @@ class AspenNet(torch.nn.Module):
         # NetworkX DiGraph storing the trunks graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
         self.minimal_context = bool(
-            minimal_context or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False))
+            minimal_context
+            or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False))
         )
         pipeline_cfg: Dict[str, Any] = {}
         if isinstance(graph_cfg, dict):
@@ -76,7 +77,9 @@ class AspenNet(torch.nn.Module):
         try:
             self.thread_queue_size: int = max(1, int(queue_size_cfg))
         except Exception as exc:
-            raise ValueError(f"AspenNet pipeline queue_size must be an integer, got {queue_size_cfg!r}") from exc
+            raise ValueError(
+                f"AspenNet pipeline queue_size must be an integer, got {queue_size_cfg!r}"
+            ) from exc
         cuda_streams_flag = pipeline_cfg.get("cuda_streams", True)
         self.thread_cuda_streams: bool = bool(cuda_streams_flag)
 
@@ -140,7 +143,9 @@ class AspenNet(torch.nn.Module):
                 module = self._instantiate(cls_path, params)
             if isinstance(module, Trunk):
                 module.set_profiler(self._profiler)
-            node = _Node(name=name, cls_path=cls_path, depends=depends, params=params, module=module)
+            node = _Node(
+                name=name, cls_path=cls_path, depends=depends, params=params, module=module
+            )
             setattr(self, f"trunk_{name}", module)
             self.nodes.append(node)
 
@@ -301,7 +306,15 @@ class AspenNet(torch.nn.Module):
                 if self._has_pygraphviz()
                 else nx.spring_layout(self.graph)
             )
-            nx.draw(self.graph, pos, with_labels=True, node_size=1500, node_color="#DDEEFF", font_size=8, arrows=True)
+            nx.draw(
+                self.graph,
+                pos,
+                with_labels=True,
+                node_size=1500,
+                node_color="#DDEEFF",
+                font_size=8,
+                arrows=True,
+            )
             plt.title("AspenNet Trunks Graph")
             plt.show()
             return
@@ -409,7 +422,9 @@ class AspenNet(torch.nn.Module):
                     out_queue.put(_ExceptionWrapper(exc))
                     break
 
-        queues: List[Queue] = [Queue(maxsize=self.thread_queue_size) for _ in range(len(self.exec_order) + 1)]
+        queues: List[Queue] = [
+            Queue(maxsize=self.thread_queue_size) for _ in range(len(self.exec_order) + 1)
+        ]
         threads = []
         for idx, node in enumerate(self.exec_order):
             thread = threading.Thread(target=worker, args=(idx, node), daemon=True, name=node.name)
@@ -430,7 +445,9 @@ class AspenNet(torch.nn.Module):
 
     def _execute_with_stream(self, node: _Node, context: Dict[str, Any]) -> None:
         device = self._infer_device(context)
-        use_cuda_stream = self.thread_cuda_streams and torch.cuda.is_available() and device is not None
+        use_cuda_stream = (
+            self.thread_cuda_streams and torch.cuda.is_available() and device is not None
+        )
         if use_cuda_stream:
             stream = torch.cuda.Stream(device=device)
             # Ensure trunks that fetch context["cuda_stream"] see the stream actually running them.

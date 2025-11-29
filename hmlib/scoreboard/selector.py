@@ -6,7 +6,13 @@ import numpy as np
 import torch
 from PIL import Image
 
-from hmlib.config import get_game_config, get_game_dir, get_nested_value, save_private_config, set_nested_value
+from hmlib.config import (
+    get_game_config,
+    get_game_dir,
+    get_nested_value,
+    save_private_config,
+    set_nested_value,
+)
 from hmlib.hm_opts import hm_opts
 from hmlib.utils.image import make_visible_image
 
@@ -88,13 +94,28 @@ class ScoreboardSelector:
                 button_font = ("Helvetica", 16, "bold")
 
                 ok_button: tk.Button = tk.Button(  # type: ignore
-                    button_frame, text="OK", command=self.process_ok, font=button_font, width=10, height=2
+                    button_frame,
+                    text="OK",
+                    command=self.process_ok,
+                    font=button_font,
+                    width=10,
+                    height=2,
                 )
                 delete_button: tk.Button = tk.Button(  # type: ignore
-                    button_frame, text="Delete", command=self.reset_selection, font=button_font, width=10, height=2
+                    button_frame,
+                    text="Delete",
+                    command=self.reset_selection,
+                    font=button_font,
+                    width=10,
+                    height=2,
                 )
                 none_button: tk.Button = tk.Button(  # type: ignore
-                    button_frame, text="None", command=root.quit, font=button_font, width=10, height=2
+                    button_frame,
+                    text="None",
+                    command=root.quit,
+                    font=button_font,
+                    width=10,
+                    height=2,
                 )
                 ok_button.pack(side=tk.LEFT, padx=10, pady=10)
                 delete_button.pack(side=tk.LEFT, padx=10, pady=10)
@@ -119,7 +140,8 @@ class ScoreboardSelector:
                     self.draw_points_and_lines()
                 elif initial_points:
                     messagebox.showwarning(  # type: ignore
-                        "Warning", "Initial points provided are not exactly 4 points. Ignoring them."
+                        "Warning",
+                        "Initial points provided are not exactly 4 points. Ignoring them.",
                     )
 
             except Exception:
@@ -197,10 +219,14 @@ class ScoreboardSelector:
                 point_marker: int = canvas.create_oval(x - r, y - r, x + r, y + r, fill="red")
                 point_markers.append(point_marker)
                 if len(self.points) > 1:
-                    line: int = canvas.create_line(self.points[-2][0], self.points[-2][1], x, y, fill="red", width=2)
+                    line: int = canvas.create_line(
+                        self.points[-2][0], self.points[-2][1], x, y, fill="red", width=2
+                    )
                     lines.append(line)
                 if len(self.points) == 4:
-                    line = canvas.create_line(self.points[0][0], self.points[0][1], x, y, fill="red", width=2)
+                    line = canvas.create_line(
+                        self.points[0][0], self.points[0][1], x, y, fill="red", width=2
+                    )
                     lines.append(line)
             else:
                 try:
@@ -379,7 +405,9 @@ def _untuple_points(points: List[Tuple[int, int]]) -> List[List[int]]:
     return results
 
 
-def configure_scoreboard(game_id: str, image: Optional[torch.Tensor] = None, force: bool = False) -> List[List[int]]:
+def configure_scoreboard(
+    game_id: str, image: Optional[torch.Tensor] = None, force: bool = False
+) -> List[List[int]]:
     assert game_id
     game_config = get_game_config(game_id=game_id)
     current_scoreboard = get_nested_value(game_config, "rink.scoreboard.perspective_polygon")

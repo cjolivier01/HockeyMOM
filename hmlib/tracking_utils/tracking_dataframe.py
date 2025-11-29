@@ -163,7 +163,9 @@ class TrackingDataFrame(HmDataFrameBase):
         labels = frame_data["Labels"].to_numpy()
         tlwh = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
         jersey_info = frame_data["JerseyInfo"]
-        pose_indices = frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
+        pose_indices = (
+            frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
+        )
 
         all_track_jersey_info: List[Optional[TrackJerseyInfo]] = []
         for tid, jersey in zip(tracking_ids, jersey_info):
@@ -262,7 +264,9 @@ class TrackingDataFrame(HmDataFrameBase):
             # jersey info as json-serializable list of dicts
             jerseys: List[Optional[TrackJerseyInfo]] = rec.get("jersey_info", [])
             if jerseys:
-                meta["jersey_info"] = [dataclass_to_json(j) if j is not None else None for j in jerseys]
+                meta["jersey_info"] = [
+                    dataclass_to_json(j) if j is not None else None for j in jerseys
+                ]
             # action info reconstructed from columns if present
             try:
                 df = self.data[self.data["Frame"] == int(frame_id)]

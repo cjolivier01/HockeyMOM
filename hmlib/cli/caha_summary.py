@@ -47,22 +47,39 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--name", type=str, help="Team name (full or partial)")
     p.add_argument("--team-id", type=int, default=None, help="Team id if you know it")
     p.add_argument("--json", action="store_true", help="Print JSON summary")
-    p.add_argument("--only-regular", action="store_true", help="Only include 'Regular' games in outputs")
+    p.add_argument(
+        "--only-regular", action="store_true", help="Only include 'Regular' games in outputs"
+    )
     p.add_argument(
         "--only-playoffs",
         action="store_true",
         help="Only include playoff games (excludes Regular/Preseason/Exhibition)",
     )
     p.add_argument(
-        "--csv-out", type=str, default="", help="Write full game-by-game CSV to this path (use '-' for stdout)"
+        "--csv-out",
+        type=str,
+        default="",
+        help="Write full game-by-game CSV to this path (use '-' for stdout)",
     )
     p.add_argument("--csv-sep", type=str, default=",", help="CSV separator (default ',')")
     p.add_argument(
-        "--export-json", type=str, default="", help="Write full game-by-game JSON to this path (use '-' for stdout)"
+        "--export-json",
+        type=str,
+        default="",
+        help="Write full game-by-game JSON to this path (use '-' for stdout)",
     )
-    p.add_argument("--opponent", type=str, default="", help="Filter to games vs opponent (substring, case-insensitive)")
-    p.add_argument("--since", type=str, default="", help="Filter to games on/after YYYY-MM-DD (by start_time)")
-    p.add_argument("--until", type=str, default="", help="Filter to games on/before YYYY-MM-DD (by start_time)")
+    p.add_argument(
+        "--opponent",
+        type=str,
+        default="",
+        help="Filter to games vs opponent (substring, case-insensitive)",
+    )
+    p.add_argument(
+        "--since", type=str, default="", help="Filter to games on/after YYYY-MM-DD (by start_time)"
+    )
+    p.add_argument(
+        "--until", type=str, default="", help="Filter to games on/before YYYY-MM-DD (by start_time)"
+    )
     p.add_argument(
         "--levels",
         type=str,
@@ -95,7 +112,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     team_id = team["team_id"]
     name = team["name"]
 
-    rows = db.list_games(f"(homeId = {team_id} OR awayId = {team_id}) AND season_id = {args.season}")
+    rows = db.list_games(
+        f"(homeId = {team_id} OR awayId = {team_id}) AND season_id = {args.season}"
+    )
 
     wins = losses = ties = 0
     gf = ga = 0
@@ -146,7 +165,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     opp_filter = (args.opponent or "").lower()
 
-    def _include_by_opponent(home_name: str, away_name: str, info_home: str | None, info_away: str | None):
+    def _include_by_opponent(
+        home_name: str, away_name: str, info_home: str | None, info_away: str | None
+    ):
         if not opp_filter:
             return True
         # Prefer DB names, fall back to scraped info
@@ -172,10 +193,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         home_id = r["homeId"]
         away_id = r["awayId"]
         home_team = (
-            db.get_team(r["season_id"], r["division_id"], r["conference_id"], home_id) if home_id is not None else None
+            db.get_team(r["season_id"], r["division_id"], r["conference_id"], home_id)
+            if home_id is not None
+            else None
         )
         away_team = (
-            db.get_team(r["season_id"], r["division_id"], r["conference_id"], away_id) if away_id is not None else None
+            db.get_team(r["season_id"], r["division_id"], r["conference_id"], away_id)
+            if away_id is not None
+            else None
         )
         home_name = (home_team and home_team.get("name")) or info.get("home") or ""
         away_name = (away_team and away_team.get("name")) or info.get("away") or ""

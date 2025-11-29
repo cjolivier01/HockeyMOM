@@ -256,7 +256,9 @@ val_evaluator = dict(
     _delete_=True,
     type="MOTChallengeMetric",
     metric=["HOTA", "CLEAR", "Identity"],
-    postprocess_tracklet_cfg=[dict(type="InterpolateTracklets", min_num_frames=5, max_num_frames=20)],
+    postprocess_tracklet_cfg=[
+        dict(type="InterpolateTracklets", min_num_frames=5, max_num_frames=20)
+    ],
 )
 test_evaluator = val_evaluator
 

@@ -71,7 +71,12 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
     """
 
     # lists/pytorch to numpy
-    tp, conf, pred_cls, target_cls = np.array(tp), np.array(conf), np.array(pred_cls), np.array(target_cls)
+    tp, conf, pred_cls, target_cls = (
+        np.array(tp),
+        np.array(conf),
+        np.array(pred_cls),
+        np.array(target_cls),
+    )
 
     # Sort by objectness
     i = np.argsort(-conf)
@@ -162,7 +167,9 @@ def bbox_iou(box1, box2, x1y1x2y2=False):
     inter_rect_x2 = torch.min(b1_x2.unsqueeze(1), b2_x2)
     inter_rect_y2 = torch.min(b1_y2.unsqueeze(1), b2_y2)
     # Intersection area
-    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, 0) * torch.clamp(inter_rect_y2 - inter_rect_y1, 0)
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, 0) * torch.clamp(
+        inter_rect_y2 - inter_rect_y1, 0
+    )
     # Union Area
     b1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)
     b1_area = ((b1_x2 - b1_x1) * (b1_y2 - b1_y1)).view(-1, 1).expand(N, M)
@@ -185,7 +192,12 @@ def generate_anchors(nGh, nGw, anchor_wh):
 
 
 def encode_delta(gt_box_list, fg_anchor_list):
-    px, py, pw, ph = fg_anchor_list[:, 0], fg_anchor_list[:, 1], fg_anchor_list[:, 2], fg_anchor_list[:, 3]
+    px, py, pw, ph = (
+        fg_anchor_list[:, 0],
+        fg_anchor_list[:, 1],
+        fg_anchor_list[:, 2],
+        fg_anchor_list[:, 3],
+    )
     gx, gy, gw, gh = gt_box_list[:, 0], gt_box_list[:, 1], gt_box_list[:, 2], gt_box_list[:, 3]
     dx = (gx - px) / pw
     dy = (gy - py) / ph

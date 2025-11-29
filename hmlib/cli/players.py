@@ -5,7 +5,10 @@ from typing import Any, Dict, Tuple
 
 import cv2
 
-from hmlib.analytics.analyze_jerseys import analyze_data, interval_jerseys_to_merged_jersey_time_intervals
+from hmlib.analytics.analyze_jerseys import (
+    analyze_data,
+    interval_jerseys_to_merged_jersey_time_intervals,
+)
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.config import get_game_dir
 from hmlib.hm_opts import hm_opts
@@ -21,7 +24,9 @@ def load_player_tracking_data(game_id: str) -> Dict[str, Any]:
 
 def load_camera_tracking_data(game_id: str) -> Dict[str, Any]:
     game_dir: str = get_game_dir(game_id=game_id)
-    return CameraTrackingDataFrame(input_file=os.path.join(game_dir, "camera.csv"), input_batch_size=1)
+    return CameraTrackingDataFrame(
+        input_file=os.path.join(game_dir, "camera.csv"), input_batch_size=1
+    )
 
 
 def get_uncropped_width_height(game_id: str) -> Tuple[int, int]:
@@ -64,7 +69,9 @@ def main():
         for interval_jerseys in shift_start_interval_and_jerseys:
             start_time_hhmmss = format_duration_to_hhmmss(interval_jerseys.start_time, decimals=0)
             jersey_numbers = sorted(list(interval_jerseys.jersey_numbers))
-            print(f"Interval starting at {start_time_hhmmss} finds {len(jersey_numbers)} jerseys: {jersey_numbers}")
+            print(
+                f"Interval starting at {start_time_hhmmss} finds {len(jersey_numbers)} jerseys: {jersey_numbers}"
+            )
 
         in_file_basename = "tracking_output-with-audio.mp4"
         game_dir = get_game_dir(args.game_id)
@@ -75,7 +82,9 @@ def main():
             sf.write("set +x\n")
             sf.write("set +e\n")
             sf.write("\n")
-            player_shift_intervals = interval_jerseys_to_merged_jersey_time_intervals(shift_start_interval_and_jerseys)
+            player_shift_intervals = interval_jerseys_to_merged_jersey_time_intervals(
+                shift_start_interval_and_jerseys
+            )
             for jersey_time_interval in player_shift_intervals:
                 player = jersey_time_interval.jersey_number
                 print(f"Player: {player}")

@@ -73,7 +73,9 @@ class ActionFromPoseTrunk(Trunk):
                     kpts = getattr(inst, "keypoints", None)
                     kps = getattr(inst, "keypoint_scores", None)
                     if kpts is None:
-                        return np.empty((0, 17, 2), dtype=np.float32), np.empty((0, 17), dtype=np.float32)
+                        return np.empty((0, 17, 2), dtype=np.float32), np.empty(
+                            (0, 17), dtype=np.float32
+                        )
                     if isinstance(kpts, torch.Tensor):
                         kpts = kpts.detach().cpu().numpy()
                     if isinstance(kps, torch.Tensor):
@@ -87,7 +89,9 @@ class ActionFromPoseTrunk(Trunk):
                 kpts = ds.get("keypoints")
                 kps = ds.get("keypoint_scores")
                 if kpts is None:
-                    return np.empty((0, 17, 2), dtype=np.float32), np.empty((0, 17), dtype=np.float32)
+                    return np.empty((0, 17, 2), dtype=np.float32), np.empty(
+                        (0, 17), dtype=np.float32
+                    )
                 kpts = np.asarray(kpts, dtype=np.float32)
                 if kps is None:
                     kps = np.ones((kpts.shape[0], kpts.shape[1]), dtype=np.float32)
@@ -215,7 +219,9 @@ class ActionFromPoseTrunk(Trunk):
             tids = getattr(inst, "instances_id", None)
             if tids is None:
                 continue
-            ids_np = tids.detach().cpu().numpy() if isinstance(tids, torch.Tensor) else np.asarray(tids)
+            ids_np = (
+                tids.detach().cpu().numpy() if isinstance(tids, torch.Tensor) else np.asarray(tids)
+            )
             for tid in ids_np.tolist():
                 if tid not in all_track_ids:
                     all_track_ids.append(int(tid))
@@ -264,7 +270,10 @@ class ActionFromPoseTrunk(Trunk):
                     )
                 else:
                     per_frame_pose.append(
-                        dict(keypoints=pose_kpts[sel : sel + 1], keypoint_scores=pose_scores[sel : sel + 1])
+                        dict(
+                            keypoints=pose_kpts[sel : sel + 1],
+                            keypoint_scores=pose_scores[sel : sel + 1],
+                        )
                     )
 
             # Run inference for this track id if it has any non-empty keypoints across frames
@@ -305,7 +314,11 @@ class ActionFromPoseTrunk(Trunk):
                 inst_ids = getattr(inst, "instances_id", None)
                 if inst_ids is None:
                     continue
-                ids_np = inst_ids.detach().cpu().numpy() if isinstance(inst_ids, torch.Tensor) else np.asarray(inst_ids)
+                ids_np = (
+                    inst_ids.detach().cpu().numpy()
+                    if isinstance(inst_ids, torch.Tensor)
+                    else np.asarray(inst_ids)
+                )
                 if int(tid) in ids_np.tolist():
                     all_action_results[i].append(
                         dict(

@@ -16,7 +16,13 @@ default_hooks = dict(
     checkpoint=dict(type="CheckpointHook", interval=10),
     sampler_seed=dict(type="DistSamplerSeedHook"),
     visualization=dict(type="PoseVisualizationHook", enable=False),
-    badcase=dict(type="BadCaseAnalysisHook", enable=False, out_dir="badcase", metric_type="loss", badcase_thr=5),
+    badcase=dict(
+        type="BadCaseAnalysisHook",
+        enable=False,
+        out_dir="badcase",
+        metric_type="loss",
+        badcase_thr=5,
+    ),
 )
 
 # custom hooks
@@ -39,7 +45,9 @@ vis_backends = [
     # dict(type='TensorboardVisBackend'),
     # dict(type='WandbVisBackend'),
 ]
-visualizer = dict(type=PytorchPoseLocalVisualizer, vis_backends=vis_backends, name="visualizer", line_width=2)
+visualizer = dict(
+    type=PytorchPoseLocalVisualizer, vis_backends=vis_backends, name="visualizer", line_width=2
+)
 
 # logger
 log_processor = dict(type="LogProcessor", window_size=50, by_epoch=True, num_digits=6)
@@ -94,14 +102,22 @@ auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
 codec = dict(
-    type="SimCCLabel", input_size=(288, 384), sigma=(6.0, 6.93), simcc_split_ratio=2.0, normalize=False, use_dark=False
+    type="SimCCLabel",
+    input_size=(288, 384),
+    sigma=(6.0, 6.93),
+    simcc_split_ratio=2.0,
+    normalize=False,
+    use_dark=False,
 )
 
 # model settings
 model = dict(
     type="TopdownPoseEstimator",
     data_preprocessor=dict(
-        type="PoseDataPreprocessor", mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], bgr_to_rgb=True
+        type="PoseDataPreprocessor",
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        bgr_to_rgb=True,
     ),
     backbone=dict(
         _scope_="mmdet",
@@ -244,7 +260,10 @@ dataset_aic = dict(
     data_root=data_root,
     data_mode=data_mode,
     ann_file="aic/annotations/aic_train.json",
-    data_prefix=dict(img="pose/ai_challenge/ai_challenger_keypoint" "_train_20170902/keypoint_train_images_20170902/"),
+    data_prefix=dict(
+        img="pose/ai_challenge/ai_challenger_keypoint"
+        "_train_20170902/keypoint_train_images_20170902/"
+    ),
     pipeline=[
         dict(
             type="KeypointConverter",
@@ -305,7 +324,9 @@ test_dataloader = val_dataloader
 default_hooks = dict(checkpoint=dict(save_best="coco/AP", rule="greater", max_keep_ckpts=1))
 
 custom_hooks = [
-    dict(type="EMAHook", ema_type="ExpMomentumEMA", momentum=0.0002, update_buffers=True, priority=49),
+    dict(
+        type="EMAHook", ema_type="ExpMomentumEMA", momentum=0.0002, update_buffers=True, priority=49
+    ),
     dict(
         type="mmdet.PipelineSwitchHook",
         switch_epoch=max_epochs - stage2_num_epochs,
@@ -314,5 +335,7 @@ custom_hooks = [
 ]
 
 # evaluators
-val_evaluator = dict(type="CocoMetric", ann_file=data_root + "coco/annotations/person_keypoints_val2017.json")
+val_evaluator = dict(
+    type="CocoMetric", ann_file=data_root + "coco/annotations/person_keypoints_val2017.json"
+)
 test_evaluator = val_evaluator

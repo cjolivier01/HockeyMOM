@@ -49,7 +49,9 @@ if __name__ == "__main__":
     # Main loop
     try:
         while True:
-            print(f"lr: {shared_data['lr']}, conf: {shared_data['conf']}, foob: {shared_data['foob']}")
+            print(
+                f"lr: {shared_data['lr']}, conf: {shared_data['conf']}, foob: {shared_data['foob']}"
+            )
             time.sleep(3)
     except KeyboardInterrupt:
         print("Program terminated by user")

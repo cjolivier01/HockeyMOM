@@ -78,7 +78,9 @@ class PoseInferencerFactoryTrunk(Trunk):
             # detections are already provided upstream.
             det_model = None
             try:
-                if self._disable_internal_detector or bool(context.get("using_precalculated_detection", False)):
+                if self._disable_internal_detector or bool(
+                    context.get("using_precalculated_detection", False)
+                ):
                     det_model = "whole_image"
             except Exception:
                 det_model = None
@@ -103,7 +105,8 @@ class PoseInferencerFactoryTrunk(Trunk):
                     pose_impl = getattr(self._inferencer, "inferencer", None)
                     if (
                         pose_impl is not None
-                        and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown"
+                        and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None)
+                        == "topdown"
                     ):
                         self._trt_runner = _TrtPoseRunner(
                             model=pose_impl.model,
@@ -119,7 +122,8 @@ class PoseInferencerFactoryTrunk(Trunk):
                     pose_impl = getattr(self._inferencer, "inferencer", None)
                     if (
                         pose_impl is not None
-                        and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown"
+                        and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None)
+                        == "topdown"
                     ):
                         self._onnx_runner = _OnnxPoseRunner(
                             model=pose_impl.model,
@@ -391,7 +395,9 @@ class _TrtPoseRunner:
         try:
             import torch2trt  # type: ignore
         except Exception as ex:
-            raise RuntimeError("torch2trt is required for TensorRT pose path but is not available") from ex
+            raise RuntimeError(
+                "torch2trt is required for TensorRT pose path but is not available"
+            ) from ex
         import os
 
         # Try to load an existing engine at the provided path; otherwise, defer building

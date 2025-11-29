@@ -13,7 +13,9 @@ from torchvision.ops import nms
 # import maskrcnn_benchmark.layers.nms as nms
 # Set printoptions
 torch.set_printoptions(linewidth=1320, precision=5, profile="long")
-np.set_printoptions(linewidth=320, formatter={"float_kind": "{:11.5g}".format})  # format short g, %precision=5
+np.set_printoptions(
+    linewidth=320, formatter={"float_kind": "{:11.5g}".format}
+)  # format short g, %precision=5
 
 
 def mkdir_if_missing(d):
@@ -45,7 +47,10 @@ def load_classes(path):
 def model_info(model):  # Plots a line-by-line description of a PyTorch model
     n_p = sum(x.numel() for x in model.parameters())  # number parameters
     n_g = sum(x.numel() for x in model.parameters() if x.requires_grad)  # number gradients
-    print("\n%5s %50s %9s %12s %20s %12s %12s" % ("layer", "name", "gradient", "parameters", "shape", "mu", "sigma"))
+    print(
+        "\n%5s %50s %9s %12s %20s %12s %12s"
+        % ("layer", "name", "gradient", "parameters", "shape", "mu", "sigma")
+    )
     for i, (name, p) in enumerate(model.named_parameters()):
         name = name.replace("module_list.", "")
         print(
@@ -55,7 +60,9 @@ def model_info(model):  # Plots a line-by-line description of a PyTorch model
     print("Model Summary: %g layers, %g parameters, %g gradients\n" % (i + 1, n_p, n_g))
 
 
-def plot_one_box(x, img, color=None, label=None, line_thickness=None):  # Plots one bounding box on image img
+def plot_one_box(
+    x, img, color=None, label=None, line_thickness=None
+):  # Plots one bounding box on image img
     tl = line_thickness or round(0.0004 * max(img.shape[0:2])) + 1  # line thickness
     color = color or [random.randint(0, 255) for _ in range(3)]
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
@@ -65,7 +72,16 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=None):  # Plots 
         t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
         cv2.rectangle(img, c1, c2, color, -1)  # filled
-        cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+        cv2.putText(
+            img,
+            label,
+            (c1[0], c1[1] - 2),
+            0,
+            tl / 3,
+            [225, 255, 255],
+            thickness=tf,
+            lineType=cv2.LINE_AA,
+        )
 
 
 def weights_init_normal(m):
@@ -147,7 +163,12 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
     """
 
     # lists/pytorch to numpy
-    tp, conf, pred_cls, target_cls = np.array(tp), np.array(conf), np.array(pred_cls), np.array(target_cls)
+    tp, conf, pred_cls, target_cls = (
+        np.array(tp),
+        np.array(conf),
+        np.array(pred_cls),
+        np.array(target_cls),
+    )
 
     # Sort by objectness
     i = np.argsort(-conf)
@@ -238,7 +259,9 @@ def bbox_iou(box1, box2, x1y1x2y2=False):
     inter_rect_x2 = torch.min(b1_x2.unsqueeze(1), b2_x2)
     inter_rect_y2 = torch.min(b1_y2.unsqueeze(1), b2_y2)
     # Intersection area
-    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, 0) * torch.clamp(inter_rect_y2 - inter_rect_y1, 0)
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, 0) * torch.clamp(
+        inter_rect_y2 - inter_rect_y1, 0
+    )
     # Union Area
     b1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)
     b1_area = ((b1_x2 - b1_x1) * (b1_y2 - b1_y1)).view(-1, 1).expand(N, M)
@@ -338,13 +361,20 @@ def generate_anchor(nGh, nGw, anchor_wh):
 
     mesh = torch.stack([xx, yy], dim=0)  # Shape 2, nGh, nGw
     mesh = mesh.unsqueeze(0).repeat(nA, 1, 1, 1).float()  # Shape nA x 2 x nGh x nGw
-    anchor_offset_mesh = anchor_wh.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, nGh, nGw)  # Shape nA x 2 x nGh x nGw
+    anchor_offset_mesh = (
+        anchor_wh.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, nGh, nGw)
+    )  # Shape nA x 2 x nGh x nGw
     anchor_mesh = torch.cat([mesh, anchor_offset_mesh], dim=1)  # Shape nA x 4 x nGh x nGw
     return anchor_mesh
 
 
 def encode_delta(gt_box_list, fg_anchor_list):
-    px, py, pw, ph = fg_anchor_list[:, 0], fg_anchor_list[:, 1], fg_anchor_list[:, 2], fg_anchor_list[:, 3]
+    px, py, pw, ph = (
+        fg_anchor_list[:, 0],
+        fg_anchor_list[:, 1],
+        fg_anchor_list[:, 2],
+        fg_anchor_list[:, 3],
+    )
     gx, gy, gw, gh = gt_box_list[:, 0], gt_box_list[:, 1], gt_box_list[:, 2], gt_box_list[:, 3]
     dx = (gx - px) / pw
     dy = (gy - py) / ph
@@ -354,7 +384,12 @@ def encode_delta(gt_box_list, fg_anchor_list):
 
 
 def decode_delta(delta, fg_anchor_list):
-    px, py, pw, ph = fg_anchor_list[:, 0], fg_anchor_list[:, 1], fg_anchor_list[:, 2], fg_anchor_list[:, 3]
+    px, py, pw, ph = (
+        fg_anchor_list[:, 0],
+        fg_anchor_list[:, 1],
+        fg_anchor_list[:, 2],
+        fg_anchor_list[:, 3],
+    )
     dx, dy, dw, dh = delta[:, 0], delta[:, 1], delta[:, 2], delta[:, 3]
     gx = pw * dx + px
     gy = ph * dy + py
@@ -415,7 +450,9 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.2):
 
         if len(det_max) > 0:
             # Add max detections to outputs
-            output[image_i] = det_max if output[image_i] is None else torch.cat((output[image_i], det_max))
+            output[image_i] = (
+                det_max if output[image_i] is None else torch.cat((output[image_i], det_max))
+            )
 
     return output
 
@@ -443,7 +480,16 @@ def plot_results():
     import matplotlib.pyplot as plt
 
     plt.figure(figsize=(14, 7))
-    s = ["X + Y", "Width + Height", "Confidence", "Classification", "Total Loss", "mAP", "Recall", "Precision"]
+    s = [
+        "X + Y",
+        "Width + Height",
+        "Confidence",
+        "Classification",
+        "Total Loss",
+        "mAP",
+        "Recall",
+        "Precision",
+    ]
     files = sorted(glob.glob("results*.txt"))
     for f in files:
         results = np.loadtxt(f, usecols=[2, 3, 4, 5, 6, 9, 10, 11]).T  # column 11 is mAP

@@ -100,7 +100,9 @@ class HmEndToEnd(BaseMOTModel, Trunk):
             context: Dict[str, Any] = img
             return self._forward_trunk(context)
         # When used as a model in non-trunk mode, we don't implement end-to-end forward anymore.
-        raise NotImplementedError("HmEndToEnd no longer implements ByteTrack forward; use Aspen trunks instead.")
+        raise NotImplementedError(
+            "HmEndToEnd no longer implements ByteTrack forward; use Aspen trunks instead."
+        )
 
     # AspenNet trunk interface: runs tracking + returns context updates
     def _forward_trunk(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -113,8 +115,12 @@ class HmEndToEnd(BaseMOTModel, Trunk):
 
         data: Dict[str, Any] = context["data"]
 
-        using_precalculated_tracking: bool = bool(context.get("using_precalculated_tracking", False))
-        using_precalculated_detection: bool = bool(context.get("using_precalculated_detection", False))
+        using_precalculated_tracking: bool = bool(
+            context.get("using_precalculated_tracking", False)
+        )
+        using_precalculated_detection: bool = bool(
+            context.get("using_precalculated_detection", False)
+        )
         tracking_dataframe = context.get("tracking_dataframe")
         detection_dataframe = context.get("detection_dataframe")
         frame_id: int = int(context.get("frame_id", -1))
@@ -149,7 +155,9 @@ class HmEndToEnd(BaseMOTModel, Trunk):
                     tlbr=pred_track_instances.bboxes,
                     scores=pred_track_instances.scores,
                     labels=pred_track_instances.labels,
-                    jersey_info=(jersey_results[frame_index] if jersey_results is not None else None),
+                    jersey_info=(
+                        jersey_results[frame_index] if jersey_results is not None else None
+                    ),
                 )
             if not using_precalculated_detection and detection_dataframe is not None:
                 detection_dataframe.add_frame_records(
@@ -210,7 +218,9 @@ class HmEndToEnd(BaseMOTModel, Trunk):
         raise NotImplementedError("HmEndToEnd is not intended for training.")
 
     @staticmethod
-    def get_dataframe(dataset_results: Union[Dict[str, Any], None], name: str) -> Optional[HmDataFrameBase]:
+    def get_dataframe(
+        dataset_results: Union[Dict[str, Any], None], name: str
+    ) -> Optional[HmDataFrameBase]:
         if not dataset_results:
             return None
         return dataset_results.get(name)
@@ -326,7 +336,9 @@ class HmEndToEnd(BaseMOTModel, Trunk):
                         bboxes=torch.from_numpy(tracking_dataframe["bboxes"]),
                     )
                     frame_jersey_results = []
-                    for tid, jersey_info in zip(pred_track_instances.instances_id, tracking_dataframe["jersey_info"]):
+                    for tid, jersey_info in zip(
+                        pred_track_instances.instances_id, tracking_dataframe["jersey_info"]
+                    ):
                         if jersey_info is not None:
                             frame_jersey_results.append(jersey_info)
                     all_frame_jersey_info.append(frame_jersey_results)
@@ -358,7 +370,9 @@ class HmEndToEnd(BaseMOTModel, Trunk):
                     )
                 else:
                     pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
-                active_track_count: int = max(active_track_count, len(pred_track_instances.instances_id))
+                active_track_count: int = max(
+                    active_track_count, len(pred_track_instances.instances_id)
+                )
                 img_data_sample.pred_track_instances = pred_track_instances
 
             # For performance purposes, add in the number of tracks we're tracking (both active and inactive)

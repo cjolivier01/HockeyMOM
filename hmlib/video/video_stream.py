@@ -72,7 +72,9 @@ def _load_jetson_utils():
 
         return jetson_utils
     except Exception as exc:
-        raise ImportError("GStreamer backend requires jetson_utils (DeepStream). " f"Failed to import: {exc}")
+        raise ImportError(
+            "GStreamer backend requires jetson_utils (DeepStream). " f"Failed to import: {exc}"
+        )
 
 
 def _jetson_codec_from_fourcc(codec: str) -> Optional[str]:
@@ -140,7 +142,9 @@ def clamp_max_video_dimensions(
     wh_f = wh.to(torch.float)
     new_width = torch.ones_like(wh[0]) * max_width
     new_height = new_width.to(torch.float) / (wh_f[0] / wh_f[1])
-    result_wh = torch.where(wh[0] <= new_width, wh, torch.tensor([new_width, new_height.to(new_width.dtype)]))
+    result_wh = torch.where(
+        wh[0] <= new_width, wh, torch.tensor([new_width, new_height.to(new_width.dtype)])
+    )
     return result_wh[0], result_wh[1]
 
 
@@ -154,7 +158,9 @@ def scale_down_for_live_video(tensor: torch.Tensor, max_width: int = MAX_VIDEO_W
     return tensor
 
 
-def yuv_to_bgr_float(frames: torch.Tensor, dtype: torch.dtype = torch.float16, non_blocking: bool = True):
+def yuv_to_bgr_float(
+    frames: torch.Tensor, dtype: torch.dtype = torch.float16, non_blocking: bool = True
+):
     """
     Current HW decode returns only YUV
     """
@@ -235,7 +241,10 @@ class VideoStreamWriter(VideoStreamWriterInterface):
 
         self._stream_fps = stream_fps
         self._stream_frame_indexes = set(
-            [int(i) for i in np.linspace(0, np.round(self._fps) - 1, self._stream_fps, endpoint=False)]
+            [
+                int(i)
+                for i in np.linspace(0, np.round(self._fps) - 1, self._stream_fps, endpoint=False)
+            ]
         )
         self._width = width
         self._height = height
@@ -784,7 +793,9 @@ class VideoStreamReader:
             self._torchaudio_stream = True
             self._add_stream()
         elif self._type == "torchvision":
-            self._video_in = torchvision.io.VideoReader(src=self._filename, stream="video", num_threads=32)
+            self._video_in = torchvision.io.VideoReader(
+                src=self._filename, stream="video", num_threads=32
+            )
             self._meta = self._video_in.get_metadata()
         elif self._type == "cv2":
             self._video_in = cv2.VideoCapture(self._filename)
@@ -793,7 +804,9 @@ class VideoStreamReader:
                 self._video_in = None
         elif self._type == "gstreamer":
             if self._device.type != "cuda":
-                raise AssertionError("GStreamer backend requires a CUDA device (DeepStream decoder outputs to GPU)")
+                raise AssertionError(
+                    "GStreamer backend requires a CUDA device (DeepStream decoder outputs to GPU)"
+                )
             ju = _load_jetson_utils()
             codec_str = _jetson_codec_from_fourcc(self._video_info.codec) or "h264"
             arch = platform.machine().lower()

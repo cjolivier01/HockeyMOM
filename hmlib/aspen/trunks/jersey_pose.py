@@ -41,7 +41,13 @@ class JerseyNumberFromPoseTrunk(Trunk):
       - data: with key 'jersey_results': List[List[TrackJerseyInfo]] per frame
     """
 
-    def __init__(self, enabled: bool = True, roi_top: float = 0.25, roi_bottom: float = 0.95, roi_side: float = 0.2):
+    def __init__(
+        self,
+        enabled: bool = True,
+        roi_top: float = 0.25,
+        roi_bottom: float = 0.95,
+        roi_side: float = 0.2,
+    ):
         super().__init__(enabled=enabled)
         self._inferencer = None
         self._roi_top = float(roi_top)
@@ -74,12 +80,16 @@ class JerseyNumberFromPoseTrunk(Trunk):
         rr_bot = y1 + self._roi_bottom * h
         rr_left = x1 + self._roi_side * w
         rr_right = x2 - self._roi_side * w
-        coords = torch.tensor([rr_left, rr_top, rr_right, rr_bot], dtype=torch.float32, device=box.device)
+        coords = torch.tensor(
+            [rr_left, rr_top, rr_right, rr_bot], dtype=torch.float32, device=box.device
+        )
         out = torch.round(coords).to(dtype=torch.int64)
         return out
 
     @staticmethod
-    def _process_mmocr_results(ocr_results: Dict[str, Any], det_thresh: float = 0.5, rec_thresh: float = 0.8):
+    def _process_mmocr_results(
+        ocr_results: Dict[str, Any], det_thresh: float = 0.5, rec_thresh: float = 0.8
+    ):
         from mmocr.utils import poly2bbox
 
         predictions = ocr_results["predictions"]
@@ -106,7 +116,15 @@ class JerseyNumberFromPoseTrunk(Trunk):
                 bw = int(bbox[2] - bbox[0])
             except Exception:
                 continue
-            centers.append((str(rec_text), cx, cy, bw, float(rec_scores[index] if index < len(rec_scores) else 0.0)))
+            centers.append(
+                (
+                    str(rec_text),
+                    cx,
+                    cy,
+                    bw,
+                    float(rec_scores[index] if index < len(rec_scores) else 0.0),
+                )
+            )
         return centers
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -140,7 +158,9 @@ class JerseyNumberFromPoseTrunk(Trunk):
         original_images = _to_tensor(original_images)
 
         for frame_index, img_data_sample in enumerate(track_data_sample.video_data_samples):
-            pred_tracks: Optional[InstanceData] = getattr(img_data_sample, "pred_track_instances", None)
+            pred_tracks: Optional[InstanceData] = getattr(
+                img_data_sample, "pred_track_instances", None
+            )
             if pred_tracks is None:
                 all_jersey_results.append([])
                 continue
@@ -181,7 +201,9 @@ class JerseyNumberFromPoseTrunk(Trunk):
                 if tid in seen_ids:
                     continue
                 seen_ids.add(tid)
-                jersey_results.append(TrackJerseyInfo(tracking_id=tid, number=int(text), score=float(score)))
+                jersey_results.append(
+                    TrackJerseyInfo(tracking_id=tid, number=int(text), score=float(score))
+                )
 
             all_jersey_results.append(jersey_results)
 

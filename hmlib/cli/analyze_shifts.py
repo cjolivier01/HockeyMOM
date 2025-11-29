@@ -116,7 +116,9 @@ def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
     return groups
 
 
-def extract_pairs_from_row(row: pd.Series, start_cols: List[int], end_cols: List[int]) -> List[Tuple[str, str]]:
+def extract_pairs_from_row(
+    row: pd.Series, start_cols: List[int], end_cols: List[int]
+) -> List[Tuple[str, str]]:
     """
     From start/end column groups, collect non-empty strings and pair positionally.
     Start/End order in the sheet can be higher->lower or lower->higher; pairing is positional only.
@@ -228,7 +230,9 @@ def _prompt_select_team(game_info: dict) -> str:
         print("Invalid choice. Please enter 1 or 2.")
 
 
-def goals_from_t2s(game_id: int, *, team_side: Optional[str] = None) -> Tuple[List[GoalEvent], Optional[str]]:
+def goals_from_t2s(
+    game_id: int, *, team_side: Optional[str] = None
+) -> Tuple[List[GoalEvent], Optional[str]]:
     """
     Retrieve goals from TimeToScore for a game id and map them to GF/GA based on
     the selected side (home/away).
@@ -375,7 +379,9 @@ def process_sheet(
     MAX_SHIFT_SECONDS = 30 * 60  # 30 minutes
 
     # Simple helper to report validation issues
-    def _report_validation(kind: str, period: int, player_key: str, a: str, b: str, reason: str) -> None:
+    def _report_validation(
+        kind: str, period: int, player_key: str, a: str, b: str, reason: str
+    ) -> None:
         print(
             f"[validation] {kind} | Player={player_key} | Period={period} | start='{a}' end='{b}' -> {reason}",
             file=sys.stderr,
@@ -505,7 +511,9 @@ def process_sheet(
             if video_pairs:
                 video_pairs_by_player.setdefault(player_key, []).extend(video_pairs)
             if sb_pairs:
-                sb_pairs_by_player.setdefault(player_key, []).extend((period_num, a, b) for a, b in sb_pairs)
+                sb_pairs_by_player.setdefault(player_key, []).extend(
+                    (period_num, a, b) for a, b in sb_pairs
+                )
 
             # Build conversion segments for this row where both SB and Video pairs exist positionally
             nseg = min(len(video_pairs), len(sb_pairs))
@@ -687,7 +695,12 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
     ]
     # Extend with per-period columns that were seen
     periods_sorted = sorted(
-        {int(k.split("_p")[-1]) for r in stats_table_rows for k in r if re.search(r"^[gftoia_]*p\d+$", k)}
+        {
+            int(k.split("_p")[-1])
+            for r in stats_table_rows
+            for k in r
+            if re.search(r"^[gftoia_]*p\d+$", k)
+        }
     )
     cols = list(base_cols)
     for pidx in periods_sorted:
@@ -760,8 +773,12 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
         else:
             ga_lines.append(line)
 
-    (outdir / "goals_for.txt").write_text("\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8")
-    (outdir / "goals_against.txt").write_text("\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8")
+    (outdir / "goals_for.txt").write_text(
+        "\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8"
+    )
+    (outdir / "goals_against.txt").write_text(
+        "\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8"
+    )
 
     # ---------- Aggregate clip launcher ----------
     # Write a convenience script to run all per-player clip scripts.
@@ -813,8 +830,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         )
     )
     p.add_argument("--input", "-i", type=Path, required=True, help="Path to input .xls/.xlsx file.")
-    p.add_argument("--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet).")
-    p.add_argument("--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory.")
+    p.add_argument(
+        "--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet)."
+    )
+    p.add_argument(
+        "--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory."
+    )
     p.add_argument(
         "--keep-goalies",
         action="store_true",
@@ -832,13 +853,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--goals-file",
         type=Path,
         default=None,
-        help=("Path to a text file with one goal per line (GF:period/time or GA:period/time). '#' lines ignored."),
+        help=(
+            "Path to a text file with one goal per line (GF:period/time or GA:period/time). '#' lines ignored."
+        ),
     )
     p.add_argument(
         "--t2s",
         type=int,
         default=None,
-        help=("TimeToScore game id. If set, fetches goals and prompts you to select home/away to map GF/GA."),
+        help=(
+            "TimeToScore game id. If set, fetches goals and prompts you to select home/away to map GF/GA."
+        ),
     )
     p.add_argument(
         "--side",

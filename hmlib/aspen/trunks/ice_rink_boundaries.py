@@ -73,7 +73,9 @@ class IceRinkSegmBoundariesTrunk(Trunk):
             track_data_sample = track_samples
         video_len = len(track_data_sample)
 
-        draw_mask: bool = bool(context.get("plot_ice_mask") or context.get("shared", {}).get("plot_ice_mask", False))
+        draw_mask: bool = bool(
+            context.get("plot_ice_mask") or context.get("shared", {}).get("plot_ice_mask", False)
+        )
         self._ensure_pipeline(context, draw_mask)
 
         # Optional original_images for overlay
@@ -158,7 +160,9 @@ class IceRinkSegmBoundariesTrunk(Trunk):
                         if len(nb) == len(ob):
                             new_src_pose_idx = det_src_pose_idx
                         else:
-                            new_src_pose_idx = torch.full((len(nb),), -1, dtype=torch.int64, device=nb.device)
+                            new_src_pose_idx = torch.full(
+                                (len(nb),), -1, dtype=torch.int64, device=nb.device
+                            )
                             if len(ob) and len(nb):
                                 # First try exact match with tolerance
                                 for j in range(len(nb)):
@@ -181,13 +185,17 @@ class IceRinkSegmBoundariesTrunk(Trunk):
                                     except Exception:
                                         from hmlib.utils.utils import bbox_iou as _bbox_iou
                                     iou = _bbox_iou(
-                                        nb.to(dtype=torch.float32), ob.to(dtype=torch.float32), x1y1x2y2=True
+                                        nb.to(dtype=torch.float32),
+                                        ob.to(dtype=torch.float32),
+                                        x1y1x2y2=True,
                                     )
                                     best_iou, best_idx = torch.max(iou, dim=1)
                                     for j in range(len(nb)):
                                         if new_src_pose_idx[j] < 0 and best_iou[j] > 0:
                                             try:
-                                                new_src_pose_idx[j] = int(det_src_pose_idx[int(best_idx[j].item())])
+                                                new_src_pose_idx[j] = int(
+                                                    det_src_pose_idx[int(best_idx[j].item())]
+                                                )
                                             except Exception:
                                                 pass
                 except Exception:

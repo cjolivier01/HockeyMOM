@@ -17,8 +17,19 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, copy_gpu_to_gpu_async, cuda_stream_scope
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensorBase,
+    copy_gpu_to_gpu_async,
+    cuda_stream_scope,
+)
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    make_visible_image,
+)
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hockeymom.core import CudaStitchPanoF32
@@ -84,7 +95,9 @@ def distribute_items_detailed(total_item_count: int, worker_count: int) -> List[
 
 
 class MultiDataLoaderWrapper:
-    def __init__(self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0) -> None:
+    def __init__(
+        self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0
+    ) -> None:
         self._dataloaders: List[MOTLoadVideoWithOrig] = dataloaders
         self._iters: List[Any] = []
         self._input_queueue_size: int = input_queueue_size
@@ -94,7 +107,9 @@ class MultiDataLoaderWrapper:
         self._iters = []
         for dl in self._dataloaders:
             if self._input_queueue_size:
-                self._iters.append(CachedIterator(iterator=iter(dl), cache_size=self._input_queueue_size))
+                self._iters.append(
+                    CachedIterator(iterator=iter(dl), cache_size=self._input_queueue_size)
+                )
             else:
                 self._iters.append(iter(dl))
         return self
@@ -186,12 +201,16 @@ class StitchDataset:
         }
         # Legacy aliases
         self._video_left_offset_frame = (
-            videos["left"]["frame_offset"] if "left" in videos else self._stream_offsets[self._stream_keys[0]]
+            videos["left"]["frame_offset"]
+            if "left" in videos
+            else self._stream_offsets[self._stream_keys[0]]
         )
         self._video_right_offset_frame = (
             videos["right"]["frame_offset"]
             if "right" in videos
-            else (self._stream_offsets[self._stream_keys[1]] if len(self._stream_keys) > 1 else None)
+            else (
+                self._stream_offsets[self._stream_keys[1]] if len(self._stream_keys) > 1 else None
+            )
         )
         self._pto_project_file = pto_project_file
         self._max_input_queue_size = max_input_queue_size
@@ -244,7 +263,9 @@ class StitchDataset:
         self._dir_name = _get_dir_name(str(videos[self._stream_keys[0]]["files"][0]))
         # Validate fps equality (or near-equality) across all streams
         fps_vals = [self._video_infos[k].fps for k in self._stream_keys]
-        assert all(np.isclose(fps_vals[0], f) for f in fps_vals), "All streams must have matching FPS"
+        assert all(
+            np.isclose(fps_vals[0], f) for f in fps_vals
+        ), "All streams must have matching FPS"
 
         # Derive min frame count across streams after offsets
         self._total_number_of_frames = int(
@@ -329,7 +350,9 @@ class StitchDataset:
                     no_cuda_streams=self._no_cuda_streams,
                 )
             )
-        stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders, input_queueue_size=max_input_queue_size)
+        stitching_worker = MultiDataLoaderWrapper(
+            dataloaders=dataloaders, input_queueue_size=max_input_queue_size
+        )
         return stitching_worker
 
     def configure_stitching(self):
@@ -493,9 +516,13 @@ class StitchDataset:
                             for img1, img2 in zip(img_a, img_b):
                                 t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
                                 t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
-                                show_image("img-1", make_visible_image(t1), wait=False, enable_resizing=0.2)
+                                show_image(
+                                    "img-1", make_visible_image(t1), wait=False, enable_resizing=0.2
+                                )
                                 show_image("img-2", t2, wait=False, enable_resizing=0.2)
-                        self._stitcher.process(img_a, img_b, blended_stream_tensor, stream.cuda_stream)
+                        self._stitcher.process(
+                            img_a, img_b, blended_stream_tensor, stream.cuda_stream
+                        )
                         if self._show_image_components:
                             for blended_image in blended_stream_tensor:
                                 show_image(
@@ -507,12 +534,19 @@ class StitchDataset:
                     elif len(imgs_list) == 2:
                         # Python blender path for 2 streams
                         if self._auto_adjust_exposure:
-                            imgs_list[0], imgs_list[1] = self._adjust_exposures(images=[imgs_list[0], imgs_list[1]])
-                        blended_stream_tensor = self._stitcher.forward(inputs=[imgs_list[0], imgs_list[1]])
+                            imgs_list[0], imgs_list[1] = self._adjust_exposures(
+                                images=[imgs_list[0], imgs_list[1]]
+                            )
+                        blended_stream_tensor = self._stitcher.forward(
+                            inputs=[imgs_list[0], imgs_list[1]]
+                        )
                     else:
                         # Fallback for N>2: simple horizontal tiling
                         # Move to target device/dtype and HWC for easy placement
-                        imgs_hwc = [make_channels_last(x.to(self._dtype, non_blocking=True)) for x in imgs_list]
+                        imgs_hwc = [
+                            make_channels_last(x.to(self._dtype, non_blocking=True))
+                            for x in imgs_list
+                        ]
                         bsz = imgs_hwc[0].shape[0]
                         ch = imgs_hwc[0].shape[-1]
                         heights = [x.shape[-2] for x in imgs_hwc]
@@ -520,7 +554,9 @@ class StitchDataset:
                         max_h = max(heights)
                         total_w = sum(widths)
                         blended_stream_tensor = torch.zeros(
-                            [bsz, max_h, total_w, ch], dtype=imgs_hwc[0].dtype, device=imgs_hwc[0].device
+                            [bsz, max_h, total_w, ch],
+                            dtype=imgs_hwc[0].dtype,
+                            device=imgs_hwc[0].device,
                         )
                         xoff = 0
                         for x in imgs_hwc:
@@ -625,10 +661,14 @@ class StitchDataset:
         else:
             image_roi = fix_clip_box(image_roi, [image_height(image), image_width(image)])
             if len(image.shape) == 4:
-                image = make_channels_last(image)[:, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
+                image = make_channels_last(image)[
+                    :, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
+                ]
             else:
                 assert len(image.shape) == 3
-                image = make_channels_last(image)[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
+                image = make_channels_last(image)[
+                    image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
+                ]
         return image
 
     def __iter__(self):
@@ -664,7 +704,10 @@ class StitchDataset:
             raise frame_id
         if stitched_frame is not None:
             # INFO(f"Locally dequeued frame id: {self._current_frame}")
-            if not self._max_frames or self._next_requested_frame < self._start_frame_number + self._max_frames:
+            if (
+                not self._max_frames
+                or self._next_requested_frame < self._start_frame_number + self._max_frames
+            ):
                 # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
                 self._to_coordinator_queue.put(self._next_requested_frame)
                 self._next_requested_frame += self._batch_size
@@ -718,7 +761,9 @@ class StitchDataset:
 
         if self._batch_count == 1:
             frame_path = os.path.join(self._dir_name, "s.png")
-            print(f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}")
+            print(
+                f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}"
+            )
             print(f"Saving first stitched frame to {frame_path}")
             stitched_frame = stitched_frame.get()
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0], force_numpy=True))

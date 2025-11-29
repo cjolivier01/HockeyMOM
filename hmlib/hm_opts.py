@@ -56,7 +56,9 @@ class hm_opts(object):
             type=str,
             help="Cameraname",
         )
-        parser.add_argument("--gpus", default="0,1,2", help="-1 for CPU, use comma for multiple gpus")
+        parser.add_argument(
+            "--gpus", default="0,1,2", help="-1 for CPU, use comma for multiple gpus"
+        )
         parser.add_argument("--debug", default=0, type=int, help="debug level")
         parser.add_argument(
             "--crop-play-box",
@@ -166,11 +168,19 @@ class hm_opts(object):
         # Visualization & Plotting
         #
         plot = parser.add_argument_group("Visualization & Plotting")
-        plot.add_argument("--plot-tracking", action="store_true", help="Plot individual tracking boxes")
+        plot.add_argument(
+            "--plot-tracking", action="store_true", help="Plot individual tracking boxes"
+        )
         plot.add_argument("--plot-ice-mask", action="store_true", help="Plot the ice mask")
-        plot.add_argument("--plot-trajectories", action="store_true", help="Plot individual track trajectories")
-        plot.add_argument("--plot-jersey-numbers", action="store_true", help="Plot individual jersey numbers")
-        plot.add_argument("--plot-actions", action="store_true", help="Plot action labels per tracked player")
+        plot.add_argument(
+            "--plot-trajectories", action="store_true", help="Plot individual track trajectories"
+        )
+        plot.add_argument(
+            "--plot-jersey-numbers", action="store_true", help="Plot individual jersey numbers"
+        )
+        plot.add_argument(
+            "--plot-actions", action="store_true", help="Plot action labels per tracked player"
+        )
         plot.add_argument("--plot-pose", action="store_true", help="Plot individual pose skeletons")
         plot.add_argument(
             "--plot-overhead-rink",
@@ -189,8 +199,12 @@ class hm_opts(object):
             help="Plot moving camera tracking boxes",
         )
         # Pose visualization tuning
-        plot.add_argument("--kpt-thr", type=float, default=0.3, help="Keypoint score threshold for overlay")
-        plot.add_argument("--bbox-thr", type=float, default=0.3, help="Bounding box score threshold for overlay")
+        plot.add_argument(
+            "--kpt-thr", type=float, default=0.3, help="Keypoint score threshold for overlay"
+        )
+        plot.add_argument(
+            "--bbox-thr", type=float, default=0.3, help="Bounding box score threshold for overlay"
+        )
         plot.add_argument("--radius", type=int, default=4, help="Keypoint radius for overlay")
         plot.add_argument("--thickness", type=int, default=1, help="Link thickness for overlay")
 
@@ -432,7 +446,9 @@ class hm_opts(object):
             "--detector-onnx-enable",
             dest="detector_onnx_enable",
             action="store_true",
-            help=("Enable ONNX Runtime detector inference. If --detector-onnx is provided, enablement is implied."),
+            help=(
+                "Enable ONNX Runtime detector inference. If --detector-onnx is provided, enablement is implied."
+            ),
         )
         onnx_det.add_argument(
             "--detector-onnx-quantize-int8",
@@ -475,13 +491,17 @@ class hm_opts(object):
             "--pose-onnx-enable",
             dest="pose_onnx_enable",
             action="store_true",
-            help=("Enable ONNX Runtime for pose (backbone+neck). If --pose-onnx is provided, enablement is implied."),
+            help=(
+                "Enable ONNX Runtime for pose (backbone+neck). If --pose-onnx is provided, enablement is implied."
+            ),
         )
         onnx_pose.add_argument(
             "--pose-onnx-quantize-int8",
             dest="pose_onnx_quantize_int8",
             action="store_true",
-            help=("After exporting the float32 pose model, quantize to INT8 using calibration frames."),
+            help=(
+                "After exporting the float32 pose model, quantize to INT8 using calibration frames."
+            ),
         )
         onnx_pose.add_argument(
             "--pose-onnx-calib-frames",
@@ -724,7 +744,9 @@ class hm_opts(object):
             type=str,
             help="Use project file as input to stitcher",
         )
-        parser.add_argument("--start-frame", type=int, default=0, help="first frame number to process")
+        parser.add_argument(
+            "--start-frame", type=int, default=0, help="first frame number to process"
+        )
         parser.add_argument(
             "-s",
             "--start-time",
@@ -855,7 +877,9 @@ class hm_opts(object):
         )
 
         # Jersey framework toggles (Koshkina trunk) for reuse across CLIs
-        parser.add_argument("--detect-jersey-numbers", action="store_true", help="Detect individual jersey numbers")
+        parser.add_argument(
+            "--detect-jersey-numbers", action="store_true", help="Detect individual jersey numbers"
+        )
         parser.add_argument(
             "--jersey-roi-mode",
             type=str,
@@ -870,14 +894,27 @@ class hm_opts(object):
             default=None,
             help="STR backend: mmocr (default) or parseq",
         )
-        parser.add_argument("--jersey-parseq-weights", type=str, default=None, help="PARSeq weights path")
-        parser.add_argument("--jersey-parseq-device", type=str, default=None, help="PARSeq device (e.g., cuda)")
-        parser.add_argument("--jersey-legibility-enabled", action="store_true", help="Enable legibility filter")
-        parser.add_argument("--jersey-legibility-weights", type=str, default=None, help="Legibility weights path")
         parser.add_argument(
-            "--jersey-legibility-threshold", type=float, default=None, help="Legibility score threshold"
+            "--jersey-parseq-weights", type=str, default=None, help="PARSeq weights path"
         )
-        parser.add_argument("--jersey-reid-enabled", action="store_true", help="Enable ReID outlier removal")
+        parser.add_argument(
+            "--jersey-parseq-device", type=str, default=None, help="PARSeq device (e.g., cuda)"
+        )
+        parser.add_argument(
+            "--jersey-legibility-enabled", action="store_true", help="Enable legibility filter"
+        )
+        parser.add_argument(
+            "--jersey-legibility-weights", type=str, default=None, help="Legibility weights path"
+        )
+        parser.add_argument(
+            "--jersey-legibility-threshold",
+            type=float,
+            default=None,
+            help="Legibility score threshold",
+        )
+        parser.add_argument(
+            "--jersey-reid-enabled", action="store_true", help="Enable ReID outlier removal"
+        )
         parser.add_argument(
             "--jersey-reid-backend",
             type=str,
@@ -892,14 +929,27 @@ class hm_opts(object):
             default=None,
             help="ReID resnet backbone",
         )
-        parser.add_argument("--jersey-reid-threshold", type=float, default=None, help="ReID Mahalanobis threshold")
         parser.add_argument(
-            "--jersey-centroid-reid-path", type=str, default=None, help="Path to centroid-reid repo/model"
+            "--jersey-reid-threshold", type=float, default=None, help="ReID Mahalanobis threshold"
         )
-        parser.add_argument("--jersey-centroid-reid-device", type=str, default=None, help="Device for centroid-reid")
-        parser.add_argument("--jersey-sam-enabled", action="store_true", help="Enable SAM ROI refinement")
-        parser.add_argument("--jersey-sam-checkpoint", type=str, default=None, help="Path to SAM checkpoint")
-        parser.add_argument("--jersey-sam-model-type", type=str, default=None, help="SAM model type (e.g., vit_b)")
+        parser.add_argument(
+            "--jersey-centroid-reid-path",
+            type=str,
+            default=None,
+            help="Path to centroid-reid repo/model",
+        )
+        parser.add_argument(
+            "--jersey-centroid-reid-device", type=str, default=None, help="Device for centroid-reid"
+        )
+        parser.add_argument(
+            "--jersey-sam-enabled", action="store_true", help="Enable SAM ROI refinement"
+        )
+        parser.add_argument(
+            "--jersey-sam-checkpoint", type=str, default=None, help="Path to SAM checkpoint"
+        )
+        parser.add_argument(
+            "--jersey-sam-model-type", type=str, default=None, help="SAM model type (e.g., vit_b)"
+        )
         parser.add_argument("--jersey-sam-device", type=str, default=None, help="SAM device")
 
         #
@@ -1015,7 +1065,9 @@ class hm_opts(object):
                 for k, v in nested_item.items():
                     if hasattr(opt, k):
                         current_val = getattr(opt, k)
-                        if current_val is None or (parser is not None and current_val == parser.get_default(k)):
+                        if current_val is None or (
+                            parser is not None and current_val == parser.get_default(k)
+                        ):
                             print(f"Setting attribute {k} to {v}")
                             setattr(opt, k, v)
 
@@ -1029,12 +1081,16 @@ class hm_opts(object):
                 if isinstance(game_cfg, dict):
                     val = get_nested_value(game_cfg, "game.stitching.stitch-rotate-degrees", None)
                     if val is None:
-                        val = get_nested_value(game_cfg, "game.stitching.stitch_rotate_degrees", None)
+                        val = get_nested_value(
+                            game_cfg, "game.stitching.stitch_rotate_degrees", None
+                        )
                 if val is None and getattr(opt, "game_id", None):
                     cfg_priv = get_game_config_private(game_id=opt.game_id)
                     val = get_nested_value(cfg_priv, "game.stitching.stitch-rotate-degrees", None)
                     if val is None:
-                        val = get_nested_value(cfg_priv, "game.stitching.stitch_rotate_degrees", None)
+                        val = get_nested_value(
+                            cfg_priv, "game.stitching.stitch_rotate_degrees", None
+                        )
                 if val is not None:
                     try:
                         opt.stitch_rotate_degrees = float(val)
@@ -1059,10 +1115,13 @@ class hm_opts(object):
             try:
                 if (
                     _cli_spec("stop_on_dir_change_delay")
-                    or get_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", None) is None
+                    or get_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", None)
+                    is None
                 ):
                     set_nested_value(
-                        game_cfg, "rink.camera.stop_on_dir_change_delay", int(opt.stop_on_dir_change_delay)
+                        game_cfg,
+                        "rink.camera.stop_on_dir_change_delay",
+                        int(opt.stop_on_dir_change_delay),
                     )
             except Exception:
                 pass
@@ -1070,7 +1129,8 @@ class hm_opts(object):
             try:
                 if (
                     _cli_spec("cancel_stop_on_opposite_dir")
-                    or get_nested_value(game_cfg, "rink.camera.cancel_stop_on_opposite_dir", None) is None
+                    or get_nested_value(game_cfg, "rink.camera.cancel_stop_on_opposite_dir", None)
+                    is None
                 ):
                     set_nested_value(
                         game_cfg,
@@ -1083,7 +1143,8 @@ class hm_opts(object):
             try:
                 if (
                     _cli_spec("stop_cancel_hysteresis_frames")
-                    or get_nested_value(game_cfg, "rink.camera.stop_cancel_hysteresis_frames", None) is None
+                    or get_nested_value(game_cfg, "rink.camera.stop_cancel_hysteresis_frames", None)
+                    is None
                 ):
                     set_nested_value(
                         game_cfg,
@@ -1096,7 +1157,8 @@ class hm_opts(object):
             try:
                 if (
                     _cli_spec("stop_delay_cooldown_frames")
-                    or get_nested_value(game_cfg, "rink.camera.stop_delay_cooldown_frames", None) is None
+                    or get_nested_value(game_cfg, "rink.camera.stop_delay_cooldown_frames", None)
+                    is None
                 ):
                     set_nested_value(
                         game_cfg,
@@ -1109,7 +1171,10 @@ class hm_opts(object):
             try:
                 if (
                     _cli_spec("time_to_dest_speed_limit_frames")
-                    or get_nested_value(game_cfg, "rink.camera.time_to_dest_speed_limit_frames", None) is None
+                    or get_nested_value(
+                        game_cfg, "rink.camera.time_to_dest_speed_limit_frames", None
+                    )
+                    is None
                 ):
                     set_nested_value(
                         game_cfg,
@@ -1121,7 +1186,9 @@ class hm_opts(object):
             # Breakaway: overshoot/post-nonstop delays
             try:
                 if _cli_spec("overshoot_stop_delay_count") or (
-                    get_nested_value(game_cfg, "rink.camera.breakaway_detection.overshoot_stop_delay_count", None)
+                    get_nested_value(
+                        game_cfg, "rink.camera.breakaway_detection.overshoot_stop_delay_count", None
+                    )
                     is None
                 ):
                     set_nested_value(
@@ -1133,7 +1200,11 @@ class hm_opts(object):
                 pass
             try:
                 if _cli_spec("post_nonstop_stop_delay_count") or (
-                    get_nested_value(game_cfg, "rink.camera.breakaway_detection.post_nonstop_stop_delay_count", None)
+                    get_nested_value(
+                        game_cfg,
+                        "rink.camera.breakaway_detection.post_nonstop_stop_delay_count",
+                        None,
+                    )
                     is None
                 ):
                     set_nested_value(
@@ -1218,27 +1289,45 @@ def add_remaining_autogenerated(parser: argparse.ArgumentParser):
     parser.add_argument("--rinkname", default=None, type=str, help="Rinkname")
     parser.add_argument("--rinklocation-city", default=None, type=str, help="Rinklocation City")
     parser.add_argument("--rinklocation-state", default=None, type=str, help="Rinklocation State")
-    parser.add_argument("--rinklocation-country", default=None, type=str, help="Rinklocation Country")
-    parser.add_argument("--rinkdimensions-length", default=None, type=str, help="Rinkdimensions Length")
-    parser.add_argument("--rinkdimensions-width", default=None, type=str, help="Rinkdimensions Width")
+    parser.add_argument(
+        "--rinklocation-country", default=None, type=str, help="Rinklocation Country"
+    )
+    parser.add_argument(
+        "--rinkdimensions-length", default=None, type=str, help="Rinkdimensions Length"
+    )
+    parser.add_argument(
+        "--rinkdimensions-width", default=None, type=str, help="Rinkdimensions Width"
+    )
     parser.add_argument(
         "--rinkdimensions-corner-radius",
         default=None,
         type=str,
         help="Rinkdimensions Corner Radius",
     )
-    parser.add_argument("--rinkseating-capacity", default=None, type=str, help="Rinkseating Capacity")
-    parser.add_argument("--rinkteams-home-team-name", default=None, type=str, help="Rinkteams Home Team Name")
-    parser.add_argument("--rinkteams-home-team-colors", default=None, type=str, help="Rinkteams Home Team Colors")
-    parser.add_argument("--rinkfacilities-locker-rooms", default=None, type=str, help="Rinkfacilities Locker Rooms")
+    parser.add_argument(
+        "--rinkseating-capacity", default=None, type=str, help="Rinkseating Capacity"
+    )
+    parser.add_argument(
+        "--rinkteams-home-team-name", default=None, type=str, help="Rinkteams Home Team Name"
+    )
+    parser.add_argument(
+        "--rinkteams-home-team-colors", default=None, type=str, help="Rinkteams Home Team Colors"
+    )
+    parser.add_argument(
+        "--rinkfacilities-locker-rooms", default=None, type=str, help="Rinkfacilities Locker Rooms"
+    )
     parser.add_argument(
         "--rinkfacilities-concession-stands",
         default=None,
         type=str,
         help="Rinkfacilities Concession Stands",
     )
-    parser.add_argument("--rinkfacilities-restrooms", default=None, type=str, help="Rinkfacilities Restrooms")
-    parser.add_argument("--rinkparking-capacity", default=None, type=str, help="Rinkparking Capacity")
+    parser.add_argument(
+        "--rinkfacilities-restrooms", default=None, type=str, help="Rinkfacilities Restrooms"
+    )
+    parser.add_argument(
+        "--rinkparking-capacity", default=None, type=str, help="Rinkparking Capacity"
+    )
     parser.add_argument("--rinkparking-price", default=None, type=str, help="Rinkparking Price")
     parser.add_argument(
         "--rinkscoreboard-perspective-polygon",
@@ -1258,10 +1347,18 @@ def add_remaining_autogenerated(parser: argparse.ArgumentParser):
         type=str,
         help="Rinkscoreboard Projected Width",
     )
-    parser.add_argument("--rinkend-zones-left-start", default=None, type=str, help="Rinkend Zones Left Start")
-    parser.add_argument("--rinkend-zones-left-stop", default=None, type=str, help="Rinkend Zones Left Stop")
-    parser.add_argument("--rinkend-zones-right-start", default=None, type=str, help="Rinkend Zones Right Start")
-    parser.add_argument("--rinkend-zones-right-stop", default=None, type=str, help="Rinkend Zones Right Stop")
+    parser.add_argument(
+        "--rinkend-zones-left-start", default=None, type=str, help="Rinkend Zones Left Start"
+    )
+    parser.add_argument(
+        "--rinkend-zones-left-stop", default=None, type=str, help="Rinkend Zones Left Stop"
+    )
+    parser.add_argument(
+        "--rinkend-zones-right-start", default=None, type=str, help="Rinkend Zones Right Start"
+    )
+    parser.add_argument(
+        "--rinkend-zones-right-stop", default=None, type=str, help="Rinkend Zones Right Stop"
+    )
     parser.add_argument(
         "--rinktracking-cam-ignore-largest",
         default=True,
@@ -1380,24 +1477,34 @@ def add_remaining_autogenerated(parser: argparse.ArgumentParser):
         type=str,
         help="Gamestitching Control Points M Kpts1",
     )
-    parser.add_argument("--gamestitching-offsets", default=None, type=str, help="Gamestitching Offsets")
+    parser.add_argument(
+        "--gamestitching-offsets", default=None, type=str, help="Gamestitching Offsets"
+    )
     parser.add_argument("--gameclip-box", default=None, type=str, help="Gameclip Box")
-    parser.add_argument("--gameboundaries-upper", default=None, type=str, help="Gameboundaries Upper")
+    parser.add_argument(
+        "--gameboundaries-upper", default=None, type=str, help="Gameboundaries Upper"
+    )
     parser.add_argument(
         "--gameboundaries-upper-tune-position",
         default=None,
         type=str,
         help="Gameboundaries Upper Tune Position",
     )
-    parser.add_argument("--gameboundaries-lower", default=None, type=str, help="Gameboundaries Lower")
+    parser.add_argument(
+        "--gameboundaries-lower", default=None, type=str, help="Gameboundaries Lower"
+    )
     parser.add_argument(
         "--gameboundaries-lower-tune-position",
         default=None,
         type=str,
         help="Gameboundaries Lower Tune Position",
     )
-    parser.add_argument("--gameboundaries-scale-width", default=None, type=str, help="Gameboundaries Scale Width")
-    parser.add_argument("--gameboundaries-scale-height", default=None, type=str, help="Gameboundaries Scale Height")
+    parser.add_argument(
+        "--gameboundaries-scale-width", default=None, type=str, help="Gameboundaries Scale Width"
+    )
+    parser.add_argument(
+        "--gameboundaries-scale-height", default=None, type=str, help="Gameboundaries Scale Height"
+    )
     parser.add_argument(
         "--modelend-to-end-config",
         default="config/models/hm2/hm_end_to_end.py",
@@ -1458,7 +1565,9 @@ def add_remaining_autogenerated(parser: argparse.ArgumentParser):
         type=str,
         help="Modelice Rink Segm Checkpoint",
     )
-    parser.add_argument("--modelsvnh-classifier-config", default=None, type=str, help="Modelsvnh Classifier Config")
+    parser.add_argument(
+        "--modelsvnh-classifier-config", default=None, type=str, help="Modelsvnh Classifier Config"
+    )
     parser.add_argument(
         "--modelsvnh-classifier-checkpoint",
         default="pretrained/svhnc/model-65000.pth",
@@ -1503,7 +1612,9 @@ def generate_yaml_args_code(parser: argparse.ArgumentParser, yaml_file_path: Pat
             arg_name = prefix.rstrip("-").replace("_", "-")
 
             # Determine help description and type
-            description = yaml_data.get(f'{prefix.rstrip("-")}_description', to_camel_case(arg_name))
+            description = yaml_data.get(
+                f'{prefix.rstrip("-")}_description', to_camel_case(arg_name)
+            )
             value_type = yaml_data.get(f'{prefix.rstrip("-")}_type', str)
 
             if isinstance(data, bool):
@@ -1520,7 +1631,9 @@ def generate_yaml_args_code(parser: argparse.ArgumentParser, yaml_file_path: Pat
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate Python code to add YAML configuration to argparse parser")
+    parser = argparse.ArgumentParser(
+        description="Generate Python code to add YAML configuration to argparse parser"
+    )
     parser.add_argument("yaml_file_path", type=Path, help="Path to the YAML file")
 
     args = parser.parse_args()

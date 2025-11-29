@@ -138,7 +138,11 @@ class ModelFactoryTrunk(Trunk):
             if hasattr(model, "init_weights"):
                 model.init_weights()
 
-            if self._to_device and "device" in context and isinstance(context["device"], torch.device):
+            if (
+                self._to_device
+                and "device" in context
+                and isinstance(context["device"], torch.device)
+            ):
                 model = model.to(context["device"])  # type: ignore[assignment]
             model.eval()
             self._model = model

@@ -39,7 +39,9 @@ def make_parser():
     parser.add_argument("--num-workers", default=1, type=int, help="Number of stitching workers")
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs")
-    parser.add_argument("--configure-only", action="store_true", help="Run stitching configuration only")
+    parser.add_argument(
+        "--configure-only", action="store_true", help="Run stitching configuration only"
+    )
     parser.add_argument(
         "--single-file",
         default=0,
@@ -153,7 +155,9 @@ def stitch_videos(
             batch_size=batch_size,
             num_workers=1,
             max_input_queue_size=cache_size,
-            image_roi=(get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None),
+            image_roi=(
+                get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None
+            ),
             decoder_device=decoder_device,
             blend_mode=blend_mode,
             remapping_device=remapping_device,
@@ -243,11 +247,20 @@ def stitch_videos(
             start = None
 
             dataset_timer = Timer()
-            with profiler if (profiler is not None and profiler.enabled) else contextlib.nullcontext(), torch.no_grad():
+            with (
+                (
+                    profiler
+                    if (profiler is not None and profiler.enabled)
+                    else contextlib.nullcontext()
+                ),
+                torch.no_grad(),
+            ):
                 for i, stitched_image in enumerate(data_loader_iter):
                     if configure_only:
                         break
-                    if not output_stitched_video_file and isinstance(stitched_image, StreamTensorBase):
+                    if not output_stitched_video_file and isinstance(
+                        stitched_image, StreamTensorBase
+                    ):
                         stitched_image._verbose = False
                         stitched_image = stitched_image.get()
 
@@ -265,7 +278,10 @@ def stitch_videos(
                         if False and stitched_image.device.type == "cuda":
                             for stitched_img in stitched_image:
                                 show_cuda_tensor(
-                                    "Stitched Image", stitched_img.clamp(min=0, max=255).to(torch.uint8), False, None
+                                    "Stitched Image",
+                                    stitched_img.clamp(min=0, max=255).to(torch.uint8),
+                                    False,
+                                    None,
                                 )
                         else:
                             shower.show(stitched_image)
@@ -294,7 +310,9 @@ def stitch_videos(
 
                 if start is not None:
                     duration = time.time() - start
-                    print(f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)")
+                    print(
+                        f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)"
+                    )
         except StopIteration:
             pass
         finally:
@@ -361,7 +379,9 @@ def _main(args) -> None:
     remapping_device = torch.device("cuda", gpu_allocator.allocate_fast())
     if args.multi_gpu:
         encoder_device = torch.device("cuda", gpu_allocator.allocate_modern())
-        decoder_device = torch.device(args.decoder_device) if args.decoder_device else remapping_device
+        decoder_device = (
+            torch.device(args.decoder_device) if args.decoder_device else remapping_device
+        )
     else:
         encoder_device, decoder_device = remapping_device, remapping_device
     if args.encoder_device:
@@ -403,7 +423,12 @@ def _main(args) -> None:
 
     if args.configure_only:
         # Configure the rink mask as well
-        ice_rink_main(args, device=decoder_device if not gpu_allocator.is_single_lowmem_gpu() else torch.device("cpu"))
+        ice_rink_main(
+            args,
+            device=(
+                decoder_device if not gpu_allocator.is_single_lowmem_gpu() else torch.device("cpu")
+            ),
+        )
 
 
 def main() -> None:

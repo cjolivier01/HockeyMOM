@@ -29,7 +29,14 @@ def connect_pymysql(db_cfg: dict):
 def wipe_all(conn) -> dict:
     counts: dict = {}
     with conn.cursor() as cur:
-        for table in ("player_stats", "league_games", "hky_games", "league_teams", "players", "teams"):
+        for table in (
+            "player_stats",
+            "league_games",
+            "hky_games",
+            "league_teams",
+            "players",
+            "teams",
+        ):
             cur.execute(f"SELECT COUNT(*) FROM {table}")
             counts[table] = int((cur.fetchone() or [0])[0])
         # Delete in FK-safe order
@@ -44,7 +51,14 @@ def wipe_all(conn) -> dict:
 
 
 def wipe_league(conn, league_id: int) -> dict:
-    stats = {"player_stats": 0, "league_games": 0, "hky_games": 0, "league_teams": 0, "players": 0, "teams": 0}
+    stats = {
+        "player_stats": 0,
+        "league_games": 0,
+        "hky_games": 0,
+        "league_teams": 0,
+        "players": 0,
+        "teams": 0,
+    }
     with conn.cursor() as cur:
         # games in this league
         cur.execute("SELECT DISTINCT game_id FROM league_games WHERE league_id=%s", (league_id,))
@@ -108,9 +122,13 @@ def wipe_league(conn, league_id: int) -> dict:
             # teams used in games
             ref_counts = {}
             for tid in team_ids:
-                cur.execute("SELECT COUNT(*) FROM hky_games WHERE team1_id=%s OR team2_id=%s", (tid, tid))
+                cur.execute(
+                    "SELECT COUNT(*) FROM hky_games WHERE team1_id=%s OR team2_id=%s", (tid, tid)
+                )
                 ref_counts[tid] = int((cur.fetchone() or [0])[0])
-            to_delete_teams = [tid for tid in team_ids if tid not in still_mapped and ref_counts.get(tid, 0) == 0]
+            to_delete_teams = [
+                tid for tid in team_ids if tid not in still_mapped and ref_counts.get(tid, 0) == 0
+            ]
             if to_delete_teams:
                 cur.execute(
                     f"SELECT COUNT(*) FROM teams WHERE id IN ({','.join(['%s']*len(to_delete_teams))})",
@@ -131,8 +149,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     ap.add_argument("--config", default="/opt/hm-webapp/app/config.json")
     ap.add_argument("--force", action="store_true", help="Do not prompt for confirmation")
-    ap.add_argument("--league-id", type=int, default=None, help="Only wipe data associated to this league id")
-    ap.add_argument("--league-name", default=None, help="Only wipe data associated to this league name")
+    ap.add_argument(
+        "--league-id", type=int, default=None, help="Only wipe data associated to this league id"
+    )
+    ap.add_argument(
+        "--league-name", default=None, help="Only wipe data associated to this league name"
+    )
     args = ap.parse_args(argv)
 
     db_cfg = load_db_cfg(args.config)
@@ -151,7 +173,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     scope = f"league_id={league_id}" if league_id else "ALL"
     if not args.force:
-        ans = input(f"This will wipe teams/players/hky games/stats for {scope}. Type RESET to continue: ").strip()
+        ans = input(
+            f"This will wipe teams/players/hky games/stats for {scope}. Type RESET to continue: "
+        ).strip()
         if ans != "RESET":
             print("Aborted.")
             return 1

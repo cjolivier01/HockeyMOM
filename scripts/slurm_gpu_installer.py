@@ -9,7 +9,9 @@ from pathlib import Path
 
 def run(cmd: str, check: bool = True, capture: bool = False, env=None):
     print(f"+ {cmd}")
-    result = subprocess.run(cmd, shell=True, check=check, text=True, capture_output=capture, env=env)
+    result = subprocess.run(
+        cmd, shell=True, check=check, text=True, capture_output=capture, env=env
+    )
     if capture:
         return result.stdout.strip()
     return ""
@@ -252,7 +254,9 @@ def uninstall():
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Install/Uninstall single-node Slurm with GPU GRES (Ubuntu)")
+    ap = argparse.ArgumentParser(
+        description="Install/Uninstall single-node Slurm with GPU GRES (Ubuntu)"
+    )
     ap.add_argument("action", choices=["install", "uninstall", "verify"], help="Action to perform")
     args = ap.parse_args()
     if args.action == "install":

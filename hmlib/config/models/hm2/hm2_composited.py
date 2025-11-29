@@ -10,7 +10,9 @@ batch_size = 4
 custom_hooks = [
     dict(num_last_epochs=10, priority=48, type="YOLOXModeSwitchHook"),
     dict(priority=48, type="SyncNormHook"),
-    dict(ema_type="ExpMomentumEMA", momentum=0.0001, priority=49, type="EMAHook", update_buffers=True),
+    dict(
+        ema_type="ExpMomentumEMA", momentum=0.0001, priority=49, type="EMAHook", update_buffers=True
+    ),
 ]
 data_root = "data/MOT17/"
 dataset_type = "MOTChallengeDataset"
@@ -24,7 +26,9 @@ default_hooks = dict(
 )
 default_scope = "mmdet"
 env_cfg = dict(
-    cudnn_benchmark=False, dist_cfg=dict(backend="nccl"), mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0)
+    cudnn_benchmark=False,
+    dist_cfg=dict(backend="nccl"),
+    mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0),
 )
 img_scale = (
     1312,
@@ -119,10 +123,16 @@ model = dict(
             act_cfg=dict(type="Swish"),
             feat_channels=128,
             in_channels=128,
-            loss_bbox=dict(eps=1e-16, loss_weight=5.0, mode="square", reduction="sum", type="IoULoss"),
-            loss_cls=dict(loss_weight=1.0, reduction="sum", type="CrossEntropyLoss", use_sigmoid=True),
+            loss_bbox=dict(
+                eps=1e-16, loss_weight=5.0, mode="square", reduction="sum", type="IoULoss"
+            ),
+            loss_cls=dict(
+                loss_weight=1.0, reduction="sum", type="CrossEntropyLoss", use_sigmoid=True
+            ),
             loss_l1=dict(loss_weight=1.0, reduction="sum", type="L1Loss"),
-            loss_obj=dict(loss_weight=1.0, reduction="sum", type="CrossEntropyLoss", use_sigmoid=True),
+            loss_obj=dict(
+                loss_weight=1.0, reduction="sum", type="CrossEntropyLoss", use_sigmoid=True
+            ),
             norm_cfg=dict(eps=0.001, momentum=0.03, type="BN"),
             num_classes=80,
             stacked_convs=2,
@@ -186,7 +196,13 @@ optim_wrapper = dict(
 param_scheduler = [
     dict(begin=0, by_epoch=True, convert_to_iter_based=True, end=1, type="QuadraticWarmupLR"),
     dict(
-        T_max=70, begin=1, by_epoch=True, convert_to_iter_based=True, end=70, eta_min=2.5e-05, type="CosineAnnealingLR"
+        T_max=70,
+        begin=1,
+        by_epoch=True,
+        convert_to_iter_based=True,
+        end=70,
+        eta_min=2.5e-05,
+        type="CosineAnnealingLR",
     ),
     dict(begin=70, by_epoch=True, end=80, factor=1, type="ConstantLR"),
 ]

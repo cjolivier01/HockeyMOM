@@ -203,7 +203,8 @@ def create_test_video() -> Tuple[Path, str, str]:
         )
     except FileNotFoundError:
         raise RuntimeError(
-            "ffmpeg not found. Install it with 'sudo apt install ffmpeg' " "or provide your own small test video file."
+            "ffmpeg not found. Install it with 'sudo apt install ffmpeg' "
+            "or provide your own small test video file."
         )
 
     return out_path, title, description
@@ -212,7 +213,9 @@ def create_test_video() -> Tuple[Path, str, str]:
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     default_client_secrets, default_token_file = get_default_paths()
 
-    parser = argparse.ArgumentParser(description="Upload a video to your YouTube channel from the command line.")
+    parser = argparse.ArgumentParser(
+        description="Upload a video to your YouTube channel from the command line."
+    )
     parser.add_argument(
         "file",
         nargs="?",

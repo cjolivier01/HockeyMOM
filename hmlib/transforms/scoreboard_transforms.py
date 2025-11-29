@@ -44,7 +44,9 @@ class HmConfigureScoreboard:
                     self._scoreboard_config: Dict[str, Any] = dict(
                         scoreboard_points=scoreboard_points,
                         dest_width=get_nested_value(game_config, "rink.scoreboard.projected_width"),
-                        dest_height=get_nested_value(game_config, "rink.scoreboard.projected_height"),
+                        dest_height=get_nested_value(
+                            game_config, "rink.scoreboard.projected_height"
+                        ),
                     )
         if self._scoreboard_config:
             results["scoreboard_cfg"] = self._scoreboard_config

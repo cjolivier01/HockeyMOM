@@ -43,7 +43,9 @@ def _finalize_image_after_drawing(
     return image
 
 
-def _color_to_broadcast_tensor(color: Union[Tuple[int, int, int], torch.Tensor], image: torch.Tensor) -> torch.Tensor:
+def _color_to_broadcast_tensor(
+    color: Union[Tuple[int, int, int], torch.Tensor], image: torch.Tensor
+) -> torch.Tensor:
     channels = image.shape[1]
     target_dtype = image.dtype
 
@@ -145,7 +147,12 @@ def draw_filled_square(
 
     width = work_image.shape[3]
     height = work_image.shape[2]
-    if top_left_x < 0 or top_left_y < 0 or top_left_x + size_int > width or top_left_y + size_int > height:
+    if (
+        top_left_x < 0
+        or top_left_y < 0
+        or top_left_x + size_int > width
+        or top_left_y + size_int > height
+    ):
         raise ValueError("Square goes out of image boundaries.")
 
     _apply_solid_fill(
@@ -342,7 +349,9 @@ def draw_line(
         points = points.unsqueeze(1) + offsets.unsqueeze(0)
         points = points.view(-1, 2)
 
-    valid = (points[:, 1] >= 0) & (points[:, 1] < width) & (points[:, 0] >= 0) & (points[:, 0] < height)
+    valid = (
+        (points[:, 1] >= 0) & (points[:, 1] < width) & (points[:, 0] >= 0) & (points[:, 0] < height)
+    )
     points = points[valid]
 
     if points.numel() == 0:
@@ -541,7 +550,9 @@ def draw_ellipse(self, frame, bbox, color, track_id=None, team=None):
         y1_rect = (y2 - rectangle_height // 2) + 15
         y2_rect = (y2 + rectangle_height // 2) + 15
 
-        cv2.rectangle(frame, (int(x1_rect), int(y1_rect)), (int(x2_rect), int(y2_rect)), color, cv2.FILLED)
+        cv2.rectangle(
+            frame, (int(x1_rect), int(y1_rect)), (int(x2_rect), int(y2_rect)), color, cv2.FILLED
+        )
 
         x1_text = x1_rect + 12
         if track_id > 99:

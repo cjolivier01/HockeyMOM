@@ -38,7 +38,11 @@ def _rows_to_map(header: List[str], rows: List[List[str]]) -> List[Dict[str, str
 
 
 def _count_goals(dirp: Path) -> Tuple[int, int]:
-    gf = (dirp / "goals_for.txt").read_text(encoding="utf-8").splitlines() if (dirp / "goals_for.txt").exists() else []
+    gf = (
+        (dirp / "goals_for.txt").read_text(encoding="utf-8").splitlines()
+        if (dirp / "goals_for.txt").exists()
+        else []
+    )
     ga = (
         (dirp / "goals_against.txt").read_text(encoding="utf-8").splitlines()
         if (dirp / "goals_against.txt").exists()
@@ -74,7 +78,11 @@ def main() -> None:
 
     # Load each dir's player_stats.txt
     for d in dirs:
-        side = "home" if d.name.endswith("_home") else ("away" if d.name.endswith("_away") else "unknown")
+        side = (
+            "home"
+            if d.name.endswith("_home")
+            else ("away" if d.name.endswith("_away") else "unknown")
+        )
         stats_path = d / "player_stats.txt"
         if not stats_path.exists():
             continue
@@ -136,7 +144,11 @@ def main() -> None:
     # Quick report of GF/GA from goals files per side
     report_lines = ["Post-process summary:\n"]
     for d in dirs:
-        side = "home" if d.name.endswith("_home") else ("away" if d.name.endswith("_away") else "unknown")
+        side = (
+            "home"
+            if d.name.endswith("_home")
+            else ("away" if d.name.endswith("_away") else "unknown")
+        )
         gf, ga = _count_goals(d)
         report_lines.append(f"- {d.name} | side={side} | GF={gf} GA={ga}")
     (out_base / "report.txt").write_text("\n".join(report_lines) + "\n", encoding="utf-8")

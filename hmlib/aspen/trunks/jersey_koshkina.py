@@ -110,7 +110,8 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                 import sys as _sys
 
                 pipeline_path = os.environ.get(
-                    "HM_JERSEY_PIPELINE_PATH", "/mnt/monster-data/colivier/src/jersey-number-pipeline"
+                    "HM_JERSEY_PIPELINE_PATH",
+                    "/mnt/monster-data/colivier/src/jersey-number-pipeline",
                 )
                 if os.path.isdir(pipeline_path) and pipeline_path not in _sys.path:
                     _sys.path.insert(0, pipeline_path)
@@ -172,18 +173,28 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                 # First try default torch.load (may use weights_only=True on torch>=2.6 and fail)
                 try:
                     state_raw = torch.load(weights, map_location="cpu")
-                    state = state_raw.get("state_dict", state_raw) if isinstance(state_raw, dict) else state_raw
+                    state = (
+                        state_raw.get("state_dict", state_raw)
+                        if isinstance(state_raw, dict)
+                        else state_raw
+                    )
                 except Exception as ex_default:
                     # Retry with weights_only=False (trusted local ckpt)
                     try:
                         state_raw = torch.load(weights, map_location="cpu", weights_only=False)  # type: ignore[call-arg]
-                        state = state_raw.get("state_dict", state_raw) if isinstance(state_raw, dict) else state_raw
+                        state = (
+                            state_raw.get("state_dict", state_raw)
+                            if isinstance(state_raw, dict)
+                            else state_raw
+                        )
                         logger.info("PARSeq checkpoint loaded with weights_only=False.")
                     except TypeError:
                         # Older torch may not accept weights_only; rethrow original
                         raise ex_default
                     except Exception as ex2:
-                        logger.info(f"PARSeq checkpoint manual load failed ({ex2}); using uninitialized model.")
+                        logger.info(
+                            f"PARSeq checkpoint manual load failed ({ex2}); using uninitialized model."
+                        )
                         state = None
                 if state is not None:
                     try:
@@ -191,23 +202,33 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                         ml = 25
                         try:
                             for k, v in state.items():
-                                if isinstance(k, str) and k.endswith("pos_queries") and hasattr(v, "shape"):
+                                if (
+                                    isinstance(k, str)
+                                    and k.endswith("pos_queries")
+                                    and hasattr(v, "shape")
+                                ):
                                     if len(v.shape) >= 2:
                                         ml = int(v.shape[1] - 1)
                                         break
                         except Exception:
                             pass
-                        model = create_model("parseq", pretrained=False, charset_test=charset, max_label_length=ml)
+                        model = create_model(
+                            "parseq", pretrained=False, charset_test=charset, max_label_length=ml
+                        )
                         missing, unexpected = model.load_state_dict(state, strict=False)
                         if missing:
                             logger.info(f"PARSeq load: missing keys: {len(missing)}")
                         if unexpected:
                             logger.info(f"PARSeq load: unexpected keys: {len(unexpected)}")
                     except Exception as ex_load:
-                        logger.info(f"PARSeq load_state_dict failed ({ex_load}); proceeding with uninitialized model.")
+                        logger.info(
+                            f"PARSeq load_state_dict failed ({ex_load}); proceeding with uninitialized model."
+                        )
             if model is None:
                 # Use a default max_label_length compatible with typical PARSeq checkpoints
-                model = create_model("parseq", pretrained=False, charset_test=charset, max_label_length=25)
+                model = create_model(
+                    "parseq", pretrained=False, charset_test=charset, max_label_length=25
+                )
             self._parseq_model = model.eval().to(dev)
             hp = getattr(self._parseq_model, "hparams", None)
             img_size = hp.img_size if hp is not None else (32, 128)
@@ -261,7 +282,14 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                 if inst is not None:
                     return inst
                 if isinstance(ds, dict):
-                    keys = ["bboxes", "scores", "bbox_scores", "labels", "keypoints", "keypoint_scores"]
+                    keys = [
+                        "bboxes",
+                        "scores",
+                        "bbox_scores",
+                        "labels",
+                        "keypoints",
+                        "keypoint_scores",
+                    ]
                     attrs = {k: ds[k] for k in keys if k in ds}
                     if attrs:
                         return SimpleNamespace(**attrs)
@@ -302,7 +330,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
             return None
 
     @staticmethod
-    def _bbox_torso_fallback(box: torch.Tensor, img_w: int, img_h: int) -> Tuple[int, int, int, int]:
+    def _bbox_torso_fallback(
+        box: torch.Tensor, img_w: int, img_h: int
+    ) -> Tuple[int, int, int, int]:
         # Fallback: heuristic torso crop from bbox (top->bottom and slight side margin)
         x1, y1, x2, y2 = [int(v) for v in box.tolist()]
         w = x2 - x1
@@ -322,8 +352,12 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         if x.dtype != torch.float32:
             x = x.to(torch.float32)
         x = x / 255.0
-        mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32, device=x.device).view(3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32, device=x.device).view(3, 1, 1)
+        mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32, device=x.device).view(
+            3, 1, 1
+        )
+        std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32, device=x.device).view(
+            3, 1, 1
+        )
         x = (x - mean) / std
         return x
 
@@ -415,12 +449,18 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         W = int(image_width(original_images))
         H = int(image_height(original_images))
 
-        pose_results: Optional[List[Any]] = data.get("pose_results") or context.get("data", {}).get("pose_results")
+        pose_results: Optional[List[Any]] = data.get("pose_results") or context.get("data", {}).get(
+            "pose_results"
+        )
 
         all_jersey_results: List[List[TrackJerseyInfo]] = []
         for frame_index, img_data_sample in enumerate(track_data_sample.video_data_samples):
-            pred_tracks: Optional[InstanceData] = getattr(img_data_sample, "pred_track_instances", None)
-            if pred_tracks is None or (hasattr(pred_tracks, "bboxes") and len(pred_tracks.bboxes) == 0):
+            pred_tracks: Optional[InstanceData] = getattr(
+                img_data_sample, "pred_track_instances", None
+            )
+            if pred_tracks is None or (
+                hasattr(pred_tracks, "bboxes") and len(pred_tracks.bboxes) == 0
+            ):
                 all_jersey_results.append([])
                 continue
 
@@ -438,7 +478,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
             frame_img = original_images[frame_index]  # (C,H,W)
 
             # Build ROIs per track
-            rois: List[Tuple[int, Tuple[int, int, int, int]]] = []  # (index in tracks, (x1,y1,x2,y2))
+            rois: List[Tuple[int, Tuple[int, int, int, int]]] = (
+                []
+            )  # (index in tracks, (x1,y1,x2,y2))
             if pose_inst is not None and hasattr(pose_inst, "keypoints"):
                 kpts_all = pose_inst.keypoints  # (N,K,2)
                 kps_all = getattr(pose_inst, "keypoint_scores", None)
@@ -475,7 +517,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
 
             # Optional legibility filtering per-crop
             keep_indices = list(range(len(rois)))
-            if self._legibility_enabled and not isinstance(self._legibility_model, _IdentityLegibility):
+            if self._legibility_enabled and not isinstance(
+                self._legibility_model, _IdentityLegibility
+            ):
                 crops_for_leg: List[torch.Tensor] = []
                 map_idx: List[int] = []
                 for idx, (_, r) in enumerate(rois):
@@ -484,7 +528,10 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                     if crop.numel() == 0:
                         continue
                     crop = F.interpolate(
-                        crop.unsqueeze(0).to(dtype=torch.float32), size=(128, 128), mode="bilinear", align_corners=False
+                        crop.unsqueeze(0).to(dtype=torch.float32),
+                        size=(128, 128),
+                        mode="bilinear",
+                        align_corners=False,
                     ).squeeze(0)
                     crop = self._preprocess_imagenet(crop)
                     crops_for_leg.append(crop)
@@ -511,7 +558,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                     except Exception:
                         pass
                     keep_mask = leg_scores >= self._legibility_threshold
-                    keep_indices = [map_idx[i] for i in keep_mask.nonzero(as_tuple=False).squeeze(-1).tolist()]
+                    keep_indices = [
+                        map_idx[i] for i in keep_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
+                    ]
                 else:
                     keep_indices = []
 
@@ -555,7 +604,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                 tid = int(tracking_ids[ti])
                 best_num, best_w = self._aggregate_track(self._votes.get(tid, []))
                 if best_num > 0:
-                    jersey_results.append(TrackJerseyInfo(tracking_id=tid, number=best_num, score=float(best_w)))
+                    jersey_results.append(
+                        TrackJerseyInfo(tracking_id=tid, number=best_num, score=float(best_w))
+                    )
             all_jersey_results.append(jersey_results)
 
         data["jersey_results"] = all_jersey_results

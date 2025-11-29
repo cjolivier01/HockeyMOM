@@ -13,7 +13,13 @@ class SimpleCachedIterator:
     threaded variant below is preferred.
     """
 
-    def __init__(self, iterator, cache_size: int = 2, pre_callback_fn: callable = None, name: Optional[str] = None):
+    def __init__(
+        self,
+        iterator,
+        cache_size: int = 2,
+        pre_callback_fn: callable = None,
+        name: Optional[str] = None,
+    ):
         self._iterator = iterator
         self._pre_callback_fn = pre_callback_fn
         self._eof_reached = False

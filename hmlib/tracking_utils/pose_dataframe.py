@@ -74,7 +74,14 @@ class PoseDataFrame(HmDataFrameBase):
             simp["predictions"].append(
                 {
                     k: _to_list(getattr(inst, k))
-                    for k in ("bboxes", "scores", "bbox_scores", "labels", "keypoints", "keypoint_scores")
+                    for k in (
+                        "bboxes",
+                        "scores",
+                        "bbox_scores",
+                        "labels",
+                        "keypoints",
+                        "keypoint_scores",
+                    )
                     if hasattr(inst, k)
                 }
             )
@@ -151,7 +158,9 @@ class PoseDataFrame(HmDataFrameBase):
             return pose_ds
         return inst
 
-    def get_samples(self, start_frame: Optional[int] = None, end_frame: Optional[int] = None) -> List[_PoseDataSample]:
+    def get_samples(
+        self, start_frame: Optional[int] = None, end_frame: Optional[int] = None
+    ) -> List[_PoseDataSample]:
         """Return a list of PoseDataSample for a frame range (inclusive)."""
         if self.data is None or self.data.empty:
             return []

@@ -106,9 +106,15 @@ def maybe_run(cmd: List[str]):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Test DataFrame substitutions for detection/tracking/pose/actions.")
+    ap = argparse.ArgumentParser(
+        description="Test DataFrame substitutions for detection/tracking/pose/actions."
+    )
     ap.add_argument("--game-id", default="devtest")
-    ap.add_argument("--video", default=None, help="Path to a short video. If not provided, attempts a synthetic one.")
+    ap.add_argument(
+        "--video",
+        default=None,
+        help="Path to a short video. If not provided, attempts a synthetic one.",
+    )
     ap.add_argument("--config", default="hmlib/config/aspen/tracking_pose_actions.yaml")
     ap.add_argument("--workdir", default=None)
     args = ap.parse_args()
@@ -190,7 +196,12 @@ def main():
         base + [f"--input-tracking-data={trk}", f"--input-pose-data={pose}"],
         base + [f"--input-detection-data={det}"],
         base + [f"--input-pose-data={pose}"],
-        base + [f"--input-tracking-data={trk}", f"--input-detection-data={det}", f"--input-pose-data={pose}"],
+        base
+        + [
+            f"--input-tracking-data={trk}",
+            f"--input-detection-data={det}",
+            f"--input-pose-data={pose}",
+        ],
     ]
     print("Attempting hmtrack runs (these may depend on your local configs):")
     for cmd in runs:

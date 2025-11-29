@@ -12,7 +12,9 @@ def _which(binname: str) -> bool:
     return which(binname) is not None
 
 
-@pytest.mark.skipif(not _which("ffmpeg"), reason="ffmpeg not available for synthetic video generation")
+@pytest.mark.skipif(
+    not _which("ffmpeg"), reason="ffmpeg not available for synthetic video generation"
+)
 def should_cli_load_tracking_smoke_runs():
     torch = pytest.importorskip("torch")
     pytest.importorskip("mmdet.structures")

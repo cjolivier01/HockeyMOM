@@ -72,7 +72,9 @@ def main() -> int:
 
     print(f"Added {pth_path}")
     if not ext_dir:
-        print("Warning: built extension not found; run `bazel build //python/bindings:jetson_utils_python_ext`")
+        print(
+            "Warning: built extension not found; run `bazel build //python/bindings:jetson_utils_python_ext`"
+        )
     else:
         print(f"Extension directory added: {ext_dir}")
     print(f"Helper script installed: {launcher}")

@@ -147,7 +147,9 @@ class DetectorFactoryTrunk(Trunk):
                 try:
                     pass  # type: ignore
                 except Exception as ex:
-                    raise RuntimeError("mmyolo is required for YOLOv8 models but is not installed.") from ex
+                    raise RuntimeError(
+                        "mmyolo is required for YOLOv8 models but is not installed."
+                    ) from ex
 
             model = MODELS.build(model_cfg)
 
@@ -160,7 +162,11 @@ class DetectorFactoryTrunk(Trunk):
                 if callable(setter):
                     setter(**self._static_detections)
 
-            if self._to_device and "device" in context and isinstance(context["device"], torch.device):
+            if (
+                self._to_device
+                and "device" in context
+                and isinstance(context["device"], torch.device)
+            ):
                 model = model.to(context["device"])  # type: ignore[assignment]
             model.eval()
             self._model = model
@@ -641,7 +647,9 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         try:
             import torch2trt  # type: ignore
         except Exception as ex:
-            raise RuntimeError("torch2trt is required for TensorRT path but is not available") from ex
+            raise RuntimeError(
+                "torch2trt is required for TensorRT path but is not available"
+            ) from ex
         import os
 
         portions: list[str] = [self.engine_path.stem]
@@ -796,7 +804,9 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         self.pred_instances = inst_
 
                 with self._profile_scope("postprocess"):
-                    results.append(_Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt")))
+                    results.append(
+                        _Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt"))
+                    )
 
             if do_trace == 10:
                 pass

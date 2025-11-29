@@ -108,7 +108,9 @@ class ByteTrackCudaStaticTest(unittest.TestCase):
             dyn_data = _make_data(torch.device("cuda"), frame_id, boxes, labels, scores)
             dyn_res = dynamic_tracker.track(dyn_data)
 
-            padded_data = _make_padded_data(torch.device("cuda"), frame_id, boxes, labels, scores, max_detections=8)
+            padded_data = _make_padded_data(
+                torch.device("cuda"), frame_id, boxes, labels, scores, max_detections=8
+            )
             static_res = static_tracker.track(padded_data)
 
             num_tracks = int(static_res["num_tracks"].item())
@@ -126,7 +128,9 @@ class ByteTrackCudaStaticTest(unittest.TestCase):
                     )
                 )
                 self.assertTrue(torch.equal(static_res["labels"][:num_tracks], dyn_res["labels"]))
-                self.assertTrue(torch.allclose(static_res["scores"][:num_tracks], dyn_res["scores"], atol=1e-4))
+                self.assertTrue(
+                    torch.allclose(static_res["scores"][:num_tracks], dyn_res["scores"], atol=1e-4)
+                )
 
             if num_tracks < 8:
                 self.assertTrue(torch.all(static_res["ids"][num_tracks:] == -1))
@@ -163,7 +167,9 @@ class ByteTrackCudaStaticTest(unittest.TestCase):
             cpu_data = _make_data(torch.device("cpu"), frame_id, boxes, labels, scores)
             cpu_res = cpu_tracker.track(cpu_data.copy())
 
-            static_input = _make_padded_data(torch.device("cuda"), frame_id, boxes, labels, scores, max_detections=8)
+            static_input = _make_padded_data(
+                torch.device("cuda"), frame_id, boxes, labels, scores, max_detections=8
+            )
             static_res = static_tracker.track(static_input)
 
             cpu_ids = cpu_res["ids"].cpu()
@@ -175,9 +181,13 @@ class ByteTrackCudaStaticTest(unittest.TestCase):
             self.assertEqual(num_tracks, cpu_ids.shape[0])
 
             self.assertTrue(torch.equal(static_res["ids"][:num_tracks].cpu(), cpu_ids))
-            self.assertTrue(torch.allclose(static_res["bboxes"][:num_tracks].cpu(), cpu_bboxes, atol=1e-4))
+            self.assertTrue(
+                torch.allclose(static_res["bboxes"][:num_tracks].cpu(), cpu_bboxes, atol=1e-4)
+            )
             self.assertTrue(torch.equal(static_res["labels"][:num_tracks].cpu(), cpu_labels))
-            self.assertTrue(torch.allclose(static_res["scores"][:num_tracks].cpu(), cpu_scores, atol=1e-4))
+            self.assertTrue(
+                torch.allclose(static_res["scores"][:num_tracks].cpu(), cpu_scores, atol=1e-4)
+            )
 
 
 if __name__ == "__main__":

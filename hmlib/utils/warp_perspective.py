@@ -31,7 +31,9 @@ def normal_transform_pixel(
     Returns:
         torch.Tensor: normalized transform with shape :math:`(1, 3, 3)`.
     """
-    tr_mat = torch.tensor([[1.0, 0.0, -1.0], [0.0, 1.0, -1.0], [0.0, 0.0, 1.0]], device=device, dtype=dtype)  # 3x3
+    tr_mat = torch.tensor(
+        [[1.0, 0.0, -1.0], [0.0, 1.0, -1.0], [0.0, 0.0, 1.0]], device=device, dtype=dtype
+    )  # 3x3
 
     # prevent divide by zero bugs
     width_denom: float = eps if width == 1 else width - 1.0
@@ -59,7 +61,9 @@ def normalize_homography(
 
     if not (len(dst_pix_trans_src_pix.shape) == 3 or dst_pix_trans_src_pix.shape[-2:] == (3, 3)):
         raise ValueError(
-            "Input dst_pix_trans_src_pix must be a Bx3x3 tensor. Got {}".format(dst_pix_trans_src_pix.shape)
+            "Input dst_pix_trans_src_pix must be a Bx3x3 tensor. Got {}".format(
+                dst_pix_trans_src_pix.shape
+            )
         )
 
     # source and destination sizes
@@ -67,12 +71,18 @@ def normalize_homography(
     dst_h, dst_w = dsize_dst
 
     # compute the transformation pixel/norm for src/dst
-    src_norm_trans_src_pix: torch.Tensor = normal_transform_pixel(src_h, src_w).to(dst_pix_trans_src_pix)
+    src_norm_trans_src_pix: torch.Tensor = normal_transform_pixel(src_h, src_w).to(
+        dst_pix_trans_src_pix
+    )
     src_pix_trans_src_norm = torch.inverse(src_norm_trans_src_pix)
-    dst_norm_trans_dst_pix: torch.Tensor = normal_transform_pixel(dst_h, dst_w).to(dst_pix_trans_src_pix)
+    dst_norm_trans_dst_pix: torch.Tensor = normal_transform_pixel(dst_h, dst_w).to(
+        dst_pix_trans_src_pix
+    )
 
     # compute chain transformations
-    dst_norm_trans_src_norm: torch.Tensor = dst_norm_trans_dst_pix @ (dst_pix_trans_src_pix @ src_pix_trans_src_norm)
+    dst_norm_trans_src_norm: torch.Tensor = dst_norm_trans_dst_pix @ (
+        dst_pix_trans_src_pix @ src_pix_trans_src_norm
+    )
     return dst_norm_trans_src_norm
 
 
@@ -147,7 +157,9 @@ def transform_points(trans_01: torch.Tensor, points_1: torch.Tensor) -> torch.Te
     points_1 = points_1.reshape(-1, points_1.shape[-2], points_1.shape[-1])
     trans_01 = trans_01.reshape(-1, trans_01.shape[-2], trans_01.shape[-1])
     # We expand trans_01 to match the dimensions needed for bmm
-    trans_01 = torch.repeat_interleave(trans_01, repeats=points_1.shape[0] // trans_01.shape[0], dim=0)
+    trans_01 = torch.repeat_interleave(
+        trans_01, repeats=points_1.shape[0] // trans_01.shape[0], dim=0
+    )
     # to homogeneous
     points_1_h = convert_points_to_homogeneous(points_1)  # BxNxD+1
     # transform coordinates
@@ -163,7 +175,10 @@ def transform_points(trans_01: torch.Tensor, points_1: torch.Tensor) -> torch.Te
 
 
 def create_meshgrid(
-    height: int, width: int, normalized_coordinates: bool = True, device: Optional[torch.device] = torch.device("cpu")
+    height: int,
+    width: int,
+    normalized_coordinates: bool = True,
+    device: Optional[torch.device] = torch.device("cpu"),
 ) -> torch.Tensor:
     """Generates a coordinate grid for an image.
     When the flag `normalized_coordinates` is set to True, the grid is
@@ -262,8 +277,12 @@ def warp_perspective(
 
     # this piece of code substitutes F.affine_grid since it does not support 3x3
     grid = (
-        create_meshgrid(h_out, w_out, normalized_coordinates=True, device=src.device).to(src.dtype).repeat(B, 1, 1, 1)
+        create_meshgrid(h_out, w_out, normalized_coordinates=True, device=src.device)
+        .to(src.dtype)
+        .repeat(B, 1, 1, 1)
     )
     grid = transform_points(src_norm_trans_dst_norm[:, None, None], grid)
 
-    return F.grid_sample(src, grid, align_corners=align_corners, mode=mode, padding_mode=padding_mode)
+    return F.grid_sample(
+        src, grid, align_corners=align_corners, mode=mode, padding_mode=padding_mode
+    )

@@ -99,12 +99,28 @@ tr_selectors = dict(
         " tr:nth-child(2) > td:nth-child(1) > table:nth-child(1) >"
         " tbody:nth-child(1) > tr:nth-child(n+2)"
     ),
-    awayScoring=("body > div > div.d50l > div.d25l > table:nth-child(1) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
-    homeScoring=("body > div > div.d50r > div.d25l > table:nth-child(1) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
-    awayPenalties=("body > div > div.d50l > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"),
-    homePenalties=("body > div > div.d50r > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"),
-    awayShootout=("body > div > div.d50l > div.d25l > table:nth-child(2) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
-    homeShootout=("body > div > div.d50r > div.d25l > table:nth-child(2) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
+    awayScoring=(
+        "body > div > div.d50l > div.d25l > table:nth-child(1) >"
+        " tbody:nth-child(1) > tr:nth-child(n+4)"
+    ),
+    homeScoring=(
+        "body > div > div.d50r > div.d25l > table:nth-child(1) >"
+        " tbody:nth-child(1) > tr:nth-child(n+4)"
+    ),
+    awayPenalties=(
+        "body > div > div.d50l > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
+    ),
+    homePenalties=(
+        "body > div > div.d50r > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
+    ),
+    awayShootout=(
+        "body > div > div.d50l > div.d25l > table:nth-child(2) >"
+        " tbody:nth-child(1) > tr:nth-child(n+4)"
+    ),
+    homeShootout=(
+        "body > div > div.d50r > div.d25l > table:nth-child(2) >"
+        " tbody:nth-child(1) > tr:nth-child(n+4)"
+    ),
 )
 
 columns = dict(
@@ -221,7 +237,11 @@ def fix_players_rows(rows):
 def scrape_seasons():
     """Scrape season data from HTML."""
     soup = util.get_html(MAIN_STATS_URL, params={"league": "1"})
-    season_ids = {o.text.strip(): int(o["value"]) for o in soup.find("select")("option") if int(o["value"]) > 0}
+    season_ids = {
+        o.text.strip(): int(o["value"])
+        for o in soup.find("select")("option")
+        if int(o["value"]) > 0
+    }
     current = 0
     for link in soup.find_all("a", href=True):
         current = re.search(r"season=(\d+)", link["href"])
@@ -273,9 +293,7 @@ def _parse_division_teams(table_str: str):
         io.StringIO(table_str),
         extract_links="body",
         converters=DIVISION_GAME_CONVERTERS,
-    )[
-        0
-    ].fillna("")
+    )[0].fillna("")
     team = table["Team"].apply(pd.Series)
     table["id"] = team[1].str.extract(r"team=(\d+)")
     table["name"] = team[0]

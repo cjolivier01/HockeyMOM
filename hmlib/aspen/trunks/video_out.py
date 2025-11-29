@@ -72,7 +72,9 @@ class VideoOutTrunk(Trunk):
         if cam_args is None:
             # Fallback: construct a minimal args holder
             cfg = shared.get("game_config") or {}
-            cam_args = DefaultArguments(game_config=cfg, basic_debugging=0, output_video_path=self._out_path, opts=None)
+            cam_args = DefaultArguments(
+                game_config=cfg, basic_debugging=0, output_video_path=self._out_path, opts=None
+            )
 
         img = context.get("img")
         if img is None:
@@ -131,7 +133,11 @@ class VideoOutTrunk(Trunk):
             bit_rate=getattr(cam_args, "output_video_bit_rate", int(55e6)),
             save_frame_dir=self._save_dir,
             start=True,
-            device=vo_dev if isinstance(vo_dev, torch.device) else torch.device(vo_dev) if vo_dev else None,
+            device=(
+                vo_dev
+                if isinstance(vo_dev, torch.device)
+                else torch.device(vo_dev) if vo_dev else None
+            ),
             name="TRACKING",
             skip_final_save=self._skip_final_save,
             original_clip_box=shared.get("original_clip_box"),

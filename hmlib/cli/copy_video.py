@@ -177,7 +177,11 @@ def copy_video(
     def _output_file_name(split_number: int) -> str:
         if not output_video:
             return None
-        return output_video if num_splits <= 1 else str(add_suffix_to_filename(output_video, f"-{split_number}"))
+        return (
+            output_video
+            if num_splits <= 1
+            else str(add_suffix_to_filename(output_video, f"-{split_number}"))
+        )
 
     video_out = _open_output_video(_output_file_name(split_number))
     if video_out is None:
@@ -232,7 +236,9 @@ def copy_video(
                             video_out = _open_output_video(_output_file_name(split_number))
 
                         if torch.is_floating_point(source_tensor):
-                            source_tensor = source_tensor.clamp(0, 255).to(torch.uint8, non_blocking=True)
+                            source_tensor = source_tensor.clamp(0, 255).to(
+                                torch.uint8, non_blocking=True
+                            )
                         torch.cuda.synchronize()
                         video_out.append(source_tensor)
                     else:

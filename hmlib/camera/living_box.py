@@ -28,7 +28,9 @@ def to_bbox(tensor: torch.Tensor, is_cpp: bool) -> BBox:
 def from_bbox(bbox: BBox, device: torch.device = torch.device("cpu")) -> torch.Tensor:
     if isinstance(bbox, torch.Tensor):
         return bbox
-    return torch.tensor([bbox.left, bbox.top, bbox.right, bbox.bottom], dtype=torch.float, device=device)
+    return torch.tensor(
+        [bbox.left, bbox.top, bbox.right, bbox.bottom], dtype=torch.float, device=device
+    )
 
 
 class PyLivingBox(LivingBox):
@@ -63,7 +65,9 @@ class PyLivingBox(LivingBox):
 
             if rstate.size_is_frozen:
                 corner_box = scale_box(box=my_bbox_t, scale_width=0.98, scale_height=0.98)
-                img = vis.draw_corner_boxes(image=img, bbox=corner_box, color=(255, 255, 255), thickness=1)
+                img = vis.draw_corner_boxes(
+                    image=img, bbox=corner_box, color=(255, 255, 255), thickness=1
+                )
 
             scaled_following_box = scale_box(
                 following_bbox,
@@ -119,7 +123,9 @@ class PyLivingBox(LivingBox):
         )
         # Small visual cue: if cancel-on-opposite triggered this frame, flash a thin cyan border
         try:
-            if getattr(tstate, "canceled_stop_x", False) or getattr(tstate, "canceled_stop_y", False):
+            if getattr(tstate, "canceled_stop_x", False) or getattr(
+                tstate, "canceled_stop_y", False
+            ):
                 img = vis.plot_rectangle(
                     img,
                     draw_box,

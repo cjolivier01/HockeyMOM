@@ -43,7 +43,11 @@ class SegmBoundaries:
     def set_segment_mask_and_centroid(self, segment_mask: torch.Tensor, centroid: torch.Tensor):
         self._segment_mask = segment_mask
         self._centroid = centroid
-        if self._original_clip_box is not None and len(self._original_clip_box) and self._segment_mask is not None:
+        if (
+            self._original_clip_box is not None
+            and len(self._original_clip_box)
+            and self._segment_mask is not None
+        ):
             # clip the mask to this box as well
             x1, y1, x2, y2 = self._original_clip_box
             assert self._segment_mask.ndim == 2
@@ -125,7 +129,9 @@ class SegmBoundaries:
         else:
             bboxes = batch_item_bboxes
 
-        if (self._raise_bbox_center_by_height_ratio or self._raise_bbox_center_by_height_ratio != 1) or (
+        if (
+            self._raise_bbox_center_by_height_ratio or self._raise_bbox_center_by_height_ratio != 1
+        ) or (
             self._lower_bbox_bottom_by_height_ratio or self._lower_bbox_bottom_by_height_ratio != 1
         ):
             bbox_heights = calculate_box_heights(bboxes)

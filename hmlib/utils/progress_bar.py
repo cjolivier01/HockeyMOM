@@ -158,7 +158,11 @@ class _CursesUI:
             except Exception:
                 pass
         # Recreate windows if needed
-        if self._header_win is None or self._log_win is None or header_height != self._last_header_height:
+        if (
+            self._header_win is None
+            or self._log_win is None
+            or header_height != self._last_header_height
+        ):
             self._last_header_height = header_height
             if self._header_win is not None:
                 del self._header_win
@@ -384,7 +388,9 @@ class ScrollOutput:
 
         # Create and add our custom handler
         callback_handler = CallbackStreamHandler(self.write)
-        callback_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        callback_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        )
         logger.addHandler(callback_handler)
         return self
 
@@ -605,7 +611,9 @@ class ProgressBar:
         self._line_count += 1
 
     def print_table(self):
-        self._line_count += write_dict_in_columns(self.table_map, progress_out, self._get_bar_width())
+        self._line_count += write_dict_in_columns(
+            self.table_map, progress_out, self._get_bar_width()
+        )
         progress_out.flush()
 
     @contextlib.contextmanager

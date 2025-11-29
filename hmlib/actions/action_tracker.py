@@ -52,7 +52,9 @@ class ActionTracker:
             except Exception:
                 continue
 
-    def draw(self, image: torch.Tensor, tracking_ids: torch.Tensor, bboxes_tlwh: torch.Tensor) -> torch.Tensor:
+    def draw(
+        self, image: torch.Tensor, tracking_ids: torch.Tensor, bboxes_tlwh: torch.Tensor
+    ) -> torch.Tensor:
         if not self._show:
             return image
         assert len(tracking_ids) == len(bboxes_tlwh)

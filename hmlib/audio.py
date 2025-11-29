@@ -132,7 +132,9 @@ def concatenate_audio(files) -> tempfile.TemporaryFile:
     return temp_file
 
 
-def copy_audio(input_audio: Union[str, List[str]], input_video: str, output_video: str, shortest: bool = True):
+def copy_audio(
+    input_audio: Union[str, List[str]], input_video: str, output_video: str, shortest: bool = True
+):
     """Copy or merge audio from one or more sources into a target video.
 
     @param input_audio: Single path, list of paths, or dict with ``\"left\"``/``\"right\"`` keys.

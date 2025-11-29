@@ -125,7 +125,9 @@ def json_to_dataclass(json_str, cls):
 
 
 class DataFrameDataset(Dataset):
-    def __init__(self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None, seek_base: int = 0):
+    def __init__(
+        self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None, seek_base: int = 0
+    ):
         """
         Args:
             dataframe (pd.DataFrame): a pandas DataFrame containing the data.
@@ -189,7 +191,9 @@ class DataFrameDatasetIterator:
 #         return data
 
 
-def find_latest_dataframe_file(game_dir: Optional[str], stem: str, extension: str = ".csv") -> Optional[str]:
+def find_latest_dataframe_file(
+    game_dir: Optional[str], stem: str, extension: str = ".csv"
+) -> Optional[str]:
     """Return the newest CSV path for a dataframe in ``game_dir``.
 
     Looks for ``{stem}.csv`` and ``{stem}-N.csv`` files, returning the one with

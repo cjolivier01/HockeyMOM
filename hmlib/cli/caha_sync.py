@@ -79,7 +79,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         teams = div["teams"]
         if args.limit_teams > 0:
             teams = teams[: args.limit_teams]
-        print(f"  Division {div['name']} (level={div['id']} conf={div['conferenceId']}) teams={len(teams)}")
+        print(
+            f"  Division {div['name']} (level={div['id']} conf={div['conferenceId']}) teams={len(teams)}"
+        )
         for t in teams:
             team_id = t.pop("id")
             team_name = t.pop("name")
