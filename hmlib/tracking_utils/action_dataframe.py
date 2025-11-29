@@ -7,7 +7,7 @@ to append frames and convert to/from mmaction ``ActionDataSample`` objects.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pandas as pd
 import torch
@@ -43,10 +43,12 @@ class ActionDataFrame(HmDataFrameBase):
 
     def add_frame_records(self, frame_id: int, action_json: str) -> None:
         frame_id = int(frame_id)
-        rec = pd.DataFrame({
-            "Frame": [frame_id],
-            "ActionJSON": [action_json],
-        })
+        rec = pd.DataFrame(
+            {
+                "Frame": [frame_id],
+                "ActionJSON": [action_json],
+            }
+        )
         self._dataframe_list.append(rec)
         self.counter += 1
         if self.counter >= self.write_interval:
@@ -137,7 +139,9 @@ class ActionDataFrame(HmDataFrameBase):
             out.append(ds)
         return out
 
-    def get_samples(self, start_frame: Optional[int] = None, end_frame: Optional[int] = None) -> List[List[_ActionDataSample]]:
+    def get_samples(
+        self, start_frame: Optional[int] = None, end_frame: Optional[int] = None
+    ) -> List[List[_ActionDataSample]]:
         """Return per-frame action samples for a frame range (inclusive)."""
         if self.data is None or self.data.empty:
             return []

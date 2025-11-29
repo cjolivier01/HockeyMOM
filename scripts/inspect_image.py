@@ -1,15 +1,13 @@
 import argparse
 
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-
 parser = argparse.ArgumentParser(
     description=(
-        "Inspect an image: left-click prints pixel RGB; "
-        "Shift+left-drag draws a region and prints average RGB."
+        "Inspect an image: left-click prints pixel RGB; " "Shift+left-drag draws a region and prints average RGB."
     )
 )
 parser.add_argument("image_path", help="Path to the image to inspect")
@@ -87,6 +85,7 @@ def apply_rgb_offsets(data: np.ndarray, r: float, g: float, b: float) -> np.ndar
     # Unsupported format; return unchanged
     return data
 
+
 try:
     # Load image
     img = Image.open(image_path)
@@ -94,9 +93,7 @@ try:
 
     # Apply optional RGB offsets before any display/analysis
     if args.red != 0.0 or args.green != 0.0 or args.blue != 0.0:
-        print(
-            f"Applying offsets: R={args.red:+.2f}, G={args.green:+.2f}, B={args.blue:+.2f}"
-        )
+        print(f"Applying offsets: R={args.red:+.2f}, G={args.green:+.2f}, B={args.blue:+.2f}")
     data = apply_rgb_offsets(data, args.red, args.green, args.blue)
 
     # Ensure we work with RGB for averaging; ignore alpha if present
@@ -109,9 +106,7 @@ try:
 
     # Print whole-image average RGB at startup
     whole_mean = rgb_data.mean(axis=(0, 1))
-    print(
-        f"Whole image average RGB: R={whole_mean[0]:.2f}, G={whole_mean[1]:.2f}, B={whole_mean[2]:.2f}"
-    )
+    print(f"Whole image average RGB: R={whole_mean[0]:.2f}, G={whole_mean[1]:.2f}, B={whole_mean[2]:.2f}")
 
     fig, ax = plt.subplots()
     ax.imshow(data)
@@ -119,11 +114,7 @@ try:
     ax.set_title(title_base)
 
     # On-screen legend
-    legend_text = (
-        "Controls:\n"
-        "  • Left click: pixel RGB\n"
-        "  • Shift+Left-drag: draw region; release prints average"
-    )
+    legend_text = "Controls:\n" "  • Left click: pixel RGB\n" "  • Shift+Left-drag: draw region; release prints average"
     ax.text(
         0.01,
         0.99,
@@ -225,9 +216,7 @@ try:
         region = rgb_data[yi0 : yi1 + 1, xi0 : xi1 + 1]
         if region.size > 0:
             m = region.mean(axis=(0, 1))
-            ax.set_title(
-                f"{title_base} | Live avg RGB: R={m[0]:.2f}, G={m[1]:.2f}, B={m[2]:.2f}"
-            )
+            ax.set_title(f"{title_base} | Live avg RGB: R={m[0]:.2f}, G={m[1]:.2f}, B={m[2]:.2f}")
         else:
             ax.set_title(title_base)
         fig.canvas.draw()

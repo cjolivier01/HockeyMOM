@@ -18,7 +18,11 @@ class Interval:
 
 
 def _parse_time_or_frames(
-    info: BasicVideoInfo, start: Optional[str], duration: Optional[str], start_frame: Optional[int], duration_frames: Optional[int]
+    info: BasicVideoInfo,
+    start: Optional[str],
+    duration: Optional[str],
+    start_frame: Optional[int],
+    duration_frames: Optional[int],
 ) -> Interval:
     fps = float(info.fps)
     total_frames = int(info.frame_count)
@@ -395,7 +399,9 @@ def make_parser() -> argparse.ArgumentParser:
         default=None,
         help="Default aspect ratio (width/height). If no baseline, a 16:9 box with full video height is used regardless",
     )
-    ap.add_argument("--playback-speed", type=float, default=1.0, help="Playback speed factor (e.g., 0.5 for half-speed)")
+    ap.add_argument(
+        "--playback-speed", type=float, default=1.0, help="Playback speed factor (e.g., 0.5 for half-speed)"
+    )
     ap.add_argument("--overlay", dest="overlay", action="store_true", help="Show baseline overlay while playing")
     ap.add_argument(
         "--lock-baseline-height",

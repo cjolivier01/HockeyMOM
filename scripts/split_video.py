@@ -26,9 +26,7 @@ def split_video(input_file, split_count):
             "default=noprint_wrappers=1:nokey=1",
             input_file,
         ]
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
-        )
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
         duration = float(result.stdout.strip())
     except subprocess.CalledProcessError as e:
         print(f"Error getting duration of video: {e.stderr}")
@@ -101,9 +99,7 @@ def split_video(input_file, split_count):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Split a video file into multiple parts.")
     parser.add_argument("input_video", help="Path to the input video file.")
-    parser.add_argument(
-        "--split-count", type=int, default=3, help="Number of parts to split the video into."
-    )
+    parser.add_argument("--split-count", type=int, default=3, help="Number of parts to split the video into.")
 
     args = parser.parse_args()
 

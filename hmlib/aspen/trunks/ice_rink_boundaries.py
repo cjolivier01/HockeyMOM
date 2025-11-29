@@ -73,10 +73,7 @@ class IceRinkSegmBoundariesTrunk(Trunk):
             track_data_sample = track_samples
         video_len = len(track_data_sample)
 
-        draw_mask: bool = bool(
-            context.get("plot_ice_mask")
-            or context.get("shared", {}).get("plot_ice_mask", False)
-        )
+        draw_mask: bool = bool(context.get("plot_ice_mask") or context.get("shared", {}).get("plot_ice_mask", False))
         self._ensure_pipeline(context, draw_mask)
 
         # Optional original_images for overlay
@@ -260,6 +257,7 @@ class IceRinkSegmConfigTrunk(Trunk):
         if self._rink_profile is None:
             try:
                 from hmlib.segm.ice_rink import confgure_ice_rink_mask
+
                 game_id = context.get("game_id") or context.get("shared", {}).get("game_id")
                 # Prefer original_images if available (channels-last), fallback to detection image
                 img = data.get("original_images")

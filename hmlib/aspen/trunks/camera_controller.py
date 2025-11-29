@@ -8,11 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from mmengine.structures import InstanceData
 
-from hmlib.bbox.box_functions import (
-    center,
-    clamp_box,
-    make_box_at_center,
-)
+from hmlib.bbox.box_functions import center, clamp_box, make_box_at_center
 from hmlib.builder import HM
 from hmlib.camera.camera_transformer import (
     CameraNorm,

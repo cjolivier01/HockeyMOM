@@ -28,6 +28,7 @@ MYPYPATH solves the problem of in-line type hints, or stub files included in lib
 
 Inspired by: https://github.com/thundergolfer/bazel-mypy-integration/pull/25/files
 """
+
 import sys
 from pathlib import Path
 

@@ -167,9 +167,7 @@ def get_default_dist_url():
     """Return a default dist-url based on SLURM environment variables."""
     if "MASTER_ADDR" in os.environ:
         assert "MASTER_PORT" in os.environ
-        return get_dist_url(
-            os.environ["MASTER_ADDR"], port=int(os.environ["MASTER_PORT"])
-        )
+        return get_dist_url(os.environ["MASTER_ADDR"], port=int(os.environ["MASTER_PORT"]))
 
     nodelist = os.environ.get("SLURM_JOB_NODELIST", None)
     if not nodelist:

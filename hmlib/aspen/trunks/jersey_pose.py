@@ -81,6 +81,7 @@ class JerseyNumberFromPoseTrunk(Trunk):
     @staticmethod
     def _process_mmocr_results(ocr_results: Dict[str, Any], det_thresh: float = 0.5, rec_thresh: float = 0.8):
         from mmocr.utils import poly2bbox
+
         predictions = ocr_results["predictions"]
         if isinstance(predictions, list) and len(predictions) >= 1:
             predictions = predictions[0]

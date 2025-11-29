@@ -8,7 +8,6 @@ from torch.utils.data import Dataset
 
 
 class MultiDatasetWrapper(Dataset):
-
     def __init__(self, *args, forgive_missing_attributes: List[str] = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._datasets: OrderedDict[str, Dataset] = {}
@@ -104,6 +103,4 @@ class MultiDatasetWrapper(Dataset):
         except AttributeError as ex:
             # Optionally, you can handle the case where the
             # attribute doesn't exist in __wrapped_class either
-            raise AttributeError(
-                f"'{type(self).__name__}' object has no attribute '{name}', caused by: {str(ex)}"
-            )
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}', caused by: {str(ex)}")

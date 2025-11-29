@@ -69,9 +69,7 @@ inference_pipeline = [
     ),
     dict(pad_val=114.0, size_divisor=32, type="HmPad"),
     dict(
-        meta_keys=(
-            "img_metas",
-        ),
+        meta_keys=("img_metas",),
         type="mmdet.PackTrackInputs",
     ),
 ]

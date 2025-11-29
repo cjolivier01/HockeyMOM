@@ -9,13 +9,7 @@ import hmlib.vis.pt_visualization as ptv
 from hmlib.config import prepend_root_dir
 from hmlib.segm.ice_rink import MaskEdgeDistances, find_extreme_points
 from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    is_channels_first,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
 from hmlib.utils.time import format_duration_to_hhmmss
 
 
@@ -34,7 +28,6 @@ def paste_watermark_at_position(dest_image, watermark_rgb_channels, watermark_ma
 
 @TRANSFORMS.register_module()
 class HmImageOverlays:
-
     def __init__(
         self,
         frame_number: bool = False,
@@ -192,20 +185,20 @@ class HmImageOverlays:
                 cy_cl = int((top_y + bot_y) / 2)
             src_pts = np.float32(
                 [
-                    [left_x, cy_cl],   # left mid
+                    [left_x, cy_cl],  # left mid
                     [right_x, cy_cl],  # right mid
-                    [cx_cl, top_y],    # top mid
-                    [cx_cl, bot_y],    # bottom mid
+                    [cx_cl, top_y],  # top mid
+                    [cx_cl, bot_y],  # bottom mid
                 ]
             )
             # Destination canonical rink coords (feet)
             Rw, Rh = self._rink_dims_ft
             dst_pts = np.float32(
                 [
-                    [0.0, Rh / 2.0],    # left mid
-                    [Rw, Rh / 2.0],     # right mid
-                    [Rw / 2.0, 0.0],    # top mid
-                    [Rw / 2.0, Rh],     # bottom mid
+                    [0.0, Rh / 2.0],  # left mid
+                    [Rw, Rh / 2.0],  # right mid
+                    [Rw / 2.0, 0.0],  # top mid
+                    [Rw / 2.0, Rh],  # bottom mid
                 ]
             )
             H = cv2.getPerspectiveTransform(src_pts, dst_pts)
@@ -260,20 +253,44 @@ class HmImageOverlays:
             )
             # Fill semicircles at ends
             rink_canvas = ptv.draw_circle(
-                rink_canvas, center_x=rect_left, center_y=radius, radius=radius, color=(255, 255, 255), thickness=1, fill=True
+                rink_canvas,
+                center_x=rect_left,
+                center_y=radius,
+                radius=radius,
+                color=(255, 255, 255),
+                thickness=1,
+                fill=True,
             )
             rink_canvas = ptv.draw_circle(
-                rink_canvas, center_x=rect_right, center_y=radius, radius=radius, color=(255, 255, 255), thickness=1, fill=True
+                rink_canvas,
+                center_x=rect_right,
+                center_y=radius,
+                radius=radius,
+                color=(255, 255, 255),
+                thickness=1,
+                fill=True,
             )
             # Border outline (approximate): vertical edges + circle outlines
             rink_canvas = vis.plot_rectangle(
                 rink_canvas, box=[rect_left, 0, rect_right, mini_h - 1], color=(0, 0, 0), thickness=2
             )
             rink_canvas = ptv.draw_circle(
-                rink_canvas, center_x=rect_left, center_y=radius, radius=radius, color=(0, 0, 0), thickness=2, fill=False
+                rink_canvas,
+                center_x=rect_left,
+                center_y=radius,
+                radius=radius,
+                color=(0, 0, 0),
+                thickness=2,
+                fill=False,
             )
             rink_canvas = ptv.draw_circle(
-                rink_canvas, center_x=rect_right, center_y=radius, radius=radius, color=(0, 0, 0), thickness=2, fill=False
+                rink_canvas,
+                center_x=rect_right,
+                center_y=radius,
+                radius=radius,
+                color=(0, 0, 0),
+                thickness=2,
+                fill=False,
             )
             # Center and blue lines
             cx_px = int((self._rink_dims_ft[0] / 2.0) * scale)
@@ -297,8 +314,8 @@ class HmImageOverlays:
                     m = mask.to(torch.bool)
                     keep = []
                     for i in range(pts.shape[0]):
-                        x = int(max(0, min(m.shape[1]-1, int(pts[i,0].item()))))
-                        y = int(max(0, min(m.shape[0]-1, int(pts[i,1].item()))))
+                        x = int(max(0, min(m.shape[1] - 1, int(pts[i, 0].item()))))
+                        y = int(max(0, min(m.shape[0] - 1, int(pts[i, 1].item()))))
                         if y < m.shape[0] and x < m.shape[1] and bool(m[y, x].item()):
                             keep.append(True)
                         else:
@@ -317,9 +334,7 @@ class HmImageOverlays:
                 uv = uvw[:2, :] / w
                 uv = uv.t()  # Nx2 in rink feet
                 # Scale to canvas px
-                uv_px = torch.stack(
-                    [uv[:, 0] * scale, uv[:, 1] * scale], dim=1
-                )  # Nx2
+                uv_px = torch.stack([uv[:, 0] * scale, uv[:, 1] * scale], dim=1)  # Nx2
                 # Draw circles
                 for i in range(uv_px.shape[0]):
                     px = int(uv_px[i, 0].item())
@@ -347,7 +362,9 @@ class HmImageOverlays:
             paste_w = min(mini_w - sx, fw - dx)
             paste_h = min(mini_h - sy, fh - dy)
             if paste_w > 1 and paste_h > 1:
-                frame_img[:, dy:dy+paste_h, dx:dx+paste_w] = rink_canvas[:, sy:sy+paste_h, sx:sx+paste_w]
+                frame_img[:, dy : dy + paste_h, dx : dx + paste_w] = rink_canvas[
+                    :, sy : sy + paste_h, sx : sx + paste_w
+                ]
             img[bi] = frame_img
         # Restore original dims
         if sq:

@@ -62,5 +62,3 @@ class PersistCacheMixin:
         if key not in cache:
             cache[key] = factory().detach()
         return cache[key]
-
-

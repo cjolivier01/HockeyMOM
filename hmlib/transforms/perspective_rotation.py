@@ -21,9 +21,7 @@ def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tens
 
 def image_wh(image: torch.Tensor):
     if image.shape[-1] in [3, 4]:
-        return torch.tensor(
-            [image.shape[-2], image.shape[-3]], dtype=torch.float, device=image.device
-        )
+        return torch.tensor([image.shape[-2], image.shape[-3]], dtype=torch.float, device=image.device)
     assert image.shape[1] in [3, 4]
     return torch.tensor([image.shape[-1], image.shape[-2]], dtype=torch.float, device=image.device)
 
@@ -138,12 +136,8 @@ class HmPerspectiveRotation:
         assert image.shape[-1] in [3, 4]
         img_wh = image_wh(image)
         min_width_per_side = torch.sqrt(torch.square(bbox_w) + torch.square(bbox_h)) / 2
-        clip_left = torch.max(self._zero_uint8, bbox_c[0] - min_width_per_side).to(
-            torch.int64, non_blocking=True
-        )
-        clip_right = torch.min(img_wh[0] - 1, bbox_c[0] + min_width_per_side).to(
-            torch.int64, non_blocking=True
-        )
+        clip_left = torch.max(self._zero_uint8, bbox_c[0] - min_width_per_side).to(torch.int64, non_blocking=True)
+        clip_right = torch.min(img_wh[0] - 1, bbox_c[0] + min_width_per_side).to(torch.int64, non_blocking=True)
         if image.ndim == 3:
             # no batch dimension
             image = image[:, clip_left:clip_right, :]

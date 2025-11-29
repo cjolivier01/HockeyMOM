@@ -111,30 +111,12 @@ tr_selectors = dict(
         " tr:nth-child(2) > td:nth-child(1) > table:nth-child(1) >"
         " tbody:nth-child(1) > tr:nth-child(n+2)"
     ),
-    awayScoring=(
-        "body > div > div.d50l > div.d25l > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
-    ),
-    homeScoring=(
-        "body > div > div.d50r > div.d25l > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
-    ),
-    awayPenalties=(
-        "body > div > div.d50l > div.d25r > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr"
-    ),
-    homePenalties=(
-        "body > div > div.d50r > div.d25r > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr"
-    ),
-    awayShootout=(
-        "body > div > div.d50l > div.d25l > table:nth-child(2) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
-    ),
-    homeShootout=(
-        "body > div > div.d50r > div.d25l > table:nth-child(2) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
-    ),
+    awayScoring=("body > div > div.d50l > div.d25l > table:nth-child(1) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
+    homeScoring=("body > div > div.d50r > div.d25l > table:nth-child(1) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
+    awayPenalties=("body > div > div.d50l > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"),
+    homePenalties=("body > div > div.d50r > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"),
+    awayShootout=("body > div > div.d50l > div.d25l > table:nth-child(2) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
+    homeShootout=("body > div > div.d50r > div.d25l > table:nth-child(2) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
 )
 
 columns = dict(
@@ -254,6 +236,7 @@ def NO_LINK_INT(a):
 def NO_LINK(a):
     return a[0] if a[0] else ""
 
+
 DIVISION_GAME_CONVERTERS = {
     "G": NO_LINK_INT,
     "GP": NO_LINK_INT,
@@ -272,9 +255,9 @@ def _parse_division_teams_table(table_html: str) -> list[dict[str, Any]]:
 
     Returns a list of team dicts with normalized columns.
     """
-    table = pd.read_html(
-        io.StringIO(table_html), extract_links="body", converters=DIVISION_GAME_CONVERTERS
-    )[0].fillna("")
+    table = pd.read_html(io.StringIO(table_html), extract_links="body", converters=DIVISION_GAME_CONVERTERS)[0].fillna(
+        ""
+    )
     if "Team" not in table.columns:
         return []
     team = table["Team"].apply(pd.Series)
@@ -308,9 +291,7 @@ def scrape_seasons():
     We discover season ids by scanning links for a `season=` query param
     and mark the max as Current. If none found, return only Current=0.
     """
-    soup = util.get_html(
-        MAIN_STATS_URL, params={"league": str(CAHA_LEAGUE), "stat_class": str(STAT_CLASS)}
-    )
+    soup = util.get_html(MAIN_STATS_URL, params={"league": str(CAHA_LEAGUE), "stat_class": str(STAT_CLASS)})
     season_ids: dict[str, int] = {}
     seasons: set[int] = set()
     for a in soup.find_all("a", href=True):
@@ -410,9 +391,7 @@ def scrape_season_divisions(season_id: int):
         }
 
     # Find all headers for divisions and collect teams within each block
-    for a in soup.find_all(
-        "a", href=True, string=lambda s: isinstance(s, str) and "Division Player Stats" in s
-    ):
+    for a in soup.find_all("a", href=True, string=lambda s: isinstance(s, str) and "Division Player Stats" in s):
         div = collect_for_header(a)
         if div:
             divisions.append(div)
@@ -518,9 +497,7 @@ def sync_divisions(db: Database, season: int):
     divs = scrape_season_divisions(season_id=season)
     print("Found %d divisions in season %s..." % (len(divs), season))
     for div in divs:
-        db.add_division(
-            division_id=div["id"], conference_id=div["conferenceId"], name=div["name"]
-        )
+        db.add_division(division_id=div["id"], conference_id=div["conferenceId"], name=div["name"])
         print("%s teams in %s" % (len(div["teams"]), div["name"]))
         for team in div["teams"]:
             team_id = team.pop("id")
@@ -597,13 +574,9 @@ def add_game(db: Database, season: int, team: dict[str, Any], game: dict[str, An
     home, away = game["home"], game["away"]
     if home == team["name"]:
         home_id = team["team_id"]
-        away_id = get_team_or_unknown(
-            db, away, season, team["division_id"], team["conference_id"]
-        )
+        away_id = get_team_or_unknown(db, away, season, team["division_id"], team["conference_id"])
     else:
-        home_id = get_team_or_unknown(
-            db, home, season, team["division_id"], team["conference_id"]
-        )
+        home_id = get_team_or_unknown(db, home, season, team["division_id"], team["conference_id"])
         away_id = team["team_id"]
     db.add_game(
         season_id=season,

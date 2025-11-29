@@ -17,9 +17,7 @@ import numpy as np
 
 from hmlib.analytics.play_breaks import find_low_velocity_ranges
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
-from hmlib.datasets.dataframe import (
-    json_to_dataclass,
-)
+from hmlib.datasets.dataframe import json_to_dataclass
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.time import format_duration_to_hhmmss
@@ -108,8 +106,7 @@ def find_crowded_periods(
 
             while (
                 end_frame < len(track_counts)
-                and np.sum(track_counts[start_frame:end_frame] >= min_tracks)
-                / (end_frame - start_frame)
+                and np.sum(track_counts[start_frame:end_frame] >= min_tracks) / (end_frame - start_frame)
                 >= occupancy_threshold
             ):
                 end_frame += 1
@@ -155,9 +152,7 @@ def remove_one_digit_numbers(numbers: List[int]) -> List[int]:
     two_digit_str: List[str] = [str(num) for num in two_digit]
 
     # Filter out one-digit numbers that appear in any two-digit number
-    filtered_one_digit: List[int] = [
-        num for num in one_digit if not any(str(num) in tds for tds in two_digit_str)
-    ]
+    filtered_one_digit: List[int] = [num for num in one_digit if not any(str(num) in tds for tds in two_digit_str)]
 
     # Combine the lists to form the final result
     return filtered_one_digit + two_digit
@@ -185,9 +180,7 @@ def remove_low_frequency_numbers(numbers: List[int], min_freq: float = 0.1) -> L
     threshold: float = max_freq * min_freq
 
     # Filter out numbers where the frequency is less than the threshold
-    filtered_numbers: List[int] = [
-        number for number, count in frequency.items() if count >= threshold
-    ]
+    filtered_numbers: List[int] = [number for number, count in frequency.items() if count >= threshold]
 
     return filtered_numbers
 
@@ -237,9 +230,7 @@ def reorder_jerseys_with_frames(
         (j for j in jersey_numbers if j in jersey_order), key=lambda x: jersey_order[x]
     )
 
-    return final_sorted_jerseys, {
-        jersey: sorted(frames) for jersey, frames in frames_per_jersey.items()
-    }
+    return final_sorted_jerseys, {jersey: sorted(frames) for jersey, frames in frames_per_jersey.items()}
 
 
 def analyze_track(
@@ -286,9 +277,7 @@ def analyze_track(
     #
     # If we get here, the track probably got split and all numbers are valid (hopefully)
     #
-    occuring_numbers, jersey_frames = reorder_jerseys_with_frames(
-        high_freq_numbers, frame_and_numbers
-    )
+    occuring_numbers, jersey_frames = reorder_jerseys_with_frames(high_freq_numbers, frame_and_numbers)
     #
     new_data: OrderedDict[Union[int, float], Dict[str, Any]] = {}
     for i, num in enumerate(occuring_numbers):
@@ -360,9 +349,7 @@ def panoramic_distance(image_width, x1, x2, rink_width=200):
     return distance
 
 
-def merge_intervals(
-    intervals: List[Tuple[float, float]], min_difference: float
-) -> List[Tuple[float, float]]:
+def merge_intervals(intervals: List[Tuple[float, float]], min_difference: float) -> List[Tuple[float, float]]:
 
     if not intervals:
         return intervals
@@ -456,12 +443,8 @@ def analyze_data(
                 # assert prev_frame_id != frame_id
                 # FIXME: batch size issue when saving frame data (hence the 2)
                 if prev_frame_id == frame_id - 1 or prev_frame_id == frame_id - 2:
-                    pandist_x = panoramic_distance(
-                        image_width=uncropped_width, x1=new_center[0], x2=prev_center[0]
-                    )
-                    pandist_y = panoramic_distance(
-                        image_width=uncropped_width, x1=new_center[1], x2=prev_center[1]
-                    )
+                    pandist_x = panoramic_distance(image_width=uncropped_width, x1=new_center[0], x2=prev_center[0])
+                    pandist_y = panoramic_distance(image_width=uncropped_width, x1=new_center[1], x2=prev_center[1])
                     velocity = math.sqrt(pandist_x**2 + pandist_y**2)
                     if frame_id not in frame_track_velocity:
                         frame_track_velocity[frame_id] = {}
@@ -611,9 +594,7 @@ def calculate_start_time_jerseys(
 
     start_time_jerseys: List[IntervalJerseys] = []
     for start_time, jersey_numbers in zip(start_times_s, interval_jersey_numbers):
-        start_time_jerseys.append(
-            IntervalJerseys(start_time=start_time, jersey_numbers=jersey_numbers)
-        )
+        start_time_jerseys.append(IntervalJerseys(start_time=start_time, jersey_numbers=jersey_numbers))
     return start_time_jerseys
 
 
@@ -644,11 +625,7 @@ def assign_numbers_to_intervals(
     for interval_index in range(len(frame_starts)):
 
         start_frame = frame_starts[interval_index]
-        end_frame = (
-            float("inf")
-            if interval_index == len(frame_starts) - 1
-            else frame_starts[interval_index + 1] - 1
-        )
+        end_frame = float("inf") if interval_index == len(frame_starts) - 1 else frame_starts[interval_index + 1] - 1
         frame_interval = end_frame - start_frame
         floating_start = start_frame + (1 - start_frame_offset_ratio) * frame_interval
         floating_end = end_frame - (1 - stop_frame_offset_ratio) * frame_interval
@@ -680,9 +657,7 @@ def show_time_intervals(label: str, intervals: List[Tuple[float, float]]) -> Non
     print("---------------------------------------------")
 
 
-def frames_to_seconds(
-    frame_tuple_list: List[Tuple[int, int]], fps: float
-) -> List[Tuple[float, float]]:
+def frames_to_seconds(frame_tuple_list: List[Tuple[int, int]], fps: float) -> List[Tuple[float, float]]:
     results: List[Tuple[int, int]] = []
     for start_end_frame in frame_tuple_list:
         start_frame, end_frame = start_end_frame
@@ -707,10 +682,7 @@ def interval_jerseys_to_merged_jersey_time_intervals(
         end = float("inf") if i == len(intervals) - 1 else intervals[i + 1].start_time
 
         for jersey in jerseys:
-            if (
-                not jersey_times[jersey]
-                or jersey_times[jersey][-1][1] < interval_jerseys.start_time
-            ):
+            if not jersey_times[jersey] or jersey_times[jersey][-1][1] < interval_jerseys.start_time:
                 # If no interval exists for this jersey, or there's no overlap
                 jersey_times[jersey].append([interval_jerseys.start_time, end])
             else:

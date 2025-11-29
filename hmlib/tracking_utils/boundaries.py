@@ -21,9 +21,7 @@ def adjust_point_for_clip_box(point: torch.Tensor, clip_box: torch.Tensor) -> to
     if point is not None:
         clip_upper_left = clip_box[0:2]
         if isinstance(point, list):
-            point = torch.tensor(
-                [point[0] - clip_upper_left[0], point[1] - clip_upper_left[1]], dtype=torch.int64
-            )
+            point = torch.tensor([point[0] - clip_upper_left[0], point[1] - clip_upper_left[1]], dtype=torch.int64)
         else:
             point = point - clip_upper_left
     return point
@@ -43,6 +41,7 @@ class BoundaryLines:
     """
     Obsolete manual boundary detection exclusion management
     """
+
     def __init__(
         self,
         upper_border_lines: Optional[torch.Tensor] = None,
@@ -141,9 +140,9 @@ class BoundaryLines:
         y_values_at_points_x = slopes * expanded_points[:, 0] + intercepts
 
         # Step 4: Filter for points where x is within the line segment's x range
-        within_x_range = (
-            expanded_points[:, 0] >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
-        ) & (expanded_points[:, 0] <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2]))
+        within_x_range = (expanded_points[:, 0] >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])) & (
+            expanded_points[:, 0] <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2])
+        )
 
         # Step 5: Determine if the point's y is above the line's y at that x
         points_above_line = (expanded_points[:, 1] > y_values_at_points_x) & within_x_range
@@ -180,9 +179,9 @@ class BoundaryLines:
         y_values_at_points_x = slopes * expanded_points[:, 0] + intercepts
 
         # Step 4: Filter for points where x is within the line segment's x range
-        within_x_range = (
-            expanded_points[:, 0] >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])
-        ) & (expanded_points[:, 0] <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2]))
+        within_x_range = (expanded_points[:, 0] >= torch.min(expanded_segments[:, 0], expanded_segments[:, 2])) & (
+            expanded_points[:, 0] <= torch.max(expanded_segments[:, 0], expanded_segments[:, 2])
+        )
 
         # Step 5: Determine if the point's y is below the line's y at that x
         points_above_line = (expanded_points[:, 1] < y_values_at_points_x) & within_x_range

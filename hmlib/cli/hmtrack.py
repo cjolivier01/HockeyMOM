@@ -24,14 +24,7 @@ import hmlib.transforms
 from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.camera.camera_head import CamTrackHead
-from hmlib.config import (
-    get_clip_box,
-    get_config,
-    get_game_dir,
-    get_nested_value,
-    resolve_global_refs,
-    set_nested_value,
-)
+from hmlib.config import get_clip_box, get_config, get_game_dir, get_nested_value, resolve_global_refs, set_nested_value
 from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
@@ -1041,9 +1034,11 @@ def setup_logging():
 def main():
     setup_logging()
 
-    # Just quick check to make sure you build PyTorch correctly
-    assert torch.cuda.is_available()
-    assert torch.backends.cudnn.is_available()
+    # Ensure CUDA runtime is usable before building pipelines that expect it.
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required to run hmtrack; no CUDA devices detected.")
+    if not torch.backends.cudnn.is_available():
+        raise RuntimeError("cuDNN is unavailable; verify your CUDA/cuDNN installation.")
 
     parser = make_parser()
     args = parser.parse_args()
@@ -1126,8 +1121,11 @@ def main():
 
 if __name__ == "__main__":
     try:
-        # get off the NULL stream right away
-        with torch.cuda.stream(torch.cuda.Stream(torch.device("cuda"))):
+        # Prefer a dedicated CUDA stream when available; otherwise fall back to CPU-friendly start.
+        if torch.cuda.is_available():
+            with torch.cuda.stream(torch.cuda.Stream(torch.device("cuda"))):
+                main()
+        else:
             main()
     except Exception as e:
         print(f"Exception during processing: {e}")

@@ -252,6 +252,7 @@ def draw_vertical_line(
 
     return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
+
 def draw_line(
     image: torch.Tensor,
     x1: int,

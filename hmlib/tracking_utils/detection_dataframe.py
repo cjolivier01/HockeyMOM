@@ -1,11 +1,12 @@
-from typing import Union, Dict, Any, Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 import torch
+from mmengine.structures import InstanceData
 
 from hmlib.datasets.dataframe import HmDataFrameBase
-from mmengine.structures import InstanceData
+
 try:  # Prefer vendored OpenMMLab structures
     from mmdet.structures import DetDataSample
 except Exception:  # pragma: no cover
@@ -128,9 +129,7 @@ class DetectionDataFrame(HmDataFrameBase):
         scores = frame_data["Scores"].to_numpy()
         labels = frame_data["Labels"].to_numpy()
         bboxes = frame_data[["BBox_X1", "BBox_Y1", "BBox_X2", "BBox_Y2"]].to_numpy()
-        pose_indices = (
-            frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
-        )
+        pose_indices = frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
         return dict(
             scores=self._to_outgoing_array(scores),
             labels=self._to_outgoing_array(labels),

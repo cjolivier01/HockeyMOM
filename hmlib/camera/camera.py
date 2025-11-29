@@ -57,7 +57,6 @@ class VideoFrame(object):
 
 
 class TlwhHistory(object):
-
     def __init__(self, id: int, max_history_length: int = 25):
         self.id_ = id
         self._max_history_length = max_history_length
@@ -83,24 +82,17 @@ class TlwhHistory(object):
             assert current_historty_length == self._max_history_length - 1
             removing_image_point = self._image_position_history[0]
             self._image_position_history = self._image_position_history[1:]
-            old_image_distance = torch.linalg.norm(
-                removing_image_point - self._image_position_history[0]
-            )
+            old_image_distance = torch.linalg.norm(removing_image_point - self._image_position_history[0])
             self._image_distance_sum -= old_image_distance
         if len(self._image_position_history) > 0:
-            new_image_distance = torch.linalg.norm(
-                image_position - self._image_position_history[-1]
-            )
+            new_image_distance = torch.linalg.norm(image_position - self._image_position_history[-1])
             self._image_distance_sum += new_image_distance
         self._image_position_history.append(image_position)
         if len(self._image_position_history) > 1:
-            self._current_image_speed = self._image_distance_sum / (
-                len(self._image_position_history) - 1
-            )
+            self._current_image_speed = self._image_distance_sum / (len(self._image_position_history) - 1)
             if len(self._image_position_history) >= X_SPEED_HISTORY_LENGTH:
                 self._current_image_x_speed = (
-                    self._image_position_history[-1][0]
-                    - self._image_position_history[-X_SPEED_HISTORY_LENGTH][0]
+                    self._image_position_history[-1][0] - self._image_position_history[-X_SPEED_HISTORY_LENGTH][0]
                 ) / float(
                     X_SPEED_HISTORY_LENGTH
                 )  # type: ignore
@@ -154,6 +146,7 @@ class HockeyMOM:
     """
     The Observer (The Mom)
     """
+
     # Frames per second that normal speeds are calculated for
     BASE_FPS: float = 29.97
 
@@ -186,15 +179,11 @@ class HockeyMOM:
         self._camera_box_max_speed_y = self._to_scalar_float(
             max(image_height / CAMERA_TYPE_MAX_SPEEDS[camera_name], 12.0)
         )
-        logger.info(
-            f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}"
-        )
+        logger.info(f"Camera Max speeds: x={self._camera_box_max_speed_x}, y={self._camera_box_max_speed_y}")
 
         self._camera_box_max_accel_x = self._to_scalar_float(1) / self._speed_scale
         self._camera_box_max_accel_y = self._to_scalar_float(1) / self._speed_scale
-        logger.info(
-            f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}"
-        )
+        logger.info(f"Camera Max acceleration: dx={self._camera_box_max_accel_x}, dy={self._camera_box_max_accel_y}")
 
     def _to_scalar_float(self, scalar_float):
         return torch.tensor(scalar_float, dtype=torch.float, device=self._device)
@@ -210,9 +199,7 @@ class HockeyMOM:
         self._online_ids = online_ids
         self._online_tlws = online_tlws
         if len(online_tlws) != 0:
-            self._online_image_center_points = torch.stack(
-                [TlwhHistory.center_point(twls) for twls in online_tlws]
-            )
+            self._online_image_center_points = torch.stack([TlwhHistory.center_point(twls) for twls in online_tlws])
         else:
             self._online_image_center_points = []
 
@@ -220,9 +207,7 @@ class HockeyMOM:
         prev_dict = self._id_to_tlwhs_history_map
         self._id_to_tlwhs_history_map = dict()
         for id, image_pos in zip(self._online_ids, self._online_tlws):
-            hist = prev_dict.get(
-                id.item(), TlwhHistory(id=id.item(), max_history_length=self._max_history)
-            )
+            hist = prev_dict.get(id.item(), TlwhHistory(id=id.item(), max_history_length=self._max_history))
             hist.append(image_position=image_pos)
             self._id_to_tlwhs_history_map[id.item()] = hist
 
@@ -242,9 +227,7 @@ class HockeyMOM:
         position_history = self._id_to_tlwhs_history_map[id.item()]
         return position_history.image_position_history[-1]
 
-    def get_group_x_velocity(
-        self, min_considered_velocity: float = 0.01, group_threshhold: float = 0.6
-    ):
+    def get_group_x_velocity(self, min_considered_velocity: float = 0.01, group_threshhold: float = 0.6):
         neg_count = 0
         pos_count = 0
         idle_count = 0

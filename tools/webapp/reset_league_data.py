@@ -5,7 +5,6 @@ import sys
 from typing import Optional
 
 
-
 def load_db_cfg(config_path: str) -> dict:
     with open(config_path, "r", encoding="utf-8") as fh:
         cfg = json.load(fh)
@@ -127,7 +126,9 @@ def wipe_league(conn, league_id: int) -> dict:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="Reset hockey data (teams/players/games/stats) without touching users or permissions")
+    ap = argparse.ArgumentParser(
+        description="Reset hockey data (teams/players/games/stats) without touching users or permissions"
+    )
     ap.add_argument("--config", default="/opt/hm-webapp/app/config.json")
     ap.add_argument("--force", action="store_true", help="Do not prompt for confirmation")
     ap.add_argument("--league-id", type=int, default=None, help="Only wipe data associated to this league id")
@@ -170,4 +171,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

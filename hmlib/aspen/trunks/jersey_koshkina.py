@@ -108,15 +108,20 @@ class KoshkinaJerseyNumberTrunk(Trunk):
             try:
                 # Prefer jersey-number-pipeline's LegibilityClassifier34 wrapper for state_dict compatibility
                 import sys as _sys
-                pipeline_path = os.environ.get("HM_JERSEY_PIPELINE_PATH", "/mnt/monster-data/colivier/src/jersey-number-pipeline")
+
+                pipeline_path = os.environ.get(
+                    "HM_JERSEY_PIPELINE_PATH", "/mnt/monster-data/colivier/src/jersey-number-pipeline"
+                )
                 if os.path.isdir(pipeline_path) and pipeline_path not in _sys.path:
                     _sys.path.insert(0, pipeline_path)
                 try:
                     from networks import LegibilityClassifier34  # type: ignore
+
                     leg_model = LegibilityClassifier34()
                 except Exception:
                     # Fallback to torchvision if import fails
                     from torchvision.models import resnet34
+
                     leg_model = resnet34(weights=None)
                     leg_model.fc = nn.Linear(leg_model.fc.in_features, 1)
 
@@ -166,13 +171,13 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                 state = None
                 # First try default torch.load (may use weights_only=True on torch>=2.6 and fail)
                 try:
-                    state_raw = torch.load(weights, map_location='cpu')
-                    state = state_raw.get('state_dict', state_raw) if isinstance(state_raw, dict) else state_raw
+                    state_raw = torch.load(weights, map_location="cpu")
+                    state = state_raw.get("state_dict", state_raw) if isinstance(state_raw, dict) else state_raw
                 except Exception as ex_default:
                     # Retry with weights_only=False (trusted local ckpt)
                     try:
-                        state_raw = torch.load(weights, map_location='cpu', weights_only=False)  # type: ignore[call-arg]
-                        state = state_raw.get('state_dict', state_raw) if isinstance(state_raw, dict) else state_raw
+                        state_raw = torch.load(weights, map_location="cpu", weights_only=False)  # type: ignore[call-arg]
+                        state = state_raw.get("state_dict", state_raw) if isinstance(state_raw, dict) else state_raw
                         logger.info("PARSeq checkpoint loaded with weights_only=False.")
                     except TypeError:
                         # Older torch may not accept weights_only; rethrow original
@@ -186,13 +191,13 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                         ml = 25
                         try:
                             for k, v in state.items():
-                                if isinstance(k, str) and k.endswith('pos_queries') and hasattr(v, 'shape'):
+                                if isinstance(k, str) and k.endswith("pos_queries") and hasattr(v, "shape"):
                                     if len(v.shape) >= 2:
                                         ml = int(v.shape[1] - 1)
                                         break
                         except Exception:
                             pass
-                        model = create_model('parseq', pretrained=False, charset_test=charset, max_label_length=ml)
+                        model = create_model("parseq", pretrained=False, charset_test=charset, max_label_length=ml)
                         missing, unexpected = model.load_state_dict(state, strict=False)
                         if missing:
                             logger.info(f"PARSeq load: missing keys: {len(missing)}")
@@ -202,7 +207,7 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                         logger.info(f"PARSeq load_state_dict failed ({ex_load}); proceeding with uninitialized model.")
             if model is None:
                 # Use a default max_label_length compatible with typical PARSeq checkpoints
-                model = create_model('parseq', pretrained=False, charset_test=charset, max_label_length=25)
+                model = create_model("parseq", pretrained=False, charset_test=charset, max_label_length=25)
             self._parseq_model = model.eval().to(dev)
             hp = getattr(self._parseq_model, "hparams", None)
             img_size = hp.img_size if hp is not None else (32, 128)
@@ -265,7 +270,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         return None
 
     @staticmethod
-    def _torso_roi_from_pose(kpts: torch.Tensor, kps: Optional[torch.Tensor], img_w: int, img_h: int) -> Optional[Tuple[int, int, int, int]]:
+    def _torso_roi_from_pose(
+        kpts: torch.Tensor, kps: Optional[torch.Tensor], img_w: int, img_h: int
+    ) -> Optional[Tuple[int, int, int, int]]:
         # Use COCO indices: 5=LS, 6=RS, 11=LH, 12=RH
         try:
             px = kpts.clone().detach()
@@ -358,7 +365,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         return 0.61 if v > 9 else 0.39
 
     @staticmethod
-    def _aggregate_track(votes: List[Tuple[int, float]], filter_thresh: float = 0.2, sum_thresh: float = 1.0) -> Tuple[int, float]:
+    def _aggregate_track(
+        votes: List[Tuple[int, float]], filter_thresh: float = 0.2, sum_thresh: float = 1.0
+    ) -> Tuple[int, float]:
         if not votes:
             return -1, 0.0
         # Filter weak
@@ -452,7 +461,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                             best_j = pj
                     roi: Optional[Tuple[int, int, int, int]] = None
                     if best_j >= 0 and best_iou > 0.1:
-                        roi = self._torso_roi_from_pose(kpts_all[best_j], None if kps_all is None else kps_all[best_j], W, H)
+                        roi = self._torso_roi_from_pose(
+                            kpts_all[best_j], None if kps_all is None else kps_all[best_j], W, H
+                        )
                     if roi is None:
                         roi = self._bbox_torso_fallback(tb.to(dtype=torch.int64), W, H)
                     rois.append((ti, roi))
@@ -472,7 +483,9 @@ class KoshkinaJerseyNumberTrunk(Trunk):
                     crop = frame_img[:, y1:y2, x1:x2]
                     if crop.numel() == 0:
                         continue
-                    crop = F.interpolate(crop.unsqueeze(0).to(dtype=torch.float32), size=(128, 128), mode="bilinear", align_corners=False).squeeze(0)
+                    crop = F.interpolate(
+                        crop.unsqueeze(0).to(dtype=torch.float32), size=(128, 128), mode="bilinear", align_corners=False
+                    ).squeeze(0)
                     crop = self._preprocess_imagenet(crop)
                     crops_for_leg.append(crop)
                     map_idx.append(idx)

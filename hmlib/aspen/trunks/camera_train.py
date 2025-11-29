@@ -8,9 +8,9 @@ from torch import nn, optim
 from torch.utils.data import DataLoader, random_split
 
 from hmlib.builder import HM
-from hmlib.log import logger
 from hmlib.camera.camera_model_dataset import CameraPanZoomDataset
 from hmlib.camera.camera_transformer import CameraPanZoomTransformer, pack_checkpoint
+from hmlib.log import logger
 
 from .base import Trunk
 
@@ -60,9 +60,7 @@ class CameraTrainTrunk(Trunk):
         if not self.enabled:
             return {}
         assert self._tracking_csv and self._camera_csv, "tracking_csv and camera_csv are required"
-        ds = CameraPanZoomDataset(
-            tracking_csv=self._tracking_csv, camera_csv=self._camera_csv, window=self._window
-        )
+        ds = CameraPanZoomDataset(tracking_csv=self._tracking_csv, camera_csv=self._camera_csv, window=self._window)
         n = len(ds)
         n_val = max(1, int(n * self._val_split))
         n_train = max(1, n - n_val)
@@ -107,4 +105,3 @@ class CameraTrainTrunk(Trunk):
                 torch.save(ckpt, self._out)
                 logger.info(f"Saved camera transformer checkpoint to {self._out}")
         return {"camera_model_path": self._out}
-

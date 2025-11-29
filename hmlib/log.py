@@ -1,5 +1,6 @@
 """Logging helpers that wrap mmengine's :class:`MMLogger` for hmlib."""
 
+import logging  # noqa: F401
 from typing import Union
 
 from mmengine.logging import MMLogger
@@ -21,6 +22,7 @@ logger = MMLogger.get_current_instance()
 
 #     logger.setLevel(logging.DEBUG)
 #     # logger.setLevel(logging.INFO)
+
 
 #     logger.addHandler(handler)
 #     return logger

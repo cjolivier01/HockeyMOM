@@ -12,7 +12,7 @@ def _normalize(x):
     if isinstance(x, dict):
         return {k: _normalize(v) for k, v in x.items()}
     if isinstance(x, (list, tuple)):
-        return [ _normalize(v) for v in x ]
+        return [_normalize(v) for v in x]
     return x
 
 

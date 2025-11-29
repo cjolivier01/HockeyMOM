@@ -116,9 +116,7 @@ def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
     return groups
 
 
-def extract_pairs_from_row(
-    row: pd.Series, start_cols: List[int], end_cols: List[int]
-) -> List[Tuple[str, str]]:
+def extract_pairs_from_row(row: pd.Series, start_cols: List[int], end_cols: List[int]) -> List[Tuple[str, str]]:
     """
     From start/end column groups, collect non-empty strings and pair positionally.
     Start/End order in the sheet can be higher->lower or lower->higher; pairing is positional only.
@@ -183,9 +181,7 @@ def parse_goal_token(token: str) -> GoalEvent:
     token = token.strip()
     m = re.fullmatch(r"(?i)(GF|GA)\s*:\s*([1-9]\d*)\s*/\s*([0-9:]+(?:\.[0-9]+)?)", token)
     if not m:
-        raise ValueError(
-            f"Bad goal token '{token}'. Expected GF:period/time or GA:period/time"
-        )
+        raise ValueError(f"Bad goal token '{token}'. Expected GF:period/time or GA:period/time")
     kind = m.group(1).upper()
     period = int(m.group(2))
     t_str = m.group(3)
@@ -232,9 +228,7 @@ def _prompt_select_team(game_info: dict) -> str:
         print("Invalid choice. Please enter 1 or 2.")
 
 
-def goals_from_t2s(
-    game_id: int, *, team_side: Optional[str] = None
-) -> Tuple[List[GoalEvent], Optional[str]]:
+def goals_from_t2s(game_id: int, *, team_side: Optional[str] = None) -> Tuple[List[GoalEvent], Optional[str]]:
     """
     Retrieve goals from TimeToScore for a game id and map them to GF/GA based on
     the selected side (home/away).
@@ -259,6 +253,7 @@ def goals_from_t2s(
     away_sc = stats.get("awayScoring") or []
 
     events: List[GoalEvent] = []
+
     # Helper to ensure period is int and time is mm:ss string (floor fractional seconds)
     def _mk_event(kind: str, period_val, time_val) -> Optional[GoalEvent]:
         if period_val is None or time_val is None:
@@ -380,9 +375,7 @@ def process_sheet(
     MAX_SHIFT_SECONDS = 30 * 60  # 30 minutes
 
     # Simple helper to report validation issues
-    def _report_validation(
-        kind: str, period: int, player_key: str, a: str, b: str, reason: str
-    ) -> None:
+    def _report_validation(kind: str, period: int, player_key: str, a: str, b: str, reason: str) -> None:
         print(
             f"[validation] {kind} | Player={player_key} | Period={period} | start='{a}' end='{b}' -> {reason}",
             file=sys.stderr,
@@ -411,9 +404,7 @@ def process_sheet(
             (LABEL_END_V, end_v_cols),
         ]:
             if not cols:
-                raise ValueError(
-                    f"Missing header columns for '{lab}' in Period {period_num}"
-                )
+                raise ValueError(f"Missing header columns for '{lab}' in Period {period_num}")
 
         # Iterate rows (players) in the block
         for r in range(data_start, blk_end):
@@ -436,7 +427,7 @@ def process_sheet(
             # ---------------- Validation (per-row) ----------------
             if not skip_validation:
                 # Video times: must be strictly increasing and not excessively long
-                for (va, vb) in video_pairs:
+                for va, vb in video_pairs:
                     try:
                         vsa = parse_flex_time_to_seconds(va)
                         vsb = parse_flex_time_to_seconds(vb)
@@ -474,7 +465,7 @@ def process_sheet(
                         validation_errors += 1
 
                 # Scoreboard times: allow either count-up or count-down, but must not be equal and not excessively long
-                for (sa, sb) in sb_pairs:
+                for sa, sb in sb_pairs:
                     try:
                         ssa = parse_flex_time_to_seconds(sa)
                         ssb = parse_flex_time_to_seconds(sb)
@@ -514,9 +505,7 @@ def process_sheet(
             if video_pairs:
                 video_pairs_by_player.setdefault(player_key, []).extend(video_pairs)
             if sb_pairs:
-                sb_pairs_by_player.setdefault(player_key, []).extend(
-                    (period_num, a, b) for a, b in sb_pairs
-                )
+                sb_pairs_by_player.setdefault(player_key, []).extend((period_num, a, b) for a, b in sb_pairs)
 
             # Build conversion segments for this row where both SB and Video pairs exist positionally
             nseg = min(len(video_pairs), len(sb_pairs))
@@ -638,7 +627,7 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
             # labeled start/end times (not the normalized interval) to handle edge rules.
             for ev in goals_by_period[period]:
                 matched = False
-                for (a, b) in pairs:
+                for a, b in pairs:
                     a_sec = parse_flex_time_to_seconds(a)
                     b_sec = parse_flex_time_to_seconds(b)
                     lo, hi = (a_sec, b_sec) if a_sec <= b_sec else (b_sec, a_sec)
@@ -697,7 +686,9 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
         "plus_minus",
     ]
     # Extend with per-period columns that were seen
-    periods_sorted = sorted({int(k.split("_p")[-1]) for r in stats_table_rows for k in r if re.search(r"^[gftoia_]*p\d+$", k)})
+    periods_sorted = sorted(
+        {int(k.split("_p")[-1]) for r in stats_table_rows for k in r if re.search(r"^[gftoia_]*p\d+$", k)}
+    )
     cols = list(base_cols)
     for pidx in periods_sorted:
         cols.extend([f"toi_p{pidx}", f"gf_p{pidx}", f"ga_p{pidx}"])
@@ -715,7 +706,7 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
         if period not in conv_segments_by_period:
             return None
         segs = conv_segments_by_period[period]
-        for (s1, s2, v1, v2) in segs:
+        for s1, s2, v1, v2 in segs:
             lo, hi = (s1, s2) if s1 <= s2 else (s2, s1)
             if lo <= t_sb <= hi and s1 != s2:
                 # Linear interpolation using labeled endpoints (preserve direction)
@@ -726,7 +717,7 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
     max_sb_by_period: Dict[int, int] = {}
     for period, segs in conv_segments_by_period.items():
         mx = 0
-        for (s1, s2, _, _) in segs:
+        for s1, s2, _, _ in segs:
             mx = max(mx, s1, s2)
         max_sb_by_period[period] = mx
 
@@ -769,12 +760,8 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
         else:
             ga_lines.append(line)
 
-    (outdir / "goals_for.txt").write_text(
-        "\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8"
-    )
-    (outdir / "goals_against.txt").write_text(
-        "\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8"
-    )
+    (outdir / "goals_for.txt").write_text("\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8")
+    (outdir / "goals_against.txt").write_text("\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8")
 
     # ---------- Aggregate clip launcher ----------
     # Write a convenience script to run all per-player clip scripts.
@@ -827,9 +814,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--input", "-i", type=Path, required=True, help="Path to input .xls/.xlsx file.")
     p.add_argument("--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet).")
-    p.add_argument(
-        "--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory."
-    )
+    p.add_argument("--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory.")
     p.add_argument(
         "--keep-goalies",
         action="store_true",
@@ -847,17 +832,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--goals-file",
         type=Path,
         default=None,
-        help=(
-            "Path to a text file with one goal per line (GF:period/time or GA:period/time). '#' lines ignored."
-        ),
+        help=("Path to a text file with one goal per line (GF:period/time or GA:period/time). '#' lines ignored."),
     )
     p.add_argument(
         "--t2s",
         type=int,
         default=None,
-        help=(
-            "TimeToScore game id. If set, fetches goals and prompts you to select home/away to map GF/GA."
-        ),
+        help=("TimeToScore game id. If set, fetches goals and prompts you to select home/away to map GF/GA."),
     )
     p.add_argument(
         "--side",

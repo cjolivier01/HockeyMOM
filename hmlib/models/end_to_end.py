@@ -23,7 +23,6 @@ def _use_cpp_tracker(dflt: bool = False) -> bool:
 
 @MODELS.register_module()
 class HmEndToEnd(BaseMOTModel, Trunk):
-
     def __init__(
         self,
         *args,
@@ -101,9 +100,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
             context: Dict[str, Any] = img
             return self._forward_trunk(context)
         # When used as a model in non-trunk mode, we don't implement end-to-end forward anymore.
-        raise NotImplementedError(
-            "HmEndToEnd no longer implements ByteTrack forward; use Aspen trunks instead."
-        )
+        raise NotImplementedError("HmEndToEnd no longer implements ByteTrack forward; use Aspen trunks instead.")
 
     # AspenNet trunk interface: runs tracking + returns context updates
     def _forward_trunk(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -213,9 +210,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
         raise NotImplementedError("HmEndToEnd is not intended for training.")
 
     @staticmethod
-    def get_dataframe(
-        dataset_results: Union[Dict[str, Any], None], name: str
-    ) -> Optional[HmDataFrameBase]:
+    def get_dataframe(dataset_results: Union[Dict[str, Any], None], name: str) -> Optional[HmDataFrameBase]:
         if not dataset_results:
             return None
         return dataset_results.get(name)
@@ -331,9 +326,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
                         bboxes=torch.from_numpy(tracking_dataframe["bboxes"]),
                     )
                     frame_jersey_results = []
-                    for tid, jersey_info in zip(
-                        pred_track_instances.instances_id, tracking_dataframe["jersey_info"]
-                    ):
+                    for tid, jersey_info in zip(pred_track_instances.instances_id, tracking_dataframe["jersey_info"]):
                         if jersey_info is not None:
                             frame_jersey_results.append(jersey_info)
                     all_frame_jersey_info.append(frame_jersey_results)
@@ -365,9 +358,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
                     )
                 else:
                     pred_track_instances = self.tracker.track(data_sample=det_data_sample, **kwargs)
-                active_track_count: int = max(
-                    active_track_count, len(pred_track_instances.instances_id)
-                )
+                active_track_count: int = max(active_track_count, len(pred_track_instances.instances_id))
                 img_data_sample.pred_track_instances = pred_track_instances
 
             # For performance purposes, add in the number of tracks we're tracking (both active and inactive)

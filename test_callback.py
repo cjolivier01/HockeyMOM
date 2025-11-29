@@ -1,5 +1,6 @@
 import cupy as cp
 
+
 # 1. Define the callback function
 def my_callback(stream, status, user_data):
     # This function is executed on the CPU by a driver thread.
@@ -30,4 +31,3 @@ print("Main thread waiting for stream to finish...")
 s.synchronize()
 
 print("Main thread finished.")
-

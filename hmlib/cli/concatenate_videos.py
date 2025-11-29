@@ -45,8 +45,8 @@ import json
 import shutil
 import subprocess
 import sys
-import threading
 import tempfile
+import threading
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -55,6 +55,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from hmlib.config import get_game_dir
 
 # ----------------------------- Data structures -----------------------------*** End Patch
+
 
 @dataclass(frozen=True)
 class VideoStreamInfo:
@@ -66,6 +67,7 @@ class VideoStreamInfo:
     @param pix_fmt Pixel format (e.g. 'yuv420p').
     @param bit_rate Video bit_rate in bits/second if reported (else 0).
     """
+
     width: int
     height: int
     avg_frame_rate: str
@@ -82,6 +84,7 @@ class AudioStreamInfo:
     @param channel_layout Channel layout string if present (e.g. 'stereo', 'mono').
     @param bit_rate Audio bit_rate in bits/second if reported (else 0).
     """
+
     sample_rate: int
     channels: int
     channel_layout: Optional[str]
@@ -96,6 +99,7 @@ class MediaInfo:
     @param v Video stream info if present.
     @param a Audio stream info if present.
     """
+
     path: Path
     duration: float
     v: Optional[VideoStreamInfo]
@@ -112,6 +116,7 @@ class TargetProfile:
     @param audio_rate Audio sample rate (Hz).
     @param audio_channels Target number of channels (1 or 2 by default).
     """
+
     width: int
     height: int
     fps_rational: str
@@ -121,6 +126,7 @@ class TargetProfile:
 
 
 # ----------------------------- Utilities -----------------------------------
+
 
 def require_binary(name: str) -> None:
     """@brief Ensure a binary exists in PATH.
@@ -137,11 +143,7 @@ def ffprobe_json(path: Path) -> Dict[str, Any]:
     @return ffprobe JSON as dict.
     @throws CalledProcessError on ffprobe failure.
     """
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_streams", "-show_format",
-        "-of", "json", str(path)
-    ]
+    cmd = ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)]
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, text=True)
     return json.loads(res.stdout)
 
@@ -267,12 +269,12 @@ def pick_target_profile(
         sel_arate = force_audio_rate
 
     return TargetProfile(
-        width=sel_w, height=sel_h, fps_rational=sel_fps, pix_fmt=pix_fmt,
-        audio_rate=sel_arate, audio_channels=sel_ach
+        width=sel_w, height=sel_h, fps_rational=sel_fps, pix_fmt=pix_fmt, audio_rate=sel_arate, audio_channels=sel_ach
     )
 
 
 # ----------------------------- Probing -------------------------------------
+
 
 def probe_media(path: Path) -> MediaInfo:
     """@brief Probe a media file with ffprobe.
@@ -309,6 +311,7 @@ def probe_media(path: Path) -> MediaInfo:
 
 
 # ----------------------------- Filtergraph ----------------------------------
+
 
 def build_filtergraph(
     infos: Sequence[MediaInfo],
@@ -434,7 +437,9 @@ def build_filtergraph(
     filter_complex = ";".join(parts)
     return filter_complex, ["[v]"], ["[a]"]
 
+
 # ----------------------------- Command builder ------------------------------
+
 
 def build_ffmpeg_command(
     inputs: Sequence[Path],
@@ -519,10 +524,14 @@ def build_ffmpeg_command(
 
     # Audio encoder (AAC; change to flac+mkv if you need truly lossless audio)
     cmd += [
-        "-c:a", "aac",
-        "-ar", str(target.audio_rate),
-        "-ac", str(target.audio_channels),
-        "-b:a", audio_bitrate,
+        "-c:a",
+        "aac",
+        "-ar",
+        str(target.audio_rate),
+        "-ac",
+        str(target.audio_channels),
+        "-b:a",
+        audio_bitrate,
     ]
 
     # Faststart is meaningful for MP4
@@ -538,6 +547,7 @@ def build_ffmpeg_command(
 
 
 # ----------------------------- CLI -----------------------------------------
+
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """@brief CLI arguments parser.
@@ -557,9 +567,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--clip", dest="clips", action="append", default=[],
+        "--clip",
+        dest="clips",
+        action="append",
+        default=[],
         help="Optional per-input clip 'START-END', '-END', 'START-' or a single 'START'. "
-             "Provide one --clip per input; omit or use empty string for full."
+        "Provide one --clip per input; omit or use empty string for full.",
     )
     p.add_argument(
         "-o",
@@ -587,63 +600,39 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="When used with --game-id, only use the RIGHT stitching videos.",
     )
+    p.add_argument("--use-gpu", action="store_true", help="Use NVIDIA NVENC (hevc_nvenc) and scale_npp.")
     p.add_argument(
-        "--use-gpu", action="store_true",
-        help="Use NVIDIA NVENC (hevc_nvenc) and scale_npp."
+        "--aspect-mode",
+        choices=["pad", "crop", "stretch"],
+        default="pad",
+        help="How to fit AR to target resolution (default: pad).",
     )
+    p.add_argument("--pix-fmt", default="yuv420p", help="Target pixel format (default: yuv420p).")
     p.add_argument(
-        "--aspect-mode", choices=["pad", "crop", "stretch"], default="pad",
-        help="How to fit AR to target resolution (default: pad)."
+        "--force-fps", default=None, help="Override target FPS (float or rational, e.g., 29.97 or 30000/1001)."
     )
+    p.add_argument("--force-res", default=None, help="Override resolution as WIDTHxHEIGHT (e.g., 8192x3052).")
     p.add_argument(
-        "--pix-fmt", default="yuv420p",
-        help="Target pixel format (default: yuv420p)."
+        "--audio-rate",
+        type=int,
+        default=None,
+        help="Override audio sample rate (Hz). If unset, use highest among inputs.",
     )
+    p.add_argument("--audio-channels", type=int, default=2, help="Target audio channels (default 2 = stereo).")
     p.add_argument(
-        "--force-fps", default=None,
-        help="Override target FPS (float or rational, e.g., 29.97 or 30000/1001)."
+        "--video-quality",
+        choices=["lossless", "vbr", "cqp", "crf"],
+        default="vbr",
+        help="Quality mode (NVENC: lossless|vbr|cqp, x265: lossless|crf).",
     )
-    p.add_argument(
-        "--force-res", default=None,
-        help="Override resolution as WIDTHxHEIGHT (e.g., 8192x3052)."
-    )
-    p.add_argument(
-        "--audio-rate", type=int, default=None,
-        help="Override audio sample rate (Hz). If unset, use highest among inputs."
-    )
-    p.add_argument(
-        "--audio-channels", type=int, default=2,
-        help="Target audio channels (default 2 = stereo)."
-    )
-    p.add_argument(
-        "--video-quality", choices=["lossless", "vbr", "cqp", "crf"], default="vbr",
-        help="Quality mode (NVENC: lossless|vbr|cqp, x265: lossless|crf)."
-    )
-    p.add_argument(
-        "--preset", default="p4",
-        help="Encoder preset (NVENC p1..p7; x265 ultrafast..placebo)."
-    )
-    p.add_argument(
-        "--cq", type=int, default=19, help="NVENC CQ/QP value for vbr/cqp modes."
-    )
-    p.add_argument(
-        "--b-v", dest="b_v", default=None, help="NVENC target bitrate for vbr (e.g., 30M)."
-    )
-    p.add_argument(
-        "--maxrate", default=None, help="NVENC maxrate for vbr (e.g., 60M)."
-    )
-    p.add_argument(
-        "--crf", type=int, default=22, help="x265 CRF value for --video-quality=crf."
-    )
-    p.add_argument(
-        "--audio-bitrate", default="192k", help="AAC bitrate (e.g., 128k, 192k)."
-    )
-    p.add_argument(
-        "--dry-run", action="store_true", help="Print the ffmpeg command and exit."
-    )
-    p.add_argument(
-        "-y", "--overwrite", action="store_true", help="Overwrite output if exists."
-    )
+    p.add_argument("--preset", default="p4", help="Encoder preset (NVENC p1..p7; x265 ultrafast..placebo).")
+    p.add_argument("--cq", type=int, default=19, help="NVENC CQ/QP value for vbr/cqp modes.")
+    p.add_argument("--b-v", dest="b_v", default=None, help="NVENC target bitrate for vbr (e.g., 30M).")
+    p.add_argument("--maxrate", default=None, help="NVENC maxrate for vbr (e.g., 60M).")
+    p.add_argument("--crf", type=int, default=22, help="x265 CRF value for --video-quality=crf.")
+    p.add_argument("--audio-bitrate", default="192k", help="AAC bitrate (e.g., 128k, 192k).")
+    p.add_argument("--dry-run", action="store_true", help="Print the ffmpeg command and exit.")
+    p.add_argument("-y", "--overwrite", action="store_true", help="Overwrite output if exists.")
     return p.parse_args(argv)
 
 
@@ -831,6 +820,7 @@ def run_normalize_concat(
 
 
 # ----------------------------- Main -----------------------------------------
+
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """@brief Program entry.
@@ -1025,13 +1015,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 # ----------------------------- Helpers --------------------------------------
 
+
 def shlex_quote(s: str) -> str:
     """@brief Minimal shell-quote for display purposes only.
     @param s String to quote.
     @return Quoted string for pretty-printing.
     """
     # Simple safe quote (not using shlex because of cross-platform display)
-    if not s or any(c in s for c in ' \t\n"\'`$&|;<>(){}[]*?'):
+    if not s or any(c in s for c in " \t\n\"'`$&|;<>(){}[]*?"):
         return "'" + s.replace("'", "'\"'\"'") + "'"
     return s
 

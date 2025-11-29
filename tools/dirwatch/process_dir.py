@@ -2,8 +2,8 @@
 import argparse
 import os
 import sys
-from pathlib import Path
 import time
+from pathlib import Path
 
 
 def main(argv=None) -> int:
@@ -38,4 +38,3 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

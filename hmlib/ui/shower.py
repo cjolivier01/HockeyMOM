@@ -51,7 +51,6 @@ class ImageDisplayer:
 
 
 class Shower:
-
     def __init__(
         self,
         label: str,

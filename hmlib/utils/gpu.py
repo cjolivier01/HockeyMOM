@@ -24,9 +24,7 @@ def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
             yield r
 
 
-def record_stream_event(
-    tensor: torch.Tensor, stream: Optional[torch.cuda.Stream] = None
-) -> Optional[torch.cuda.Event]:
+def record_stream_event(tensor: torch.Tensor, stream: Optional[torch.cuda.Stream] = None) -> Optional[torch.cuda.Event]:
     """Record a blocking CUDA event on the given tensor's stream.
 
     @param tensor: Tensor whose device determines the CUDA stream context.
@@ -84,9 +82,7 @@ class GpuAllocator:
         if name and name in self._named_allocations:
             # Name overrides modern/fast
             return self._named_allocations[name]
-        index, caps = get_gpu_with_highest_compute_capability(
-            allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
-        )
+        index, caps = get_gpu_with_highest_compute_capability(allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus)
         if index is not None:
             assert index not in self._used_gpus
             self._used_gpus[index] = caps
@@ -117,9 +113,7 @@ class GpuAllocator:
         if name and name in self._named_allocations:
             # Name overrides modern/fast
             return self._named_allocations[name]
-        index, caps = get_gpu_with_most_multiprocessors(
-            allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
-        )
+        index, caps = get_gpu_with_most_multiprocessors(allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus)
         if index is not None:
             assert index not in self._used_gpus
             self._used_gpus[index] = caps

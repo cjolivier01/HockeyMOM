@@ -69,12 +69,10 @@ def _load_jetson_utils():
         sys.path.insert(0, JETSON_UTILS_PY_PATH)
     try:
         import jetson_utils  # type: ignore
+
         return jetson_utils
     except Exception as exc:
-        raise ImportError(
-            "GStreamer backend requires jetson_utils (DeepStream). "
-            f"Failed to import: {exc}"
-        )
+        raise ImportError("GStreamer backend requires jetson_utils (DeepStream). " f"Failed to import: {exc}")
 
 
 def _jetson_codec_from_fourcc(codec: str) -> Optional[str]:
@@ -210,7 +208,6 @@ def time_to_frame(time_str: str, fps: float):
 
 
 class VideoStreamWriter(VideoStreamWriterInterface):
-
     @typechecked
     def __init__(
         self,
@@ -555,7 +552,6 @@ class VideoReaderIterator:
 
 
 class TAStreamReaderIterator:
-
     def __init__(self, sr: StreamingMediaDecoder, batch_size: int = 1):
         self._iter = sr.stream()
         self._chunk = None
@@ -634,11 +630,7 @@ class FFmpegVideoReaderIterator:
 # VideoStreamReader
 #
 class VideoStreamReader:
-    # type: str = "torchaudio",
-    # type: str = "torchvision",
-    # type: str = "cv2",
-    # type: str = "ffmpeg",
-    # type: str = "gstreamer",
+    """Unified batched video reader supporting multiple backends."""
 
     def __init__(
         self,
@@ -820,7 +812,9 @@ class VideoStreamReader:
             try:
                 opts = self._video_in.GetOptions()
                 if isinstance(opts, dict) and opts.get("codecType", "").lower() == "cpu":
-                    logger.warning("GStreamer backend is using CPU decode; hardware decode may require DeepStream/V4L2 plugins.")
+                    logger.warning(
+                        "GStreamer backend is using CPU decode; hardware decode may require DeepStream/V4L2 plugins."
+                    )
             except Exception:
                 # Best-effort; older jetson_utils builds may not expose GetOptions
                 pass
@@ -859,7 +853,6 @@ class VideoStreamReader:
 
 
 class VideoStreamWriterCV2(VideoStreamWriterInterface):
-
     def __init__(
         self,
         filename: str,

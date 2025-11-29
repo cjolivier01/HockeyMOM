@@ -5,11 +5,12 @@ Aspen pipelines via :class:`hmlib.transforms.video_frame.HmUnsharpMask`.
 """
 
 import math
-import torch
-from torch import Tensor
-import torch.nn.functional as F
 
-from hmlib.utils.image import make_channels_first, is_channels_first, make_channels_last
+import torch
+import torch.nn.functional as F
+from torch import Tensor
+
+from hmlib.utils.image import is_channels_first, make_channels_first, make_channels_last
 
 
 def unsharp_mask(
@@ -146,9 +147,7 @@ def unsharp_mask_batch(
     kernel_uv = kernel_uv.expand(1, 1, -1, -1)
 
     for i in range(1, 3):
-        blurred_uv = torch.nn.functional.conv2d(
-            yuv[:, i : i + 1], kernel_uv, padding=padding, groups=1
-        )
+        blurred_uv = torch.nn.functional.conv2d(yuv[:, i : i + 1], kernel_uv, padding=padding, groups=1)
         sharp_yuv[:, i : i + 1] += (yuv[:, i : i + 1] - blurred_uv) * amount_chroma
 
     # YUV to RGB conversion

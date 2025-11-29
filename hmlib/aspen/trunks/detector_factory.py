@@ -15,8 +15,7 @@ def _strip_static_padding(instances: InstanceData, strip: bool) -> InstanceData:
     """Remove padded detections when static outputs are enabled."""
     if instances is None or not strip:
         return instances
-    num_valid = getattr(instances, "num_valid_after_nms",
-                        getattr(instances, "num_valid", None))
+    num_valid = getattr(instances, "num_valid_after_nms", getattr(instances, "num_valid", None))
     if isinstance(num_valid, torch.Tensor):
         if num_valid.numel() == 0:
             return instances[:0]

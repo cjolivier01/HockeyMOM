@@ -50,8 +50,8 @@ def get_trt_logger(trt_module):
 class TrtNmsConfig:
     num_classes: int
     max_num_boxes: int  # static input/output size per image
-    top_k: int          # plugin topK (per class * image)
-    keep_top_k: int     # plugin keepTopK (per image, before our own max_per_img)
+    top_k: int  # plugin topK (per class * image)
+    keep_top_k: int  # plugin keepTopK (per image, before our own max_per_img)
     score_threshold: float
     iou_threshold: float
     max_per_img: int
@@ -347,9 +347,7 @@ class TrtBatchedNMS:
             boxes_pad = torch.zeros((B, N, 4), device=device, dtype=torch.float32)
         else:
             boxes_pad = torch.zeros((B, N, 1, 4), device=device, dtype=torch.float32)
-        scores_pad = torch.zeros(
-            (B, N, C), device=device, dtype=torch.float32
-        )
+        scores_pad = torch.zeros((B, N, C), device=device, dtype=torch.float32)
         if plugin_kind == "efficient":
             boxes_pad[0, : boxes.shape[0], :] = boxes
         else:
@@ -413,9 +411,7 @@ class TrtBatchedNMS:
         labels_clamped = labels.to(torch.long).clamp(0, num_classes - 1)
         scores_full[idx, labels_clamped] = scores.to(torch.float32)
 
-        num_det, out_boxes, out_scores, out_classes = self._infer(
-            bboxes.to(torch.float32), scores_full
-        )
+        num_det, out_boxes, out_scores, out_classes = self._infer(bboxes.to(torch.float32), scores_full)
 
         # num_det has shape [B, 1]; clamp to valid range.
         try:

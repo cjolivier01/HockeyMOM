@@ -1,10 +1,10 @@
 import subprocess
+import time
+from typing import Tuple
+
 import pyipmi
 import pyipmi.interfaces
 import pyipmi.sensor
-import time
-
-from typing import Tuple
 
 # setting fan speeds
 #
@@ -137,9 +137,7 @@ def manage_temp(ipmi: pyipmi.Ipmi):
         speed_percent=adjust_percent(max_percents[ZONE_PERIPHERAL]),
         zone=ZONE_PERIPHERAL,
     )
-    set_zone_fan_speed(
-        speed_percent=adjust_percent(max_percents[ZONE_CPU]), zone=ZONE_CPU
-    )
+    set_zone_fan_speed(speed_percent=adjust_percent(max_percents[ZONE_CPU]), zone=ZONE_CPU)
 
     print(
         f"Zone Peripheral: {max_temps[ZONE_PERIPHERAL]} "

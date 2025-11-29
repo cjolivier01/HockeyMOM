@@ -22,12 +22,7 @@ from hmlib.utils.image import image_height, image_width
 def to_rgb_non_planar(image):
     """Convert CHW tensors to HWC tensors for OpenCV/visualization."""
     if isinstance(image, torch.Tensor):
-        if (
-            len(image.shape) == 4
-            and image.shape[0] == 1
-            and image.shape[1] == 3
-            and image.shape[-1] > 1
-        ):
+        if len(image.shape) == 4 and image.shape[0] == 1 and image.shape[1] == 3 and image.shape[-1] > 1:
             # Assuming it is planar
             image = torch.squeeze(image, dim=0).permute(1, 2, 0)
         elif len(image.shape) == 3 and image.shape[0] == 3:
@@ -54,6 +49,7 @@ def get_open_files_count():
 @HM.register_module()
 class CamTrackHead:
     """Entry head that owns `HockeyMOM` and its tracking post-processor."""
+
     # TODO: Get rid of this class entirely, since it's just a
     # bounce to the postprocessor and al the init crap
     # can be a function or somthing in the postprocessor file?

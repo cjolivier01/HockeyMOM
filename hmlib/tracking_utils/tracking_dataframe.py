@@ -1,13 +1,14 @@
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 import torch
+from mmengine.structures import InstanceData
 
 from hmlib.bbox.box_functions import convert_tlbr_to_tlwh, tlwh_to_tlbr_multiple
 from hmlib.datasets.dataframe import HmDataFrameBase, dataclass_to_json, json_to_dataclass
 from hmlib.jersey.number_classifier import TrackJerseyInfo
-from mmengine.structures import InstanceData
+
 try:
     from mmdet.structures import DetDataSample, TrackDataSample
 except Exception:  # pragma: no cover
@@ -15,15 +16,14 @@ except Exception:  # pragma: no cover
     TrackDataSample = None  # type: ignore
 
 if TYPE_CHECKING:
-    from mmdet.structures import TrackDataSample as _TrackDataSample
     from mmdet.structures import DetDataSample as _DetDataSample
+    from mmdet.structures import TrackDataSample as _TrackDataSample
 else:
     _TrackDataSample = Any  # type: ignore
     _DetDataSample = Any  # type: ignore
 
 
 class TrackingDataFrame(HmDataFrameBase):
-
     def __init__(self, *args, input_batch_size: int, **kwargs):
         fields = [
             "Frame",
@@ -105,12 +105,16 @@ class TrackingDataFrame(HmDataFrameBase):
                     action_index_map[tid] = int(a.get("label_index", -1))
             except Exception:
                 pass
+
         def _action_label_item(id: int) -> str:
             return action_label_map.get(id, "")
+
         def _action_score_item(id: int) -> float:
             return float(action_score_map.get(id, 0.0))
+
         def _action_index_item(id: int) -> int:
             return int(action_index_map.get(id, -1))
+
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(tracking_ids))],
@@ -258,9 +262,7 @@ class TrackingDataFrame(HmDataFrameBase):
             # jersey info as json-serializable list of dicts
             jerseys: List[Optional[TrackJerseyInfo]] = rec.get("jersey_info", [])
             if jerseys:
-                meta["jersey_info"] = [
-                    dataclass_to_json(j) if j is not None else None for j in jerseys
-                ]
+                meta["jersey_info"] = [dataclass_to_json(j) if j is not None else None for j in jerseys]
             # action info reconstructed from columns if present
             try:
                 df = self.data[self.data["Frame"] == int(frame_id)]
@@ -293,7 +295,9 @@ class TrackingDataFrame(HmDataFrameBase):
             pass
         return vds
 
-    def get_samples(self, start_frame: Optional[int] = None, end_frame: Optional[int] = None) -> Optional[_TrackDataSample]:
+    def get_samples(
+        self, start_frame: Optional[int] = None, end_frame: Optional[int] = None
+    ) -> Optional[_TrackDataSample]:
         """Reconstruct a multi-frame TrackDataSample for a frame range (inclusive)."""
         if self.data is None or self.data.empty or TrackDataSample is None or DetDataSample is None:
             return None

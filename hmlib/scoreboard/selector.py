@@ -6,24 +6,27 @@ import numpy as np
 import torch
 from PIL import Image
 
+from hmlib.config import get_game_config, get_game_dir, get_nested_value, save_private_config, set_nested_value
+from hmlib.hm_opts import hm_opts
+from hmlib.utils.image import make_visible_image
+
 # GUI backends
 try:
     import tkinter as tk
     from tkinter import messagebox
+
     from PIL import ImageTk  # type: ignore
+
     _tk_available = True
 except Exception:
     _tk_available = False
 
 try:
     import cv2  # type: ignore
+
     _cv2_available = True
 except Exception:
     _cv2_available = False
-
-from hmlib.config import get_game_config, get_game_dir, get_nested_value, save_private_config, set_nested_value
-from hmlib.hm_opts import hm_opts
-from hmlib.utils.image import make_visible_image
 
 
 class ScoreboardSelector:
@@ -194,9 +197,7 @@ class ScoreboardSelector:
                 point_marker: int = canvas.create_oval(x - r, y - r, x + r, y + r, fill="red")
                 point_markers.append(point_marker)
                 if len(self.points) > 1:
-                    line: int = canvas.create_line(
-                        self.points[-2][0], self.points[-2][1], x, y, fill="red", width=2
-                    )
+                    line: int = canvas.create_line(self.points[-2][0], self.points[-2][1], x, y, fill="red", width=2)
                     lines.append(line)
                 if len(self.points) == 4:
                     line = canvas.create_line(self.points[0][0], self.points[0][1], x, y, fill="red", width=2)
@@ -233,13 +234,12 @@ class ScoreboardSelector:
                     else:
                         print(f"Key pressed: {event.char}, ASCII code: {ascii_code}")
 
-
     def order_points_clockwise(self, pts: torch.Tensor):
         # Ensure pts is a NumPy array of shape (4, 2)
         if isinstance(pts, torch.Tensor):
             pts = pts.to(torch.float32).cpu().numpy()
         elif isinstance(pts, list):
-            pts =  np.array(pts, dtype=np.float32)
+            pts = np.array(pts, dtype=np.float32)
         else:
             pts = pts.astype(np.float32)
 
@@ -249,10 +249,10 @@ class ScoreboardSelector:
 
         # Allocate an array for the ordered points: [top-left, top-right, bottom-right, bottom-left]
         ordered = np.zeros((4, 2), dtype="float32")
-        ordered[0] = pts[np.argmin(s)]       # top-left: smallest sum
-        ordered[2] = pts[np.argmax(s)]       # bottom-right: largest sum
-        ordered[1] = pts[np.argmin(diff)]    # top-right: smallest difference
-        ordered[3] = pts[np.argmax(diff)]    # bottom-left: largest difference
+        ordered[0] = pts[np.argmin(s)]  # top-left: smallest sum
+        ordered[2] = pts[np.argmax(s)]  # bottom-right: largest sum
+        ordered[1] = pts[np.argmin(diff)]  # top-right: smallest difference
+        ordered[3] = pts[np.argmax(diff)]  # bottom-left: largest difference
 
         return list(map(list, ordered))
 
@@ -345,7 +345,7 @@ class ScoreboardSelector:
                 self.process_ok()
                 if len(self.points) == 4 or self.points == ScoreboardSelector.NULL_POINTS:
                     break
-            if key in (ord('d'), ord('D')):
+            if key in (ord("d"), ord("D")):
                 self.reset_selection()
 
         try:

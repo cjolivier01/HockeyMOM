@@ -51,9 +51,7 @@ def write_dict_in_columns(data_dict, out_file, table_width: int) -> int:
 
     # Prepare horizontal border and empty row format
     border_top = "\x1b[2K┌" + "─" * column_width + "┬" + "─" * column_width + "┐\n"
-    row_format = (
-        "\x1b[2K│{:<" + str(column_width) + "}│{:<" + str(column_width) + "}│\n"
-    )
+    row_format = "\x1b[2K│{:<" + str(column_width) + "}│{:<" + str(column_width) + "}│\n"
     border_bottom = "\x1b[2K└" + "─" * column_width + "┴" + "─" * column_width + "┘\n"
 
     # Print the top border
@@ -160,11 +158,7 @@ class _CursesUI:
             except Exception:
                 pass
         # Recreate windows if needed
-        if (
-            self._header_win is None
-            or self._log_win is None
-            or header_height != self._last_header_height
-        ):
+        if self._header_win is None or self._log_win is None or header_height != self._last_header_height:
             self._last_header_height = header_height
             if self._header_win is not None:
                 del self._header_win
@@ -176,7 +170,7 @@ class _CursesUI:
             # Apply purple background to header area if colors available
             try:
                 if self._hdr_attr:
-                    self._header_win.bkgd(' ', self._hdr_attr)
+                    self._header_win.bkgd(" ", self._hdr_attr)
             except Exception:
                 pass
             self._log_win = curses.newwin(log_h, self._width, header_h, 0)
@@ -218,7 +212,7 @@ class _CursesUI:
         # Fill header area with background color, then draw
         try:
             if self._hdr_attr:
-                self._header_win.bkgd(' ', self._hdr_attr)
+                self._header_win.bkgd(" ", self._hdr_attr)
         except Exception:
             pass
         self._header_win.erase()
@@ -249,7 +243,7 @@ class _CursesUI:
         filled_length = 0 if total <= 0 else int(bar_len * current // max(1, total))
         bar = "█" * filled_length + "-" * (bar_len - filled_length)
         content = f"{prefix}|{bar}|{suffix}"
-        content = content[: total_content]
+        content = content[:total_content]
         content = f"{content:<{total_content}}"
         left = content[:colw]
         right = content[colw : colw * 2]
@@ -374,9 +368,7 @@ class ScrollOutput:
                 text = line
                 left = text[:colw]
                 right = text[colw : colw * 2]
-                progress_out.write(
-                    f"\x1b[2K│{left:<{colw}}│{right:<{colw}}│\n"
-                )
+                progress_out.write(f"\x1b[2K│{left:<{colw}}│{right:<{colw}}│\n")
             else:
                 progress_out.write("\x1b[2K│" + line + "│\n")
         progress_out.flush()
@@ -392,9 +384,7 @@ class ScrollOutput:
 
         # Create and add our custom handler
         callback_handler = CallbackStreamHandler(self.write)
-        callback_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        )
+        callback_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
         logger.addHandler(callback_handler)
         return self
 
@@ -524,9 +514,7 @@ class ProgressBar:
         if self._curses_ui is not None:
             try:
                 # Final drain of logs and render one last time
-                self._curses_ui.render(
-                    self.table_map, self._counter, max(1, self._total), 100.0
-                )
+                self._curses_ui.render(self.table_map, self._counter, max(1, self._total), 100.0)
                 self._curses_ui.drain_logs()
             except Exception:
                 pass
@@ -606,7 +594,7 @@ class ProgressBar:
         bar = "█" * filled_length + "-" * (bar_len - filled_length)
         content = f"{prefix}|{bar}|{suffix}"
         # Truncate if still too long and pad to fit
-        content = content[: total_content]
+        content = content[:total_content]
         content = f"{content:<{total_content}}"
 
         # Split across two columns and add borders to match table width
@@ -617,9 +605,7 @@ class ProgressBar:
         self._line_count += 1
 
     def print_table(self):
-        self._line_count += write_dict_in_columns(
-            self.table_map, progress_out, self._get_bar_width()
-        )
+        self._line_count += write_dict_in_columns(self.table_map, progress_out, self._get_bar_width())
         progress_out.flush()
 
     @contextlib.contextmanager
@@ -630,7 +616,6 @@ class ProgressBar:
 
 
 class ProgressBarWith:
-
     def __init__(self, dataloader):
         self._len = len(dataloader)
         pass
@@ -693,9 +678,7 @@ if __name__ == "__main__":
     table_map = OrderedDict({"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"})
     # Redirect stdout to scroll output handler
     scroll_output = ScrollOutput()
-    progress_bar = ProgressBar(
-        total=20, table_map=table_map, scroll_output=scroll_output
-    )
+    progress_bar = ProgressBar(total=20, table_map=table_map, scroll_output=scroll_output)
 
     # with contextlib.redirect_stdout(scroll_output):
     with contextlib.redirect_stderr(scroll_output):

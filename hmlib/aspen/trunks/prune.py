@@ -28,4 +28,3 @@ class PruneKeysTrunk(Trunk):
             return {}
         # Return DeleteKey for each requested key; AspenNet will drop them
         return {k: DeleteKey() for k in self._remove_keys}
-

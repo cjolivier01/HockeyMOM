@@ -330,9 +330,7 @@ class VideoOutput:
             os.makedirs(self._save_frame_dir)
 
         if self.has_args() and self._args.show_image:
-            self._shower = Shower(
-                label="Video Out", show_scaled=self._args.show_scaled, max_size=self._cache_size
-            )
+            self._shower = Shower(label="Video Out", show_scaled=self._args.show_scaled, max_size=self._cache_size)
         else:
             self._shower = None
 
@@ -378,19 +376,14 @@ class VideoOutput:
                     results = self.save_frame(results)
             return results
         else:
-            with TimeTracker(
-                "Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50
-            ):
+            with TimeTracker("Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50):
                 counter = 0
                 assert self._max_queue_backlog > 0
                 while self._imgproc_queue.qsize() >= self._max_queue_backlog:
                     counter += 1
                     if (
                         not self.has_args()
-                        or (
-                            not self._args.show_image
-                            and (not hasattr(self._args, "debug") or not self._args.debug)
-                        )
+                        or (not self._args.show_image and (not hasattr(self._args, "debug") or not self._args.debug))
                     ) and counter % 10 == 0:
                         logger.info(f"Video out queue too large: {self._imgproc_queue.qsize()}")
                     time.sleep(0.001)
@@ -592,9 +585,7 @@ class VideoOutput:
             assert self._simple_save
             assert online_im.ndim == 4
             batch_size: int = online_im.size(0)
-            whole_box = torch.tensor(
-                [0, 0, image_width(online_im), image_height(online_im)], dtype=torch.float
-            )
+            whole_box = torch.tensor([0, 0, image_width(online_im), image_height(online_im)], dtype=torch.float)
             current_boxes = whole_box.repeat(batch_size, 1)
         else:
             current_boxes = current_boxes.clone()

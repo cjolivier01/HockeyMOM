@@ -223,6 +223,7 @@ def extract_pairs_from_row(row: pd.Series, start_cols: List[int], end_cols: List
 # Treat period end as 0:00 on the scoreboard when sheets encode it as the period start time.
 _PERIOD_START_TIMES = {"12:00", "15:00", "20:00"}
 
+
 def _normalize_sb_end_time(t: str) -> str:
     try:
         ts = str(t).strip()
@@ -261,9 +262,7 @@ def _autosize_columns(writer: pd.ExcelWriter, sheet_name: str, df: pd.DataFrame)
     try:
         col_widths = []
         for col in df.columns:
-            max_len = max(
-                [len(str(col))] + [len(str(x)) for x in df[col].astype(str).fillna("")]
-            )
+            max_len = max([len(str(col))] + [len(str(x)) for x in df[col].astype(str).fillna("")])
             col_widths.append(min(max_len + 2, 80))
         if writer.engine == "openpyxl":
             from openpyxl.utils import get_column_letter
@@ -767,12 +766,14 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
             if vsec is None and gsec is None and not players:
                 continue
             players = _register_and_flag(team_prefix, players)
-            events.append({
-                "period": _period_num_from_label(current_period_label),
-                "v": vsec,
-                "g": gsec,
-                "players": players,
-            })
+            events.append(
+                {
+                    "period": _period_num_from_label(current_period_label),
+                    "v": vsec,
+                    "g": gsec,
+                    "players": players,
+                }
+            )
 
         # Walk events to generate per-player shifts
         open_shift: Dict[int, Dict[str, Any]] = {}
@@ -794,7 +795,9 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                             (last_period, seconds_to_mmss_or_hhmmss(int(sg)), seconds_to_mmss_or_hhmmss(int(egg)))
                         )
                         if sv is not None and evv is not None:
-                            conv_segments_by_period.setdefault(last_period, []).append((int(sg), int(egg), int(sv), int(evv)))
+                            conv_segments_by_period.setdefault(last_period, []).append(
+                                (int(sg), int(egg), int(sv), int(evv))
+                            )
                     del open_shift[pid]
             if cur_p is not None:
                 last_period = cur_p
@@ -816,7 +819,9 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                             (cur_p, seconds_to_mmss_or_hhmmss(int(sg)), seconds_to_mmss_or_hhmmss(int(end_g)))
                         )
                         if sv is not None and evv is not None:
-                            conv_segments_by_period.setdefault(cur_p, []).append((int(sg), int(end_g), int(sv), int(evv)))
+                            conv_segments_by_period.setdefault(cur_p, []).append(
+                                (int(sg), int(end_g), int(sv), int(evv))
+                            )
                     del open_shift[pid]
 
             # Open shifts for players now on
@@ -855,7 +860,7 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
     event_player_rows: List[Dict[str, Any]] = []
 
     # Find left header row and relevant columns up to the Blue/White shifts header column
-    limit_col = (blue_hdr[1] if blue_hdr else df.shape[1])
+    limit_col = blue_hdr[1] if blue_hdr else df.shape[1]
     left_header_row: Optional[int] = None
     for r in range(min(8, df.shape[0])):
         for c in range(min(limit_col, df.shape[1])):
@@ -1041,9 +1046,7 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
     return True, video_pairs_by_player, sb_pairs_by_player, conv_segments_by_period, event_log_context
 
 
-def _parse_per_player_layout(
-    df: pd.DataFrame, keep_goalies: bool, skip_validation: bool
-) -> Tuple[
+def _parse_per_player_layout(df: pd.DataFrame, keep_goalies: bool, skip_validation: bool) -> Tuple[
     Dict[str, List[Tuple[str, str]]],
     Dict[str, List[Tuple[int, str, str]]],
     Dict[int, List[Tuple[int, int, int, int]]],
@@ -1428,7 +1431,7 @@ def _write_player_stats_text_and_csv(
 
 
 def _aggregate_stats_rows(
-    stats_sets: List[Tuple[List[Dict[str, str]], List[int]]]
+    stats_sets: List[Tuple[List[Dict[str, str]], List[int]]],
 ) -> Tuple[List[Dict[str, str]], List[int]]:
     agg: Dict[str, Dict[str, Any]] = {}
     all_periods: set[int] = set()
@@ -1524,9 +1527,7 @@ def _aggregate_stats_rows(
     return aggregated_rows, sorted(all_periods)
 
 
-def _write_consolidated_workbook(
-    out_path: Path, sheets: List[Tuple[str, pd.DataFrame]]
-) -> None:
+def _write_consolidated_workbook(out_path: Path, sheets: List[Tuple[str, pd.DataFrame]]) -> None:
     try:
         with pd.ExcelWriter(out_path) as writer:
             for name, df in sheets:
@@ -1593,21 +1594,34 @@ def _write_event_summaries_and_clips(
 
     player_event_rows = event_log_context.event_player_rows or []
     if player_event_rows:
+
         def _fmt_v(x):
-            return seconds_to_hhmmss(int(x)) if isinstance(x, int) else (seconds_to_hhmmss(int(x)) if isinstance(x, float) else "")
+            return (
+                seconds_to_hhmmss(int(x))
+                if isinstance(x, int)
+                else (seconds_to_hhmmss(int(x)) if isinstance(x, float) else "")
+            )
+
         def _fmt_g(x):
-            return seconds_to_mmss_or_hhmmss(int(x)) if isinstance(x, int) else (seconds_to_mmss_or_hhmmss(int(x)) if isinstance(x, float) else "")
+            return (
+                seconds_to_mmss_or_hhmmss(int(x))
+                if isinstance(x, int)
+                else (seconds_to_mmss_or_hhmmss(int(x)) if isinstance(x, float) else "")
+            )
+
         rows = []
         for r in player_event_rows:
-            rows.append({
-                'event_type': r.get('event_type'),
-                'team': r.get('team'),
-                'player': r.get('player'),
-                'jersey': r.get('jersey'),
-                'period': r.get('period'),
-                'video_time': _fmt_v(r.get('video_s')),
-                'game_time': _fmt_g(r.get('game_s')),
-            })
+            rows.append(
+                {
+                    "event_type": r.get("event_type"),
+                    "team": r.get("team"),
+                    "player": r.get("player"),
+                    "jersey": r.get("jersey"),
+                    "period": r.get("period"),
+                    "video_time": _fmt_v(r.get("video_s")),
+                    "game_time": _fmt_g(r.get("game_s")),
+                }
+            )
         pd.DataFrame(rows).to_csv(stats_dir / "event_players.csv", index=False)
 
     instances = event_log_context.event_instances or {}
@@ -1631,8 +1645,8 @@ def _write_event_summaries_and_clips(
             max_sb_by_period[period] = mx
     for _, lst in instances.items():
         for it in lst:
-            p = it.get('period')
-            gs = it.get('game_s')
+            p = it.get("period")
+            gs = it.get("game_s")
             if isinstance(p, int) and isinstance(gs, (int, float)):
                 v = int(gs)
                 max_sb_by_period[p] = max(max_sb_by_period.get(p, 0), v)
@@ -1655,9 +1669,9 @@ def _write_event_summaries_and_clips(
         v_windows: List[Tuple[int, int]] = []
         sb_windows_by_period: Dict[int, List[Tuple[int, int]]] = {}
         for it in lst:
-            p = it.get('period')
-            v = it.get('video_s')
-            g = it.get('game_s')
+            p = it.get("period")
+            v = it.get("video_s")
+            g = it.get("game_s")
             vsec = None
             if isinstance(v, (int, float)):
                 vsec = int(v)
@@ -1700,6 +1714,7 @@ python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FIL
             script.write_text(body, encoding="utf-8")
             try:
                 import os as _os
+
                 _os.chmod(script, 0o755)
             except Exception:
                 pass
@@ -1731,10 +1746,13 @@ for s in {scripts}; do
   echo \"Running $s...\"
   \"$THIS_DIR/$s\" \"$INPUT\" \"$OPP\" \"$@\"
 done
-""".replace("{scripts}", " ".join(sorted(clip_scripts)))
+""".replace(
+            "{scripts}", " ".join(sorted(clip_scripts))
+        )
         all_script.write_text(all_body, encoding="utf-8")
         try:
             import os as _os
+
             _os.chmod(all_script, 0o755)
         except Exception:
             pass
@@ -1742,6 +1760,7 @@ done
     team_excluded = event_log_context.team_excluded or {}
     if any(v for v in team_excluded.values()):
         import sys as _sys
+
         for team, excl in team_excluded.items():
             if not excl:
                 continue
@@ -1839,6 +1858,7 @@ done
     clip_all_path.write_text(clip_all_body, encoding="utf-8")
     try:
         import os as _os
+
         _os.chmod(clip_all_path, 0o755)
     except Exception:
         pass
@@ -1903,9 +1923,7 @@ def process_sheet(
         for cand in candidates:
             jersey_to_players.setdefault(cand, []).append(pk)
 
-    goal_assist_counts: Dict[str, Dict[str, int]] = {
-        pk: {"goals": 0, "assists": 0} for pk in sb_pairs_by_player.keys()
-    }
+    goal_assist_counts: Dict[str, Dict[str, int]] = {pk: {"goals": 0, "assists": 0} for pk in sb_pairs_by_player.keys()}
 
     def _match_player_keys(num_token: Any) -> List[str]:
         matches: List[str] = []
@@ -2237,7 +2255,10 @@ def main() -> None:
                 side_to_use = None
 
         if t2s_id is not None and not manual_goals and side_to_use is None:
-            print(f"Error: could not determine side (home/away) for {in_path}; provide :HOME/:AWAY or --home/--away.", file=sys.stderr)
+            print(
+                f"Error: could not determine side (home/away) for {in_path}; provide :HOME/:AWAY or --home/--away.",
+                file=sys.stderr,
+            )
             sys.exit(2)
 
         goals = _resolve_goals_for_file(t2s_id, side_to_use)

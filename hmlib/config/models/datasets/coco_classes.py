@@ -1,6 +1,6 @@
 """COCO class and custom-class lists used by detection configs."""
 
-#CUSTOM_CLASSES = ("referee",)
+# CUSTOM_CLASSES = ("referee",)
 CUSTOM_CLASSES = ()
 
 CLASSES = (
@@ -94,24 +94,24 @@ data = dict(
         dataset=dict(
             classes=CLASSES,
         ),
-        #classes=CLASSES,
+        # classes=CLASSES,
     ),
     val=dict(
         dataset=dict(
             classes=CLASSES,
         ),
-        #classes=CLASSES,
+        # classes=CLASSES,
     ),
     test=dict(
         dataset=dict(
             classes=CLASSES,
         ),
-        #classes=CLASSES,
+        # classes=CLASSES,
     ),
     inference=dict(
         dataset=dict(
             classes=CLASSES,
         ),
-        #classes=CLASSES,
+        # classes=CLASSES,
     ),
 )
