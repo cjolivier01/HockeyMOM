@@ -10,9 +10,9 @@ from typing import Optional, Tuple
 
 import cv2
 import gi
-
-gi.require_version('Gst', '1.0')
 from gi.repository import GLib, GObject, Gst  # noqa: E402
+
+gi.require_version("Gst", "1.0")
 
 
 class VideoTranscoder:
@@ -72,9 +72,7 @@ class GStreamerVideoCapture:
 
     def _build_pipeline(self) -> None:
         if isinstance(self.source, int):
-            pipeline_description = (
-                f"v4l2src device=/dev/video{self.source} ! videoconvert ! appsink name=appsink"
-            )
+            pipeline_description = f"v4l2src device=/dev/video{self.source} ! videoconvert ! appsink name=appsink"
         elif isinstance(self.source, str):
             pipeline_description = f"filesrc location={self.source} ! decodebin ! nvvideoconvert ! appsink name=appsink"
         else:
@@ -129,13 +127,14 @@ def check_opencv_gstreamer_support():
     build_info = cv2.getBuildInformation()
 
     # Check if GStreamer is mentioned in the build information
-    if 'GStreamer:' in build_info:
-        start = build_info.index('OpenCV GStreamer:')
-        end = build_info.index('\n', start)
+    if "GStreamer:" in build_info:
+        start = build_info.index("OpenCV GStreamer:")
+        end = build_info.index("\n", start)
         gstreamer_info = build_info[start:end]
         print(gstreamer_info)
     else:
         print("GStreamer is not mentioned in OpenCV's build information.")
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Transcode a video file with specific bitrate.")
@@ -143,6 +142,7 @@ def parse_arguments():
     parser.add_argument("output_file", help="Output video file path")
     parser.add_argument("--bitrate", type=int, default=2000, help="Bitrate for output video in kbps")
     return parser.parse_args()
+
 
 if __name__ == "__main__":
     args = parse_arguments()

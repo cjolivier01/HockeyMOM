@@ -13,7 +13,6 @@ import sysconfig
 from pathlib import Path
 from textwrap import dedent
 
-
 ENTRY_POINTS = {
     "hmtrack": "hmlib.cli.hmtrack:main",
     "hmstitch": "hmlib.cli.stitch:main",

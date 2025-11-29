@@ -84,7 +84,6 @@ def distribute_items_detailed(total_item_count: int, worker_count: int) -> List[
 
 
 class MultiDataLoaderWrapper:
-
     def __init__(self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0) -> None:
         self._dataloaders: List[MOTLoadVideoWithOrig] = dataloaders
         self._iters: List[Any] = []
@@ -142,7 +141,6 @@ def as_torch_device(device: Any) -> torch.device:
 #
 #
 class StitchDataset:
-
     def __init__(
         self,
         videos: Dict[str, List[Path]],
@@ -252,7 +250,8 @@ class StitchDataset:
         self._total_number_of_frames = int(
             min(
                 [
-                    self._video_infos[k].frame_count - (0 if self._stream_offsets[k] is None else self._stream_offsets[k])
+                    self._video_infos[k].frame_count
+                    - (0 if self._stream_offsets[k] is None else self._stream_offsets[k])
                     for k in self._stream_keys
                 ]
             )
@@ -330,9 +329,7 @@ class StitchDataset:
                     no_cuda_streams=self._no_cuda_streams,
                 )
             )
-        stitching_worker = MultiDataLoaderWrapper(
-            dataloaders=dataloaders, input_queueue_size=max_input_queue_size
-        )
+        stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders, input_queueue_size=max_input_queue_size)
         return stitching_worker
 
     def configure_stitching(self):
@@ -501,7 +498,12 @@ class StitchDataset:
                         self._stitcher.process(img_a, img_b, blended_stream_tensor, stream.cuda_stream)
                         if self._show_image_components:
                             for blended_image in blended_stream_tensor:
-                                show_image("blended", blended_image.clamp(min=0, max=255).to(torch.uint8), wait=False, enable_resizing=0.2)
+                                show_image(
+                                    "blended",
+                                    blended_image.clamp(min=0, max=255).to(torch.uint8),
+                                    wait=False,
+                                    enable_resizing=0.2,
+                                )
                     elif len(imgs_list) == 2:
                         # Python blender path for 2 streams
                         if self._auto_adjust_exposure:

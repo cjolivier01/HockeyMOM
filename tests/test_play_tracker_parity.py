@@ -12,12 +12,13 @@ import pytest
 import torch
 from torch.testing import assert_close
 
+from hmlib.camera.camera import HockeyMOM
+from hmlib.camera.play_tracker import PlayTracker
+
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from hmlib.camera.camera import HockeyMOM
-from hmlib.camera.play_tracker import PlayTracker
 
 IMAGE_WIDTH = 1920
 IMAGE_HEIGHT = 1080

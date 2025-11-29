@@ -17,11 +17,6 @@ import cv2
 import numpy as np
 import torch
 
-try:
-    import torch2trt
-except Exception:
-    torch2trt = None
-
 import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts
 from hmlib.orientation import configure_game_videos
@@ -32,17 +27,18 @@ from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.gpu import GpuAllocator
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
 from hmlib.vis.pt_visualization import draw_box
 from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8, WHDims
+
+try:
+    import torch2trt
+except Exception:
+    torch2trt = None
+
 
 ROOT_DIR = os.getcwd()
 
@@ -99,7 +95,6 @@ def make_parser():
 
 @dataclass
 class BlendImageInfo:
-
     def __init__(self, remapped_width: int, remapped_height: int, xpos: int, ypos: int):
         self.remapped_width: int = remapped_width
         self.remapped_height: int = remapped_height
@@ -116,7 +111,6 @@ class ImageAndPos:
 
 
 class PtImageBlender(torch.jit.ScriptModule):
-
     def __init__(
         self,
         images_info: List[BlendImageInfo],
@@ -464,7 +458,6 @@ def get_canvas_info(size_1: List[int], xy_pos_1: List[int], size_2: List[int], x
 
 
 class SmartRemapperBlender(torch.nn.Module):
-
     def __init__(
         self,
         remapper_1: ImageRemapper,
@@ -764,7 +757,6 @@ class StitchImageInfo:
 
 
 class ImageStitcher(torch.nn.Module):
-
     def __init__(
         self,
         batch_size: int,
@@ -934,13 +926,9 @@ def create_stitcher(
             # Hard seam
             levels = 0
         if dtype == torch.float32:
-            stitcher = CudaStitchPanoF32(
-                str(dir_name), batch_size, levels, size1, size2, auto_adjust_exposure
-            )
+            stitcher = CudaStitchPanoF32(str(dir_name), batch_size, levels, size1, size2, auto_adjust_exposure)
         elif dtype == torch.uint8:
-            stitcher = CudaStitchPanoU8(
-                str(dir_name), batch_size, levels, size1, size2, auto_adjust_exposure
-            )
+            stitcher = CudaStitchPanoU8(str(dir_name), batch_size, levels, size1, size2, auto_adjust_exposure)
         else:
             assert False
         return stitcher

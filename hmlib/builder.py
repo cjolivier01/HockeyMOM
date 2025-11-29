@@ -9,18 +9,13 @@ trunks and custom components.
 
 from mmengine import Registry
 
-# from mmdet.mmengineimport PIPELINES
-# from mmdet.models.builder import NECKS as MMTRACK_NECKS
-# from mmpose.datasets import PIPELINES as MMPOSE_PIPELINES
-# from mmtrack.models.builder import MODELS as MMTRACK_MODELS
+# Prefer the canonical mmengine transforms registry so our custom transforms can
+# be used seamlessly alongside upstream components. Fall back to a standalone
+# registry if mmengine's alias is unavailable.
+try:  # pragma: no cover - import guard
+    from mmengine.registry import TRANSFORMS as PIPELINES
+except Exception:  # pragma: no cover - optional dependency
+    PIPELINES = Registry("pipeline")
 
 DATASETS = Registry("dataset")
-# PIPELINES = Registry("pipeline")
-
-# MODELS = Registry("models", parent=MMTRACK_MODELS)
-# MODELS = MMTRACK_MODELS
-# NECKS = MMTRACK_NECKS
-
 HM = Registry("hm")
-# PIPELINES = MMDET_PIPELINES
-# POSE_PIPELINES = MMPOSE_PIPELINES

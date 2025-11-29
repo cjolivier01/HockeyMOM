@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
-import os
 import torch
 
 from hmlib.builder import HM
@@ -160,8 +160,16 @@ class VideoOutTrunk(Trunk):
         return {}
 
     def input_keys(self):
-        return {"img", "current_box", "frame_ids", "player_bottom_points", "player_ids", "rink_profile", "shared", "data"}
+        return {
+            "img",
+            "current_box",
+            "frame_ids",
+            "player_bottom_points",
+            "player_ids",
+            "rink_profile",
+            "shared",
+            "data",
+        }
 
     def output_keys(self):
         return set()
-

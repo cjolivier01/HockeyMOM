@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, List, Optional
 
-import json
 import numpy as np
 import torch
 
@@ -198,6 +198,7 @@ class SaveTrackingTrunk(Trunk):
             track_data_sample = track_samples
 
         video_len = len(track_data_sample)
+
         def _extract_pose_bboxes(pose_item: Any):
             # Borrow the logic from PoseToDetTrunk for deriving bboxes
             try:
@@ -208,6 +209,7 @@ class SaveTrackingTrunk(Trunk):
                 return torch.empty((0, 4), dtype=torch.float32)
             ds = preds[0]
             inst = getattr(ds, "pred_instances", None)
+
             # Helper to ensure (N,4) xyxy
             def _to_bboxes_2d(x):
                 if not isinstance(x, torch.Tensor):
@@ -219,6 +221,7 @@ class SaveTrackingTrunk(Trunk):
                 if x.size(-1) > 4:
                     x = x[..., :4]
                 return x.to(dtype=torch.float32)
+
             # Prefer explicit bboxes
             if inst is not None and hasattr(inst, "bboxes"):
                 try:

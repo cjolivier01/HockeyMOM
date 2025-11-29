@@ -12,4 +12,3 @@ hmlib_directory = cli_directory.parent
 
 # Insert the hmlib directory at the beginning of sys.path
 sys.path.insert(0, str(hmlib_directory))
-

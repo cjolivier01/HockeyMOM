@@ -65,12 +65,8 @@ def pack_bounding_boxes_as_tiles(
     max_total_width = torch.sum(widths).item()
     target_width = min(target_width, max_total_width)
 
-    packed_image = (
-        torch.zeros((3, target_height, target_width), dtype=torch.float) + 128
-    )  # Assume 3 channels for RGB
-    index_map = -torch.ones(
-        (target_height, target_width), dtype=torch.long
-    )  # Map to store indices of original boxes
+    packed_image = torch.zeros((3, target_height, target_width), dtype=torch.float) + 128  # Assume 3 channels for RGB
+    index_map = -torch.ones((target_height, target_width), dtype=torch.long)  # Map to store indices of original boxes
 
     # Start packing from the top-left corner
     current_x, current_y = 0, 0
@@ -91,12 +87,8 @@ def pack_bounding_boxes_as_tiles(
         # If the current height exceeds the canvas, resize the canvas vertically
         if current_y + h > target_height:
             new_height = current_y + h
-            packed_image = torch.nn.functional.pad(
-                packed_image, (0, 0, 0, new_height - target_height)
-            )
-            index_map = torch.nn.functional.pad(
-                index_map, (0, 0, 0, new_height - target_height), value=-1
-            )
+            packed_image = torch.nn.functional.pad(packed_image, (0, 0, 0, new_height - target_height))
+            index_map = torch.nn.functional.pad(index_map, (0, 0, 0, new_height - target_height), value=-1)
             target_height = new_height
 
         # Place the cropped region in the packed image
@@ -141,12 +133,8 @@ def _pack_bounding_boxes_as_tiles(
     max_total_width = torch.sum(widths).item()
     target_width = min(target_width, max_total_width)
 
-    packed_image = torch.zeros(
-        (3, target_height, target_width), dtype=source_image.dtype
-    )  # Assume 3 channels for RGB
-    index_map = -torch.ones(
-        (target_height, target_width), dtype=torch.long
-    )  # Map to store indices of original boxes
+    packed_image = torch.zeros((3, target_height, target_width), dtype=source_image.dtype)  # Assume 3 channels for RGB
+    index_map = -torch.ones((target_height, target_width), dtype=torch.long)  # Map to store indices of original boxes
 
     # Start packing from the top-left corner
     current_x, current_y = 0, 0
@@ -167,12 +155,8 @@ def _pack_bounding_boxes_as_tiles(
         # If the current height exceeds the canvas, resize the canvas vertically
         if current_y + h > target_height:
             new_height = current_y + h
-            packed_image = torch.nn.functional.pad(
-                packed_image, (0, 0, 0, new_height - target_height)
-            )
-            index_map = torch.nn.functional.pad(
-                index_map, (0, 0, 0, new_height - target_height), value=-1
-            )
+            packed_image = torch.nn.functional.pad(packed_image, (0, 0, 0, new_height - target_height))
+            index_map = torch.nn.functional.pad(index_map, (0, 0, 0, new_height - target_height), value=-1)
             target_height = new_height
 
         # Place the cropped region in the packed image

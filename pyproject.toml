@@ -31,6 +31,10 @@ extend-exclude = [
     "*.ipynb",
 ]
 
+[tool.ruff.lint]
+# Allow scoped imports for faster startup
+extend-ignore = ["E402", "PLC0415"]
+
 [tool.isort]
 # Setting compatible with black. See https://black.readthedocs.io/en/stable/compatible_configs.html
 multi_line_output = 3

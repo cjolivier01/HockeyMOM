@@ -7,12 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-from hmlib.config import (
-    get_game_config,
-    get_nested_value,
-    save_game_config,
-    set_nested_value,
-)
+from hmlib.config import get_game_config, get_nested_value, save_game_config, set_nested_value
 from hmlib.hm_opts import hm_opts
 
 
@@ -55,9 +50,7 @@ def draw_line(image_path: str):
     plt.show()
 
 
-def other_impl(
-    game_id: str, image_path: str, upper_lines: List[int] = [], lower_lines: List[int] = []
-):
+def other_impl(game_id: str, image_path: str, upper_lines: List[int] = [], lower_lines: List[int] = []):
     img = cv2.imread(image_path)
 
     # Initialize global variables

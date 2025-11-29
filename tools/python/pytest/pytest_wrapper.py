@@ -4,8 +4,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-
 from coverage import Coverage
+
 # from coverage_lcov.converter import Converter
 
 
@@ -24,7 +24,7 @@ def record_coverage():
     - COVERAGE_OUTPUT_FILE
 
     """
-    coverage_enabled = (os.getenv("COVERAGE") == "1")
+    coverage_enabled = os.getenv("COVERAGE") == "1"
     if not coverage_enabled:
         yield
         return

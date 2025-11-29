@@ -39,7 +39,11 @@ def _rows_to_map(header: List[str], rows: List[List[str]]) -> List[Dict[str, str
 
 def _count_goals(dirp: Path) -> Tuple[int, int]:
     gf = (dirp / "goals_for.txt").read_text(encoding="utf-8").splitlines() if (dirp / "goals_for.txt").exists() else []
-    ga = (dirp / "goals_against.txt").read_text(encoding="utf-8").splitlines() if (dirp / "goals_against.txt").exists() else []
+    ga = (
+        (dirp / "goals_against.txt").read_text(encoding="utf-8").splitlines()
+        if (dirp / "goals_against.txt").exists()
+        else []
+    )
     gf = [ln for ln in gf if ln.strip() and not ln.strip().startswith("#")]
     ga = [ln for ln in ga if ln.strip() and not ln.strip().startswith("#")]
     return len(gf), len(ga)

@@ -199,9 +199,7 @@ def plot_torch_rectangle(
     if sq:
         image = image.unsqueeze(0)
     assert image.ndim == 4
-    image = ptv.draw_box(
-        image=image, tlbr=tlbr, color=color, thickness=thickness, alpha=alpha, filled=filled
-    )
+    image = ptv.draw_box(image=image, tlbr=tlbr, color=color, thickness=thickness, alpha=alpha, filled=filled)
     if sq:
         image = image.squeeze(0)
     return image

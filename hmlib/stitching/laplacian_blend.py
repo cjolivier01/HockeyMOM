@@ -11,10 +11,7 @@ import torch
 import torch.nn.functional as F
 
 
-
-def create_gaussian_kernel(
-    size=5, device=torch.device("cpu"), channels=3, sigma=1, dtype=torch.float
-):
+def create_gaussian_kernel(size=5, device=torch.device("cpu"), channels=3, sigma=1, dtype=torch.float):
     """Create a separable Gaussian kernel tensor for convolution.
 
     @param size: Kernel side length (odd).
@@ -48,10 +45,7 @@ def gaussian_conv2d(x, g_kernel):
     channels = g_kernel.shape[0]
     padding = g_kernel.shape[-1] // 2  # Kernel size needs to be odd number
     if len(x.shape) != 4:
-        raise IndexError(
-            "Expected input tensor to be of shape: (batch, depth, height, width) but got: "
-            + str(x.shape)
-        )
+        raise IndexError("Expected input tensor to be of shape: (batch, depth, height, width) but got: " + str(x.shape))
     y = F.conv2d(x, weight=g_kernel, stride=1, padding=padding, groups=channels)
     return y
 
@@ -68,9 +62,7 @@ def upsample(image: torch.Tensor, size: List[int]) -> torch.Tensor:
 
 
 @torch.jit.script
-def create_laplacian_pyramid(
-    x: torch.Tensor, kernel: torch.Tensor, levels: int
-) -> List[torch.Tensor]:
+def create_laplacian_pyramid(x: torch.Tensor, kernel: torch.Tensor, levels: int) -> List[torch.Tensor]:
     pyramids = []
     current_x = x
     for _ in range(0, levels):
@@ -260,9 +252,7 @@ def _simple_blend_in_place(
 
     left_small_gaussian_blurred[:, :3, left_nonblank] *= mask_left[left_nonblank]
     right_small_gaussian_blurred[:, :3, right_nonblank] *= mask_right[right_nonblank]
-    left_small_gaussian_blurred[:, :3, right_nonblank] += right_small_gaussian_blurred[
-        :, :3, right_nonblank
-    ]
+    left_small_gaussian_blurred[:, :3, right_nonblank] += right_small_gaussian_blurred[:, :3, right_nonblank]
 
     # left_small_gaussian_blurred[:, :3, right_blank] = left_orig[:, :, right_blank]
 
@@ -432,12 +422,8 @@ class LaplacianBlend(torch.jit.ScriptModule):
         left = to_float(left, dtype=self._dtype)
         right = to_float(right, dtype=self._dtype)
 
-        left_laplacian = create_laplacian_pyramid(
-            x=left, kernel=self.gaussian_kernel, levels=self.max_levels
-        )
-        right_laplacian = create_laplacian_pyramid(
-            x=right, kernel=self.gaussian_kernel, levels=self.max_levels
-        )
+        left_laplacian = create_laplacian_pyramid(x=left, kernel=self.gaussian_kernel, levels=self.max_levels)
+        right_laplacian = create_laplacian_pyramid(x=right, kernel=self.gaussian_kernel, levels=self.max_levels)
 
         left_small_gaussian_blurred = left_laplacian[-1]
         right_small_gaussian_blurred = right_laplacian[-1]

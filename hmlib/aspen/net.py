@@ -60,7 +60,9 @@ class AspenNet(torch.nn.Module):
         self.nodes: List[_Node] = []
         # NetworkX DiGraph storing the trunks graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
-        self.minimal_context = bool(minimal_context or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False)))
+        self.minimal_context = bool(
+            minimal_context or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False))
+        )
         pipeline_cfg: Dict[str, Any] = {}
         if isinstance(graph_cfg, dict):
             pipeline_cfg = graph_cfg.get("pipeline", {}) or {}
@@ -188,6 +190,7 @@ class AspenNet(torch.nn.Module):
         name2node: Dict[str, _Node] = {n.name: n for n in self.nodes}
         order_names: List[str] = list(nx.topological_sort(self.graph))
         return [name2node[n] for n in order_names]
+
     # endregion
 
     def forward(self, context: Dict[str, Any]) -> Dict[str, Any]:

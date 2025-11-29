@@ -133,17 +133,9 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         alpha: float = 1.0,
     ):
 
-        warnings.filterwarnings(
-            'ignore',
-            message='.*please provide the `save_dir` argument.*',
-            category=UserWarning)
+        warnings.filterwarnings("ignore", message=".*please provide the `save_dir` argument.*", category=UserWarning)
 
-        super().__init__(
-            name=name,
-            image=image,
-            vis_backends=vis_backends,
-            save_dir=save_dir,
-            backend=backend)
+        super().__init__(name=name, image=image, vis_backends=vis_backends, save_dir=save_dir, backend=backend)
 
         self.bbox_color = bbox_color
         self.kpt_color = kpt_color
@@ -159,37 +151,30 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         # it will override the default value.
         self.dataset_meta = {}
 
-    def set_dataset_meta(self,
-                         dataset_meta: Dict,
-                         skeleton_style: str = 'mmpose'):
+    def set_dataset_meta(self, dataset_meta: Dict, skeleton_style: str = "mmpose"):
         """Assign dataset_meta to the visualizer. The default visualization
         settings will be overridden.
 
         Args:
             dataset_meta (dict): meta information of dataset.
         """
-        if skeleton_style == 'openpose':
-            dataset_name = dataset_meta['dataset_name']
-            if dataset_name == 'coco':
+        if skeleton_style == "openpose":
+            dataset_name = dataset_meta["dataset_name"]
+            if dataset_name == "coco":
+                dataset_meta = parse_pose_metainfo(dict(from_file="configs/_base_/datasets/coco_openpose.py"))
+            elif dataset_name == "coco_wholebody":
                 dataset_meta = parse_pose_metainfo(
-                    dict(from_file='configs/_base_/datasets/coco_openpose.py'))
-            elif dataset_name == 'coco_wholebody':
-                dataset_meta = parse_pose_metainfo(
-                    dict(from_file='configs/_base_/datasets/'
-                         'coco_wholebody_openpose.py'))
+                    dict(from_file="configs/_base_/datasets/" "coco_wholebody_openpose.py")
+                )
             else:
-                raise NotImplementedError(
-                    f'openpose style has not been '
-                    f'supported for {dataset_name} dataset')
+                raise NotImplementedError(f"openpose style has not been " f"supported for {dataset_name} dataset")
 
         if isinstance(dataset_meta, dict):
             self.dataset_meta = dataset_meta.copy()
-            self.bbox_color = dataset_meta.get('bbox_color', self.bbox_color)
-            self.kpt_color = dataset_meta.get('keypoint_colors',
-                                              self.kpt_color)
-            self.link_color = dataset_meta.get('skeleton_link_colors',
-                                               self.link_color)
-            self.skeleton = dataset_meta.get('skeleton_links', self.skeleton)
+            self.bbox_color = dataset_meta.get("bbox_color", self.bbox_color)
+            self.kpt_color = dataset_meta.get("keypoint_colors", self.kpt_color)
+            self.link_color = dataset_meta.get("skeleton_link_colors", self.link_color)
+            self.skeleton = dataset_meta.get("skeleton_links", self.skeleton)
 
             if isinstance(self.bbox_color[0], np.ndarray):
                 self.bbox_color = [tuple(c.tolist()) for c in self.bbox_color]
@@ -305,8 +290,8 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                 filled=False,
             )
 
-        if 'labels' in instances and self.text_color is not None:
-            classes = self.dataset_meta.get('classes', None)
+        if "labels" in instances and self.text_color is not None:
+            classes = self.dataset_meta.get("classes", None)
             labels = instances.labels
             if isinstance(labels, np.ndarray):
                 labels = torch.from_numpy(labels).to(device)
@@ -350,7 +335,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
             np.ndarray: the drawn image which channel is RGB.
         """
 
-        if skeleton_style == 'openpose':
+        if skeleton_style == "openpose":
             # (Optional) Not yet converted to torch-only; fallback (could be implemented similarly)
             return self._draw_instances_kpts_openpose(image, instances, kpt_thr)
 
@@ -610,7 +595,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         Returns:
             np.ndarray: the drawn image which channel is RGB.
         """
-        if 'heatmaps' not in fields:
+        if "heatmaps" not in fields:
             return None
         heatmaps = fields.heatmaps
         if isinstance(heatmaps, np.ndarray):
@@ -655,7 +640,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         Returns:
             np.ndarray: the drawn image which channel is RGB.
         """
-        if 'heatmaps' not in fields:
+        if "heatmaps" not in fields:
             return None
         heatmaps = fields.heatmaps
         _, h, w = heatmaps.shape
@@ -732,23 +717,23 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
 
         if draw_gt:
             gt_img_data = torch_image.clone() if clone_image else torch_image
-            if 'gt_instances' in data_sample:
+            if "gt_instances" in data_sample:
                 gt_img_data = self._draw_instances_kpts(
-                    gt_img_data, data_sample.gt_instances, kpt_thr,
-                    show_kpt_idx, skeleton_style)
+                    gt_img_data, data_sample.gt_instances, kpt_thr, show_kpt_idx, skeleton_style
+                )
                 if draw_bbox:
                     gt_img_data = self._draw_instances_bbox(gt_img_data, data_sample.gt_instances)
-            if 'gt_fields' in data_sample and draw_heatmap:
+            if "gt_fields" in data_sample and draw_heatmap:
                 gt_img_heatmap = self._draw_instance_heatmap(data_sample.gt_fields, torch_image)
                 if gt_img_heatmap is not None:
                     gt_img_data = torch.cat((gt_img_data, gt_img_heatmap), dim=1)
 
         if draw_pred:
             pred_img_data = torch_image.clone() if clone_image else torch_image
-            if 'pred_instances' in data_sample:
+            if "pred_instances" in data_sample:
                 pred_img_data = self._draw_instances_kpts(
-                    pred_img_data, data_sample.pred_instances, kpt_thr,
-                    show_kpt_idx, skeleton_style)
+                    pred_img_data, data_sample.pred_instances, kpt_thr, show_kpt_idx, skeleton_style
+                )
                 if draw_bbox:
                     pred_img_data = self._draw_instances_bbox(pred_img_data, data_sample.pred_instances)
             if "pred_fields" in data_sample and draw_heatmap:

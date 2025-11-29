@@ -27,10 +27,10 @@ import re
 from typing import Dict, List
 
 import h5py
-import mmengine
 import numpy as np
 from PIL import Image
 
+import mmengine
 
 ROOT = "/mnt/data/datasets/VIP-HARPET"
 IMG_DIRS = {
@@ -155,4 +155,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

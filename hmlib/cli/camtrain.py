@@ -1,6 +1,6 @@
 import argparse
 import os
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 import torch
 from torch import nn, optim
@@ -65,9 +65,7 @@ def main():
     # Optional cap to keep quick training
     limit_steps = int(os.environ.get("CAMTRAIN_LIMIT_STEPS", "0")) or None
 
-    ds = CameraPanZoomDataset(
-        tracking_csv=args.tracking_csv, camera_csv=args.camera_csv, window=args.window
-    )
+    ds = CameraPanZoomDataset(tracking_csv=args.tracking_csv, camera_csv=args.camera_csv, window=args.window)
     n = len(ds)
     n_val = max(1, int(n * args.val_split))
     n_train = max(1, n - n_val)

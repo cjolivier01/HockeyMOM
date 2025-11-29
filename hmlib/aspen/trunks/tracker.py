@@ -12,6 +12,7 @@ from .base import Trunk
 
 logger = logging.getLogger(__name__)
 
+
 class TrackerTrunk(Trunk):
     """
     Tracker trunk that consumes per-frame detections and produces tracks.
@@ -197,8 +198,12 @@ class TrackerTrunk(Trunk):
                 if len(det_labels) == 1 and N > 1:
                     det_labels = det_labels.expand(N).clone()
                 else:
-                    det_labels = torch.full((N,), int(det_labels[0].item()) if len(det_labels) else 0,
-                                            dtype=torch.long, device=det_bboxes.device)
+                    det_labels = torch.full(
+                        (N,),
+                        int(det_labels[0].item()) if len(det_labels) else 0,
+                        dtype=torch.long,
+                        device=det_bboxes.device,
+                    )
             if len(det_scores) != N:
                 if len(det_scores) == 1 and N > 1:
                     det_scores = det_scores.expand(N).clone()
@@ -364,9 +369,7 @@ class TrackerTrunk(Trunk):
             "num_detections": torch.tensor([kept], dtype=torch.long),
         }
 
-    def _trim_tracker_outputs(
-        self, results: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, torch.Tensor], int]:
+    def _trim_tracker_outputs(self, results: Dict[str, torch.Tensor]) -> Tuple[Dict[str, torch.Tensor], int]:
         num_tracks_tensor = results.get("num_tracks")
         if num_tracks_tensor is None:
             ids = results.get("user_ids", results.get("ids"))

@@ -15,10 +15,10 @@ import mmcv
 import mmengine
 import numpy as np
 import torch
-from mmcv.transforms import LoadImageFromFile
-from mmcv.transforms.utils import to_2tuple
 from mmcv.image.geometric import _scale_size
+from mmcv.transforms import LoadImageFromFile
 from mmengine.registry import TRANSFORMS
+from mmengine.utils import to_2tuple
 from mmpose.structures.bbox.transforms import bbox_xywh2cs, get_warp_matrix
 
 from hmlib.utils.gpu import StreamTensor, StreamTensorBase

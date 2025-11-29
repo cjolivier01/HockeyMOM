@@ -42,7 +42,9 @@ class BoundariesTrunk(Trunk):
         original_clip_box = context.get("original_clip_box") or context.get("shared", {}).get("original_clip_box")
         top_border_lines = context.get("top_border_lines") or context.get("shared", {}).get("top_border_lines")
         bottom_border_lines = context.get("bottom_border_lines") or context.get("shared", {}).get("bottom_border_lines")
-        plot_ice_mask: bool = bool(context.get("plot_ice_mask") or context.get("shared", {}).get("plot_ice_mask", False))
+        plot_ice_mask: bool = bool(
+            context.get("plot_ice_mask") or context.get("shared", {}).get("plot_ice_mask", False)
+        )
 
         if top_border_lines or bottom_border_lines:
             updated = update_pipeline_item(

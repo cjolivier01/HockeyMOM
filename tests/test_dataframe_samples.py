@@ -6,14 +6,14 @@ import pytest
 
 
 def should_detection_dataframe_roundtrip():
-    torch = pytest.importorskip('torch')
-    pytest.importorskip('mmdet.structures')
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("mmdet.structures")
     from mmengine.structures import InstanceData
     from mmdet.structures import DetDataSample
     from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 
-    with tempfile.TemporaryDirectory(prefix='df_det_') as tmp:
-        path = os.path.join(tmp, 'det.csv')
+    with tempfile.TemporaryDirectory(prefix="df_det_") as tmp:
+        path = os.path.join(tmp, "det.csv")
         df = DetectionDataFrame(output_file=path, input_batch_size=1)
         inst = InstanceData()
         inst.scores = torch.tensor([0.9, 0.8], dtype=torch.float32)
@@ -28,23 +28,23 @@ def should_detection_dataframe_roundtrip():
         rd = DetectionDataFrame(input_file=path, input_batch_size=1)
         # single frame
         s1 = rd.get_sample_by_frame(1)
-        assert s1 is not None and hasattr(s1, 'pred_instances')
+        assert s1 is not None and hasattr(s1, "pred_instances")
         assert s1.pred_instances.bboxes.shape[-1] == 4
         # range
         many = rd.get_samples()
         assert len(many) == 3
-        assert all(hasattr(x, 'pred_instances') for x in many)
+        assert all(hasattr(x, "pred_instances") for x in many)
 
 
 def should_tracking_dataframe_roundtrip():
-    torch = pytest.importorskip('torch')
-    pytest.importorskip('mmdet.structures')
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("mmdet.structures")
     from mmengine.structures import InstanceData
     from mmdet.structures import DetDataSample, TrackDataSample
     from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
-    with tempfile.TemporaryDirectory(prefix='df_trk_') as tmp:
-        path = os.path.join(tmp, 'trk.csv')
+    with tempfile.TemporaryDirectory(prefix="df_trk_") as tmp:
+        path = os.path.join(tmp, "trk.csv")
         df = TrackingDataFrame(output_file=path, input_batch_size=1)
         for f in range(1, 4):
             inst = InstanceData()
@@ -67,14 +67,14 @@ def should_tracking_dataframe_roundtrip():
 
 
 def should_pose_dataframe_roundtrip():
-    torch = pytest.importorskip('torch')
-    pytest.importorskip('mmpose.structures')
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("mmpose.structures")
     from mmengine.structures import InstanceData
     from mmpose.structures import PoseDataSample
     from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 
-    with tempfile.TemporaryDirectory(prefix='df_pose_') as tmp:
-        path = os.path.join(tmp, 'pose.csv')
+    with tempfile.TemporaryDirectory(prefix="df_pose_") as tmp:
+        path = os.path.join(tmp, "pose.csv")
         df = PoseDataFrame(output_file=path, input_batch_size=1)
         pinst = InstanceData()
         pinst.keypoints = torch.zeros((1, 17, 2), dtype=torch.float32)
@@ -89,17 +89,17 @@ def should_pose_dataframe_roundtrip():
         s1 = rd.get_sample_by_frame(1)
         assert isinstance(s1, PoseDataSample)
         allp = rd.get_samples()
-        assert len(allp) == 2 and all(hasattr(p, 'pred_instances') for p in allp)
+        assert len(allp) == 2 and all(hasattr(p, "pred_instances") for p in allp)
 
 
 def should_action_dataframe_roundtrip():
     from hmlib.tracking_utils.action_dataframe import ActionDataFrame
 
-    with tempfile.TemporaryDirectory(prefix='df_act_') as tmp:
-        path = os.path.join(tmp, 'actions.csv')
+    with tempfile.TemporaryDirectory(prefix="df_act_") as tmp:
+        path = os.path.join(tmp, "actions.csv")
         df = ActionDataFrame(output_file=path, input_batch_size=1)
         for f in range(1, 4):
-            df.add_frame_sample(f, [dict(tracking_id=1, label='idle', label_index=0, score=0.9)])
+            df.add_frame_sample(f, [dict(tracking_id=1, label="idle", label_index=0, score=0.9)])
         df.flush()
 
         rd = ActionDataFrame(input_file=path, input_batch_size=1)
@@ -107,6 +107,8 @@ def should_action_dataframe_roundtrip():
         assert isinstance(s1, list) and len(s1) == 1
         all_act = rd.get_samples()
         assert len(all_act) == 3 and all(isinstance(a, list) for a in all_act)
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)

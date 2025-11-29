@@ -109,14 +109,20 @@ def systemctl(*args: str) -> None:
     subprocess.check_call(["sudo", "systemctl", *args])
 
 
-def configure_msmtp(user: str, from_email: str, smtp_host: str, smtp_port: int, smtp_user: str, smtp_pass: str, use_tls: bool) -> None:
+def configure_msmtp(
+    user: str, from_email: str, smtp_host: str, smtp_port: int, smtp_user: str, smtp_pass: str, use_tls: bool
+) -> None:
     # Install msmtp and provide a sendmail alternative
     subprocess.check_call(["sudo", "apt-get", "update", "-y"])
     subprocess.check_call(["sudo", "apt-get", "install", "-y", "msmtp", "msmtp-mta", "ca-certificates"])
     msmtprc = Path("/etc/msmtprc")
     tls_line = "tls on" if use_tls else "tls off"
     # For port 587 (STARTTLS), turn starttls on; for 465 (SMTPS), turn it off
-    tls_starttls = "tls_starttls on" if (use_tls and smtp_port == 587) else ("tls_starttls off" if (use_tls and smtp_port == 465) else "")
+    tls_starttls = (
+        "tls_starttls on"
+        if (use_tls and smtp_port == 587)
+        else ("tls_starttls off" if (use_tls and smtp_port == 465) else "")
+    )
     auth_lines = []
     if smtp_user:
         # Gmail app passwords are shown with spaces; strip them
@@ -162,8 +168,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Install the dirwatcher systemd service")
     ap.add_argument("--watch-root", required=True, help="Directory to watch for subdirectories")
     ap.add_argument("--signal-file", default="_READY", help="Ready signal filename (default: _READY)")
-    ap.add_argument("--delete-on-success", action="store_true", help="Delete subdirectory after successful job completion")
-    ap.add_argument("--user", default=os.environ.get("SUDO_USER") or os.environ.get("USER"), help="Service user (defaults to current user)")
+    ap.add_argument(
+        "--delete-on-success", action="store_true", help="Delete subdirectory after successful job completion"
+    )
+    ap.add_argument(
+        "--user",
+        default=os.environ.get("SUDO_USER") or os.environ.get("USER"),
+        help="Service user (defaults to current user)",
+    )
     ap.add_argument("--python-bin", default="", help="Python interpreter (prefer conda env of service user)")
 
     # Slurm job configuration
@@ -271,7 +283,9 @@ def main() -> int:
         python_bin = args.python_bin
     # Ensure pymysql is available in that environment
     try:
-        subprocess.check_call(["sudo", "-H", "-u", args.user, "bash", "-lc", f"{python_bin} -m pip install --upgrade pip wheel pymysql"])
+        subprocess.check_call(
+            ["sudo", "-H", "-u", args.user, "bash", "-lc", f"{python_bin} -m pip install --upgrade pip wheel pymysql"]
+        )
     except Exception:
         pass
 
@@ -305,7 +319,7 @@ def main() -> int:
     # Ensure state and log paths are writeable by the service user
     try:
         if not state_file.exists():
-            state_file.write_text('{'"'"'\n  "active": {},\n  "processed": {}\n\n'"'"'}')
+            state_file.write_text("{" "'" '\n  "active": {},\n  "processed": {}\n\n' "'" "}")
         # Ensure both the state file and its directory are owned by the service user
         subprocess.check_call(["sudo", "chown", "-R", f"{args.user}:{args.user}", str(state_file.parent)])
         subprocess.check_call(["sudo", "chown", "-R", f"{args.user}:{args.user}", str(failure_log.parent)])
@@ -317,7 +331,15 @@ def main() -> int:
 
     # Optionally install SMTP (msmtp) to provide sendmail and SMTP relay
     if args.smtp_setup:
-        configure_msmtp(args.user, args.from_email, args.smtp_host, args.smtp_port, args.smtp_user, args.smtp_pass, args.smtp_use_tls)
+        configure_msmtp(
+            args.user,
+            args.from_email,
+            args.smtp_host,
+            args.smtp_port,
+            args.smtp_user,
+            args.smtp_pass,
+            args.smtp_use_tls,
+        )
 
     # Reload and start service
     systemctl("daemon-reload")

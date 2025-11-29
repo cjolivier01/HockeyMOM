@@ -11,11 +11,7 @@ from torchvision.transforms import functional as TF
 
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.hm_opts import hm_opts
-from hmlib.utils.image import (
-    make_channels_first,
-    make_channels_last,
-    resize_image,
-)
+from hmlib.utils.image import make_channels_first, make_channels_last, resize_image
 
 
 def point_distance(pt0: torch.Tensor, pt1: torch.Tensor) -> torch.Tensor:
@@ -32,16 +28,15 @@ def order_points_clockwise(pts: torch.Tensor):
 
     # Allocate an array for the ordered points: [top-left, top-right, bottom-right, bottom-left]
     ordered = np.zeros((4, 2), dtype="float32")
-    ordered[0] = pts[np.argmin(s)]       # top-left: smallest sum
-    ordered[2] = pts[np.argmax(s)]       # bottom-right: largest sum
-    ordered[1] = pts[np.argmin(diff)]    # top-right: smallest difference
-    ordered[3] = pts[np.argmax(diff)]    # bottom-left: largest difference
+    ordered[0] = pts[np.argmin(s)]  # top-left: smallest sum
+    ordered[2] = pts[np.argmax(s)]  # bottom-right: largest sum
+    ordered[1] = pts[np.argmin(diff)]  # top-right: smallest difference
+    ordered[3] = pts[np.argmax(diff)]  # bottom-left: largest difference
 
     return torch.from_numpy(ordered)
 
 
 class Scoreboard(torch.nn.Module):
-
     def __init__(
         self,
         src_pts: torch.Tensor,
@@ -67,9 +62,7 @@ class Scoreboard(torch.nn.Module):
 
         if clip_box is not None:
             if not isinstance(clip_box, torch.Tensor):
-                clip_box = torch.tensor(
-                    clip_box, dtype=self._src_pts.dtype, device=self._src_pts.device
-                )
+                clip_box = torch.tensor(clip_box, dtype=self._src_pts.dtype, device=self._src_pts.device)
             self._src_pts[:] -= clip_box[0:2]
 
         bbox_tensor = int_bbox(get_bbox(self._src_pts))
@@ -102,10 +95,7 @@ class Scoreboard(torch.nn.Module):
             dest_width_new = int(float(dest_height) * aspect_ratio)
             dest_height_new = int(float(dest_width) / aspect_ratio)
             # Try whichever one changes the least
-            if (
-                abs(dest_width - dest_width_new) / dest_width
-                < abs(dest_height - dest_height_new) / dest_height
-            ):
+            if abs(dest_width - dest_width_new) / dest_width < abs(dest_height - dest_height_new) / dest_height:
                 # Always thisn one ATM
                 dest_width = dest_width_new
             else:
@@ -224,12 +214,8 @@ def _get_perspective_coeffs(
     a_matrix = torch.zeros(2 * len(startpoints), 8, dtype=torch.float, device=startpoints.device)
 
     for i, (p1, p2) in enumerate(zip(endpoints, startpoints)):
-        a_matrix[2 * i, :] = torch.tensor(
-            [p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]]
-        )
-        a_matrix[2 * i + 1, :] = torch.tensor(
-            [0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]]
-        )
+        a_matrix[2 * i, :] = torch.tensor([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
+        a_matrix[2 * i + 1, :] = torch.tensor([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
     # b_matrix = torch.tensor(startpoints, dtype=torch.float).view(8)
     b_matrix = startpoints.view(8)
     res = torch.linalg.lstsq(a_matrix, b_matrix, driver="gels").solution
@@ -238,9 +224,7 @@ def _get_perspective_coeffs(
     return output
 
 
-def _perspective_grid(
-    coeffs: List[float], ow: int, oh: int, dtype: torch.dtype, device: torch.device
-) -> torch.Tensor:
+def _perspective_grid(coeffs: List[float], ow: int, oh: int, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
     # https://github.com/python-pillow/Pillow/blob/4634eafe3c695a014267eefdce830b4a825beed7/
     # src/libImaging/Geometry.c#L394
 
@@ -267,9 +251,7 @@ def _perspective_grid(
     base_grid[..., 1].copy_(y_grid)
     base_grid[..., 2].fill_(1)
 
-    rescaled_theta1 = theta1.transpose(1, 2) / torch.tensor(
-        [0.5 * ow, 0.5 * oh], dtype=dtype, device=device
-    )
+    rescaled_theta1 = theta1.transpose(1, 2) / torch.tensor([0.5 * ow, 0.5 * oh], dtype=dtype, device=device)
     output_grid1 = base_grid.view(1, oh * ow, 3).bmm(rescaled_theta1)
     output_grid2 = base_grid.view(1, oh * ow, 3).bmm(theta2.transpose(1, 2))
 
@@ -277,9 +259,7 @@ def _perspective_grid(
     return output_grid.view(1, oh, ow, 2)
 
 
-def _cast_squeeze_in(
-    img: Tensor, req_dtypes: List[torch.dtype]
-) -> Tuple[Tensor, bool, bool, torch.dtype]:
+def _cast_squeeze_in(img: Tensor, req_dtypes: List[torch.dtype]) -> Tuple[Tensor, bool, bool, torch.dtype]:
     need_squeeze = False
     # make image NCHW
     if img.ndim < 4:
@@ -295,9 +275,7 @@ def _cast_squeeze_in(
     return img, need_cast, need_squeeze, out_dtype
 
 
-def _cast_squeeze_out(
-    img: Tensor, need_cast: bool, need_squeeze: bool, out_dtype: torch.dtype
-) -> Tensor:
+def _cast_squeeze_out(img: Tensor, need_cast: bool, need_squeeze: bool, out_dtype: torch.dtype) -> Tensor:
     if need_squeeze:
         img = img.squeeze(dim=0)
 
@@ -342,14 +320,8 @@ def _apply_grid_transform(
         mask = img[:, -1:, :, :]  # N * 1 * H * W
         img = img[:, :-1, :, :]  # N * C * H * W
         mask = mask.expand_as(img)
-        fill_list, len_fill = (
-            (fill, len(fill)) if isinstance(fill, (tuple, list)) else ([float(fill)], 1)
-        )
-        fill_img = (
-            torch.tensor(fill_list, dtype=img.dtype, device=img.device)
-            .view(1, len_fill, 1, 1)
-            .expand_as(img)
-        )
+        fill_list, len_fill = (fill, len(fill)) if isinstance(fill, (tuple, list)) else ([float(fill)], 1)
+        fill_img = torch.tensor(fill_list, dtype=img.dtype, device=img.device).view(1, len_fill, 1, 1).expand_as(img)
         if mode == "nearest":
             mask = mask < 0.5
             img[mask] = fill_img[mask]

@@ -187,6 +187,7 @@ def get_available_videos(dir_name: str, prune: bool = False) -> VideosDict:
                 return int(m.group(1)) if m else 0
             except Exception:
                 return 0
+
         return sorted(names, key=cam_index)
 
     def _collect_chapters_for_dir(d: str) -> VideoChapter:

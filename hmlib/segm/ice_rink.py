@@ -253,9 +253,7 @@ def _rescale_rink_results(
         rink_results["contours"] = scaled_contours
 
     if "masks" in rink_results and rink_results["masks"]:
-        rink_results["masks"] = [
-            _resize_mask(mask, orig_height, orig_width) for mask in rink_results["masks"]
-        ]
+        rink_results["masks"] = [_resize_mask(mask, orig_height, orig_width) for mask in rink_results["masks"]]
 
     if "combined_mask" in rink_results and rink_results["combined_mask"] is not None:
         rink_results["combined_mask"] = _resize_mask(rink_results["combined_mask"], orig_height, orig_width)

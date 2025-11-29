@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
 import os
 import sys
+from typing import Any, Dict, List, Optional
 
 from .base import Trunk
 
@@ -43,6 +42,7 @@ class ActionRecognizerFactoryTrunk(Trunk):
     def _ensure_mmaction_imported():
         try:
             import mmaction  # noqa: F401
+
             return
         except Exception:
             pass
@@ -102,4 +102,3 @@ class ActionRecognizerFactoryTrunk(Trunk):
 
     def output_keys(self):
         return {"action_recognizer", "action_label_map"}
-

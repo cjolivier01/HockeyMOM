@@ -16,12 +16,7 @@ import numpy as np
 import tifffile
 import torch
 
-from hmlib.config import (
-    get_game_config_private,
-    get_nested_value,
-    save_private_config,
-    set_nested_value,
-)
+from hmlib.config import get_game_config_private, get_nested_value, save_private_config, set_nested_value
 from hmlib.stitching.control_points import calculate_control_points
 from hmlib.stitching.hugin import configure_control_points
 from hmlib.video.video_stream import extract_frame_image

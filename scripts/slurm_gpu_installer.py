@@ -9,9 +9,7 @@ from pathlib import Path
 
 def run(cmd: str, check: bool = True, capture: bool = False, env=None):
     print(f"+ {cmd}")
-    result = subprocess.run(
-        cmd, shell=True, check=check, text=True, capture_output=capture, env=env
-    )
+    result = subprocess.run(cmd, shell=True, check=check, text=True, capture_output=capture, env=env)
     if capture:
         return result.stdout.strip()
     return ""
@@ -63,6 +61,7 @@ def ensure_munge():
 def detect_topology():
     # Use slurmd -C to get Sockets/Cores/Threads/RealMemory
     line = run("slurmd -C | head -n1", capture=True)
+
     def field(name):
         for tok in line.split():
             if tok.startswith(name + "="):

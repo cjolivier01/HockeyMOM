@@ -14,11 +14,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
-
-from ..utils.image import (
-    is_channels_first,
-    make_channels_first,
-)
+from ..utils.image import is_channels_first, make_channels_first
 
 # Key: (point size, ttf file path) -> letter -> RGB tensor
 CHARACTERS: Dict[Tuple[int, str], Dict[str, torch.Tensor]] = {}
@@ -33,9 +29,7 @@ def print_rgba_planes(image_tensor):
         image_tensor (np.ndarray): A NumPy array of shape (height, width, 4) representing an RGBA image.
     """
     if len(image_tensor.shape) != 3 or image_tensor.shape[2] != 4:
-        raise ValueError(
-            "Input image tensor must have shape (height, width, 4) representing an RGBA image."
-        )
+        raise ValueError("Input image tensor must have shape (height, width, 4) representing an RGBA image.")
 
     height, width, _ = image_tensor.shape
 
@@ -104,9 +98,7 @@ def _create_text_images(
         # show_image("char", numpy_image, wait=True)
 
         # Convert the PIL image to a PyTorch tensor
-        tensor = (
-            torch.from_numpy(numpy_image).permute(2, 0, 1).to(device).to(torch.float)
-        )  # Normalize the tensor
+        tensor = torch.from_numpy(numpy_image).permute(2, 0, 1).to(device).to(torch.float)  # Normalize the tensor
         char_tensors[char] = tensor
 
     char_tensors["max_height"] = max_height
@@ -171,9 +163,7 @@ def draw_text(
     if font_path is None:
         font_path = find_font_path()
         draw_text_SIZE_TO_FONT_PATHS[font_size] = font_path
-    char_images = _create_text_images(
-        font_path=font_path, font_size=font_size, font_color=color, device=image.device
-    )
+    char_images = _create_text_images(font_path=font_path, font_size=font_size, font_color=color, device=image.device)
     if position_is_text_bottom:
         y = int(y - char_images["max_height"])
         y = max(0, y)

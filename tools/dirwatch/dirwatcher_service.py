@@ -190,13 +190,17 @@ def read_config(path: Path) -> Config:
             smtp_pass=behavior.get("smtp_pass"),
             smtp_use_tls=bool(behavior.get("smtp_use_tls", True)),
         ),
-        db=DbConfig(
-            host=str(db_raw.get("host", "127.0.0.1")),
-            port=int(db_raw.get("port", 3306)),
-            name=str(db_raw.get("name", "hm_app_db")),
-            user=str(db_raw.get("user", "hmapp")),
-            password=str(db_raw.get("pass", "")),
-        ) if db_raw else None,
+        db=(
+            DbConfig(
+                host=str(db_raw.get("host", "127.0.0.1")),
+                port=int(db_raw.get("port", 3306)),
+                name=str(db_raw.get("name", "hm_app_db")),
+                user=str(db_raw.get("user", "hmapp")),
+                password=str(db_raw.get("pass", "")),
+            )
+            if db_raw
+            else None
+        ),
     )
     return cfg
 
@@ -322,7 +326,9 @@ def get_job_state(job_id: str) -> Optional[str]:
     return None
 
 
-def discover_ready_subdirs(watch_root: Path, signal_name: str, stability_checks: int, stability_interval: float) -> List[Path]:
+def discover_ready_subdirs(
+    watch_root: Path, signal_name: str, stability_checks: int, stability_interval: float
+) -> List[Path]:
     ready: List[Path] = []
     if not watch_root.exists():
         return ready
@@ -419,7 +425,16 @@ def run_service(cfg: Config) -> None:
                     state.processed[sub_key] = info
                     finished.append(job_id)
                     try:
-                        upsert_job_db(cfg, sub_key, job_id, status=st, finished=st.startswith("COMPLETED") or st.startswith("FAILED") or st.startswith("CANCELLED") or st.startswith("TIMEOUT"))
+                        upsert_job_db(
+                            cfg,
+                            sub_key,
+                            job_id,
+                            status=st,
+                            finished=st.startswith("COMPLETED")
+                            or st.startswith("FAILED")
+                            or st.startswith("CANCELLED")
+                            or st.startswith("TIMEOUT"),
+                        )
                     except Exception:
                         logging.exception("DB update failed for completion of %s", sub_key)
 
@@ -428,9 +443,7 @@ def run_service(cfg: Config) -> None:
                         to_addr = _read_user_email_from_meta(Path(sub_key))
                         if to_addr:
                             subj = f"DirWatcher job {st} - {Path(sub_key).name}"
-                            body = (
-                                f"Directory: {sub_key}\nJob ID: {job_id}\nState: {st}\nTime: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                            )
+                            body = f"Directory: {sub_key}\nJob ID: {job_id}\nState: {st}\nTime: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
                             send_email(to_addr, subj, body, cfg.behavior)
                     except Exception:
                         logging.exception("Email notification failed")
@@ -504,6 +517,7 @@ def send_email(to_addr: str, subject: str, body: str, bcfg: BehaviorConfig) -> N
     )
     # Prefer system sendmail (msmtp-mta) with config path pinned via environment
     import shutil as _sh
+
     sendmail = _sh.which("sendmail")
     if sendmail:
         try:
@@ -591,7 +605,7 @@ def upsert_job_db(cfg: Config, subdir: str, slurm_job_id: Optional[str], status:
     conn = db_connect(cfg)
     try:
         uid, gid, email = _lookup_ids_by_dir(conn, subdir)
-        now = time.strftime('%Y-%m-%d %H:%M:%S')
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
         with conn.cursor() as cur:
             # Find existing job by slurm id or dir_path
             job_row_id = None

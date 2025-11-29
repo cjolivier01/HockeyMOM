@@ -91,7 +91,6 @@ class LinkedList:
 
 
 class SidebandQueue:
-
     def __init__(self, name: Optional[str] = None, warn_after: Optional[float] = None, repeat_warn: bool = False):
         """Create a SidebandQueue.
 

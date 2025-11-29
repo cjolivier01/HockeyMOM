@@ -52,13 +52,13 @@ class DetectorInferenceTrunk(Trunk):
         video_len = len(track_data_sample)
 
         with torch.no_grad():
-            det_device = detection_image.device if isinstance(detection_image, torch.Tensor) else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            use_autocast = bool(fp16 and det_device.type == "cuda")
-            amp_ctx = (
-                torch.amp.autocast("cuda", dtype=torch.float16, enabled=True)
-                if use_autocast
-                else nullcontext()
+            det_device = (
+                detection_image.device
+                if isinstance(detection_image, torch.Tensor)
+                else torch.device("cuda" if torch.cuda.is_available() else "cpu")
             )
+            use_autocast = bool(fp16 and det_device.type == "cuda")
+            amp_ctx = torch.amp.autocast("cuda", dtype=torch.float16, enabled=True) if use_autocast else nullcontext()
 
             if isinstance(detection_image, torch.Tensor):
                 batch_inputs = detection_image.squeeze(0)

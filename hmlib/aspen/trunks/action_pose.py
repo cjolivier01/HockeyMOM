@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
-
 import os
 import sys
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -45,6 +44,7 @@ class ActionFromPoseTrunk(Trunk):
     def _ensure_mmaction_imported():
         try:
             import mmaction  # noqa: F401
+
             return
         except Exception:
             pass
@@ -234,8 +234,12 @@ class ActionFromPoseTrunk(Trunk):
                 inst = per_frame_instances[i]
                 if inst is None:
                     # No tracks in this frame; pad with empty
-                    per_frame_pose.append(dict(keypoints=np.empty((0, 17, 2), dtype=np.float32),
-                                               keypoint_scores=np.empty((0, 17), dtype=np.float32)))
+                    per_frame_pose.append(
+                        dict(
+                            keypoints=np.empty((0, 17, 2), dtype=np.float32),
+                            keypoint_scores=np.empty((0, 17), dtype=np.float32),
+                        )
+                    )
                     continue
                 # Map this frame's track boxes to pose indices
                 mapped_idx = self._map_tracks_to_pose_indices(inst, pose_kpts)
@@ -252,11 +256,16 @@ class ActionFromPoseTrunk(Trunk):
                             if 0 <= pi < pose_kpts.shape[0]:
                                 sel = pi
                 if sel is None or pose_kpts.size == 0:
-                    per_frame_pose.append(dict(keypoints=np.empty((0, 17, 2), dtype=np.float32),
-                                               keypoint_scores=np.empty((0, 17), dtype=np.float32)))
+                    per_frame_pose.append(
+                        dict(
+                            keypoints=np.empty((0, 17, 2), dtype=np.float32),
+                            keypoint_scores=np.empty((0, 17), dtype=np.float32),
+                        )
+                    )
                 else:
-                    per_frame_pose.append(dict(keypoints=pose_kpts[sel:sel + 1],
-                                               keypoint_scores=pose_scores[sel:sel + 1]))
+                    per_frame_pose.append(
+                        dict(keypoints=pose_kpts[sel : sel + 1], keypoint_scores=pose_scores[sel : sel + 1])
+                    )
 
             # Run inference for this track id if it has any non-empty keypoints across frames
             has_any = any(item["keypoints"].shape[0] > 0 for item in per_frame_pose)

@@ -6,8 +6,8 @@ frame data plus a thin :class:`Dataset` wrapper for training.
 
 import json
 import os
-from pathlib import Path
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
 from typing import Any, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -19,7 +19,6 @@ from hmlib.log import logger
 
 
 class HmDataFrameBase:
-
     def __init__(
         self,
         fields: List[str],
@@ -126,10 +125,7 @@ def json_to_dataclass(json_str, cls):
 
 
 class DataFrameDataset(Dataset):
-
-    def __init__(
-        self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None, seek_base: int = 0
-    ):
+    def __init__(self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None, seek_base: int = 0):
         """
         Args:
             dataframe (pd.DataFrame): a pandas DataFrame containing the data.

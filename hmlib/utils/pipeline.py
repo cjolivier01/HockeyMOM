@@ -9,9 +9,7 @@ MMDetection / MMPose configs.
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 
-def get_pipeline_list(
-    data_pipeline: Union[List[Dict[str, Any]], Dict[str, Any]]
-) -> List[Dict[str, Any]]:
+def get_pipeline_list(data_pipeline: Union[List[Dict[str, Any]], Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Normalize a pipeline config into a list of dictionaries.
 
     @param data_pipeline: Either a list of pipeline dicts or a dict with ``\"pipeline\"`` key.
@@ -101,9 +99,7 @@ def set_pipeline_item_attribute(
     @param value: New attribute value.
     @return: ``True`` if the attribute was set on exactly one item.
     """
-    pipeline_items = get_pipeline_items(
-        data_pipeline=data_pipeline, class_name=class_name
-    )
+    pipeline_items = get_pipeline_items(data_pipeline=data_pipeline, class_name=class_name)
     if not pipeline_items:
         return False
     assert len(pipeline_items) == 1

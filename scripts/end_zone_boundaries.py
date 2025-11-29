@@ -8,12 +8,7 @@ from typing import Any, Dict, List, Tuple
 from PIL import Image, ImageTk
 
 from hmlib.camera.end_zones import load_lines_from_config
-from hmlib.config import (
-    get_game_config_private,
-    get_nested_value,
-    save_private_config,
-    set_nested_value,
-)
+from hmlib.config import get_game_config_private, get_nested_value, save_private_config, set_nested_value
 from hmlib.hm_opts import hm_opts
 
 
@@ -125,9 +120,7 @@ class ImageEditor:
             for label, line in self.lines.items():
                 if not line:
                     line = None
-                set_nested_value(
-                    game_config, f"rink.end_zones.{label}", [list(line[0]), list(line[1])]
-                )
+                set_nested_value(game_config, f"rink.end_zones.{label}", [list(line[0]), list(line[1])])
             save_private_config(game_id=self._game_id, data=game_config)
 
         self.quit()
@@ -136,9 +129,7 @@ class ImageEditor:
         self.root.destroy()
 
 
-def get_line(
-    game_config: Dict[str, Any], key, dflt: List[Tuple[int, int]] = []
-) -> List[Tuple[int, int]]:
+def get_line(game_config: Dict[str, Any], key, dflt: List[Tuple[int, int]] = []) -> List[Tuple[int, int]]:
     line = get_nested_value(game_config, key)
     if line is None:
         return copy.deepcopy(dflt)

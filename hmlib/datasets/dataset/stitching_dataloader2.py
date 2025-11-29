@@ -98,7 +98,6 @@ def distribute_items_detailed(total_item_count: int, worker_count: int) -> List[
 
 
 class MultiDataLoaderWrapper:
-
     def __init__(self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0) -> None:
         self._dataloaders: List[MOTLoadVideoWithOrig] = dataloaders
         self._iters: List[Any] = []
@@ -156,7 +155,6 @@ def as_torch_device(device: Any) -> torch.device:
 #
 #
 class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
-
     def __init__(
         self,
         videos: Dict[str, List[Path]],

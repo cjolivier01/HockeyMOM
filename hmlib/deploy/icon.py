@@ -65,9 +65,7 @@ def create_matchup_image(
         font = ImageFont.truetype(font_path, size=text_size)  # Path to a ttf file might be needed
     except IOError:
         font = ImageFont.load_default()
-    draw.text(
-        (int(icon_size / 2), int(icon_size / 2)), "VS", fill=text_color, font=font, anchor="mm"
-    )
+    draw.text((int(icon_size / 2), int(icon_size / 2)), "VS", fill=text_color, font=font, anchor="mm")
 
     return img
 

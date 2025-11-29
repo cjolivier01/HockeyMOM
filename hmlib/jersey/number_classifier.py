@@ -33,7 +33,6 @@ class TrackJerseyInfo:
 
 @TRANSFORMS.register_module()
 class HmNumberClassifier:
-
     def __init__(
         self,
         *args,
@@ -207,9 +206,7 @@ class HmNumberClassifier:
             # Need # width relative to entire box width
             box_width = width(bbox)
             cc = center(bbox)
-            centers.append(
-                (rec_text, int(cc[0]), int(cc[1]), int(box_width), float(rec_scores[index]))
-            )
+            centers.append((rec_text, int(cc[0]), int(cc[1]), int(box_width), float(rec_scores[index])))
         return centers
 
 
@@ -290,11 +287,10 @@ def sample():
     # Example usage
     source_image = torch.randn((3, 256, 256))  # Random source image of shape (3, 256, 256)
     N = 10  # 10 bounding boxes
-    bounding_boxes = torch.randint(
-        0, 200, (N, 4)
-    )  # Random bounding boxes in (x, y, width, height) format
+    bounding_boxes = torch.randint(0, 200, (N, 4))  # Random bounding boxes in (x, y, width, height) format
 
     packed_image, index_map = pack_bounding_boxes_as_tiles(source_image, bounding_boxes)
+
 
 # Example usage:
 # Assuming 'image_tensor' is a CxHxW tensor and 'bounding_boxes' is a Nx4 tensor

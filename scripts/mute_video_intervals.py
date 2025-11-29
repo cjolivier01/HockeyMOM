@@ -8,6 +8,7 @@ sample usage:
     python mute_video_intervals.py input_video.mp4 "10-20,40-50" output_video.mp4
 
 """
+
 import argparse
 import subprocess
 
@@ -27,7 +28,6 @@ def make_parser():
         help="Output video file name",
     )
     return parser
-
 
 
 # def mute_intervals(video_file, intervals, output_file):
@@ -83,9 +83,10 @@ def make_parser():
 
 #     return float(seconds)
 
+
 def parse_time(time_str):
     """Parse time in hh:mm:ss, mm:ss, or ss format and return total seconds."""
-    parts = time_str.split(':')
+    parts = time_str.split(":")
     parts = [int(p) for p in parts]
     if len(parts) == 3:
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
@@ -110,13 +111,13 @@ def mute_intervals(audio_file, intervals, output_file):
     print(intervals)
 
     for interval in intervals:
-        start, end = interval.split('-')
+        start, end = interval.split("-")
         start_sec = parse_time(start)
         end_sec = parse_time(end)
         filters.append(f"volume=enable='between(t,{start_sec},{end_sec})':volume=0")
 
-    filter_str = ','.join(filters)
-    command = ['ffmpeg', '-i', audio_file, '-af', filter_str, "-c:v ", "copy", output_file]
+    filter_str = ",".join(filters)
+    command = ["ffmpeg", "-i", audio_file, "-af", filter_str, "-c:v ", "copy", output_file]
     print(" ".join(command))
     subprocess.run(command)
 
@@ -124,7 +125,6 @@ def mute_intervals(audio_file, intervals, output_file):
 def main(args: argparse.Namespace):
     # Example usage:
     # time_intervals = [(10, 20), (40, 50)]  # Replace with your start and end times in seconds
-
 
     mute_intervals(
         args.input_file,
@@ -141,13 +141,12 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = make_parser()
-    #args = make_parser().parse_args()
+    # args = make_parser().parse_args()
     args = argparse.Namespace()
-    #args.input_file = "tracking_output-with-audio.avi.output_audio.aac"
+    # args.input_file = "tracking_output-with-audio.avi.output_audio.aac"
     args.input_file = "test.avi"
-    
-    
+
     args.output_file = "err.avi"
-    #args.intervals = "6:21-7:00,30:37-31:18,1:04:42-1:05:12,28:22-29:30,59:28-59:54,9:44-10:06,23:00-24:55,44:26-44:43,27:42-28:02,53:16-53:38"
+    # args.intervals = "6:21-7:00,30:37-31:18,1:04:42-1:05:12,28:22-29:30,59:28-59:54,9:44-10:06,23:00-24:55,44:26-44:43,27:42-28:02,53:16-53:38"
     args.intervals = "6:21-7:00"
     main(args)

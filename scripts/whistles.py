@@ -1,7 +1,8 @@
-import ffmpeg
-import librosa
 import numpy as np
 from scipy.signal import find_peaks
+
+import ffmpeg
+import librosa
 
 
 def extract_audio(video_path, audio_path):
@@ -35,9 +36,7 @@ def detect_whistles(audio_path, sr=22050):
     high_freq_energy = S_db[high_freq_indices, :].mean(axis=0)
 
     # Find peaks in the high-frequency energy
-    peaks, _ = find_peaks(
-        high_freq_energy, height=np.percentile(high_freq_energy, 95), distance=sr * 0.5 / 512
-    )
+    peaks, _ = find_peaks(high_freq_energy, height=np.percentile(high_freq_energy, 95), distance=sr * 0.5 / 512)
 
     # Convert frame indices to time
     times = librosa.frames_to_time(peaks, sr=sr)

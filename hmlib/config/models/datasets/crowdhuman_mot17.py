@@ -13,7 +13,6 @@ data = dict(
                 "data/MOT17/annotations/half-train_cocoformat.json",
                 "data/crowdhuman/annotations/train.json",
                 "data/crowdhuman/annotations/val.json",
-
             ],
             img_prefix=[
                 "data/MOT17/train",

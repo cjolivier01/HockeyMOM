@@ -112,16 +112,10 @@ class EndZones(torch.nn.Module):
                 logger.info("END-ZONE: MIDDLE")
         # See if we're in the left or right zone
         if self._current_zone == ZONE_MIDDLE:
-            if (
-                point_line_position(self._lines["left_start"], cc, image_height=pano_size_height)
-                < 0
-            ):
+            if point_line_position(self._lines["left_start"], cc, image_height=pano_size_height) < 0:
                 self._current_zone = ZONE_LEFT
                 logger.info("END-ZONE: LEFT")
-            elif (
-                point_line_position(self._lines["right_start"], cc, image_height=pano_size_height)
-                > 0
-            ):
+            elif point_line_position(self._lines["right_start"], cc, image_height=pano_size_height) > 0:
                 self._current_zone = ZONE_RIGHT
                 logger.info("END-ZONE: RIGHT")
 
@@ -242,9 +236,7 @@ def point_line_position(
     return torch.sign(diff_x)
 
 
-def get_line(
-    game_config: Dict[str, Any], key, dflt: List[Tuple[int, int]] = []
-) -> List[Tuple[int, int]]:
+def get_line(game_config: Dict[str, Any], key, dflt: List[Tuple[int, int]] = []) -> List[Tuple[int, int]]:
     line = get_nested_value(game_config, key)
     if line is None:
         return copy.deepcopy(dflt)

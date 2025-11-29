@@ -66,14 +66,10 @@ def copy_make_border_pytorch_batch(images, top, bottom, left, right, border_type
 
 
 def py_letterbox(img, height, width, color=0.5):
-    new_shape, ratio, dw, dh = py_calculate_letterbox(
-        shape=img.shape[2:], height=height, width=width
-    )
+    new_shape, ratio, dw, dh = py_calculate_letterbox(shape=img.shape[2:], height=height, width=width)
 
     top, bottom = round(float(dh) - 0.1), round(float(dh) + 0.1)
     left, right = round(float(dw) - 0.1), round(float(dw) + 0.1)
     resized_image = F.interpolate(img, size=(new_shape[1], new_shape[0]), mode="area")
-    letterbox_img = copy_make_border_pytorch_batch(
-        resized_image, top, bottom, left, right, "constant", value=color
-    )
+    letterbox_img = copy_make_border_pytorch_batch(resized_image, top, bottom, left, right, "constant", value=color)
     return letterbox_img, resized_image, ratio, dw, dh

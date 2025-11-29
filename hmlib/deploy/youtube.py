@@ -54,13 +54,9 @@ def upload_video_to_youtube(
     }
 
     video = MediaFileUpload(video_file_path, chunksize=-1, resumable=True)
-    upload_response = (
-        youtube.videos().insert(part="snippet,status", body=body, media_body=video).execute()
-    )
+    upload_response = youtube.videos().insert(part="snippet,status", body=body, media_body=video).execute()
 
-    youtube.thumbnails().set(
-        videoId=upload_response["id"], media_body=MediaFileUpload(thumbnail_path)
-    ).execute()
+    youtube.thumbnails().set(videoId=upload_response["id"], media_body=MediaFileUpload(thumbnail_path)).execute()
 
     playlist_item_body = {
         "snippet": {

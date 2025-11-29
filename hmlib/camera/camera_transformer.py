@@ -70,9 +70,7 @@ def build_frame_features(
     if len(tlwh) == 0:
         group_width_ratio = 0.0
     else:
-        group_width_ratio = float(
-            (float(np.max(lefts + tlwh[:, 2])) - float(np.min(lefts))) / max(1e-6, norm.scale_x)
-        )
+        group_width_ratio = float((float(np.max(lefts + tlwh[:, 2])) - float(np.min(lefts))) / max(1e-6, norm.scale_x))
         group_width_ratio = np.clip(group_width_ratio, 0.0, 1.0)
     prev_cx, prev_cy = (0.0, 0.0) if prev_cam_center is None else prev_cam_center
     prev_h = 0.0 if prev_cam_h is None else prev_cam_h

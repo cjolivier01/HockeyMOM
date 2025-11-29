@@ -387,7 +387,7 @@ def extract_clip_with_overlay(
         # Add a synthetic orange source as second input for overlay
         circle_src = "color=c=orange@1.0:s=500x500"
         # Provide a finite duration if known (helps some ffmpeg builds when mapping/shortest)
-        if 'seg_duration' in locals() and seg_duration is not None and seg_duration > 0:
+        if "seg_duration" in locals() and seg_duration is not None and seg_duration > 0:
             circle_src += f":d={seg_duration:.3f}"
         cmd += ["-f", "lavfi", "-i", circle_src]
 
@@ -410,9 +410,7 @@ def extract_clip_with_overlay(
         )
 
         # Compose overlay with enable blink expression, then draw the top-right label and convert to nv12
-        label_chain = (
-            f"drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin},format=nv12"
-        )
+        label_chain = f"drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin},format=nv12"
 
         fc = (
             f"[0:v]{base_chain_s}[base];"
@@ -593,9 +591,7 @@ def main():
     parser.add_argument(
         "--blink-circle",
         action="store_true",
-        help=(
-            "Add a blinking bright orange circle in the top-left around the clip midpoint"
-        ),
+        help=("Add a blinking bright orange circle in the top-left around the clip midpoint"),
     )
     parser.add_argument(
         "--blink-pre",
@@ -626,9 +622,7 @@ def main():
     else:
         # VIDEO_CLIPPER_HQ>0 means use lossless for intermediates (existing behavior)
         if int(os.environ.get("VIDEO_CLIPPER_HQ", "0")) > 0:
-            WORKING_ENCODER_ARGS = (
-                ENCODER_ARGS_LOSSLESS_H264 if args.codec == "h264" else ENCODER_ARGS_LOSSLESS_HEVC
-            )
+            WORKING_ENCODER_ARGS = ENCODER_ARGS_LOSSLESS_H264 if args.codec == "h264" else ENCODER_ARGS_LOSSLESS_HEVC
         else:
             WORKING_ENCODER_ARGS = ENCODER_ARGS_HQ_H264 if args.codec == "h264" else ENCODER_ARGS_HQ_HEVC
 

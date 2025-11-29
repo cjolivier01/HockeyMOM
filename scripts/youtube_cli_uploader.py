@@ -29,18 +29,19 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
-import sys
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 
 # Scopes:
 # - youtube.upload: upload videos

@@ -1,10 +1,9 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import numpy as np
 import torch
-from .image import transform_preds, pt_transform_preds
+
+from .image import pt_transform_preds, transform_preds
 
 
 def ctdet_post_process(dets, c, s, h, w, num_classes):
@@ -41,12 +40,8 @@ def ctdet_post_process_post_recale(dets: torch.Tensor, c, s, h, w, num_classes):
     for i in range(dets.shape[0]):
         top_preds = {}
         # pt_transform_preds is across detections
-        dets[i, :, :2], trans = pt_transform_preds(
-            dets[i, :, 0:2], c_t, s_t, w_h, trans=trans
-        )
-        dets[i, :, 2:4], _ = pt_transform_preds(
-            dets[i, :, 2:4], c_t, s_t, w_h, trans=trans
-        )
+        dets[i, :, :2], trans = pt_transform_preds(dets[i, :, 0:2], c_t, s_t, w_h, trans=trans)
+        dets[i, :, 2:4], _ = pt_transform_preds(dets[i, :, 2:4], c_t, s_t, w_h, trans=trans)
         classes = dets[i, :, -1]
         for j in range(num_classes):
             inds = classes == j

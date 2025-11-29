@@ -30,9 +30,7 @@ class JerseyTracker:
         self._tracking_id_jersey: Dict[int, TrackingIdNumberInfo] = {}
         self._jersey_number_to_tracking_id: Dict[int, int] = {}
 
-    def draw(
-        self, image: torch.Tensor, tracking_ids: torch.Tensor, bboxes: torch.Tensor
-    ) -> torch.Tensor:
+    def draw(self, image: torch.Tensor, tracking_ids: torch.Tensor, bboxes: torch.Tensor) -> torch.Tensor:
         if not self._show:
             return image
         assert len(tracking_ids) == len(bboxes)
@@ -76,9 +74,7 @@ class JerseyTracker:
             return
 
         # Something changed
-        logger.info(
-            f"Conflict: ID: {current_tracking_id} # {prev_info.current_number} -> # {info.number}"
-        )
+        logger.info(f"Conflict: ID: {current_tracking_id} # {prev_info.current_number} -> # {info.number}")
         # Record the occurence count
         if info.number not in prev_info.number_occurrences:
             prev_info.occurrences[frame_id] = info
@@ -91,10 +87,7 @@ class JerseyTracker:
             # Higher score, so maybe replace the number
             prev_info.occurrences[frame_id] = info
             # If higher occurrence count
-            if (
-                prev_info.number_occurrences[info.number]
-                >= prev_info.number_occurrences[prev_info.current_number]
-            ):
+            if prev_info.number_occurrences[info.number] >= prev_info.number_occurrences[prev_info.current_number]:
                 logger.info(
                     f"Reassigning ID {current_tracking_id} from # {prev_info.current_number} "
                     f"to # {info.number} (score {prev_info.max_score} -> {info.score})"
