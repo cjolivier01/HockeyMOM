@@ -430,9 +430,19 @@ class AspenNet(torch.nn.Module):
         use_cuda_stream = self.thread_cuda_streams and torch.cuda.is_available() and device is not None
         if use_cuda_stream:
             stream = torch.cuda.Stream(device=device)
-            with torch.cuda.stream(stream):
-                self._execute_node(node, context)
-            stream.synchronize()
+            # Ensure trunks that fetch context["cuda_stream"] see the stream actually running them.
+            prev_stream = context.get("cuda_stream")
+            has_prev_stream = "cuda_stream" in context
+            context["cuda_stream"] = stream
+            try:
+                with torch.cuda.stream(stream):
+                    self._execute_node(node, context)
+                stream.synchronize()
+            finally:
+                if has_prev_stream:
+                    context["cuda_stream"] = prev_stream
+                else:
+                    context.pop("cuda_stream", None)
         else:
             self._execute_node(node, context)
 
