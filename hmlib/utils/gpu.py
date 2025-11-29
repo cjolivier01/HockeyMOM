@@ -24,7 +24,9 @@ def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
             yield r
 
 
-def record_stream_event(tensor: torch.Tensor, stream: Optional[torch.cuda.Stream] = None) -> Optional[torch.cuda.Event]:
+def record_stream_event(
+    tensor: torch.Tensor, stream: Optional[torch.cuda.Stream] = None
+) -> Optional[torch.cuda.Event]:
     """Record a blocking CUDA event on the given tensor's stream.
 
     @param tensor: Tensor whose device determines the CUDA stream context.
@@ -82,7 +84,9 @@ class GpuAllocator:
         if name and name in self._named_allocations:
             # Name overrides modern/fast
             return self._named_allocations[name]
-        index, caps = get_gpu_with_highest_compute_capability(allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus)
+        index, caps = get_gpu_with_highest_compute_capability(
+            allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
+        )
         if index is not None:
             assert index not in self._used_gpus
             self._used_gpus[index] = caps
@@ -113,7 +117,9 @@ class GpuAllocator:
         if name and name in self._named_allocations:
             # Name overrides modern/fast
             return self._named_allocations[name]
-        index, caps = get_gpu_with_most_multiprocessors(allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus)
+        index, caps = get_gpu_with_most_multiprocessors(
+            allowed_gpus=self._gpus, disallowed_gpus=self._used_gpus
+        )
         if index is not None:
             assert index not in self._used_gpus
             self._used_gpus[index] = caps
@@ -268,8 +274,14 @@ class StreamTensorX(StreamTensorBase):
         self._event.synchronize()
         self._sync_duration = time.time() - start
         self._clear_tracking()
-        if self._verbose and self._sync_duration is not None and self._sync_duration > self._print_thresh:
-            logger.info(f"Syncing tensor with shape {tuple(self.shape)} took {self._sync_duration * 1000:.3f} ms")
+        if (
+            self._verbose
+            and self._sync_duration is not None
+            and self._sync_duration > self._print_thresh
+        ):
+            logger.info(
+                f"Syncing tensor with shape {tuple(self.shape)} took {self._sync_duration * 1000:.3f} ms"
+            )
         return self._tensor
 
     # ------------------------------------------------------------------

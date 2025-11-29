@@ -112,8 +112,12 @@ def parse_hugin_control_points(lines: List[str]) -> Optional[Tuple[torch.Tensor,
             tokens = line.split(" ")
             tokens = [strip(t) for t in tokens]
             control_point = extract_prefix_map(tokens)
-            pt0 = torch.tensor([float(control_point["x"]), float(control_point["y"])], dtype=torch.float)
-            pt1 = torch.tensor([float(control_point["X"]), float(control_point["Y"])], dtype=torch.float)
+            pt0 = torch.tensor(
+                [float(control_point["x"]), float(control_point["y"])], dtype=torch.float
+            )
+            pt1 = torch.tensor(
+                [float(control_point["X"]), float(control_point["Y"])], dtype=torch.float
+            )
             points0.append(pt0)
             points1.append(pt1)
     if points0:
@@ -247,13 +251,17 @@ def euler_to_rotation_matrix(yaw: float, pitch: float, roll: float) -> np.ndarra
     """Convert yaw/pitch/roll Euler angles to a 3×3 rotation matrix."""
     yaw, pitch, roll = map(math.radians, [yaw, pitch, roll])
 
-    Rz: np.ndarray = np.array([[math.cos(yaw), -math.sin(yaw), 0], [math.sin(yaw), math.cos(yaw), 0], [0, 0, 1]])
+    Rz: np.ndarray = np.array(
+        [[math.cos(yaw), -math.sin(yaw), 0], [math.sin(yaw), math.cos(yaw), 0], [0, 0, 1]]
+    )
 
     Ry: np.ndarray = np.array(
         [[math.cos(pitch), 0, math.sin(pitch)], [0, 1, 0], [-math.sin(pitch), 0, math.cos(pitch)]]
     )
 
-    Rx: np.ndarray = np.array([[1, 0, 0], [0, math.cos(roll), -math.sin(roll)], [0, math.sin(roll), math.cos(roll)]])
+    Rx: np.ndarray = np.array(
+        [[1, 0, 0], [0, math.cos(roll), -math.sin(roll)], [0, math.sin(roll), math.cos(roll)]]
+    )
 
     return Rz @ Ry @ Rx  # Combined rotation matrix
 

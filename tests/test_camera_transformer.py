@@ -34,7 +34,9 @@ def _make_synth_csvs(tmpdir: str, n_frames: int = 50):
             px = cx + rng.randn() * (W / 10)
             py = cy + rng.randn() * (H / 10)
             pw, ph = 30 + rng.rand() * 20, 60 + rng.rand() * 20
-            t_rows.append([f, pid, px - pw / 2, py - ph / 2, pw, ph, 0.9, 0, 1, "{}", -1, "", 0.0, -1])
+            t_rows.append(
+                [f, pid, px - pw / 2, py - ph / 2, pw, ph, 0.9, 0, 1, "{}", -1, "", 0.0, -1]
+            )
     tracking_csv = os.path.join(tmpdir, "tracking.csv")
     camera_csv = os.path.join(tmpdir, "camera.csv")
     pd.DataFrame(t_rows).to_csv(tracking_csv, header=False, index=False)

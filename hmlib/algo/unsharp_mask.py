@@ -147,7 +147,9 @@ def unsharp_mask_batch(
     kernel_uv = kernel_uv.expand(1, 1, -1, -1)
 
     for i in range(1, 3):
-        blurred_uv = torch.nn.functional.conv2d(yuv[:, i : i + 1], kernel_uv, padding=padding, groups=1)
+        blurred_uv = torch.nn.functional.conv2d(
+            yuv[:, i : i + 1], kernel_uv, padding=padding, groups=1
+        )
         sharp_yuv[:, i : i + 1] += (yuv[:, i : i + 1] - blurred_uv) * amount_chroma
 
     # YUV to RGB conversion

@@ -61,7 +61,15 @@ def main():
     if not args.python_bin:
         try:
             user_py = subprocess.check_output(
-                ["sudo", "-H", "-u", args.user, "bash", "-lc", "command -v python || command -v python3"],
+                [
+                    "sudo",
+                    "-H",
+                    "-u",
+                    args.user,
+                    "bash",
+                    "-lc",
+                    "command -v python || command -v python3",
+                ],
                 text=True,
             ).strip()
             python_bin = user_py or "/usr/bin/python3"

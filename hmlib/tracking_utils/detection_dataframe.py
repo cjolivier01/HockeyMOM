@@ -129,7 +129,9 @@ class DetectionDataFrame(HmDataFrameBase):
         scores = frame_data["Scores"].to_numpy()
         labels = frame_data["Labels"].to_numpy()
         bboxes = frame_data[["BBox_X1", "BBox_Y1", "BBox_X2", "BBox_Y2"]].to_numpy()
-        pose_indices = frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
+        pose_indices = (
+            frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
+        )
         return dict(
             scores=self._to_outgoing_array(scores),
             labels=self._to_outgoing_array(labels),
@@ -165,7 +167,9 @@ class DetectionDataFrame(HmDataFrameBase):
             return ds
         return inst
 
-    def get_samples(self, start_frame: Optional[int] = None, end_frame: Optional[int] = None) -> List[_DetDataSample]:
+    def get_samples(
+        self, start_frame: Optional[int] = None, end_frame: Optional[int] = None
+    ) -> List[_DetDataSample]:
         """Return a list of DetDataSample objects for a frame range (inclusive)."""
         if self.data is None or self.data.empty:
             return []

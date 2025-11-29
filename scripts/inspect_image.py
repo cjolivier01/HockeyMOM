@@ -7,7 +7,8 @@ from PIL import Image
 
 parser = argparse.ArgumentParser(
     description=(
-        "Inspect an image: left-click prints pixel RGB; " "Shift+left-drag draws a region and prints average RGB."
+        "Inspect an image: left-click prints pixel RGB; "
+        "Shift+left-drag draws a region and prints average RGB."
     )
 )
 parser.add_argument("image_path", help="Path to the image to inspect")
@@ -106,7 +107,9 @@ try:
 
     # Print whole-image average RGB at startup
     whole_mean = rgb_data.mean(axis=(0, 1))
-    print(f"Whole image average RGB: R={whole_mean[0]:.2f}, G={whole_mean[1]:.2f}, B={whole_mean[2]:.2f}")
+    print(
+        f"Whole image average RGB: R={whole_mean[0]:.2f}, G={whole_mean[1]:.2f}, B={whole_mean[2]:.2f}"
+    )
 
     fig, ax = plt.subplots()
     ax.imshow(data)
@@ -114,7 +117,11 @@ try:
     ax.set_title(title_base)
 
     # On-screen legend
-    legend_text = "Controls:\n" "  • Left click: pixel RGB\n" "  • Shift+Left-drag: draw region; release prints average"
+    legend_text = (
+        "Controls:\n"
+        "  • Left click: pixel RGB\n"
+        "  • Shift+Left-drag: draw region; release prints average"
+    )
     ax.text(
         0.01,
         0.99,

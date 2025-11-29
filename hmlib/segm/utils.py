@@ -134,7 +134,9 @@ def scale_polygon_y(points: torch.Tensor, top_ratio: float, bottom_ratio: float)
 
     # Scale y-values according to their position relative to the centroid
     points_tensor[top_mask, 1] = centroid_y + (points_tensor[top_mask, 1] - centroid_y) * top_ratio
-    points_tensor[bottom_mask, 1] = centroid_y + (points_tensor[bottom_mask, 1] - centroid_y) * bottom_ratio
+    points_tensor[bottom_mask, 1] = (
+        centroid_y + (points_tensor[bottom_mask, 1] - centroid_y) * bottom_ratio
+    )
     if dtype != points_tensor.dtype:
         points_tensor = points_tensor.to(dtype, non_blocking=True)
 

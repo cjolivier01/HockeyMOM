@@ -57,7 +57,9 @@ class SaveDetectionsTrunk(Trunk):
             return None
         os.makedirs(work_dir, exist_ok=True)
         output_path = os.path.join(work_dir, self._output_filename)
-        self._detection_dataframe = DetectionDataFrame(output_file=output_path, write_interval=self._write_interval)
+        self._detection_dataframe = DetectionDataFrame(
+            output_file=output_path, write_interval=self._write_interval
+        )
         return self._detection_dataframe
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -275,10 +277,14 @@ class SaveTrackingTrunk(Trunk):
                     )
                 continue
             jersey_results = (
-                jersey_results_all[i] if isinstance(jersey_results_all, list) and i < len(jersey_results_all) else None
+                jersey_results_all[i]
+                if isinstance(jersey_results_all, list) and i < len(jersey_results_all)
+                else None
             )
             action_results = (
-                action_results_all[i] if isinstance(action_results_all, list) and i < len(action_results_all) else None
+                action_results_all[i]
+                if isinstance(action_results_all, list) and i < len(action_results_all)
+                else None
             )
 
             # Prefer direct propagation if tracker attached source indices
@@ -376,7 +382,9 @@ class SavePoseTrunk(Trunk):
             return None
         os.makedirs(work_dir, exist_ok=True)
         output_path = os.path.join(work_dir, self._output_filename)
-        self._pose_dataframe = PoseDataFrame(output_file=output_path, write_interval=self._write_interval)
+        self._pose_dataframe = PoseDataFrame(
+            output_file=output_path, write_interval=self._write_interval
+        )
         return self._pose_dataframe
 
     @staticmethod
@@ -403,7 +411,14 @@ class SavePoseTrunk(Trunk):
                 inst = getattr(ds, "pred_instances", None)
                 item: Dict[str, Any] = {}
                 if inst is not None:
-                    for k in ("bboxes", "scores", "bbox_scores", "labels", "keypoints", "keypoint_scores"):
+                    for k in (
+                        "bboxes",
+                        "scores",
+                        "bbox_scores",
+                        "labels",
+                        "keypoints",
+                        "keypoint_scores",
+                    ):
                         if hasattr(inst, k):
                             item[k] = cls._to_list(getattr(inst, k))
                 out_preds.append(item)
@@ -430,7 +445,9 @@ class SavePoseTrunk(Trunk):
                 track_data_sample = track_samples
             video_len = len(track_data_sample) if track_data_sample is not None else 0
             for i in range(video_len):
-                df.add_frame_records(frame_id=frame_id0 + i, pose_json=json.dumps({"predictions": []}))
+                df.add_frame_records(
+                    frame_id=frame_id0 + i, pose_json=json.dumps({"predictions": []})
+                )
         else:
             for i, item in enumerate(pose_results):
                 # Prefer direct PoseDataSample storage
@@ -487,7 +504,9 @@ class SaveActionsTrunk(Trunk):
             return None
         os.makedirs(work_dir, exist_ok=True)
         output_path = os.path.join(work_dir, self._output_filename)
-        self._action_dataframe = ActionDataFrame(output_file=output_path, write_interval=self._write_interval)
+        self._action_dataframe = ActionDataFrame(
+            output_file=output_path, write_interval=self._write_interval
+        )
         return self._action_dataframe
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -538,7 +557,9 @@ class SaveActionsTrunk(Trunk):
                     # Build list of ActionDataSample-like dicts (tracking_id, label_index/label, score)
                     action_df.add_frame_sample(frame_id=frame_id0 + i, data_samples=actions)
                 except Exception:
-                    action_df.add_frame_records(frame_id=frame_id0 + i, action_json=json.dumps(actions))
+                    action_df.add_frame_records(
+                        frame_id=frame_id0 + i, action_json=json.dumps(actions)
+                    )
         return {"action_dataframe": action_df} if action_df is not None else {}
 
     def input_keys(self):

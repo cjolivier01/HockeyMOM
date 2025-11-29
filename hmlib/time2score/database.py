@@ -101,7 +101,9 @@ class Database:
         return seasons[0] if seasons else None
 
     def get_division(self, division_id: int, conference_id: int):
-        divs = self.list_divisions(f"division_id = {division_id} AND conference_id = {conference_id}")
+        divs = self.list_divisions(
+            f"division_id = {division_id} AND conference_id = {conference_id}"
+        )
         return divs[0] if divs else None
 
     def get_team(self, season_id: int, division_id: int, conference_id: int, team_id: int):
@@ -233,7 +235,10 @@ class Database:
             else:
                 print("Overwriting div %s with %s" % (existing["name"], name))
 
-        query = "INSERT OR REPLACE INTO Divisions (division_id, conference_id, name)" " VALUES (?, ?, ?)"
+        query = (
+            "INSERT OR REPLACE INTO Divisions (division_id, conference_id, name)"
+            " VALUES (?, ?, ?)"
+        )
 
         self._cursor.execute(query, (division_id, conference_id, name))
         self._conn.commit()

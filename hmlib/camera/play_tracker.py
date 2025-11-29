@@ -39,7 +39,12 @@ from hockeymom.core import AllLivingBoxConfig, BBox
 from hockeymom.core import PlayTracker as CppPlayTracker
 from hockeymom.core import PlayTrackerConfig
 
-from .camera_transformer import CameraNorm, CameraPanZoomTransformer, build_frame_features, unpack_checkpoint
+from .camera_transformer import (
+    CameraNorm,
+    CameraPanZoomTransformer,
+    build_frame_features,
+    unpack_checkpoint,
+)
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
 _CPP_BOXES: bool = True
@@ -152,10 +157,18 @@ class PlayTracker(torch.nn.Module):
         self._rink_profile_cache = None
 
         camera_cfg = self._args.game_config.setdefault("rink", {}).setdefault("camera", {})
-        self._camera_base_speed_x = float(self._hockey_mom._camera_box_max_speed_x.detach().cpu().item())
-        self._camera_base_speed_y = float(self._hockey_mom._camera_box_max_speed_y.detach().cpu().item())
-        self._camera_base_accel_x = float(self._hockey_mom._camera_box_max_accel_x.detach().cpu().item())
-        self._camera_base_accel_y = float(self._hockey_mom._camera_box_max_accel_y.detach().cpu().item())
+        self._camera_base_speed_x = float(
+            self._hockey_mom._camera_box_max_speed_x.detach().cpu().item()
+        )
+        self._camera_base_speed_y = float(
+            self._hockey_mom._camera_box_max_speed_y.detach().cpu().item()
+        )
+        self._camera_base_accel_x = float(
+            self._hockey_mom._camera_box_max_accel_x.detach().cpu().item()
+        )
+        self._camera_base_accel_y = float(
+            self._hockey_mom._camera_box_max_accel_y.detach().cpu().item()
+        )
         camera_cfg.setdefault("max_speed_ratio_x", 1.0)
         camera_cfg.setdefault("max_speed_ratio_y", 1.0)
         camera_cfg.setdefault("max_accel_ratio_x", 1.0)
@@ -218,8 +231,12 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.stop_translation_on_dir_change = False
             current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             # Frames-to-destination speed limiting (scaled by fps)
-            ttg_frames = int(args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10))
-            current_roi_config.time_to_dest_speed_limit_frames = int(ttg_frames * self._hockey_mom.fps_speed_scale)
+            ttg_frames = int(
+                args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10)
+            )
+            current_roi_config.time_to_dest_speed_limit_frames = int(
+                ttg_frames * self._hockey_mom.fps_speed_scale
+            )
 
             #
             # Create and configure `AllLivingBoxConfig` for `_current_roi_aspect`
@@ -228,10 +245,18 @@ class PlayTracker(torch.nn.Module):
 
             kEXTRA_FOLLOWING_SCALE_DOWN = 1
 
-            current_roi_aspect_config.max_speed_x = self._camera_speed_x * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
-            current_roi_aspect_config.max_speed_y = self._camera_speed_y * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
-            current_roi_aspect_config.max_accel_x = self._camera_accel_x / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
-            current_roi_aspect_config.max_accel_y = self._camera_accel_y / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
+            current_roi_aspect_config.max_speed_x = (
+                self._camera_speed_x * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
+            )
+            current_roi_aspect_config.max_speed_y = (
+                self._camera_speed_y * 1 / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
+            )
+            current_roi_aspect_config.max_accel_x = (
+                self._camera_accel_x / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
+            )
+            current_roi_aspect_config.max_accel_y = (
+                self._camera_accel_y / speed_scale / kEXTRA_FOLLOWING_SCALE_DOWN
+            )
 
             current_roi_aspect_config.max_speed_w = self._camera_speed_x * 1 / speed_scale / 1.8
             current_roi_aspect_config.max_speed_h = self._camera_speed_y * 1 / speed_scale / 1.8
@@ -246,13 +271,23 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.stop_translation_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
             # Prefer YAML; fall back to CLI hm_opts defaults/overrides
-            stop_dir_delay = int(self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay"))
-            cancel_stop = bool(self._initial_camera_value("cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir"))
+            stop_dir_delay = int(
+                self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay")
+            )
+            cancel_stop = bool(
+                self._initial_camera_value(
+                    "cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir"
+                )
+            )
             cancel_hyst = int(
-                self._initial_camera_value("stop_cancel_hysteresis_frames", "stop_cancel_hysteresis_frames")
+                self._initial_camera_value(
+                    "stop_cancel_hysteresis_frames", "stop_cancel_hysteresis_frames"
+                )
             )
             cooldown_frames = int(
-                self._initial_camera_value("stop_delay_cooldown_frames", "stop_delay_cooldown_frames")
+                self._initial_camera_value(
+                    "stop_delay_cooldown_frames", "stop_delay_cooldown_frames"
+                )
             )
             current_roi_aspect_config.stop_translation_on_dir_change_delay = stop_dir_delay
             current_roi_aspect_config.cancel_stop_on_opposite_dir = cancel_stop
@@ -264,17 +299,19 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.arena_angle_from_vertical = 30.0
 
             current_roi_aspect_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
-            current_roi_aspect_config.sticky_size_ratio_to_frame_width = args.game_config["rink"]["camera"][
-                "sticky_size_ratio_to_frame_width"
-            ]
-            current_roi_aspect_config.sticky_translation_gaussian_mult = args.game_config["rink"]["camera"][
-                "sticky_translation_gaussian_mult"
-            ]
-            current_roi_aspect_config.unsticky_translation_size_ratio = args.game_config["rink"]["camera"][
-                "unsticky_translation_size_ratio"
-            ]
+            current_roi_aspect_config.sticky_size_ratio_to_frame_width = args.game_config["rink"][
+                "camera"
+            ]["sticky_size_ratio_to_frame_width"]
+            current_roi_aspect_config.sticky_translation_gaussian_mult = args.game_config["rink"][
+                "camera"
+            ]["sticky_translation_gaussian_mult"]
+            current_roi_aspect_config.unsticky_translation_size_ratio = args.game_config["rink"][
+                "camera"
+            ]["unsticky_translation_size_ratio"]
             current_roi_aspect_config.sticky_sizing = True
-            current_roi_aspect_config.scale_dest_width = args.game_config["rink"]["camera"]["follower_box_scale_width"]
+            current_roi_aspect_config.scale_dest_width = args.game_config["rink"]["camera"][
+                "follower_box_scale_width"
+            ]
             current_roi_aspect_config.scale_dest_height = args.game_config["rink"]["camera"][
                 "follower_box_scale_height"
             ]
@@ -282,7 +319,9 @@ class PlayTracker(torch.nn.Module):
 
             # If we are not using the C++ PlayTracker, or if the controller is the transformer,
             # initialize Python-side movers without creating the C++ PlayTracker.
-            if (not self._cpp_playtracker) or (getattr(args, "camera_controller", None) == "transformer"):
+            if (not self._cpp_playtracker) or (
+                getattr(args, "camera_controller", None) == "transformer"
+            ):
                 self._breakaway_detection = BreakawayDetection(args.game_config)
                 #
                 # Initialize `_current_roi` MovingBox with `current_roi_config`
@@ -319,11 +358,21 @@ class PlayTracker(torch.nn.Module):
                 pt_config.play_detector.min_considered_group_velocity = breakaway_detection[
                     "min_considered_group_velocity"
                 ]
-                pt_config.play_detector.group_ratio_threshold = breakaway_detection["group_ratio_threshold"]
-                pt_config.play_detector.group_velocity_speed_ratio = breakaway_detection["group_velocity_speed_ratio"]
-                pt_config.play_detector.scale_speed_constraints = breakaway_detection["scale_speed_constraints"]
-                pt_config.play_detector.nonstop_delay_count = breakaway_detection["nonstop_delay_count"]
-                pt_config.play_detector.overshoot_scale_speed_ratio = breakaway_detection["overshoot_scale_speed_ratio"]
+                pt_config.play_detector.group_ratio_threshold = breakaway_detection[
+                    "group_ratio_threshold"
+                ]
+                pt_config.play_detector.group_velocity_speed_ratio = breakaway_detection[
+                    "group_velocity_speed_ratio"
+                ]
+                pt_config.play_detector.scale_speed_constraints = breakaway_detection[
+                    "scale_speed_constraints"
+                ]
+                pt_config.play_detector.nonstop_delay_count = breakaway_detection[
+                    "nonstop_delay_count"
+                ]
+                pt_config.play_detector.overshoot_scale_speed_ratio = breakaway_detection[
+                    "overshoot_scale_speed_ratio"
+                ]
                 # Optional: use stop-delay braking instead of multiplicative overshoot scale
                 pt_config.play_detector.overshoot_stop_delay_count = int(
                     breakaway_detection["overshoot_stop_delay_count"]
@@ -342,13 +391,23 @@ class PlayTracker(torch.nn.Module):
             self._breakaway_detection = BreakawayDetection(args.game_config)
 
             camera_cfg = args.game_config["rink"]["camera"]
-            stop_dir_delay = int(self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay"))
-            cancel_stop = bool(self._initial_camera_value("cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir"))
+            stop_dir_delay = int(
+                self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay")
+            )
+            cancel_stop = bool(
+                self._initial_camera_value(
+                    "cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir"
+                )
+            )
             cancel_hyst = int(
-                self._initial_camera_value("stop_cancel_hysteresis_frames", "stop_cancel_hysteresis_frames")
+                self._initial_camera_value(
+                    "stop_cancel_hysteresis_frames", "stop_cancel_hysteresis_frames"
+                )
             )
             cooldown_frames = int(
-                self._initial_camera_value("stop_delay_cooldown_frames", "stop_delay_cooldown_frames")
+                self._initial_camera_value(
+                    "stop_delay_cooldown_frames", "stop_delay_cooldown_frames"
+                )
             )
 
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
@@ -440,9 +499,13 @@ class PlayTracker(torch.nn.Module):
                 # Override window if checkpoint carries its own
                 self._camera_window = int(getattr(args, "camera_window", window))
                 self._camera_feat_buf = deque(maxlen=self._camera_window)
-                logger.info(f"Loaded camera transformer from {cm_path} (window={self._camera_window})")
+                logger.info(
+                    f"Loaded camera transformer from {cm_path} (window={self._camera_window})"
+                )
             except Exception as ex:
-                logger.warning(f"Failed to load camera model at {cm_path}: {ex}. Falling back to rule controller.")
+                logger.warning(
+                    f"Failed to load camera model at {cm_path}: {ex}. Falling back to rule controller."
+                )
                 self._camera_controller = "rule"
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
@@ -514,7 +577,9 @@ class PlayTracker(torch.nn.Module):
                 centroids=centroids,
             )
 
-        self._cluster_man.calculate_all_clusters(center_points=center_batch(online_tlwhs), ids=online_ids)
+        self._cluster_man.calculate_all_clusters(
+            center_points=center_batch(online_tlwhs), ids=online_ids
+        )
         boxes_map = dict()
         boxes_list = []
         for cluster_count in cluster_counts:
@@ -522,7 +587,9 @@ class PlayTracker(torch.nn.Module):
                 num_clusters=cluster_count, ids=online_ids
             )
             if len(largest_cluster_ids):
-                largest_cluster_ids_box = self._hockey_mom.get_current_bounding_box(largest_cluster_ids)
+                largest_cluster_ids_box = self._hockey_mom.get_current_bounding_box(
+                    largest_cluster_ids
+                )
                 boxes_map[cluster_count] = largest_cluster_ids_box
                 boxes_list.append(largest_cluster_ids_box)
             else:
@@ -539,7 +606,9 @@ class PlayTracker(torch.nn.Module):
         if not jersey_results:
             return
         for current_info in jersey_results:
-            self._jersey_tracker.observe_tracking_id_number_info(frame_id=frame_id, info=current_info)
+            self._jersey_tracker.observe_tracking_id_number_info(
+                frame_id=frame_id, info=current_info
+            )
 
     def process_actions_info(self, frame_index: int, frame_id: int, data: Dict[str, Any]) -> None:
         action_results = data.get("action_results")
@@ -590,7 +659,8 @@ class PlayTracker(torch.nn.Module):
             frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
             det_count = (
                 len(video_data_sample.pred_instances.bboxes)
-                if hasattr(video_data_sample, "pred_instances") and hasattr(video_data_sample.pred_instances, "bboxes")
+                if hasattr(video_data_sample, "pred_instances")
+                and hasattr(video_data_sample.pred_instances, "bboxes")
                 else -1
             )
             online_tlwhs = batch_tlbrs_to_tlwhs(video_data_sample.pred_track_instances.bboxes)
@@ -609,7 +679,9 @@ class PlayTracker(torch.nn.Module):
                     n = -1
                 logger.info(f"PlayTracker frame {int(scalar_frame_id)}: det={det_count} tracks={n}")
 
-            self.process_jerseys_info(frame_index=frame_index, frame_id=scalar_frame_id, data=results)
+            self.process_jerseys_info(
+                frame_index=frame_index, frame_id=scalar_frame_id, data=results
+            )
 
             # Cache rink_profile once if available in metainfo
             try:
@@ -637,7 +709,9 @@ class PlayTracker(torch.nn.Module):
             removed_cluster_outlier_box: Dict[int, Union[BBox, torch.Tensor]] = {}
 
             # Optionally use transformer-based controller
-            use_transformer = self._camera_controller == "transformer" and self._camera_model is not None
+            use_transformer = (
+                self._camera_controller == "transformer" and self._camera_model is not None
+            )
 
             # Always sync camera UI controls so sliders affect tracking even without plotting.
             self._apply_ui_controls()
@@ -645,12 +719,16 @@ class PlayTracker(torch.nn.Module):
             if self._playtracker is not None:
                 assert not use_transformer, "Cannot use transformer with C++ PlayTracker"
                 online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
-                playtracker_results = self._playtracker.forward(online_ids.cpu().tolist(), online_bboxes)
+                playtracker_results = self._playtracker.forward(
+                    online_ids.cpu().tolist(), online_bboxes
+                )
 
                 if playtracker_results.largest_tracking_bbox is not None:
                     largest_bbox = from_bbox(playtracker_results.largest_tracking_bbox.bbox)
                     largest_bbox = batch_tlbrs_to_tlwhs(largest_bbox.unsqueeze(0)).squeeze(0)
-                    vis_ignored_tracking_ids = {playtracker_results.largest_tracking_bbox.tracking_id}
+                    vis_ignored_tracking_ids = {
+                        playtracker_results.largest_tracking_bbox.tracking_id
+                    }
                 else:
                     largest_bbox = None
 
@@ -662,7 +740,9 @@ class PlayTracker(torch.nn.Module):
 
                 cluster_enclosing_box = from_bbox(playtracker_results.final_cluster_box)
                 cluster_boxes_map = playtracker_results.cluster_boxes
-                removed_cluster_outlier_box = getattr(playtracker_results, "removed_cluster_outlier_box", {})
+                removed_cluster_outlier_box = getattr(
+                    playtracker_results, "removed_cluster_outlier_box", {}
+                )
                 # cluster_boxes = [cluster_enclosing_box, cluster_enclosing_box]
 
                 fast_roi_bounding_box = from_bbox(playtracker_results.tracking_boxes[0])
@@ -671,11 +751,16 @@ class PlayTracker(torch.nn.Module):
                 current_box = from_bbox(playtracker_results.tracking_boxes[1])
                 current_box_list.append(current_box)
                 if debug:
-                    logger.info(f"  boxes: fast={fast_roi_bounding_box.tolist()} current={current_box.tolist()}")
+                    logger.info(
+                        f"  boxes: fast={fast_roi_bounding_box.tolist()} current={current_box.tolist()}"
+                    )
 
                 if self._args.plot_moving_boxes:
                     # Play box
-                    if torch.sum(self._play_box == self._hockey_mom._video_frame.bounding_box()) != 4:
+                    if (
+                        torch.sum(self._play_box == self._hockey_mom._video_frame.bounding_box())
+                        != 4
+                    ):
                         online_im = vis.draw_dashed_rectangle(
                             img=online_im,
                             box=self._play_box,
@@ -740,7 +825,9 @@ class PlayTracker(torch.nn.Module):
                 largest_bbox = None
                 if self._args.cam_ignore_largest and len(online_tlwhs):
                     # Don't remove unless we have at least 4 online items being tracked
-                    online_tlwhs, mask, largest_bbox = remove_largest_bbox(online_tlwhs, min_boxes=4)
+                    online_tlwhs, mask, largest_bbox = remove_largest_bbox(
+                        online_tlwhs, min_boxes=4
+                    )
                     online_ids = online_ids[mask]
 
                 self._hockey_mom.append_online_objects(online_ids, online_tlwhs)
@@ -756,7 +843,11 @@ class PlayTracker(torch.nn.Module):
                     current_box = cb.to(device=self._play_box.device, dtype=torch.float32)
 
                 if current_box is None and use_transformer:
-                    tlwh_np = online_tlwhs.numpy() if isinstance(online_tlwhs, torch.Tensor) else online_tlwhs
+                    tlwh_np = (
+                        online_tlwhs.numpy()
+                        if isinstance(online_tlwhs, torch.Tensor)
+                        else online_tlwhs
+                    )
                     # Build and append features
                     feat_np = (
                         build_frame_features(
@@ -789,7 +880,9 @@ class PlayTracker(torch.nn.Module):
                         top = cy_px - h_px / 2.0
                         right = left + w_px
                         bottom = top + h_px
-                        current_box = torch.tensor([left, top, right, bottom], dtype=torch.float, device=image_device)
+                        current_box = torch.tensor(
+                            [left, top, right, bottom], dtype=torch.float, device=image_device
+                        )
                         current_box = clamp_box(current_box, self._play_box)
                 if current_box is None:
                     # BEGIN Clusters and Cluster Boxes (rule-based default)
@@ -822,7 +915,10 @@ class PlayTracker(torch.nn.Module):
                 rep_y = by
                 # If rink centroid known, choose center vs bottom based on half of rink
                 try:
-                    if self._rink_profile_cache is not None and "centroid" in self._rink_profile_cache:
+                    if (
+                        self._rink_profile_cache is not None
+                        and "centroid" in self._rink_profile_cache
+                    ):
                         ry = float(self._rink_profile_cache["centroid"][1])
                         # For near half (y > ry), prefer centers (skates off-ice / occlusion by boards)
                         mask = cy > ry
@@ -834,7 +930,9 @@ class PlayTracker(torch.nn.Module):
             else:
                 foot_points = torch.empty((0, 2), dtype=torch.float32)
             player_bottom_points_list.append(foot_points)
-            player_ids_list.append(online_ids.clone() if isinstance(online_ids, torch.Tensor) else torch.tensor([]))
+            player_ids_list.append(
+                online_ids.clone() if isinstance(online_ids, torch.Tensor) else torch.tensor([])
+            )
 
             if self._args.plot_boundaries and self._boundaries is not None:
                 online_im = self._boundaries.draw(online_im)
@@ -842,7 +940,9 @@ class PlayTracker(torch.nn.Module):
             if self._args.plot_all_detections is not None:
                 detections = video_data_sample.pred_instances.bboxes
                 if not isinstance(detections, dict):
-                    for detection, score in zip(detections, video_data_sample.pred_instances.scores):
+                    for detection, score in zip(
+                        detections, video_data_sample.pred_instances.scores
+                    ):
                         if score >= self._args.plot_all_detections:
                             online_im = vis.plot_rectangle(
                                 img=online_im,
@@ -949,8 +1049,12 @@ class PlayTracker(torch.nn.Module):
                 frame_id=frame_id.item() if torch.is_tensor(frame_id) else int(frame_id),
                 data=results,
             )
-            online_im = self._jersey_tracker.draw(image=online_im, tracking_ids=online_ids, bboxes=online_tlwhs)
-            online_im = self._action_tracker.draw(image=online_im, tracking_ids=online_ids, bboxes_tlwh=online_tlwhs)
+            online_im = self._jersey_tracker.draw(
+                image=online_im, tracking_ids=online_ids, bboxes=online_tlwhs
+            )
+            online_im = self._action_tracker.draw(
+                image=online_im, tracking_ids=online_ids, bboxes_tlwh=online_tlwhs
+            )
 
             # Run ROI mover when using Python-only path; skip breakaway when C++ tracker or external cam boxes are used
             # use_external_cam = results.get("camera_boxes") is not None
@@ -987,7 +1091,9 @@ class PlayTracker(torch.nn.Module):
 
                 # Apply through ROI moving boxes (fast follower + aspect follower)
                 roi_input_box = (
-                    to_bbox(current_box, self._cpp_boxes) if isinstance(self._current_roi, PyLivingBox) else current_box
+                    to_bbox(current_box, self._cpp_boxes)
+                    if isinstance(self._current_roi, PyLivingBox)
+                    else current_box
                 )
                 fast_roi_bounding_box = self._current_roi.forward(roi_input_box)
                 current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
@@ -1087,7 +1193,11 @@ class PlayTracker(torch.nn.Module):
             except Exception:
                 pass
         try:
-            return self._args.game_config.get("game", {}).get("stitching", {}).get("stitch-rotate-degrees")
+            return (
+                self._args.game_config.get("game", {})
+                .get("stitching", {})
+                .get("stitch-rotate-degrees")
+            )
         except Exception:
             return None
 
@@ -1142,9 +1252,15 @@ class PlayTracker(torch.nn.Module):
         elif isinstance(wb, (list, tuple)) and len(wb) == 3:
             b, g, r = wb
             try:
-                defaults["White_Balance_Red_Gain_x100"] = int(max(1.0, min(300.0, float(r) * 100.0)))
-                defaults["White_Balance_Green_Gain_x100"] = int(max(1.0, min(300.0, float(g) * 100.0)))
-                defaults["White_Balance_Blue_Gain_x100"] = int(max(1.0, min(300.0, float(b) * 100.0)))
+                defaults["White_Balance_Red_Gain_x100"] = int(
+                    max(1.0, min(300.0, float(r) * 100.0))
+                )
+                defaults["White_Balance_Green_Gain_x100"] = int(
+                    max(1.0, min(300.0, float(g) * 100.0))
+                )
+                defaults["White_Balance_Blue_Gain_x100"] = int(
+                    max(1.0, min(300.0, float(b) * 100.0))
+                )
             except Exception:
                 pass
         for cfg_key, slider_key in (
@@ -1164,7 +1280,11 @@ class PlayTracker(torch.nn.Module):
         # Global stitched camera color defaults from top-level + rink camera.
         try:
             base_cfg: Dict[str, Any] = {}
-            top_camera = self._args.game_config.get("camera", {}) if isinstance(self._args.game_config, dict) else {}
+            top_camera = (
+                self._args.game_config.get("camera", {})
+                if isinstance(self._args.game_config, dict)
+                else {}
+            )
             if isinstance(top_camera, dict):
                 base_cfg.update(top_camera.get("color", {}) or top_camera)
             rink_camera = (
@@ -1195,7 +1315,9 @@ class PlayTracker(torch.nn.Module):
             pass
         return self._base_color_slider_defaults(cfg)
 
-    def _set_ui_color_value_at_prefixes(self, prefixes: List[Tuple[str, ...]], key: str, value: Any):
+    def _set_ui_color_value_at_prefixes(
+        self, prefixes: List[Tuple[str, ...]], key: str, value: Any
+    ):
         for prefix in prefixes:
             self._set_ui_config_value(prefix + (key,), value)
 
@@ -1244,22 +1366,49 @@ class PlayTracker(torch.nn.Module):
 
             # Trackbar ranges
             def tb(name, maxv, init):
-                cv2.createTrackbar(name, self._ui_window_name, int(init), int(maxv), self._on_trackbar)
+                cv2.createTrackbar(
+                    name, self._ui_window_name, int(init), int(maxv), self._on_trackbar
+                )
 
-            stop_dir_delay = int(self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay"))
+            stop_dir_delay = int(
+                self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay")
+            )
             cancel_stop = (
                 1
-                if bool(self._initial_camera_value("cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir"))
+                if bool(
+                    self._initial_camera_value(
+                        "cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir"
+                    )
+                )
                 else 0
             )
-            hyst = int(self._initial_camera_value("stop_cancel_hysteresis_frames", "stop_cancel_hysteresis_frames"))
-            cooldown = int(self._initial_camera_value("stop_delay_cooldown_frames", "stop_delay_cooldown_frames"))
-            ov_delay = int(self._initial_breakaway_value("overshoot_stop_delay_count", "overshoot_stop_delay_count"))
+            hyst = int(
+                self._initial_camera_value(
+                    "stop_cancel_hysteresis_frames", "stop_cancel_hysteresis_frames"
+                )
+            )
+            cooldown = int(
+                self._initial_camera_value(
+                    "stop_delay_cooldown_frames", "stop_delay_cooldown_frames"
+                )
+            )
+            ov_delay = int(
+                self._initial_breakaway_value(
+                    "overshoot_stop_delay_count", "overshoot_stop_delay_count"
+                )
+            )
             postns = int(
-                self._initial_breakaway_value("post_nonstop_stop_delay_count", "post_nonstop_stop_delay_count")
+                self._initial_breakaway_value(
+                    "post_nonstop_stop_delay_count", "post_nonstop_stop_delay_count"
+                )
             )
             ov_scale = int(
-                100 * float(self._initial_breakaway_value("overshoot_scale_speed_ratio", "overshoot_scale_speed_ratio"))
+                100
+                * float(
+                    self._initial_breakaway_value(
+                        "overshoot_scale_speed_ratio", "overshoot_scale_speed_ratio"
+                    )
+                )
             )
             ttg = int(self._require_camera_value("time_to_dest_speed_limit_frames"))
 
@@ -1321,7 +1470,9 @@ class PlayTracker(torch.nn.Module):
                     self._ui_defaults[self._ui_window_name]["Stitch_Rotate_Degrees"] = (
                         cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
                         if cv2.getWindowProperty(self._ui_window_name, 0) is not None
-                        else self._stitch_deg_to_slider(self._current_stitch_rotation_degrees() or 0.0)
+                        else self._stitch_deg_to_slider(
+                            self._current_stitch_rotation_degrees() or 0.0
+                        )
                     )
                 except Exception:
                     pass
@@ -1335,7 +1486,9 @@ class PlayTracker(torch.nn.Module):
                     pass
 
                 def tb2(name, maxv, init):
-                    cv2.createTrackbar(name, self._ui_color_window_name, int(init), int(maxv), self._on_trackbar)
+                    cv2.createTrackbar(
+                        name, self._ui_color_window_name, int(init), int(maxv), self._on_trackbar
+                    )
 
                 tb2("White_Balance_Kelvin_Enable", 1, 0)
                 tb2("White_Balance_Kelvin_Temperature", 15000, 6500)
@@ -1373,7 +1526,11 @@ class PlayTracker(torch.nn.Module):
 
                     def tb_left(name, maxv, init):
                         cv2.createTrackbar(
-                            name, self._ui_color_left_window_name, int(init), int(maxv), self._on_trackbar
+                            name,
+                            self._ui_color_left_window_name,
+                            int(init),
+                            int(maxv),
+                            self._on_trackbar,
                         )
 
                     for name, maxv in (
@@ -1386,7 +1543,11 @@ class PlayTracker(torch.nn.Module):
                         ("Contrast_Multiplier_x100", 300),
                         ("Gamma_Multiplier_x100", 300),
                     ):
-                        tb_left(name, maxv, 100 if "Enable" not in name and "Temperature" not in name else 0)
+                        tb_left(
+                            name,
+                            maxv,
+                            100 if "Enable" not in name and "Temperature" not in name else 0,
+                        )
                     left_defaults = self._stitch_side_color_defaults("left")
                     for name, val in left_defaults.items():
                         try:
@@ -1408,7 +1569,11 @@ class PlayTracker(torch.nn.Module):
 
                     def tb_right(name, maxv, init):
                         cv2.createTrackbar(
-                            name, self._ui_color_right_window_name, int(init), int(maxv), self._on_trackbar
+                            name,
+                            self._ui_color_right_window_name,
+                            int(init),
+                            int(maxv),
+                            self._on_trackbar,
                         )
 
                     for name, maxv in (
@@ -1421,7 +1586,11 @@ class PlayTracker(torch.nn.Module):
                         ("Contrast_Multiplier_x100", 300),
                         ("Gamma_Multiplier_x100", 300),
                     ):
-                        tb_right(name, maxv, 100 if "Enable" not in name and "Temperature" not in name else 0)
+                        tb_right(
+                            name,
+                            maxv,
+                            100 if "Enable" not in name and "Temperature" not in name else 0,
+                        )
                     right_defaults = self._stitch_side_color_defaults("right")
                     for name, val in right_defaults.items():
                         try:
@@ -1448,8 +1617,12 @@ class PlayTracker(torch.nn.Module):
         try:
             self._ui_controls_dirty = False
             # Read trackbars
-            dir_delay = int(cv2.getTrackbarPos("Stop_Direction_Change_Delay_Frames", self._ui_window_name))
-            cancel_opp = bool(cv2.getTrackbarPos("Cancel_Stop_On_Opposite_Direction", self._ui_window_name))
+            dir_delay = int(
+                cv2.getTrackbarPos("Stop_Direction_Change_Delay_Frames", self._ui_window_name)
+            )
+            cancel_opp = bool(
+                cv2.getTrackbarPos("Cancel_Stop_On_Opposite_Direction", self._ui_window_name)
+            )
             hyst = int(cv2.getTrackbarPos("Stop_Cancel_Hysteresis_Frames", self._ui_window_name))
             cooldown = int(cv2.getTrackbarPos("Stop_Delay_Cooldown_Frames", self._ui_window_name))
             ov_delay = int(cv2.getTrackbarPos("Overshoot_Stop_Delay_Frames", self._ui_window_name))
@@ -1458,18 +1631,29 @@ class PlayTracker(torch.nn.Module):
             ttg = int(cv2.getTrackbarPos("Time_To_Dest_Speed_Limit_Frames", self._ui_window_name))
 
             # Update YAML-like config so all downstream reads are consistent
-            self._set_ui_config_value(("rink", "camera", "stop_on_dir_change_delay"), int(dir_delay))
-            self._set_ui_config_value(("rink", "camera", "cancel_stop_on_opposite_dir"), bool(cancel_opp))
-            self._set_ui_config_value(("rink", "camera", "stop_cancel_hysteresis_frames"), int(hyst))
-            self._set_ui_config_value(("rink", "camera", "stop_delay_cooldown_frames"), int(cooldown))
             self._set_ui_config_value(
-                ("rink", "camera", "breakaway_detection", "overshoot_stop_delay_count"), int(ov_delay)
+                ("rink", "camera", "stop_on_dir_change_delay"), int(dir_delay)
             )
             self._set_ui_config_value(
-                ("rink", "camera", "breakaway_detection", "post_nonstop_stop_delay_count"), int(postns)
+                ("rink", "camera", "cancel_stop_on_opposite_dir"), bool(cancel_opp)
             )
             self._set_ui_config_value(
-                ("rink", "camera", "breakaway_detection", "overshoot_scale_speed_ratio"), float(ov_scal)
+                ("rink", "camera", "stop_cancel_hysteresis_frames"), int(hyst)
+            )
+            self._set_ui_config_value(
+                ("rink", "camera", "stop_delay_cooldown_frames"), int(cooldown)
+            )
+            self._set_ui_config_value(
+                ("rink", "camera", "breakaway_detection", "overshoot_stop_delay_count"),
+                int(ov_delay),
+            )
+            self._set_ui_config_value(
+                ("rink", "camera", "breakaway_detection", "post_nonstop_stop_delay_count"),
+                int(postns),
+            )
+            self._set_ui_config_value(
+                ("rink", "camera", "breakaway_detection", "overshoot_scale_speed_ratio"),
+                float(ov_scal),
             )
             self._set_ui_config_value(
                 ("rink", "camera", "time_to_dest_speed_limit_frames"),
@@ -1547,11 +1731,19 @@ class PlayTracker(torch.nn.Module):
             # Apply to Python movers live (if available)
             if isinstance(self._current_roi_aspect, MovingBox):
                 mba = self._current_roi_aspect
-                mba._stop_on_dir_change_delay = torch.tensor(int(dir_delay), dtype=torch.int64, device=mba.device)
+                mba._stop_on_dir_change_delay = torch.tensor(
+                    int(dir_delay), dtype=torch.int64, device=mba.device
+                )
                 mba._cancel_stop_on_opposite_dir = cancel_opp
-                mba._cancel_hysteresis_frames = torch.tensor(int(hyst), dtype=torch.int64, device=mba.device)
-                mba._stop_delay_cooldown_frames = torch.tensor(int(cooldown), dtype=torch.int64, device=mba.device)
-                mba._post_nonstop_stop_delay = torch.tensor(int(postns), dtype=torch.int64, device=mba.device)
+                mba._cancel_hysteresis_frames = torch.tensor(
+                    int(hyst), dtype=torch.int64, device=mba.device
+                )
+                mba._stop_delay_cooldown_frames = torch.tensor(
+                    int(cooldown), dtype=torch.int64, device=mba.device
+                )
+                mba._post_nonstop_stop_delay = torch.tensor(
+                    int(postns), dtype=torch.int64, device=mba.device
+                )
             if self._playtracker is not None:
                 try:
                     if apply_fast:
@@ -1841,9 +2033,13 @@ class PlayTracker(torch.nn.Module):
 
             if average_current_box:
                 average_center = (edge_center + center(current_box)) / 2.0
-                current_box = make_box_at_center(average_center, width(current_box), height(current_box))
+                current_box = make_box_at_center(
+                    average_center, width(current_box), height(current_box)
+                )
             else:
-                current_box = make_box_at_center(edge_center, width(current_box), height(current_box))
+                current_box = make_box_at_center(
+                    edge_center, width(current_box), height(current_box)
+                )
 
             # If group x velocity is in different direction than current speed, behave a little differently
             if speed_adjust_box is not None:
@@ -1867,14 +2063,17 @@ class PlayTracker(torch.nn.Module):
                     if isinstance(speed_adjust_box, PyLivingBox):
                         group_x_velocity = group_x_velocity.item()
                     speed_adjust_box.adjust_speed(
-                        accel_x=group_x_velocity * self._breakaway_detection.group_velocity_speed_ratio,
+                        accel_x=group_x_velocity
+                        * self._breakaway_detection.group_velocity_speed_ratio,
                         accel_y=None,
                         scale_constraints=self._breakaway_detection.scale_speed_constraints,
                         nonstop_delay=self._breakaway_detection.nonstop_delay_count,
                     )
                 else:
                     # Overshoot: either multiplicative damping or begin a stop-delay
-                    overshoot_delay = int(self._require_breakaway_value("overshoot_stop_delay_count"))
+                    overshoot_delay = int(
+                        self._require_breakaway_value("overshoot_stop_delay_count")
+                    )
                     if overshoot_delay > 0:
                         # If using Python-only path, MovingBox has begin_stop_delay
                         if isinstance(speed_adjust_box, MovingBox):
@@ -1884,7 +2083,9 @@ class PlayTracker(torch.nn.Module):
                             speed_adjust_box.begin_stop_delay(overshoot_delay, None)
                     else:
                         # Cut the speed quickly due to overshoot
-                        speed_adjust_box.scale_speed(ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio)
+                        speed_adjust_box.scale_speed(
+                            ratio_x=self._breakaway_detection.overshoot_scale_speed_ratio
+                        )
         #
         # END Breakway detection
         #

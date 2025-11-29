@@ -72,7 +72,9 @@ def create_remapper_config(
     config = core.RemapperConfig()
     config.src_height = source_hw[0]
     config.src_width = source_hw[1]
-    config.x_pos, config.y_pos = get_image_geo_position(os.path.join(dir_name, f"{basename}000{image_index}.tif"))
+    config.x_pos, config.y_pos = get_image_geo_position(
+        os.path.join(dir_name, f"{basename}000{image_index}.tif")
+    )
     config.device = str(device)
     config.col_map = torch.from_numpy(x_map.astype(np.int64))
     config.row_map = torch.from_numpy(y_map.astype(np.int64))
@@ -123,7 +125,9 @@ def remap_video(
             timer.toc()
 
         if frame_count % 20 == 0:
-            logger.info("Remapping: {:.2f} fps".format(batch_size * 1.0 / max(1e-5, timer.average_time)))
+            logger.info(
+                "Remapping: {:.2f} fps".format(batch_size * 1.0 / max(1e-5, timer.average_time))
+            )
             if frame_count % 50 == 0:
                 timer = Timer()
 

@@ -101,13 +101,17 @@ class Shower:
                     show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
                 else:
                     if self._allow_gpu_gl and s_img.device.type == "cuda":
-                        s_img = make_visible_image(s_img, enable_resizing=self._show_scaled, force_numpy=False)
+                        s_img = make_visible_image(
+                            s_img, enable_resizing=self._show_scaled, force_numpy=False
+                        )
                         show_cuda_tensor("Stitched Image", s_img, False, None)
 
                     else:
                         cv2.imshow(
                             self._label,
-                            make_visible_image(s_img, enable_resizing=self._show_scaled, force_numpy=True),
+                            make_visible_image(
+                                s_img, enable_resizing=self._show_scaled, force_numpy=True
+                            ),
                         )
                         cv2.waitKey(1)
 

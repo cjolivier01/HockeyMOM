@@ -24,8 +24,16 @@ data_mode = "topdown"
 data_root = "/mnt/ripper-data/datasets/VIP-HARPET/"
 dataset_type = "HarpeDataset"
 default_hooks = dict(
-    badcase=dict(badcase_thr=5, enable=False, metric_type="loss", out_dir="badcase", type="BadCaseAnalysisHook"),
-    checkpoint=dict(interval=10, max_keep_ckpts=1, rule="greater", save_best="PCK", type="CheckpointHook"),
+    badcase=dict(
+        badcase_thr=5,
+        enable=False,
+        metric_type="loss",
+        out_dir="badcase",
+        type="BadCaseAnalysisHook",
+    ),
+    checkpoint=dict(
+        interval=10, max_keep_ckpts=1, rule="greater", save_best="PCK", type="CheckpointHook"
+    ),
     logger=dict(interval=50, type="LoggerHook"),
     param_scheduler=dict(type="ParamSchedulerHook"),
     sampler_seed=dict(type="DistSamplerSeedHook"),
@@ -34,7 +42,9 @@ default_hooks = dict(
 )
 default_scope = "mmpose"
 env_cfg = dict(
-    cudnn_benchmark=False, dist_cfg=dict(backend="nccl"), mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0)
+    cudnn_benchmark=False,
+    dist_cfg=dict(backend="nccl"),
+    mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0),
 )
 launcher = "none"
 load_from = None

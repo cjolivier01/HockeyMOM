@@ -208,7 +208,10 @@ def _run_case(cfg: Dict, axis: str):
         # If cancel path: in the cancel step expect flags set (C++) and flashes (Python)
         if cfg_full["cancel"] and cfg_full["stop_delay"] > 0 and i == pre + 1:
             # During cancel frame, flags should be true on at least the relevant axis
-            assert bool(getattr(tstate, "canceled_stop_x", False) or getattr(tstate, "canceled_stop_y", False))
+            assert bool(
+                getattr(tstate, "canceled_stop_x", False)
+                or getattr(tstate, "canceled_stop_y", False)
+            )
             assert bool(py_box._cancel_stop_x_flash or py_box._cancel_stop_y_flash)
 
 

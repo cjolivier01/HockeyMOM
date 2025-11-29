@@ -53,7 +53,9 @@ class BasicBox(torch.nn.Module):
         return self._bbox.clone()
 
 
-def _as_scalar_float_tensor(val: Union[torch.Tensor, int, float], device: torch.device) -> torch.Tensor:
+def _as_scalar_float_tensor(
+    val: Union[torch.Tensor, int, float], device: torch.device
+) -> torch.Tensor:
     if isinstance(val, torch.Tensor):
         return val
     return torch.tensor(float(val), dtype=torch.float, device=device)
@@ -127,7 +129,9 @@ class ResizingBox(BasicBox):
 
             if self._size_is_frozen:
                 corner_box = scale_box(box=my_bbox.clone(), scale_width=0.98, scale_height=0.98)
-                img = vis.draw_corner_boxes(image=img, bbox=corner_box, color=(255, 255, 255), thickness=1)
+                img = vis.draw_corner_boxes(
+                    image=img, bbox=corner_box, color=(255, 255, 255), thickness=1
+                )
 
             if hasattr(self, "_scale_width"):
                 scaled_following_box = scale_box(
@@ -146,7 +150,9 @@ class ResizingBox(BasicBox):
 
             # Sizing thresholds
             if draw_thresholds:
-                grow_width, grow_height, shrink_width, shrink_height = self._get_grow_wh_and_shrink_wh(bbox=my_bbox)
+                grow_width, grow_height, shrink_width, shrink_height = (
+                    self._get_grow_wh_and_shrink_wh(bbox=my_bbox)
+                )
                 grow_box = make_box_at_center(
                     center_point=center_tensor,
                     w=my_width + grow_width,
@@ -172,8 +178,12 @@ class ResizingBox(BasicBox):
         return grow_width, grow_height, shrink_width, shrink_height
 
     def _clamp_resizing(self):
-        self._current_speed_w = torch.clamp(self._current_speed_w, min=-self._max_speed_w, max=self._max_speed_w)
-        self._current_speed_h = torch.clamp(self._current_speed_h, min=-self._max_speed_h, max=self._max_speed_h)
+        self._current_speed_w = torch.clamp(
+            self._current_speed_w, min=-self._max_speed_w, max=self._max_speed_w
+        )
+        self._current_speed_h = torch.clamp(
+            self._current_speed_h, min=-self._max_speed_h, max=self._max_speed_h
+        )
 
     def _adjust_size(
         self,
@@ -230,7 +240,9 @@ class ResizingBox(BasicBox):
         #
         if self._sticky_sizing:
 
-            grow_width, grow_height, shrink_width, shrink_height = self._get_grow_wh_and_shrink_wh(bbox=bbox)
+            grow_width, grow_height, shrink_width, shrink_height = self._get_grow_wh_and_shrink_wh(
+                bbox=bbox
+            )
 
             dw_thresh = torch.logical_and(dw < 0, dw < -shrink_width)
             want_bigger_w = torch.logical_and(dw > 0, dw > grow_width)
@@ -242,7 +254,9 @@ class ResizingBox(BasicBox):
             dh_thresh = torch.logical_or(dh_thresh, want_bigger_h)
             dh = torch.where(dw_thresh, dh, 0)
 
-            self._size_is_frozen = torch.logical_and(torch.logical_not(dw_thresh), torch.logical_not(dh_thresh))
+            self._size_is_frozen = torch.logical_and(
+                torch.logical_not(dw_thresh), torch.logical_not(dh_thresh)
+            )
             both_thresh = torch.logical_and(dw_thresh, dh_thresh)
 
             # prioritize width thresh
@@ -250,7 +264,9 @@ class ResizingBox(BasicBox):
                 both_thresh = torch.logical_or(dw_thresh, both_thresh)
 
             any_thresh = torch.logical_or(dw_thresh, dh_thresh)
-            want_bigger = torch.logical_and(torch.logical_or(want_bigger_w, want_bigger_h), any_thresh)
+            want_bigger = torch.logical_and(
+                torch.logical_or(want_bigger_w, want_bigger_h), any_thresh
+            )
             self._size_is_frozen = torch.logical_or(
                 self._size_is_frozen,
                 torch.logical_not(torch.logical_or(both_thresh, want_bigger)),
@@ -359,8 +375,12 @@ class MovingBox(ResizingBox):
         self._cooldown_x_counter = self._zero_int.clone()
         self._cooldown_y_counter = self._zero_int.clone()
 
-        self._line_thickness_tensor = torch.tensor([2, 2, -1, -2], dtype=torch.float, device=self.device)
-        self._inflate_arena_for_unsticky_edges = torch.tensor([1, 1, -1, -1], dtype=torch.float, device=self.device)
+        self._line_thickness_tensor = torch.tensor(
+            [2, 2, -1, -2], dtype=torch.float, device=self.device
+        )
+        self._inflate_arena_for_unsticky_edges = torch.tensor(
+            [1, 1, -1, -1], dtype=torch.float, device=self.device
+        )
 
         self._size_is_frozen = False
 
@@ -505,7 +525,10 @@ class MovingBox(ResizingBox):
                     thickness=2,
                 )
                 y_offset += 28
-            if self._cooldown_x_counter > self._zero_int or self._cooldown_y_counter > self._zero_int:
+            if (
+                self._cooldown_x_counter > self._zero_int
+                or self._cooldown_y_counter > self._zero_int
+            ):
                 text = f"Cd X{int(self._cooldown_x_counter.item())} Y{int(self._cooldown_y_counter.item())}"
                 img = vis.plot_text(
                     img,
@@ -585,7 +608,9 @@ class MovingBox(ResizingBox):
         else:
             if self._gaussian_x_clamp is not None:
                 x = torch.clamp(x, min=self._gaussian_x_clamp[0], max=self._gaussian_x_clamp[1])
-            return self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(x)
+            return (
+                self._horizontal_image_gaussian_distribution.get_gaussian_y_from_image_x_position(x)
+            )
 
     def _get_sticky_translation_sizes(self):
         gaussian_factor = 1 - self.get_gaussian_y_about_width_center(center(self.bounding_box())[0])
@@ -623,9 +648,13 @@ class MovingBox(ResizingBox):
         if scale_constraints is not None:
             mult = scale_constraints
             if accel_x is not None:
-                accel_x = torch.clamp(accel_x, min=-self._max_accel_x * mult, max=self._max_accel_x * mult)
+                accel_x = torch.clamp(
+                    accel_x, min=-self._max_accel_x * mult, max=self._max_accel_x * mult
+                )
             if accel_y is not None:
-                accel_y = torch.clamp(accel_y, min=-self._max_accel_y * mult, max=self._max_accel_y * mult)
+                accel_y = torch.clamp(
+                    accel_y, min=-self._max_accel_y * mult, max=self._max_accel_y * mult
+                )
         if accel_x is not None:
             self._current_speed_x += accel_x
 
@@ -648,12 +677,16 @@ class MovingBox(ResizingBox):
         if delay_x is not None and int(delay_x) > 0:
             self._stop_delay_x = torch.tensor(int(delay_x), dtype=torch.int64, device=self.device)
             self._stop_delay_x_counter = self._zero_int.clone()
-            self._stop_decel_x = -self._current_speed_x / self._stop_delay_x.to(self._current_speed_x.dtype)
+            self._stop_decel_x = -self._current_speed_x / self._stop_delay_x.to(
+                self._current_speed_x.dtype
+            )
             self._stop_trigger_dir_x = torch.sign(self._current_speed_x)
         if delay_y is not None and int(delay_y) > 0:
             self._stop_delay_y = torch.tensor(int(delay_y), dtype=torch.int64, device=self.device)
             self._stop_delay_y_counter = self._zero_int.clone()
-            self._stop_decel_y = -self._current_speed_y / self._stop_delay_y.to(self._current_speed_y.dtype)
+            self._stop_decel_y = -self._current_speed_y / self._stop_delay_y.to(
+                self._current_speed_y.dtype
+            )
             self._stop_trigger_dir_y = torch.sign(self._current_speed_y)
 
     def scale_speed(
@@ -767,8 +800,12 @@ class MovingBox(ResizingBox):
                     self._stop_delay_x = self._stop_on_dir_change_delay.clone()
                     self._stop_delay_x_counter = self._zero_int.clone()
                     # Decelerate linearly to zero in N frames
-                    self._stop_decel_x = -self._current_speed_x / self._stop_delay_x.to(self._current_speed_x.dtype)
-                    self._stop_trigger_dir_x = torch.sign(total_diff[0]).to(self._current_speed_x.dtype)
+                    self._stop_decel_x = -self._current_speed_x / self._stop_delay_x.to(
+                        self._current_speed_x.dtype
+                    )
+                    self._stop_trigger_dir_x = torch.sign(total_diff[0]).to(
+                        self._current_speed_x.dtype
+                    )
                 else:
                     # legacy mild damping behavior
                     self._current_speed_x = torch.where(
@@ -788,8 +825,12 @@ class MovingBox(ResizingBox):
                 if self._stop_on_dir_change_delay > self._zero_int and moving_enough_y:
                     self._stop_delay_y = self._stop_on_dir_change_delay.clone()
                     self._stop_delay_y_counter = self._zero_int.clone()
-                    self._stop_decel_y = -self._current_speed_y / self._stop_delay_y.to(self._current_speed_y.dtype)
-                    self._stop_trigger_dir_y = torch.sign(total_diff[1]).to(self._current_speed_y.dtype)
+                    self._stop_decel_y = -self._current_speed_y / self._stop_delay_y.to(
+                        self._current_speed_y.dtype
+                    )
+                    self._stop_trigger_dir_y = torch.sign(total_diff[1]).to(
+                        self._current_speed_y.dtype
+                    )
                 else:
                     self._current_speed_y = torch.where(
                         torch.abs(self._current_speed_y) < self._max_speed_y / 6,
@@ -876,14 +917,20 @@ class MovingBox(ResizingBox):
                 v = torch.clamp(v, min=-vmax, max=vmax)
             return v
 
-        self._current_speed_x = _limit_speed_ttg(self._current_speed_x, prev_sx, total_diff[0], self._ttg_limit_frames)
-        self._current_speed_y = _limit_speed_ttg(self._current_speed_y, prev_sy, total_diff[1], self._ttg_limit_frames)
+        self._current_speed_x = _limit_speed_ttg(
+            self._current_speed_x, prev_sx, total_diff[0], self._ttg_limit_frames
+        )
+        self._current_speed_y = _limit_speed_ttg(
+            self._current_speed_y, prev_sy, total_diff[1], self._ttg_limit_frames
+        )
 
         super(MovingBox, self).set_destination(dest_box=dest_box)
 
     def forward(self, dest_box: torch.Tensor):
         if self._scale_width is not None or self._scale_height is not None:
-            dest_box = scale_box(dest_box, scale_width=self._scale_width, scale_height=self._scale_height)
+            dest_box = scale_box(
+                dest_box, scale_width=self._scale_width, scale_height=self._scale_height
+            )
             if self._clamp_scaled_input_box:
                 # Clamp it to the image, since any translation back into the frame will
                 # end up including parts that we don't want
@@ -944,12 +991,14 @@ class MovingBox(ResizingBox):
                 self._nonstop_delay = self._zero
                 self._nonstop_delay_counter = self._zero.clone()
                 # Optional braking after nonstop completes
-                if self._post_nonstop_stop_delay > self._zero_int and torch.abs(self._current_speed_x) >= (
-                    self._max_speed_x / 6
-                ):
+                if self._post_nonstop_stop_delay > self._zero_int and torch.abs(
+                    self._current_speed_x
+                ) >= (self._max_speed_x / 6):
                     self._stop_delay_x = self._post_nonstop_stop_delay.clone()
                     self._stop_delay_x_counter = self._zero_int.clone()
-                    self._stop_decel_x = -self._current_speed_x / self._stop_delay_x.to(self._current_speed_x.dtype)
+                    self._stop_decel_x = -self._current_speed_x / self._stop_delay_x.to(
+                        self._current_speed_x.dtype
+                    )
                     self._stop_trigger_dir_x = torch.sign(self._current_speed_x)
         # Decrement cooldowns
         if self._cooldown_x_counter > self._zero_int:
@@ -1026,7 +1075,9 @@ class MovingBox(ResizingBox):
         self._current_speed_x *= edge_ok[0]
         self._current_speed_y *= edge_ok[1]
 
-    def set_aspect_ratio(self, setting_box: torch.Tensor, aspect_ratio: torch.Tensor) -> torch.Tensor:
+    def set_aspect_ratio(
+        self, setting_box: torch.Tensor, aspect_ratio: torch.Tensor
+    ) -> torch.Tensor:
         if self._arena_box is not None:
             setting_box = clamp_box(setting_box, self._arena_box)
         w = width(setting_box)

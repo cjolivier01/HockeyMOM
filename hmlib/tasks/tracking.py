@@ -42,7 +42,9 @@ def run_mmtrack(
             )
         cuda_stream = torch.cuda.Stream(device) if not no_cuda_streams else None
         with cuda_stream_scope(cuda_stream):
-            dataloader_iterator = CachedIterator(iterator=iter(dataloader), cache_size=input_cache_size)
+            dataloader_iterator = CachedIterator(
+                iterator=iter(dataloader), cache_size=input_cache_size
+            )
             # print("WARNING: Not cacheing data loader")
 
             #
@@ -71,8 +73,12 @@ def run_mmtrack(
                 # The progress table
                 #
                 def _table_callback(table_map: OrderedDict[Any, Any]):
-                    duration_processed_in_seconds = number_of_batches_processed * batch_size / dataloader.fps
-                    remaining_frames_to_process = total_frames_in_video - (number_of_batches_processed * batch_size)
+                    duration_processed_in_seconds = (
+                        number_of_batches_processed * batch_size / dataloader.fps
+                    )
+                    remaining_frames_to_process = total_frames_in_video - (
+                        number_of_batches_processed * batch_size
+                    )
                     remaining_seconds_to_process = remaining_frames_to_process / dataloader.fps
 
                     if wraparound_timer is not None:
@@ -80,9 +86,15 @@ def run_mmtrack(
 
                         table_map["HMTrack FPS"] = "{:.2f}".format(processing_fps)
                         table_map["Dataset length"] = total_duration_str
-                        table_map["Processed"] = convert_seconds_to_hms(duration_processed_in_seconds)
-                        table_map["Remaining"] = convert_seconds_to_hms(remaining_seconds_to_process)
-                        table_map["ETA"] = convert_seconds_to_hms(remaining_frames_to_process / processing_fps)
+                        table_map["Processed"] = convert_seconds_to_hms(
+                            duration_processed_in_seconds
+                        )
+                        table_map["Remaining"] = convert_seconds_to_hms(
+                            remaining_seconds_to_process
+                        )
+                        table_map["ETA"] = convert_seconds_to_hms(
+                            remaining_frames_to_process / processing_fps
+                        )
                         table_map["Track count"] = str(nr_tracks)
                         table_map["Track IDs"] = str(int(max_tracking_id))
 
@@ -96,12 +108,18 @@ def run_mmtrack(
                 except Exception:
                     game_dir = None
             work_dir = config.get("work_dir") or config.get("results_folder")
-            tracking_data_path = config.get("tracking_data_path") or find_latest_dataframe_file(game_dir, "tracking")
+            tracking_data_path = config.get("tracking_data_path") or find_latest_dataframe_file(
+                game_dir, "tracking"
+            )
             detection_data_path = config.get("detection_data_path") or find_latest_dataframe_file(
                 game_dir, "detections"
             )
-            pose_data_path = config.get("pose_data_path") or find_latest_dataframe_file(game_dir, "pose")
-            action_data_path = config.get("action_data_path") or find_latest_dataframe_file(game_dir, "actions")
+            pose_data_path = config.get("pose_data_path") or find_latest_dataframe_file(
+                game_dir, "pose"
+            )
+            action_data_path = config.get("action_data_path") or find_latest_dataframe_file(
+                game_dir, "actions"
+            )
 
             # using_precalculated_tracking = bool(tracking_data_path)
             # using_precalculated_detection = bool(detection_data_path)
@@ -294,7 +312,9 @@ def run_mmtrack(
                                 max_tracking_id = 0
                     else:
                         # Legacy MMTracking path has been removed. An Aspen config is required.
-                        raise RuntimeError("AspenNet config is required. Legacy non-Aspen pipeline has been removed.")
+                        raise RuntimeError(
+                            "AspenNet config is required. Legacy non-Aspen pipeline has been removed."
+                        )
 
                     if detect_timer is not None and cur_iter % 50 == 0:
                         # print(

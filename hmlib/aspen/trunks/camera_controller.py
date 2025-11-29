@@ -103,7 +103,10 @@ class CameraControllerTrunk(Trunk):
                 h_px = H * 0.8
                 w_px = h_px * self._ar
                 cx, cy = W / 2.0, H / 2.0
-                box = torch.tensor([cx - w_px / 2, cy - h_px / 2, cx + w_px / 2, cy + h_px / 2], dtype=torch.float32)
+                box = torch.tensor(
+                    [cx - w_px / 2, cy - h_px / 2, cx + w_px / 2, cy + h_px / 2],
+                    dtype=torch.float32,
+                )
                 cam_boxes.append(box)
                 setattr(img_data_sample, "pred_cam_box", box)
                 continue
@@ -117,7 +120,11 @@ class CameraControllerTrunk(Trunk):
             tlwh[:, 3] = tlwh[:, 3] - tlwh[:, 1]
 
             box_out: Optional[torch.Tensor] = None
-            if self._controller == "transformer" and self._model is not None and self._norm is not None:
+            if (
+                self._controller == "transformer"
+                and self._model is not None
+                and self._norm is not None
+            ):
                 feat = build_frame_features(
                     tlwh=tlwh.cpu().numpy(),
                     norm=self._norm,

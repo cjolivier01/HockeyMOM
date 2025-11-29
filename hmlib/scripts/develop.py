@@ -91,7 +91,9 @@ def main() -> int:
     scripts_dir.mkdir(parents=True, exist_ok=True)
 
     pth_file = _write_pth(site_packages, workspace_root)
-    scripts_written = [_write_script(scripts_dir, name, target) for name, target in ENTRY_POINTS.items()]
+    scripts_written = [
+        _write_script(scripts_dir, name, target) for name, target in ENTRY_POINTS.items()
+    ]
 
     print(f"Added {pth_file} pointing to {workspace_root}")
     print(f"Installed {len(scripts_written)} console entry points into {scripts_dir}")

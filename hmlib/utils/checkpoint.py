@@ -63,7 +63,9 @@ def load_checkpoint_to_model(
     # converted_base_dict: Dict[str, Any] = convert_dict(
     #     base_state_dict, replacements=replacements
     # )
-    converted_state_dict: Dict[str, Any] = convert_dict(checkpoint_state_dict, replacements=replacements)
+    converted_state_dict: Dict[str, Any] = convert_dict(
+        checkpoint_state_dict, replacements=replacements
+    )
 
     new_state_dict = OrderedDict()
     found_count = 0

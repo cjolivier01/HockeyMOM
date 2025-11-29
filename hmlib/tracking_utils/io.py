@@ -34,7 +34,9 @@ def write_results(filename, results_dict: Dict, data_type: str):
                     continue
                 x1, y1, w, h = tlwh
                 x2, y2 = x1 + w, y1 + h
-                line = save_format.format(frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h, score=1.0)
+                line = save_format.format(
+                    frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h, score=1.0
+                )
                 f.write(line)
     logger.info("Save results to {}".format(filename))
 
@@ -67,7 +69,9 @@ def append_results(filename, results_dict: Dict, data_type: str):
                     continue
                 x1, y1, w, h = tlwh
                 x2, y2 = x1 + w, y1 + h
-                line = save_format.format(frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h, score=1.0)
+                line = save_format.format(
+                    frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h, score=1.0
+                )
                 f.write(line)
     results_dict.clear()
     logger.info("Save results to {}".format(filename))

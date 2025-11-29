@@ -74,12 +74,16 @@ db:
 
 def install_files(repo_root: Path, install_root: Path) -> None:
     install_root.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(repo_root / "tools/dirwatch/dirwatcher_service.py", install_root / "dirwatcher_service.py")
+    shutil.copy2(
+        repo_root / "tools/dirwatch/dirwatcher_service.py", install_root / "dirwatcher_service.py"
+    )
     shutil.copy2(repo_root / "tools/dirwatch/process_dir.py", install_root / "process_dir.py")
     (install_root / "process_dir.py").chmod(0o755)
 
 
-def write_service(unit_path: Path, user: str, config_path: Path, python_bin: str, install_root: Path) -> None:
+def write_service(
+    unit_path: Path, user: str, config_path: Path, python_bin: str, install_root: Path
+) -> None:
     unit = f"""
 [Unit]
 Description=DirWatcher Service (Slurm trigger)
@@ -110,11 +114,19 @@ def systemctl(*args: str) -> None:
 
 
 def configure_msmtp(
-    user: str, from_email: str, smtp_host: str, smtp_port: int, smtp_user: str, smtp_pass: str, use_tls: bool
+    user: str,
+    from_email: str,
+    smtp_host: str,
+    smtp_port: int,
+    smtp_user: str,
+    smtp_pass: str,
+    use_tls: bool,
 ) -> None:
     # Install msmtp and provide a sendmail alternative
     subprocess.check_call(["sudo", "apt-get", "update", "-y"])
-    subprocess.check_call(["sudo", "apt-get", "install", "-y", "msmtp", "msmtp-mta", "ca-certificates"])
+    subprocess.check_call(
+        ["sudo", "apt-get", "install", "-y", "msmtp", "msmtp-mta", "ca-certificates"]
+    )
     msmtprc = Path("/etc/msmtprc")
     tls_line = "tls on" if use_tls else "tls off"
     # For port 587 (STARTTLS), turn starttls on; for 465 (SMTPS), turn it off
@@ -167,16 +179,22 @@ def configure_msmtp(
 def main() -> int:
     ap = argparse.ArgumentParser(description="Install the dirwatcher systemd service")
     ap.add_argument("--watch-root", required=True, help="Directory to watch for subdirectories")
-    ap.add_argument("--signal-file", default="_READY", help="Ready signal filename (default: _READY)")
     ap.add_argument(
-        "--delete-on-success", action="store_true", help="Delete subdirectory after successful job completion"
+        "--signal-file", default="_READY", help="Ready signal filename (default: _READY)"
+    )
+    ap.add_argument(
+        "--delete-on-success",
+        action="store_true",
+        help="Delete subdirectory after successful job completion",
     )
     ap.add_argument(
         "--user",
         default=os.environ.get("SUDO_USER") or os.environ.get("USER"),
         help="Service user (defaults to current user)",
     )
-    ap.add_argument("--python-bin", default="", help="Python interpreter (prefer conda env of service user)")
+    ap.add_argument(
+        "--python-bin", default="", help="Python interpreter (prefer conda env of service user)"
+    )
 
     # Slurm job configuration
     ap.add_argument("--partition", default="main")
@@ -218,17 +236,27 @@ def main() -> int:
     ap.add_argument("--db-host", default="127.0.0.1")
     ap.add_argument("--db-port", type=int, default=3306)
     # SMTP options
-    ap.add_argument("--smtp-setup", action="store_true", help="Install and configure msmtp for email sending")
+    ap.add_argument(
+        "--smtp-setup", action="store_true", help="Install and configure msmtp for email sending"
+    )
     ap.add_argument("--from-email", default="", help="From email address for notifications")
     ap.add_argument("--smtp-host", default="", help="SMTP host (e.g., smtp.example.com)")
     ap.add_argument("--smtp-port", type=int, default=587, help="SMTP port (default 587)")
     ap.add_argument("--smtp-user", default="", help="SMTP username (for authenticated SMTP)")
     ap.add_argument("--smtp-pass", default="", help="SMTP password")
-    ap.add_argument("--smtp-use-tls", action="store_true", default=True, help="Use STARTTLS (default on)")
-    ap.add_argument("--no-smtp-use-tls", action="store_false", dest="smtp_use_tls", help="Disable STARTTLS")
+    ap.add_argument(
+        "--smtp-use-tls", action="store_true", default=True, help="Use STARTTLS (default on)"
+    )
+    ap.add_argument(
+        "--no-smtp-use-tls", action="store_false", dest="smtp_use_tls", help="Disable STARTTLS"
+    )
 
     # Uninstall mode
-    ap.add_argument("--uninstall", action="store_true", help="Uninstall the DirWatcher service and optional SMTP")
+    ap.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="Uninstall the DirWatcher service and optional SMTP",
+    )
 
     args = ap.parse_args()
 
@@ -246,7 +274,9 @@ def main() -> int:
         except Exception:
             pass
         try:
-            subprocess.run(["sudo", "rm", "-f", "/etc/systemd/system/dirwatcher.service"], check=False)
+            subprocess.run(
+                ["sudo", "rm", "-f", "/etc/systemd/system/dirwatcher.service"], check=False
+            )
             subprocess.run(["sudo", "systemctl", "daemon-reload"], check=False)
         except Exception:
             pass
@@ -273,7 +303,15 @@ def main() -> int:
     if not args.python_bin:
         try:
             user_py = subprocess.check_output(
-                ["sudo", "-H", "-u", args.user, "bash", "-lc", "command -v python || command -v python3"],
+                [
+                    "sudo",
+                    "-H",
+                    "-u",
+                    args.user,
+                    "bash",
+                    "-lc",
+                    "command -v python || command -v python3",
+                ],
                 text=True,
             ).strip()
             python_bin = user_py or "/usr/bin/python3"
@@ -284,7 +322,15 @@ def main() -> int:
     # Ensure pymysql is available in that environment
     try:
         subprocess.check_call(
-            ["sudo", "-H", "-u", args.user, "bash", "-lc", f"{python_bin} -m pip install --upgrade pip wheel pymysql"]
+            [
+                "sudo",
+                "-H",
+                "-u",
+                args.user,
+                "bash",
+                "-lc",
+                f"{python_bin} -m pip install --upgrade pip wheel pymysql",
+            ]
         )
     except Exception:
         pass
@@ -321,8 +367,12 @@ def main() -> int:
         if not state_file.exists():
             state_file.write_text("{" "'" '\n  "active": {},\n  "processed": {}\n\n' "'" "}")
         # Ensure both the state file and its directory are owned by the service user
-        subprocess.check_call(["sudo", "chown", "-R", f"{args.user}:{args.user}", str(state_file.parent)])
-        subprocess.check_call(["sudo", "chown", "-R", f"{args.user}:{args.user}", str(failure_log.parent)])
+        subprocess.check_call(
+            ["sudo", "chown", "-R", f"{args.user}:{args.user}", str(state_file.parent)]
+        )
+        subprocess.check_call(
+            ["sudo", "chown", "-R", f"{args.user}:{args.user}", str(failure_log.parent)]
+        )
         # Protect config file since it may contain SMTP credentials
         subprocess.check_call(["sudo", "chown", f"{args.user}:{args.user}", str(config_path)])
         subprocess.check_call(["sudo", "chmod", "600", str(config_path)])

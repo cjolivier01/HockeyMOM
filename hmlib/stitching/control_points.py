@@ -82,7 +82,9 @@ def cvtcolor_bgr_to_rgb(image_bgr: torch.Tensor) -> torch.Tensor:
     return image_bgr[:, [2, 1, 0], :, :]
 
 
-def compute_destination_size_wh(img: torch.Tensor, homography_matrix: torch.Tensor) -> Tuple[int, int]:
+def compute_destination_size_wh(
+    img: torch.Tensor, homography_matrix: torch.Tensor
+) -> Tuple[int, int]:
     """Compute destination width/height after applying a homography.
 
     @param img: Source image tensor (H, W or B, C, H, W).
@@ -187,7 +189,9 @@ def calculate_control_points(
     del extractor
     gc.collect()
 
-    feats0, feats1, matches01 = [rbd(x) for x in [feats0, feats1, matches01]]  # remove batch dimension
+    feats0, feats1, matches01 = [
+        rbd(x) for x in [feats0, feats1, matches01]
+    ]  # remove batch dimension
 
     kpts0, kpts1, matches = feats0["keypoints"], feats1["keypoints"], matches01["matches"]
     m_kpts0, m_kpts1 = kpts0[matches[..., 0]], kpts1[matches[..., 1]]

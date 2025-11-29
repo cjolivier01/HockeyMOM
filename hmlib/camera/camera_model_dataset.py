@@ -77,7 +77,9 @@ class CameraPanZoomDataset(Dataset):
             max_y = 1080.0
         self.norm = CameraNorm(scale_x=max_x, scale_y=max_y, max_players=max_players_for_norm)
         # list of frames present in both
-        frames = sorted(set(self.tracks["Frame"].unique()).intersection(set(self.cams["Frame"].unique())))
+        frames = sorted(
+            set(self.tracks["Frame"].unique()).intersection(set(self.cams["Frame"].unique()))
+        )
         self.frames: List[int] = [int(f) for f in frames]
         self.valid_indices: List[int] = [i for i in range(self.window, len(self.frames))]
 

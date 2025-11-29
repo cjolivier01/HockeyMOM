@@ -43,7 +43,9 @@ env_cfg = dict(
 
 # visualizer
 vis_backends = [dict(type=LocalVisBackend)]
-visualizer = dict(type=PytorchPoseLocalVisualizer, vis_backends=vis_backends, name="visualizer", line_width=2)
+visualizer = dict(
+    type=PytorchPoseLocalVisualizer, vis_backends=vis_backends, name="visualizer", line_width=2
+)
 
 # logger
 log_processor = dict(type=LogProcessor, window_size=50, by_epoch=True, num_digits=6)
@@ -94,14 +96,22 @@ auto_scale_lr = dict(base_batch_size=512)
 
 # codec settings
 codec = dict(
-    type="SimCCLabel", input_size=(288, 384), sigma=(6.0, 6.93), simcc_split_ratio=2.0, normalize=False, use_dark=False
+    type="SimCCLabel",
+    input_size=(288, 384),
+    sigma=(6.0, 6.93),
+    simcc_split_ratio=2.0,
+    normalize=False,
+    use_dark=False,
 )
 
 # model settings
 model = dict(
     type="TopdownPoseEstimator",
     data_preprocessor=dict(
-        type="PoseDataPreprocessor", mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], bgr_to_rgb=True
+        type="PoseDataPreprocessor",
+        mean=[123.675, 116.28, 103.53],
+        std=[58.395, 57.12, 57.375],
+        bgr_to_rgb=True,
     ),
     backbone=dict(
         _scope_="mmdet",
@@ -253,17 +263,22 @@ val_dataloader = dict(
         ann_file="annotations/coco_wholebody_val_v1.0.json",
         data_prefix=dict(img="val2017/"),
         test_mode=True,
-        bbox_file="data/coco/person_detection_results/" "COCO_val2017_detections_AP_H_56_person.json",
+        bbox_file="data/coco/person_detection_results/"
+        "COCO_val2017_detections_AP_H_56_person.json",
         pipeline=val_pipeline,
     ),
 )
 test_dataloader = val_dataloader
 
 # hooks
-default_hooks = dict(checkpoint=dict(save_best="coco-wholebody/AP", rule="greater", max_keep_ckpts=1))
+default_hooks = dict(
+    checkpoint=dict(save_best="coco-wholebody/AP", rule="greater", max_keep_ckpts=1)
+)
 
 custom_hooks = [
-    dict(type="EMAHook", ema_type="ExpMomentumEMA", momentum=0.0002, update_buffers=True, priority=49),
+    dict(
+        type="EMAHook", ema_type="ExpMomentumEMA", momentum=0.0002, update_buffers=True, priority=49
+    ),
     dict(
         type="mmdet.PipelineSwitchHook",
         switch_epoch=max_epochs - stage2_num_epochs,
@@ -272,5 +287,7 @@ custom_hooks = [
 ]
 
 # evaluators
-val_evaluator = dict(type="CocoWholeBodyMetric", ann_file=data_root + "annotations/coco_wholebody_val_v1.0.json")
+val_evaluator = dict(
+    type="CocoWholeBodyMetric", ann_file=data_root + "annotations/coco_wholebody_val_v1.0.json"
+)
 test_evaluator = val_evaluator

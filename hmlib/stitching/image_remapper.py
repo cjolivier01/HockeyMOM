@@ -103,7 +103,9 @@ class ImageRemapper(torch.jit.ScriptModule):
             assert self._basename
             x_file = os.path.join(self._dir_name, f"{self._basename}_x.tif")
             y_file = os.path.join(self._dir_name, f"{self._basename}_y.tif")
-            self.xpos, self.ypos = get_image_geo_position(os.path.join(self._dir_name, f"{self._basename}.tif"))
+            self.xpos, self.ypos = get_image_geo_position(
+                os.path.join(self._dir_name, f"{self._basename}.tif")
+            )
 
             x_map = cv2.imread(x_file, cv2.IMREAD_ANYDEPTH)
             y_map = cv2.imread(y_file, cv2.IMREAD_ANYDEPTH)
@@ -252,7 +254,9 @@ class ImageRemapper(torch.jit.ScriptModule):
             return self._remap_op.remap(source_tensor)
 
         # Per frame code
-        source_tensor = pad_tensor_to_size_batched(source_tensor, self._working_w, self._working_h, 0)
+        source_tensor = pad_tensor_to_size_batched(
+            source_tensor, self._working_w, self._working_h, 0
+        )
         # Check if source tensor is a single channel or has multiple channels
         if len(source_tensor.shape) == 3:  # Single channel
             destination_tensor = source_tensor[:, self._row_map, self._col_map]

@@ -23,7 +23,9 @@ def raise_exception_in_thread(thread_id=get_main_thread_id(), exception=Keyboard
     @param thread_id: Target thread identifier (defaults to the main thread).
     @param exception: Exception type to inject (defaults to ``KeyboardInterrupt``).
     """
-    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(thread_id), ctypes.py_object(exception))
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_long(thread_id), ctypes.py_object(exception)
+    )
     if res == 0:
         raise ValueError("Invalid thread ID")
     elif res > 1:

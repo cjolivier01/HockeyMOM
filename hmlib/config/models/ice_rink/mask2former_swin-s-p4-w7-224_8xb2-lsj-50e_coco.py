@@ -92,7 +92,9 @@ data_preprocessor = dict(
 data_root = "data/IceRink/"
 dataset_type = "CocoIceRink2Dataset"
 default_hooks = dict(
-    checkpoint=dict(by_epoch=False, interval=2000, max_keep_ckpts=25, save_last=True, type="CheckpointHook"),
+    checkpoint=dict(
+        by_epoch=False, interval=2000, max_keep_ckpts=25, save_last=True, type="CheckpointHook"
+    ),
     logger=dict(interval=50, type="LoggerHook"),
     param_scheduler=dict(type="ParamSchedulerHook"),
     sampler_seed=dict(type="DistSamplerSeedHook"),
@@ -114,7 +116,9 @@ dynamic_intervals = [
 ]
 embed_multi = dict(decay_mult=0.0, lr_mult=1.0)
 env_cfg = dict(
-    cudnn_benchmark=False, dist_cfg=dict(backend="nccl"), mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0)
+    cudnn_benchmark=False,
+    dist_cfg=dict(backend="nccl"),
+    mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0),
 )
 image_size = (
     1024,
@@ -199,7 +203,11 @@ model = dict(
     ),
     init_cfg=None,
     panoptic_fusion_head=dict(
-        init_cfg=None, loss_panoptic=None, num_stuff_classes=0, num_things_classes=80, type="MaskFormerFusionHead"
+        init_cfg=None,
+        loss_panoptic=None,
+        num_stuff_classes=0,
+        num_things_classes=80,
+        type="MaskFormerFusionHead",
     ),
     panoptic_head=dict(
         enforce_decoder_input_project=False,
@@ -308,7 +316,9 @@ model = dict(
             type="DiceLoss",
             use_sigmoid=True,
         ),
-        loss_mask=dict(loss_weight=5.0, reduction="mean", type="CrossEntropyLoss", use_sigmoid=True),
+        loss_mask=dict(
+            loss_weight=5.0, reduction="mean", type="CrossEntropyLoss", use_sigmoid=True
+        ),
         num_queries=100,
         num_stuff_classes=0,
         num_things_classes=80,
@@ -326,7 +336,12 @@ model = dict(
                         num_fcs=2,
                     ),
                     self_attn_cfg=dict(
-                        batch_first=True, dropout=0.0, embed_dims=256, num_heads=8, num_levels=3, num_points=4
+                        batch_first=True,
+                        dropout=0.0,
+                        embed_dims=256,
+                        num_heads=8,
+                        num_levels=3,
+                        num_points=4,
                     ),
                 ),
                 num_layers=6,
@@ -362,7 +377,12 @@ model = dict(
         type="Mask2FormerHead",
     ),
     test_cfg=dict(
-        filter_low_score=True, instance_on=True, iou_thr=0.8, max_per_image=10, panoptic_on=False, semantic_on=False
+        filter_low_score=True,
+        instance_on=True,
+        iou_thr=0.8,
+        max_per_image=10,
+        panoptic_on=False,
+        semantic_on=False,
     ),
     train_cfg=dict(
         assigner=dict(
@@ -522,7 +542,9 @@ test_pipeline = [
         type="PackDetInputs",
     ),
 ]
-train_cfg = dict(dynamic_intervals=None, max_iters=30000, type="IterBasedTrainLoop", val_interval=1500)
+train_cfg = dict(
+    dynamic_intervals=None, max_iters=30000, type="IterBasedTrainLoop", val_interval=1500
+)
 train_dataloader = dict(
     batch_sampler=dict(type="AspectRatioBatchSampler"),
     batch_size=2,

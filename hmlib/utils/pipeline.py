@@ -9,7 +9,9 @@ MMDetection / MMPose configs.
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 
-def get_pipeline_list(data_pipeline: Union[List[Dict[str, Any]], Dict[str, Any]]) -> List[Dict[str, Any]]:
+def get_pipeline_list(
+    data_pipeline: Union[List[Dict[str, Any]], Dict[str, Any]],
+) -> List[Dict[str, Any]]:
     """Normalize a pipeline config into a list of dictionaries.
 
     @param data_pipeline: Either a list of pipeline dicts or a dict with ``\"pipeline\"`` key.

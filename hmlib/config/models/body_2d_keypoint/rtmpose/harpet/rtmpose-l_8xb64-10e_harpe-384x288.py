@@ -26,8 +26,16 @@ data_mode = "topdown"
 data_root = "/mnt/ripper-data2/datasets/VIP-HARPET/"
 dataset_type = "HarpeDataset"
 default_hooks = dict(
-    badcase=dict(badcase_thr=5, enable=False, metric_type="loss", out_dir="badcase", type="BadCaseAnalysisHook"),
-    checkpoint=dict(interval=10, max_keep_ckpts=1, rule="greater", save_best="PCK", type="CheckpointHook"),
+    badcase=dict(
+        badcase_thr=5,
+        enable=False,
+        metric_type="loss",
+        out_dir="badcase",
+        type="BadCaseAnalysisHook",
+    ),
+    checkpoint=dict(
+        interval=10, max_keep_ckpts=1, rule="greater", save_best="PCK", type="CheckpointHook"
+    ),
     logger=dict(interval=50, type="LoggerHook"),
     param_scheduler=dict(type="ParamSchedulerHook"),
     sampler_seed=dict(type="DistSamplerSeedHook"),
@@ -36,7 +44,9 @@ default_hooks = dict(
 )
 default_scope = "mmpose"
 env_cfg = dict(
-    cudnn_benchmark=False, dist_cfg=dict(backend="nccl"), mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0)
+    cudnn_benchmark=False,
+    dist_cfg=dict(backend="nccl"),
+    mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0),
 )
 launcher = "none"
 # load_from = '/home/colivier/src/openmm/work_dirs/rtmpose_l_harpe_384x288/epoch_1000.pth'
@@ -120,14 +130,26 @@ optim_wrapper = dict(
 )
 param_scheduler = [
     dict(begin=0, by_epoch=False, end=1000, start_factor=1e-05, type="LinearLR"),
-    dict(T_max=5, begin=5, by_epoch=True, convert_to_iter_based=True, end=10, eta_min=0.0002, type="CosineAnnealingLR"),
+    dict(
+        T_max=5,
+        begin=5,
+        by_epoch=True,
+        convert_to_iter_based=True,
+        end=10,
+        eta_min=0.0002,
+        type="CosineAnnealingLR",
+    ),
 ]
 
 
 dataset_info = dict(
     dataset_name="harpe18",
     paper_info=dict(
-        author="VIP-HARPE Team", title="VIP-HARPET Dataset", container="Internal", year="2018", homepage=""
+        author="VIP-HARPE Team",
+        title="VIP-HARPET Dataset",
+        container="Internal",
+        year="2018",
+        homepage="",
     ),
     keypoint_info={
         0: dict(name="j0", id=0, color=[51, 153, 255], type="upper", swap="j5"),
@@ -352,5 +374,11 @@ val_pipeline = [
 vis_backends = [
     dict(type="LocalVisBackend"),
 ]
-visualizer = dict(type=PytorchPoseLocalVisualizer, vis_backends=vis_backends, name="visualizer", line_width=4, radius=2)
+visualizer = dict(
+    type=PytorchPoseLocalVisualizer,
+    vis_backends=vis_backends,
+    name="visualizer",
+    line_width=4,
+    radius=2,
+)
 # work_dir = '/home/colivier/src/openmm/work_dirs/rtmpose_l_harpe_384x288'

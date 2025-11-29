@@ -66,7 +66,9 @@ class IceRinkSegmConfig:
         if self._clipped_shape and self._image_label:
             img = data[self._image_label]
             # we expect channels last
-            img = img[:, self._clip_box[1] : self._clip_box[3], self._clip_box[0] : self._clip_box[2], :]
+            img = img[
+                :, self._clip_box[1] : self._clip_box[3], self._clip_box[0] : self._clip_box[2], :
+            ]
             bs = len(img)
             data[self._image_label] = img
             data["clipped_image"] = img
@@ -90,7 +92,9 @@ class IceRinkSegmBoundaries(SegmBoundaries):
         **kwargs,
     ):
         max_detections_in_mask = kwargs.pop("max_detections_in_mask", None)
-        super().__init__(*args, original_clip_box=original_clip_box, det_thresh=det_thresh, draw=draw, **kwargs)
+        super().__init__(
+            *args, original_clip_box=original_clip_box, det_thresh=det_thresh, draw=draw, **kwargs
+        )
         self._game_id = game_id
         # self._rink_profile = None
         self._device = device

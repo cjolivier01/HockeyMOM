@@ -29,7 +29,9 @@ def parse_game_time(date_str, time_str, year=None):
     time_str = time_str.replace("12 Noon", "12:00 PM")
     if year is None:
         year = str(datetime.datetime.now().year)
-    return datetime.datetime.strptime(year + " " + date_str + " " + time_str, "%Y %a %b %d %I:%M %p")
+    return datetime.datetime.strptime(
+        year + " " + date_str + " " + time_str, "%Y %a %b %d %I:%M %p"
+    )
 
 
 def get_html(url: str, params: dict[str, str] | None = None, log=False):
@@ -41,7 +43,9 @@ def get_html(url: str, params: dict[str, str] | None = None, log=False):
 
 
 def cache_json(
-    file_format, max_age=datetime.timedelta(days=1), reload_kwarg="reload"  # pylint: disable=g-bare-generic
+    file_format,
+    max_age=datetime.timedelta(days=1),
+    reload_kwarg="reload",  # pylint: disable=g-bare-generic
 ):
     """A function that creates a decorator which will use "cache_json" for caching the results of the decorated function "fn"."""
 

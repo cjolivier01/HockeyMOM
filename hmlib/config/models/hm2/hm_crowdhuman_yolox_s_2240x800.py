@@ -6,7 +6,9 @@ base_lr = 0.0006000000000000001
 custom_hooks = [
     dict(num_last_epochs=4, priority=48, type="YOLOXModeSwitchHook"),
     dict(priority=48, type="SyncNormHook"),
-    dict(ema_type="ExpMomentumEMA", momentum=0.0001, priority=49, type="EMAHook", update_buffers=True),
+    dict(
+        ema_type="ExpMomentumEMA", momentum=0.0001, priority=49, type="EMAHook", update_buffers=True
+    ),
 ]
 data_root = "data/crowdhuman/"
 dataset_type = "CocoDataset"
@@ -20,7 +22,9 @@ default_hooks = dict(
 )
 default_scope = "mmdet"
 env_cfg = dict(
-    cudnn_benchmark=False, dist_cfg=dict(backend="nccl"), mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0)
+    cudnn_benchmark=False,
+    dist_cfg=dict(backend="nccl"),
+    mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0),
 )
 gpus_per_node = 1
 interval = 1
@@ -81,7 +85,10 @@ model = dict(
         pad_size_divisor=32,
         type="DetDataPreprocessor",
     ),
-    init_cfg=dict(checkpoint="/mnt/data/pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth", type="Pretrained"),
+    init_cfg=dict(
+        checkpoint="/mnt/data/pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch.pth",
+        type="Pretrained",
+    ),
     neck=dict(
         act_cfg=dict(type="Swish"),
         in_channels=[
@@ -103,7 +110,9 @@ model = dict(
 node_count = 1
 num_last_epochs = 4
 optim_wrapper = dict(
-    optimizer=dict(lr=0.0006000000000000001, momentum=0.9, nesterov=True, type="SGD", weight_decay=0.0005),
+    optimizer=dict(
+        lr=0.0006000000000000001, momentum=0.9, nesterov=True, type="SGD", weight_decay=0.0005
+    ),
     paramwise_cfg=dict(bias_decay_mult=0.0, norm_decay_mult=0.0),
     type="OptimWrapper",
 )
@@ -163,7 +172,10 @@ test_dataloader = dict(
     sampler=dict(shuffle=False, type="DefaultSampler"),
 )
 test_evaluator = dict(
-    ann_file="data/crowdhuman/crowdhuman_val.json", backend_args=None, metric="bbox", type="CocoMetric"
+    ann_file="data/crowdhuman/crowdhuman_val.json",
+    backend_args=None,
+    metric="bbox",
+    type="CocoMetric",
 )
 test_pipeline = [
     dict(type="LoadImageFromFile"),
@@ -469,7 +481,10 @@ val_dataset = dict(
     type="CocoDataset",
 )
 val_evaluator = dict(
-    ann_file="data/crowdhuman/crowdhuman_val.json", backend_args=None, metric="bbox", type="CocoMetric"
+    ann_file="data/crowdhuman/crowdhuman_val.json",
+    backend_args=None,
+    metric="bbox",
+    type="CocoMetric",
 )
 vis_backends = [
     dict(type="LocalVisBackend"),

@@ -269,7 +269,12 @@ def pick_target_profile(
         sel_arate = force_audio_rate
 
     return TargetProfile(
-        width=sel_w, height=sel_h, fps_rational=sel_fps, pix_fmt=pix_fmt, audio_rate=sel_arate, audio_channels=sel_ach
+        width=sel_w,
+        height=sel_h,
+        fps_rational=sel_fps,
+        pix_fmt=pix_fmt,
+        audio_rate=sel_arate,
+        audio_channels=sel_ach,
     )
 
 
@@ -342,7 +347,9 @@ def build_filtergraph(
     arate = target.audio_rate
     ach = target.audio_channels
 
-    def parse_clip_spec(spec: Optional[str], total_dur: float) -> Tuple[Optional[float], Optional[float]]:
+    def parse_clip_spec(
+        spec: Optional[str], total_dur: float
+    ) -> Tuple[Optional[float], Optional[float]]:
         if not spec or not spec.strip():
             return (None, None)
         s = spec.strip()
@@ -600,7 +607,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="When used with --game-id, only use the RIGHT stitching videos.",
     )
-    p.add_argument("--use-gpu", action="store_true", help="Use NVIDIA NVENC (hevc_nvenc) and scale_npp.")
+    p.add_argument(
+        "--use-gpu", action="store_true", help="Use NVIDIA NVENC (hevc_nvenc) and scale_npp."
+    )
     p.add_argument(
         "--aspect-mode",
         choices=["pad", "crop", "stretch"],
@@ -609,25 +618,35 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     p.add_argument("--pix-fmt", default="yuv420p", help="Target pixel format (default: yuv420p).")
     p.add_argument(
-        "--force-fps", default=None, help="Override target FPS (float or rational, e.g., 29.97 or 30000/1001)."
+        "--force-fps",
+        default=None,
+        help="Override target FPS (float or rational, e.g., 29.97 or 30000/1001).",
     )
-    p.add_argument("--force-res", default=None, help="Override resolution as WIDTHxHEIGHT (e.g., 8192x3052).")
+    p.add_argument(
+        "--force-res", default=None, help="Override resolution as WIDTHxHEIGHT (e.g., 8192x3052)."
+    )
     p.add_argument(
         "--audio-rate",
         type=int,
         default=None,
         help="Override audio sample rate (Hz). If unset, use highest among inputs.",
     )
-    p.add_argument("--audio-channels", type=int, default=2, help="Target audio channels (default 2 = stereo).")
+    p.add_argument(
+        "--audio-channels", type=int, default=2, help="Target audio channels (default 2 = stereo)."
+    )
     p.add_argument(
         "--video-quality",
         choices=["lossless", "vbr", "cqp", "crf"],
         default="vbr",
         help="Quality mode (NVENC: lossless|vbr|cqp, x265: lossless|crf).",
     )
-    p.add_argument("--preset", default="p4", help="Encoder preset (NVENC p1..p7; x265 ultrafast..placebo).")
+    p.add_argument(
+        "--preset", default="p4", help="Encoder preset (NVENC p1..p7; x265 ultrafast..placebo)."
+    )
     p.add_argument("--cq", type=int, default=19, help="NVENC CQ/QP value for vbr/cqp modes.")
-    p.add_argument("--b-v", dest="b_v", default=None, help="NVENC target bitrate for vbr (e.g., 30M).")
+    p.add_argument(
+        "--b-v", dest="b_v", default=None, help="NVENC target bitrate for vbr (e.g., 30M)."
+    )
     p.add_argument("--maxrate", default=None, help="NVENC maxrate for vbr (e.g., 60M).")
     p.add_argument("--crf", type=int, default=22, help="x265 CRF value for --video-quality=crf.")
     p.add_argument("--audio-bitrate", default="192k", help="AAC bitrate (e.g., 128k, 192k).")
@@ -890,7 +909,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         inputs = [Path(s) for s in args.inputs]
 
     if len(inputs) < 2:
-        sys.exit("Please provide at least two input files (from --inputs or discovered via --game-id).")
+        sys.exit(
+            "Please provide at least two input files (from --inputs or discovered via --game-id)."
+        )
 
     # Align clips list length to inputs
     clips: List[Optional[str]] = []
@@ -971,7 +992,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     results: Dict[str, int] = {}
     errors: List[Tuple[str, int]] = []
 
-    def worker(side_name: str, in_paths: List[Path], in_clips: List[Optional[str]], out_path: Path) -> None:
+    def worker(
+        side_name: str, in_paths: List[Path], in_clips: List[Optional[str]], out_path: Path
+    ) -> None:
         try:
             rc = run_normalize_concat(
                 inputs=in_paths,

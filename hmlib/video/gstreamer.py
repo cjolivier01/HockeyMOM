@@ -72,7 +72,9 @@ class GStreamerVideoCapture:
 
     def _build_pipeline(self) -> None:
         if isinstance(self.source, int):
-            pipeline_description = f"v4l2src device=/dev/video{self.source} ! videoconvert ! appsink name=appsink"
+            pipeline_description = (
+                f"v4l2src device=/dev/video{self.source} ! videoconvert ! appsink name=appsink"
+            )
         elif isinstance(self.source, str):
             pipeline_description = f"filesrc location={self.source} ! decodebin ! nvvideoconvert ! appsink name=appsink"
         else:
@@ -140,7 +142,9 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Transcode a video file with specific bitrate.")
     parser.add_argument("input_file", help="Input video file path")
     parser.add_argument("output_file", help="Output video file path")
-    parser.add_argument("--bitrate", type=int, default=2000, help="Bitrate for output video in kbps")
+    parser.add_argument(
+        "--bitrate", type=int, default=2000, help="Bitrate for output video in kbps"
+    )
     return parser.parse_args()
 
 

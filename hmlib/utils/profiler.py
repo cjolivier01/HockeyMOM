@@ -95,7 +95,9 @@ class HmProfiler:
         def _on_trace_ready(prof: torch.profiler.profile):  # type: ignore
             if not self._opts.save_dir:
                 return
-            path = os.path.join(self._opts.save_dir, f"{self._opts.trace_basename}_{self._step:06d}.json")
+            path = os.path.join(
+                self._opts.save_dir, f"{self._opts.trace_basename}_{self._step:06d}.json"
+            )
             try:
                 prof.export_chrome_trace(path)
             except Exception:

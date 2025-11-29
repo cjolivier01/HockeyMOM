@@ -154,7 +154,9 @@ def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
     return groups
 
 
-def extract_pairs_from_row(row: pd.Series, start_cols: List[int], end_cols: List[int]) -> List[Tuple[str, str]]:
+def extract_pairs_from_row(
+    row: pd.Series, start_cols: List[int], end_cols: List[int]
+) -> List[Tuple[str, str]]:
     """
     From start/end column groups, collect non-empty strings and pair positionally.
     Start/End order in the sheet can be higher->lower or lower->higher; pairing is positional only.
@@ -421,7 +423,9 @@ class EventLogContext:
     sh_shifts_by_player: Dict[str, int]
 
 
-def _detect_event_log_headers(df: pd.DataFrame) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+def _detect_event_log_headers(
+    df: pd.DataFrame,
+) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
     """
     Backward-compatible detector for legacy headers. Kept for completeness, but
     newer sheets might not contain these exact labels.
@@ -446,7 +450,9 @@ def _detect_event_log_headers(df: pd.DataFrame) -> Tuple[Optional[Tuple[int, int
     return blue_hdr, white_hdr
 
 
-def _detect_generic_shift_tables(df: pd.DataFrame) -> List[Tuple[Tuple[int, int], str, Optional[str]]]:
+def _detect_generic_shift_tables(
+    df: pd.DataFrame,
+) -> List[Tuple[Tuple[int, int], str, Optional[str]]]:
     """
     Detect shift tables by locating repeated 'Video time' / 'Game time' headers in the
     top rows, ignoring the leftmost event summary table. Returns a list of
@@ -465,7 +471,10 @@ def _detect_generic_shift_tables(df: pd.DataFrame) -> List[Tuple[Tuple[int, int]
                     cc2 = cc + dc
                     if 0 <= cc2 < df.shape[1]:
                         gv = df.iat[rr, cc2]
-                        if isinstance(gv, str) and gv.strip().lower() in {"game time", "scoreboard"}:
+                        if isinstance(gv, str) and gv.strip().lower() in {
+                            "game time",
+                            "scoreboard",
+                        }:
                             ok = True
                             break
                 if ok:
@@ -761,7 +770,11 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                         )
                     if sg is not None:
                         sb_pairs_by_player.setdefault(key, []).append(
-                            (last_period, seconds_to_mmss_or_hhmmss(int(sg)), seconds_to_mmss_or_hhmmss(int(egg)))
+                            (
+                                last_period,
+                                seconds_to_mmss_or_hhmmss(int(sg)),
+                                seconds_to_mmss_or_hhmmss(int(egg)),
+                            )
                         )
                         if sv is not None and evv is not None:
                             conv_segments_by_period.setdefault(last_period, []).append(
@@ -790,7 +803,11 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                     if sg is not None and cur_p is not None:
                         end_g = egg if egg is not None else 0
                         sb_pairs_by_player.setdefault(key, []).append(
-                            (cur_p, seconds_to_mmss_or_hhmmss(int(sg)), seconds_to_mmss_or_hhmmss(int(end_g)))
+                            (
+                                cur_p,
+                                seconds_to_mmss_or_hhmmss(int(sg)),
+                                seconds_to_mmss_or_hhmmss(int(end_g)),
+                            )
                         )
                         if sv is not None and evv is not None:
                             conv_segments_by_period.setdefault(cur_p, []).append(
@@ -827,10 +844,16 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                     )
                 if sg is not None and per is not None:
                     sb_pairs_by_player.setdefault(key, []).append(
-                        (per, seconds_to_mmss_or_hhmmss(int(sg)), seconds_to_mmss_or_hhmmss(int(egg)))
+                        (
+                            per,
+                            seconds_to_mmss_or_hhmmss(int(sg)),
+                            seconds_to_mmss_or_hhmmss(int(egg)),
+                        )
                     )
                     if sv is not None and evv is not None:
-                        conv_segments_by_period.setdefault(int(per), []).append((int(sg), int(egg), int(sv), int(evv)))
+                        conv_segments_by_period.setdefault(int(per), []).append(
+                            (int(sg), int(egg), int(sv), int(evv))
+                        )
                 st = sh.get("strength")
                 if st == "PP":
                     pp_shifts_by_player[key] = pp_shifts_by_player.get(key, 0) + 1
@@ -953,7 +976,9 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
         ) -> None:
             if not team:
                 return
-            event_counts_by_type_team[(kind, team)] = event_counts_by_type_team.get((kind, team), 0) + 1
+            event_counts_by_type_team[(kind, team)] = (
+                event_counts_by_type_team.get((kind, team), 0) + 1
+            )
             filtered = _register_and_flag(team, jersey_list)
             period_num = None
             if period_label is not None:
@@ -975,7 +1000,9 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                         "game_s": gsec,
                     }
                 )
-            event_instances.setdefault((kind, team), []).append({"period": period_num, "video_s": vsec, "game_s": gsec})
+            event_instances.setdefault((kind, team), []).append(
+                {"period": period_num, "video_s": vsec, "game_s": gsec}
+            )
 
         def _validate_left_roster(team: Optional[str], jersey_list: List[int]) -> None:
             """Validate that jersey numbers listed in the left event table appear in the
@@ -1089,10 +1116,14 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                 lab = label.strip().lower()
                 if ("controlled" in lab) and ("blue" in lab) and ("entr" in lab):
                     # Controlled blue-line entries row
-                    _record_event("ControlledEntry", team_val, [], current_period, row_vsec, row_gsec)
+                    _record_event(
+                        "ControlledEntry", team_val, [], current_period, row_vsec, row_gsec
+                    )
                 elif ("controlled" in lab) and ("exit" in lab):
                     # Controlled exits row
-                    _record_event("ControlledExit", team_val, [], current_period, row_vsec, row_gsec)
+                    _record_event(
+                        "ControlledExit", team_val, [], current_period, row_vsec, row_gsec
+                    )
                 elif "rush" in lab:
                     # Handle '2/3 Man Rushes'
                     _record_event("Rush", team_val, [], current_period, row_vsec, row_gsec)
@@ -1112,7 +1143,9 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                 start_sec = parse_flex_time_to_seconds(a)
             except Exception:
                 continue
-            intervals_by_player.setdefault(pk, {}).setdefault(period, []).append((lo, hi, start_sec))
+            intervals_by_player.setdefault(pk, {}).setdefault(period, []).append(
+                (lo, hi, start_sec)
+            )
 
     def interval_contains_excluding_start(t: int, lo: int, hi: int, start_sec: int) -> bool:
         """Return True if t is within [lo, hi] but not equal to the original shift-start time.
@@ -1195,7 +1228,13 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
         sh_shifts_by_player=sh_shifts_by_player,
     )
 
-    return True, video_pairs_by_player, sb_pairs_by_player, conv_segments_by_period, event_log_context
+    return (
+        True,
+        video_pairs_by_player,
+        sb_pairs_by_player,
+        conv_segments_by_period,
+        event_log_context,
+    )
 
 
 def _parse_per_player_layout(df: pd.DataFrame, keep_goalies: bool, skip_validation: bool) -> Tuple[
@@ -1214,7 +1253,9 @@ def _parse_per_player_layout(df: pd.DataFrame, keep_goalies: bool, skip_validati
 
     MAX_SHIFT_SECONDS = 30 * 60  # 30 minutes
 
-    def _report_validation(kind: str, period: int, player_key: str, a: str, b: str, reason: str) -> None:
+    def _report_validation(
+        kind: str, period: int, player_key: str, a: str, b: str, reason: str
+    ) -> None:
         print(
             f"[validation] {kind} | Player={player_key} | Period={period} | start='{a}' end='{b}' -> {reason}",
             file=sys.stderr,
@@ -1272,12 +1313,19 @@ def _parse_per_player_layout(df: pd.DataFrame, keep_goalies: bool, skip_validati
                         vsa = parse_flex_time_to_seconds(va)
                         vsb = parse_flex_time_to_seconds(vb)
                     except Exception as e:
-                        _report_validation("VIDEO", period_num, player_key, va, vb, f"unparseable time: {e}")
+                        _report_validation(
+                            "VIDEO", period_num, player_key, va, vb, f"unparseable time: {e}"
+                        )
                         validation_errors += 1
                         continue
                     if vsa >= vsb:
                         _report_validation(
-                            "VIDEO", period_num, player_key, va, vb, "start must be before end (strictly increasing)"
+                            "VIDEO",
+                            period_num,
+                            player_key,
+                            va,
+                            vb,
+                            "start must be before end (strictly increasing)",
                         )
                         validation_errors += 1
                     dur = vsb - vsa if vsb >= vsa else 0
@@ -1297,12 +1345,19 @@ def _parse_per_player_layout(df: pd.DataFrame, keep_goalies: bool, skip_validati
                         ssa = parse_flex_time_to_seconds(sa)
                         ssb = parse_flex_time_to_seconds(sb)
                     except Exception as e:
-                        _report_validation("SCOREBOARD", period_num, player_key, sa, sb, f"unparseable time: {e}")
+                        _report_validation(
+                            "SCOREBOARD", period_num, player_key, sa, sb, f"unparseable time: {e}"
+                        )
                         validation_errors += 1
                         continue
                     if ssa == ssb:
                         _report_validation(
-                            "SCOREBOARD", period_num, player_key, sa, sb, "start equals end (zero-length shift)"
+                            "SCOREBOARD",
+                            period_num,
+                            player_key,
+                            sa,
+                            sb,
+                            "start equals end (zero-length shift)",
                         )
                         validation_errors += 1
                     dur = abs(ssb - ssa)
@@ -1320,7 +1375,9 @@ def _parse_per_player_layout(df: pd.DataFrame, keep_goalies: bool, skip_validati
             if video_pairs:
                 video_pairs_by_player.setdefault(player_key, []).extend(video_pairs)
             if sb_pairs:
-                sb_pairs_by_player.setdefault(player_key, []).extend((period_num, a, b) for a, b in sb_pairs)
+                sb_pairs_by_player.setdefault(player_key, []).extend(
+                    (period_num, a, b) for a, b in sb_pairs
+                )
 
             nseg = min(len(video_pairs), len(sb_pairs))
             for idx in range(nseg):
@@ -1368,7 +1425,10 @@ def _write_video_times_and_scripts(
                 continue
             norm_pairs.append((seconds_to_hhmmss(sa), seconds_to_hhmmss(sb)))
         p = times_dir / f"{player_key}_video_times.txt"
-        p.write_text("\n".join(f"{a} {b}" for a, b in norm_pairs) + ("\n" if norm_pairs else ""), encoding="utf-8")
+        p.write_text(
+            "\n".join(f"{a} {b}" for a, b in norm_pairs) + ("\n" if norm_pairs else ""),
+            encoding="utf-8",
+        )
 
         script_path = scripts_dir / f"clip_{player_key}.sh"
         player_label = player_key.replace("_", " ")
@@ -1415,7 +1475,9 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
             pass
 
 
-def _write_scoreboard_times(outdir: Path, sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]]) -> None:
+def _write_scoreboard_times(
+    outdir: Path, sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]]
+) -> None:
     times_dir = outdir / "times"
     times_dir.mkdir(parents=True, exist_ok=True)
     for player_key, sb_list in sb_pairs_by_player.items():
@@ -1439,19 +1501,29 @@ def _write_global_summary_csv(
             "player": player_key,
             "num_shifts": int(shift_summary["num_shifts"]),
             "toi_total_sec": (
-                parse_flex_time_to_seconds(shift_summary["toi_total"]) if ":" in shift_summary["toi_total"] else 0
+                parse_flex_time_to_seconds(shift_summary["toi_total"])
+                if ":" in shift_summary["toi_total"]
+                else 0
             ),
             "toi_avg_sec": (
-                parse_flex_time_to_seconds(shift_summary["toi_avg"]) if ":" in shift_summary["toi_avg"] else 0
+                parse_flex_time_to_seconds(shift_summary["toi_avg"])
+                if ":" in shift_summary["toi_avg"]
+                else 0
             ),
             "toi_median_sec": (
-                parse_flex_time_to_seconds(shift_summary["toi_median"]) if ":" in shift_summary["toi_median"] else 0
+                parse_flex_time_to_seconds(shift_summary["toi_median"])
+                if ":" in shift_summary["toi_median"]
+                else 0
             ),
             "toi_longest_sec": (
-                parse_flex_time_to_seconds(shift_summary["toi_longest"]) if ":" in shift_summary["toi_longest"] else 0
+                parse_flex_time_to_seconds(shift_summary["toi_longest"])
+                if ":" in shift_summary["toi_longest"]
+                else 0
             ),
             "toi_shortest_sec": (
-                parse_flex_time_to_seconds(shift_summary["toi_shortest"]) if ":" in shift_summary["toi_shortest"] else 0
+                parse_flex_time_to_seconds(shift_summary["toi_shortest"])
+                if ":" in shift_summary["toi_shortest"]
+                else 0
             ),
         }
         # Optionally include PP/SH shifts if provided
@@ -1466,7 +1538,9 @@ def _write_global_summary_csv(
                 pass
         summary_rows.append(row)
     if summary_rows:
-        pd.DataFrame(summary_rows).sort_values(by="player").to_csv(outdir / "summary_stats.csv", index=False)
+        pd.DataFrame(summary_rows).sort_values(by="player").to_csv(
+            outdir / "summary_stats.csv", index=False
+        )
 
 
 def _compute_player_stats(
@@ -1548,7 +1622,9 @@ def _compute_player_stats(
     for period, cnt in counted_gf_by_period.items():
         per_counts_gf[f"P{period}_GF"] = cnt
     for period, cnt in counted_ga_by_period.items():
-        per_counts_gf[f"P{period}_GA"] = per_counts_gf.get(f"P{period}_GA", 0)  # placeholder to ensure keys
+        per_counts_gf[f"P{period}_GA"] = per_counts_gf.get(
+            f"P{period}_GA", 0
+        )  # placeholder to ensure keys
     # Return row_map and per-period counts; plus per_period_toi_map for columns
     return row_map, per_counts, {**{k: 0 for k in []}}, per_period_toi_map
 
@@ -1830,7 +1906,9 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
             for p, wins in sorted(sb_windows_by_period.items()):
                 wins = merge_windows(wins)
                 for lo, hi in wins:
-                    s_lines.append(f"{p} {seconds_to_mmss_or_hhmmss(hi)} {seconds_to_mmss_or_hhmmss(lo)}")
+                    s_lines.append(
+                        f"{p} {seconds_to_mmss_or_hhmmss(hi)} {seconds_to_mmss_or_hhmmss(lo)}"
+                    )
             if s_lines:
                 sfile.write_text("\n".join(s_lines) + "\n", encoding="utf-8")
 
@@ -1909,7 +1987,9 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
             for p, wins in sorted(sb_windows_by_period.items()):
                 wins = merge_windows(wins)
                 for lo, hi in wins:
-                    s_lines.append(f"{p} {seconds_to_mmss_or_hhmmss(hi)} {seconds_to_mmss_or_hhmmss(lo)}")
+                    s_lines.append(
+                        f"{p} {seconds_to_mmss_or_hhmmss(hi)} {seconds_to_mmss_or_hhmmss(lo)}"
+                    )
             if s_lines:
                 sfile.write_text("\n".join(s_lines) + "\n", encoding="utf-8")
 
@@ -2017,8 +2097,12 @@ def _write_goal_window_files(
 
     times_dir = outdir / "times"
     times_dir.mkdir(parents=True, exist_ok=True)
-    (times_dir / "goals_for.txt").write_text("\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8")
-    (times_dir / "goals_against.txt").write_text("\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8")
+    (times_dir / "goals_for.txt").write_text(
+        "\n".join(gf_lines) + ("\n" if gf_lines else ""), encoding="utf-8"
+    )
+    (times_dir / "goals_against.txt").write_text(
+        "\n".join(ga_lines) + ("\n" if ga_lines else ""), encoding="utf-8"
+    )
 
 
 def _write_clip_all_runner(outdir: Path) -> None:
@@ -2176,7 +2260,9 @@ def process_sheet(
             for period, pairs in sorted(sb_by_period.items()):
                 stats_lines.append(f"Shifts in Period {period}: {len(pairs)}")
 
-            (legacy_dir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
+            (legacy_dir / f"{player_key}_stats.txt").write_text(
+                "\n".join(stats_lines) + "\n", encoding="utf-8"
+            )
 
             row_map: Dict[str, str] = {
                 "player": player_key,
@@ -2255,7 +2341,12 @@ def process_sheet(
     # to home/away using jersey overlap (and team name similarity), then prepare
     # per-color roster maps for name enrichment and jersey validation.
     roster_by_color: Dict[str, Dict[int, str]] = {}
-    if used_event_log and t2s_game_id is not None and t2s_api is not None and event_log_context is not None:
+    if (
+        used_event_log
+        and t2s_game_id is not None
+        and t2s_api is not None
+        and event_log_context is not None
+    ):
         try:
             info = t2s_api.get_game_details(int(t2s_game_id))
             stats = info.get("stats") or {}
@@ -2328,9 +2419,15 @@ def process_sheet(
                 # invalid, ignore away_color
                 away_color = None
             if home_color:
-                color_to_side = {home_color: "home", ("White" if home_color == "Blue" else "Blue"): "away"}
+                color_to_side = {
+                    home_color: "home",
+                    ("White" if home_color == "Blue" else "Blue"): "away",
+                }
             elif away_color:
-                color_to_side = {away_color: "away", ("White" if away_color == "Blue" else "Blue"): "home"}
+                color_to_side = {
+                    away_color: "away",
+                    ("White" if away_color == "Blue" else "Blue"): "home",
+                }
             else:
                 # Primary criterion: choose assignment that minimizes mismatches
                 mismatch_home = len([n for n in blue_set if n not in home_roster]) + len(
@@ -2420,7 +2517,11 @@ def process_sheet(
 
     root_out = outdir  # keep root as the return value
     for team in teams:
-        team_disp = event_log_context.team_display.get(team, team) if event_log_context is not None else team
+        team_disp = (
+            event_log_context.team_display.get(team, team)
+            if event_log_context is not None
+            else team
+        )
         team_dirname = sanitize_name(team_disp)
         team_dir = root_out / team_dirname
         team_dir.mkdir(parents=True, exist_ok=True)
@@ -2553,7 +2654,9 @@ def process_sheet(
                         av = oc.get(akey, 0)
                         if fv or av:
                             stats_lines.append(f"  {tname}: For {fv}, Against {av}")
-            (team_dir / f"{player_key}_stats.txt").write_text("\n".join(stats_lines) + "\n", encoding="utf-8")
+            (team_dir / f"{player_key}_stats.txt").write_text(
+                "\n".join(stats_lines) + "\n", encoding="utf-8"
+            )
 
             # Row for team summary CSV/text
             row_map: Dict[str, str] = {
@@ -2620,8 +2723,12 @@ def process_sheet(
         _write_global_summary_csv(
             team_dir,
             sb_pairs_team,
-            pp_map=(event_log_context.pp_shifts_by_player if event_log_context is not None else None),
-            sh_map=(event_log_context.sh_shifts_by_player if event_log_context is not None else None),
+            pp_map=(
+                event_log_context.pp_shifts_by_player if event_log_context is not None else None
+            ),
+            sh_map=(
+                event_log_context.sh_shifts_by_player if event_log_context is not None else None
+            ),
             team_color=team,
         )
         if stats_table_rows:
@@ -2633,7 +2740,9 @@ def process_sheet(
 
     # For event-log layout, also write a one-time aggregate event summary at the root
     if event_log_context is not None:
-        _write_event_summaries_and_clips(root_out, event_log_context, conv_segments_by_period, nr_jobs)
+        _write_event_summaries_and_clips(
+            root_out, event_log_context, conv_segments_by_period, nr_jobs
+        )
 
     return root_out
 
@@ -2646,8 +2755,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Extract per-player shifts & stats from an Excel sheet like 'dh-tv-12-1.xls'."
     )
     p.add_argument("--input", "-i", type=Path, required=True, help="Path to input .xls/.xlsx file.")
-    p.add_argument("--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet).")
-    p.add_argument("--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory.")
+    p.add_argument(
+        "--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet)."
+    )
+    p.add_argument(
+        "--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory."
+    )
     p.add_argument(
         "--keep-goalies",
         action="store_true",

@@ -131,7 +131,9 @@ def _pairs_to_linear_chapter_map(pairs: List[Tuple[Tuple[int, int], str]]) -> Vi
     return {i + 1: f for i, ((_, _), f) in enumerate(pairs)}
 
 
-def _collect_lr_chapters(directory: str, side: str, renumber: bool = False) -> Optional[VideoChapter]:
+def _collect_lr_chapters(
+    directory: str, side: str, renumber: bool = False
+) -> Optional[VideoChapter]:
     """Collect left/right single or part files into a chapter map.
 
     If renumber=True, chapters are returned as 1..N in file order; otherwise

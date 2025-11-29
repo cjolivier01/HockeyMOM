@@ -103,4 +103,6 @@ class MultiDatasetWrapper(Dataset):
         except AttributeError as ex:
             # Optionally, you can handle the case where the
             # attribute doesn't exist in __wrapped_class either
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}', caused by: {str(ex)}")
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}', caused by: {str(ex)}"
+            )

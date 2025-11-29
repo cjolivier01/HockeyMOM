@@ -9,7 +9,13 @@ import hmlib.vis.pt_visualization as ptv
 from hmlib.config import prepend_root_dir
 from hmlib.segm.ice_rink import MaskEdgeDistances, find_extreme_points
 from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    is_channels_first,
+    make_channels_first,
+    make_channels_last,
+)
 from hmlib.utils.time import format_duration_to_hhmmss
 
 
@@ -85,8 +91,12 @@ class HmImageOverlays:
             )
 
             if self._device is not None:
-                self._watermark_rgb_channels = torch.from_numpy(self._watermark_rgb_channels).to(self._device)
-                self._watermark_mask = torch.from_numpy(self._watermark_mask).to(self._device).to(torch.half)
+                self._watermark_rgb_channels = torch.from_numpy(self._watermark_rgb_channels).to(
+                    self._device
+                )
+                self._watermark_mask = (
+                    torch.from_numpy(self._watermark_mask).to(self._device).to(torch.half)
+                )
                 # Scale mask to [0, 1]
                 self._watermark_mask = self._watermark_mask / torch.max(self._watermark_mask)
         else:
@@ -272,7 +282,10 @@ class HmImageOverlays:
             )
             # Border outline (approximate): vertical edges + circle outlines
             rink_canvas = vis.plot_rectangle(
-                rink_canvas, box=[rect_left, 0, rect_right, mini_h - 1], color=(0, 0, 0), thickness=2
+                rink_canvas,
+                box=[rect_left, 0, rect_right, mini_h - 1],
+                color=(0, 0, 0),
+                thickness=2,
             )
             rink_canvas = ptv.draw_circle(
                 rink_canvas,
@@ -295,13 +308,23 @@ class HmImageOverlays:
             # Center and blue lines
             cx_px = int((self._rink_dims_ft[0] / 2.0) * scale)
             rink_canvas = ptv.draw_vertical_line(
-                rink_canvas, start_x=cx_px, start_y=0, length=mini_h, color=(32, 0, 255), thickness=2
+                rink_canvas,
+                start_x=cx_px,
+                start_y=0,
+                length=mini_h,
+                color=(32, 0, 255),
+                thickness=2,
             )
             blue_off = int(25.0 * scale)
             for off in (-blue_off, blue_off):
                 x_bl = int(cx_px + off)
                 rink_canvas = ptv.draw_vertical_line(
-                    rink_canvas, start_x=x_bl, start_y=0, length=mini_h, color=(255, 0, 0), thickness=2
+                    rink_canvas,
+                    start_x=x_bl,
+                    start_y=0,
+                    length=mini_h,
+                    color=(255, 0, 0),
+                    thickness=2,
                 )
             # Map and draw players
             pts = points_list[bi]
@@ -344,7 +367,13 @@ class HmImageOverlays:
                         if isinstance(ids, torch.Tensor) and ids.numel() > i:
                             color = vis.get_color(int(ids[i].item()))
                         rink_canvas = ptv.draw_circle(
-                            rink_canvas, center_x=px, center_y=py, radius=5, color=color, thickness=2, fill=True
+                            rink_canvas,
+                            center_x=px,
+                            center_y=py,
+                            radius=5,
+                            color=color,
+                            thickness=2,
+                            fill=True,
                         )
             # Paste into frame with boundary checks and source offsets
             fh = image_height(frame_img)

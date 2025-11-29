@@ -349,7 +349,10 @@ def run_service(cfg: Config) -> None:
     if cfg.behavior.state_file:
         state_path = Path(cfg.behavior.state_file)
     else:
-        state_path = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "dirwatcher/state.json"
+        state_path = (
+            Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+            / "dirwatcher/state.json"
+        )
     state_path.parent.mkdir(parents=True, exist_ok=True)
     # Prepare failure log dir if configured
     if cfg.behavior.failure_log:
@@ -403,7 +406,9 @@ def run_service(cfg: Config) -> None:
                     if cfg.behavior.failure_log:
                         try:
                             with open(cfg.behavior.failure_log, "a", encoding="utf-8") as fh:
-                                fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} SUBMIT_FAIL dir={sub_key}\n")
+                                fh.write(
+                                    f"{time.strftime('%Y-%m-%dT%H:%M:%S')} SUBMIT_FAIL dir={sub_key}\n"
+                                )
                         except Exception:
                             logging.exception("Failed to write failure_log")
 
@@ -416,7 +421,9 @@ def run_service(cfg: Config) -> None:
                         continue
                     logging.info("Job %s state: %s", job_id, st)
                     # Normalize e.g., COMPLETED, FAILED, CANCELLED, TIMEOUT
-                    final = any(st.startswith(x) for x in ("COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"))
+                    final = any(
+                        st.startswith(x) for x in ("COMPLETED", "FAILED", "CANCELLED", "TIMEOUT")
+                    )
                     if not final:
                         continue
                     # Update status
@@ -463,7 +470,14 @@ def run_service(cfg: Config) -> None:
                             # Try to get exit code and reason from sacct for .batch step
                             try:
                                 q = subprocess.check_output(
-                                    ["sacct", "-j", job_id, "-n", "-P", "--format=JobID,ExitCode,Reason"],
+                                    [
+                                        "sacct",
+                                        "-j",
+                                        job_id,
+                                        "-n",
+                                        "-P",
+                                        "--format=JobID,ExitCode,Reason",
+                                    ],
                                     text=True,
                                 ).strip()
                             except Exception:
@@ -572,7 +586,10 @@ def _lookup_ids_by_dir(conn, subdir: str) -> tuple[Optional[int], Optional[int],
     # Try game by dir_path
     with conn.cursor() as cur:
         try:
-            cur.execute("SELECT id, user_id FROM games WHERE dir_path=%s ORDER BY id DESC LIMIT 1", (subdir,))
+            cur.execute(
+                "SELECT id, user_id FROM games WHERE dir_path=%s ORDER BY id DESC LIMIT 1",
+                (subdir,),
+            )
             row = cur.fetchone()
             if row:
                 game_id = int(row[0])
@@ -599,7 +616,9 @@ def _lookup_ids_by_dir(conn, subdir: str) -> tuple[Optional[int], Optional[int],
     return user_id, game_id, email
 
 
-def upsert_job_db(cfg: Config, subdir: str, slurm_job_id: Optional[str], status: str, finished: bool = False) -> None:
+def upsert_job_db(
+    cfg: Config, subdir: str, slurm_job_id: Optional[str], status: str, finished: bool = False
+) -> None:
     if not cfg.db:
         return
     conn = db_connect(cfg)
@@ -615,7 +634,9 @@ def upsert_job_db(cfg: Config, subdir: str, slurm_job_id: Optional[str], status:
                 if r:
                     job_row_id = int(r[0])
             if job_row_id is None:
-                cur.execute("SELECT id FROM jobs WHERE dir_path=%s ORDER BY id DESC LIMIT 1", (subdir,))
+                cur.execute(
+                    "SELECT id FROM jobs WHERE dir_path=%s ORDER BY id DESC LIMIT 1", (subdir,)
+                )
                 r = cur.fetchone()
                 if r:
                     job_row_id = int(r[0])
@@ -674,8 +695,15 @@ def sync_active_from_db(cfg: Config, state: State) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Directory watcher that triggers Slurm jobs")
-    p.add_argument("--config", default="/etc/dirwatcher/config.yaml", help="Path to config (YAML or JSON)")
-    p.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Log level")
+    p.add_argument(
+        "--config", default="/etc/dirwatcher/config.yaml", help="Path to config (YAML or JSON)"
+    )
+    p.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log level",
+    )
     args = p.parse_args(argv)
 
     logging.basicConfig(

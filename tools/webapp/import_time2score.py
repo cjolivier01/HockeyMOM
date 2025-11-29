@@ -120,7 +120,12 @@ def ensure_league_schema(conn) -> None:
 
 
 def ensure_league(
-    conn, name: str, owner_user_id: int, is_shared: bool, source: Optional[str], external_key: Optional[str]
+    conn,
+    name: str,
+    owner_user_id: int,
+    is_shared: bool,
+    source: Optional[str],
+    external_key: Optional[str],
 ) -> int:
     ensure_league_schema(conn)
     with conn.cursor() as cur:
@@ -388,7 +393,9 @@ def parse_int_or_none(v: Any) -> Optional[int]:
         return None
 
 
-def _ensure_player(conn, user_id: int, team_id: int, name: str, jersey: Optional[str], position: Optional[str]) -> int:
+def _ensure_player(
+    conn, user_id: int, team_id: int, name: str, jersey: Optional[str], position: Optional[str]
+) -> int:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
@@ -414,7 +421,12 @@ def _ensure_player(conn, user_id: int, team_id: int, name: str, jersey: Optional
 
 
 def _import_game_by_id(
-    conn, tts_dir: Path, game_id: int, user_id: int, league_id: Optional[int], team_filters: Optional[list[str]] = None
+    conn,
+    tts_dir: Path,
+    game_id: int,
+    user_id: int,
+    league_id: Optional[int],
+    team_filters: Optional[list[str]] = None,
 ) -> Optional[int]:
     """Import a single game by its time2score game id.
 
@@ -552,7 +564,14 @@ def _import_game_by_id(
                     VALUES(%s,%s,%s,%s,%s,%s)
                     ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists)
                     """,
-                    (user_id, team_ref, gid, pid, int(agg.get("goals", 0)), int(agg.get("assists", 0))),
+                    (
+                        user_id,
+                        team_ref,
+                        gid,
+                        pid,
+                        int(agg.get("goals", 0)),
+                        int(agg.get("assists", 0)),
+                    ),
                 )
             conn.commit()
 
@@ -573,12 +592,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Import time2score data into HM WebApp DB")
     ap.add_argument("--config", default=default_cfg, help="Path to webapp DB config.json")
     ap.add_argument("--season", type=int, default=0, help="Season id to import (0=Current)")
-    ap.add_argument("--user-email", required=True, help="Webapp user email that will own imported data")
+    ap.add_argument(
+        "--user-email", required=True, help="Webapp user email that will own imported data"
+    )
     ap.add_argument("--user-name", default=None, help="Name for user creation if missing")
-    ap.add_argument("--password-hash", default=None, help="Password hash for creating user if missing")
-    ap.add_argument("--create-user", action="store_true", help="Create user if missing (requires --password-hash)")
-    ap.add_argument("--sync", action="store_true", help="Fetch/sync time2score data (seasons/divisions/teams/games)")
-    ap.add_argument("--stats", action="store_true", help="Fetch game stats to enrich scores if missing")
+    ap.add_argument(
+        "--password-hash", default=None, help="Password hash for creating user if missing"
+    )
+    ap.add_argument(
+        "--create-user",
+        action="store_true",
+        help="Create user if missing (requires --password-hash)",
+    )
+    ap.add_argument(
+        "--sync",
+        action="store_true",
+        help="Fetch/sync time2score data (seasons/divisions/teams/games)",
+    )
+    ap.add_argument(
+        "--stats", action="store_true", help="Fetch game stats to enrich scores if missing"
+    )
     ap.add_argument(
         "--division",
         dest="divisions",
@@ -597,24 +630,47 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Directory to hold the sqlite hockey_league.db for time2score",
     )
     ap.add_argument(
-        "--list-seasons", action="store_true", help="List available seasons discovered via time2score and exit"
+        "--list-seasons",
+        action="store_true",
+        help="List available seasons discovered via time2score and exit",
     )
-    ap.add_argument("--list-divisions", action="store_true", help="List divisions for the chosen season and exit")
+    ap.add_argument(
+        "--list-divisions",
+        action="store_true",
+        help="List divisions for the chosen season and exit",
+    )
     # League grouping/sharing
     ap.add_argument(
         "--league-name",
         default=None,
         help="Name of the league grouping to attach imported data to (default: CAHA-<season>)",
     )
-    ap.add_argument("--league-owner-email", default=None, help="Owner of the league (defaults to --user-email)")
-    ap.add_argument("--share-with", action="append", default=[], help="Emails to add as league viewers (repeatable)")
-    ap.add_argument("--shared", action="store_true", help="Mark the league as shared (default: private)")
+    ap.add_argument(
+        "--league-owner-email", default=None, help="Owner of the league (defaults to --user-email)"
+    )
+    ap.add_argument(
+        "--share-with",
+        action="append",
+        default=[],
+        help="Emails to add as league viewers (repeatable)",
+    )
+    ap.add_argument(
+        "--shared", action="store_true", help="Mark the league as shared (default: private)"
+    )
     # Import by explicit game ids
     ap.add_argument(
-        "--game-id", dest="game_ids", action="append", default=[], help="Import specific game id (repeatable)"
+        "--game-id",
+        dest="game_ids",
+        action="append",
+        default=[],
+        help="Import specific game id (repeatable)",
     )
-    ap.add_argument("--games-file", default=None, help="Path to file containing one game id per line")
-    ap.add_argument("--limit", type=int, default=None, help="Maximum number of games to import (for testing)")
+    ap.add_argument(
+        "--games-file", default=None, help="Path to file containing one game id per line"
+    )
+    ap.add_argument(
+        "--limit", type=int, default=None, help="Maximum number of games to import (for testing)"
+    )
     ap.add_argument(
         "--team",
         dest="teams",
@@ -647,7 +703,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         conn = connect_pymysql(db_cfg)
     except Exception:
-        print("[!] Failed to connect to DB. Ensure the webapp is installed and DB configured.", file=sys.stderr)
+        print(
+            "[!] Failed to connect to DB. Ensure the webapp is installed and DB configured.",
+            file=sys.stderr,
+        )
         raise
     log("Connected.")
 
@@ -772,7 +831,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         # Build team map for the season; apply division filter if any
         teams = tdb.list_teams(f"season_id = {season_id}")
         if allowed_div_keys is not None:
-            teams = [t for t in teams if (int(t["division_id"]), int(t["conference_id"])) in allowed_div_keys]
+            teams = [
+                t
+                for t in teams
+                if (int(t["division_id"]), int(t["conference_id"])) in allowed_div_keys
+            ]
         log(
             f"Teams in season {season_id}: total={len(tdb.list_teams(f'season_id = {season_id}'))}, filtered={len(teams)}"
         )
@@ -784,7 +847,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             ext_team_map[int(t["team_id"])] = mysql_tid
             if args.logo_dir:
                 try:
-                    _fetch_and_store_team_logo(conn, mysql_tid, int(t["team_id"]), season_id, args.logo_dir)
+                    _fetch_and_store_team_logo(
+                        conn, mysql_tid, int(t["team_id"]), season_id, args.logo_dir
+                    )
                 except Exception:
                     pass
 
@@ -809,10 +874,18 @@ def main(argv: Optional[list[str]] = None) -> int:
             league_name = args.league_name or f"CAHA-{season_id or 'current'}"
             owner_email = args.league_owner_email or args.user_email
             owner_id = ensure_user(
-                conn, owner_email, name=owner_email, password_hash=(args.password_hash if args.create_user else None)
+                conn,
+                owner_email,
+                name=owner_email,
+                password_hash=(args.password_hash if args.create_user else None),
             )
             league_id = ensure_league(
-                conn, league_name, owner_id, args.shared, source="timetoscore", external_key=str(season_id)
+                conn,
+                league_name,
+                owner_id,
+                args.shared,
+                source="timetoscore",
+                external_key=str(season_id),
             )
             # Add owner (admin) + primary user (editor)
             ensure_league_member(conn, league_id, owner_id, role="admin")
@@ -876,7 +949,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                             break
                     if want:
                         sched_links.append(a["href"])
-                log(f"Matched {len(sched_links)} division schedule links for filters {args.divisions}")
+                log(
+                    f"Matched {len(sched_links)} division schedule links for filters {args.divisions}"
+                )
                 # For each schedule link, parse game ids from the table
                 import io as _io
 
@@ -887,7 +962,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                     log(f"Reading schedule: {href}")
                     try:
                         soup2 = tutil.get_html(
-                            href if href.startswith("http") else ("https://stats.caha.timetoscore.com/" + href)
+                            href
+                            if href.startswith("http")
+                            else ("https://stats.caha.timetoscore.com/" + href)
                         )
                         tables = soup2.find_all("table")
                         if not tables:
@@ -920,7 +997,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                             # Find the first row that has same number of columns (>1) as the next row
                             header_idx = None
                             for i in range(len(all_rows) - 1):
-                                if len(all_rows[i]) > 1 and len(all_rows[i]) == len(all_rows[i + 1]):
+                                if len(all_rows[i]) > 1 and len(all_rows[i]) == len(
+                                    all_rows[i + 1]
+                                ):
                                     header_idx = i
                                     break
 
@@ -944,7 +1023,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                                 try:
                                     headers, rows = _parse_table_bs4(tbl)
                                     if headers:
-                                        log(f"Schedule table (bs4) headers: {headers} rows={len(rows)}")
+                                        log(
+                                            f"Schedule table (bs4) headers: {headers} rows={len(rows)}"
+                                        )
                                     # Map teams if possible (Away/Home/Team)
                                     if headers:
                                         lowers = [h.strip().lower() for h in headers]
@@ -954,8 +1035,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                                         if away_idx >= 0 and home_idx >= 0:
                                             for r in rows:
                                                 try:
-                                                    away_cell = r[away_idx] if away_idx < len(r) else ""
-                                                    home_cell = r[home_idx] if home_idx < len(r) else ""
+                                                    away_cell = (
+                                                        r[away_idx] if away_idx < len(r) else ""
+                                                    )
+                                                    home_cell = (
+                                                        r[home_idx] if home_idx < len(r) else ""
+                                                    )
                                                     away_name = (
                                                         away_cell[0]
                                                         if isinstance(away_cell, tuple)
@@ -999,16 +1084,27 @@ def main(argv: Optional[list[str]] = None) -> int:
                                                     if not name:
                                                         continue
                                                     tid_mysql = ensure_team(
-                                                        conn, user_id=user_id, name=name, is_external=1
+                                                        conn,
+                                                        user_id=user_id,
+                                                        name=name,
+                                                        is_external=1,
                                                     )
                                                     if league_id is not None:
-                                                        map_team_to_league(conn, league_id, tid_mysql)
+                                                        map_team_to_league(
+                                                            conn, league_id, tid_mysql
+                                                        )
                                                     if args.logo_dir and href:
-                                                        t_id = tutil.get_value_from_link(str(href), "team")
+                                                        t_id = tutil.get_value_from_link(
+                                                            str(href), "team"
+                                                        )
                                                         if t_id and str(t_id).isdigit():
                                                             try:
                                                                 _fetch_and_store_team_logo(
-                                                                    conn, tid_mysql, int(t_id), season_id, args.logo_dir
+                                                                    conn,
+                                                                    tid_mysql,
+                                                                    int(t_id),
+                                                                    season_id,
+                                                                    args.logo_dir,
                                                                 )
                                                             except Exception:
                                                                 pass
@@ -1016,7 +1112,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                                                 except Exception:
                                                     continue
                                             if added:
-                                                log(f"  + Imported {added} teams from 'Team' table (bs4)")
+                                                log(
+                                                    f"  + Imported {added} teams from 'Team' table (bs4)"
+                                                )
                                     # Extract game ids from first column if header mentions Game or first col looks numeric
                                     game_idx = -1
                                     if headers:
@@ -1060,11 +1158,15 @@ def main(argv: Optional[list[str]] = None) -> int:
                                         away_name = _val_to_text(row.get(away_col, "")).strip()
                                         home_name = _val_to_text(row.get(home_col, "")).strip()
                                         if away_name:
-                                            tid = ensure_team(conn, user_id=user_id, name=away_name, is_external=1)
+                                            tid = ensure_team(
+                                                conn, user_id=user_id, name=away_name, is_external=1
+                                            )
                                             if league_id is not None:
                                                 map_team_to_league(conn, league_id, tid)
                                         if home_name:
-                                            tid = ensure_team(conn, user_id=user_id, name=home_name, is_external=1)
+                                            tid = ensure_team(
+                                                conn, user_id=user_id, name=home_name, is_external=1
+                                            )
                                             if league_id is not None:
                                                 map_team_to_league(conn, league_id, tid)
                                 except Exception:
@@ -1079,7 +1181,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                                         name = str(nm or "").strip()
                                         if not name:
                                             continue
-                                        tid_mysql = ensure_team(conn, user_id=user_id, name=name, is_external=1)
+                                        tid_mysql = ensure_team(
+                                            conn, user_id=user_id, name=name, is_external=1
+                                        )
                                         if league_id is not None:
                                             map_team_to_league(conn, league_id, tid_mysql)
                                         if args.logo_dir and hrefs is not None:
@@ -1089,13 +1193,19 @@ def main(argv: Optional[list[str]] = None) -> int:
                                                 if t_id and str(t_id).isdigit():
                                                     try:
                                                         _fetch_and_store_team_logo(
-                                                            conn, tid_mysql, int(t_id), season_id, args.logo_dir
+                                                            conn,
+                                                            tid_mysql,
+                                                            int(t_id),
+                                                            season_id,
+                                                            args.logo_dir,
                                                         )
                                                     except Exception:
                                                         pass
                                         added += 1
                                     if added:
-                                        log(f"  + Imported {added} teams from 'Team' table (pandas)")
+                                        log(
+                                            f"  + Imported {added} teams from 'Team' table (pandas)"
+                                        )
                                 except Exception:
                                     pass
                             # Extract from "Game" column (preferred)
@@ -1118,7 +1228,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                                     if s.isdigit():
                                         discovered.add(int(s))
                                 if len(discovered) > cnt_before:
-                                    log(f"  + Found {len(discovered) - cnt_before} game ids from 'Game' column")
+                                    log(
+                                        f"  + Found {len(discovered) - cnt_before} game ids from 'Game' column"
+                                    )
                             except Exception:
                                 pass
                             # Supplement from Scoresheet/Box Score links (secondary)
@@ -1146,14 +1258,20 @@ def main(argv: Optional[list[str]] = None) -> int:
                     if args.limit is not None and count >= args.limit:
                         break
                     log(f"- Importing game_id={gid}")
-                    _import_game_by_id(conn, tts_dir, gid, user_id, league_id, team_filters=args.teams)
+                    _import_game_by_id(
+                        conn, tts_dir, gid, user_id, league_id, team_filters=args.teams
+                    )
                     count += 1
             else:
                 # 3) Fallback: use DB games previously scraped
                 log("Falling back to DB games previously scraped...")
                 games = tdb.list_games(f"season_id = {season_id}")
                 if allowed_div_keys is not None:
-                    games = [g for g in games if (int(g["division_id"]), int(g["conference_id"])) in allowed_div_keys]
+                    games = [
+                        g
+                        for g in games
+                        if (int(g["division_id"]), int(g["conference_id"])) in allowed_div_keys
+                    ]
                 count = 0
                 for g in games:
                     if args.limit is not None and count >= args.limit:
@@ -1162,7 +1280,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                     if gid is None:
                         continue
                     log(f"- Importing game_id={gid}")
-                    _import_game_by_id(conn, tts_dir, gid, user_id, league_id, team_filters=args.teams)
+                    _import_game_by_id(
+                        conn, tts_dir, gid, user_id, league_id, team_filters=args.teams
+                    )
                     count += 1
         # Done
     log("Import complete.")

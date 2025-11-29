@@ -21,7 +21,9 @@ def main():
     """
     args = parse_args()
 
-    for unformatted_file, formatted_file in get_formatted_files(args.workspace_root, args.genfiles_root).items():
+    for unformatted_file, formatted_file in get_formatted_files(
+        args.workspace_root, args.genfiles_root
+    ).items():
         formatted_content = formatted_file.read_text(encoding="utf-8")
 
         if args.diff:

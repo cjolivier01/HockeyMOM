@@ -74,7 +74,9 @@ def main():
         suffix = ".detector.yaml"
     elif args.emit == "model":
         # Emit under Aspen namespace for consistency, though current trunks use detector_factory
-        out_data = {"aspen": {"model": {"class": "hmlib.models.end_to_end.HmEndToEnd", "params": model}}}
+        out_data = {
+            "aspen": {"model": {"class": "hmlib.models.end_to_end.HmEndToEnd", "params": model}}
+        }
         suffix = ".model.yaml"
     elif args.emit == "inference_pipeline":
         out_data = {"aspen": {"inference_pipeline": pipeline}}

@@ -135,11 +135,16 @@ def add_random_stats(conn, game_id: int, team_id: int, user_id: int):
 def main():
     ap = argparse.ArgumentParser(description="Seed demo data for HM WebApp hockey features")
     ap.add_argument(
-        "--config", default=os.environ.get("HM_DB_CONFIG") or str((Path(__file__).resolve().parent / "config.json"))
+        "--config",
+        default=os.environ.get("HM_DB_CONFIG")
+        or str((Path(__file__).resolve().parent / "config.json")),
     )
     ap.add_argument("--email", default="demo@example.com")
     ap.add_argument("--name", default="Demo User")
-    ap.add_argument("--password-hash", default="pbkdf2:sha256:260000$demo$Yy6lWp5oSz5Ahh3yI9sRhW/9k5D5mZ0t8Xr6Z3YYc2U=")
+    ap.add_argument(
+        "--password-hash",
+        default="pbkdf2:sha256:260000$demo$Yy6lWp5oSz5Ahh3yI9sRhW/9k5D5mZ0t8Xr6Z3YYc2U=",
+    )
     ap.add_argument("--teams", nargs="*", default=["Thunderbirds 12U", "Falcons 12U"])
     args = ap.parse_args()
 
@@ -147,7 +152,10 @@ def main():
     try:
         conn = connect_pymysql(db_cfg)
     except Exception:
-        print("Failed to connect to DB. Ensure the webapp was installed and DB configured.", file=sys.stderr)
+        print(
+            "Failed to connect to DB. Ensure the webapp was installed and DB configured.",
+            file=sys.stderr,
+        )
         raise
 
     ensure_defaults(conn)
@@ -173,10 +181,24 @@ def main():
     # Games
     now = dt.datetime.now()
     g1 = create_game(
-        conn, user_id, team_ids[0], team_ids[1], "Regular Season", now - dt.timedelta(days=1), "Main Rink", score=(3, 2)
+        conn,
+        user_id,
+        team_ids[0],
+        team_ids[1],
+        "Regular Season",
+        now - dt.timedelta(days=1),
+        "Main Rink",
+        score=(3, 2),
     )
     create_game(
-        conn, user_id, team_ids[0], ext_id, "Exhibition", now + dt.timedelta(days=2), "Community Ice", score=None
+        conn,
+        user_id,
+        team_ids[0],
+        ext_id,
+        "Exhibition",
+        now + dt.timedelta(days=2),
+        "Community Ice",
+        score=None,
     )
 
     # Stats for completed game

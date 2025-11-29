@@ -45,15 +45,21 @@ class PytorchBackendVisualizer(Visualizer):
     def _normalize_image_tensor(self, image: torch.Tensor) -> torch.Tensor:
         if image.ndim == 4:
             if image.shape[0] != 1:
-                raise ValueError("Only a single image tensor is supported (batch dimension must be 1).")
+                raise ValueError(
+                    "Only a single image tensor is supported (batch dimension must be 1)."
+                )
             image = image[0]
         if image.ndim != 3:
-            raise ValueError(f"Expected image with 3 dimensions, but got shape {tuple(image.shape)}.")
+            raise ValueError(
+                f"Expected image with 3 dimensions, but got shape {tuple(image.shape)}."
+            )
         if image.shape[0] not in (1, 3, 4):
             if image.shape[-1] in (1, 3, 4):
                 image = image.permute(2, 0, 1)
             else:
-                raise ValueError("Image tensor must be channel-first or channel-last with 1/3/4 channels.")
+                raise ValueError(
+                    "Image tensor must be channel-first or channel-last with 1/3/4 channels."
+                )
         if not image.is_contiguous():
             image = image.contiguous()
 
@@ -98,7 +104,9 @@ class PytorchBackendVisualizer(Visualizer):
         elif channels == 1:
             values = (values[0],)
         elif len(values) != channels:
-            raise ValueError(f"Color length {len(values)} does not match required channels {channels}.")
+            raise ValueError(
+                f"Color length {len(values)} does not match required channels {channels}."
+            )
         return tuple(int(v) for v in values)
 
     def _expand_to_list(self, value: Union[Sequence, ColorArg], count: int) -> List:
@@ -174,7 +182,9 @@ class PytorchBackendVisualizer(Visualizer):
         if color_tensor.shape[0] != base_region.shape[0]:
             color_tensor = color_tensor.expand(base_region.shape[0], -1, -1)
         overlay_region = color_tensor.expand_as(base_region)
-        blended_region = torch.lerp(base_region, overlay_region, alpha) if alpha < 1.0 else overlay_region
+        blended_region = (
+            torch.lerp(base_region, overlay_region, alpha) if alpha < 1.0 else overlay_region
+        )
 
         updated = image.clone()
         updated[:, y_min : y_max + 1, x_min : x_max + 1] = torch.where(
@@ -309,7 +319,9 @@ class PytorchBackendVisualizer(Visualizer):
 
             if bbox_list is not None and bbox_list[idx] is not None:
                 bbox_cfg = bbox_list[idx]
-                face_color = bbox_cfg.get("facecolor", color_list[idx]) if bbox_cfg else color_list[idx]
+                face_color = (
+                    bbox_cfg.get("facecolor", color_list[idx]) if bbox_cfg else color_list[idx]
+                )
                 bbox_color_tuple = self._color_to_tuple(face_color, image.shape[0])
                 text_width = len(text) * font_size
                 top_left = (x, y - font_size * 1.2)
@@ -401,7 +413,9 @@ class PytorchBackendVisualizer(Visualizer):
         width_list = self._expand_float(line_widths, x_tensor.shape[0])
         alpha_list = self._expand_float(alpha, x_tensor.shape[0])
 
-        for x_pair, y_pair, color, thickness, a in zip(x_tensor, y_tensor, colors_list, width_list, alpha_list):
+        for x_pair, y_pair, color, thickness, a in zip(
+            x_tensor, y_tensor, colors_list, width_list, alpha_list
+        ):
             color_tuple = self._color_to_tuple(color, image.shape[0])
             x1, x2 = int(x_pair[0].item()), int(x_pair[1].item())
             y1, y2 = int(y_pair[0].item()), int(y_pair[1].item())
@@ -441,7 +455,9 @@ class PytorchBackendVisualizer(Visualizer):
             polygons_list: List[PolygonArg] = [polygons]
         else:
             polygons_list = list(polygons)
-        colors_list = self._expand_to_list(face_colors if face_colors is not None else edge_colors, len(polygons_list))
+        colors_list = self._expand_to_list(
+            face_colors if face_colors is not None else edge_colors, len(polygons_list)
+        )
         alpha_list = self._expand_float(alpha, len(polygons_list))
 
         for poly, color, a in zip(polygons_list, colors_list, alpha_list):

@@ -71,7 +71,9 @@ class BasicVideoInfo:
                     # )
                 self._ffstream = probe.video[0]
                 # self.frame_count = self._ffstream.frames()
-                self.frame_count = int(self._ffstream.durationSeconds() * self._ffstream.realFrameRate())
+                self.frame_count = int(
+                    self._ffstream.durationSeconds() * self._ffstream.realFrameRate()
+                )
                 self.fps = self._ffstream.realFrameRate()
                 self.duration = self._ffstream.durationSeconds()
                 sz = self._ffstream.frameSize()
@@ -109,7 +111,12 @@ def fourcc_to_int(fourcc):
     assert len(fourcc) == 4, f"FOURCC code must be 4 characters long ({fourcc})."
 
     # Calculate the integer value
-    value = (ord(fourcc[0]) << 0) | (ord(fourcc[1]) << 8) | (ord(fourcc[2]) << 16) | (ord(fourcc[3]) << 24)
+    value = (
+        (ord(fourcc[0]) << 0)
+        | (ord(fourcc[1]) << 8)
+        | (ord(fourcc[2]) << 16)
+        | (ord(fourcc[3]) << 24)
+    )
 
     return value
 
@@ -271,7 +278,9 @@ def subprocess_decode_ffmpeg(
     height = vid_info.height
     channels = 3
 
-    process = get_ffmpeg_decoder_process(input_video=input_video, gpu_index=gpu_index, loglevel=loglevel)
+    process = get_ffmpeg_decoder_process(
+        input_video=input_video, gpu_index=gpu_index, loglevel=loglevel
+    )
 
     # Start the FFmpeg subprocess
     # process = subprocess.Popen(command, stdout=subprocess.PIPE, bufsize=10**8)
@@ -497,7 +506,10 @@ class FFStream:
                 try:
                     size = (int(self.__dict__["width"]), int(self.__dict__["height"]))
                 except Exception:
-                    print("None integer size %s:%s" % (str(self.__dict__["width"]), str(+self.__dict__["height"])))
+                    print(
+                        "None integer size %s:%s"
+                        % (str(self.__dict__["width"]), str(+self.__dict__["height"]))
+                    )
                     size = (0, 0)
         return size
 
@@ -606,7 +618,9 @@ class FFStream:
                     elif token_count == 2:
                         b = float(tokens[0]) / float(tokens[1])
                     else:
-                        raise AssertionError(f"invalid number of tokens ({token_count}) in r_frame_rate string: {rate}")
+                        raise AssertionError(
+                            f"invalid number of tokens ({token_count}) in r_frame_rate string: {rate}"
+                        )
             except Exception:
                 print("None integer bitrate")
         return b

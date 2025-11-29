@@ -83,7 +83,9 @@ class DefaultArguments:
         # self.apply_fixed_edge_scaling = False
         self.apply_fixed_edge_scaling = True
 
-        self.fixed_edge_scaling_factor = self.game_config["rink"]["camera"]["fixed_edge_scaling_factor"]
+        self.fixed_edge_scaling_factor = self.game_config["rink"]["camera"][
+            "fixed_edge_scaling_factor"
+        ]
 
         self.plot_moving_boxes = False or basic_debugging
         # self.plot_moving_boxes = True
@@ -100,7 +102,9 @@ class DefaultArguments:
         # self.fixed_edge_rotation = False
         self.fixed_edge_rotation = True
 
-        self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"]["fixed_edge_rotation_angle"]
+        self.fixed_edge_rotation_angle = self.game_config["rink"]["camera"][
+            "fixed_edge_rotation_angle"
+        ]
 
         # Plot the component shapes directly related to camera stickiness
         self.plot_sticky_camera = False or basic_debugging
@@ -130,10 +134,18 @@ class DefaultArguments:
         #
         self.top_border_lines = get_nested_value(self.game_config, "game.boundaries.upper", [])
         self.bottom_border_lines = get_nested_value(self.game_config, "game.boundaries.lower", [])
-        upper_tune_position = get_nested_value(self.game_config, "game.boundaries.upper_tune_position", [])
-        lower_tune_position = get_nested_value(self.game_config, "game.boundaries.lower_tune_position", [])
-        boundary_scale_width = get_nested_value(self.game_config, "game.boundaries.scale_width", 1.0)
-        boundary_scale_height = get_nested_value(self.game_config, "game.boundaries.scale_height", 1.0)
+        upper_tune_position = get_nested_value(
+            self.game_config, "game.boundaries.upper_tune_position", []
+        )
+        lower_tune_position = get_nested_value(
+            self.game_config, "game.boundaries.lower_tune_position", []
+        )
+        boundary_scale_width = get_nested_value(
+            self.game_config, "game.boundaries.scale_width", 1.0
+        )
+        boundary_scale_height = get_nested_value(
+            self.game_config, "game.boundaries.scale_height", 1.0
+        )
         if self.top_border_lines and upper_tune_position:
             for i in range(len(self.top_border_lines)):
                 if boundary_scale_width:
@@ -238,7 +250,9 @@ class CamTrackPostProcessor:
 
         self._play_tracker = PlayTracker(
             hockey_mom=hockey_mom,
-            play_box=(hockey_mom._video_frame.bounding_box() if not self._args.crop_play_box else play_box),
+            play_box=(
+                hockey_mom._video_frame.bounding_box() if not self._args.crop_play_box else play_box
+            ),
             device=device,
             original_clip_box=original_clip_box,
             progress_bar=progress_bar,
@@ -358,7 +372,9 @@ class CamTrackPostProcessor:
                 with torch.no_grad():
                     prof = getattr(self._args, "profiler", None)
                     ctx = (
-                        prof.rf("play_tracker.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                        prof.rf("play_tracker.forward")
+                        if getattr(prof, "enabled", False)
+                        else contextlib.nullcontext()
                     )
                     with ctx:
                         results = self._play_tracker.forward(results=data)
@@ -372,7 +388,11 @@ class CamTrackPostProcessor:
                         )
                 if self._video_output_campp is not None:
                     prof = getattr(self._args, "profiler", None)
-                    ctx = prof.rf("video_out.append") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                    ctx = (
+                        prof.rf("video_out.append")
+                        if getattr(prof, "enabled", False)
+                        else contextlib.nullcontext()
+                    )
                     with ctx:
                         self._video_output_campp.append(results)
                 elif self._shower is not None and "img" in results:
@@ -403,7 +423,11 @@ class CamTrackPostProcessor:
 
             with torch.no_grad():
                 prof = getattr(self._args, "profiler", None)
-                ctx = prof.rf("play_tracker.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                ctx = (
+                    prof.rf("play_tracker.forward")
+                    if getattr(prof, "enabled", False)
+                    else contextlib.nullcontext()
+                )
                 with ctx:
                     results = self._play_tracker.forward(results=results)
 
@@ -416,7 +440,11 @@ class CamTrackPostProcessor:
                     )
             if self._video_output_campp is not None:
                 prof = getattr(self._args, "profiler", None)
-                ctx = prof.rf("video_out.append") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                ctx = (
+                    prof.rf("video_out.append")
+                    if getattr(prof, "enabled", False)
+                    else contextlib.nullcontext()
+                )
                 with ctx:
                     self._video_output_campp.append(results)
             elif self._shower is not None and "img" in results:

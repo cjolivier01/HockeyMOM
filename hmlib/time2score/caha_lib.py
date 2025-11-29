@@ -111,12 +111,28 @@ tr_selectors = dict(
         " tr:nth-child(2) > td:nth-child(1) > table:nth-child(1) >"
         " tbody:nth-child(1) > tr:nth-child(n+2)"
     ),
-    awayScoring=("body > div > div.d50l > div.d25l > table:nth-child(1) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
-    homeScoring=("body > div > div.d50r > div.d25l > table:nth-child(1) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
-    awayPenalties=("body > div > div.d50l > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"),
-    homePenalties=("body > div > div.d50r > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"),
-    awayShootout=("body > div > div.d50l > div.d25l > table:nth-child(2) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
-    homeShootout=("body > div > div.d50r > div.d25l > table:nth-child(2) >" " tbody:nth-child(1) > tr:nth-child(n+4)"),
+    awayScoring=(
+        "body > div > div.d50l > div.d25l > table:nth-child(1) >"
+        " tbody:nth-child(1) > tr:nth-child(n+4)"
+    ),
+    homeScoring=(
+        "body > div > div.d50r > div.d25l > table:nth-child(1) >"
+        " tbody:nth-child(1) > tr:nth-child(n+4)"
+    ),
+    awayPenalties=(
+        "body > div > div.d50l > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
+    ),
+    homePenalties=(
+        "body > div > div.d50r > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
+    ),
+    awayShootout=(
+        "body > div > div.d50l > div.d25l > table:nth-child(2) >"
+        " tbody:nth-child(1) > tr:nth-child(n+4)"
+    ),
+    homeShootout=(
+        "body > div > div.d50r > div.d25l > table:nth-child(2) >"
+        " tbody:nth-child(1) > tr:nth-child(n+4)"
+    ),
 )
 
 columns = dict(
@@ -255,9 +271,9 @@ def _parse_division_teams_table(table_html: str) -> list[dict[str, Any]]:
 
     Returns a list of team dicts with normalized columns.
     """
-    table = pd.read_html(io.StringIO(table_html), extract_links="body", converters=DIVISION_GAME_CONVERTERS)[0].fillna(
-        ""
-    )
+    table = pd.read_html(
+        io.StringIO(table_html), extract_links="body", converters=DIVISION_GAME_CONVERTERS
+    )[0].fillna("")
     if "Team" not in table.columns:
         return []
     team = table["Team"].apply(pd.Series)
@@ -291,7 +307,9 @@ def scrape_seasons():
     We discover season ids by scanning links for a `season=` query param
     and mark the max as Current. If none found, return only Current=0.
     """
-    soup = util.get_html(MAIN_STATS_URL, params={"league": str(CAHA_LEAGUE), "stat_class": str(STAT_CLASS)})
+    soup = util.get_html(
+        MAIN_STATS_URL, params={"league": str(CAHA_LEAGUE), "stat_class": str(STAT_CLASS)}
+    )
     season_ids: dict[str, int] = {}
     seasons: set[int] = set()
     for a in soup.find_all("a", href=True):
@@ -391,7 +409,9 @@ def scrape_season_divisions(season_id: int):
         }
 
     # Find all headers for divisions and collect teams within each block
-    for a in soup.find_all("a", href=True, string=lambda s: isinstance(s, str) and "Division Player Stats" in s):
+    for a in soup.find_all(
+        "a", href=True, string=lambda s: isinstance(s, str) and "Division Player Stats" in s
+    ):
         div = collect_for_header(a)
         if div:
             divisions.append(div)

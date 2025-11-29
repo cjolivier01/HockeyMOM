@@ -22,7 +22,13 @@ from mmengine.utils import to_2tuple
 from mmpose.structures.bbox.transforms import bbox_xywh2cs, get_warp_matrix
 
 from hmlib.utils.gpu import StreamTensor, StreamTensorBase
-from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    is_channels_first,
+    make_channels_first,
+    make_channels_last,
+)
 
 try:
     from PIL import Image
@@ -180,7 +186,10 @@ def hm_imresize(
     if backend is None:
         backend = mmcv.imread_backend
     if backend not in ["cv2", "pillow"]:
-        raise ValueError(f"backend: {backend} is not supported for resize." f"Supported backends are 'cv2', 'pillow'")
+        raise ValueError(
+            f"backend: {backend} is not supported for resize."
+            f"Supported backends are 'cv2', 'pillow'"
+        )
 
     target_w, target_h = size
 
@@ -400,7 +409,9 @@ def hm_impad(
     elif isinstance(padding, numbers.Number):
         padding = (padding, padding, padding, padding)
     else:
-        raise ValueError("Padding must be a int or a 2, or 4 element tuple." f"But received {padding}")
+        raise ValueError(
+            "Padding must be a int or a 2, or 4 element tuple." f"But received {padding}"
+        )
 
     # check padding mode
     assert padding_mode in ["constant", "edge", "reflect", "symmetric"]
@@ -445,7 +456,9 @@ def hm_impad(
     return img
 
 
-def hm_impad_to_multiple(img: np.ndarray, divisor: int, pad_val: Union[float, List] = 0) -> np.ndarray:
+def hm_impad_to_multiple(
+    img: np.ndarray, divisor: int, pad_val: Union[float, List] = 0
+) -> np.ndarray:
     """Pad an image to ensure each edge to be multiple to some number.
 
     Args:
@@ -558,7 +571,9 @@ class HmPad:
                 "The size and size_divisor must be None " "when pad2square is True"
             )
         else:
-            assert size is not None or size_divisor is not None, "only one of size and size_divisor should be valid"
+            assert (
+                size is not None or size_divisor is not None
+            ), "only one of size and size_divisor should be valid"
             assert size is None or size_divisor is None
 
     def _pad_img(self, results):
@@ -694,7 +709,9 @@ class HmResize:
                     self.img_scale = [tuple(img_scale)]
                 except Exception:
                     self.img_scale = [img_scale]
-            assert all(isinstance(s, tuple) and len(s) == 2 for s in self.img_scale), "img_scale must be tuple(s)"
+            assert all(
+                isinstance(s, tuple) and len(s) == 2 for s in self.img_scale
+            ), "img_scale must be tuple(s)"
 
         if ratio_range is not None:
             # mode 1: given a scale and a range of image ratio
@@ -996,7 +1013,9 @@ class HmImageColorAdjust:
             assert isinstance(self.white_balance, (list, tuple)) and len(self.white_balance) == 3
 
     @staticmethod
-    def _normalize_paths(config_paths: Optional[List[Union[List[str], Tuple[str, ...], str]]]) -> List[Tuple[str, ...]]:
+    def _normalize_paths(
+        config_paths: Optional[List[Union[List[str], Tuple[str, ...], str]]],
+    ) -> List[Tuple[str, ...]]:
         if not config_paths:
             return []
         normalized: List[Tuple[str, ...]] = []
@@ -1093,7 +1112,9 @@ class HmImageColorAdjust:
 
     def _has_any_adjustment(self) -> bool:
         # Only return True if any adjustment is non-identity
-        if self.white_balance is not None and not self._isclose(self.white_balance, [1.0, 1.0, 1.0]):
+        if self.white_balance is not None and not self._isclose(
+            self.white_balance, [1.0, 1.0, 1.0]
+        ):
             return True
         if self.brightness is not None and not self._isclose(self.brightness, 1.0):
             return True
@@ -1110,9 +1131,17 @@ class HmImageColorAdjust:
         if not torch.is_floating_point(img):
             img = img.to(torch.float16)
         if img.ndim == 3:
-            g = torch.tensor(gains, dtype=img.dtype).to(device=img.device, non_blocking=True).view(3, 1, 1)
+            g = (
+                torch.tensor(gains, dtype=img.dtype)
+                .to(device=img.device, non_blocking=True)
+                .view(3, 1, 1)
+            )
         else:
-            g = torch.tensor(gains, dtype=img.dtype).to(device=img.device, non_blocking=True).view(1, 3, 1, 1)
+            g = (
+                torch.tensor(gains, dtype=img.dtype)
+                .to(device=img.device, non_blocking=True)
+                .view(1, 3, 1, 1)
+            )
         img = img * g
         # Clamp to 0..255 if original type was integer-like or float in 0..255
         img = img.clamp(0.0, 255.0)
@@ -1184,7 +1213,9 @@ class HmImageColorAdjust:
         if not torch.is_floating_point(t):
             t = t.to(torch.float16)
         # Apply adjustments
-        if self.white_balance is not None and not self._isclose(self.white_balance, [1.0, 1.0, 1.0]):
+        if self.white_balance is not None and not self._isclose(
+            self.white_balance, [1.0, 1.0, 1.0]
+        ):
             t = HmImageColorAdjust._apply_white_balance(t, self.white_balance)
         if self.brightness is not None and not self._isclose(self.brightness, 1.0):
             t = HmImageColorAdjust._apply_brightness(t, self.brightness)
@@ -1319,7 +1350,9 @@ class HmImageColorAdjust:
         g /= 255.0
         b /= 255.0
         # Gains are inverse of illuminant RGB, normalized so mean gain = 1
-        inv = np.array([1.0 / max(1e-6, r), 1.0 / max(1e-6, g), 1.0 / max(1e-6, b)], dtype=np.float32)
+        inv = np.array(
+            [1.0 / max(1e-6, r), 1.0 / max(1e-6, g), 1.0 / max(1e-6, b)], dtype=np.float32
+        )
         inv /= float(inv.mean())
         return inv.tolist()
 
@@ -1823,7 +1856,9 @@ class HmRealTime:
     FPS reported by the dataset.
     """
 
-    def __init__(self, enabled: bool = False, scale: float = 1.0, fps_key: str = "hm_real_time_fps"):
+    def __init__(
+        self, enabled: bool = False, scale: float = 1.0, fps_key: str = "hm_real_time_fps"
+    ):
         self.enabled = bool(enabled)
         self.scale = float(scale)
         self.fps_key = fps_key

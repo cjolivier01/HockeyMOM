@@ -138,10 +138,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._video_info = None
         self._seek_lock = Lock()
         self._to_worker_queue = create_queue(
-            mp=False, name="mot-video-to-worker" + ("-EDL" if embedded_data_loader is not None else "")
+            mp=False,
+            name="mot-video-to-worker" + ("-EDL" if embedded_data_loader is not None else ""),
         )
         self._from_worker_queue = create_queue(
-            mp=False, name="mot-video-from-worker" + ("-EDL" if embedded_data_loader is not None else "")
+            mp=False,
+            name="mot-video-from-worker" + ("-EDL" if embedded_data_loader is not None else ""),
         )
 
         self.load_video_info()
@@ -172,13 +174,17 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         if True:
             if not hasattr(self, "_image_channel_adders_tensor"):
-                self._image_channel_adders_tensor = torch.tensor(self._image_channel_adders, dtype=t.dtype).to(
-                    device=t.device, non_blocking=True
-                )
+                self._image_channel_adders_tensor = torch.tensor(
+                    self._image_channel_adders, dtype=t.dtype
+                ).to(device=t.device, non_blocking=True)
                 if t.ndim == 4:
-                    self._image_channel_adders_tensor = self._image_channel_adders_tensor.view(1, 3, 1, 1)
+                    self._image_channel_adders_tensor = self._image_channel_adders_tensor.view(
+                        1, 3, 1, 1
+                    )
                 else:
-                    self._image_channel_adders_tensor = self._image_channel_adders_tensor.view(3, 1, 1)
+                    self._image_channel_adders_tensor = self._image_channel_adders_tensor.view(
+                        3, 1, 1
+                    )
             # Build adder tensor and apply to first 3 channels only
             # Only add to RGB channels; preserve alpha if present
             # t[:, 0:3, :, :] = t[:, 0:3, :, :] + self._image_channel_adders_tensor
@@ -337,7 +343,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def _start_worker(self):
         assert self._async_mode
-        self._thread = threading.Thread(target=self._next_frame_worker, name="MOTVideoNextFrameWorker")
+        self._thread = threading.Thread(
+            target=self._next_frame_worker, name="MOTVideoNextFrameWorker"
+        )
         self._thread.start()
         self._to_worker_queue.put("ok")
         self._next_counter = 0
@@ -403,7 +411,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def _get_next_batch(self):
         current_count = self._count.item()
-        if current_count >= len(self) * self._batch_size or (self._max_frames and current_count >= self._max_frames):
+        if current_count >= len(self) * self._batch_size or (
+            self._max_frames and current_count >= self._max_frames
+        ):
             raise StopIteration
 
         cuda_stream = self._cuda_stream if self._async_mode else None
@@ -450,14 +460,22 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
             if self._preproc is not None:
                 prof = getattr(self, "_profiler", None)
-                pctx = prof.rf("dataloader.preproc") if getattr(prof, "enabled", False) else _contextlib.nullcontext()
+                pctx = (
+                    prof.rf("dataloader.preproc")
+                    if getattr(prof, "enabled", False)
+                    else _contextlib.nullcontext()
+                )
                 with pctx:
                     img0 = self._preproc(img0)
 
             if self._device.type != "cpu" and img0.device != self._device:
                 img0 = img0.to(self._device, non_blocking=True)
 
-            if self._adjust_exposure is not None and self._adjust_exposure != 0 and self._adjust_exposure != 1:
+            if (
+                self._adjust_exposure is not None
+                and self._adjust_exposure != 0
+                and self._adjust_exposure != 1
+            ):
                 if isinstance(img0, StreamTensorBase):
                     img0 = img0.get()
                 if not torch.is_floating_point(img0.dtype):
@@ -587,7 +605,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     assert isinstance(data["img"], torch.Tensor)
                     data["img"] = StreamCheckpoint(tensor=data["img"])
             prof = getattr(self, "_profiler", None)
-            dctx = prof.rf("dataloader.data_pipeline") if getattr(prof, "enabled", False) else _contextlib.nullcontext()
+            dctx = (
+                prof.rf("dataloader.data_pipeline")
+                if getattr(prof, "enabled", False)
+                else _contextlib.nullcontext()
+            )
             with dctx:
                 if self._result_as_dict:
                     return dict(
@@ -619,7 +641,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         with self._seek_lock:
             self._timer.tic()
             prof = getattr(self, "_profiler", None)
-            qctx = prof.rf("dataloader.dequeue") if getattr(prof, "enabled", False) else _contextlib.nullcontext()
+            qctx = (
+                prof.rf("dataloader.dequeue")
+                if getattr(prof, "enabled", False)
+                else _contextlib.nullcontext()
+            )
             with qctx:
                 if self._async_mode:
                     self._to_worker_queue.put("ok")
@@ -678,7 +704,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             else:
                 # Best-effort synchronous seek for file-backed videos; embedded loaders are unsupported.
                 if self._embedded_data_loader is not None:
-                    raise NotImplementedError("seek is not supported for embedded data loaders in sync mode")
+                    raise NotImplementedError(
+                        "seek is not supported for embedded data loaders in sync mode"
+                    )
                 if self.cap is None:
                     self._open_video()
                 if self.cap is None:

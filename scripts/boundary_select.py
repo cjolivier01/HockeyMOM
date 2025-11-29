@@ -50,7 +50,9 @@ def draw_line(image_path: str):
     plt.show()
 
 
-def other_impl(game_id: str, image_path: str, upper_lines: List[int] = [], lower_lines: List[int] = []):
+def other_impl(
+    game_id: str, image_path: str, upper_lines: List[int] = [], lower_lines: List[int] = []
+):
     img = cv2.imread(image_path)
 
     # Initialize global variables

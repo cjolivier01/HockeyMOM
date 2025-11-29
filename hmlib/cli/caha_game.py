@@ -18,8 +18,12 @@ except Exception:  # noqa: BLE001
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Fetch a CAHA game by id with teams and stats")
     p.add_argument("--game-id", type=int, required=True, help="Game id (e.g., 46300)")
-    p.add_argument("--season", type=int, default=0, help="Season id to prefer when syncing (0=auto)")
-    p.add_argument("--no-sync-if-missing", action="store_true", help="Do not sync if game not found in DB")
+    p.add_argument(
+        "--season", type=int, default=0, help="Season id to prefer when syncing (0=auto)"
+    )
+    p.add_argument(
+        "--no-sync-if-missing", action="store_true", help="Do not sync if game not found in DB"
+    )
     p.add_argument(
         "--no-fetch-stats-if-missing",
         action="store_true",

@@ -22,7 +22,12 @@ from hmlib.utils.image import image_height, image_width
 def to_rgb_non_planar(image):
     """Convert CHW tensors to HWC tensors for OpenCV/visualization."""
     if isinstance(image, torch.Tensor):
-        if len(image.shape) == 4 and image.shape[0] == 1 and image.shape[1] == 3 and image.shape[-1] > 1:
+        if (
+            len(image.shape) == 4
+            and image.shape[0] == 1
+            and image.shape[1] == 3
+            and image.shape[-1] > 1
+        ):
             # Assuming it is planar
             image = torch.squeeze(image, dim=0).permute(1, 2, 0)
         elif len(image.shape) == 3 and image.shape[0] == 3:
@@ -103,17 +108,25 @@ class CamTrackHead:
     def filter_outputs(self, outputs: torch.Tensor, output_results):
         return outputs, output_results
 
-    def _maybe_init(self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device):
+    def _maybe_init(
+        self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device
+    ):
         if self._postprocessor is None:
             self.on_first_image(
-                frame_id=frame_id, img_width=img_width, img_height=img_height, device=device, arena=arena
+                frame_id=frame_id,
+                img_width=img_width,
+                img_height=img_height,
+                device=device,
+                arena=arena,
             )
 
     def is_initialized(self) -> bool:
         return self._hockey_mom is not None
 
     @staticmethod
-    def calculate_play_box(results: Dict[str, Any], context: Dict[str, Any], scale: float = 1.3) -> List[int]:
+    def calculate_play_box(
+        results: Dict[str, Any], context: Dict[str, Any], scale: float = 1.3
+    ) -> List[int]:
         # Use the first video_data_sample's rink_profile to seed the play box
         play_box = torch.tensor(context["rink_profile"]["combined_bbox"], dtype=torch.int64)
         ww, hh = width(play_box), height(play_box)
@@ -166,7 +179,9 @@ class CamTrackHead:
         results = self._postprocessor.send(results)
         return results
 
-    def on_first_image(self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device):
+    def on_first_image(
+        self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device
+    ):
         """Initialize `HockeyMOM` and the post-processor on the first frame."""
         assert self._hockey_mom is None
 
