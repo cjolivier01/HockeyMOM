@@ -1034,11 +1034,12 @@ def setup_logging():
 def main():
     setup_logging()
 
-    # Ensure CUDA runtime is usable before building pipelines that expect it.
+    # Prefer CUDA, but don't hard-fail if the runtime isn't detected so CPU-only
+    # runs can still proceed (albeit slowly).
     if not torch.cuda.is_available():
-        raise RuntimeError("CUDA is required to run hmtrack; no CUDA devices detected.")
-    if not torch.backends.cudnn.is_available():
-        raise RuntimeError("cuDNN is unavailable; verify your CUDA/cuDNN installation.")
+        logger.warning("CUDA not detected; running hmtrack on CPU will be very slow.")
+    elif not torch.backends.cudnn.is_available():
+        logger.warning("cuDNN not detected; performance may be degraded.")
 
     parser = make_parser()
     args = parser.parse_args()
