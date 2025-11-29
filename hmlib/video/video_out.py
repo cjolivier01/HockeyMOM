@@ -373,9 +373,6 @@ class VideoOutput:
             self._shower = None
 
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        # torch.cuda.synchronize()
-        # show_image("video_out", results["img"], wait=False, enable_resizing=0.2)
-        # self._shower.show(results["img"]) if self._shower is not None else None
         if not self._async_output:
             with cuda_stream_scope(self._cuda_stream):
                 if not self._output_videos:
@@ -476,7 +473,6 @@ class VideoOutput:
         mean_track_mode = None
         if mean_track_mode and self._mean_tracker is None:
             self._mean_tracker = MeanTracker(file_path="video_out.txt", mode=mean_track_mode)
-        # torch.cuda.synchronize()
         with cuda_stream_scope(cuda_stream):
             iqueue = IterableQueue(self._imgproc_queue)
             imgproc_iter = iter(iqueue)
@@ -494,19 +490,13 @@ class VideoOutput:
                     if isinstance(results["img"], StreamTensor):
                         results["img"] = results["img"].wait()
 
-                    # torch.cuda.synchronize()
-
                     timer.tic()
 
                     batch_size = results["img"].size(0)
 
                     with self._fctx:
-                        # torch.cuda.synchronize()
                         results = self.forward(results)
                     with self._sctx:
-                        # default_cuda_stream.wait_stream(default_cuda_stream)
-                        # cuda_stream.synchronize()
-                        # torch.cuda.synchronize()
                         results = self.save_frame(results)
 
                     timer.toc()
@@ -560,27 +550,30 @@ class VideoOutput:
             img = online_im
             self._mean_tracker(img)
 
-        if not self._skip_final_save:
-            if self.VIDEO_DEFAULT in self._output_videos:
-                if not isinstance(online_im, StreamTensor):
-                    online_im = StreamCheckpoint(tensor=online_im)
-                self._output_videos[self.VIDEO_DEFAULT].write(online_im)
-
-            if self.VIDEO_END_ZONES in self._output_videos:
-                ez_img = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
-                if ez_img is None:
-                    ez_img = online_im
-                if not isinstance(ez_img, StreamTensor):
-                    ez_img = StreamCheckpoint(tensor=ez_img)
-                self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
-
         if self.has_args() and self._args.show_image:
             online_im = slow_to_tensor(online_im)
             for show_img in online_im:
-                # show_img = ez_img
                 self._shower.show(show_img)
-                # show_image("image", show_img, wait=False)
-                pass
+
+        with torch.cuda.stream(torch.cuda.default_stream(online_im.device)):
+
+            if online_im.is_cuda:
+                # torch.cuda.current_stream(online_im.device).synchronize()
+                torch.cuda.synchronize()
+
+            if not self._skip_final_save:
+                if self.VIDEO_DEFAULT in self._output_videos:
+                    if not isinstance(online_im, StreamTensor):
+                        online_im = StreamCheckpoint(tensor=online_im)
+                    self._output_videos[self.VIDEO_DEFAULT].write(online_im)
+
+                if self.VIDEO_END_ZONES in self._output_videos:
+                    ez_img = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
+                    if ez_img is None:
+                        ez_img = online_im
+                    if not isinstance(ez_img, StreamTensor):
+                        ez_img = StreamCheckpoint(tensor=ez_img)
+                    self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
 
         # Save frames as individual frames
         if self._save_frame_dir:
