@@ -20,6 +20,15 @@
     },
     {
       "path": "../jetson-utils"
+    },
+    {
+      "path": "../pytorch"
+    },
+    {
+      "path": "../ffmpeg"
+    },
+    {
+      "path": "../pytorch/audio"
     }
   ],
   "settings": {

@@ -862,8 +862,6 @@ def _main(args, num_gpu):
                 update_rate=args.print_interval,
                 table_map=table_map,
                 use_curses=getattr(args, "curses_progress", False),
-                enable_gpu_metrics=getattr(args, "progress_gpu_metrics", True),
-                enable_cuda_sync_counter=getattr(args, "progress_cuda_sync_counter", True),
             )
         else:
             progress_bar = None
