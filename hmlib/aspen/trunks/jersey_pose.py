@@ -14,14 +14,14 @@ from hmlib.bbox.tiling import (
 )
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.ui import show_image  # noqa: F401 (for debugging
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 
 
 def _to_tensor(x: Any) -> torch.Tensor:
     if isinstance(x, torch.Tensor):
         return x
-    if isinstance(x, StreamTensor):
+    if isinstance(x, StreamTensorBase):
         return x.wait()
     assert isinstance(x, np.ndarray)
     return torch.from_numpy(x)

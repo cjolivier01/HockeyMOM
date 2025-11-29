@@ -34,7 +34,7 @@ from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
 from hockeymom.core import AllLivingBoxConfig, BBox
@@ -578,7 +578,7 @@ class PlayTracker(torch.nn.Module):
 
         original_images = results.pop("original_images")
 
-        if isinstance(original_images, StreamTensor):
+        if isinstance(original_images, StreamTensorBase):
             original_images._verbose = True
             original_images = original_images.get()
 

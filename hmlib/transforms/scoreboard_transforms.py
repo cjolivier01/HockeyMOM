@@ -10,7 +10,6 @@ from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.scoreboard.selector import configure_scoreboard
 from hmlib.ui import show_image
 from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
-from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import image_height, image_width, make_channels_last, rotate_image, to_float_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.video_stream import VideoStreamReader

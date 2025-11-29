@@ -16,7 +16,7 @@ from hmlib.log import get_root_logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -156,7 +156,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         """
         if not self._image_channel_adders:
             return img
-        # StreamTensor should be unpacked before this function is called
+        # StreamTensorBase should be unpacked before this function is called
         assert isinstance(img, torch.Tensor)
 
         # Determine if channels-last to restore layout later
@@ -459,7 +459,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 img0 = img0.to(self._device, non_blocking=True)
 
             if self._adjust_exposure is not None and self._adjust_exposure != 0 and self._adjust_exposure != 1:
-                if isinstance(img0, StreamTensor):
+                if isinstance(img0, StreamTensorBase):
                     img0 = img0.get()
                 if not torch.is_floating_point(img0.dtype):
                     img0 = img0.to(torch.float, non_blocking=True)
@@ -473,7 +473,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self._next_frame_id += len(ids)
 
             if self._data_pipeline is not None:
-                if isinstance(img0, StreamTensor):
+                if isinstance(img0, StreamTensorBase):
                     img0 = img0.get()
 
                 # Optional per-channel additive offsets for input images
@@ -517,7 +517,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img = img[0]
                 data = data_item
             else:
-                if isinstance(img0, StreamTensor):
+                if isinstance(img0, StreamTensorBase):
                     img0 = img0.get()
                 # Optional per-channel additive offsets for input images
                 if self._image_channel_adders is not None:
@@ -599,7 +599,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     )
                 return _wrap_original_image(original_img0), data, None, imgs_info, ids
         if self._original_image_only:
-            if not isinstance(original_img0, StreamTensor):
+            if not isinstance(original_img0, StreamTensorBase):
                 original_img0 = _wrap_original_image(original_img0)
             return dict(img=original_img0, imgs_info=imgs_info, frame_ids=ids)
         else:

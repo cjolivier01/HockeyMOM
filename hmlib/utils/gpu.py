@@ -1,55 +1,11 @@
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
 
 from hmlib.log import logger
-
-from .containers import LinkedList
-
-_CUDA_STREAMS: Dict[int, LinkedList] = {}
-_CUDA_STREAMS_SET: Set[torch.cuda.Stream] = set()
-
-
-def _get_stream_llist(device: torch.device) -> Union[LinkedList, None]:
-    assert isinstance(device, torch.device)
-    if device.type != "cuda":
-        return None
-    device_index = device.index
-    llist = _CUDA_STREAMS.get(device_index, None)
-    if llist is None:
-        llist = LinkedList()
-        _CUDA_STREAMS[device_index] = llist
-    return llist
-
-
-# def allocate_stream(device: torch.device) -> torch.cuda.Stream | None:
-#     llist = _get_stream_llist(device)
-#     if llist is None:
-#         return None
-#     try:
-#         stream = llist.pop_back()
-#         assert stream in _CUDA_STREAMS_SET
-#         _CUDA_STREAMS_SET.remove(stream)
-#         return stream
-#     except IndexError:
-#         return torch.cuda.Stream(device)
-
-
-# def free_stream(stream: torch.cuda.Stream) -> None:
-#     # if stream is None:
-#     #     return
-#     # llist = _get_stream_llist(device=stream.device)
-#     # if llist is None:
-#     #     return
-#     # if stream in _CUDA_STREAMS_SET:
-#     #     print("OOPS! uoisdhfwiofhuiwehuof")
-#     # assert stream not in _CUDA_STREAMS_SET
-#     # _CUDA_STREAMS_SET.add(stream)
-#     # llist.push_front(stream)
-#     pass
 
 
 @contextmanager
@@ -82,8 +38,9 @@ def record_stream_event(
         return None
     if stream is None:
         stream = torch.cuda.current_stream(tensor.device)
-    assert stream is not None
-    return stream.record_event(None)
+    event = torch.cuda.Event(blocking=False)
+    stream.record_event(event)
+    return event
 
 
 class GpuAllocator:
@@ -211,207 +168,236 @@ class GpuAllocator:
 
 
 class StreamTensorBase:
+    """Common interface for tensor-like wrappers that manage CUDA streams."""
+
+    def ref(self) -> torch.Tensor:  # pragma: no cover - interface definition
+        raise NotImplementedError
+
+    def wait(self, new_stream: Optional[torch.cuda.Stream] = None) -> torch.Tensor:
+        raise NotImplementedError
+
+    def get(self) -> torch.Tensor:  # pragma: no cover - interface definition
+        raise NotImplementedError
+
     def size(self, index: int) -> int:
-        assert False and "Not implemented"
+        return self.ref().size(index)
 
 
-class StreamTensor(StreamTensorBase):
-    """Tensor wrapper that tracks a CUDA stream and synchronization event.
+class StreamTensorX(StreamTensorBase):
+    """Enhanced tensor wrapper with explicit CUDA stream + event tracking."""
 
-    Synchronization is deferred until :meth:`wait` or :meth:`get` is called,
-    allowing callers to compose asynchronous operations more easily.
+    __slots__ = (
+        "_tensor",
+        "_event",
+        "_stream",
+        "_print_thresh",
+        "_sync_duration",
+        "_verbose",
+    )
 
-    @param tensor: Underlying tensor produced on a device.
-    @param stream: CUDA stream that produced the tensor.
-    @param event: Optional CUDA event used for synchronization.
-    @param owns_stream: Whether this wrapper is responsible for returning the stream.
-    @param verbose: Emit timing information when syncs exceed a threshold.
-    @param print_thresh: Threshold in seconds for logging sync durations.
-    @see @ref StreamCheckpoint "StreamCheckpoint" for one-shot checkpoints.
-    """
+    _SAFE_ATTRS = {
+        "dtype",
+        "device",
+        "layout",
+        "ndim",
+        "dim",
+        "ndimension",
+        "numel",
+        "names",
+        "requires_grad",
+        "grad",
+        "grad_fn",
+        "is_leaf",
+        "is_cuda",
+        "is_contiguous",
+        "is_complex",
+        "is_floating_point",
+        "is_sparse",
+        "qscheme",
+        "strides",
+        "stride",
+        "storage_offset",
+        "T",
+        "mT",
+        "real",
+        "imag",
+    }
+
+    __array_priority__ = 1000
 
     def __init__(
         self,
-        tensor: torch.Tensor,
-        stream: Optional[torch.cuda.Stream] = None,
-        event: Optional[torch.cuda.Event] = None,
-        owns_stream: Optional[bool] = None,
-        verbose: Optional[bool] = True,
-        print_thresh: Optional[float] = 0.001,
+        tensor: Union[torch.Tensor, "StreamTensorBase"],
+        *,
+        auto_checkpoint: bool = True,
+        verbose: bool = True,
+        print_thresh: float = 0.001,
     ):
-        assert not isinstance(stream, StreamTensorBase)
+        if isinstance(tensor, StreamTensorBase):
+            tensor = tensor.wait()
         assert isinstance(tensor, torch.Tensor)
         self._tensor = tensor
-        self._stream = stream
-        self._event = event
+        self._event: Optional[torch.cuda.Event] = None
+        self._stream: Optional[torch.cuda.Stream] = None
         self._print_thresh = print_thresh
-        self._owns_stream = owns_stream
-        self._sync_duraton = None
+        self._sync_duration: Optional[float] = None
         self._verbose = verbose
-        assert self._event is None
+        if auto_checkpoint:
+            self.checkpoint()
 
-    def new_checkpoint(self):
-        assert self._stream is not None
-        assert torch.cuda.current_stream(self.ref().device) == self._stream
-        assert self._event is not None
-        self._event = record_stream_event(self.ref(), stream=self._stream)
-        self._event.record()
+    def __repr__(self) -> str:
+        state = "ready" if self.ready() else "pending"
+        return f"StreamTensorX(shape={tuple(self.shape)}, device={self.device}, {state})"
 
-    def _clear_stream(self):
+    # ------------------------------------------------------------------
+    # Synchronization helpers
+    # ------------------------------------------------------------------
+    def _clear_tracking(self) -> None:
         self._event = None
-        if isinstance(self._tensor, StreamTensor):
-            assert False
-            assert self._stream is None
-            self._tensor._clear_stream()
-        elif self._stream is not None:
-            if self._owns_stream:
-                assert False and "Deprecated path"
-                # free_stream(self._stream)
-            self._stream = None
+        self._stream = None
 
-    def wait(self, new_stream: Optional[torch.cuda.Stream] = None) -> torch.Tensor:
-        assert self._tensor is not None
+    def _ensure_ready_for_stream(self, target_stream: Optional[torch.cuda.Stream]) -> torch.Tensor:
         if self._tensor.device.type != "cuda":
             return self._tensor
-        if new_stream is None:
-            new_stream = torch.cuda.current_stream(self._tensor.device)
-        if self._stream is not None:
-            # Probably not necessary, or you want to call synchronize on the event
-            assert self._stream != new_stream
-        if self._event is not None:
-            new_stream.wait_event(self._event)
-            self._event = None
-        else:
-            assert self._stream is None
-        self._clear_stream()
-        t = self._tensor
-        return t
+        if self._event is None:
+            return self._tensor
+        if target_stream is None:
+            target_stream = torch.cuda.current_stream(self._tensor.device)
+        target_stream.wait_event(self._event)
+        self._clear_tracking()
+        return self._tensor
 
-    def cpu(self) -> torch.Tensor:
-        return self.get().cpu()
+    def _ensure_ready_blocking(self) -> torch.Tensor:
+        if self._tensor.device.type != "cuda" or self._event is None:
+            return self._tensor
+        start = time.time()
+        self._event.synchronize()
+        self._sync_duration = time.time() - start
+        self._clear_tracking()
+        if self._verbose and self._sync_duration is not None and self._sync_duration > self._print_thresh:
+            logger.info(f"Syncing tensor with shape {tuple(self.shape)} took {self._sync_duration * 1000:.3f} ms")
+        return self._tensor
 
-    def get(self) -> torch.Tensor:
-        return self.wait()
-
-        assert self._tensor is not None
-        if self._stream is not None:
-            if self._event is not None:
-                # with torch.cuda.stream(self._stream):
-                with nullcontext():
-                    start = time.time()
-                    self._event.synchronize()
-                    self._sync_duraton = time.time() - start
-                self._event = None
-            else:
-                assert False
-                self._stream.synchronize()
-            self._clear_stream()
-        elif self._event is not None:
-            start = time.time()
-            self._event.synchronize()
-            self._sync_duraton = time.time() - start
-            self._event = None
-            self._clear_stream()
-        if (
-            self._verbose
-            and self._sync_duraton is not None
-            and self._sync_duraton > self._print_thresh
-        ):
-            logger.info(
-                f"Syncing tensor with shape {self.shape} took {self._sync_duraton * 1000} ms"
-            )
-            pass
-        t = self._tensor
-        return t
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    @property
+    def sync_duration(self) -> float:
+        return -1 if self._sync_duration is None else self._sync_duration
 
     @property
-    def sync_duration(self):
-        if self._sync_duraton is None:
-            return -1
-        return self._sync_duraton
-
-    @property
-    def stream(self):
-        if isinstance(self._tensor, StreamTensor):
-            return self._tensor.stream
+    def stream(self) -> Optional[torch.cuda.Stream]:
         return self._stream
 
     @property
-    def dtype(self):
-        return self._tensor.dtype
+    def shape(self):  # type: ignore[override]
+        return self._tensor.shape
 
     @property
     def device(self):
         return self._tensor.device
 
-    @property
-    def ndim(self):
-        return self._tensor.ndim
-
-    def size(self, index: int) -> int:
-        return self._tensor.size(index)
-
-    @property
-    def shape(self):
-        return self._tensor.shape
-
-    @property
-    def owns_stream(self):
-        if isinstance(self._tensor, StreamTensor):
-            return self._tensor.owns_stream
-        return self._owns_stream
-
-    def ref(self):
-        if isinstance(self._tensor, StreamTensor):
-            return self._tensor.ref()
+    def ref(self) -> torch.Tensor:
         return self._tensor
 
-    def _set_ref(self, tensor: torch.Tensor):
-        """
-        Set tensor to some modified version of itself that does not need compute, such as permute()
-        """
-        if isinstance(self._tensor, StreamTensor):
-            self._tensor._set_ref(tensor)
-        else:
-            self._tensor = tensor
+    def ready(self) -> bool:
+        if self._tensor.device.type != "cuda":
+            return True
+        return self._event is None
 
-    def call_with_checkpoint(self, fn, *args, **kwargs):
-        assert False
-        assert self._owns_stream
-        if torch.cuda.current_stream(self.device) == self._stream:
-            self._set_ref(fn(self.ref(), *args, **kwargs))
-            self._event = record_stream_event(self.ref(), stream=self._stream)
-        else:
-            assert self._stream is not None
-            with torch.cuda.stream(self._stream):
-                self._set_ref(fn(self.ref(), *args, **kwargs))
-                self._event = record_stream_event(self.ref(), stream=self._stream)
-        return self
+    def checkpoint(self, stream: Optional[torch.cuda.Stream] = None) -> Optional[torch.cuda.Event]:
+        if self._tensor.device.type != "cuda":
+            self._clear_tracking()
+            return None
+        if stream is None:
+            stream = torch.cuda.current_stream(self._tensor.device)
+        prev_event = self._event
+        if prev_event is not None:
+            stream.wait_event(prev_event)
+        self._event = record_stream_event(self._tensor, stream=stream)
+        self._stream = stream
+        return self._event
 
-    def __truediv__(self, other):
-        assert isinstance(other, (int, float))
-        assert self.owns_stream
-        with torch.cuda.stream(self._stream):
-            self._set_ref(self.ref() / other)
-            self._event = record_stream_event(self.ref(), stream=self._stream)
+    def wait(self, new_stream: Optional[torch.cuda.Stream] = None) -> torch.Tensor:
+        return self._ensure_ready_for_stream(new_stream)
+
+    def get(self) -> torch.Tensor:
+        return self._ensure_ready_blocking()
+
+    def cpu(self) -> torch.Tensor:
+        return self.get().cpu()
+
+    def to(self, *args, **kwargs):
+        return self.get().to(*args, **kwargs)
+
+    def numpy(self) -> np.ndarray:
+        return self.cpu().numpy()
+
+    def __len__(self) -> int:
+        return self._tensor.shape[0]
+
+    def __getitem__(self, item):
+        tensor = self._ensure_ready_for_stream(None)
+        return tensor.__getitem__(item)
 
     def permute(self, *args, **kwargs):
-        self._set_ref(self.ref().permute(*args, **kwargs))
+        tensor = self._ensure_ready_for_stream(None)
+        self._tensor = tensor.permute(*args, **kwargs)
+        self._clear_tracking()
         return self
 
     def unsqueeze(self, *args, **kwargs):
-        self._set_ref(self.ref().unsqueeze(*args, **kwargs))
+        tensor = self._ensure_ready_for_stream(None)
+        self._tensor = tensor.unsqueeze(*args, **kwargs)
+        self._clear_tracking()
         return self
 
     def squeeze(self, *args, **kwargs):
-        self._set_ref(self.ref().squeeze(*args, **kwargs))
+        tensor = self._ensure_ready_for_stream(None)
+        self._tensor = tensor.squeeze(*args, **kwargs)
+        self._clear_tracking()
         return self
 
-    def to(self, *args, **kwargs):
-        assert False and "Not implemented"
+    def __getattr__(self, name: str):
+        if name in self._SAFE_ATTRS:
+            return getattr(self._tensor, name)
+        raise AttributeError(f"StreamTensorX has no attribute '{name}'")
 
-    def __len__(self):
-        return self._tensor.shape[0]
+
+class StreamTensor(StreamTensorX):
+    """Default tensor wrapper that immediately checkpoints on creation."""
+
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        *,
+        verbose: bool = True,
+        print_thresh: float = 0.001,
+    ):
+        super().__init__(
+            tensor=tensor,
+            auto_checkpoint=True,
+            verbose=verbose,
+            print_thresh=print_thresh,
+        )
+
+
+class StreamCheckpoint(StreamTensorX):
+    """One-shot checkpoint that immediately records a CUDA event."""
+
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        *,
+        verbose: bool = True,
+        print_thresh: float = 0.001,
+    ):
+        super().__init__(
+            tensor=tensor,
+            auto_checkpoint=True,
+            verbose=verbose,
+            print_thresh=print_thresh,
+        )
 
 
 def copy_gpu_to_gpu_async(
@@ -422,7 +408,7 @@ def copy_gpu_to_gpu_async(
 ) -> Tuple[torch.Tensor, torch.cuda.Event]:
     if tensor.device == dest_device:
         return tensor, None
-    if isinstance(tensor, StreamTensor):
+    if isinstance(tensor, StreamTensorBase):
         tensor = tensor.wait()
     if src_stream is None:
         src_stream = torch.cuda.current_stream(tensor.device)
@@ -438,108 +424,6 @@ def copy_gpu_to_gpu_async(
         dest_event = torch.cuda.Event(blocking=True)
         dest_stream.record_event(dest_event)
     return tensor_dest, dest_event
-
-
-def tensor_call(
-    tensor: Union[torch.Tensor, StreamTensor], fn: Callable, *args, **kwargs
-) -> Union[torch.Tensor, StreamTensor]:
-    """Invoke a function on a tensor or :class:`StreamTensor`.
-
-    @param tensor: Plain tensor or :class:`StreamTensor` wrapper.
-    @param fn: Callable applied to the underlying tensor.
-    @return: Result tensor, or a :class:`StreamTensor` wrapping the result.
-    """
-    if isinstance(tensor, torch.Tensor):
-        return fn(tensor, *args, **kwargs)
-    return tensor.call_with_checkpoint(fn, *args, **kwargs)
-
-
-class StreamCheckpoint(StreamTensor):
-    """StreamTensor variant that records a synchronization event on construction.
-
-    @param tensor: Underlying tensor to checkpoint.
-    @param stream: CUDA stream used for the checkpoint.
-    @param event: Optional pre-existing CUDA event.
-    """
-
-    def __init__(
-        self,
-        tensor: torch.Tensor,
-        stream: Optional[torch.cuda.Stream] = None,
-        event: Optional[torch.cuda.Event] = None,
-        owns_stream: Optional[bool] = None,
-        verbose: Optional[bool] = True,
-        print_thresh: Optional[float] = 0.001,
-    ):
-        assert isinstance(tensor, torch.Tensor)
-        super(StreamCheckpoint, self).__init__(
-            tensor=tensor,
-            stream=stream,
-            event=event,
-            owns_stream=owns_stream,
-            verbose=verbose,
-            print_thresh=print_thresh,
-        )
-        self._event = record_stream_event(tensor, self._stream)
-
-
-class StreamTensorToDevice(StreamTensor):
-    def __init__(
-        self,
-        tensor: torch.Tensor,
-        device: torch.device,
-        stream: Union[None, torch.cuda.Stream] = None,
-        verbose: bool = True,
-    ):
-        assert False
-        if isinstance(tensor, np.ndarray):
-            tensor = torch.from_numpy(tensor)
-        super(StreamTensorToDevice, self).__init__(tensor=tensor, verbose=verbose)
-        if tensor.device == device:
-            return
-        if stream is None:
-            stream = allocate_stream(tensor.device) if device.type == "cuda" else None
-            self._stream = stream
-            self._owns_stream = True
-        with torch.cuda.stream(stream=stream):
-            self._tensor = tensor.to(device, non_blocking=True)
-            assert self._event is None
-            self._event = torch.cuda.Event(blocking=True)
-            self._event.record()
-
-
-class StreamTensorToDtype(StreamTensor):
-    def __init__(
-        self,
-        tensor: torch.Tensor,
-        dtype: torch.dtype,
-        contiguous: bool = False,
-        scale_down_factor: float = None,
-    ):
-        assert False
-        if isinstance(tensor, np.ndarray):
-            tensor = torch.from_numpy(tensor)
-        super(StreamTensorToDtype, self).__init__(tensor=tensor)
-        assert tensor.dtype != dtype
-
-        if isinstance(tensor, StreamTensor):
-            self._stream = tensor._stream
-            with torch.cuda.stream(stream=self._stream):
-                self._tensor = tensor.ref().to(dtype=dtype, non_blocking=True)
-                if scale_down_factor and scale_down_factor != 1:
-                    self._tensor /= scale_down_factor
-                if contiguous:
-                    self._tensor = self._tensor.contiguous()
-                self._event = torch.cuda.Event(blocking=True)
-                self._event.record()
-        else:
-            self._stream = allocate_stream(tensor.device) if tensor.device.type == "cuda" else None
-            with torch.cuda.stream(stream=self._stream):
-                self._tensor = tensor.to(dtype=dtype, non_blocking=True)
-                if contiguous:
-                    self._tensor = self._tensor.contiguous()
-                self._event = torch.cuda.Event(blocking=True)
-                self._event.record()
 
 
 def get_gpu_capabilities():

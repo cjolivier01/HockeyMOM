@@ -1,18 +1,20 @@
 from contextlib import contextmanager
-from typing import Any, Dict, Optional, Tuple, Union, List
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
+import numpy as np
 import torch
 from mmengine.registry import TRANSFORMS
 
+import hmlib.vis.pt_visualization as ptv
 from hmlib.bbox.box_functions import center, height, width
 from hmlib.config import get_clip_box, get_config, get_nested_value, prepend_root_dir
 from hmlib.log import logger
 from hmlib.scoreboard.selector import configure_scoreboard
+from hmlib.segm.ice_rink import MaskEdgeDistances, find_extreme_points
 from hmlib.tracking_utils import visualization as vis
 from hmlib.ui import show_image
 from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
-from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import (
     crop_image,
     image_height,
@@ -27,9 +29,6 @@ from hmlib.utils.image import (
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.time import format_duration_to_hhmmss
 from hmlib.video.video_stream import VideoStreamReader
-import numpy as np
-from hmlib.segm.ice_rink import find_extreme_points, MaskEdgeDistances
-import hmlib.vis.pt_visualization as ptv
 
 
 def paste_watermark_at_position(dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int):

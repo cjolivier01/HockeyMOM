@@ -31,7 +31,7 @@ from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.exceptions import raise_exception_in_thread
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope, get_gpu_capabilities
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope, get_gpu_capabilities
 from hmlib.utils.image import (
     ImageColorScaler,
     image_height,
@@ -61,13 +61,11 @@ def get_and_pop(map: Dict[str, Any], key: str) -> Any:
     return result
 
 
-def slow_to_tensor(
-    tensor: Union[torch.Tensor, StreamTensor], stream_wait: bool = True
-) -> torch.Tensor:
+def slow_to_tensor(tensor: Union[torch.Tensor, StreamTensorBase], stream_wait: bool = True) -> torch.Tensor:
     """
     Give up on the stream and get the sync'd tensor
     """
-    if isinstance(tensor, StreamTensor):
+    if isinstance(tensor, StreamTensorBase):
         tensor._verbose = True
         if stream_wait:
             return tensor.wait()
@@ -91,16 +89,14 @@ def get_best_codec(
     # return "XVID", False
 
 
-def tensor_ref(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
-    if isinstance(tensor, StreamTensor):
+def tensor_ref(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:
+    if isinstance(tensor, StreamTensorBase):
         return tensor.ref()
     return tensor
 
 
-def tensor_checkpoint(
-    tensor: Union[torch.Tensor, StreamTensor]
-) -> Union[torch.Tensor, StreamTensor]:
-    if isinstance(tensor, StreamTensor):
+def tensor_checkpoint(tensor: Union[torch.Tensor, StreamTensorBase]) -> Union[torch.Tensor, StreamTensorBase]:
+    if isinstance(tensor, StreamTensorBase):
         tensor.new_checkpoint()
         return tensor
     return tensor
@@ -377,7 +373,7 @@ class VideoOutput:
             with cuda_stream_scope(self._cuda_stream):
                 if not self._output_videos:
                     self.create_output_videos()
-                if isinstance(results["img"], StreamTensor):
+                if isinstance(results["img"], StreamTensorBase):
                     results["img"] = results["img"].wait()
                 with self._fctx:
                     results = self.forward(results)
@@ -487,7 +483,7 @@ class VideoOutput:
                     except StopIteration:
                         break
 
-                    if isinstance(results["img"], StreamTensor):
+                    if isinstance(results["img"], StreamTensorBase):
                         results["img"] = results["img"].wait()
 
                     timer.tic()
@@ -563,7 +559,7 @@ class VideoOutput:
 
             if not self._skip_final_save:
                 if self.VIDEO_DEFAULT in self._output_videos:
-                    if not isinstance(online_im, StreamTensor):
+                    if not isinstance(online_im, StreamTensorBase):
                         online_im = StreamCheckpoint(tensor=online_im)
                     self._output_videos[self.VIDEO_DEFAULT].write(online_im)
 
@@ -571,7 +567,7 @@ class VideoOutput:
                     ez_img = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
                     if ez_img is None:
                         ez_img = online_im
-                    if not isinstance(ez_img, StreamTensor):
+                    if not isinstance(ez_img, StreamTensorBase):
                         ez_img = StreamCheckpoint(tensor=ez_img)
                     self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
 
@@ -609,7 +605,7 @@ class VideoOutput:
 
         current_boxes = current_boxes.to(online_im.device, non_blocking=True)
 
-        if isinstance(online_im, StreamTensor):
+        if isinstance(online_im, StreamTensorBase):
             online_im._verbose = True
             online_im = online_im.get()
 
