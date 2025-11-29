@@ -21,7 +21,7 @@ from mmpose.structures.bbox.transforms import bbox_xywh2cs
 from torchvision.transforms import functional as F
 
 from hmlib.ui.show import show_image
-from hmlib.utils.gpu import StreamTensor, tensor_call
+from hmlib.utils.gpu import StreamTensor, StreamTensorBase
 from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
 
 try:
@@ -161,8 +161,9 @@ def hm_imresize(
     target_w, target_h = size
 
     # Pure PyTorch path for tensors (no torchvision or Pillow codes)
-    if isinstance(img, torch.Tensor) or isinstance(img, StreamTensor):
-        tensor = img
+    if isinstance(img, torch.Tensor) or isinstance(img, StreamTensorBase):
+        tensor_stream = isinstance(img, StreamTensorBase)
+        tensor = img.wait() if tensor_stream else img
         ndim = tensor.ndim
 
         # Normalize to NCHW
@@ -205,8 +206,7 @@ def hm_imresize(
             # align_corners=False is standard for image resizing
             kwargs["align_corners"] = False
 
-        # Use tensor_call to preserve StreamTensor behavior and CUDA stream semantics
-        tensor_resized = tensor_call(tensor_nchw, torch.nn.functional.interpolate, **kwargs)
+        tensor_resized = torch.nn.functional.interpolate(tensor_nchw, **kwargs)
 
         # Restore dtype if needed (clamp for integer ranges typical of images)
         if orig_dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
@@ -224,6 +224,9 @@ def hm_imresize(
         else:
             # Should not reach here
             img = tensor_resized
+
+        if tensor_stream:
+            img = StreamTensor(img)
 
     else:
         # Numpy path: keep fast cv2 implementation; do not use Pillow
@@ -384,20 +387,22 @@ def hm_impad(
         "reflect": cv2.BORDER_REFLECT_101,
         "symmetric": cv2.BORDER_REFLECT,
     }
-    if isinstance(img, torch.Tensor | StreamTensor):
+    if isinstance(img, torch.Tensor | StreamTensorBase):
         if img.ndim == 3:
             img = img.permute(2, 0, 1)
         else:
             assert img.ndim == 4
             if img.shape[-1] in (3, 4):
                 img = img.permute(0, 3, 1, 2)
-        img = tensor_call(
-            img,
-            torch.nn.functional.pad,
+        was_stream_tensor = isinstance(img, StreamTensorBase)
+        tensor_input = img.wait() if was_stream_tensor else img
+        padded = torch.nn.functional.pad(
+            tensor_input,
             (padding[0], padding[2], padding[1], padding[3]),
             padding_mode,
             value=pad_val,
         )
+        img = StreamTensor(padded) if was_stream_tensor else padded
         if img.ndim == 3:
             img = img.permute(1, 2, 0)
         else:
@@ -1210,8 +1215,13 @@ class HmImageColorAdjust:
             if key not in results:
                 continue
             img = results[key]
-            if isinstance(img, (torch.Tensor, StreamTensor)):
-                results[key] = tensor_call(img, self._adjust_tensor)
+            if isinstance(img, (torch.Tensor, StreamTensorBase)):
+                was_stream_tensor = isinstance(img, StreamTensorBase)
+                tensor_input = img.wait() if was_stream_tensor else img
+                adjusted = self._adjust_tensor(tensor_input)
+                if was_stream_tensor:
+                    adjusted = StreamTensor(adjusted)
+                results[key] = adjusted
             else:
                 # numpy array
                 results[key] = self._adjust_numpy(img)
@@ -1842,7 +1852,7 @@ class HmRealTime:
             return None
         if isinstance(value, (list, tuple)):
             return len(value)
-        if isinstance(value, (torch.Tensor, StreamTensor)):
+        if isinstance(value, (torch.Tensor, StreamTensorBase)):
             if value.ndim == 0:
                 return 1
             return int(value.shape[0]) if value.shape else 1

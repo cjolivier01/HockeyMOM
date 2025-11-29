@@ -29,7 +29,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, copy_gpu_to_gpu_async, cuda_stream_scope
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
@@ -66,10 +66,10 @@ def safe_put_queue(queue: Any, object: Any) -> None:
 _LARGE_NUMBER_OF_FRAMES: float = 1e128
 
 
-def to_tensor(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> torch.Tensor:
+def to_tensor(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> torch.Tensor:
     if isinstance(tensor, torch.Tensor):
         return tensor
-    if isinstance(tensor, StreamTensor):
+    if isinstance(tensor, StreamTensorBase):
         tensor.verbose = True
         return tensor.get()
     elif isinstance(tensor, np.ndarray):
@@ -78,10 +78,8 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> torch.Te
         assert False
 
 
-def sync_required(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> bool:
+def sync_required(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> bool:
     if isinstance(tensor, (torch.Tensor, np.ndarray)):
-        return False
-    if getattr(tensor, "owns_stream", False):
         return False
     return True
 
@@ -766,7 +764,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
     def prepare_frame_for_video(image: np.array, image_roi: np.array):
         if not image_roi:
             if image.shape[-1] == 4:
-                if isinstance(image, StreamTensor):
+                if isinstance(image, StreamTensorBase):
                     image = image.get()
                 if len(image.shape) == 4:
                     image = make_channels_last(image)[:, :, :, :3]
@@ -920,7 +918,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             frame_path = os.path.join(self._dir_name, "s.png")
             print(f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}")
             print(f"Saving first stitched frame to {frame_path}")
-            if isinstance(stitched_frame, StreamTensor):
+            if isinstance(stitched_frame, StreamTensorBase):
                 stitched_frame = stitched_frame.get()
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0], force_numpy=True))
             if self._on_first_stitched_image_callback is not None:

@@ -33,14 +33,8 @@ from hmlib.log import logger, logging
 from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid
 from hmlib.ui import show_image as do_show_image
-from hmlib.utils.gpu import GpuAllocator, StreamTensor
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    is_channels_first,
-    make_channels_first,
-    make_channels_last,
-)
+from hmlib.utils.gpu import GpuAllocator, StreamTensorBase
+from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
 
 DEFAULT_SCORE_THRESH = 0.3
 
@@ -524,7 +518,7 @@ def confgure_ice_rink_mask(
         assert image_height(image) == expected_shape[-2]
         image_frame = image
         if device is not None and image_frame.device != device:
-            if isinstance(image_frame, StreamTensor):
+            if isinstance(image_frame, StreamTensorBase):
                 image_frame = image_frame.get()
                 assert image_frame.ndim == 4
                 image_frame = image_frame[0]

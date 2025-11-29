@@ -22,7 +22,7 @@ from hmlib.segm.ice_rink import main as ice_rink_main
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
-from hmlib.utils.gpu import GpuAllocator, StreamCheckpoint, StreamTensor
+from hmlib.utils.gpu import GpuAllocator, StreamCheckpoint, StreamTensorBase
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
@@ -234,9 +234,8 @@ def stitch_videos(
                     original_clip_box=None,
                     progress_bar=progress_bar,
                     cache_size=cache_size,
-                    # async_output=args.async_video_out,
-                    no_cuda_streams=True,
-                    async_output=False,
+                    async_output=args.async_video_out,
+                    no_cuda_streams=args.no_cuda_streams,
                 )
             if video_out is not None:
                 video_out.append(dict(frame_ids=frame_ids, img=StreamCheckpoint(frame)))
@@ -249,7 +248,7 @@ def stitch_videos(
                 for i, stitched_image in enumerate(data_loader_iter):
                     if configure_only:
                         break
-                    if not output_stitched_video_file and isinstance(stitched_image, StreamTensor):
+                    if not output_stitched_video_file and isinstance(stitched_image, StreamTensorBase):
                         stitched_image._verbose = False
                         stitched_image = stitched_image.get()
 
@@ -257,7 +256,7 @@ def stitch_videos(
 
                     cuda_stream.synchronize()
 
-                    # _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
+                    _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
 
                     # Per-iteration profiler step for gated profiling windows
                     if profiler.enabled:

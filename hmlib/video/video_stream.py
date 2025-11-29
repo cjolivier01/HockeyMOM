@@ -23,7 +23,7 @@ from typeguard import typechecked
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_channels_first, make_channels_last, resize_image
 from hmlib.video.ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
@@ -373,7 +373,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
 
     def flush(self, flush_video_file: bool = True, flush_all: bool = False):
         def _get_tensor(t):
-            if isinstance(t, StreamTensor):
+            if isinstance(t, StreamTensorBase):
                 # return t.get()
                 return t.wait()
             return t
@@ -918,7 +918,7 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
         self._output_video = None
 
     def write(self, img: Union[torch.Tensor, np.ndarray]):
-        if isinstance(img, StreamTensor):
+        if isinstance(img, StreamTensorBase):
             img = img.get()
         if img.ndim == 4:
             assert img.shape[0] == 1  # batch size of one only

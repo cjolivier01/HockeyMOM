@@ -16,7 +16,7 @@ from mmengine.structures import InstanceData
 from hmlib.aspen.trunks.base import Trunk
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first
 
 # Jersey-number-pipeline inspired torso crop parameters
@@ -27,7 +27,7 @@ _CONFIDENCE_THRESHOLD = 0.4
 def _to_tensor(x: Any) -> torch.Tensor:
     if isinstance(x, torch.Tensor):
         return x
-    if isinstance(x, StreamTensor):
+    if isinstance(x, StreamTensorBase):
         return x.wait()
     assert isinstance(x, np.ndarray)
     return torch.from_numpy(x)

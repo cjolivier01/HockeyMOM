@@ -26,7 +26,7 @@ from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.ui import show_image
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 
 # TV_10_1_ROSTER: Set[int] = {19, 9, 87, 7, 98, 78, 43, 10, 11, 39, 66, 92, 15}
@@ -118,7 +118,7 @@ class HmNumberClassifier:
             return data
         self._timer.tic()
         img = data[self._image_label]
-        if isinstance(img, StreamTensor):
+        if isinstance(img, StreamTensorBase):
             img._verbose = True
             img = img.get()
             data[self._image_label] = img

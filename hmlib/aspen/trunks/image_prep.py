@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 import torch
 
 from hmlib.utils import MeanTracker
-from hmlib.utils.gpu import StreamTensor, copy_gpu_to_gpu_async
+from hmlib.utils.gpu import StreamTensorBase, copy_gpu_to_gpu_async
 from hmlib.utils.image import make_channels_first
 
 from .base import Trunk
@@ -40,7 +40,7 @@ class ImagePrepTrunk(Trunk):
 
         detection_image = data["img"]
         detection_image = make_channels_first(detection_image)
-        if isinstance(detection_image, StreamTensor):
+        if isinstance(detection_image, StreamTensorBase):
             detection_image.verbose = True
             detection_image = detection_image.wait(cuda_stream)
 

@@ -19,7 +19,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, copy_gpu_to_gpu_async, cuda_stream_scope
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -54,10 +54,10 @@ def safe_put_queue(queue: Any, object: Any) -> None:
 _LARGE_NUMBER_OF_FRAMES: float = 1e128
 
 
-def to_tensor(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> torch.Tensor:
+def to_tensor(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> torch.Tensor:
     if isinstance(tensor, torch.Tensor):
         return tensor
-    if isinstance(tensor, StreamTensor):
+    if isinstance(tensor, StreamTensorBase):
         tensor.verbose = True
         return tensor.get()
     elif isinstance(tensor, np.ndarray):
@@ -66,10 +66,8 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> torch.Te
         assert False
 
 
-def sync_required(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> bool:
+def sync_required(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> bool:
     if isinstance(tensor, (torch.Tensor, np.ndarray)):
-        return False
-    if getattr(tensor, "owns_stream", False):
         return False
     return True
 

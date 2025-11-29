@@ -17,7 +17,7 @@ from hmlib.hm_opts import hm_opts
 from hmlib.orientation import configure_game_videos
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
-from hmlib.utils.gpu import GpuAllocator, StreamTensor, cuda_stream_scope
+from hmlib.utils.gpu import GpuAllocator, StreamTensorBase, cuda_stream_scope
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
@@ -214,7 +214,7 @@ def copy_video(
                 # torch.cuda.synchronize()
 
                 get_timer.tic()
-                if isinstance(source_tensor, StreamTensor):
+                if isinstance(source_tensor, StreamTensorBase):
                     source_tensor = source_tensor.get()
                 get_timer.toc()
 

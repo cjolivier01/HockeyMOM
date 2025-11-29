@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 from hmlib.ui import show_image
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_channels_last
 
 from .base import Trunk
@@ -39,7 +39,7 @@ class PoseTrunk(Trunk):
 
         data: Dict[str, Any] = context["data"]
         original_images = data.get("original_images")
-        if isinstance(original_images, StreamTensor):
+        if isinstance(original_images, StreamTensorBase):
             original_images = original_images.wait()
             data["original_images"] = original_images
         if original_images is None:
@@ -61,7 +61,7 @@ class PoseTrunk(Trunk):
         #         per_frame_bboxes[i] = bxs.to(device=original_images.device, non_blocking=True)
 
         det_imgs_tensor = data.get("img")
-        if isinstance(det_imgs_tensor, StreamTensor):
+        if isinstance(det_imgs_tensor, StreamTensorBase):
             det_imgs_tensor = det_imgs_tensor.wait()
             data["img"] = det_imgs_tensor
         det_inputs_tensor = self._normalize_det_images(det_imgs_tensor, frame_count)

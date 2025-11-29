@@ -8,7 +8,7 @@ import hmlib.vis.pt_visualization as ptv
 from hmlib.builder import PIPELINES
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first
 
 from .boundaries import adjust_point_for_clip_box, adjust_tlbr_for_clip_box
@@ -64,7 +64,7 @@ class SegmBoundaries:
             assert self._segment_mask.shape[1] == image_width(img)
             # alpha = 0.05
             alpha = 0.10
-            if isinstance(img, StreamTensor):
+            if isinstance(img, StreamTensorBase):
                 img = img.wait()
             # Make sure we're all compatible tensors
             if self._segment_mask.device != img.device:
