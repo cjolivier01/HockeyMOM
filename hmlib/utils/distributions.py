@@ -46,9 +46,7 @@ class ImageHorizontalGaussianDistribution:
 
         # Wide gaussian
         std_dev = float(length)
-        self.gaussian_wide = (
-            (1 / (std_dev * np.sqrt(2 * np.pi))) * np.exp(-((x - mean) ** 2) / (2 * std_dev**2)) * 1000
-        )
+        self.gaussian_wide = (1 / (std_dev * np.sqrt(2 * np.pi))) * np.exp(-((x - mean) ** 2) / (2 * std_dev**2)) * 1000
 
         # Whiten the data
         min = np.min(self.gaussian_wide)

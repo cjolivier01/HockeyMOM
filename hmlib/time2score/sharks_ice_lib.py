@@ -269,7 +269,11 @@ DIVISION_GAME_CONVERTERS = {
 
 def _parse_division_teams(table_str: str):
     """Parse team data from a table."""
-    table = pd.read_html(io.StringIO(table_str), extract_links="body", converters=DIVISION_GAME_CONVERTERS,)[
+    table = pd.read_html(
+        io.StringIO(table_str),
+        extract_links="body",
+        converters=DIVISION_GAME_CONVERTERS,
+    )[
         0
     ].fillna("")
     team = table["Team"].apply(pd.Series)
