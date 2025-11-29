@@ -167,7 +167,7 @@ server {{
     subprocess.check_call(["sudo", "systemctl", "restart", "nginx"])
 
     print("Installed webapp:")
-    print(f"  http://localhost/")
+    print("  http://localhost/")
     print(f"  install_root: {install_root}")
     print(f"  uploads root (watch): {args.watch_root}")
 

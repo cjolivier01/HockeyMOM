@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import subprocess
-from pathlib import Path
 
 SERVICE_NAME = "hm-webapp.service"
 NGINX_SITE = "/etc/nginx/sites-available/hm-webapp"

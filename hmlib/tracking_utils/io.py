@@ -115,8 +115,6 @@ def read_mot_results(filename, is_gt, is_ignore):
                     continue
                 results_dict.setdefault(fid, list())
 
-                box_size = float(linelist[4]) * float(linelist[5])
-
                 if is_gt:
                     if 'MOT16-' in filename or 'MOT17-' in filename:
                         label = int(float(linelist[7]))

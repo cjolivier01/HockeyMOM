@@ -1,6 +1,6 @@
-from __future__ import absolute_import, division, print_function
-
 """High-level play tracker that controls camera pan/zoom from detections."""
+
+from __future__ import absolute_import, division, print_function
 
 import argparse
 import copy
@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import torch
 
-from hmlib.actions.action_tracker import ActionTracker, TrackingIdActionInfo
+from hmlib.actions.action_tracker import ActionTracker
 from hmlib.bbox.box_functions import (
     center,
     center_batch,
@@ -21,7 +21,6 @@ from hmlib.bbox.box_functions import (
     make_box_at_center,
     remove_largest_bbox,
     scale_box,
-    tlwh_centers,
     tlwh_to_tlbr_single,
     width,
 )
@@ -30,7 +29,6 @@ from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import get_game_config_private, get_nested_value, save_private_config
-from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
@@ -45,7 +43,6 @@ from .camera_transformer import (
     CameraNorm,
     CameraPanZoomTransformer,
     build_frame_features,
-    make_box_from_center_h,
     unpack_checkpoint,
 )
 from .living_box import PyLivingBox, from_bbox, to_bbox
@@ -490,7 +487,6 @@ class PlayTracker(torch.nn.Module):
         if (self._frame_counter > 1) and (not getattr(self._args, "no_wide_start", False)):
             raise AssertionError("Not currently meant for setting at runtime")
         frame_box = self.get_arena_box()
-        fw, fh = width(frame_box), height(frame_box)
         # Should fit in the video frame
         # assert width(box) <= fw and height(box) <= fh
         scale_w, scale_h = self._current_roi.get_size_scale()
@@ -886,7 +882,7 @@ class PlayTracker(torch.nn.Module):
                 for tid in online_ids:
                     hist = self._hockey_mom.get_history(tid)
                     if hist is not None:
-                        online_img = hist.draw(online_im)
+                        hist.draw(online_im)
 
             if self._args.plot_individual_player_tracking:
                 online_im = vis.plot_tracking(
@@ -1254,8 +1250,6 @@ class PlayTracker(torch.nn.Module):
     def _init_ui_controls(self):
         try:
             cv2.namedWindow(self._ui_window_name, cv2.WINDOW_NORMAL)
-            camera_cfg = self._camera_cfg()
-            bkd = self._breakaway_cfg()
             # Trackbar ranges
             def tb(name, maxv, init):
                 cv2.createTrackbar(name, self._ui_window_name, int(init), int(maxv), self._on_trackbar)
@@ -1296,6 +1290,7 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     self._stitch_slider_enabled = False
             # Speeds/accels (scale sliders by x10 to allow decimals)
+            camera_cfg = self._camera_cfg()
             msx = int(10 * self._camera_base_speed_x * float(camera_cfg["max_speed_ratio_x"]))
             msy = int(10 * self._camera_base_speed_y * float(camera_cfg["max_speed_ratio_y"]))
             maxx = int(10 * self._camera_base_accel_x * float(camera_cfg["max_accel_ratio_x"]))
@@ -1463,7 +1458,6 @@ class PlayTracker(torch.nn.Module):
             ttg = int(cv2.getTrackbarPos("Time_To_Dest_Speed_Limit_Frames", self._ui_window_name))
 
             # Update YAML-like config so all downstream reads are consistent
-            camera_cfg = self._camera_cfg()
             self._set_ui_config_value(("rink", "camera", "stop_on_dir_change_delay"), int(dir_delay))
             self._set_ui_config_value(("rink", "camera", "cancel_stop_on_opposite_dir"), bool(cancel_opp))
             self._set_ui_config_value(("rink", "camera", "stop_cancel_hysteresis_frames"), int(hyst))

@@ -10,7 +10,6 @@ import argparse
 import os
 import sys
 import sysconfig
-from importlib import import_module
 from pathlib import Path
 from textwrap import dedent
 

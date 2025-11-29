@@ -146,7 +146,7 @@ class DetectorFactoryTrunk(Trunk):
             if "yolodetector" in model_cfg.get("type", "").lower():
                 # Ensure we have mmyolo installed for YOLOv8 support
                 try:
-                    import mmyolo.models.detectors.yolo_detector  # type: ignore
+                    pass  # type: ignore
                 except Exception as ex:
                     raise RuntimeError("mmyolo is required for YOLOv8 models but is not installed.") from ex
 
@@ -513,10 +513,6 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
         with self._profile_scope():
             assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
             N = imgs.size(0)
-            try:
-                dev = next(self.model.parameters()).device
-            except StopIteration:
-                dev = torch.device("cpu")
             if self.quantize_int8 and not self._quantized and self.calib_target > 0:
                 remaining = max(0, self.calib_target - len(self._calib_inputs))
                 if remaining > 0:

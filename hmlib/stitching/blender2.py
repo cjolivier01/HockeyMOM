@@ -11,7 +11,7 @@ import os
 import traceback
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -19,7 +19,7 @@ import torch
 
 try:
     import torch2trt
-except:
+except Exception:
     torch2trt = None
 
 import hockeymom.core as core
@@ -317,9 +317,9 @@ def make_seam_and_xor_masks(
         if not use_enblend_tool and core.EnBlender is not None:
             blender = core.EnBlender(
                 args=[
-                    f"--save-seams",
+                    "--save-seams",
                     seam_filename,
-                    f"--save-xor",
+                    "--save-xor",
                     xor_filename,
                 ]
             )
@@ -1315,5 +1315,5 @@ if __name__ == "__main__":
     try:
         main(args)
         print("Done.")
-    except:
+    except Exception:
         traceback.print_exc()

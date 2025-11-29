@@ -1,6 +1,5 @@
 """Logging helpers that wrap mmengine's :class:`MMLogger` for hmlib."""
 
-import logging
 from typing import Union
 
 from mmengine.logging import MMLogger

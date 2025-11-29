@@ -1,5 +1,5 @@
 import argparse
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import librosa
 import matplotlib.pyplot as plt

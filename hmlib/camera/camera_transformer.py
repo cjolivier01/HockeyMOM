@@ -9,7 +9,7 @@ and a small transformer model for camera movement prediction.
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -49,8 +49,6 @@ def build_frame_features(
         n = 0
         cxs = np.array([0.0])
         cys = np.array([0.0])
-        lefts = np.array([0.0])
-        rights = np.array([0.0])
     else:
         n = len(tlwh)
         lefts = tlwh[:, 0]

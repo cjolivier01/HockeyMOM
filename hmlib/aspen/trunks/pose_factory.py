@@ -463,7 +463,6 @@ class _TrtPoseRunner:
             import torch2trt  # type: ignore
         except Exception:
             return
-        import os
         # Prepare dataset and build when enough samples
         if self._calib_dataset is None:
             try:

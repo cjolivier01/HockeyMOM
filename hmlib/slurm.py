@@ -104,13 +104,13 @@ def slurm_parse_brackets(s):
         if s[0] == "]":
             return lst, s[1:]
         a, s = slurm_parse_int(s)
-        assert len(s) > 0, f"Missing closing ']'"
+        assert len(s) > 0, "Missing closing ']'"
         if s[0] in ",]":
             lst.append(a)
         elif s[0] == "-":
             b, s = slurm_parse_int(s[1:])
             lst += string_range(a, int(b) + 1)
-    assert len(s) > 0, f"Missing closing ']'"
+    assert len(s) > 0, "Missing closing ']'"
 
 
 def slurm_parse_node(s):

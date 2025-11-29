@@ -7,11 +7,9 @@ import torch
 import hmlib.vis.pt_visualization as ptv
 from hmlib.builder import PIPELINES
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
-from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first
 
-from .boundaries import adjust_point_for_clip_box, adjust_tlbr_for_clip_box
 
 
 @PIPELINES.register_module()

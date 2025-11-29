@@ -29,13 +29,12 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, copy_gpu_to_gpu_async, cuda_stream_scope
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope
+from hmlib.utils.image import image_height, image_width, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.utils.tensor import make_const_tensor
 from hmlib.video.ffmpeg import BasicVideoInfo
-from hockeymom import show_cuda_tensor
 from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
 
 
@@ -351,10 +350,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
     def __delete__(self):
         if hasattr(self, "close"):
             self.close()
-
-    @property
-    def bit_rate(self) -> int:
-        return max(self._video_left_info.bit_rate, self._video_right_info.bit_rate)
 
     @property
     def lfo(self):

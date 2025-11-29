@@ -1,5 +1,9 @@
 """Default runtime settings (logging, dist, LR scaling) for hm2 configs."""
 
+import os
+
+import torch
+
 checkpoint_config = dict(interval=10)
 # yapf:disable
 log_config = dict(
@@ -27,8 +31,6 @@ mp_start_method = 'fork'
 #   - `enable` means enable scaling LR automatically
 #       or not by default.
 #   - `base_batch_size` = (8 GPUs) x (2 samples per GPU).
-import os
-import torch
 node_count = int(os.environ.get("SLURM_NNODES", "1"))
 gpus_per_node = torch.cuda.device_count()
 auto_scale_lr = dict(enable=True, base_batch_size=16 * node_count * gpus_per_node)

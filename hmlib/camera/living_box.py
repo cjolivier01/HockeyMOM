@@ -8,20 +8,12 @@ import torch
 
 from hmlib.bbox.box_functions import (
     center,
-    center_batch,
-    clamp_box,
-    get_enclosing_box,
-    height,
     make_box_at_center,
     move_box_to_center,
-    remove_largest_bbox,
     scale_box,
-    tlwh_centers,
-    tlwh_to_tlbr_single,
-    width,
 )
 from hmlib.tracking_utils import visualization as vis
-from hockeymom.core import AllLivingBoxConfig, BBox, LivingBox, WHDims
+from hockeymom.core import BBox, LivingBox, WHDims
 
 
 def to_bbox(tensor: torch.Tensor, is_cpp: bool) -> BBox:

@@ -1,12 +1,10 @@
 """Alternative data loader wiring for multi-camera stitching (v3)."""
 
-import argparse
 import os
 import threading
-import time
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import cv2
 import numpy as np
@@ -23,7 +21,6 @@ from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, copy_gpu_to_gpu_
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
-from hockeymom import show_cuda_tensor
 from hockeymom.core import CudaStitchPanoF32
 
 
@@ -194,9 +191,10 @@ class StitchDataset:
             videos["left"]["frame_offset"] if "left" in videos else self._stream_offsets[self._stream_keys[0]]
         )
         self._video_right_offset_frame = (
-            videos["right"]["frame_offset"] if "right" in videos else (
-                self._stream_offsets[self._stream_keys[1]] if len(self._stream_keys) > 1 else None
-            )
+            videos["right"]["frame_offset"]
+            if "right" in videos
+            else (self._stream_offsets[self._stream_keys[1]] if len(self._stream_keys) > 1 else None)
+        )
         self._pto_project_file = pto_project_file
         self._max_input_queue_size = max_input_queue_size
         self._blend_mode = blend_mode
@@ -374,11 +372,6 @@ class StitchDataset:
         return self._fps
 
     @property
-    def bit_rate(self):
-        if self._bitrate is None:
-            self._load_video_props()
-        return self._bitrate
-
     def close(self):
         for stitching_worker in self._stitching_workers.values():
             stitching_worker.close()
@@ -408,7 +401,6 @@ class StitchDataset:
                 h = int(image_height(img))
                 slice_w = w // 6
                 slice_h = h // 3
-                slice_h_width: int = h // 6
                 slice_top = int(slice_h)
                 slice_bottom = int(slice_h + h // 3)
                 if i == 0:

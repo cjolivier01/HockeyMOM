@@ -5,8 +5,7 @@ For performance reasons, experiments in streaming and pipelining a simple copy
 import argparse
 import os
 import time
-from contextlib import nullcontext
-from typing import List, Optional, Set, Union
+from typing import List, Union
 
 import numpy as np
 import torch
@@ -186,7 +185,7 @@ def copy_video(
 
     video_out = _open_output_video(_output_file_name(split_number))
     if video_out is None:
-        print(f"No saving the output video.")
+        print("No saving the output video.")
 
     v_iter = CachedIterator(
         iterator=iter(dataloader),

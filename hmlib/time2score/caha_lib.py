@@ -247,8 +247,12 @@ def fix_players_rows(rows: list[list[Any]]):
     return val
 
 
-NO_LINK_INT = lambda a: int(a[0]) if a[0] else 0
-NO_LINK = lambda a: a[0] if a[0] else ""
+def NO_LINK_INT(a):
+    return int(a[0]) if a[0] else 0
+
+
+def NO_LINK(a):
+    return a[0] if a[0] else ""
 
 DIVISION_GAME_CONVERTERS = {
     "G": NO_LINK_INT,

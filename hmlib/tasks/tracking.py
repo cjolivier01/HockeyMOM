@@ -3,10 +3,7 @@ from collections import OrderedDict
 from typing import Any, Dict, Optional
 
 import torch
-import yaml
 
-import hmlib.models.end_to_end  # Registers the model
-import hmlib.tracking_utils.segm_boundaries
 
 # AspenNet graph runner
 from hmlib.aspen import AspenNet
@@ -66,7 +63,6 @@ def run_mmtrack(
                 model.eval()
 
             wraparound_timer = None
-            get_timer = Timer()
             detect_timer = None
             last_frame_id = None
             max_tracking_id = 0
@@ -335,7 +331,7 @@ def run_mmtrack(
                     wraparound_timer.tic()
     except StopIteration:
         print("run_mmtrack reached end of dataset")
-    except Exception as ex:
+    except Exception:
         raise
     finally:
         if aspen_net is not None:

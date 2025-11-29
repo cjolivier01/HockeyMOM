@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 
 import hmlib.hm_transforms  # noqa: F401 - ensure TRANSFORMS are registered
@@ -65,7 +64,6 @@ def should_kelvin_white_balance_behave_reasonably():
     out_warm = warm(data)["img"]
     # Compare channel means
     r_warm = out_warm[0].mean()
-    g_warm = out_warm[1].mean()
     b_warm = out_warm[2].mean()
     # For warm WB, blue should be boosted more than red
     assert b_warm > r_warm

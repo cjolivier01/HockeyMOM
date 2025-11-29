@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-import numpy as np
 import pandas as pd
 import torch
 

@@ -185,7 +185,6 @@ class LoadTrackingTrunk(Trunk):
             return {}
 
         data: Dict[str, Any] = context.get("data", {})
-        preserved_original_images = data.get("original_images")
         track_samples = data.get("data_samples")
         if track_samples is None:
             return {}

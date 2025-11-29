@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import shutil
 import subprocess
 import sys
@@ -51,7 +50,7 @@ import tempfile
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from hmlib.config import get_game_dir
 

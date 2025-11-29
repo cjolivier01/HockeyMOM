@@ -84,7 +84,7 @@ def main(argv: Optional[list[str]] = None) -> int:
       f"(homeId = {team_id} OR awayId = {team_id}) AND season_id = {args.season}"
   )
 
-  w = l = t = 0
+  wins = losses = ties = 0
   gf = ga = 0
   by_type = Counter()
   examples = []
@@ -150,7 +150,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not _include_by_date(r.get("start_time")):
       continue
     # For opponent filtering, resolve names once per row
-    home_id = r["homeId"]; away_id = r["awayId"]
+    home_id = r["homeId"]
+    away_id = r["awayId"]
     home_team = db.get_team(r["season_id"], r["division_id"], r["conference_id"], home_id) if home_id is not None else None
     away_team = db.get_team(r["season_id"], r["division_id"], r["conference_id"], away_id) if away_id is not None else None
     home_name = (home_team and home_team.get("name")) or info.get("home") or ""
@@ -172,11 +173,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     typ = (info.get("type") or "Unknown").split()[0]
     by_type[typ] += 1
     if gfor > gagainst:
-      w += 1
+      wins += 1
     elif gfor < gagainst:
-      l += 1
+      losses += 1
     else:
-      t += 1
+      ties += 1
     if len(examples) < 5:
       opp_id = r["awayId"] if r["homeId"] == team_id else r["homeId"]
       opp = db.get_team(r["season_id"], r["division_id"], r["conference_id"], opp_id)
@@ -194,9 +195,9 @@ def main(argv: Optional[list[str]] = None) -> int:
       "team": name,
       "team_id": team_id,
       "season": args.season,
-      "record": {"wins": w, "losses": l, "ties": t},
+      "record": {"wins": wins, "losses": losses, "ties": ties},
       "goals": {"for": gf, "against": ga, "diff": gf - ga},
-      "games_scored": w + l + t,
+      "games_scored": wins + losses + ties,
       "by_type": dict(by_type),
       "examples": examples,
   }
@@ -208,7 +209,7 @@ def main(argv: Optional[list[str]] = None) -> int:
   else:
     print(f"Summary for {summary['team']} (season {summary['season']})")
     print(
-        f"Record (W-L-T): {w}-{l}-{t}\nGoals For/Against: {gf}/{ga} (diff={gf-ga})\n"
+        f"Record (W-L-T): {wins}-{losses}-{ties}\nGoals For/Against: {gf}/{ga} (diff={gf-ga})\n"
         f"Games with scores: {summary['games_scored']}\nBy type: {summary['by_type']}"
     )
     print("Sample games:")
@@ -245,7 +246,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         continue
       if not _include_by_date(r.get("start_time")):
         continue
-      home_id = r["homeId"]; away_id = r["awayId"]
+      home_id = r["homeId"]
+      away_id = r["awayId"]
       # Resolve team names
       home_team = db.get_team(r["season_id"], r["division_id"], r["conference_id"], home_id) if home_id is not None else None
       away_team = db.get_team(r["season_id"], r["division_id"], r["conference_id"], away_id) if away_id is not None else None
@@ -259,11 +261,17 @@ def main(argv: Optional[list[str]] = None) -> int:
       hg = _to_int(info.get("homeGoals"))
       ag = _to_int(info.get("awayGoals"))
       if team_id == home_id:
-        role = "home"; gfor = hg; gagainst = ag
+        role = "home"
+        gfor = hg
+        gagainst = ag
       elif team_id == away_id:
-        role = "away"; gfor = ag; gagainst = hg
+        role = "away"
+        gfor = ag
+        gagainst = hg
       else:
-        role = "unknown"; gfor = None; gagainst = None
+        role = "unknown"
+        gfor = None
+        gagainst = None
       res = ""
       if gfor is not None and gagainst is not None:
         res = "W" if gfor > gagainst else ("L" if gfor < gagainst else "T")

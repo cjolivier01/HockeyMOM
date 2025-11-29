@@ -7,16 +7,14 @@ frame data plus a thin :class:`Dataset` wrapper for training.
 import json
 import os
 from pathlib import Path
-from dataclasses import asdict, dataclass, is_dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Type, Union
+from dataclasses import asdict, is_dataclass
+from typing import Any, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from hmlib.builder import PIPELINES as TRANSFORMS
-from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
 
 
@@ -39,7 +37,7 @@ class HmDataFrameBase:
         self._dataframe_list: List[pd.DataFrame] = []
         self.counter = 0  # Counter to track number of records since the last write
         self.data: Optional[pd.DataFrame] = None
-        self._ilocator: ILocator = None
+        self._ilocator = None
         if input_file:
             self.read_data()
 

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import List, Tuple
 
 # We need this to get registered
-import mmdet.models.data_preprocessors.track_data_preprocessor
 import torch
 import torch.backends.cudnn as cudnn
 from mmcv.transforms import Compose
@@ -32,7 +31,6 @@ from hmlib.config import (
     get_nested_value,
     resolve_global_refs,
     set_nested_value,
-    update_config,
 )
 from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
@@ -291,7 +289,6 @@ def _main(args, num_gpu):
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
 
-        is_distributed = num_gpu > 1
         if args.gpus and isinstance(args.gpus, str):
             args.gpus = [int(i) for i in args.gpus.split(",")]
 
@@ -612,22 +609,6 @@ def _main(args, num_gpu):
             args.initial_args["bottom_border_lines"] = cam_args.bottom_border_lines
             args.initial_args["original_clip_box"] = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
 
-        # If Aspen config includes a pose factory trunk, defer inferencer creation to it
-        aspen_has_pose_factory = False
-        try:
-            if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
-                trunks_cfg = aspen_cfg_for_pipeline.get("trunks", {}) or {}
-                if "pose_factory" in trunks_cfg:
-                    aspen_has_pose_factory = True
-                else:
-                    # also detect by class path if authors used a different key
-                    for tname, tspec in trunks_cfg.items():
-                        if isinstance(tspec, dict) and tspec.get("class", "").endswith("PoseInferencerFactoryTrunk"):
-                            aspen_has_pose_factory = True
-                            break
-        except Exception:
-            pass
-
         pose_inferencer = None
         # if args.multi_pose and not aspen_has_pose_factory:
         #     from mmpose.apis.inferencers import MMPoseInferencer
@@ -849,7 +830,7 @@ def _main(args, num_gpu):
                     raise ValueError("--end-zones specified, but no end-zone videos found")
 
         if dataloader is None:
-            dataloader = exp.get_eval_loader(args.batch_size, is_distributed, args.test, return_origin_img=True)
+            raise ValueError("Dataloader could not be constructed")
 
         if not args.no_progress_bar:
             table_map = OrderedDict()
@@ -866,10 +847,8 @@ def _main(args, num_gpu):
         else:
             progress_bar = None
 
-        save_dir = None
         output_video_path = None
         if not args.no_save_video:
-            save_dir = results_folder
             output_video_path = os.path.join(results_folder, "tracking_output.mkv")
 
         if not args.audio_only:
@@ -1037,12 +1016,12 @@ def _main(args, num_gpu):
             if postprocessor is not None:
                 try:
                     postprocessor.stop()
-                except:
+                except Exception:
                     traceback.print_exc()
             if dataloader is not None and hasattr(dataloader, "close"):
                 try:
                     dataloader.close()
-                except:
+                except Exception:
                     traceback.print_exc()
         except Exception as ex:
             print(f"Exception while shutting down: {ex}")

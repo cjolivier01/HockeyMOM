@@ -89,14 +89,12 @@ def other_impl(
             cv2.line(img, start, end, (255, 0, 0) if not is_upper else (0, 0, 255), 2)
 
     def preprocess_lines(lines: List[List[int]], is_upper: bool):
-        for l in lines:
-            x = l[0]
-            y = l[1]
-            w = l[2] - l[0]
-            h = l[3] - l[1]
+        for line_points in lines:
+            x = line_points[0]
+            y = line_points[1]
             current_line = [[x, y]]  # Start point of the line
             # current_line.append([w, h])
-            current_line.append([l[2], l[3]])
+            current_line.append([line_points[2], line_points[3]])
             # Ensure the line is always left to right
             start, end = sorted(current_line)
             cv2.line(img, start, end, (255, 0, 0) if not is_upper else (0, 0, 255), 2)

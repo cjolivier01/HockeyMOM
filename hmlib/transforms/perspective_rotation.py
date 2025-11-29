@@ -1,4 +1,3 @@
-from contextlib import contextmanager
 from typing import Tuple, Union
 
 import torch
@@ -8,8 +7,6 @@ from hmlib.bbox.box_functions import center, height, width
 from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, rotate_image, to_float_image
-from hmlib.utils.iterators import CachedIterator
-from hmlib.video.video_stream import VideoStreamReader
 
 
 def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:

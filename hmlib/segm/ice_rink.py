@@ -18,7 +18,7 @@ from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
 from mmdet.models.detectors.base import BaseDetector
 from mmdet.structures import DetDataSample
-from mmdet.structures.mask import PolygonMasks, bitmap_to_polygon
+from mmdet.structures.mask import bitmap_to_polygon
 from PIL import Image
 
 from hmlib.config import (

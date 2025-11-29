@@ -7,7 +7,6 @@ from typing import Tuple
 import cv2
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 import hockeymom.core as core
 from hmlib.log import get_root_logger

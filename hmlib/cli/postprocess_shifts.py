@@ -94,15 +94,6 @@ def main() -> None:
     comb_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     # Build player comparison (Home vs Away) for key metrics
-    # Key columns we care about
-    key_cols = [
-        "plus_minus",
-        "toi_total",
-        "toi_avg",
-        "toi_median",
-        "toi_longest",
-        "toi_shortest",
-    ]
     # Index rows by (player, side)
     idx: Dict[Tuple[str, str], Dict[str, str]] = {}
     for m in combined_rows:
@@ -153,4 +144,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Aspen trunk that computes per-frame camera boxes (pan/zoom)."""
+
+from __future__ import annotations
 
 from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
@@ -11,11 +11,7 @@ from mmengine.structures import InstanceData
 from hmlib.bbox.box_functions import (
     center,
     clamp_box,
-    get_enclosing_box,
-    height,
     make_box_at_center,
-    tlwh_to_tlbr_single,
-    width,
 )
 from hmlib.builder import HM
 from hmlib.camera.camera_transformer import (
@@ -76,7 +72,7 @@ class CameraControllerTrunk(Trunk):
                 self._norm = norm
                 self._window = int(w)
                 self._feat_buf = deque(maxlen=self._window)
-            except Exception as ex:
+            except Exception:
                 # Fall back to rule-based
                 self._controller = "rule"
 

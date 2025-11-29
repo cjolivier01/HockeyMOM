@@ -5,17 +5,14 @@ but demonstrates how to wire GStreamer pipelines for video processing.
 """
 
 import argparse
-import sys
 import traceback
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
 import cv2
 import gi
-import numpy as np
-import torch
 
 gi.require_version('Gst', '1.0')
-from gi.repository import GLib, GObject, Gst
+from gi.repository import GLib, GObject, Gst  # noqa: E402
 
 
 class VideoTranscoder:

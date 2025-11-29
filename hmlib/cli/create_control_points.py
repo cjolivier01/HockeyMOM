@@ -14,14 +14,12 @@ from typing import Dict, List, Optional, Tuple, Union
 import cv2
 import ffmpegio
 import kornia
-import kornia.feature as KF
 import numpy as np
 import scipy.signal
 import torch
 import yaml
 from lightglue import LightGlue, SuperPoint, viz2d
-from lightglue.utils import load_image, rbd
-from scipy.signal import correlate
+from lightglue.utils import rbd
 
 # Ensure that the lightglue package is available.
 try:
@@ -136,14 +134,10 @@ def synchronize_by_audio(
     if verbose:
         print("Calculating cross-correlation...")
 
-    sum1 = np.sum(audio1[:, 0])
-    sum2 = np.sum(audio2[:, 0])
-
     # Use only the first channel for correlation.
     correlation: np.ndarray = scipy.signal.correlate(
         audio1[:, 0], audio2[:, 0], mode="full"
     )
-    sumc = np.sum(correlation)
     # Compute lag: subtract the length of the signal (using axis 1 length)
     lag: int = np.argmax(correlation) - audio1.shape[0] + 1
 
@@ -306,7 +300,7 @@ def calculate_control_points(
 
     # Optionally generate and save visualizations.
     if output_directory:
-        axes = viz2d.plot_images([frame0, frame1])
+        viz2d.plot_images([frame0, frame1])
         viz2d.plot_matches(m_kpts0, m_kpts1, color="lime", lw=0.2)
         viz2d.add_text(0, f'Stop after {matches01["stop"]} layers', fs=20)
         viz2d.save_plot(os.path.join(output_directory, "matches.png"))

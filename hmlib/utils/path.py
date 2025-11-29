@@ -31,8 +31,8 @@ def is_second_file_older(first: Union[str, Path], second: Union[str, Path]):
     Takes two file names and returns True if the first file is older than the second file.
     """
     # Get the last modified time for both files
-    first_mtime = os.path.getmtime(file1)
-    second_mtime = os.path.getmtime(file2)
+    first_mtime = os.path.getmtime(first)
+    second_mtime = os.path.getmtime(second)
 
     # Compare the modification times
-    return file1_mtime < file2_mtime
+    return first_mtime < second_mtime

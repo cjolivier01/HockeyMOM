@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 """High-level stitched video writer and visualization utilities.
 
 This module coordinates GPU streams, color transforms, overlays and IO to
@@ -7,6 +5,8 @@ produce the final rendered videos used by many CLIs.
 
 @see @ref hmlib.video.video_stream "video_stream" for the underlying encoder.
 """
+
+from __future__ import absolute_import, division, print_function
 
 import contextlib
 import math
@@ -20,13 +20,11 @@ import cv2
 import numpy as np
 import torch
 from mmcv.transforms import Compose
-from torchvision.transforms import functional as F
 
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.log import logger
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.timer import Timer, TimeTracker
-from hmlib.ui import show_image
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
@@ -37,9 +35,7 @@ from hmlib.utils.image import (
     image_height,
     image_width,
     make_channels_last,
-    make_visible_image,
     resize_image,
-    rotate_image,
     to_uint8_image,
 )
 from hmlib.utils.iterators import CachedIterator

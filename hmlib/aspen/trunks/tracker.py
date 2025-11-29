@@ -1,12 +1,12 @@
 import logging
 from importlib import import_module
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
-from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
+from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Trunk
 

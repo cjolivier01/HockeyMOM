@@ -1,14 +1,11 @@
 import os
 import math
 import traceback
-from collections import defaultdict
-from dataclasses import dataclass
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, Tuple
 
 import cv2
 
 from hmlib.analytics.analyze_jerseys import (
-    IntervalJerseys,
     analyze_data,
     interval_jerseys_to_merged_jersey_time_intervals,
 )

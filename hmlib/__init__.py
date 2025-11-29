@@ -14,6 +14,7 @@ import sys
 
 import numpy as np
 
+from .constants import WIDTH_NORMALIZATION_SIZE
 from .hm_transforms import HmLoadImageFromWebcam
 
 # Get the absolute path of this file's parent directory
@@ -42,6 +43,7 @@ np.sctypes = _sctypes_mock
 __all__ = [
     "HmLoadImageFromWebcam",
     "LazyImport",
+    "WIDTH_NORMALIZATION_SIZE",
 ]
 
 
@@ -63,6 +65,3 @@ class LazyImport:
         if self.module is None:
             self.module = importlib.import_module(self.module_name)
         return getattr(self.module, name)
-
-
-from .constants import *

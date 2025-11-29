@@ -16,6 +16,21 @@ exclude = '''
 )/
 '''
 
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = [
+    "bazel-*",
+    "bdist_wheel",
+    "build",
+    "dist",
+    "external",
+    "openmm",
+    "output_workdirs",
+    "xmodels",
+    "*.ipynb",
+]
+
 [tool.isort]
 # Setting compatible with black. See https://black.readthedocs.io/en/stable/compatible_configs.html
 multi_line_output = 3

@@ -9,7 +9,6 @@ import sys
 import tempfile
 from typing import List
 
-import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
@@ -23,7 +22,8 @@ def _make_detection_df(path: str):
     inst.scores = torch.tensor([0.9, 0.8], dtype=torch.float32)
     inst.labels = torch.tensor([0, 0], dtype=torch.long)
     inst.bboxes = torch.tensor([[10, 15, 30, 60], [100, 120, 150, 180]], dtype=torch.float32)
-    ds = DetDataSample(); ds.pred_instances = inst
+    ds = DetDataSample()
+    ds.pred_instances = inst
     for frame in range(1, 6):
         df.add_frame_sample(frame, ds)
     df.flush()
@@ -40,7 +40,8 @@ def _make_tracking_df(path: str):
         inst.bboxes = torch.tensor([[10.0 + frame, 20.0, 40.0, 60.0]], dtype=torch.float32)
         inst.scores = torch.tensor([0.95], dtype=torch.float32)
         inst.labels = torch.tensor([0], dtype=torch.long)
-        ds = DetDataSample(); ds.pred_track_instances = inst
+        ds = DetDataSample()
+        ds.pred_track_instances = inst
         df.add_frame_sample(frame, ds)
     df.flush()
 
@@ -57,7 +58,8 @@ def _make_pose_df(path: str):
         pinst = InstanceData()
         pinst.keypoints = torch.zeros((1, 17, 2), dtype=torch.float32)
         pinst.keypoint_scores = torch.ones((1, 17), dtype=torch.float32)
-        pds = PoseDataSample(); pds.pred_instances = pinst
+        pds = PoseDataSample()
+        pds.pred_instances = pinst
         for frame in range(1, 6):
             df.add_frame_sample(frame, pds)
     else:
@@ -173,4 +175,3 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
-

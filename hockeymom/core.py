@@ -70,7 +70,7 @@ from ._hockeymom import (
 
 try:
     from ._hockeymom import EnBlender
-except:
+except Exception:
     EnBlender = None
 
 

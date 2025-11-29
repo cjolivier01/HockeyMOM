@@ -9,6 +9,7 @@ visualizers and tracking overlays.
 import math
 from typing import Tuple, Union
 
+import cv2
 import numpy as np
 import torch
 

@@ -33,7 +33,6 @@ import datetime as dt
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -225,7 +224,6 @@ def _fetch_and_store_team_logo(conn, team_mysql_id: int, tts_team_id: int, seaso
         return
     # Fetch first reasonable image from the team schedule page
     try:
-        import os as _os
         from pathlib import Path as _Path
 
         import requests as _req
@@ -434,7 +432,9 @@ def _import_game_by_id(conn, tts_dir: Path, game_id: int, user_id: int, league_i
         home_name = str(data.get("home", "")).strip()
         away_name = str(data.get("away", "")).strip()
         if team_filters:
-            norm = lambda s: s.lower().replace(" ", "")
+            def norm(value: str) -> str:
+                return value.lower().replace(" ", "")
+
             hn = norm(home_name)
             an = norm(away_name)
             if not any(norm(tf) in hn or norm(tf) in an for tf in team_filters if tf):
@@ -513,7 +513,6 @@ def _import_game_by_id(conn, tts_dir: Path, game_id: int, user_id: int, league_i
             # penalties minutes
             pens = data.get(f"{side}Penalties") or []
             for prow in pens:
-                name = str(prow.get("infraction") or "").strip()  # table may not have name; skip
                 # Some sites list number not name in penalties; skip to avoid incorrect attribution
                 continue
 
@@ -743,7 +742,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         teams = tdb.list_teams(f"season_id = {season_id}")
         if allowed_div_keys is not None:
             teams = [t for t in teams if (int(t["division_id"]), int(t["conference_id"])) in allowed_div_keys]
-        name_to_team: Dict[str, Dict[str, Any]] = {t["name"]: t for t in teams}
         log(f"Teams in season {season_id}: total={len(tdb.list_teams(f'season_id = {season_id}'))}, filtered={len(teams)}")
 
         # Upsert teams in webapp DB (and optionally fetch logos)
@@ -756,9 +754,6 @@ def main(argv: Optional[list[str]] = None) -> int:
                     _fetch_and_store_team_logo(conn, mysql_tid, int(t["team_id"]), season_id, args.logo_dir)
                 except Exception:
                     pass
-
-        # Ensure a fallback UNKNOWN team if needed
-        unknown_tid = ensure_team(conn, user_id=user_id, name="UNKNOWN", is_external=1)
 
         # Import games
         # Decide import source: explicit game ids, division schedules, or DB games

@@ -1,5 +1,4 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-import math
 import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -14,9 +13,6 @@ from mmpose.registry import VISUALIZERS
 from mmpose.structures import PoseDataSample
 
 from hmlib.vis.pt_text import draw_text as torch_draw_text
-from hmlib.vis.pt_text import is_channels_first as _is_cf
-from hmlib.vis.pt_text import make_channels_first as _mk_cf
-from hmlib.vis.pt_text import make_channels_last as _mk_cl
 
 # New torch-only drawing utilities
 from hmlib.vis.pt_visualization import draw_box as torch_draw_box
@@ -25,7 +21,10 @@ from hmlib.vis.pt_visualization import draw_line as torch_draw_line
 
 from .pytorch_backend_visualizer import PytorchBackendVisualizer
 
-# from .simcc_vis import SimCCVisualizer
+try:
+    from mmpose.visualization.simcc_vis import SimCCVisualizer
+except Exception:
+    SimCCVisualizer = None
 
 
 def _get_adaptive_scales(
@@ -662,8 +661,9 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         _, h, w = heatmaps.shape
         if isinstance(heatmaps, np.ndarray):
             heatmaps = torch.from_numpy(heatmaps)
-        out_image = SimCCVisualizer().draw_instance_xy_heatmap(
-            heatmaps, overlaid_image, n)
+        if SimCCVisualizer is None:
+            return None
+        out_image = SimCCVisualizer().draw_instance_xy_heatmap(heatmaps, overlaid_image, n)
         out_image = cv2.resize(out_image[:, :, ::-1], (w, h))
         return out_image
 
@@ -724,7 +724,6 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         """
 
         torch_image = self._ensure_torch_image(image)
-        device = torch_image.device
 
         gt_img_data: Optional[torch.Tensor] = None
         pred_img_data: Optional[torch.Tensor] = None

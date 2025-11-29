@@ -102,5 +102,5 @@ class AsyncWorker:
             self._deliver_item(e)
         try:
             self._deliver_item(StopIteration())
-        except:
+        except Exception:
             pass

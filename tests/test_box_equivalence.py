@@ -1,6 +1,5 @@
-import math
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 
 def _torch():
@@ -179,12 +178,10 @@ def _run_case(cfg: Dict, axis: str):
         if axis == "x":
             # Move to the right again
             base = dests[idx - 1]
-            base_center_x = (float(base[0]) + float(base[2])) / 2.0
             shift = torch.tensor([step, 0.0, step, 0.0], dtype=torch.float)
             dests[idx] = base + shift
         else:
             base = dests[idx - 1]
-            base_center_y = (float(base[1]) + float(base[3])) / 2.0
             shift = torch.tensor([0.0, step, 0.0, step], dtype=torch.float)
             dests[idx] = base + shift
 

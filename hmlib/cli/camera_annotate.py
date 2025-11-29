@@ -49,7 +49,6 @@ def _ensure_cam_df(
     """
     width = float(info.width)
     height = float(info.height)
-    aspect = default_aspect if default_aspect and default_aspect > 0 else width / height
     frames = np.arange(1, int(info.frame_count) + 1, dtype=np.int64)
     if input_camera_csv and os.path.exists(input_camera_csv):
         cams = pd.read_csv(input_camera_csv, header=None)
@@ -236,11 +235,9 @@ def annotate(
             # Determine w/h for this frame from baseline or defaults
             idx = frame_to_idx.get(csv_frame)
             h = default_h
-            w = int(round(h * (16.0 / 9.0)))
             if idx is not None:
                 try:
                     h = int(max(1, float(out_df.iloc[idx]["BBox_H"])))
-                    w = int(round(h * (16.0 / 9.0)))
                 except Exception:
                     pass
             # Initialize current adjustable size from baseline/default each frame
