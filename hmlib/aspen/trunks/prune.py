@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterable, List, Set
+from typing import Any, Dict, List, Set
 
 from .base import DeleteKey, Trunk
 

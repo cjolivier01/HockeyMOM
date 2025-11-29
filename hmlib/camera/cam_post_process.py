@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 """Post-processing pipeline for camera tracking and play visualization.
 
 This script ties together tracking CSVs, camera config and visualization to
@@ -8,6 +6,8 @@ produce debug or training videos for the camera controller.
 @see @ref hmlib.camera.camera_dataframe.CameraTrackingDataFrame "CameraTrackingDataFrame"
 @see @ref hmlib.camera.play_tracker.PlayTracker "PlayTracker"
 """
+
+from __future__ import absolute_import, division, print_function
 
 import argparse
 import contextlib

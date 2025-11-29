@@ -7,7 +7,6 @@ from typing import Any, Dict, Optional, List
 
 import numpy as np
 import pandas as pd
-import torch
 
 from hmlib.datasets.dataframe import HmDataFrameBase
 from hmlib.tracking_utils.tracking_dataframe import convert_tlbr_to_tlwh
@@ -81,4 +80,4 @@ class CameraTrackingDataFrame(HmDataFrameBase):
         frame_data = self.data[self.data["Frame"] == frame_id]
         # Extract columns as NumPy arrays
         bboxes = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
-        return dict(frame_id=frame_id, scores=scores, labels=labels, bboxes=bboxes)
+        return {"frame_id": frame_id, "bboxes": bboxes}

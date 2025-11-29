@@ -10,7 +10,6 @@ sample usage:
 """
 import argparse
 import subprocess
-import shlex
 
 
 def make_parser():

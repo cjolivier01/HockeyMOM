@@ -7,7 +7,6 @@ Aspen pipelines via :class:`hmlib.transforms.video_frame.HmUnsharpMask`.
 import math
 import torch
 from torch import Tensor
-from typing import Tuple
 import torch.nn.functional as F
 
 from hmlib.utils.image import make_channels_first, is_channels_first, make_channels_last

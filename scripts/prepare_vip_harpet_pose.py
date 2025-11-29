@@ -22,11 +22,9 @@ Requires: h5py, pillow, mmengine.
 from __future__ import annotations
 
 import argparse
-import os
 import os.path as osp
 import re
-from collections import defaultdict
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import h5py
 import mmengine

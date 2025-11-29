@@ -11,7 +11,6 @@ from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.ui.show import show_image
-from hmlib.utils.image import image_height, image_width
 from hmlib.utils.letterbox import py_letterbox
 
 ZONE_LEFT: str = "LEFT"
@@ -46,10 +45,10 @@ class EndZones(torch.nn.Module):
         self._exposure_ratio: Dict[str, torch.Tensor] = {}
 
         self.line_equations: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
-        for name, l in self._lines.items():
-            # l = make_y_up(l)
+        for name, line_pts in self._lines.items():
+            # line_pts = make_y_up(line_pts)
             self.line_equations[name] = find_line_equation(
-                x1=l[0][0], y1=l[0][1], x2=l[1][0], y2=l[1][1]
+                x1=line_pts[0][0], y1=line_pts[0][1], x2=line_pts[1][0], y2=line_pts[1][1]
             )
 
     def draw(self, img: Union[torch.Tensor, np.ndarray]) -> np.ndarray:
@@ -94,7 +93,6 @@ class EndZones(torch.nn.Module):
         bboxes = data.get(self._box_key)
         if bboxes is None:
             return data
-        replacement_images: List[torch.Tensor] = []
         # We look at the average of the boxes
         bbox = torch.mean(bboxes, dim=0)
         cc = center(bbox)

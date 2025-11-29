@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional, Union, List, TYPE_CHECKING
+from typing import Any, Dict, Optional, List, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd

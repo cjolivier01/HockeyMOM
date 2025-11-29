@@ -1,6 +1,5 @@
 import importlib
 import pkgutil
-import inspect
 
 def find_item_in_module(module, item_name):
     """
@@ -38,4 +37,4 @@ def find_item_in_module(module, item_name):
 
 # Example usage
 if __name__ == "__main__":
-    import some_module  # Replace 'some_module' with
+    pass  # Replace 'some_module' with

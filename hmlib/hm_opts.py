@@ -1,7 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
-import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -164,11 +163,6 @@ class hm_opts(object):
             action="store_true",
             help="Save tracking data to camera.csv",
         )
-
-        #
-        # Feature Cache (pipeline state caching: detection/tracking/pose/action)
-        #
-        cache = parser.add_argument_group("Feature Cache")
 
         #
         # Visualization & Plotting

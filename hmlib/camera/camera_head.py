@@ -1,10 +1,10 @@
-from __future__ import absolute_import, division, print_function
-
 """Camera tracking head that bridges detection outputs to post-processing.
 
 This module wires the `HockeyMOM` camera logic and the `CamTrackPostProcessor`
 into an `HM`-registered head that can be used in hm2 configs.
 """
+
+from __future__ import absolute_import, division, print_function
 
 import os
 from typing import Any, Dict, List, Optional
@@ -114,13 +114,11 @@ class CamTrackHead:
             )
 
     def is_initialized(self) -> bool:
-        return not self._hockey_mom is None
+        return self._hockey_mom is not None
 
     @staticmethod
     def calculate_play_box(results: Dict[str, Any], context: Dict[str, Any], scale: float = 1.3) -> List[int]:
         # Use the first video_data_sample's rink_profile to seed the play box
-        track_container = results["data_samples"]
-        video_data_sample = track_container.video_data_samples[0]
         play_box = torch.tensor(context["rink_profile"]["combined_bbox"], dtype=torch.int64)
         ww, hh = width(play_box), height(play_box)
         cc = center(play_box)

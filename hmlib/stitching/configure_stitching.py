@@ -15,9 +15,7 @@ import cv2
 import numpy as np
 import tifffile
 import torch
-import torch.nn.functional as F
 
-import hockeymom
 from hmlib.config import (
     get_game_config_private,
     get_nested_value,

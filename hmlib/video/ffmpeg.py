@@ -13,7 +13,6 @@ import re
 import signal
 import subprocess
 import traceback
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 import cv2
@@ -410,7 +409,7 @@ class FFProbe:
         try:
             with open(os.devnull, "w") as tempf:
                 subprocess.check_call(["ffprobe", "-h"], stdout=tempf, stderr=tempf)
-        except:
+        except Exception:
             raise IOError("ffprobe not found.")
         if os.path.isfile(video_file):
             if str(platform.system()) == "Windows":
@@ -507,7 +506,7 @@ class FFStream:
             if self.__dict__["width"] and self.__dict__["height"]:
                 try:
                     size = (int(self.__dict__["width"]), int(self.__dict__["height"]))
-                except Exception as e:
+                except Exception:
                     print(
                         "None integer size %s:%s"
                         % (str(self.__dict__["width"]), str(+self.__dict__["height"]))
@@ -535,7 +534,7 @@ class FFStream:
             if self.__dict__["nb_frames"]:
                 try:
                     f = int(self.__dict__["nb_frames"])
-                except Exception as e:
+                except Exception:
                     return int(self.durationSeconds() * self.realFrameRate())
         return f
 
@@ -549,7 +548,7 @@ class FFStream:
             if self.__dict__["duration"]:
                 try:
                     f = float(self.__dict__["duration"])
-                except Exception as e:
+                except Exception:
                     f = duration_to_seconds(self.__dict__["TAG:DURATION"])
         return f
 
@@ -599,7 +598,7 @@ class FFStream:
         if self.__dict__["bit_rate"]:
             try:
                 b = int(self.__dict__["bit_rate"])
-            except Exception as e:
+            except Exception:
                 if self.__dict__["bit_rate"] != "N/A":
                     print("None integer bitrate")
         return b
@@ -623,7 +622,7 @@ class FFStream:
                         raise AssertionError(
                             f"invalid number of tokens ({token_count}) in r_frame_rate string: {rate}"
                         )
-            except Exception as e:
+            except Exception:
                 print("None integer bitrate")
         return b
 

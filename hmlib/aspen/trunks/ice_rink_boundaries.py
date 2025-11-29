@@ -260,7 +260,6 @@ class IceRinkSegmConfigTrunk(Trunk):
         if self._rink_profile is None:
             try:
                 from hmlib.segm.ice_rink import confgure_ice_rink_mask
-                device = context.get("device")
                 game_id = context.get("game_id") or context.get("shared", {}).get("game_id")
                 # Prefer original_images if available (channels-last), fallback to detection image
                 img = data.get("original_images")

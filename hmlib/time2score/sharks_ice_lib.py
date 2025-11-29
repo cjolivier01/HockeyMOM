@@ -268,8 +268,12 @@ def get_team_id(db: database.Database, team_name: str, season: int) -> str:
   return teams[0]['team_id']
 
 
-NO_LINK_INT = lambda a: int(a[0]) if a[0] else 0
-NO_LINK = lambda a: a[0] if a[0] else ''
+def NO_LINK_INT(a):
+    return int(a[0]) if a[0] else 0
+
+
+def NO_LINK(a):
+    return a[0] if a[0] else ''
 
 DIVISION_GAME_CONVERTERS = {
     'G': NO_LINK_INT,

@@ -4,7 +4,6 @@ import json
 import sys
 from typing import Optional
 
-import datetime as dt
 
 
 def load_db_cfg(config_path: str) -> dict:

@@ -5,7 +5,6 @@ from tkinter import Button, Label
 from tkinter import font as tkfont
 from typing import Any, Dict, List, Tuple
 
-import matplotlib.pyplot as plt
 from PIL import Image, ImageTk
 
 from hmlib.camera.end_zones import load_lines_from_config

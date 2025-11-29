@@ -1,10 +1,8 @@
-import time
 from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import torch
 
-from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_channels_last
 
@@ -26,7 +24,6 @@ class PoseTrunk(Trunk):
 
     def __init__(self, enabled: bool = True):
         # Need to import in order to register
-        from hmlib.visualization import PytorchPoseLocalVisualizer
         super().__init__(enabled=enabled)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -223,15 +220,12 @@ class PoseTrunk(Trunk):
                         except Exception:
                             preds = None
                 if preds is None:
-                    start_t = time.time()
                     forward_outputs = pose_impl.forward(
                         proc_inputs,
                         merge_results=False,
                         bbox_thr=bbox_thr,
                         pose_based_nms=pose_based_nms,
                     )
-                    duration = time.time() - start_t
-                    # print(f"Pose time: {duration} seconds")
                     if isinstance(forward_outputs, (list, tuple)):
                         preds = list(forward_outputs)
                     elif forward_outputs is not None:
@@ -301,17 +295,14 @@ class PoseTrunk(Trunk):
                                 kpt_thr=kpt_thr if kpt_thr is not None else 0.3,
                             )
                             # show_image("pose", img, wait=False)
-                        except Exception as ex:
+                        except Exception:
                             pass
         else:
             # Fallback: let MMPose handle detection internally
-            start_t = time.time()
             for pose_results in pose_inferencer(
                 inputs=inputs, return_datasamples=True, visualize=show, **pose_inferencer.filter_args
             ):
                 all_pose_results.append(pose_results)
-            duration = time.time() - start_t
-            # print(f"Pose time: {duration} seconds")
 
             if use_det_imgs and inv_scale_factors:
                 self._restore_pose_outputs(all_pose_results, inv_scale_factors)

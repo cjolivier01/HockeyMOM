@@ -6,13 +6,10 @@ blender path of the stitching pipeline.
 
 from typing import List, Optional, Tuple
 
-import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from hmlib.ui import show_image
-from hmlib.utils.image import make_visible_image
 
 
 def create_gaussian_kernel(
@@ -246,9 +243,6 @@ def _simple_blend_in_place(
     left_alpha = left_small_gaussian_blurred[:, 3:4]
     right_alpha = right_small_gaussian_blurred[:, 3:4]
 
-    left_blank = (left_alpha == 0).squeeze(0).squeeze(0)
-    right_blank = (right_alpha == 0).squeeze(0).squeeze(0)
-
     left_nonblank = (left_alpha != 0).squeeze(0).squeeze(0)
     right_nonblank = (right_alpha != 0).squeeze(0).squeeze(0)
 
@@ -256,9 +250,6 @@ def _simple_blend_in_place(
     mask_right = 1.0 - mask_small_gaussian_blurred
 
     assert left_small_gaussian_blurred.shape == right_small_gaussian_blurred.shape
-
-    left_orig = left_small_gaussian_blurred.clone()
-    right_orig = right_small_gaussian_blurred.clone()
 
     # if level == 0:
     #     show_image(

@@ -138,7 +138,6 @@ def affine_transform(pt, t):
 
 
 def pt_affine_transform(pt, t):
-    one = torch.tensor(1, dtype=torch.float, device=pt.device)
     new_pt = torch.tensor([pt[0], pt[1], 1.0], dtype=torch.float, device=pt.device).T
     new_pt = torch.matmul(t, new_pt)
     return new_pt[:2]
@@ -371,22 +370,6 @@ def _permute(t, *args):
     if isinstance(t, np.ndarray):
         return t.transpose(*args)
     return t.permute(*args)
-
-
-def is_channels_first(img: Union[torch.Tensor, np.ndarray]):
-    if img.ndim == 3:
-        return img.shape[0] in [3, 4] and img.shape[-1] not in [3, 4]
-    else:
-        assert img.ndim == 4
-        return img.shape[1] in [3, 4] and img.shape[-1] not in [3, 4]
-
-
-def is_channels_last(img: Union[torch.Tensor, np.ndarray]):
-    if img.ndim == 3:
-        return img.shape[-1] in [3, 4] and img.shape[0] not in [3, 4]
-    else:
-        assert img.ndim == 4
-        return img.shape[-1] in [3, 4] and img.shape[1] not in [3, 4]
 
 
 def make_channels_first(img: torch.Tensor):
@@ -778,6 +761,7 @@ def to_uint8_image(tensor: torch.Tensor, apply_scale: bool = False, non_blocking
 def rotate_image(img, angle: float, rotation_point: List[int]):
     rotation_point = [int(i) for i in rotation_point]
     if isinstance(img, torch.Tensor):
+        current_dtype = img.dtype
         if img.dim() == 4:
             # H, W, C -> C, W, H
             img = img.permute(0, 3, 2, 1)
@@ -798,7 +782,6 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
             # H, W, C -> C, W, H
             img = img.permute(2, 1, 0)
             angle = -angle
-            current_dtype = img.dtype
             if current_dtype == torch.half:
                 img = img.to(torch.float32, non_blocking=True)
             img = F.rotate(

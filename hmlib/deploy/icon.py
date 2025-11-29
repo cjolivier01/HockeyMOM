@@ -1,11 +1,9 @@
 """Helpers for generating matchup icon images for deployment UIs."""
 
-import os
 from typing import Dict
 
 from PIL import Image, ImageDraw, ImageFont
 
-from hmlib.config import ROOT_DIR, load_config_file_yaml
 from hmlib.ui.show import show_image
 from hmlib.utils.pt_visualization import find_font_path
 

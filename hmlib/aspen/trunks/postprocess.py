@@ -1,6 +1,5 @@
 from typing import Any, Dict
 
-import torch
 
 from .base import Trunk
 

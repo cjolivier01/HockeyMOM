@@ -1,18 +1,10 @@
-import glob
-import math
-import os
 import warnings
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from mmocr.apis.inferencers import MMOCRInferencer
 from mmocr.utils import poly2bbox
-from rich.progress import track
-from torchvision.transforms.functional import normalize
 
 from hmlib.bbox.box_functions import center, width
 from hmlib.bbox.tiling import (
@@ -22,9 +14,7 @@ from hmlib.bbox.tiling import (
     pack_bounding_boxes_as_tiles,
 )
 from hmlib.builder import PIPELINES as TRANSFORMS
-from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
-from hmlib.tracking_utils.utils import xyxy2xywh
 from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
@@ -162,7 +152,7 @@ class HmNumberClassifier:
                 if batch_index >= 0:
                     tracking_id = tracking_ids[batch_index]
                     if tracking_id in jersey_tracking_ids:
-                        print(f"DUPLICATE TRACKING ID FOR FRAME")
+                        print("DUPLICATE TRACKING ID FOR FRAME")
                     jersey_tracking_ids.add(tracking_id)
                     # We make the score:
                     # (% width of the bounding box that was the text) * (the recognition confidence score)
@@ -224,17 +214,12 @@ class HmNumberClassifier:
 
 
 def get_polygon_center(polygon: List[float]) -> Tuple[float, float]:
-    pred_bboxes = [poly2bbox(poly) for poly in pred_polygons]
-    l = len(polygon)
-    assert l % 2 == 0
-    sum_x = 0.0
-    sum_y = 0.0
-    for i in range(0, l // 2, 2):
-        x = polygon[i + 1]
-        y = polygon[i]
-        sum_x += x
-        sum_y += y
-    return (sum_x // (l // 2), sum_y // (l // 2))
+    num_coords = len(polygon)
+    assert num_coords % 2 == 0
+    xs = polygon[1::2]
+    ys = polygon[0::2]
+    count = max(1, len(xs))
+    return (sum(xs) / count, sum(ys) / count)
 
 
 # def extract_and_resize_jerseys(
@@ -311,12 +296,6 @@ def sample():
 
     packed_image, index_map = pack_bounding_boxes_as_tiles(source_image, bounding_boxes)
 
-    # To get the original bounding box index from a point (y, x):
-    y, x = 45, 60
-    original_index = get_original_bbox_index(index_map, y, x)
-    print(f"The point ({y}, {x}) belongs to the original bounding box index: {original_index}")
-
-
 # Example usage:
 # Assuming 'image_tensor' is a CxHxW tensor and 'bounding_boxes' is a Nx4 tensor
 # 'desired_width' and 'desired_height' are the target dimensions for each crop
@@ -336,7 +315,6 @@ def sample():
 
 
 def get_inferencer() -> MMOCRInferencer:
-    from mmocr.apis.inferencers import MMOCRInferencer
 
     config = {
         "det": "FCENet",
@@ -347,20 +325,11 @@ def get_inferencer() -> MMOCRInferencer:
         "kie_weights": None,
         "device": "cuda",
     }
-
-    # inferencer = MMOCRInferencer(
-    #     det="openmm/mmocr/configs/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015.py",
-    #     det_weights="https://download.openmmlab.com/mmocr/textdet/dbnetpp/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015/dbnetpp_resnet50-dcnv2_fpnc_1200e_icdar2015_20220829_230108-f289bd20.pth",
-    #     rec="openmm/mmocr/configs/textrecog/abinet/abinet-vision_20e_st-an_mj.py",
-    #     rec_weights="https://download.openmmlab.com/mmocr/textrecog/abinet/abinet-vision_20e_st-an_mj/abinet-vision_20e_st-an_mj_20220915_152445-85cfb03d.pth",
-    #     kie="openmm/mmocr/configs/kie/sdmgr/sdmgr_unet16_60e_wildreceipt.py",
-    #     kie_weights="https://download.openmmlab.com/mmocr/kie/sdmgr/sdmgr_unet16_60e_wildreceipt/sdmgr_unet16_60e_wildreceipt_20220825_151648-22419f37.pth",
-    # )
-    # return inferencer
+    return MMOCRInferencer(**config)
 
 
 def main():
-    inferencer = get_inferencer()
+    get_inferencer()
 
 
 if __name__ == "__main__":

@@ -7,7 +7,6 @@ trunks and custom components.
 @see @ref hmlib.aspen.trunks.base "Aspen trunk base classes" for usage.
 """
 
-import mmdet
 from mmengine import Registry
 
 # from mmdet.mmengineimport PIPELINES
@@ -17,7 +16,6 @@ from mmengine import Registry
 
 DATASETS = Registry("dataset")
 # PIPELINES = Registry("pipeline")
-from mmengine import TRANSFORMS as PIPELINES
 
 # MODELS = Registry("models", parent=MMTRACK_MODELS)
 # MODELS = MMTRACK_MODELS

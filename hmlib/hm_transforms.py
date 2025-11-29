@@ -16,11 +16,11 @@ import mmengine
 import numpy as np
 import torch
 from mmcv.transforms import LoadImageFromFile
+from mmcv.transforms.utils import to_2tuple
+from mmcv.image.geometric import _scale_size
 from mmengine.registry import TRANSFORMS
-from mmpose.structures.bbox.transforms import bbox_xywh2cs
-from torchvision.transforms import functional as F
+from mmpose.structures.bbox.transforms import bbox_xywh2cs, get_warp_matrix
 
-from hmlib.ui.show import show_image
 from hmlib.utils.gpu import StreamTensor, StreamTensorBase
 from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
 
@@ -47,6 +47,30 @@ cv2_border_modes = {
     "transparent": cv2.BORDER_TRANSPARENT,
     "isolated": cv2.BORDER_ISOLATED,
 }
+
+
+def get_affine_transform(center, scale, rot, output_size):
+    """Lightweight wrapper to compute an affine transform matrix."""
+    center_np = np.array(center, dtype=np.float32)
+    scale_np = np.array(scale, dtype=np.float32)
+    if scale_np.shape == ():
+        scale_np = np.array([scale_np, scale_np], dtype=np.float32)
+    return get_warp_matrix(center_np, scale_np, rot, output_size)
+
+
+def affine_transform(point, mat):
+    """Apply affine transform to a single point."""
+    pt = np.array([point[0], point[1], 1.0], dtype=np.float32)
+    return np.dot(mat, pt)[:2]
+
+
+def warp_affine_joints(joints: np.ndarray, mat: np.ndarray) -> np.ndarray:
+    """Apply affine transform to an array of joints."""
+    ones = np.ones((joints.shape[0], 1), dtype=joints.dtype)
+    joints_h = np.concatenate([joints, ones], axis=1)
+    warped = (mat @ joints_h.T).T
+    return warped[:, :2]
+
 
 PIPELINE_SUBSTITUTIONS: Dict[str, str] = {
     "TopDownAffine": "HmTopDownAffine",
@@ -169,7 +193,7 @@ def hm_imresize(
         # Normalize to NCHW
         if ndim == 4:
             # Heuristic: NHWC if last dim is channel-like
-            is_nhwc = tensor.shape[-1] in (1, 3, 4) and not (tensor.shape[1] in (1, 3, 4))
+            is_nhwc = tensor.shape[-1] in (1, 3, 4) and tensor.shape[1] not in (1, 3, 4)
             tensor_nchw = tensor.permute(0, 3, 1, 2) if is_nhwc else tensor
             restore = "nhwc" if is_nhwc else "nchw"
         elif ndim == 3:

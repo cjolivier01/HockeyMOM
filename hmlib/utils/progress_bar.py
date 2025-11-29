@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Rich terminal progress bar and table utilities for HockeyMOM CLIs.
 
 Provides ANSI-based and optional curses-based status views used by many
@@ -8,14 +6,14 @@ command-line tools in :mod:`hmlib`.
 @see @ref ProgressBar "ProgressBar" for the main iteration helper.
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
-import os
 import shutil
 import sys
-import threading as _threading
 import time
-from collections import OrderedDict, deque
+from collections import OrderedDict
 from typing import Any, Callable, Iterator, List, Optional
 
 # Optional curses support
@@ -380,7 +378,7 @@ class ScrollOutput:
                     f"\x1b[2K│{left:<{colw}}│{right:<{colw}}│\n"
                 )
             else:
-                progress_out.write(f"\x1b[2K│" + line + "│\n")
+                progress_out.write("\x1b[2K│" + line + "│\n")
         progress_out.flush()
 
     def register_logger(self, logger) -> ScrollOutput:
@@ -584,7 +582,6 @@ class ProgressBar:
 
     def print_progress_bar(self):
         # Build a progress line sized to the table's two-column width and close with right border
-        counter = self._counter + 1
         if self._total - self._counter < self.update_rate:
             percent = 100
         else:

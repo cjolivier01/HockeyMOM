@@ -4,7 +4,6 @@ import os
 import shlex
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -90,7 +89,7 @@ def detect_gpus():
     if shutil.which("nvidia-smi"):
         try:
             out = run("nvidia-smi --query-gpu=name --format=csv,noheader", capture=True)
-            count = len([l for l in out.splitlines() if l.strip()])
+            count = len([line for line in out.splitlines() if line.strip()])
         except subprocess.CalledProcessError:
             count = 0
     if count == 0:
@@ -267,4 +266,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

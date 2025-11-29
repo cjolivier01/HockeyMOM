@@ -18,7 +18,6 @@ import numpy as np
 import torch
 
 from hmlib.stitching.control_points import calculate_control_points
-from hmlib.utils.image import image_width
 
 _CONTROL_POINTS_LINE = "# control points"
 

@@ -131,7 +131,7 @@ def main():
     db_cfg = load_db_cfg(args.config)
     try:
         conn = connect_pymysql(db_cfg)
-    except Exception as e:
+    except Exception:
         print("Failed to connect to DB. Ensure the webapp was installed and DB configured.", file=sys.stderr)
         raise
 
@@ -158,7 +158,7 @@ def main():
     # Games
     now = dt.datetime.now()
     g1 = create_game(conn, user_id, team_ids[0], team_ids[1], "Regular Season", now - dt.timedelta(days=1), "Main Rink", score=(3, 2))
-    g2 = create_game(conn, user_id, team_ids[0], ext_id, "Exhibition", now + dt.timedelta(days=2), "Community Ice", score=None)
+    create_game(conn, user_id, team_ids[0], ext_id, "Exhibition", now + dt.timedelta(days=2), "Community Ice", score=None)
 
     # Stats for completed game
     add_random_stats(conn, g1, team_ids[0], user_id)
@@ -169,4 +169,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

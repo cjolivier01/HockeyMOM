@@ -14,8 +14,8 @@ def _which(binname: str) -> bool:
 @pytest.mark.skipif(not _which('ffmpeg'), reason='ffmpeg not available for synthetic video generation')
 def should_cli_load_tracking_smoke_runs():
     torch = pytest.importorskip('torch')
-    mmdet_struct = pytest.importorskip('mmdet.structures')
-    mmpose_struct = pytest.importorskip('mmpose.structures')
+    pytest.importorskip('mmdet.structures')
+    pytest.importorskip('mmpose.structures')
 
     from mmengine.structures import InstanceData
     from mmdet.structures import DetDataSample
@@ -40,7 +40,8 @@ def should_cli_load_tracking_smoke_runs():
             inst.bboxes = torch.tensor([[10.0 + frame, 20.0, 40.0, 60.0]], dtype=torch.float32)
             inst.scores = torch.tensor([0.9], dtype=torch.float32)
             inst.labels = torch.tensor([0], dtype=torch.long)
-            ds = DetDataSample(); ds.pred_track_instances = inst
+            ds = DetDataSample()
+            ds.pred_track_instances = inst
             df.add_frame_sample(frame, ds)
         df.flush()
 

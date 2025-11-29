@@ -1,10 +1,8 @@
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset
 
 from hmlib.bbox.box_functions import convert_tlbr_to_tlwh, tlwh_to_tlbr_multiple
 from hmlib.datasets.dataframe import HmDataFrameBase, dataclass_to_json, json_to_dataclass
@@ -317,7 +315,8 @@ class TrackingDataFrame(HmDataFrameBase):
                     scores=torch.empty((0,), dtype=torch.float32),
                     labels=torch.empty((0,), dtype=torch.long),
                 )
-                img_ds = DetDataSample(); img_ds.pred_track_instances = inst
+                img_ds = DetDataSample()
+                img_ds.pred_track_instances = inst
             else:
                 img_ds = ts[0]  # type: ignore[index]
             video_samples.append(img_ds)

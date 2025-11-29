@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import torch
 
@@ -31,8 +31,6 @@ class MMTrackingTrunk(Trunk):
             return {}
 
         data: Dict[str, Any] = context["data"]
-        # Preserve original_images from input context before model overwrites data
-        preserved_original_images = data.get("original_images")
         model = context["model"]
         fp16: bool = context.get("fp16", False)
 

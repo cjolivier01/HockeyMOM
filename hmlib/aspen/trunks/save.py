@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 import json
 import numpy as np
 import torch
-from mmengine.structures import InstanceData
 
 from hmlib.tracking_utils.action_dataframe import ActionDataFrame
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame

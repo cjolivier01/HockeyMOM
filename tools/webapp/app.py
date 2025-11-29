@@ -7,7 +7,6 @@ try:
     import pymysql  # type: ignore
 except Exception:  # pragma: no cover
     pymysql = None  # type: ignore
-import secrets
 import datetime as dt
 from pathlib import Path
 from typing import Optional
@@ -397,7 +396,8 @@ def create_app() -> Flask:
             try:
                 active_states = ("SUBMITTED", "RUNNING", "PENDING")
                 if latest and str(latest.get("status", "")).upper() in active_states:
-                    import subprocess as _sp, time as _time
+                    import subprocess as _sp
+                    import time as _time
                     dir_leaf = Path(game["dir_path"]).name
                     job_name = f"dirwatch-{dir_leaf}"
                     job_ids = []
@@ -1511,7 +1511,8 @@ def send_email(to_addr: str, subject: str, body: str, from_addr: Optional[str] =
         f"From: {from_addr}\nTo: {to_addr}\nSubject: {subject}\n"
         f"Content-Type: text/plain; charset=utf-8\n\n{body}\n"
     )
-    import shutil as _sh, subprocess as _sp
+    import shutil as _sh
+    import subprocess as _sp
     sendmail = _sh.which("sendmail")
     if sendmail:
         try:

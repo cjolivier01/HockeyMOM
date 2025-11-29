@@ -1,18 +1,12 @@
-from contextlib import contextmanager
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Union
 
 import torch
 from mmengine.registry import TRANSFORMS
 
-from hmlib.bbox.box_functions import center, height, width
 from hmlib.config import get_clip_box, get_config, get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.scoreboard.selector import configure_scoreboard
-from hmlib.ui import show_image
-from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
-from hmlib.utils.image import image_height, image_width, make_channels_last, rotate_image, to_float_image
-from hmlib.utils.iterators import CachedIterator
-from hmlib.video.video_stream import VideoStreamReader
+from hmlib.utils.image import image_height, image_width, make_channels_last
 
 
 def _try_pop(d: Dict[str, Any], k: str) -> Union[Any, None]:
@@ -113,7 +107,7 @@ class HmRenderScoreboard:
         scoreboard_img = _try_pop(results, "scoreboard_img")
         if scoreboard_img is None:
             return results
-        scoreboard_cfg = results.pop("scoreboard_cfg")
+        results.pop("scoreboard_cfg", None)
         for img_label in self._image_labels:
             img = results.get(img_label)
             if img is not None:

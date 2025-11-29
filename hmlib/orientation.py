@@ -6,12 +6,11 @@ final left/right chapter lists into the game private config.
 """
 
 import argparse
-import gc
 import os
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
@@ -26,7 +25,6 @@ from hmlib.config import (
 from hmlib.hm_opts import hm_opts
 from hmlib.models.loader import get_model_config
 from hmlib.segm.ice_rink import find_ice_rink_masks
-from hmlib.ui.show import show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.video import load_first_video_frame
@@ -94,9 +92,6 @@ def prune_chapters(videos: VideosDict) -> Tuple[VideosDict, VideosDict]:
 
     @return: Tuple (kept_videos, discarded_videos).
     """
-    matching: VideosDict = {}
-    unmatching: VideosDict = {}
-    all_chapters: Set[int] = set()
     for video, chapters in videos.items():
         # Not pruning anything yet
         pass

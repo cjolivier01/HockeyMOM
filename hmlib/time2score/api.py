@@ -15,7 +15,8 @@ try:  # pragma: no cover
   from . import database  # type: ignore
 except Exception:  # noqa: BLE001
   # Fallback for direct execution without package context.
-  import sys as _sys, os as _os
+  import sys as _sys
+  import os as _os
   _here = _os.path.dirname(__file__)
   if _here not in _sys.path:
     _sys.path.insert(0, _here)

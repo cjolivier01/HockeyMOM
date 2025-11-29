@@ -18,8 +18,6 @@ from hmlib.bbox.box_functions import (
     shift_box_to_edge,
     width,
 )
-from hmlib.builder import HM
-from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
 
@@ -544,8 +542,6 @@ class MovingBox(ResizingBox):
             sticky, unsticky = self._get_sticky_translation_sizes()
             center_tensor = center(self.bounding_box())
             my_center = [int(i) for i in center_tensor]
-            my_width = width(self.bounding_box())
-            my_height = height(self.bounding_box())
             img = vis.plot_circle(
                 img,
                 my_center,

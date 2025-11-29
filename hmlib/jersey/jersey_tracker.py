@@ -5,13 +5,10 @@ from dataclasses import dataclass
 from typing import Dict
 
 import cv2
-import numpy as np
 import torch
 
 import hmlib.tracking_utils.visualization as vis
-from hmlib.builder import HM, PIPELINES
 from hmlib.log import logger
-from hmlib.tracking_utils import visualization as vis
 
 from .number_classifier import TrackJerseyInfo
 
