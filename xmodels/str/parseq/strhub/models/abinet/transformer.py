@@ -28,8 +28,17 @@ class TransformerDecoderLayer(nn.Module):
         >>> out = decoder_layer(tgt, memory)
     """
 
-    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
-                 activation="relu", self_attn=True, siamese=False, debug=False):
+    def __init__(
+        self,
+        d_model,
+        nhead,
+        dim_feedforward=2048,
+        dropout=0.1,
+        activation="relu",
+        self_attn=True,
+        siamese=False,
+        debug=False,
+    ):
         super().__init__()
         self.has_self_attn, self.siamese = self_attn, siamese
         self.debug = debug
@@ -53,13 +62,22 @@ class TransformerDecoderLayer(nn.Module):
         self.activation = _get_activation_fn(activation)
 
     def __setstate__(self, state):
-        if 'activation' not in state:
-            state['activation'] = F.relu
+        if "activation" not in state:
+            state["activation"] = F.relu
         super().__setstate__(state)
 
-    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None,
-                tgt_key_padding_mask=None, memory_key_padding_mask=None,
-                memory2=None, memory_mask2=None, memory_key_padding_mask2=None):
+    def forward(
+        self,
+        tgt,
+        memory,
+        tgt_mask=None,
+        memory_mask=None,
+        tgt_key_padding_mask=None,
+        memory_key_padding_mask=None,
+        memory2=None,
+        memory_mask2=None,
+        memory_key_padding_mask2=None,
+    ):
         # type: (Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor], Optional[Tensor]) -> Tensor
         r"""Pass the inputs (and mask) through the decoder layer.
 
@@ -75,20 +93,24 @@ class TransformerDecoderLayer(nn.Module):
             see the docs in Transformer class.
         """
         if self.has_self_attn:
-            tgt2, attn = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask,
-                                        key_padding_mask=tgt_key_padding_mask)
+            tgt2, attn = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask, key_padding_mask=tgt_key_padding_mask)
             tgt = tgt + self.dropout1(tgt2)
             tgt = self.norm1(tgt)
-            if self.debug: self.attn = attn
-        tgt2, attn2 = self.multihead_attn(tgt, memory, memory, attn_mask=memory_mask,
-                                          key_padding_mask=memory_key_padding_mask)
-        if self.debug: self.attn2 = attn2
+            if self.debug:
+                self.attn = attn
+        tgt2, attn2 = self.multihead_attn(
+            tgt, memory, memory, attn_mask=memory_mask, key_padding_mask=memory_key_padding_mask
+        )
+        if self.debug:
+            self.attn2 = attn2
 
         if self.siamese:
-            tgt3, attn3 = self.multihead_attn2(tgt, memory2, memory2, attn_mask=memory_mask2,
-                                               key_padding_mask=memory_key_padding_mask2)
+            tgt3, attn3 = self.multihead_attn2(
+                tgt, memory2, memory2, attn_mask=memory_mask2, key_padding_mask=memory_key_padding_mask2
+            )
             tgt = tgt + self.dropout2(tgt3)
-            if self.debug: self.attn3 = attn3
+            if self.debug:
+                self.attn3 = attn3
 
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
@@ -126,7 +148,7 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x):
         r"""Inputs of forward function
@@ -139,5 +161,5 @@ class PositionalEncoding(nn.Module):
             >>> output = pos_encoder(x)
         """
 
-        x = x + self.pe[:x.size(0), :]
+        x = x + self.pe[: x.size(0), :]
         return self.dropout(x)
