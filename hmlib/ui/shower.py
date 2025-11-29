@@ -58,7 +58,8 @@ class Shower:
         show_scaled: Optional[float] = None,
         max_size: int = 4,
         fps: Union[float, None] = None,
-        cache_on_cpu: bool = False,
+        # cache_on_cpu: bool = False,
+        cache_on_cpu: bool = True,
         logger=None,
         use_tk: bool = False,
         allow_gpu_gl: bool = True,
@@ -163,7 +164,7 @@ class Shower:
             if self._cache_on_cpu and not isinstance(img, np.ndarray):
                 img = img.cpu()
             if self._fps is None or img.ndim == 3:
-                if not isinstance(img, StreamTensor):
+                if not self._cache_on_cpu and not isinstance(img, StreamTensor):
                     img = StreamCheckpoint(img)
                 self._q.put(img)
             else:

@@ -24,7 +24,7 @@ from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import make_channels_last, resize_image
+from hmlib.utils.image import make_channels_first, make_channels_last, resize_image
 from hmlib.video.ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 
 JETSON_UTILS_PY_PATH = "/mnt/monster-data/colivier/src/jetson-utils/python/python"
@@ -160,6 +160,7 @@ def yuv_to_bgr_float(frames: torch.Tensor, dtype: torch.dtype = torch.float16, n
     """
     Current HW decode returns only YUV
     """
+    frames = make_channels_first(frames).contiguous()
     if not torch.is_floating_point(frames):
         frames = frames.to(dtype, non_blocking=non_blocking)
 
