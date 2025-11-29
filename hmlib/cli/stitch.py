@@ -212,10 +212,6 @@ def stitch_videos(
                 update_rate=20,
                 table_callback=_table_callback,
                 use_curses=True,
-                enable_gpu_metrics=getattr(args, "progress_gpu_metrics", True) if args is not None else True,
-                enable_cuda_sync_counter=(
-                    getattr(args, "progress_cuda_sync_counter", True) if args is not None else True
-                ),
             )
             data_loader_iter = progress_bar
 
@@ -261,7 +257,7 @@ def stitch_videos(
 
                     cuda_stream.synchronize()
 
-                    _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
+                    # _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
 
                     # Per-iteration profiler step for gated profiling windows
                     if profiler.enabled:

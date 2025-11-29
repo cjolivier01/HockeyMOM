@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-from cuda_stacktrace import CudaStackTracer
 from mmengine.structures import InstanceData
 
 from .base import Trunk
@@ -733,7 +732,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         do_trace: bool = self._pass == 10
         if do_trace:
             pass
-        with self._profile_scope(), CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=False and do_trace):
+        with self._profile_scope():
             assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
             results: List[Any] = []
             try:

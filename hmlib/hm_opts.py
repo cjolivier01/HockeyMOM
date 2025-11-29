@@ -970,35 +970,6 @@ class hm_opts(object):
             type=int,
             help="Enable runtime camera braking UI (OpenCV trackbars)",
         )
-
-        # Progress bar instrumentation toggles
-        ui.add_argument(
-            "--progress-gpu-metrics",
-            dest="progress_gpu_metrics",
-            action="store_true",
-            help="Show GPU utilization metrics in progress UI (if available)",
-        )
-        ui.add_argument(
-            "--no-progress-gpu-metrics",
-            dest="progress_gpu_metrics",
-            action="store_false",
-            help="Disable GPU utilization metrics in progress UI",
-        )
-        parser.set_defaults(progress_gpu_metrics=True)
-        ui.add_argument(
-            "--progress-cuda-sync-counter",
-            dest="progress_cuda_sync_counter",
-            action="store_true",
-            help="Show CUDA stream sync count in progress UI (uses cuda_stacktrace if available)",
-        )
-        ui.add_argument(
-            "--no-progress-cuda-sync-counter",
-            dest="progress_cuda_sync_counter",
-            action="store_false",
-            help="Disable CUDA stream sync count in progress UI",
-        )
-        parser.set_defaults(progress_cuda_sync_counter=True)
-
         return parser
 
     def parse(self, args=""):
