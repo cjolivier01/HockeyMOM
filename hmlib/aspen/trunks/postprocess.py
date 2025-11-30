@@ -138,4 +138,4 @@ class CamPostProcessTrunk(Trunk):
         return {"data", "rink_profile", "shared"}
 
     def output_keys(self):
-        return set()
+        return {"arena"}

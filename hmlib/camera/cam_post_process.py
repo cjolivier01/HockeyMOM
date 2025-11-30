@@ -185,7 +185,8 @@ class CamTrackPostProcessor:
                 arena=arena,
                 device=self._device,
             )
-        results = self.send(results)
+        # results = self.send(results)
+        results["arena"] = self.get_arena_box()
         return results
 
     def on_first_image(
