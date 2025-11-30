@@ -68,3 +68,8 @@ py_test(
     name = "test_stream_tensorx",
     srcs = ["test_stream_tensorx.py"],
 )
+
+py_test(
+    name = "test_sideband_queue",
+    srcs = ["test_sideband_queue.py"],
+)
