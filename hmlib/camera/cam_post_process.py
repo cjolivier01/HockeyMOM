@@ -1,10 +1,9 @@
-"""Post-processing pipeline for camera tracking and play visualization.
+"""Camera post-processing utilities for arena estimation and video output.
 
-This script ties together tracking CSVs, camera config and visualization to
-produce debug or training videos for the camera controller.
-
-@see @ref hmlib.camera.camera_dataframe.CameraTrackingDataFrame "CameraTrackingDataFrame"
-@see @ref hmlib.camera.play_tracker.PlayTracker "PlayTracker"
+This module computes the play/arena box from rink profiles and input frames,
+configures `HockeyMOM` video geometry, and optionally drives `VideoOutput`
+for camera debugging/training videos. Camera play tracking logic is handled
+by `PlayTrackerTrunk` and the underlying `PlayTracker` module.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -27,8 +26,6 @@ from hmlib.bbox.box_functions import (
 )
 from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
-from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
-from hmlib.camera.play_tracker import PlayTracker
 from hmlib.log import logger
 from hmlib.ui import Shower
 from hmlib.utils.image import image_height, image_width
@@ -91,13 +88,10 @@ class CamTrackPostProcessor:
 
         # Core post-processing state (initialized on first frame)
         self._hockey_mom: Optional[HockeyMOM] = None
-        self._start_frame_id: Optional[int] = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
-        self._output_video = None
-        self._camera_tracking_data: Optional[CameraTrackingDataFrame] = None
         self._video_output_campp: Optional[VideoOutput] = None
         self._shower: Union[None, Shower] = None
-        self._play_tracker: Optional[PlayTracker] = None
+        self._arena_box: Optional[torch.Tensor] = None
         self.final_frame_width: Optional[int] = None
         self.final_frame_height: Optional[int] = None
 
@@ -156,7 +150,7 @@ class CamTrackPostProcessor:
             logger.info(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
             return results
-        if not self.is_initialized():
+        if self._hockey_mom is None:
             video_data_sample = results["data_samples"].video_data_samples[0]
             metainfo = video_data_sample.metainfo
             original_shape = metainfo["ori_shape"]
@@ -174,7 +168,7 @@ class CamTrackPostProcessor:
                 arena=arena,
                 device=self._device,
             )
-        # results = self.send(results)
+        # Expose arena/play box for downstream trunks (e.g., PlayTrackerTrunk, VideoOutTrunk)
         results["arena"] = self.get_arena_box()
         return results
 
@@ -188,6 +182,7 @@ class CamTrackPostProcessor:
     ) -> None:
         assert self._hockey_mom is None
 
+        # Initialize HockeyMOM video geometry and cache arena box
         self._hockey_mom = HockeyMOM(
             image_width=img_width,
             image_height=img_height,
@@ -195,28 +190,20 @@ class CamTrackPostProcessor:
             device=device,
             camera_name=self._camera_name,
         )
-        self._start_frame_id = frame_id
-
-        play_box_tensor = (
+        self._arena_box = (
             self._hockey_mom.video.bounding_box()
             if not getattr(self._args, "crop_play_box", False)
             else torch.as_tensor(arena, dtype=torch.float, device=device)
         )
-
-        self._play_tracker = PlayTracker(
-            hockey_mom=self._hockey_mom,
-            play_box=play_box_tensor,
-            device=device,
-            original_clip_box=self._original_clip_box,
-            progress_bar=None,
-            args=self._args,
-        )
         self.secondary_init()
-        self.eval()
 
     def secondary_init(self) -> None:
-        assert self._play_tracker is not None
-        play_box: torch.Tensor = self._play_tracker.play_box
+        assert self._hockey_mom is not None
+        play_box: torch.Tensor = (
+            self._arena_box
+            if self._arena_box is not None
+            else self._hockey_mom.video.bounding_box()
+        )
         play_width, play_height = width(play_box), height(play_box)
 
         if getattr(self._args, "crop_play_box", False):
@@ -232,7 +219,6 @@ class CamTrackPostProcessor:
                 self.final_frame_width = play_width
         else:
             if getattr(self._args, "crop_output_image", True):
-                assert self._hockey_mom is not None
                 self.final_frame_height = self._hockey_mom.video.height
                 self.final_frame_width = self._hockey_mom.video.height * self._final_aspect_ratio
                 if self.final_frame_width > MAX_VIDEO_WIDTH:
@@ -240,18 +226,11 @@ class CamTrackPostProcessor:
                     self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
 
             else:
-                assert self._hockey_mom is not None
                 self.final_frame_height = self._hockey_mom.video.height
                 self.final_frame_width = self._hockey_mom.video.width
 
         self.final_frame_width = int(self.final_frame_width + 0.5)
         self.final_frame_height = int(self.final_frame_height + 0.5)
-
-        if getattr(self._args, "save_camera_data", False) and self._save_dir:
-            self._camera_tracking_data = CameraTrackingDataFrame(
-                output_file=os.path.join(self._save_dir, "camera.csv"),
-                input_batch_size=self._args.batch_size,
-            )
 
         if not getattr(self._args, "no_frame_postprocessing", False) and self.output_video_path:
             assert self._video_output_campp is None
@@ -277,10 +256,6 @@ class CamTrackPostProcessor:
         elif getattr(self._args, "show_image", False):
             self._shower = Shower("CamTrackPostProcessor", self._args.show_scaled, max_size=1)
 
-    def eval(self) -> None:
-        if self._play_tracker is not None:
-            self._play_tracker.eval()
-
     @property
     def output_video_path(self) -> Optional[str]:
         return self._output_video_path
@@ -297,25 +272,10 @@ class CamTrackPostProcessor:
         self,
         data: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
+        # CamTrackPostProcessor no longer owns PlayTracker; this is kept for API
+        # compatibility and simply forwards video frames to VideoOutput when present.
         try:
-            assert self._play_tracker is not None
-            with torch.no_grad():
-                prof = getattr(self._args, "profiler", None)
-                ctx = (
-                    prof.rf("play_tracker.forward")
-                    if getattr(prof, "enabled", False)
-                    else contextlib.nullcontext()
-                )
-                with ctx:
-                    results = self._play_tracker.forward(results=data)
-            del data
-            for frame_id, current_box in zip(results["frame_ids"], results["current_box"]):
-                assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-                if self._camera_tracking_data is not None:
-                    self._camera_tracking_data.add_frame_records(
-                        frame_id=frame_id,
-                        tlbr=current_box if current_box.ndim == 4 else current_box.unsqueeze(0),
-                    )
+            results = data
             if self._video_output_campp is not None:
                 prof = getattr(self._args, "profiler", None)
                 ctx = (
@@ -334,5 +294,7 @@ class CamTrackPostProcessor:
             raise
 
     def get_arena_box(self) -> torch.Tensor:
-        assert self._play_tracker is not None
-        return self._play_tracker.play_box
+        assert self._hockey_mom is not None
+        if self._arena_box is not None:
+            return self._arena_box
+        return self._hockey_mom.video.bounding_box()

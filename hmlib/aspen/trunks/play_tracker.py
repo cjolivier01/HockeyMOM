@@ -27,6 +27,7 @@ class PlayTrackerTrunk(Trunk):
       - shared.original_clip_box: optional clip box
       - shared.device: torch.device
       - shared.cam_args: Namespace (optional; created if missing)
+      - arena: optional TLBR arena/play region tensor (from CamTrackPostProcessor)
 
     Produces:
       - img: image tensor batch after overlays (StreamCheckpoint)
@@ -147,7 +148,14 @@ class PlayTrackerTrunk(Trunk):
             device=self._device,
             camera_name=cam_name,
         )
-        seed_box = self._calc_seed_play_box(results)
+        # Prefer arena/play box provided by upstream CamTrackPostProcessor when available.
+        arena = context.get("arena")
+        if isinstance(arena, torch.Tensor):
+            seed_box = arena.to(device=self._device, dtype=torch.int64)
+        elif arena is not None:
+            seed_box = torch.as_tensor(arena, dtype=torch.int64, device=self._device)
+        else:
+            seed_box = self._calc_seed_play_box(results)
         self._play_tracker = _PlayTracker(
             hockey_mom=self._hockey_mom,
             play_box=seed_box,
@@ -186,7 +194,7 @@ class PlayTrackerTrunk(Trunk):
         return out
 
     def input_keys(self):
-        return {"data", "device", "shared"}
+        return {"data", "device", "shared", "arena"}
 
     def output_keys(self):
         return {
