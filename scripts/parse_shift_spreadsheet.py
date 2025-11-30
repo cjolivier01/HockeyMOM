@@ -370,6 +370,8 @@ class GoalEvent:
     scorer: Optional[str] = None
     assists: List[str] = field(default_factory=list)
     t_sec: int = field(init=False)
+    is_game_tying: bool = False
+    is_game_winning: bool = False
 
     def __post_init__(self) -> None:
         self.t_str = self.t_str.strip()
@@ -394,6 +396,57 @@ def parse_goal_token(token: str) -> GoalEvent:
     period = int(m.group(2))
     t_str = m.group(3)
     return GoalEvent(kind, period, t_str)
+
+
+def _annotate_goal_roles(goals: List[GoalEvent]) -> None:
+    """
+    Annotate GoalEvent entries in-place with game-tying / game-winning flags.
+
+    - Game-tying goal: GF that changes the score from trailing to tied.
+    - Game-winning goal: when our team wins (GF > GA at end), the first goal
+      scored by our team after the last time the game was tied.
+    """
+    if not goals:
+        return
+
+    # Work on indices into the original list to avoid reordering it.
+    order = sorted(range(len(goals)), key=lambda idx: (goals[idx].period, goals[idx].t_sec))
+    before_scores: List[Tuple[int, int]] = []
+    after_scores: List[Tuple[int, int]] = []
+    gf = 0
+    ga = 0
+    last_tie_pos = -1
+
+    for pos, idx in enumerate(order):
+        ev = goals[idx]
+        before_scores.append((gf, ga))
+        if ev.kind == "GF":
+            gf += 1
+        else:
+            ga += 1
+        after_scores.append((gf, ga))
+        if gf == ga:
+            last_tie_pos = pos
+
+    final_gf, final_ga = gf, ga
+
+    # Reset flags then mark game-tying goals.
+    for pos, idx in enumerate(order):
+        ev = goals[idx]
+        ev.is_game_tying = False
+        ev.is_game_winning = False
+        bf_for, bf_against = before_scores[pos]
+        af_for, af_against = after_scores[pos]
+        if ev.kind == "GF" and bf_for < bf_against and af_for == af_against:
+            ev.is_game_tying = True
+
+    # Game-winning goal (if we finished ahead).
+    if final_gf > final_ga and order:
+        win_pos = last_tie_pos + 1
+        if 0 <= win_pos < len(order):
+            ev = goals[order[win_pos]]
+            if ev.kind == "GF":
+                ev.is_game_winning = True
 
 
 def _normalize_jersey_number(token: Any) -> Optional[str]:
@@ -1603,6 +1656,8 @@ def _build_stats_dataframe(
         "player",
         "goals",
         "assists",
+        "gt_goals",
+        "gw_goals",
         "shifts",
         "plus_minus",
         "gf_counted",
@@ -1772,6 +1827,36 @@ def _aggregate_stats_rows(
     return aggregated_rows, sorted(all_periods)
 
 
+def _augment_aggregate_with_goal_details(
+    aggregated_rows: List[Dict[str, str]],
+    per_player_events: Dict[str, Dict[str, List[Tuple[str, GoalEvent]]]],
+) -> None:
+    """
+    Enrich aggregated rows with game-tying / game-winning goal counts
+    derived from per-player scoring events across all games.
+    """
+    if not aggregated_rows:
+        return
+
+    totals: Dict[str, Dict[str, int]] = {}
+    for player, events in per_player_events.items():
+        gt = 0
+        gw = 0
+        goals = events.get("goals", [])
+        for _label, ev in goals:
+            if getattr(ev, "is_game_tying", False):
+                gt += 1
+            if getattr(ev, "is_game_winning", False):
+                gw += 1
+        totals[player] = {"gt_goals": gt, "gw_goals": gw}
+
+    for row in aggregated_rows:
+        player = row.get("player", "")
+        t = totals.get(player, {})
+        row["gt_goals"] = str(t.get("gt_goals", 0))
+        row["gw_goals"] = str(t.get("gw_goals", 0))
+
+
 def _write_consolidated_workbook(out_path: Path, sheets: List[Tuple[str, pd.DataFrame]]) -> None:
     try:
         with pd.ExcelWriter(out_path) as writer:
@@ -1781,6 +1866,98 @@ def _write_consolidated_workbook(out_path: Path, sheets: List[Tuple[str, pd.Data
                 _autosize_columns(writer, safe_name, df)
     except Exception:
         pass
+
+
+def _write_cumulative_player_detail_files(
+    base_outdir: Path,
+    aggregated_rows: List[Dict[str, str]],
+    per_player_events: Dict[str, Dict[str, List[Tuple[str, GoalEvent]]]],
+) -> None:
+    """
+    Write one cumulative per-player stats file summarizing all games,
+    including lists of goals, assists, and goals-against with game/period/time
+    and game-tying / game-winning annotations for goals.
+    """
+    if not aggregated_rows:
+        return
+
+    outdir = base_outdir / "cumulative_per_player"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    rows_by_player: Dict[str, Dict[str, str]] = {
+        r.get("player", ""): r for r in aggregated_rows if r.get("player")
+    }
+
+    def _fmt_tags(ev: GoalEvent) -> str:
+        tags: List[str] = []
+        if getattr(ev, "is_game_tying", False):
+            tags.append("GT")
+        if getattr(ev, "is_game_winning", False):
+            tags.append("GW")
+        return f" [{' '.join(tags)}]" if tags else ""
+
+    for player, row in sorted(rows_by_player.items()):
+        events = per_player_events.get(player, {})
+        goals_list = events.get("goals", [])
+        assists_list = events.get("assists", [])
+        ga_list = events.get("ga_on_ice", [])
+
+        lines: List[str] = []
+        lines.append(f"Player: {player}")
+        lines.append("")
+        lines.append("Overall stats (all games):")
+        lines.append(f"  Goals: {row.get('goals', '0')} (GT: {row.get('gt_goals', '0')}, GW: {row.get('gw_goals', '0')})")
+        lines.append(f"  Assists: {row.get('assists', '0')}")
+        lines.append(f"  Plus/Minus: {row.get('plus_minus', '0')}")
+        lines.append(
+            f"  Goals For while on ice: {row.get('gf_counted', '0')}, "
+            f"Goals Against while on ice: {row.get('ga_counted', '0')}"
+        )
+        if row.get("sb_toi_total"):
+            lines.append(f"  TOI total (scoreboard): {row.get('sb_toi_total')}")
+        if row.get("video_toi_total"):
+            lines.append(f"  TOI total (video): {row.get('video_toi_total')}")
+
+        # Goals
+        lines.append("")
+        lines.append("Goals detail:")
+        if not goals_list:
+            lines.append("  (none)")
+        else:
+            for game_label, ev in sorted(
+                goals_list, key=lambda x: (x[0], x[1].period, x[1].t_sec)
+            ):
+                lines.append(
+                    f"  {game_label}: Period {ev.period}, {ev.t_str}{_fmt_tags(ev)}"
+                )
+
+        # Assists
+        lines.append("")
+        lines.append("Assists detail:")
+        if not assists_list:
+            lines.append("  (none)")
+        else:
+            for game_label, ev in sorted(
+                assists_list, key=lambda x: (x[0], x[1].period, x[1].t_sec)
+            ):
+                lines.append(
+                    f"  {game_label}: Period {ev.period}, {ev.t_str}{_fmt_tags(ev)}"
+                )
+
+        # Goals against while on ice
+        lines.append("")
+        lines.append("Goals against while on ice:")
+        if not ga_list:
+            lines.append("  (none)")
+        else:
+            for game_label, ev in sorted(
+                ga_list, key=lambda x: (x[0], x[1].period, x[1].t_sec)
+            ):
+                lines.append(f"  {game_label}: Period {ev.period}, {ev.t_str}")
+
+        (outdir / f"{player}_cumulative_stats.txt").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
 
 
 def _infer_side_from_rosters(
@@ -2133,7 +2310,12 @@ def process_sheet(
     keep_goalies: bool,
     goals: List[GoalEvent],
     skip_validation: bool = False,
-) -> Tuple[Path, List[Dict[str, str]], List[int]]:
+) -> Tuple[
+    Path,
+    List[Dict[str, str]],
+    List[int],
+    Dict[str, Dict[str, List[GoalEvent]]],
+]:
     target_sheet = 0 if sheet_name is None else sheet_name
     df = pd.read_excel(xls_path, sheet_name=target_sheet, header=None)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -2172,6 +2354,9 @@ def process_sheet(
     for ev in goals:
         goals_by_period.setdefault(ev.period, []).append(ev)
 
+    # Annotate game-tying / game-winning roles for goals in this game.
+    _annotate_goal_roles(goals)
+
     stats_table_rows: List[Dict[str, str]] = []
     all_periods_seen: set[int] = set()
 
@@ -2184,6 +2369,11 @@ def process_sheet(
             candidates.add(norm)
         for cand in candidates:
             jersey_to_players.setdefault(cand, []).append(pk)
+
+    # Per-player event details for this game (for multi-game summaries).
+    per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]] = {
+        pk: {"goals": [], "assists": [], "ga_on_ice": []} for pk in sb_pairs_by_player.keys()
+    }
 
     goal_assist_counts: Dict[str, Dict[str, int]] = {
         pk: {"goals": 0, "assists": 0} for pk in sb_pairs_by_player.keys()
@@ -2212,9 +2402,11 @@ def process_sheet(
         if ev.scorer:
             for pk in _match_player_keys(ev.scorer):
                 goal_assist_counts[pk]["goals"] += 1
+                per_player_goal_events[pk]["goals"].append(ev)
         for ast in ev.assists:
             for pk in _match_player_keys(ast):
                 goal_assist_counts[pk]["assists"] += 1
+                per_player_goal_events[pk]["assists"].append(ev)
 
     for player_key, sb_list in sb_pairs_by_player.items():
         sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
@@ -2255,6 +2447,7 @@ def process_sheet(
                         plus_minus -= 1
                         counted_ga.append(f"P{period}:{ev.t_str}")
                         counted_ga_by_period[period] = counted_ga_by_period.get(period, 0) + 1
+                        per_player_goal_events[player_key]["ga_on_ice"].append(ev)
 
         scoring_counts = goal_assist_counts.get(player_key, {"goals": 0, "assists": 0})
 
@@ -2370,7 +2563,7 @@ def process_sheet(
             file=sys.stderr,
         )
 
-    return outdir, stats_table_rows, sorted(all_periods_seen)
+    return outdir, stats_table_rows, sorted(all_periods_seen), per_player_goal_events
 
 
 # ----------------------------- CLI -----------------------------
@@ -2559,7 +2752,7 @@ def main() -> None:
                 side_to_use = None
 
         goals = _resolve_goals_for_file(in_path, t2s_id, side_to_use)
-        final_outdir, stats_rows, periods = process_sheet(
+        final_outdir, stats_rows, periods, per_player_events = process_sheet(
             xls_path=in_path,
             sheet_name=args.sheet,
             outdir=outdir,
@@ -2575,6 +2768,7 @@ def main() -> None:
                 "outdir": final_outdir,
                 "stats": stats_rows,
                 "periods": periods,
+                "events": per_player_events,
             }
         )
         try:
@@ -2584,6 +2778,26 @@ def main() -> None:
 
     if multiple_inputs:
         agg_rows, agg_periods = _aggregate_stats_rows([(r["stats"], r["periods"]) for r in results])
+
+        # Build per-player event lists across all games (with game labels).
+        per_player_events: Dict[str, Dict[str, List[Tuple[str, GoalEvent]]]] = {}
+        for r in results:
+            game_label = r.get("label", "")
+            ev_map: Dict[str, Dict[str, List[GoalEvent]]] = r.get("events", {}) or {}
+            for player_key, info in ev_map.items():
+                dest = per_player_events.setdefault(
+                    player_key, {"goals": [], "assists": [], "ga_on_ice": []}
+                )
+                for ev in info.get("goals", []):
+                    dest["goals"].append((game_label, ev))
+                for ev in info.get("assists", []):
+                    dest["assists"].append((game_label, ev))
+                for ev in info.get("ga_on_ice", []):
+                    dest["ga_on_ice"].append((game_label, ev))
+
+        # Add GT/GW goal counts into aggregated rows.
+        _augment_aggregate_with_goal_details(agg_rows, per_player_events)
+
         agg_df, _ = _build_stats_dataframe(agg_rows, agg_periods)
         sheets: List[Tuple[str, pd.DataFrame]] = [("Cumulative", agg_df)]
         has_t2s = any(r.get("t2s_id") is not None for r in results)
@@ -2608,6 +2822,9 @@ def main() -> None:
             print(f"📊 Consolidated workbook: {consolidated_path.resolve()}")
         except Exception:
             print("📊 Consolidated workbook written.")
+
+        # Per-player cumulative detail files across all games.
+        _write_cumulative_player_detail_files(base_outdir, agg_rows, per_player_events)
 
 
 if __name__ == "__main__":
