@@ -482,7 +482,9 @@ class AspenNet(torch.nn.Module):
         if use_cuda_stream:
             if node.stream is None:
                 device = self._infer_device(context)
-                node.stream = torch.cuda.Stream(device=device)
+                node.stream = torch.cuda.Stream(
+                    device=device,
+                )
             # Ensure trunks that fetch context["cuda_stream"] see the stream actually running them.
             prev_stream = context.get("cuda_stream")
             has_prev_stream = "cuda_stream" in context
