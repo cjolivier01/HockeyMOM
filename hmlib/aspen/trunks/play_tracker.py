@@ -7,9 +7,9 @@ import torch
 
 from hmlib.bbox.box_functions import center, height, make_box_at_center, width
 from hmlib.builder import HM
-from hmlib.camera.cam_post_process import DefaultArguments
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.play_tracker import PlayTracker as _PlayTracker
+from hmlib.config import get_nested_value
 from hmlib.utils.image import image_height, image_width
 
 from .base import Trunk
@@ -26,7 +26,7 @@ class PlayTrackerTrunk(Trunk):
       - shared.game_config: full game config dict
       - shared.original_clip_box: optional clip box
       - shared.device: torch.device
-      - shared.cam_args: DefaultArguments (optional; created if missing)
+      - shared.cam_args: Namespace (optional; created if missing)
 
     Produces:
       - img: image tensor batch after overlays (StreamCheckpoint)
@@ -42,7 +42,7 @@ class PlayTrackerTrunk(Trunk):
         self._play_tracker: Optional[_PlayTracker] = None
         self._device: Optional[torch.device] = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
-        self._args: Optional[DefaultArguments] = None
+        self._args: Optional[argparse.Namespace] = None
         self._clip_box: Optional[torch.Tensor] = None
 
     # region helpers
@@ -97,7 +97,7 @@ class PlayTrackerTrunk(Trunk):
         self._device = (
             dev if isinstance(dev, torch.device) else torch.device(str(dev) if dev else "cuda")
         )
-        # Build cam args if not supplied
+        # Build camera args if not supplied
         cam_args = shared.get("cam_args")
         if cam_args is None:
             init_args = game_cfg.get("initial_args") or {}
@@ -105,12 +105,21 @@ class PlayTrackerTrunk(Trunk):
                 opt_ns = argparse.Namespace(**init_args)
             except Exception:
                 opt_ns = argparse.Namespace()
-            cam_args = DefaultArguments(
-                game_config=game_cfg,
-                basic_debugging=int(getattr(opt_ns, "debug", 0)),
-                output_video_path=getattr(opt_ns, "output_file", None),
-                opts=opt_ns,
-            )
+            cam_args = opt_ns
+            cam_args.game_config = game_cfg
+            if not hasattr(cam_args, "cam_ignore_largest"):
+                cam_args.cam_ignore_largest = get_nested_value(
+                    game_cfg, "rink.tracking.cam_ignore_largest", default_value=False
+                )
+            if not hasattr(cam_args, "no_wide_start"):
+                cam_args.no_wide_start = bool(getattr(opt_ns, "no_wide_start", False))
+            if not hasattr(cam_args, "plot_individual_player_tracking"):
+                pit = bool(getattr(opt_ns, "plot_tracking", False))
+                cam_args.plot_individual_player_tracking = pit
+            if not hasattr(cam_args, "plot_boundaries"):
+                cam_args.plot_boundaries = bool(
+                    getattr(cam_args, "plot_individual_player_tracking", False)
+                )
         self._args = cam_args
 
         # Determine video geometry and fps

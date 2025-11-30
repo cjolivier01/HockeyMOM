@@ -249,6 +249,9 @@ def run_mmtrack(
                     original_clip_box=config.get("original_clip_box"),
                     top_border_lines=config.get("top_border_lines"),
                     bottom_border_lines=config.get("bottom_border_lines"),
+                    # Full game config and CLI-derived initial args for trunks
+                    game_config=config.get("game_config"),
+                    initial_args=config.get("initial_args"),
                 )
                 if profiler is not None:
                     shared["profiler"] = profiler

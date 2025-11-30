@@ -1111,6 +1111,14 @@ class hm_opts(object):
                 except Exception:
                     return False
 
+            # cam_ignore_largest: prefer explicit CLI flag, otherwise YAML rink.tracking setting.
+            try:
+                cfg_val = get_nested_value(game_cfg, "rink.tracking.cam_ignore_largest", None)
+                if cfg_val is not None and not _cli_spec("cam_ignore_largest"):
+                    opt.cam_ignore_largest = bool(cfg_val)
+            except Exception:
+                pass
+
             # stop_on_dir_change_delay
             try:
                 if (

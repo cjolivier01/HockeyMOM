@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import os
 from typing import Any, Dict, Optional
 
 import torch
 
 from hmlib.builder import HM
-from hmlib.camera.cam_post_process import DefaultArguments
+from hmlib.config import get_nested_value
 from hmlib.utils.image import image_height, image_width
 from hmlib.video.video_out import MAX_NEVC_VIDEO_WIDTH, VideoOutput
 
@@ -23,7 +24,7 @@ class VideoOutTrunk(Trunk):
       - current_box: TLBR camera boxes per frame
       - frame_ids: tensor[B]
       - play_box: TLBR arena/play box (for sizing when crop_play_box)
-      - shared.cam_args: DefaultArguments (optional)
+      - shared.cam_args: Namespace (optional)
       - shared.original_clip_box: optional clip box
       - shared.device: preferred device
       - data.fps: float
@@ -68,13 +69,25 @@ class VideoOutTrunk(Trunk):
         if self._vo is not None:
             return
         shared = context.get("shared", {})
-        cam_args: Optional[DefaultArguments] = shared.get("cam_args")
+        cam_args: Optional[argparse.Namespace] = shared.get("cam_args")  # type: ignore[name-defined]
         if cam_args is None:
-            # Fallback: construct a minimal args holder
+            # Fallback: construct a minimal args holder from config.initial_args
             cfg = shared.get("game_config") or {}
-            cam_args = DefaultArguments(
-                game_config=cfg, basic_debugging=0, output_video_path=self._out_path, opts=None
-            )
+            init_args = cfg.get("initial_args") or {}
+            try:
+                cam_args = argparse.Namespace(**init_args)  # type: ignore[name-defined]
+            except Exception:
+                cam_args = argparse.Namespace()  # type: ignore[name-defined]
+            cam_args.game_config = cfg
+            if not hasattr(cam_args, "cam_ignore_largest"):
+                cam_args.cam_ignore_largest = get_nested_value(
+                    cfg, "rink.tracking.cam_ignore_largest", default_value=False
+                )
+            if not hasattr(cam_args, "crop_play_box"):
+                cam_args.crop_play_box = bool(getattr(cam_args, "crop_play_box", False))
+            if not hasattr(cam_args, "crop_output_image"):
+                no_crop = bool(getattr(cam_args, "no_crop", False))
+                cam_args.crop_output_image = not no_crop
 
         img = context.get("img")
         if img is None:
