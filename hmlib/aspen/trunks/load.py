@@ -10,6 +10,7 @@ from mmengine.structures import InstanceData
 from hmlib.bbox.box_functions import tlwh_to_tlbr_multiple
 from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.log import logger
+from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
@@ -371,3 +372,74 @@ class LoadPoseTrunk(Trunk):
 
     def output_keys(self):
         return {"data", "pose_dataframe"}
+
+
+class LoadCameraTrunk(Trunk):
+    """
+    Loads per-frame camera boxes from `camera_dataframe` and exposes them in context.
+
+    Expects in context:
+      - frame_id: int first frame in batch
+      - camera_data_path (optional): explicit CSV path; otherwise inferred from game_dir
+      - game_dir (optional): used with latest camera.csv when camera_data_path missing
+    """
+
+    def __init__(
+        self,
+        enabled: bool = True,
+        input_path_key: str = "camera_data_path",
+        game_dir_key: str = "game_dir",
+        file_stem: str = "camera",
+        input_batch_size: int = 1,
+    ):
+        super().__init__(enabled=enabled)
+        self._input_path_key = input_path_key
+        self._game_dir_key = game_dir_key
+        self._file_stem = file_stem
+        self._input_batch_size = input_batch_size
+        self._camera_dataframe: Optional[CameraTrackingDataFrame] = None
+        self._warned_missing = False
+
+    def _ensure_dataframe(self, context: Dict[str, Any]) -> Optional[CameraTrackingDataFrame]:
+        if self._camera_dataframe is not None:
+            return self._camera_dataframe
+        path = _ctx_value(context, self._input_path_key)
+        if not path:
+            path = find_latest_dataframe_file(
+                _ctx_value(context, self._game_dir_key), self._file_stem
+            )
+        if not path or not os.path.exists(path):
+            if not self._warned_missing:
+                logger.info("LoadCameraTrunk: no %s CSV found; skipping load", self._file_stem)
+                self._warned_missing = True
+            return None
+        self._camera_dataframe = CameraTrackingDataFrame(
+            input_file=path,
+            input_batch_size=self._input_batch_size,
+        )
+        return self._camera_dataframe
+
+    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
+        if not self.enabled:
+            return {}
+
+        df = self._ensure_dataframe(context)
+        if df is None or not df.has_input_data():
+            return {}
+
+        frame_id0 = int(context.get("frame_id", -1))
+        cam_rec = df.get_data_dict_by_frame(frame_id=frame_id0) if frame_id0 >= 0 else None
+        if cam_rec is None:
+            return {"camera_dataframe": df}
+
+        return {
+            "camera_dataframe": df,
+            "camera_frame_id": cam_rec.get("frame_id"),
+            "camera_bboxes": cam_rec.get("bboxes"),
+        }
+
+    def input_keys(self):
+        return {"frame_id"}
+
+    def output_keys(self):
+        return {"camera_dataframe", "camera_frame_id", "camera_bboxes"}

@@ -164,6 +164,13 @@ aspen:
       enabled: false
       params: {}
 
+    # Optional camera dataframe load/save for camera.csv
+    load_camera:
+      class: hmlib.aspen.trunks.load.LoadCameraTrunk
+      depends: []
+      enabled: false
+      params: {}
+
     # Optional camera controller (rule-based by default). Enable transformer by
     # setting controller: transformer and model_path to your checkpoint.
     camera_controller:
@@ -185,6 +192,12 @@ aspen:
       # Does this really need postprocess?
       depends: [tracker, camera_controller, postprocess]
       enabled: true
+      params: {}
+
+    save_camera:
+      class: hmlib.aspen.trunks.save.SaveCameraTrunk
+      depends: [play_tyracker]
+      enabled: false
       params: {}
 
     video_out:
