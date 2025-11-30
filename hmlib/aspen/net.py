@@ -33,6 +33,7 @@ class _Node:
     depends: List[str]
     params: Dict[str, Any]
     module: torch.nn.Module
+    stream: torch.cuda.Stream = None  # type: ignore[assignment]
 
 
 class AspenNet(torch.nn.Module):
@@ -52,7 +53,7 @@ class AspenNet(torch.nn.Module):
         graph_cfg: Dict[str, Any],
         shared: Optional[Dict[str, Any]] = None,
         minimal_context: bool = False,
-        max_concurrent: int = 4,
+        max_concurrent: int = 3,
     ):
         super().__init__()
         self.name: str = self._normalize_name(name)
@@ -414,28 +415,32 @@ class AspenNet(torch.nn.Module):
                 in_queue = self.queues[index]
                 is_last = index == len(self.exec_order) - 1
                 out_queue = self.queues[index + 1]
-                while True:
-                    item = in_queue.get()
-                    if is_last:
-                        pass
-                    if item is stop_token:
-                        out_queue.put(stop_token)
-                        break
-                    if isinstance(item, _ExceptionWrapper):
-                        out_queue.put(item)
-                        break
-                    grad_ctx = make_grad_ctx()
-                    try:
-                        with grad_ctx:
-                            self._execute_with_stream(node, item)
-                        if not is_last:
+                try:
+                    while True:
+                        item = in_queue.get()
+                        if is_last:
+                            pass
+                        if item is stop_token:
+                            out_queue.put(stop_token)
+                            break
+                        if isinstance(item, _ExceptionWrapper):
                             out_queue.put(item)
-                        else:
-                            assert self.num_concurrent > 0
-                            self.num_concurrent -= 1
-                    except BaseException as exc:
-                        out_queue.put(_ExceptionWrapper(exc))
-                        break
+                            break
+                        grad_ctx = make_grad_ctx()
+                        try:
+                            with grad_ctx:
+                                self._execute_with_stream(node, item)
+                            if not is_last:
+                                out_queue.put(item)
+                            else:
+                                assert self.num_concurrent > 0
+                                self.num_concurrent -= 1
+                        except BaseException as exc:
+                            print(exc)
+                            out_queue.put(_ExceptionWrapper(exc))
+                            break
+                finally:
+                    print(f"AspenNet: Thread for trunk '{node.name}' exiting.")
 
             self.queues: List[Queue] = [
                 create_queue(
@@ -471,20 +476,21 @@ class AspenNet(torch.nn.Module):
         return None
 
     def _execute_with_stream(self, node: _Node, context: Dict[str, Any]) -> None:
-        device = self._infer_device(context)
         use_cuda_stream = (
-            self.thread_cuda_streams and torch.cuda.is_available() and device is not None
+            self.thread_cuda_streams  # and torch.cuda.is_available() and device is not None
         )
         if use_cuda_stream:
-            stream = torch.cuda.Stream(device=device)
+            if node.stream is None:
+                device = self._infer_device(context)
+                node.stream = torch.cuda.Stream(device=device)
             # Ensure trunks that fetch context["cuda_stream"] see the stream actually running them.
             prev_stream = context.get("cuda_stream")
             has_prev_stream = "cuda_stream" in context
-            context["cuda_stream"] = stream
+            context["cuda_stream"] = node.stream
             try:
-                with torch.cuda.stream(stream):
+                with torch.cuda.stream(node.stream):
                     self._execute_node(node, context)
-                stream.synchronize()
+                # node.stream.synchronize()
             finally:
                 if has_prev_stream:
                     context["cuda_stream"] = prev_stream
