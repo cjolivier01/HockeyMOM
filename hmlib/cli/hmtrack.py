@@ -21,7 +21,7 @@ from mmcv.transforms import Compose
 import hmlib
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
-from hmlib.camera.cam_post_process import CamTrackPostProcessor, DefaultArguments
+from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.config import (
     get_clip_box,
@@ -337,26 +337,21 @@ def _main(args, num_gpu):
         if args.unsharp_mask is None and should_unsharp_mask_camera(args.camera_name):
             args.unsharp_mask = 1
 
-        cam_args = DefaultArguments(
-            game_config=game_config,
-            basic_debugging=args.debug,
-            output_video_path=args.output_file,
-            opts=args,
-        )
-        cam_args.show_image = args.show_image
-        cam_args.crop_output_image = not args.no_crop
-        cam_args.cam_ignore_largest = get_nested_value(
-            game_config, "rink.tracking.cam_ignore_largest", True
-        )
-
+        # Derived camera args (former DefaultArguments)
+        # Crop output image unless explicitly disabled via CLI.
+        args.crop_output_image = not getattr(args, "no_crop", False)
+        # Prefer rink.tracking.cam_ignore_largest when CLI did not override.
+        if not getattr(args, "cam_ignore_largest", False):
+            args.cam_ignore_largest = get_nested_value(
+                game_config, "rink.tracking.cam_ignore_largest", True
+            )
+        # CVAT export disables cropping and rink rotation.
         if args.cvat_output:
-            cam_args.crop_output_image = False
-            cam_args.fixed_edge_rotation = False
-            cam_args.apply_fixed_edge_scaling = False
-
-        cam_args.plot_individual_player_tracking = args.plot_tracking
-        if cam_args.plot_individual_player_tracking:
-            cam_args.plot_boundaries = True
+            args.crop_output_image = False
+        # Map plotting convenience flag to per-frame tracking overlays.
+        args.plot_individual_player_tracking = bool(getattr(args, "plot_tracking", False))
+        if args.plot_individual_player_tracking:
+            args.plot_boundaries = True
 
         # See if gameid is in videos
         if not args.input_video and args.game_id:
@@ -418,6 +413,9 @@ def _main(args, num_gpu):
             is_detecting=not using_precalculated_tracking and not using_precalculated_detections,
             stitch_with_fastest=not args.detect_jersey_numbers,
         )
+        # Expose per-role devices to downstream components (Aspen trunks, postprocessor)
+        args.camera_device = gpus.get("camera")
+        args.encoder_device = gpus.get("encoder")
         if is_single_lowmem_gpu:
             print("Adjusting configuration for a single low-memory GPU environment...")
             args.cache_size = 0
@@ -626,12 +624,47 @@ def _main(args, num_gpu):
             #
             # For Aspen-built model, boundaries will be applied by BoundariesTrunk.
             # Put boundary inputs into config dict so run_mmtrack can pass to Aspen shared.
+            # Recompute tuned boundary lines from game_config (legacy behavior of DefaultArguments).
+            game_bound_cfg = game_config.get("game", {}).get("boundaries", {}) if isinstance(
+                game_config, dict
+            ) else {}
+            top_border_lines = game_bound_cfg.get("upper", []) or []
+            bottom_border_lines = game_bound_cfg.get("lower", []) or []
+            upper_tune_position = game_bound_cfg.get("upper_tune_position", []) or []
+            lower_tune_position = game_bound_cfg.get("lower_tune_position", []) or []
+            boundary_scale_width = game_bound_cfg.get("scale_width", 1.0)
+            boundary_scale_height = game_bound_cfg.get("scale_height", 1.0)
+
+            def _tune_lines(lines, tune_pos):
+                if not lines or not tune_pos:
+                    return lines
+                tuned = []
+                for x1, y1, x2, y2 in lines:
+                    if boundary_scale_width:
+                        x1 *= boundary_scale_width
+                        x2 *= boundary_scale_width
+                    if boundary_scale_height:
+                        y2 *= boundary_scale_height
+                        y1 *= boundary_scale_height
+                    x1 += tune_pos[0]
+                    x2 += tune_pos[0]
+                    y1 += tune_pos[1]
+                    y2 += tune_pos[1]
+                    tuned.append([x1, y1, x2, y2])
+                return tuned
+
+            top_border_lines = _tune_lines(top_border_lines, upper_tune_position)
+            bottom_border_lines = _tune_lines(bottom_border_lines, lower_tune_position)
+
             args.initial_args = vars(args)
-            args.initial_args["top_border_lines"] = cam_args.top_border_lines
-            args.initial_args["bottom_border_lines"] = cam_args.bottom_border_lines
+            args.initial_args["top_border_lines"] = top_border_lines
+            args.initial_args["bottom_border_lines"] = bottom_border_lines
             args.initial_args["original_clip_box"] = get_clip_box(
                 game_id=args.game_id, root_dir=args.root_dir
             )
+            # Keep a copy under game_config for Aspen trunks that read from game_config.initial_args
+            if hasattr(args, "game_config") and isinstance(args.game_config, dict):
+                args.game_config["initial_args"] = args.initial_args
 
         pose_inferencer = None
         # if args.multi_pose and not aspen_has_pose_factory:
@@ -884,13 +917,12 @@ def _main(args, num_gpu):
         output_video_path = None
         if not args.no_save_video:
             output_video_path = os.path.join(results_folder, "tracking_output.mkv")
+        args.output_video_path = output_video_path
 
         if not args.audio_only:
 
             if not args.output_video_bit_rate:
-                # ugh, duplicate BS here, cam_args needs to go
                 args.output_video_bit_rate = dataloader.get_max_attribute("bit_rate")
-                cam_args.output_video_bit_rate = args.output_video_bit_rate
 
             if not args.no_play_tracking:
 
@@ -920,7 +952,7 @@ def _main(args, num_gpu):
                                 fixed_edge_rotation_angle is not None
                                 and fixed_edge_rotation_angle != 0
                             ),
-                            pre_clip=cam_args.crop_output_image,
+                            pre_clip=args.crop_output_image,
                             dtype=torch.float,
                         ),
                     )
@@ -935,7 +967,7 @@ def _main(args, num_gpu):
                         video_out_pipeline,
                         "HmCropToVideoFrame",
                         dict(
-                            crop_image=cam_args.crop_output_image,
+                            crop_image=args.crop_output_image,
                         ),
                     )
                     update_pipeline_item(
@@ -955,28 +987,9 @@ def _main(args, num_gpu):
                             device=gpus["encoder"],
                         ),
                     )
-                # TODO: get rid of one of these args things, merging them below
-                postprocessor = CamTrackPostProcessor(
-                    opt=args,
-                    args=cam_args,
-                    fps=dataloader.fps if args.output_fps is None else args.output_fps,
-                    save_dir=results_folder,
-                    output_video_path=output_video_path,
-                    save_frame_dir=args.save_frame_dir,
-                    original_clip_box=get_clip_box(game_id=args.game_id, root_dir=args.root_dir),
-                    device=gpus["camera"],
-                    video_out_device=gpus["encoder"],
-                    video_out_cache_size=args.cache_size,
-                    data_type="mot",
-                    camera_name=get_nested_value(game_config, "camera.name"),
-                    video_out_pipeline=video_out_pipeline,
-                    async_post_processing=args.async_post_processing,
-                    async_video_out=args.async_video_out,
-                    no_cuda_streams=args.no_cuda_streams,
-                )
-                postprocessor._args.skip_final_video_save = args.skip_final_video_save
-            else:
-                postprocessor = None
+                # Make video_out_pipeline available to Aspen trunks via args
+                args.video_out_pipeline = video_out_pipeline
+            postprocessor = None
 
             other_kwargs = {
                 "dataloader": dataloader,
@@ -1131,7 +1144,7 @@ def main():
 
     game_config["initial_args"] = vars(args)
     args.game_config = game_config
-    args = hm_opts.init(args)
+    args = hm_opts.init(args, parser)
 
     args = configure_model(config=args.game_config, args=args)
 

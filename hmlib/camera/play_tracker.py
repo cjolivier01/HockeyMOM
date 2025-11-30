@@ -934,8 +934,8 @@ class PlayTracker(torch.nn.Module):
                 online_ids.clone() if isinstance(online_ids, torch.Tensor) else torch.tensor([])
             )
 
-            if self._args.plot_boundaries and self._boundaries is not None:
-                online_im = self._boundaries.draw(online_im)
+            # if self._args.plot_boundaries and self._boundaries is not None:
+            #     online_im = self._boundaries.draw(online_im)
 
             if self._args.plot_all_detections is not None:
                 detections = video_data_sample.pred_instances.bboxes
