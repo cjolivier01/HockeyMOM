@@ -1,4 +1,5 @@
 import contextlib
+import traceback
 from collections import OrderedDict
 from typing import Any, Dict, Optional
 
@@ -346,6 +347,7 @@ def run_mmtrack(
     except StopIteration:
         print("run_mmtrack reached end of dataset")
     except Exception:
+        traceback.print_exc()
         raise
     finally:
         if aspen_net is not None:

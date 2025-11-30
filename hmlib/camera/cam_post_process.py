@@ -12,9 +12,7 @@ from __future__ import absolute_import, division, print_function
 import argparse
 import contextlib
 import os
-import time
 import traceback
-from threading import Thread
 from typing import Any, Dict, List, Optional, Union
 
 import torch
@@ -32,11 +30,8 @@ from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.camera.play_tracker import PlayTracker
 from hmlib.log import logger
-from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.ui import Shower
-from hmlib.utils.containers import create_queue
 from hmlib.utils.image import image_height, image_width
-from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video.video_out import VideoOutput, get_open_files_count
 from hmlib.video.video_stream import MAX_VIDEO_WIDTH
 
@@ -97,16 +92,10 @@ class CamTrackPostProcessor:
         # Core post-processing state (initialized on first frame)
         self._hockey_mom: Optional[HockeyMOM] = None
         self._start_frame_id: Optional[int] = None
-        self._queue = create_queue(mp=False, name="CamPostProcess-Queue")
-        self._thread: Optional[Thread] = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
-        self._timer = Timer()
         self._camera_tracking_data: Optional[CameraTrackingDataFrame] = None
         self._video_output_campp: Optional[VideoOutput] = None
-        self._queue_timer = Timer()
-        self._send_to_timer_post_process = Timer()
-        self._exception: Optional[BaseException] = None
         self._shower: Union[None, Shower] = None
         self._play_tracker: Optional[PlayTracker] = None
         self.final_frame_width: Optional[int] = None
@@ -224,8 +213,6 @@ class CamTrackPostProcessor:
         )
         self.secondary_init()
         self.eval()
-        if self._async_post_processing:
-            self.start()
 
     def secondary_init(self) -> None:
         assert self._play_tracker is not None
@@ -299,17 +286,10 @@ class CamTrackPostProcessor:
         return self._output_video_path
 
     def start(self) -> None:
-        self._thread = Thread(target=self._start, name="CamPostProc")
-        self._thread.start()
-
-    def _start(self) -> None:
-        self.postprocess_frame_worker()
+        # Deprecated: CamTrackPostProcessor now runs synchronously.
+        return None
 
     def stop(self) -> None:
-        if self._thread is not None:
-            self._queue.put(None)
-            self._thread.join()
-            self._thread = None
         if self._video_output_campp is not None:
             self._video_output_campp.stop()
 
@@ -317,79 +297,7 @@ class CamTrackPostProcessor:
         self,
         data: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        if self._exception is not None:
-            raise self._exception
         try:
-            if self._async_post_processing:
-                with TimeTracker(
-                    "Send to cam post process queue",
-                    self._send_to_timer_post_process,
-                    print_interval=50,
-                ):
-                    wait_count = 0
-                    while self._queue.qsize() > 1:
-                        if not getattr(self._args, "debug", False) and not getattr(
-                            self._args, "show_image", False
-                        ):
-                            wait_count += 1
-                            if wait_count % 100 == 0:
-                                logger.info("Cam post-process queue too large")
-                        time.sleep(0.001)
-                    self._queue.put(data)
-            else:
-                assert self._play_tracker is not None
-                with torch.no_grad():
-                    prof = getattr(self._args, "profiler", None)
-                    ctx = (
-                        prof.rf("play_tracker.forward")
-                        if getattr(prof, "enabled", False)
-                        else contextlib.nullcontext()
-                    )
-                    with ctx:
-                        results = self._play_tracker.forward(results=data)
-                del data
-                for frame_id, current_box in zip(results["frame_ids"], results["current_box"]):
-                    assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
-                    if self._camera_tracking_data is not None:
-                        self._camera_tracking_data.add_frame_records(
-                            frame_id=frame_id,
-                            tlbr=current_box if current_box.ndim == 4 else current_box.unsqueeze(0),
-                        )
-                if self._video_output_campp is not None:
-                    prof = getattr(self._args, "profiler", None)
-                    ctx = (
-                        prof.rf("video_out.append")
-                        if getattr(prof, "enabled", False)
-                        else contextlib.nullcontext()
-                    )
-                    with ctx:
-                        self._video_output_campp.append(results)
-                elif self._shower is not None and "img" in results:
-                    self._shower.show(results["img"].cpu())
-                return results
-        except Exception as ex:
-            print(ex)
-            traceback.print_exc()
-            raise
-
-    def postprocess_frame_worker(self) -> None:
-        try:
-            self._postprocess_frame_worker()
-        except Exception as ex:
-            self._exception = ex
-            print(ex)
-            traceback.print_exc()
-            raise
-        finally:
-            if self._video_output_campp is not None:
-                self._video_output_campp.stop()
-
-    def _postprocess_frame_worker(self) -> None:
-        while True:
-            results = self._queue.get()
-            if results is None:
-                break
-
             assert self._play_tracker is not None
             with torch.no_grad():
                 prof = getattr(self._args, "profiler", None)
@@ -399,8 +307,8 @@ class CamTrackPostProcessor:
                     else contextlib.nullcontext()
                 )
                 with ctx:
-                    results = self._play_tracker.forward(results=results)
-
+                    results = self._play_tracker.forward(results=data)
+            del data
             for frame_id, current_box in zip(results["frame_ids"], results["current_box"]):
                 assert torch.isclose(aspect_ratio(current_box), self._final_aspect_ratio)
                 if self._camera_tracking_data is not None:
@@ -418,7 +326,12 @@ class CamTrackPostProcessor:
                 with ctx:
                     self._video_output_campp.append(results)
             elif self._shower is not None and "img" in results:
-                self._shower.show(results["img"])
+                self._shower.show(results["img"].cpu())
+            return results
+        except Exception as ex:
+            print(ex)
+            traceback.print_exc()
+            raise
 
     def get_arena_box(self) -> torch.Tensor:
         assert self._play_tracker is not None
