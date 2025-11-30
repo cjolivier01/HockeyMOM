@@ -631,3 +631,129 @@ def select_gpus(
             print(f"{k} device: {device} ({name})")
 
     return gpus, gpu_allocator.is_single_lowmem_gpu(), gpu_allocator
+
+
+import ctypes
+import os
+import sys
+
+import torch
+
+# cudaStreamNonBlocking (per CUDA docs this is 1)
+CUDA_STREAM_NON_BLOCKING = 0x01
+
+
+def get_external_torch_stream(device=None, flags=CUDA_STREAM_NON_BLOCKING):
+    """
+    Create a CUDA stream with cudaStreamCreateWithFlags and wrap it in
+    a torch.cuda.ExternalStream (subclass of torch.cuda.Stream).
+
+    The CUDA runtime (libcudart) and function pointers are initialized
+    only on the first call.
+
+    Parameters
+    ----------
+    device : int or torch.device or None
+        CUDA device index. Defaults to torch.cuda.current_device().
+    flags : int
+        cudaStreamCreateWithFlags flags (default: cudaStreamNonBlocking).
+
+    Returns
+    -------
+    torch.cuda.Stream
+        A PyTorch stream object backed by the external cudaStream_t.
+
+    Notes
+    -----
+    torch.cuda.ExternalStream does NOT manage the lifetime of the
+    underlying CUDA stream; you're responsible for eventually
+    destroying it if you create many streams. :contentReference[oaicite:1]{index=1}
+    """
+    # --- lazy init libcudart + function pointers (first call only) ---
+    if not hasattr(get_external_torch_stream, "_initialized"):
+        if os.name == "nt":
+            libnames = [
+                "cudart64_12.dll",
+                "cudart64_11.dll",
+                "cudart64_102.dll",
+                "cudart64_101.dll",
+                "cudart64_100.dll",
+            ]
+        elif sys.platform == "darwin":
+            libnames = [
+                "libcudart.dylib",
+                "libcudart.12.dylib",
+                "libcudart.11.dylib",
+            ]
+        else:  # Linux / Unix
+            libnames = [
+                "libcudart.so",
+                "libcudart.so.12",
+                "libcudart.so.11",
+                "libcudart.so.10.2",
+                "libcudart.so.10.1",
+            ]
+
+        libcudart = None
+        last_err = None
+        for name in libnames:
+            try:
+                libcudart = ctypes.CDLL(name)
+                break
+            except OSError as e:
+                last_err = e
+
+        if libcudart is None:
+            raise OSError(f"Could not load CUDA runtime library. Tried: {libnames}") from last_err
+
+        cudaStream_t = ctypes.c_void_p
+
+        cudaStreamCreateWithFlags = libcudart.cudaStreamCreateWithFlags
+        cudaStreamCreateWithFlags.argtypes = [
+            ctypes.POINTER(cudaStream_t),
+            ctypes.c_uint,
+        ]
+        cudaStreamCreateWithFlags.restype = ctypes.c_int
+
+        cudaStreamDestroy = libcudart.cudaStreamDestroy
+        cudaStreamDestroy.argtypes = [cudaStream_t]
+        cudaStreamDestroy.restype = ctypes.c_int
+
+        # Cache on the function object so later calls skip this setup
+        get_external_torch_stream._libcudart = libcudart
+        get_external_torch_stream._cudaStream_t = cudaStream_t
+        get_external_torch_stream._cudaStreamCreateWithFlags = cudaStreamCreateWithFlags
+        get_external_torch_stream._cudaStreamDestroy = cudaStreamDestroy
+        get_external_torch_stream._initialized = True
+
+    # --- choose device ---
+    if device is None:
+        device_index = torch.cuda.current_device()
+    elif isinstance(device, torch.device):
+        device_index = device.index
+    else:
+        device_index = int(device)
+
+    torch.cuda.set_device(device_index)
+
+    # --- create raw cudaStream_t ---
+    cudaStream_t = get_external_torch_stream._cudaStream_t
+    raw_stream = cudaStream_t()
+
+    err = get_external_torch_stream._cudaStreamCreateWithFlags(
+        ctypes.byref(raw_stream),
+        ctypes.c_uint(flags),
+    )
+    if err != 0:
+        raise RuntimeError(f"cudaStreamCreateWithFlags failed with error code {err}")
+
+    ptr = raw_stream.value
+    if ptr is None:
+        raise RuntimeError("cudaStreamCreateWithFlags returned NULL stream")
+
+    # --- wrap it in a PyTorch stream (ExternalStream) ---
+    stream = torch.cuda.ExternalStream(ptr, device=device_index)
+    # Stash the raw handle so you can destroy it later if you want
+    stream._cuda_raw_stream = raw_stream
+
+    return stream
