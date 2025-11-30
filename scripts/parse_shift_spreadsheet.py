@@ -203,7 +203,11 @@ def extract_pairs_from_row(
             return ""
         # Already string → return trimmed
         if isinstance(val, str):
-            return val.strip()
+            s = val.strip()
+            # Treat textual NaN/None markers as empty cells
+            if s.lower() in {"nan", "none"}:
+                return ""
+            return s
         # datetime.time (Excel time)
         if isinstance(val, datetime.time):
             return val.strftime("%H:%M")
@@ -432,17 +436,29 @@ def _infer_t2s_from_filename(path: Path) -> Optional[int]:
     if not m:
         return None
     try:
-        return int(m.group(2))
+        game_id = int(m.group(2))
     except Exception:
         return None
+    # Treat only sufficiently large numeric suffixes as TimeToScore ids.
+    # Smaller suffixes (e.g., 'chicago-1') are considered part of the game name.
+    return game_id if game_id >= 10000 else None
 
 
 def _base_label_from_path(path: Any) -> str:
     p = Path(path)
     stem = p.stem
-    m = re.search(r"^(.*)-\d+$", stem)
-    base = m.group(1) if m else stem
-    return base or stem
+    # If the filename encodes a T2S id as a trailing numeric suffix (>= 10000),
+    # drop that suffix from the label. Otherwise keep the stem as-is.
+    m = re.search(r"^(.*)-(\d+)$", stem)
+    if m:
+        try:
+            suffix_num = int(m.group(2))
+        except Exception:
+            suffix_num = None
+        if suffix_num is not None and suffix_num >= 10000:
+            base = m.group(1)
+            return base or stem
+    return stem or p.name
 
 
 def _parse_input_token(token: str, base_dir: Optional[Path] = None) -> Tuple[Path, Optional[str]]:
@@ -476,6 +492,138 @@ def load_goals(goals_inline: Iterable[str], goals_file: Optional[Path]) -> List[
                 if not line or line.startswith("#"):
                     continue
                 events.append(parse_goal_token(line))
+    return events
+
+
+def _format_goal_time_cell(val: Any) -> Optional[str]:
+    """
+    Convert a goal time cell (often an Excel time) into an M:SS-style string
+    compatible with parse_flex_time_to_seconds.
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    if isinstance(val, datetime.time):
+        # Excel stores times as H:M; reuse the same formatting as shift sheets
+        return val.strftime("%H:%M")
+    if isinstance(val, pd.Timestamp):
+        return val.strftime("%H:%M")
+    s = str(val).strip()
+    if not s:
+        return None
+    parts = s.split(":")
+    # Convert H:MM:SS (Excel-style) into M:SS with minutes = H*60 + MM
+    if len(parts) == 3:
+        try:
+            h = int(parts[0])
+            m = int(parts[1])
+            sec = int(parts[2])
+            total_min = h * 60 + m
+            return f"{total_min}:{sec:02d}"
+        except Exception:
+            pass
+    return s
+
+
+def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
+    """
+    Parse goals from a goals.xlsx sheet that has side-by-side GF / GA tables.
+
+    Layout example (no headers row index assumed):
+
+        row 0:  'GF'  ...  'GA' ...
+        row 1:  (blank)
+        row 2:  'Period' 'Time' 'Goal' 'Assist 1' 'Assist 2' ... 'Period' 'Time' 'Goal' 'Assist 1' 'Assist 2'
+        row 3+: data rows
+    """
+    if not goals_xlsx.exists():
+        return []
+
+    df = pd.read_excel(goals_xlsx, header=None)
+    nrows, ncols = df.shape
+
+    def _find_label(label: str) -> Optional[Tuple[int, int]]:
+        target = _normalize_header_label(label)
+        for r in range(nrows):
+            for c in range(ncols):
+                val = df.iat[r, c]
+                if pd.isna(val):
+                    continue
+                if _normalize_header_label(str(val)) == target:
+                    return r, c
+        return None
+
+    def _parse_table(label_rc: Tuple[int, int], kind: str) -> List[GoalEvent]:
+        base_r, base_c = label_rc
+        # Find header row: look a few rows below the label for a 'Period' cell
+        header_r: Optional[int] = None
+        for r in range(base_r + 1, min(nrows, base_r + 8)):
+            for c in range(base_c, ncols):
+                val = df.iat[r, c]
+                if pd.isna(val):
+                    continue
+                if _normalize_header_label(str(val)) == "period":
+                    header_r = r
+                    break
+            if header_r is not None:
+                break
+        if header_r is None:
+            return []
+
+        # Map header labels to columns starting from the table's base column
+        label_to_col: Dict[str, int] = {}
+        for c in range(base_c, ncols):
+            val = df.iat[header_r, c]
+            if pd.isna(val):
+                continue
+            key = _normalize_header_label(str(val))
+            if key:
+                label_to_col.setdefault(key, c)
+
+        period_col = label_to_col.get("period")
+        time_col = label_to_col.get("time")
+        goal_col = label_to_col.get("goal")
+        assist1_col = label_to_col.get("assist1") or label_to_col.get("assist") or label_to_col.get(
+            "assist_1"
+        )
+        assist2_col = label_to_col.get("assist2") or label_to_col.get("assist_2")
+
+        if period_col is None or time_col is None or goal_col is None:
+            return []
+
+        events: List[GoalEvent] = []
+        for r in range(header_r + 1, nrows):
+            period_val = df.iat[r, period_col]
+            time_val = df.iat[r, time_col]
+            goal_val = df.iat[r, goal_col]
+            if all(pd.isna(x) for x in (period_val, time_val, goal_val)):
+                continue
+            try:
+                period = int(str(period_val).strip())
+            except Exception:
+                continue
+            t_str = _format_goal_time_cell(time_val)
+            if not t_str:
+                continue
+            scorer = _extract_jersey_number(goal_val)
+            assists: List[str] = []
+            for col in (assist1_col, assist2_col):
+                if col is None:
+                    continue
+                val = df.iat[r, col]
+                num = _extract_jersey_number(val)
+                if num:
+                    assists.append(num)
+            events.append(GoalEvent(kind, period, t_str, scorer=scorer, assists=assists))
+        return events
+
+    events: List[GoalEvent] = []
+    gf_rc = _find_label("GF")
+    ga_rc = _find_label("GA")
+    if gf_rc:
+        events.extend(_parse_table(gf_rc, "GF"))
+    if ga_rc:
+        events.extend(_parse_table(ga_rc, "GA"))
+    events.sort(key=lambda e: (e.period, e.t_sec))
     return events
 
 
@@ -1141,7 +1289,11 @@ def _parse_per_player_layout(df: pd.DataFrame, keep_goalies: bool, skip_validati
 
             if is_period_label(df.iloc[r, 0]) or (not jersey and not name):
                 break
-            if not jersey or jersey.lower() == "nan":
+            jersey_lower = jersey.lower()
+            # Skip header-like rows that may appear again (e.g., overtime sections)
+            if jersey_lower in {"jersey no", "jersey number"}:
+                continue
+            if not jersey or jersey_lower == "nan":
                 continue
             # Skip goalies like "(G) 37"
             if not keep_goalies and "(" in jersey and ")" in jersey:
@@ -2333,12 +2485,26 @@ def main() -> None:
     multiple_inputs = len(input_entries) > 1
     results: List[Dict[str, Any]] = []
 
-    def _resolve_goals_for_file(t2s_id: Optional[int], side: Optional[str]) -> List[GoalEvent]:
+    def _resolve_goals_for_file(
+        in_path: Path, t2s_id: Optional[int], side: Optional[str]
+    ) -> List[GoalEvent]:
         g = load_goals(args.goal, args.goals_file)
         if g:
             return g
+        # If no t2s id was provided/inferred, fall back to goals.xlsx next to the input.
         if t2s_id is None:
+            goals_xlsx = in_path.parent / "goals.xlsx"
+            try:
+                gx = _goals_from_goals_xlsx(goals_xlsx)
+            except Exception as e:  # noqa: BLE001
+                print(f"[goals.xlsx] Failed to parse {goals_xlsx}: {e}", file=sys.stderr)
+                gx = []
+            if gx:
+                for gg in reversed(sorted([str(x) for x in gx])):
+                    print(f"[goals.xlsx:{in_path.name}] {gg}")
+                return gx
             return g
+        # With a t2s id, require a side and use TimeToScore data.
         if side is None:
             print(
                 f"Error: T2S game id {t2s_id} provided but side could not be determined (provide --home/--away or :HOME/:AWAY).",
@@ -2361,7 +2527,11 @@ def main() -> None:
         return g
 
     for idx, (in_path, path_side) in enumerate(input_entries):
-        t2s_id = _infer_t2s_from_filename(in_path) or args.t2s
+        # Prefer an explicit --t2s value; otherwise, infer a T2S id from the
+        # filename only when the trailing numeric suffix is large enough
+        # (>= 10000). Smaller suffixes (e.g., 'chicago-1') remain part of the
+        # game name and do not trigger T2S usage.
+        t2s_id = args.t2s if args.t2s is not None else _infer_t2s_from_filename(in_path)
         label = _base_label_from_path(in_path)
         outdir = base_outdir if not multiple_inputs else base_outdir / label
         manual_goals = load_goals(args.goal, args.goals_file)
@@ -2388,14 +2558,7 @@ def main() -> None:
             else:
                 side_to_use = None
 
-        if t2s_id is not None and not manual_goals and side_to_use is None:
-            print(
-                f"Error: could not determine side (home/away) for {in_path}; provide :HOME/:AWAY or --home/--away.",
-                file=sys.stderr,
-            )
-            sys.exit(2)
-
-        goals = _resolve_goals_for_file(t2s_id, side_to_use)
+        goals = _resolve_goals_for_file(in_path, t2s_id, side_to_use)
         final_outdir, stats_rows, periods = process_sheet(
             xls_path=in_path,
             sheet_name=args.sheet,
