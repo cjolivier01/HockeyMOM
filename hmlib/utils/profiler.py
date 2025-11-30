@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
+from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
-import json
 import torch
-from collections import defaultdict
-from pathlib import Path
 
 
 class _NullContext:
@@ -103,6 +103,8 @@ class HmProfiler:
             )
             try:
                 prof.export_chrome_trace(path)
+                # total_busy, concurrent, kernel_with_memcpy = compute_cuda_kernel_times(path)
+                # print(f"{total_busy=}, {concurrent=}, {kernel_with_memcpy=}")
             except Exception:
                 pass
 
@@ -140,6 +142,8 @@ class HmProfiler:
             path = os.path.join(self._opts.save_dir, f"{self._opts.trace_basename}.json")
             try:
                 prof.export_chrome_trace(path)
+                # total_busy, concurrent, kernel_with_memcpy = compute_cuda_kernel_times(path)
+                # print(f"{total_busy=}, {concurrent=}, {kernel_with_memcpy=}")
             except Exception:
                 pass
 

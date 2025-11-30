@@ -178,3 +178,9 @@ aspen:
       class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
       depends: [tracker, camera_controller, ice_config]
       params: {}
+
+    video_out:
+      class: hmlib.aspen.trunks.video_out.VideoOutTrunk
+      depends: [postprocess]
+      enabled: false
+      params: {}

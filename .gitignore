@@ -41,3 +41,4 @@ trace.json
 /work_dirs
 YOLOX_outputs
 player_shifts_fiverr
+/*.dot
