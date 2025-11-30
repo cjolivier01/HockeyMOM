@@ -21,9 +21,8 @@ from mmcv.transforms import Compose
 import hmlib
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
-from hmlib.camera.cam_post_process import DefaultArguments
+from hmlib.camera.cam_post_process import CamTrackPostProcessor, DefaultArguments
 from hmlib.camera.camera import should_unsharp_mask_camera
-from hmlib.camera.camera_head import CamTrackHead
 from hmlib.config import (
     get_clip_box,
     get_config,
@@ -957,7 +956,7 @@ def _main(args, num_gpu):
                         ),
                     )
                 # TODO: get rid of one of these args things, merging them below
-                postprocessor = CamTrackHead(
+                postprocessor = CamTrackPostProcessor(
                     opt=args,
                     args=cam_args,
                     fps=dataloader.fps if args.output_fps is None else args.output_fps,

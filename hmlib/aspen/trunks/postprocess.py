@@ -5,10 +5,10 @@ from .base import Trunk
 
 class CamPostProcessTrunk(Trunk):
     """
-    Feeds results into CamTrackHead to render/save video and produce outputs.
+    Feeds results into CamTrackPostProcessor to render/save video and produce outputs.
 
     Expects in context:
-      - postprocessor: CamTrackHead instance
+      - postprocessor: CamTrackPostProcessor (or compatible) instance
       - data: dict from MMTrackingTrunk/PoseTrunk
     """
 
