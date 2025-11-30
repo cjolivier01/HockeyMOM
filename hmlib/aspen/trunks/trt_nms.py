@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import torch
 from mmengine.structures import InstanceData
 
-from hmlib.utils.tensor import make_const_tensor
+from hmlib.utils.tensor import make_const_tensor, new_full, new_zeros
 
 _TRT_LOGGER = None
 
@@ -434,6 +434,7 @@ class TrtBatchedNMS:
 
         # num_det has shape [B, 1]; clamp to valid range.
         try:
+            # TODO(colivier): this causes a sync, so needs to go
             raw_valid = int(num_det[0, 0])
         except Exception:
             raw_valid = out_scores.shape[1]
@@ -458,9 +459,9 @@ class TrtBatchedNMS:
         # mirroring the head's static_detections behavior.
         if self.cfg.max_num_boxes > 0:
             pad_to = int(self.cfg.max_num_boxes)
-            padded_bboxes = boxes.new_zeros((pad_to, 4))
-            padded_scores = scores_vec.new_full((pad_to,), float("-inf"))
-            padded_labels = labels_vec.new_full((pad_to,), -1, dtype=labels_vec.dtype)
+            padded_bboxes = new_zeros(boxes, (pad_to, 4))
+            padded_scores = new_full(scores_vec, (pad_to,), float("-inf"))
+            padded_labels = new_full(labels_vec, (pad_to,), -1)
             if num_valid > 0:
                 padded_bboxes[:num_valid] = boxes
                 padded_scores[:num_valid] = scores_vec
@@ -631,9 +632,9 @@ class DetectorNMS:
                 keep_global.append(idxs[keep_rel])
 
             if not keep_global:
-                kept = bboxes_valid.new_zeros((0, 4))
-                kept_scores = scores_valid.new_zeros((0,))
-                kept_labels = labels_valid.new_zeros((0,), dtype=labels_valid.dtype)
+                kept = new_zeros(bboxes_valid, (0, 4))
+                kept_scores = new_zeros(scores_valid, (0,))
+                kept_labels = new_zeros(labels_valid, (0,))
             else:
                 keep_idx = torch.cat(keep_global, dim=0)
                 kept = bboxes_valid[keep_idx]
