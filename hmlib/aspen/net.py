@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -51,6 +52,7 @@ class AspenNet(torch.nn.Module):
         graph_cfg: Dict[str, Any],
         shared: Optional[Dict[str, Any]] = None,
         minimal_context: bool = False,
+        max_concurrent: int = 4,
     ):
         super().__init__()
         self.name: str = self._normalize_name(name)
@@ -59,6 +61,8 @@ class AspenNet(torch.nn.Module):
         self._last_dot_path: Optional[str] = None
         self.shared: Dict[str, Any] = shared or {}
         self.nodes: List[_Node] = []
+        self.max_concurrent: int = max_concurrent
+        self.num_concurrent: int = 0
         # NetworkX DiGraph storing the trunks graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
         self.minimal_context = bool(
@@ -98,6 +102,7 @@ class AspenNet(torch.nn.Module):
         self.training: bool = False
         self._iter_num: int = 0
         self.save_graphviz(self.dot_path)
+        self.initialized = False
 
     @staticmethod
     def _normalize_name(name: str) -> str:
@@ -388,62 +393,82 @@ class AspenNet(torch.nn.Module):
         return subctx
 
     def _forward_threaded(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        stop_token = object()
+        if not self.initialized:
+            self.initialized = True
+            stop_token = object()
 
-        class _ExceptionWrapper:
-            __slots__ = ("exc", "tb")
+            class _ExceptionWrapper:
+                __slots__ = ("exc", "tb")
 
-            def __init__(self, exc: BaseException):
-                self.exc = exc
-                self.tb = exc.__traceback__
+                def __init__(self, exc: BaseException):
+                    self.exc = exc
+                    self.tb = exc.__traceback__
 
-            def reraise(self) -> None:
-                raise self.exc.with_traceback(self.tb)
+                def reraise(self) -> None:
+                    raise self.exc.with_traceback(self.tb)
 
-        def make_grad_ctx():
-            return torch.enable_grad() if self.training else torch.no_grad()
+            def make_grad_ctx():
+                return torch.enable_grad() if self.training else torch.no_grad()
 
-        def worker(index: int, node: _Node) -> None:
-            in_queue = queues[index]
-            out_queue = queues[index + 1]
-            while True:
-                item = in_queue.get()
-                if item is stop_token:
-                    out_queue.put(stop_token)
-                    break
-                if isinstance(item, _ExceptionWrapper):
-                    out_queue.put(item)
-                    break
-                grad_ctx = make_grad_ctx()
-                try:
-                    with grad_ctx:
-                        self._execute_with_stream(node, item)
-                    out_queue.put(item)
-                except BaseException as exc:
-                    out_queue.put(_ExceptionWrapper(exc))
-                    break
+            def worker(index: int, node: _Node) -> None:
+                in_queue = self.queues[index]
+                is_last = index == len(self.exec_order) - 1
+                out_queue = self.queues[index + 1]
+                while True:
+                    item = in_queue.get()
+                    if is_last:
+                        pass
+                    if item is stop_token:
+                        out_queue.put(stop_token)
+                        break
+                    if isinstance(item, _ExceptionWrapper):
+                        out_queue.put(item)
+                        break
+                    grad_ctx = make_grad_ctx()
+                    try:
+                        with grad_ctx:
+                            self._execute_with_stream(node, item)
+                        if not is_last:
+                            out_queue.put(item)
+                        else:
+                            assert self.num_concurrent > 0
+                            self.num_concurrent -= 1
+                    except BaseException as exc:
+                        out_queue.put(_ExceptionWrapper(exc))
+                        break
 
-        queues: List[Queue] = [
-            create_queue(mp=False, name=f"Aspen-{i}", max_size=self.thread_queue_size)
-            for i in range(len(self.exec_order) + 1)
-        ]
-        threads = []
-        for idx, node in enumerate(self.exec_order):
-            thread = threading.Thread(target=worker, args=(idx, node), daemon=True, name=node.name)
-            thread.start()
-            threads.append(thread)
+            self.queues: List[Queue] = [
+                create_queue(
+                    mp=False,
+                    name=f"Aspen-{self.exec_order[i-1].name}",
+                    max_size=self.thread_queue_size,
+                )
+                for i in range(len(self.exec_order) + 1)
+            ]
+            threads = []
+            for idx, node in enumerate(self.exec_order):
+                thread = threading.Thread(
+                    target=worker, args=(idx, node), daemon=True, name=node.name
+                )
+                thread.start()
+                threads.append(thread)
 
-        queues[0].put(context)
-        result = queues[-1].get()
-        try:
-            if isinstance(result, _ExceptionWrapper):
-                result.reraise()
-            return result
-        finally:
-            if threads:
-                queues[0].put(stop_token)
-            for thread in threads:
-                thread.join()
+            # queues[0].put(context)
+            # result = queues[-1].get()
+            # try:
+            #     if isinstance(result, _ExceptionWrapper):
+            #         result.reraise()
+            #     return result
+            # finally:
+            #     if threads:
+            #         queues[0].put(stop_token)
+            #     for thread in threads:
+            #         thread.join()
+        while self.num_concurrent >= self.max_concurrent:
+            time.sleep(0.01)
+        self.queues[0].put(context)
+        self.num_concurrent += 1
+        return None
 
     def _execute_with_stream(self, node: _Node, context: Dict[str, Any]) -> None:
         device = self._infer_device(context)

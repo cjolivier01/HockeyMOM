@@ -302,14 +302,16 @@ def run_mmtrack(
                         else:
                             out_context = aspen_net(iter_context)
 
-                        # Update stats for progress bar
-                        nr_tracks = int(out_context.get("nr_tracks", 0))
-                        max_tracking_id = out_context.get("max_tracking_id", 0)
-                        if not isinstance(max_tracking_id, (int, float)):
-                            try:
-                                max_tracking_id = int(max_tracking_id)
-                            except Exception:
-                                max_tracking_id = 0
+                        # Async AspenNet returns None from forward()
+                        if out_context is not None:
+                            # Update stats for progress bar
+                            nr_tracks = int(out_context.get("nr_tracks", 0))
+                            max_tracking_id = out_context.get("max_tracking_id", 0)
+                            if not isinstance(max_tracking_id, (int, float)):
+                                try:
+                                    max_tracking_id = int(max_tracking_id)
+                                except Exception:
+                                    max_tracking_id = 0
                     else:
                         # Legacy MMTracking path has been removed. An Aspen config is required.
                         raise RuntimeError(
