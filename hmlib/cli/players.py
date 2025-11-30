@@ -10,6 +10,7 @@ from hmlib.analytics.analyze_jerseys import (
     interval_jerseys_to_merged_jersey_time_intervals,
 )
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
+from hmlib.aspen.trunks.load import LoadCameraTrunk
 from hmlib.config import get_game_dir
 from hmlib.hm_opts import hm_opts
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
@@ -22,10 +23,31 @@ def load_player_tracking_data(game_id: str) -> Dict[str, Any]:
     return TrackingDataFrame(input_file=os.path.join(game_dir, "tracking.csv"), input_batch_size=1)
 
 
-def load_camera_tracking_data(game_id: str) -> Dict[str, Any]:
+def load_camera_tracking_data(game_id: str) -> CameraTrackingDataFrame:
+    """
+    Load camera tracking data for a game.
+
+    Prefer the Aspen LoadCameraTrunk path (to reuse its path discovery logic),
+    but fall back to opening camera.csv directly when needed.
+    """
     game_dir: str = get_game_dir(game_id=game_id)
+
+    # Try Aspen LoadCameraTrunk first so we share camera.csv discovery logic
+    try:
+        trunk = LoadCameraTrunk()
+        ctx = {"frame_id": 1, "game_dir": game_dir, "shared": {"game_dir": game_dir}}
+        out = trunk(ctx)
+        df = out.get("camera_dataframe")
+        if isinstance(df, CameraTrackingDataFrame):
+            return df
+    except Exception:
+        # Fall back to direct CSV load below
+        traceback.print_exc()
+
+    # Direct CSV path fallback
     return CameraTrackingDataFrame(
-        input_file=os.path.join(game_dir, "camera.csv"), input_batch_size=1
+        input_file=os.path.join(game_dir, "camera.csv"),
+        input_batch_size=1,
     )
 
 

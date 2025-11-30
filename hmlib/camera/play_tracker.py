@@ -99,6 +99,7 @@ class PlayTracker(torch.nn.Module):
         cpp_boxes: bool = _CPP_BOXES,
         cpp_playtracker: bool = _CPP_PLAYTRACKER,
         plot_cluster_tracking: bool = False,
+        plot_speed: bool = False,
     ):
         """Track play and drive camera box based on detections and configs.
 
@@ -119,6 +120,7 @@ class PlayTracker(torch.nn.Module):
         self._ui_dirty_paths: Set[Tuple[str, ...]] = set()
         self._hockey_mom: HockeyMOM = hockey_mom
         self._plot_cluster_tracking = plot_cluster_tracking
+        self._plot_speed = plot_speed
         # Amount to scale speed-related calculations based upon non-standard fps
         self._play_box = clamp_box(play_box, hockey_mom._video_frame.bounding_box())
         self._thread = None
@@ -900,7 +902,7 @@ class PlayTracker(torch.nn.Module):
                     else:
                         cluster_enclosing_box = self.get_arena_box()
                     current_box = cluster_enclosing_box
-                elif self.plot_cluster_tracking and not cluster_boxes_map:
+                elif self._plot_cluster_tracking and not cluster_boxes_map:
                     # Populate cluster boxes for visualization even if camera boxes are external.
                     cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
                         online_tlwhs, online_ids, cluster_counts=cluster_counts
@@ -996,7 +998,7 @@ class PlayTracker(torch.nn.Module):
                         label="IGNORED",
                     )
 
-            if self.plot_cluster_tracking:
+            if self._plot_cluster_tracking:
                 cluster_box_colors = {
                     cluster_counts[0]: (128, 0, 0),  # dark red
                     cluster_counts[1]: (0, 0, 128),  # dark blue
@@ -1123,7 +1125,7 @@ class PlayTracker(torch.nn.Module):
                         thickness=2,
                     )
 
-            if self._args.plot_speed:
+            if self._plot_speed:
                 vis.plot_frame_id_and_speeds(
                     online_im,
                     frame_id,
