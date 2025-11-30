@@ -54,12 +54,14 @@ class AspenNet(torch.nn.Module):
         shared: Optional[Dict[str, Any]] = None,
         minimal_context: bool = False,
         max_concurrent: int = 3,
+        verbose: bool = False,
     ):
         super().__init__()
         self.name: str = self._normalize_name(name)
         self._safe_name: str = self._sanitize_name(self.name)
         self.dot_path: str = os.path.abspath(f"aspennet_{self._safe_name}.dot")
         self._last_dot_path: Optional[str] = None
+        self._verbose = verbose
         self.shared: Dict[str, Any] = shared or {}
         self.nodes: List[_Node] = []
         self.max_concurrent: int = max_concurrent
@@ -356,6 +358,8 @@ class AspenNet(torch.nn.Module):
         trunk = node.module
         subctx = self._make_subcontext(trunk, context) if self.minimal_context else context
         name = f"aspen.trunk.{node.name}"
+        if self._verbose:
+            print(f"AspenNet: Executing trunk '{node.name}' with class '{node.cls_path}'")
         if isinstance(trunk, Trunk):
             prof_ctx = trunk.profile_scope(name)
         elif getattr(self._profiler, "enabled", False):
