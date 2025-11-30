@@ -13,13 +13,14 @@ import shutil
 import subprocess
 import threading
 from dataclasses import dataclass
-from queue import Queue
 from typing import Any, Dict, Iterable, List, Optional
 
 import networkx as nx
 import torch
 
 from hmlib.aspen.trunks.base import Trunk
+from hmlib.utils.containers import SidebandQueue as Queue
+from hmlib.utils.containers import create_queue
 
 logger = logging.getLogger(__name__)
 
@@ -423,7 +424,8 @@ class AspenNet(torch.nn.Module):
                     break
 
         queues: List[Queue] = [
-            Queue(maxsize=self.thread_queue_size) for _ in range(len(self.exec_order) + 1)
+            create_queue(mp=False, name=f"Aspen-{i}", max_size=self.thread_queue_size)
+            for i in range(len(self.exec_order) + 1)
         ]
         threads = []
         for idx, node in enumerate(self.exec_order):

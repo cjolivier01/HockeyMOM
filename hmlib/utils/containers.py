@@ -4,7 +4,7 @@ import multiprocessing
 import queue
 import sys
 import time
-from threading import Lock
+from threading import Condition, Lock
 from typing import Any, Dict, Optional
 
 
@@ -96,6 +96,7 @@ class SidebandQueue:
         name: Optional[str] = None,
         warn_after: Optional[float] = None,
         repeat_warn: bool = False,
+        max_size: int = -1,
     ):
         """Create a SidebandQueue.
 
@@ -103,22 +104,70 @@ class SidebandQueue:
             name: Optional name for the queue used in printed warnings.
             warn_after: Optional default seconds to wait before printing a warning when blocking in `get()`.
             repeat_warn: If True, repeat the warning every `warn_after` seconds while still waiting.
+            max_size: Maximum number of in-flight items allowed before `put()` blocks (-1 for infinite).
         """
+        if max_size == 0 or max_size < -1:
+            raise ValueError("max_size must be -1 (unbounded) or > 0")
+
         self._q = queue.Queue()
         self._counter = 1
         self._map: Dict[int, Any] = {}
         self._lock = Lock()
+        self._not_full = Condition(self._lock)
         self._name = name or f"SidebandQueue@{id(self)}"
         self._warn_after_default = warn_after
         self._repeat_warn_default = repeat_warn
+        self._max_size = max_size
 
     def put(self, obj: Any):
-        with self._lock:
-            ctr = self._counter
-            self._counter += 1
-            assert ctr not in self._map
-            self._map[ctr] = obj
+        warn_after = self._warn_after_default
+        repeat_warn = self._repeat_warn_default
+
+        if self._max_size == -1:
+            with self._lock:
+                ctr = self._counter
+                self._counter += 1
+                assert ctr not in self._map
+                self._map[ctr] = obj
             self._q.put(ctr)
+            return
+
+        start: Optional[float] = None
+        warned = False
+        ctr: Optional[int] = None
+
+        while ctr is None:
+            with self._not_full:
+                if len(self._map) < self._max_size:
+                    ctr = self._counter
+                    self._counter += 1
+                    assert ctr not in self._map
+                    self._map[ctr] = obj
+                    break
+
+                if warn_after is None:
+                    if start is None:
+                        start = time.time()
+                    self._not_full.wait()
+                    continue
+
+                if start is None:
+                    start = time.time()
+                notified = self._not_full.wait(timeout=warn_after)
+                if (not notified) and ((not warned) or repeat_warn):
+                    print(
+                        f"Warning: SidebandQueue '{self._name}' waiting >= {warn_after:.2f}s for free slot",
+                        file=sys.stderr,
+                    )
+                    warned = True
+
+        self._q.put(ctr)
+        if warned:
+            total_wait = time.time() - start if start is not None else 0.0
+            print(
+                f"SidebandQueue '{self._name}' resumed after waiting {total_wait:.2f}s to put item",
+                file=sys.stderr,
+            )
 
     def get(
         self,
@@ -154,7 +203,10 @@ class SidebandQueue:
         if warn_after is None:
             ctr = self._q.get(block=block, timeout=timeout) if block else self._q.get_nowait()
             with self._lock:
-                return self._map.pop(ctr)
+                val = self._map.pop(ctr)
+                if self._max_size > -1:
+                    self._not_full.notify()
+                return val
 
         # If not blocking, warning logic doesn't make sense; just try non-blocking get.
         if not block:
@@ -180,6 +232,8 @@ class SidebandQueue:
                     ctr = self._q.get(block=True, timeout=seg_timeout)
                     with self._lock:
                         val = self._map.pop(ctr)
+                        if self._max_size > -1:
+                            self._not_full.notify()
                     if warned:
                         total_wait = time.time() - start
                         print(
@@ -223,6 +277,7 @@ def create_queue(
     name: Optional[str] = None,
     warn_after: Optional[float] = None,
     repeat_warn: bool = False,
+    max_size: int = -1,
 ):
     if mp:
         assert False
@@ -232,4 +287,5 @@ def create_queue(
             name=name,
             warn_after=warn_after if warn_after is not None else 300.0,
             repeat_warn=repeat_warn,
+            max_size=max_size,
         )
