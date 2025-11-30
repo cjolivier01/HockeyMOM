@@ -29,8 +29,4 @@ def new_full(tensor: torch.Tensor, shape: Sequence[int], value: float) -> torch.
 
 def new_zeros(tensor: torch.Tensor, shape: Sequence[int]) -> torch.Tensor:
     """Create a zeros tensor like another tensor but with a different shape."""
-    return torch.zeros(
-        shape=shape,
-        device=tensor.device,
-        dtype=tensor.dtype,
-    )
+    return torch.zeros(shape, device=tensor.device, dtype=tensor.dtype)
