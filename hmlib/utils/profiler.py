@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
+import json
 import torch
+from collections import defaultdict
+from pathlib import Path
 
 
 class _NullContext:
@@ -221,6 +224,211 @@ def build_profiler_from_args(args, save_dir_fallback: Optional[str] = None) -> H
         step_count=step_count,
     )
     return HmProfiler(opts)
+
+
+TracePath = Union[str, Path]
+
+
+def _load_trace_events(path: TracePath) -> Iterable[Dict]:
+    """Load ``traceEvents`` list from a Chrome/Perfetto trace JSON file."""
+    with open(Path(path), "r") as f:
+        data = json.load(f)
+    return data.get("traceEvents", [])
+
+
+def _collect_kernel_intervals(
+    events: Iterable[Dict],
+) -> List[Tuple[float, float, Tuple[Optional[int], Optional[int]]]]:
+    """Extract CUDA kernel intervals (start, end, stream_key) from trace events.
+
+    - Only ``ph == "X"`` and ``cat == "kernel"`` entries are considered.
+    - ``cudaLaunchKernel`` CPU-side runtime events are ignored by construction
+      because they live in the ``cuda_runtime`` category.
+    """
+    intervals: List[Tuple[float, float, Tuple[Optional[int], Optional[int]]]] = []
+
+    for ev in events:
+        if ev.get("ph") != "X":
+            continue
+        if ev.get("cat") != "kernel":
+            continue
+
+        try:
+            ts = float(ev.get("ts", 0.0))
+            dur = float(ev.get("dur", 0.0))
+        except (TypeError, ValueError):
+            continue
+
+        if dur <= 0.0:
+            continue
+
+        start = ts
+        end = ts + dur
+
+        args = ev.get("args", {}) or {}
+        device = args.get("device")
+        stream = args.get("stream", ev.get("tid"))
+        stream_key = (device, stream)
+
+        intervals.append((start, end, stream_key))
+
+    intervals.sort(key=lambda x: x[0])
+    return intervals
+
+
+def _collect_memcpy_intervals(events: Iterable[Dict]) -> List[Tuple[float, float]]:
+    """Extract CUDA memcpy intervals (start, end) from trace events."""
+    intervals: List[Tuple[float, float]] = []
+
+    for ev in events:
+        if ev.get("ph") != "X":
+            continue
+        if ev.get("cat") != "gpu_memcpy":
+            continue
+
+        try:
+            ts = float(ev.get("ts", 0.0))
+            dur = float(ev.get("dur", 0.0))
+        except (TypeError, ValueError):
+            continue
+
+        if dur <= 0.0:
+            continue
+
+        start = ts
+        end = ts + dur
+        intervals.append((start, end))
+
+    intervals.sort(key=lambda x: x[0])
+    return intervals
+
+
+def _compute_total_busy_time_us(
+    intervals: List[Tuple[float, float, Tuple[Optional[int], Optional[int]]]]
+) -> float:
+    """Compute wall-clock time where at least one kernel is running."""
+    if not intervals:
+        return 0.0
+
+    total = 0.0
+    cur_start, cur_end, _ = intervals[0]
+
+    for start, end, _ in intervals[1:]:
+        if start > cur_end:
+            total += cur_end - cur_start
+            cur_start, cur_end = start, end
+        else:
+            if end > cur_end:
+                cur_end = end
+
+    total += cur_end - cur_start
+    return total
+
+
+def _compute_concurrent_time_us(
+    intervals: List[Tuple[float, float, Tuple[Optional[int], Optional[int]]]]
+) -> float:
+    """Compute time with kernels running concurrently on different streams."""
+    if not intervals:
+        return 0.0
+
+    events: List[Tuple[float, int, Tuple[Optional[int], Optional[int]]]] = []
+    for start, end, stream_key in intervals:
+        events.append((start, +1, stream_key))
+        events.append((end, -1, stream_key))
+
+    # Sort by time; for ties, process end events (-1) before start events (+1)
+    # so that back-to-back kernels do not count as overlapping.
+    events.sort(key=lambda x: (x[0], x[1]))
+
+    active_counts: Dict[Tuple[Optional[int], Optional[int]], int] = defaultdict(int)
+    active_streams = 0
+    prev_t: Optional[float] = None
+    concurrent_time = 0.0
+
+    for t, delta, stream_key in events:
+        if prev_t is not None and active_streams >= 2:
+            concurrent_time += t - prev_t
+
+        if delta > 0:
+            if active_counts[stream_key] == 0:
+                active_streams += 1
+            active_counts[stream_key] += 1
+        else:
+            if active_counts[stream_key] > 0:
+                active_counts[stream_key] -= 1
+                if active_counts[stream_key] == 0:
+                    active_streams -= 1
+
+        prev_t = t
+
+    return concurrent_time
+
+
+def _compute_kernel_with_memcpy_time_us(
+    kernel_intervals: List[Tuple[float, float, Tuple[Optional[int], Optional[int]]]],
+    memcpy_intervals: List[Tuple[float, float]],
+) -> float:
+    """Compute time with at least one kernel and one memcpy running."""
+    if not kernel_intervals or not memcpy_intervals:
+        return 0.0
+
+    events: List[Tuple[float, int, str]] = []
+
+    for start, end, _ in kernel_intervals:
+        events.append((start, +1, "k"))
+        events.append((end, -1, "k"))
+
+    for start, end in memcpy_intervals:
+        events.append((start, +1, "m"))
+        events.append((end, -1, "m"))
+
+    events.sort(key=lambda x: (x[0], x[1]))
+
+    k_active = 0
+    m_active = 0
+    prev_t: Optional[float] = None
+    overlap = 0.0
+
+    for t, delta, kind in events:
+        if prev_t is not None and k_active > 0 and m_active > 0:
+            overlap += t - prev_t
+
+        if kind == "k":
+            k_active += delta
+        else:
+            m_active += delta
+
+        prev_t = t
+
+    return overlap
+
+
+def compute_cuda_kernel_times(trace_path: TracePath) -> Tuple[float, float, float]:
+    """Compute CUDA kernel execution, concurrency, and IO-overlap times.
+
+    The input should be a Chrome/Perfetto JSON trace produced by torch.profiler,
+    e.g. ``profile/trace.json``.
+
+    Returns:
+        (total_kernel, concurrent_kernel, kernel_with_memcpy)
+
+        All values are in the same time units as the trace (typically
+        microseconds):
+        - ``total_kernel``: wall-clock time with at least one CUDA kernel
+          running on any stream/device.
+        - ``concurrent_kernel``: time with kernels running concurrently on
+          at least two distinct streams.
+        - ``kernel_with_memcpy``: time with at least one CUDA kernel and at
+          least one CUDA memcpy (``gpu_memcpy``) active concurrently.
+    """
+    events = _load_trace_events(trace_path)
+    kernel_intervals = _collect_kernel_intervals(events)
+    memcpy_intervals = _collect_memcpy_intervals(events)
+    total_busy = _compute_total_busy_time_us(kernel_intervals)
+    concurrent = _compute_concurrent_time_us(kernel_intervals)
+    kernel_with_memcpy = _compute_kernel_with_memcpy_time_us(kernel_intervals, memcpy_intervals)
+    return total_busy, concurrent, kernel_with_memcpy
 
 
 # Null context helper for call sites
