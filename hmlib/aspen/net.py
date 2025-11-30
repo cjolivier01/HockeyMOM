@@ -425,6 +425,7 @@ class AspenNet(torch.nn.Module):
                             break
                         if isinstance(item, _ExceptionWrapper):
                             out_queue.put(item)
+                            self.stop(wait=False)
                             break
                         grad_ctx = make_grad_ctx()
                         try:
@@ -438,6 +439,7 @@ class AspenNet(torch.nn.Module):
                         except BaseException as exc:
                             print(exc)
                             out_queue.put(_ExceptionWrapper(exc))
+                            self.stop(wait=False)
                             break
                 finally:
                     print(f"AspenNet: Thread for trunk '{node.name}' exiting.")
@@ -450,13 +452,13 @@ class AspenNet(torch.nn.Module):
                 )
                 for i in range(len(self.exec_order) + 1)
             ]
-            threads = []
+            self.threads = []
             for idx, node in enumerate(self.exec_order):
                 thread = threading.Thread(
                     target=worker, args=(idx, node), daemon=True, name=node.name
                 )
                 thread.start()
-                threads.append(thread)
+                self.threads.append(thread)
 
             # queues[0].put(context)
             # result = queues[-1].get()
@@ -474,6 +476,20 @@ class AspenNet(torch.nn.Module):
         self.queues[0].put(context)
         self.num_concurrent += 1
         return None
+
+    def stop(self, wait: bool = True) -> None:
+        """Stop all threaded trunks and join their threads."""
+        if not self.threaded_trunks or not hasattr(self, "queues"):
+            return
+        stop_token = object()
+        for _ in self.exec_order:
+            self.queues[0].put(stop_token)
+        for thread in self.threads:
+            if wait and thread.is_alive():
+                thread.join()
+        for q in self.queues:
+            q.close()
+        del self.queues
 
     def _execute_with_stream(self, node: _Node, context: Dict[str, Any]) -> None:
         use_cuda_stream = (

@@ -1,3 +1,6 @@
+import ctypes
+import os
+import sys
 import time
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -633,12 +636,6 @@ def select_gpus(
     return gpus, gpu_allocator.is_single_lowmem_gpu(), gpu_allocator
 
 
-import ctypes
-import os
-import sys
-
-import torch
-
 # cudaStreamNonBlocking (per CUDA docs this is 1)
 CUDA_STREAM_NON_BLOCKING = 0x01
 
@@ -757,3 +754,20 @@ def get_external_torch_stream(device=None, flags=CUDA_STREAM_NON_BLOCKING):
     stream._cuda_raw_stream = raw_stream
 
     return stream
+
+
+def destroy_external_torch_stream(stream):
+    """Destroy the cudaStream_t created by get_external_torch_stream."""
+    if not hasattr(get_external_torch_stream, "_cudaStreamDestroy"):
+        raise RuntimeError("CUDA runtime not initialized")
+
+    raw = getattr(stream, "_cuda_raw_stream", None)
+    if raw is None:
+        raise ValueError("Stream has no associated raw CUDA handle")
+
+    # make sure all work on this stream is done
+    stream.synchronize()
+
+    err = get_external_torch_stream._cudaStreamDestroy(raw)
+    if err != 0:
+        raise RuntimeError(f"cudaStreamDestroy failed with error code {err}")
