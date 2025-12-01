@@ -63,7 +63,8 @@ aspen:
     pose:
       class: hmlib.aspen.trunks.pose.PoseTrunk
       depends: [image_prep, pose_factory]
-      params: {}
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
 
     save_pose:
       class: hmlib.aspen.trunks.save.SavePoseTrunk

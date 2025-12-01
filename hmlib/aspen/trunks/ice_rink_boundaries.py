@@ -28,6 +28,7 @@ class IceRinkSegmBoundariesTrunk(Trunk):
         enabled: bool = True,
         det_thresh: float = 0.05,
         max_detections_in_mask: Optional[int] = None,
+        plot_ice_mask: bool = False,
     ):
         super().__init__(enabled=enabled)
         self._det_thresh = float(det_thresh)
@@ -35,6 +36,7 @@ class IceRinkSegmBoundariesTrunk(Trunk):
             int(max_detections_in_mask) if max_detections_in_mask is not None else None
         )
         self._segm = None
+        self._default_plot_ice_mask: bool = bool(plot_ice_mask)
 
     def _ensure_pipeline(self, context: Dict[str, Any], draw: bool):
         if self._segm is not None:
@@ -74,7 +76,8 @@ class IceRinkSegmBoundariesTrunk(Trunk):
         video_len = len(track_data_sample)
 
         draw_mask: bool = bool(
-            context.get("plot_ice_mask") or context.get("shared", {}).get("plot_ice_mask", False)
+            context.get("plot_ice_mask")
+            or context.get("shared", {}).get("plot_ice_mask", self._default_plot_ice_mask)
         )
         self._ensure_pipeline(context, draw_mask)
 

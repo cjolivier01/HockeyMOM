@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import argparse
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 import torch
 
@@ -37,14 +36,48 @@ class PlayTrackerTrunk(Trunk):
       - play_box: current arena/play region tensor (TLBR)
     """
 
-    def __init__(self, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        enabled: bool = True,
+        cam_ignore_largest: Optional[bool] = None,
+        no_wide_start: bool = False,
+        track_ids: Optional[str] = None,
+        debug_play_tracker: bool = False,
+        plot_moving_boxes: bool = False,
+        plot_individual_player_tracking: bool = False,
+        plot_boundaries: bool = False,
+        plot_all_detections: Optional[float] = None,
+        plot_trajectories: bool = False,
+        plot_speed: bool = False,
+        plot_jersey_numbers: bool = False,
+        plot_actions: bool = False,
+        camera_controller: Optional[str] = None,
+        camera_model: Optional[str] = None,
+        camera_window: Optional[int] = None,
+        force_stitching: bool = False,
+    ) -> None:
         super().__init__(enabled=enabled)
         self._hockey_mom: Optional[HockeyMOM] = None
         self._play_tracker: Optional[_PlayTracker] = None
         self._device: Optional[torch.device] = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
-        self._args: Optional[argparse.Namespace] = None
         self._clip_box: Optional[torch.Tensor] = None
+        self._cam_ignore_largest = cam_ignore_largest
+        self._no_wide_start = bool(no_wide_start)
+        self._track_ids = track_ids
+        self._debug_play_tracker = bool(debug_play_tracker)
+        self._plot_moving_boxes = bool(plot_moving_boxes)
+        self._plot_individual_player_tracking = bool(plot_individual_player_tracking)
+        self._plot_boundaries = bool(plot_boundaries)
+        self._plot_all_detections = plot_all_detections
+        self._plot_trajectories = bool(plot_trajectories)
+        self._plot_speed = bool(plot_speed)
+        self._plot_jersey_numbers = bool(plot_jersey_numbers)
+        self._plot_actions = bool(plot_actions)
+        self._camera_controller = camera_controller
+        self._camera_model = camera_model
+        self._camera_window = camera_window
+        self._force_stitching = bool(force_stitching)
 
     # region helpers
     @staticmethod
@@ -98,31 +131,6 @@ class PlayTrackerTrunk(Trunk):
         self._device = (
             dev if isinstance(dev, torch.device) else torch.device(str(dev) if dev else "cuda")
         )
-        # Build camera args if not supplied
-        cam_args = shared.get("cam_args")
-        if cam_args is None:
-            init_args = game_cfg.get("initial_args") or {}
-            try:
-                opt_ns = argparse.Namespace(**init_args)
-            except Exception:
-                opt_ns = argparse.Namespace()
-            cam_args = opt_ns
-            cam_args.game_config = game_cfg
-            if not hasattr(cam_args, "cam_ignore_largest"):
-                cam_args.cam_ignore_largest = get_nested_value(
-                    game_cfg, "rink.tracking.cam_ignore_largest", default_value=False
-                )
-            if not hasattr(cam_args, "no_wide_start"):
-                cam_args.no_wide_start = bool(getattr(opt_ns, "no_wide_start", False))
-            if not hasattr(cam_args, "plot_individual_player_tracking"):
-                pit = bool(getattr(opt_ns, "plot_tracking", False))
-                cam_args.plot_individual_player_tracking = pit
-            if not hasattr(cam_args, "plot_boundaries"):
-                cam_args.plot_boundaries = bool(
-                    getattr(cam_args, "plot_individual_player_tracking", False)
-                )
-        self._args = cam_args
-
         # Determine video geometry and fps
         ori = results["original_images"]
         H = int(ori.shape[-2])
@@ -156,13 +164,60 @@ class PlayTrackerTrunk(Trunk):
             seed_box = torch.as_tensor(arena, dtype=torch.int64, device=self._device)
         else:
             seed_box = self._calc_seed_play_box(results)
+        # Camera + plotting configuration
+        cam_ignore = (
+            self._cam_ignore_largest
+            if self._cam_ignore_largest is not None
+            else bool(get_nested_value(game_cfg, "rink.tracking.cam_ignore_largest", False))
+        )
+        controller = self._camera_controller or get_nested_value(
+            game_cfg, "rink.camera.controller", "rule"
+        )
+        cam_model = self._camera_model or get_nested_value(game_cfg, "rink.camera.camera_model", None)
+        cam_window = (
+            self._camera_window
+            if self._camera_window is not None
+            else int(get_nested_value(game_cfg, "rink.camera.camera_window", 8))
+        )
+
+        # Optional track id whitelist parsed here so tests/YAML can pass strings
+        track_ids: Optional[Set[int]] = None
+        if self._track_ids:
+            if isinstance(self._track_ids, str):
+                track_ids = {int(i) for i in self._track_ids.split(",") if i}
+            else:
+                try:
+                    track_ids = {int(i) for i in self._track_ids}  # type: ignore[arg-type]
+                except Exception:
+                    track_ids = None
+
         self._play_tracker = _PlayTracker(
             hockey_mom=self._hockey_mom,
             play_box=seed_box,
             device=self._device,
             original_clip_box=self._clip_box,
             progress_bar=None,
-            args=self._args,
+            game_config=game_cfg,
+            game_id=shared.get("game_id"),
+            cam_ignore_largest=cam_ignore,
+            no_wide_start=self._no_wide_start,
+            track_ids=track_ids,
+            debug_play_tracker=self._debug_play_tracker,
+            plot_moving_boxes=self._plot_moving_boxes,
+            plot_individual_player_tracking=self._plot_individual_player_tracking,
+            plot_boundaries=self._plot_boundaries,
+            plot_all_detections=self._plot_all_detections,
+            plot_trajectories=self._plot_trajectories,
+            plot_speed=self._plot_speed,
+            plot_jersey_numbers=self._plot_jersey_numbers,
+            plot_actions=self._plot_actions,
+            camera_ui=int(context.get("shared", {}).get("camera_ui", 0)),
+            camera_controller=controller,
+            camera_model=cam_model,
+            camera_window=int(cam_window),
+            force_stitching=self._force_stitching,
+            stitch_rotation_controller=shared.get("stitch_rotation_controller"),
+            cluster_centroids=shared.get("cluster_centroids"),
         )
         self._play_tracker.eval()
 

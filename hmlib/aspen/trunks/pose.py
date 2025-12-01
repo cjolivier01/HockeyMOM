@@ -22,9 +22,10 @@ class PoseTrunk(Trunk):
       - data: updated with 'pose_results'
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, plot_pose: bool = False):
         # Need to import in order to register
         super().__init__(enabled=enabled)
+        self._default_plot_pose: bool = bool(plot_pose)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -109,7 +110,10 @@ class PoseTrunk(Trunk):
         inputs = inputs.contiguous()
 
         all_pose_results = []
-        show = bool(context.get("plot_pose", False))
+        show = bool(
+            context.get("plot_pose")
+            or context.get("shared", {}).get("plot_pose", self._default_plot_pose)
+        )
         # If we have per-frame bboxes and a Pose2D inferencer available, run a
         # custom forward that bypasses MMPose's internal detector.
         pose_impl = getattr(pose_inferencer, "inferencer", None)

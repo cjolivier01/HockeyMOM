@@ -23,9 +23,10 @@ class BoundariesTrunk(Trunk):
       - plot_ice_mask: bool (optional)
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, plot_ice_mask: bool = False):
         super().__init__(enabled=enabled)
         self.factory_complete: bool = False
+        self._default_plot_ice_mask: bool = bool(plot_ice_mask)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled or self.factory_complete:
@@ -49,7 +50,8 @@ class BoundariesTrunk(Trunk):
             "bottom_border_lines"
         )
         plot_ice_mask: bool = bool(
-            context.get("plot_ice_mask") or context.get("shared", {}).get("plot_ice_mask", False)
+            context.get("plot_ice_mask")
+            or context.get("shared", {}).get("plot_ice_mask", self._default_plot_ice_mask)
         )
 
         if top_border_lines or bottom_border_lines:

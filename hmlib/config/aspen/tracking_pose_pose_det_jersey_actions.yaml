@@ -63,7 +63,8 @@ aspen:
     pose:
       class: hmlib.aspen.trunks.pose.PoseTrunk
       depends: [image_prep, pose_factory]
-      params: {}
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
 
     pose_to_det:
       class: hmlib.aspen.trunks.pose_to_det.PoseToDetTrunk
