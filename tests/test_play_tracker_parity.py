@@ -83,59 +83,7 @@ def _base_game_config() -> Dict:
     }
 
 
-def _create_args(**overrides) -> SimpleNamespace:
-    cfg = copy.deepcopy(_base_game_config())
-    args_dict = {
-        "game_config": cfg,
-        "plot_jersey_numbers": False,
-        "plot_actions": False,
-        "track_ids": "",
-        "camera_ui": 0,
-        "camera_controller": "rule",
-        "camera_model": None,
-        "camera_window": 8,
-        "debug_play_tracker": False,
-        "plot_moving_boxes": False,
-        "cam_ignore_largest": cfg["rink"]["tracking"]["cam_ignore_largest"],
-        "no_wide_start": False,
-        "plot_individual_player_tracking": False,
-        "plot_cluster_tracking": False,
-        "plot_trajectories": False,
-        "plot_all_detections": None,
-        "plot_boundaries": False,
-        "plot_speed": False,
-        "crop_play_box": False,
-        "cluster_centroids": copy.deepcopy(DEFAULT_CLUSTER_CENTROIDS),
-    }
-
-    ratio_keys = (
-        "max_speed_ratio_x",
-        "max_speed_ratio_y",
-        "max_accel_ratio_x",
-        "max_accel_ratio_y",
-    )
-    for key in ratio_keys:
-        if key in overrides:
-            cfg["rink"]["camera"][key] = float(overrides[key])
-
-    if "cam_ignore_largest" in overrides:
-        value = overrides["cam_ignore_largest"]
-        cfg["rink"]["tracking"]["cam_ignore_largest"] = value
-        args_dict["cam_ignore_largest"] = value
-
-    if "cluster_centroids" in overrides:
-        args_dict["cluster_centroids"] = copy.deepcopy(overrides["cluster_centroids"])
-
-    skip_keys = {"cam_ignore_largest", "cluster_centroids", *ratio_keys}
-    for key, value in overrides.items():
-        if key in skip_keys:
-            continue
-        args_dict[key] = value
-
-    return SimpleNamespace(**args_dict)
-
-
-def _build_tracker(args: SimpleNamespace, cpp_playtracker: bool) -> PlayTracker:
+def _build_tracker(game_cfg: Dict, overrides: Dict, cpp_playtracker: bool) -> PlayTracker:
     hockey_mom = HockeyMOM(
         image_width=IMAGE_WIDTH,
         image_height=IMAGE_HEIGHT,
@@ -152,9 +100,30 @@ def _build_tracker(args: SimpleNamespace, cpp_playtracker: bool) -> PlayTracker:
         device=DEVICE,
         original_clip_box=None,
         progress_bar=None,
-        args=args,
+        game_config=game_cfg,
+        cam_ignore_largest=game_cfg["rink"]["tracking"]["cam_ignore_largest"],
+        no_wide_start=bool(overrides.get("no_wide_start", False)),
+        track_ids=overrides.get("track_ids", ""),
+        debug_play_tracker=False,
+        plot_moving_boxes=False,
+        plot_individual_player_tracking=False,
+        plot_boundaries=False,
+        plot_all_detections=None,
+        plot_trajectories=False,
+        plot_speed=False,
+        plot_jersey_numbers=False,
+        plot_actions=False,
+        camera_ui=0,
+        camera_controller="rule",
+        camera_model=None,
+        camera_window=8,
+        force_stitching=False,
+        cluster_centroids=copy.deepcopy(
+            overrides.get("cluster_centroids", DEFAULT_CLUSTER_CENTROIDS)
+        ),
         cpp_boxes=True,
         cpp_playtracker=cpp_playtracker,
+        plot_cluster_tracking=bool(overrides.get("plot_cluster_tracking", False)),
     )
 
 
@@ -222,8 +191,21 @@ def _make_results_from_box_list(per_frame_boxes: Iterable[torch.Tensor]) -> Dict
 
 def _run_play_trackers(overrides: Dict | None = None) -> Tuple[Dict, Dict]:
     overrides = overrides or {}
-    python_tracker = _build_tracker(_create_args(**overrides), cpp_playtracker=False)
-    cpp_tracker = _build_tracker(_create_args(**overrides), cpp_playtracker=True)
+    game_cfg = _base_game_config()
+    if "cam_ignore_largest" in overrides:
+        game_cfg["rink"]["tracking"]["cam_ignore_largest"] = overrides["cam_ignore_largest"]
+    ratio_keys = (
+        "max_speed_ratio_x",
+        "max_speed_ratio_y",
+        "max_accel_ratio_x",
+        "max_accel_ratio_y",
+    )
+    for key in ratio_keys:
+        if key in overrides:
+            game_cfg["rink"]["camera"][key] = float(overrides[key])
+
+    python_tracker = _build_tracker(game_cfg, overrides, cpp_playtracker=False)
+    cpp_tracker = _build_tracker(game_cfg, overrides, cpp_playtracker=True)
     python_results = python_tracker.forward(_make_results())
     cpp_results = cpp_tracker.forward(_make_results())
     return python_results, cpp_results

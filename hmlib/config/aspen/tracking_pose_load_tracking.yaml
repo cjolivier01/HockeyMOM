@@ -74,10 +74,10 @@ aspen:
     pose:
       class: hmlib.aspen.trunks.pose.PoseTrunk
       depends: [load_tracking, pose_factory]
-      params: {}
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
 
     postprocess:
       class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
       depends: [pose]
       params: {}
-

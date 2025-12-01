@@ -54,7 +54,7 @@ class AspenNet(torch.nn.Module):
         shared: Optional[Dict[str, Any]] = None,
         minimal_context: bool = False,
         max_concurrent: int = 3,
-        verbose: bool = False,
+        verbose: bool = True,
     ):
         super().__init__()
         self.name: str = self._normalize_name(name)

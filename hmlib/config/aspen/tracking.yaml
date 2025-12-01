@@ -120,7 +120,8 @@ aspen:
     boundaries:
       class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
       depends: [model_factory]
-      params: {}
+      params:
+        plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     detector:
       class: hmlib.aspen.trunks.detector.DetectorInferenceTrunk
@@ -146,6 +147,7 @@ aspen:
         # Optional cap on detections that survive the rink mask.
         # If set, only the top-K scores inside the mask are kept.
         max_detections_in_mask: 50
+        plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     tracker:
       class: hmlib.aspen.trunks.tracker.TrackerTrunk
@@ -192,7 +194,16 @@ aspen:
       # Does this really need postprocess?
       depends: [tracker, camera_controller, postprocess]
       enabled: true
-      params: {}
+      params:
+        debug_play_tracker: GLOBAL.plot.debug_play_tracker
+        plot_moving_boxes: GLOBAL.plot.plot_moving_boxes
+        plot_individual_player_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_boundaries: GLOBAL.plot.plot_boundaries
+        plot_all_detections: GLOBAL.plot.plot_all_detections
+        plot_trajectories: GLOBAL.plot.plot_trajectories
+        plot_speed: GLOBAL.plot.plot_speed
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_actions: GLOBAL.plot.plot_actions
 
     save_camera:
       class: hmlib.aspen.trunks.save.SaveCameraTrunk

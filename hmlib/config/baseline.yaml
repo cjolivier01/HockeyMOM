@@ -16,9 +16,25 @@ camera:
     gamma: 1.0
   mount:
     - offset_80:
-      resolution: null
+        resolution: null
     - offset_90:
-      resolution: null
+        resolution: null
+
+#
+# Plotting / visualization defaults
+#
+plot:
+  debug_play_tracker: false
+  plot_moving_boxes: false
+  plot_individual_player_tracking: false
+  plot_boundaries: false
+  plot_all_detections: null
+  plot_trajectories: false
+  plot_speed: false
+  plot_jersey_numbers: false
+  plot_actions: false
+  plot_pose: false
+  plot_ice_mask: false
 
 #
 # Rink config
