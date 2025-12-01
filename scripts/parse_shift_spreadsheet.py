@@ -1649,13 +1649,16 @@ def _compute_player_stats(
 
 
 def _build_stats_dataframe(
-    stats_table_rows: List[Dict[str, str]], all_periods_seen: List[int]
+    stats_table_rows: List[Dict[str, str]],
+    all_periods_seen: List[int],
+    sort_for_cumulative: bool = False,
 ) -> Tuple[pd.DataFrame, List[str]]:
     periods = sorted(all_periods_seen)
     summary_cols = [
         "player",
         "goals",
         "assists",
+        "points",
         "gt_goals",
         "gw_goals",
         "shifts",
@@ -1679,9 +1682,29 @@ def _build_stats_dataframe(
         + period_ga_cols
     )
 
-    rows_for_print: List[List[str]] = []
-    for r in sorted(stats_table_rows, key=lambda x: x.get("player", "")):
-        rows_for_print.append([r.get(c, "") for c in cols])
+    rows_sorted: List[Dict[str, str]] = list(stats_table_rows)
+    if sort_for_cumulative:
+        # Stable multi-key sort:
+        #  - final primary key: points (descending)
+        #  - tie-breakers (in order of increasing precedence due to stable sort):
+        #      player name, then assists, then goals.
+        def _intval(row: Dict[str, str], key: str) -> int:
+            try:
+                return int(str(row.get(key, 0) or 0))
+            except Exception:
+                return 0
+
+        rows_sorted.sort(key=lambda r: r.get("player", ""))
+        rows_sorted.sort(key=lambda r: _intval(r, "assists"))
+        rows_sorted.sort(key=lambda r: _intval(r, "goals"))
+        rows_sorted.sort(key=lambda r: _intval(r, "points"), reverse=True)
+    else:
+        # Per-game sheets: simple alphabetical order by player.
+        rows_sorted.sort(key=lambda r: r.get("player", ""))
+
+    rows_for_print: List[List[str]] = [
+        [r.get(c, "") for c in cols] for r in rows_sorted
+    ]
     df = pd.DataFrame(rows_for_print, columns=cols)
     return df, cols
 
@@ -1691,7 +1714,7 @@ def _write_player_stats_text_and_csv(
     stats_table_rows: List[Dict[str, str]],
     all_periods_seen: List[int],
 ) -> None:
-    df, cols = _build_stats_dataframe(stats_table_rows, all_periods_seen)
+    df, cols = _build_stats_dataframe(stats_table_rows, all_periods_seen, sort_for_cumulative=False)
     rows_for_print = df.values.tolist()
 
     widths = [len(c) for c in cols]
@@ -1792,10 +1815,14 @@ def _aggregate_stats_rows(
         shifts = data["shifts"] or 0
         total_sec = data["sb_toi_total_sec"]
         avg_sec = int(total_sec / shifts) if shifts else 0
+        total_goals = data["goals"]
+        total_assists = data["assists"]
+        total_points = total_goals + total_assists
         row: Dict[str, str] = {
             "player": player,
-            "goals": str(data["goals"]),
-            "assists": str(data["assists"]),
+            "goals": str(total_goals),
+            "assists": str(total_assists),
+            "points": str(total_points),
             "shifts": str(shifts),
             "plus_minus": str(data["plus_minus"]),
             "gf_counted": str(data["gf_counted"]),
@@ -2450,6 +2477,7 @@ def process_sheet(
                         per_player_goal_events[player_key]["ga_on_ice"].append(ev)
 
         scoring_counts = goal_assist_counts.get(player_key, {"goals": 0, "assists": 0})
+        points_val = scoring_counts.get("goals", 0) + scoring_counts.get("assists", 0)
 
         stats_lines = []
         stats_lines.append(f"Player: {player_key}")
@@ -2461,6 +2489,7 @@ def process_sheet(
         stats_lines.append(f"Shortest shift: {shift_summary['toi_shortest']}")
         stats_lines.append(f"Goals (T2S): {scoring_counts.get('goals', 0)}")
         stats_lines.append(f"Assists (T2S): {scoring_counts.get('assists', 0)}")
+        stats_lines.append(f"Points (G+A): {points_val}")
         if per_period_toi_map:
             stats_lines.append("Per-period TOI (scoreboard):")
             for period in sorted(per_period_toi_map.keys()):
@@ -2504,6 +2533,7 @@ def process_sheet(
             "player": player_key,
             "goals": str(scoring_counts.get("goals", 0)),
             "assists": str(scoring_counts.get("assists", 0)),
+            "points": str(points_val),
             "shifts": shift_summary["num_shifts"],
             "plus_minus": str(plus_minus),
             "sb_toi_total": shift_summary["toi_total"],
@@ -2798,7 +2828,8 @@ def main() -> None:
         # Add GT/GW goal counts into aggregated rows.
         _augment_aggregate_with_goal_details(agg_rows, per_player_events)
 
-        agg_df, _ = _build_stats_dataframe(agg_rows, agg_periods)
+        # Cumulative sheet: points-based ordering.
+        agg_df, _ = _build_stats_dataframe(agg_rows, agg_periods, sort_for_cumulative=True)
         sheets: List[Tuple[str, pd.DataFrame]] = [("Cumulative", agg_df)]
         has_t2s = any(r.get("t2s_id") is not None for r in results)
         ordered_results = (
@@ -2814,7 +2845,8 @@ def main() -> None:
             else results
         )
         for r in ordered_results:
-            df, _ = _build_stats_dataframe(r["stats"], r["periods"])
+            # Per-game sheets: keep simple alphabetical ordering by player.
+            df, _ = _build_stats_dataframe(r["stats"], r["periods"], sort_for_cumulative=False)
             sheets.append((r["label"], df))
         consolidated_path = base_outdir / "player_stats_consolidated.xlsx"
         _write_consolidated_workbook(consolidated_path, sheets)
