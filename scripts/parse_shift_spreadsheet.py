@@ -226,17 +226,11 @@ def extract_pairs_from_row(
     return [(starts[i], ends[i]) for i in range(n)]
 
 
-# Treat period end as 0:00 on the scoreboard when sheets encode it as the period start time.
-_PERIOD_START_TIMES = {"12:00", "15:00", "20:00"}
-
-
+# Historically we tried to normalize certain end-of-period times (e.g., 15:00 or 20:00)
+# to 0:00 when sheets encoded the period end as its nominal start time. This proved
+# brittle and could distort genuine in-period times (e.g., 12:00). We now leave
+# scoreboard end times exactly as entered in the sheet.
 def _normalize_sb_end_time(t: str) -> str:
-    try:
-        ts = str(t).strip()
-    except Exception:
-        return t
-    if ts in _PERIOD_START_TIMES:
-        return "0:00"
     return t
 
 
@@ -1899,6 +1893,7 @@ def _write_cumulative_player_detail_files(
     base_outdir: Path,
     aggregated_rows: List[Dict[str, str]],
     per_player_events: Dict[str, Dict[str, List[Tuple[str, GoalEvent]]]],
+    per_game_stats_by_label: Dict[str, List[Dict[str, str]]],
 ) -> None:
     """
     Write one cumulative per-player stats file summarizing all games,
@@ -1914,6 +1909,25 @@ def _write_cumulative_player_detail_files(
     rows_by_player: Dict[str, Dict[str, str]] = {
         r.get("player", ""): r for r in aggregated_rows if r.get("player")
     }
+
+    # Determine which game each player's longest / shortest shift came from.
+    longest_by_player: Dict[str, Tuple[int, str, str]] = {}
+    shortest_by_player: Dict[str, Tuple[int, str, str]] = {}
+    for game_label, rows in per_game_stats_by_label.items():
+        for row in rows:
+            player = row.get("player", "")
+            if not player:
+                continue
+            sb_long = _duration_to_seconds(row.get("sb_longest", ""))
+            if sb_long > 0:
+                cur = longest_by_player.get(player)
+                if cur is None or sb_long > cur[0]:
+                    longest_by_player[player] = (sb_long, row.get("sb_longest", ""), game_label)
+            sb_short = _duration_to_seconds(row.get("sb_shortest", ""))
+            if sb_short > 0:
+                cur_s = shortest_by_player.get(player)
+                if cur_s is None or sb_short < cur_s[0]:
+                    shortest_by_player[player] = (sb_short, row.get("sb_shortest", ""), game_label)
 
     def _fmt_tags(ev: GoalEvent) -> str:
         tags: List[str] = []
@@ -1944,6 +1958,15 @@ def _write_cumulative_player_detail_files(
             lines.append(f"  TOI total (scoreboard): {row.get('sb_toi_total')}")
         if row.get("video_toi_total"):
             lines.append(f"  TOI total (video): {row.get('video_toi_total')}")
+        # Longest/shortest shift games
+        long_info = longest_by_player.get(player)
+        if long_info is not None:
+            _, dur, game_label = long_info
+            lines.append(f"  Longest shift (scoreboard): {dur} ({game_label})")
+        short_info = shortest_by_player.get(player)
+        if short_info is not None:
+            _, dur_s, game_s = short_info
+            lines.append(f"  Shortest shift (scoreboard): {dur_s} ({game_s})")
 
         # Goals
         lines.append("")
@@ -2811,9 +2834,11 @@ def main() -> None:
 
         # Build per-player event lists across all games (with game labels).
         per_player_events: Dict[str, Dict[str, List[Tuple[str, GoalEvent]]]] = {}
+        per_game_stats_by_label: Dict[str, List[Dict[str, str]]] = {}
         for r in results:
             game_label = r.get("label", "")
             ev_map: Dict[str, Dict[str, List[GoalEvent]]] = r.get("events", {}) or {}
+            per_game_stats_by_label[game_label] = r.get("stats", []) or []
             for player_key, info in ev_map.items():
                 dest = per_player_events.setdefault(
                     player_key, {"goals": [], "assists": [], "ga_on_ice": []}
@@ -2856,7 +2881,9 @@ def main() -> None:
             print("📊 Consolidated workbook written.")
 
         # Per-player cumulative detail files across all games.
-        _write_cumulative_player_detail_files(base_outdir, agg_rows, per_player_events)
+        _write_cumulative_player_detail_files(
+            base_outdir, agg_rows, per_player_events, per_game_stats_by_label
+        )
 
 
 if __name__ == "__main__":
