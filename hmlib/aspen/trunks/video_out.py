@@ -142,7 +142,7 @@ class VideoOutTrunk(Trunk):
             output_frame_width=self._final_w,
             output_frame_height=self._final_h,
             fps=fps,
-            video_out_pipeline=(self._pipeline or {}),
+            video_out_pipeline=self._pipeline,
             bit_rate=getattr(cam_args, "output_video_bit_rate", int(55e6)),
             save_frame_dir=self._save_dir,
             start=True,
