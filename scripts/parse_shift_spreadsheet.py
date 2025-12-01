@@ -1442,7 +1442,9 @@ def _parse_per_player_layout(df: pd.DataFrame, keep_goalies: bool, skip_validati
 
 
 def _write_video_times_and_scripts(
-    outdir: Path, video_pairs_by_player: Dict[str, List[Tuple[str, str]]]
+    outdir: Path,
+    video_pairs_by_player: Dict[str, List[Tuple[str, str]]],
+    create_scripts: bool,
 ) -> None:
     for player_key, v_pairs in video_pairs_by_player.items():
         norm_pairs = []
@@ -1458,6 +1460,9 @@ def _write_video_times_and_scripts(
             "\n".join(f"{a} {b}" for a, b in norm_pairs) + ("\n" if norm_pairs else ""),
             encoding="utf-8",
         )
+
+        if not create_scripts:
+            continue
 
         script_path = outdir / f"clip_{player_key}.sh"
         player_label = player_key.replace("_", " ")
@@ -1666,14 +1671,16 @@ def _build_stats_dataframe(
     period_shift_cols = [f"P{p}_shifts" for p in periods]
     period_gf_cols = [f"P{p}_GF" for p in periods]
     period_ga_cols = [f"P{p}_GA" for p in periods]
+    # Place video TOI as the last column in the table so that
+    # scoreboard-based stats and per-period splits appear first.
     cols = (
         summary_cols
         + sb_cols
-        + video_cols
         + period_toi_cols
         + period_shift_cols
         + period_gf_cols
         + period_ga_cols
+        + video_cols
     )
 
     rows_sorted: List[Dict[str, str]] = list(stats_table_rows)
@@ -1703,15 +1710,100 @@ def _build_stats_dataframe(
     return df, cols
 
 
+def _display_col_name(key: str) -> str:
+    """
+    Human-friendly column names: remove internal prefixes/suffixes,
+    replace underscores with spaces, and capitalize words.
+    """
+    # Explicit overrides for common fields
+    overrides = {
+        "player": "Player",
+        "goals": "Goals",
+        "assists": "Assists",
+        "points": "Points",
+        "gt_goals": "GT Goals",
+        "gw_goals": "GW Goals",
+        "shifts": "Shifts",
+        "plus_minus": "Plus Minus",
+        "gf_counted": "GF Counted",
+        "ga_counted": "GA Counted",
+        "sb_toi_total": "TOI Total",
+        "sb_avg": "Average Shift",
+        "sb_median": "Median Shift",
+        "sb_longest": "Longest Shift",
+        "sb_shortest": "Shortest Shift",
+        "video_toi_total": "TOI Total (Video)",
+    }
+    if key in overrides:
+        return overrides[key]
+
+    # Period-specific columns
+    m = re.fullmatch(r"P(\d+)_toi", key)
+    if m:
+        return f"Period {m.group(1)} TOI"
+    m = re.fullmatch(r"P(\d+)_shifts", key)
+    if m:
+        return f"Period {m.group(1)} Shifts"
+    m = re.fullmatch(r"P(\d+)_GF", key)
+    if m:
+        return f"Period {m.group(1)} GF"
+    m = re.fullmatch(r"P(\d+)_GA", key)
+    if m:
+        return f"Period {m.group(1)} GA"
+
+    # Generic fallback: split on underscores and capitalize words,
+    # preserving common hockey/stat acronyms.
+    parts = key.split("_")
+    out_parts = []
+    for part in parts:
+        up = part.upper()
+        if up in {"TOI", "GF", "GA", "GT", "GW"}:
+            out_parts.append(up)
+        else:
+            out_parts.append(part.capitalize())
+    return " ".join(out_parts)
+
+
+def _display_player_name(raw: str) -> str:
+    """
+    Human-friendly player label from an internal key like '59_Ryan_S_Donahue'.
+    Format: two-character jersey (right-aligned) + space + name with spaces.
+    Example: '59_Ryan_S_Donahue' -> '59 Ryan S Donahue'
+             '8_Adam_Ro'        -> ' 8 Adam Ro'
+    """
+    if not raw:
+        return ""
+    text = str(raw)
+    parts = text.split("_", 1)
+    if len(parts) == 2:
+        jersey_part, name_part = parts
+        # Extract numeric jersey if present; otherwise use the raw jersey_part.
+        m = re.search(r"(\\d+)", jersey_part)
+        num = m.group(1) if m else jersey_part
+        jersey_fmt = f"{num:>2}"
+        name = name_part.replace("_", " ").strip()
+        return f"{jersey_fmt} {name}"
+    # Fallback: just replace underscores with spaces
+    return text.replace("_", " ")
+
+
 def _write_player_stats_text_and_csv(
     stats_dir: Path,
     stats_table_rows: List[Dict[str, str]],
     all_periods_seen: List[int],
 ) -> None:
-    df, cols = _build_stats_dataframe(stats_table_rows, all_periods_seen, sort_for_cumulative=False)
+    df, cols = _build_stats_dataframe(
+        stats_table_rows, all_periods_seen, sort_for_cumulative=False
+    )
+    # Pretty-print player names for display tables
+    if "player" in df.columns:
+        df["player"] = df["player"].apply(_display_player_name)
     rows_for_print = df.values.tolist()
 
-    widths = [len(c) for c in cols]
+    # Human-friendly display column names
+    disp_cols = [_display_col_name(c) for c in cols]
+
+    widths = [len(c) for c in disp_cols]
     for row in rows_for_print:
         for i, cell in enumerate(row):
             if len(str(cell)) > widths[i]:
@@ -1720,7 +1812,7 @@ def _write_player_stats_text_and_csv(
     def fmt_row(values: List[str]) -> str:
         return "  ".join(str(v).ljust(widths[i]) for i, v in enumerate(values))
 
-    lines = [fmt_row(cols)]
+    lines = [fmt_row(disp_cols)]
     lines.append(fmt_row(["-" * w for w in widths]))
     for row in rows_for_print:
         lines.append(fmt_row(row))
@@ -1728,19 +1820,23 @@ def _write_player_stats_text_and_csv(
 
     import csv  # local import
 
-    csv_rows = [dict(zip(cols, row)) for row in rows_for_print]
+    # DataFrame with display headers for CSV/XLSX output
+    df_display = df.copy()
+    df_display.columns = disp_cols
+
+    csv_rows = [dict(zip(disp_cols, row)) for row in rows_for_print]
     try:
-        pd.DataFrame(csv_rows).to_csv(stats_dir / "player_stats.csv", index=False, columns=cols)
+        df_display.to_csv(stats_dir / "player_stats.csv", index=False)
     except Exception:
         with (stats_dir / "player_stats.csv").open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=cols)
+            w = csv.DictWriter(f, fieldnames=disp_cols)
             w.writeheader()
             for r in csv_rows:
                 w.writerow(r)
     try:
         with pd.ExcelWriter(stats_dir / "player_stats.xlsx") as writer:
-            df.to_excel(writer, sheet_name="player_stats", index=False, columns=cols)
-            _autosize_columns(writer, "player_stats", df)
+            df_display.to_excel(writer, sheet_name="player_stats", index=False)
+            _autosize_columns(writer, "player_stats", df_display)
     except Exception:
         pass
 
@@ -1883,8 +1979,14 @@ def _write_consolidated_workbook(out_path: Path, sheets: List[Tuple[str, pd.Data
         with pd.ExcelWriter(out_path) as writer:
             for name, df in sheets:
                 safe_name = re.sub(r"[:\\\\/?*\\[\\]]", "_", name or "Sheet")[:31]
-                df.to_excel(writer, sheet_name=safe_name, index=False)
-                _autosize_columns(writer, safe_name, df)
+                df_display = df.copy()
+                # Pretty player names if present
+                if "player" in df_display.columns:
+                    df_display["player"] = df_display["player"].apply(_display_player_name)
+                disp_cols = [_display_col_name(c) for c in df_display.columns]
+                df_display.columns = disp_cols
+                df_display.to_excel(writer, sheet_name=safe_name, index=False)
+                _autosize_columns(writer, safe_name, df_display)
     except Exception:
         pass
 
@@ -1941,10 +2043,11 @@ def _write_cumulative_player_detail_files(
         events = per_player_events.get(player, {})
         goals_list = events.get("goals", [])
         assists_list = events.get("assists", [])
+        gf_on_ice_list = events.get("gf_on_ice", [])
         ga_list = events.get("ga_on_ice", [])
 
         lines: List[str] = []
-        lines.append(f"Player: {player}")
+        lines.append(f"Player: {_display_player_name(player)}")
         lines.append("")
         lines.append("Overall stats (all games):")
         lines.append(f"  Goals: {row.get('goals', '0')} (GT: {row.get('gt_goals', '0')}, GW: {row.get('gw_goals', '0')})")
@@ -1994,7 +2097,19 @@ def _write_cumulative_player_detail_files(
                     f"  {game_label}: Period {ev.period}, {ev.t_str}{_fmt_tags(ev)}"
                 )
 
-        # Goals against while on ice
+        # Goals for / against while on ice
+        lines.append("")
+        lines.append("Goals for while on ice:")
+        if not gf_on_ice_list:
+            lines.append("  (none)")
+        else:
+            for game_label, ev in sorted(
+                gf_on_ice_list, key=lambda x: (x[0], x[1].period, x[1].t_sec)
+            ):
+                lines.append(
+                    f"  {game_label}: Period {ev.period}, {ev.t_str}{_fmt_tags(ev)}"
+                )
+
         lines.append("")
         lines.append("Goals against while on ice:")
         if not ga_list:
@@ -2066,6 +2181,7 @@ def _write_event_summaries_and_clips(
     stats_dir: Path,
     event_log_context: EventLogContext,
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
+    create_scripts: bool,
 ) -> None:
     evt_by_team = event_log_context.event_counts_by_type_team
     rows_evt = [
@@ -2147,7 +2263,7 @@ def _write_event_summaries_and_clips(
                 out.append([a, b])
         return [(a, b) for a, b in out]
 
-    clip_scripts = []
+    clip_scripts: List[str] = []
     for (etype, team), lst in sorted(instances.items()):
         v_windows: List[Tuple[int, int]] = []
         sb_windows_by_period: Dict[int, List[Tuple[int, int]]] = {}
@@ -2179,9 +2295,10 @@ def _write_event_summaries_and_clips(
             vfile = outdir / f"events_{etype}_{team}_video_times.txt"
             v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
-            script = outdir / f"clip_events_{etype}_{team}.sh"
-            label = f"{etype} ({team})"
-            body = f"""#!/usr/bin/env bash
+            if create_scripts:
+                script = outdir / f"clip_events_{etype}_{team}.sh"
+                label = f"{etype} ({team})"
+                body = f"""#!/usr/bin/env bash
 set -euo pipefail
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
@@ -2194,14 +2311,14 @@ TS_FILE=\"$THIS_DIR/{vfile.name}\"
 shift 2 || true
 python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{team}\" \"{label} vs $OPP\" \"$@\"
 """
-            script.write_text(body, encoding="utf-8")
-            try:
-                import os as _os
+                script.write_text(body, encoding="utf-8")
+                try:
+                    import os as _os
 
-                _os.chmod(script, 0o755)
-            except Exception:
-                pass
-            clip_scripts.append(script.name)
+                    _os.chmod(script, 0o755)
+                except Exception:
+                    pass
+                clip_scripts.append(script.name)
 
         if sb_windows_by_period:
             sfile = outdir / f"events_{etype}_{team}_scoreboard_times.txt"
@@ -2215,7 +2332,7 @@ python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FIL
             if s_lines:
                 sfile.write_text("\n".join(s_lines) + "\n", encoding="utf-8")
 
-    if clip_scripts:
+    if clip_scripts and create_scripts:
         all_script = outdir / "clip_events_all.sh"
         all_body = """#!/usr/bin/env bash
 set -euo pipefail
@@ -2323,7 +2440,9 @@ def _write_goal_window_files(
     )
 
 
-def _write_clip_all_runner(outdir: Path) -> None:
+def _write_clip_all_runner(outdir: Path, create_scripts: bool) -> None:
+    if not create_scripts:
+        return
     clip_all_path = outdir / "clip_all.sh"
     clip_all_body = """#!/usr/bin/env bash
 set -euo pipefail
@@ -2360,6 +2479,7 @@ def process_sheet(
     keep_goalies: bool,
     goals: List[GoalEvent],
     skip_validation: bool = False,
+    create_scripts: bool = True,
 ) -> Tuple[
     Path,
     List[Dict[str, str]],
@@ -2396,7 +2516,7 @@ def process_sheet(
     stats_dir.mkdir(parents=True, exist_ok=True)
 
     # Per-player time files and clip scripts
-    _write_video_times_and_scripts(outdir, video_pairs_by_player)
+    _write_video_times_and_scripts(outdir, video_pairs_by_player, create_scripts=create_scripts)
     _write_scoreboard_times(outdir, sb_pairs_by_player)
 
     # Stats and plus/minus
@@ -2422,7 +2542,8 @@ def process_sheet(
 
     # Per-player event details for this game (for multi-game summaries).
     per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]] = {
-        pk: {"goals": [], "assists": [], "ga_on_ice": []} for pk in sb_pairs_by_player.keys()
+        pk: {"goals": [], "assists": [], "gf_on_ice": [], "ga_on_ice": []}
+        for pk in sb_pairs_by_player.keys()
     }
 
     goal_assist_counts: Dict[str, Dict[str, int]] = {
@@ -2493,6 +2614,7 @@ def process_sheet(
                         plus_minus += 1
                         counted_gf.append(f"P{period}:{ev.t_str}")
                         counted_gf_by_period[period] = counted_gf_by_period.get(period, 0) + 1
+                        per_player_goal_events[player_key]["gf_on_ice"].append(ev)
                     else:
                         plus_minus -= 1
                         counted_ga.append(f"P{period}:{ev.t_str}")
@@ -2503,7 +2625,7 @@ def process_sheet(
         points_val = scoring_counts.get("goals", 0) + scoring_counts.get("assists", 0)
 
         stats_lines = []
-        stats_lines.append(f"Player: {player_key}")
+        stats_lines.append(f"Player: {_display_player_name(player_key)}")
         stats_lines.append(f"Shifts (scoreboard): {shift_summary['num_shifts']}")
         stats_lines.append(f"TOI total (scoreboard): {shift_summary['toi_total']}")
         stats_lines.append(f"Avg shift: {shift_summary['toi_avg']}")
@@ -2593,11 +2715,6 @@ def process_sheet(
     # Global CSV
     _write_global_summary_csv(stats_dir, sb_pairs_by_player)
 
-    # Event summaries
-    if event_log_context is not None:
-        _write_event_summaries_and_clips(
-            outdir, stats_dir, event_log_context, conv_segments_by_period
-        )
 
     # Consolidated player stats
     if stats_table_rows:
@@ -2606,8 +2723,18 @@ def process_sheet(
     # Goals windows
     _write_goal_window_files(outdir, goals, conv_segments_by_period)
 
-    # Aggregate clip runner
-    _write_clip_all_runner(outdir)
+    # Event summaries
+    if event_log_context is not None:
+        _write_event_summaries_and_clips(
+            outdir,
+            stats_dir,
+            event_log_context,
+            conv_segments_by_period,
+            create_scripts=create_scripts,
+        )
+
+    # Aggregate clip runner (optional scripts)
+    _write_clip_all_runner(outdir, create_scripts=create_scripts)
 
     # Validation summary
     if (not used_event_log) and (not skip_validation) and validation_errors > 0:
@@ -2695,6 +2822,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Your team is the away team (with --t2s).",
     )
     p.add_argument(
+        "--no-scripts",
+        action="store_true",
+        help="Do not generate helper bash scripts (clip_*.sh, clip_events_*.sh, clip_all.sh).",
+    )
+    p.add_argument(
         "--skip-validation",
         action="store_true",
         help="Skip validation checks on start/end ordering and excessive durations.",
@@ -2705,6 +2837,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_arg_parser().parse_args()
     hockey_db_dir = args.hockey_db_dir.expanduser()
+    create_scripts = not args.no_scripts
     input_entries: List[Tuple[Path, Optional[str]]] = []
     if args.file_list:
         try:
@@ -2812,6 +2945,7 @@ def main() -> None:
             keep_goalies=args.keep_goalies,
             goals=goals,
             skip_validation=args.skip_validation,
+            create_scripts=create_scripts,
         )
         results.append(
             {
@@ -2841,12 +2975,14 @@ def main() -> None:
             per_game_stats_by_label[game_label] = r.get("stats", []) or []
             for player_key, info in ev_map.items():
                 dest = per_player_events.setdefault(
-                    player_key, {"goals": [], "assists": [], "ga_on_ice": []}
+                    player_key, {"goals": [], "assists": [], "gf_on_ice": [], "ga_on_ice": []}
                 )
                 for ev in info.get("goals", []):
                     dest["goals"].append((game_label, ev))
                 for ev in info.get("assists", []):
                     dest["assists"].append((game_label, ev))
+                for ev in info.get("gf_on_ice", []):
+                    dest["gf_on_ice"].append((game_label, ev))
                 for ev in info.get("ga_on_ice", []):
                     dest["ga_on_ice"].append((game_label, ev))
 
