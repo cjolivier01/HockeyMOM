@@ -170,6 +170,8 @@ class CamTrackPostProcessor:
             )
         # Expose arena/play box for downstream trunks (e.g., PlayTrackerTrunk, VideoOutTrunk)
         results["arena"] = self.get_arena_box()
+        results["final_frame_width"] = self.final_frame_width
+        results["final_frame_height"] = self.final_frame_height
         return results
 
     def on_first_image(
@@ -232,29 +234,29 @@ class CamTrackPostProcessor:
         self.final_frame_width = int(self.final_frame_width + 0.5)
         self.final_frame_height = int(self.final_frame_height + 0.5)
 
-        if not getattr(self._args, "no_frame_postprocessing", False) and self.output_video_path:
-            assert self._video_output_campp is None
-            self._video_output_campp = VideoOutput(
-                name="TRACKING",
-                args=self._args,
-                output_video_path=self.output_video_path,
-                fps=self._fps,
-                start=False,
-                bit_rate=self._args.output_video_bit_rate,
-                output_frame_width=self.final_frame_width,
-                output_frame_height=self.final_frame_height,
-                save_frame_dir=self._save_frame_dir,
-                original_clip_box=self._original_clip_box,
-                cache_size=self._video_out_cache_size,
-                async_output=self._async_video_out,
-                video_out_pipeline=self._video_out_pipeline,
-                device=self._video_out_device,
-                skip_final_save=self._args.skip_final_video_save,
-                no_cuda_streams=self._no_cuda_streams,
-            )
-            self._video_output_campp.start()
-        elif getattr(self._args, "show_image", False):
-            self._shower = Shower("CamTrackPostProcessor", self._args.show_scaled, max_size=1)
+        # if not getattr(self._args, "no_frame_postprocessing", False) and self.output_video_path:
+        #     assert self._video_output_campp is None
+        #     self._video_output_campp = VideoOutput(
+        #         name="TRACKING",
+        #         args=self._args,
+        #         output_video_path=self.output_video_path,
+        #         fps=self._fps,
+        #         start=False,
+        #         bit_rate=self._args.output_video_bit_rate,
+        #         output_frame_width=self.final_frame_width,
+        #         output_frame_height=self.final_frame_height,
+        #         save_frame_dir=self._save_frame_dir,
+        #         original_clip_box=self._original_clip_box,
+        #         cache_size=self._video_out_cache_size,
+        #         async_output=self._async_video_out,
+        #         video_out_pipeline=self._video_out_pipeline,
+        #         device=self._video_out_device,
+        #         skip_final_save=self._args.skip_final_video_save,
+        #         no_cuda_streams=self._no_cuda_streams,
+        #     )
+        #     self._video_output_campp.start()
+        # elif getattr(self._args, "show_image", False):
+        #     self._shower = Shower("CamTrackPostProcessor", self._args.show_scaled, max_size=1)
 
     @property
     def output_video_path(self) -> Optional[str]:

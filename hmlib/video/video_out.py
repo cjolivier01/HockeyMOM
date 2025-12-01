@@ -350,8 +350,11 @@ class VideoOutput:
         )
 
         self._video_out_pipeline = video_out_pipeline
-        if self._video_out_pipeline is not None:
+        if self._video_out_pipeline:
             self._video_out_pipeline = Compose(self._video_out_pipeline)
+        else:
+            print(f"WARNING: No video_out_pipeline provided to VideoOutput {self._name}")
+
         # Cache pointer to color adjust transform (if present)
         self._color_adjust_tf = None
 
