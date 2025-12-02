@@ -751,6 +751,19 @@ class hm_opts(object):
             help="Use frame at this timestamp for stitching (HH:MM:SS.ssss)",
         )
         parser.add_argument(
+            "--max-levels",
+            "--max_levels",
+            "--max-blend-levels",
+            "--max_blend_levels",
+            dest="max_blend_levels",
+            type=int,
+            default=None,
+            help=(
+                "Maximum Laplacian blend pyramid levels for stitching "
+                "(applies to laplacian / gpu Laplacian modes; hard-seam uses 0)"
+            ),
+        )
+        parser.add_argument(
             "--max-frames",
             type=int,
             default=None,

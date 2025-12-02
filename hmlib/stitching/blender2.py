@@ -397,7 +397,10 @@ def create_blender_config(
         # Nothing needed for legacy multiblend mode
         return config
     config.mode = mode
-    config.levels = levels
+    if mode in ("hard-seam", "gpu-hard-seam"):
+        config.levels = 0
+    else:
+        config.levels = levels
     config.device = str(device)
     config.seam, _ = make_seam_and_xor_masks(dir_name=dir_name, basename=basename)
     config.lazy_init = lazy_init
@@ -1099,6 +1102,8 @@ def blend_video(
     vidinfo_1 = BasicVideoInfo(video_file_1)
     vidinfo_2 = BasicVideoInfo(video_file_2)
 
+    max_blend_levels = getattr(opts, "max_blend_levels", None)
+
     max_frames = getattr(opts, "max_frames", None)
     if (max_frames in (None, 0)) and getattr(opts, "max_time", None):
         try:
@@ -1112,13 +1117,29 @@ def blend_video(
         size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
         size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
         adjust_exposure: bool = True
-        num_levels: int = 11
+        if blend_mode == "laplacian":
+            num_levels: int = (
+                int(max_blend_levels)
+                if max_blend_levels is not None and max_blend_levels > 0
+                else 11
+            )
+        else:
+            # Hard-seam or other non-laplacian GPU modes: force single level.
+            num_levels = 0
         stitcher: CudaStitchPanoU8 = CudaStitchPanoU8(
             dir_name, batch_size, num_levels, size1, size2, adjust_exposure
         )
         canvas_width = stitcher.canvas_width()
         canvas_height = stitcher.canvas_height()
     else:
+        if blend_mode == "laplacian":
+            levels_arg = (
+                int(max_blend_levels)
+                if max_blend_levels is not None and max_blend_levels > 0
+                else 11
+            )
+        else:
+            levels_arg = 0
         stitcher: ImageStitcher = create_stitcher(
             dir_name=dir_name,
             batch_size=batch_size,
@@ -1130,6 +1151,7 @@ def blend_video(
             blend_mode=blend_mode,
             draw=draw,
             add_alpha_channel=add_alpha_channel,
+            levels=levels_arg,
             use_cuda_pano=use_cuda_pano,
         )
 
