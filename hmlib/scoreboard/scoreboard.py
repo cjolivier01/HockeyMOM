@@ -142,36 +142,57 @@ class Scoreboard(torch.nn.Module):
         ow = self._dest_w
         oh = self._dest_h
 
-        self._grid = _perspective_grid(
+        grid = _perspective_grid(
             perspective_coeffs,
             ow=ow,
             oh=oh,
             dtype=dtype,
             device=torch.device("cpu") if device is None else device,
         )
+        # Register as buffer so it moves with the module and stays constant-shape.
+        self.register_buffer("_grid", grid, persistent=False)
 
-    def forward(self, input_image: torch.Tensor):
-        if self._src_pts is None:
-            return None
+    def forward(self, input_image: torch.Tensor) -> torch.Tensor:
+        # Expect a fixed scoreboard region for this instance; src pts are set at construction.
         original_image = make_channels_first(input_image)
+
         x0, y0, x1, y1 = self._bbox_src
         src_image = original_image[:, :, y0:y1, x0:x1]
-        src_image = resize_image(
-            img=src_image,
-            new_width=self._dest_w,
-            new_height=self._dest_h,
-            mode=TF.InterpolationMode.NEAREST,
+
+        # Ensure floating point input for interpolation/grid sampling.
+        if not torch.is_floating_point(src_image):
+            src_image = src_image.to(dtype=self._grid.dtype)
+
+        # Resize cropped region to the fixed working size.
+        src_image = F.interpolate(
+            src_image,
+            size=(self._dest_h, self._dest_w),
+            mode="nearest",
         )
-        # cv2.imshow("src_image", make_visible_image(src_image[0]))
-        # cv2.waitKey(0)
 
-        warped_image = _apply_grid_transform(src_image, self._grid, mode="bilinear", fill=None)
+        grid = self._grid
+        if grid.device != src_image.device or grid.dtype != src_image.dtype:
+            grid = grid.to(device=src_image.device, dtype=src_image.dtype)
 
-        # cv2.imshow("src_image", make_visible_image(warped_image[0]))
-        # cv2.waitKey(0)
+        # Apply the precomputed perspective grid; batch dimension is preserved.
+        if src_image.shape[0] == 1:
+            warped_image = F.grid_sample(
+                src_image,
+                grid,
+                mode="bilinear",
+                padding_mode="zeros",
+                align_corners=False,
+            )
+        else:
+            warped_image = F.grid_sample(
+                src_image,
+                grid.expand(src_image.shape[0], grid.shape[1], grid.shape[2], grid.shape[3]),
+                mode="bilinear",
+                padding_mode="zeros",
+                align_corners=False,
+            )
 
-        warped_image = warped_image[:, :, : self._dest_height, : self._dest_width]
-        return warped_image
+        return warped_image[:, :, : self._dest_height, : self._dest_width]
 
     @property
     def width(self):
