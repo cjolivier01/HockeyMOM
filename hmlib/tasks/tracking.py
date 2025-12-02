@@ -237,7 +237,7 @@ def run_mmtrack(
                     # using_precalculated_tracking=using_precalculated_tracking,
                     # using_precalculated_detection=using_precalculated_detection,
                     plot_pose=bool(config.get("plot_pose", False)),
-                    # Propagate CLI flag to BoundariesTrunk -> IceRinkSegmBoundaries(draw)
+                    # Propagate CLI flag to BoundariesPlugin -> IceRinkSegmBoundaries(draw)
                     plot_ice_mask=bool(config.get("plot_ice_mask", False)),
                     # Boundary + identity context for trunks
                     game_id=config.get("game_id"),

@@ -13,7 +13,7 @@ from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
-from .base import Trunk
+from .base import Plugin
 
 
 def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
@@ -27,7 +27,7 @@ def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
     return None
 
 
-class SaveDetectionsTrunk(Trunk):
+class SaveDetectionsPlugin(Plugin):
     """
     Saves per-frame detections into `detection_dataframe`.
 
@@ -134,7 +134,7 @@ class SaveDetectionsTrunk(Trunk):
             self._detection_dataframe.close()
 
 
-class SaveTrackingTrunk(Trunk):
+class SaveTrackingPlugin(Plugin):
     """
     Saves per-frame tracking results into `tracking_dataframe`.
 
@@ -143,7 +143,7 @@ class SaveTrackingTrunk(Trunk):
       - frame_id: int for first frame in batch
       - tracking_dataframe: TrackingDataFrame
       - jersey_results: Optional per-frame jersey info list
-      - action_results: Optional per-frame action result list (from ActionFromPoseTrunk)
+      - action_results: Optional per-frame action result list (from ActionFromPosePlugin)
     """
 
     def __init__(
@@ -189,7 +189,7 @@ class SaveTrackingTrunk(Trunk):
         jersey_results_all = data.get("jersey_results") or context.get("jersey_results")
         action_results_all = data.get("action_results") or context.get("action_results")
         frame_id0: int = int(context.get("frame_id", -1))
-        pose_results_all = data.get("pose_results")  # mirrored by PoseToDetTrunk
+        pose_results_all = data.get("pose_results")  # mirrored by PoseToDetPlugin
 
         track_samples = data.get("data_samples")
         if track_samples is None:
@@ -203,7 +203,7 @@ class SaveTrackingTrunk(Trunk):
         video_len = len(track_data_sample)
 
         def _extract_pose_bboxes(pose_item: Any):
-            # Borrow the logic from PoseToDetTrunk for deriving bboxes
+            # Borrow the logic from PoseToDetPlugin for deriving bboxes
             try:
                 preds = pose_item.get("predictions")
             except Exception:
@@ -350,7 +350,7 @@ class SaveTrackingTrunk(Trunk):
             self._tracking_dataframe.close()
 
 
-class SavePoseTrunk(Trunk):
+class SavePosePlugin(Plugin):
     """
     Saves per-frame pose results from `data['pose_results']` into `pose_dataframe`.
 
@@ -470,11 +470,11 @@ class SavePoseTrunk(Trunk):
             self._pose_dataframe.close()
 
 
-class SaveActionsTrunk(Trunk):
+class SaveActionsPlugin(Plugin):
     """
     Saves per-frame action results. By default, writes into the `tracking_dataframe`
     action columns, if a TrackingDataFrame is provided in context. This trunk is
-    optional since SaveTrackingTrunk already persists action results when placed
+    optional since SaveTrackingPlugin already persists action results when placed
     after the `actions` trunk; include this only if you need a dedicated action
     saving pass.
 
@@ -574,7 +574,7 @@ class SaveActionsTrunk(Trunk):
             self._action_dataframe.close()
 
 
-class SaveCameraTrunk(Trunk):
+class SaveCameraPlugin(Plugin):
     """
     Saves per-frame camera boxes into `camera_dataframe`.
 

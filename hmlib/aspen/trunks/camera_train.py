@@ -12,13 +12,13 @@ from hmlib.camera.camera_model_dataset import CameraPanZoomDataset
 from hmlib.camera.camera_transformer import CameraPanZoomTransformer, pack_checkpoint
 from hmlib.log import logger
 
-from .base import Trunk
+from .base import Plugin
 
 
 @HM.register_module()
-class CameraTrainTrunk(Trunk):
+class CameraTrainPlugin(Plugin):
     """
-    Trunk to train the camera transformer from saved CSV dataframes.
+    Plugin to train the camera transformer from saved CSV dataframes.
 
     Expects no particular runtime inputs. This trunk runs a blocking training
     session when invoked in a pipeline and writes a checkpoint to disk.
@@ -99,7 +99,7 @@ class CameraTrainTrunk(Trunk):
         for epoch in range(self._epochs):
             tr = _epoch(train_loader, True)
             va = _epoch(val_loader, False)
-            logger.info(f"CameraTrainTrunk epoch {epoch+1}: train {tr:.4f} val {va:.4f}")
+            logger.info(f"CameraTrainPlugin epoch {epoch+1}: train {tr:.4f} val {va:.4f}")
             if va < best_val:
                 best_val = va
                 ckpt = pack_checkpoint(model, norm=ds.norm, window=self._window)

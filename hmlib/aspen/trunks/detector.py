@@ -3,11 +3,11 @@ from typing import Any, Dict
 
 import torch
 
-from .base import Trunk
+from .base import Plugin
 from .detector_factory import _strip_static_padding
 
 
-class DetectorInferenceTrunk(Trunk):
+class DetectorInferencePlugin(Plugin):
     """
     Runs a pure detection model per-frame and attaches `pred_instances`.
 
@@ -71,7 +71,7 @@ class DetectorInferenceTrunk(Trunk):
                 batch_inputs = batch_inputs.squeeze(0)
             if batch_inputs.ndim != 4:
                 raise AssertionError(
-                    "DetectorInferenceTrunk expects per-frame tensors shaped (T, C, H, W)"
+                    "DetectorInferencePlugin expects per-frame tensors shaped (T, C, H, W)"
                 )
             batch_inputs = batch_inputs.contiguous()
             assert batch_inputs.size(0) == video_len, "Mismatch between frames and detection inputs"

@@ -7,10 +7,10 @@ import torch
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.config import get_nested_value
 
-from .base import Trunk
+from .base import Plugin
 
 
-class CamPostProcessTrunk(Trunk):
+class CamPostProcessPlugin(Plugin):
     """
     Feeds results into CamTrackPostProcessor to render/save video and produce outputs.
 
@@ -19,7 +19,7 @@ class CamPostProcessTrunk(Trunk):
       - shared.game_config: full game config dict
       - shared.work_dir: output/results directory
       - shared.original_clip_box: optional clip box
-      - data: dict from MMTrackingTrunk/PoseTrunk (must include 'fps')
+      - data: dict from MMTrackingPlugin/PosePlugin (must include 'fps')
       - rink_profile: rink profile with combined_bbox (for play box seeding)
     """
 

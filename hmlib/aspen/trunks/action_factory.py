@@ -4,10 +4,10 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 
-from .base import Trunk
+from .base import Plugin
 
 
-class ActionRecognizerFactoryTrunk(Trunk):
+class ActionRecognizerFactoryPlugin(Plugin):
     """
     Builds and caches an MMAction2 recognizer and exposes it via context.
 

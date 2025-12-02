@@ -463,7 +463,7 @@ def _main(args, num_gpu):
                     df = trunks_cfg.setdefault(
                         "detector_factory",
                         {
-                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk",
+                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },
@@ -480,7 +480,7 @@ def _main(args, num_gpu):
                     df = trunks_cfg.setdefault(
                         "detector_factory",
                         {
-                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk",
+                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },
@@ -504,7 +504,7 @@ def _main(args, num_gpu):
                     df = trunks_cfg.setdefault(
                         "detector_factory",
                         {
-                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk",
+                            "class": "hmlib.aspen.trunks.detector_factory.DetectorFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },
@@ -536,7 +536,7 @@ def _main(args, num_gpu):
                     pf = trunks_cfg.setdefault(
                         "pose_factory",
                         {
-                            "class": "hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk",
+                            "class": "hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },
@@ -558,7 +558,7 @@ def _main(args, num_gpu):
                     pf = trunks_cfg.setdefault(
                         "pose_factory",
                         {
-                            "class": "hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk",
+                            "class": "hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },
@@ -581,7 +581,7 @@ def _main(args, num_gpu):
                 traceback.print_exc()
 
         if args.tracking:
-            model = None  # Built by Aspen ModelFactoryTrunk
+            model = None  # Built by Aspen ModelFactoryPlugin
 
             # Build inference pipeline from Aspen YAML if provided
             pipeline = None
@@ -622,7 +622,7 @@ def _main(args, num_gpu):
             #
             # post-detection pipeline updates
             #
-            # For Aspen-built model, boundaries will be applied by BoundariesTrunk.
+            # For Aspen-built model, boundaries will be applied by BoundariesPlugin.
             # Put boundary inputs into config dict so run_mmtrack can pass to Aspen shared.
             # Recompute tuned boundary lines from game_config (legacy behavior of DefaultArguments).
             game_bound_cfg = game_config.get("game", {}).get("boundaries", {}) if isinstance(

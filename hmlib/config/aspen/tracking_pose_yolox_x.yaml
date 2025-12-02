@@ -33,11 +33,11 @@ aspen:
         image: images/sports_ai_watermark.png
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      class: hmlib.aspen.trunks.image_prep.ImagePrepPlugin
       depends: []
       params: {}
     model_factory:
-      class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+      class: hmlib.aspen.trunks.model_factory.ModelFactoryPlugin
       depends: []
       params:
         model_class: hmlib.models.end_to_end.HmEndToEnd
@@ -47,7 +47,7 @@ aspen:
             image_label: original_images
             enabled: false
     detector_factory:
-      class: hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk
+      class: hmlib.aspen.trunks.detector_factory.DetectorFactoryPlugin
       depends: []
       params:
         detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_x.detector.yaml
@@ -61,43 +61,43 @@ aspen:
               size_divisor: 32
               interval: 10
     boundaries:
-      class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+      class: hmlib.aspen.trunks.boundaries.BoundariesPlugin
       depends: [model_factory]
       params: {}
     detector:
-      class: hmlib.aspen.trunks.detector.DetectorInferenceTrunk
+      class: hmlib.aspen.trunks.detector.DetectorInferencePlugin
       depends: [image_prep, detector_factory]
       params: {}
     save_detections:
-      class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+      class: hmlib.aspen.trunks.save.SaveDetectionsPlugin
       depends: [detector]
       params: {}
     ice_config:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigPlugin
       depends: [image_prep]
       params: {}
     ice_boundaries:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesPlugin
       depends: [detector, ice_config]
       params: {}
     tracker:
-      class: hmlib.aspen.trunks.tracker.TrackerTrunk
+      class: hmlib.aspen.trunks.tracker.TrackerPlugin
       depends: [detector, ice_boundaries, model_factory, boundaries]
       params: {}
     pose:
-      class: hmlib.aspen.trunks.pose.PoseTrunk
+      class: hmlib.aspen.trunks.pose.PosePlugin
       depends: [tracker]
       params:
         plot_pose: GLOBAL.plot.plot_pose
     save_pose:
-      class: hmlib.aspen.trunks.save.SavePoseTrunk
+      class: hmlib.aspen.trunks.save.SavePosePlugin
       depends: [pose]
       params: {}
     save_tracking:
-      class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+      class: hmlib.aspen.trunks.save.SaveTrackingPlugin
       depends: [pose]
       params: {}
     postprocess:
-      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      class: hmlib.aspen.trunks.postprocess.CamPostProcessPlugin
       depends: [pose]
       params: {}

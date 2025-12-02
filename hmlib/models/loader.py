@@ -12,4 +12,4 @@ def get_model_config(game_id: str, model_name: str) -> Dict[str, str]:
     return config_file, checkpoint
 
 
-# Legacy detector loader removed; Aspen ModelFactoryTrunk builds models from YAML
+# Legacy detector loader removed; Aspen ModelFactoryPlugin builds models from YAML

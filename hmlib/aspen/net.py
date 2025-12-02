@@ -19,7 +19,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import networkx as nx
 import torch
 
-from hmlib.aspen.trunks.base import Trunk
+from hmlib.aspen.trunks.base import Plugin
 from hmlib.utils.containers import SidebandQueue as Queue
 from hmlib.utils.containers import create_queue
 
@@ -44,7 +44,7 @@ class AspenNet(torch.nn.Module):
     - Executes nodes in topological order, passing and accumulating a
       shared context dict across nodes.
 
-    @see @ref hmlib.aspen.trunks.base.Trunk "Trunk" for the trunk interface.
+    @see @ref hmlib.aspen.trunks.base.Plugin "Plugin" for the trunk interface.
     """
 
     def __init__(
@@ -147,16 +147,16 @@ class AspenNet(torch.nn.Module):
                 raise ValueError(f"Empty spec for trunk '{name}'")
             cls_path = spec.get("class")
             if not cls_path:
-                raise ValueError(f"Trunk '{name}' missing 'class'")
+                raise ValueError(f"Plugin '{name}' missing 'class'")
             depends = list(spec.get("depends", []) or [])
             params = spec.get("params", {}) or {}
             enabled = spec.get("enabled", True)
             if not enabled:
                 # Create a no-op stub to keep graph shape predictable
-                module = _NoOpTrunk(name=name)
+                module = _NoOpPlugin(name=name)
             else:
                 module = self._instantiate(cls_path, params)
-            if isinstance(module, Trunk):
+            if isinstance(module, Plugin):
                 module.set_profiler(self._profiler)
             node = _Node(
                 name=name, cls_path=cls_path, depends=depends, params=params, module=module
@@ -330,7 +330,7 @@ class AspenNet(torch.nn.Module):
                 font_size=8,
                 arrows=True,
             )
-            plt.title("AspenNet Trunks Graph")
+            plt.title("AspenNet Plugins Graph")
             plt.show()
             return
         except Exception as e:
@@ -366,7 +366,7 @@ class AspenNet(torch.nn.Module):
         name = f"aspen.trunk.{node.name}"
         if self._verbose:
             print(f"AspenNet: Executing trunk '{node.name}' with class '{node.cls_path}'")
-        if isinstance(trunk, Trunk):
+        if isinstance(trunk, Plugin):
             prof_ctx = trunk.profile_scope(name)
         elif getattr(self._profiler, "enabled", False):
             prof_ctx = self._profiler.rf(name)
@@ -563,7 +563,7 @@ class AspenNet(torch.nn.Module):
         return None
 
 
-class _NoOpTrunk(torch.nn.Module):
+class _NoOpPlugin(torch.nn.Module):
     def __init__(self, name: str):
         super().__init__()
         self._name = name

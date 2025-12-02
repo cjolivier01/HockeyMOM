@@ -8,12 +8,12 @@ from mmengine.structures import InstanceData
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
-from .base import Trunk
+from .base import Plugin
 
 logger = logging.getLogger(__name__)
 
 
-class TrackerTrunk(Trunk):
+class TrackerPlugin(Plugin):
     """
     Tracker trunk that consumes per-frame detections and produces tracks.
 
@@ -165,7 +165,7 @@ class TrackerTrunk(Trunk):
             # if using_precalc_track:
             #     # Keep pred_track_instances unset; logging handled below if needed
             #     continue
-            # Detections should have been attached by DetectorInferenceTrunk
+            # Detections should have been attached by DetectorInferencePlugin
             det_instances = getattr(img_data_sample, "pred_instances", None)
             if det_instances is None:
                 # No detections, skip tracking; leave pred_track_instances unset

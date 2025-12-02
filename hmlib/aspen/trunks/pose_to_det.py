@@ -5,17 +5,17 @@ import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Trunk
+from .base import Plugin
 
 
-class PoseToDetTrunk(Trunk):
+class PoseToDetPlugin(Plugin):
     """
     Converts pose inferencer outputs into detection `pred_instances` for each
     frame, allowing the tracker trunk to run without a separate detector.
 
     Expects in context:
       - data: dict with 'data_samples' (TrackDataSample or [TrackDataSample])
-      - data: dict with 'pose_results' produced by PoseTrunk
+      - data: dict with 'pose_results' produced by PosePlugin
       - using_precalculated_detection: bool (optional)
 
     Produces in context:
@@ -210,7 +210,7 @@ class PoseToDetTrunk(Trunk):
             img_data_sample.pred_instances = new_inst
 
         # Preserve pose_results for downstream consumers by mirroring into `data`.
-        # TrackerTrunk will copy `data` into `data`, so pose_results survive.
+        # TrackerPlugin will copy `data` into `data`, so pose_results survive.
         data["pose_results"] = pose_results
 
         return {"data": data}

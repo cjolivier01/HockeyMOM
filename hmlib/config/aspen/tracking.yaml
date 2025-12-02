@@ -88,12 +88,12 @@ aspen:
 
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      class: hmlib.aspen.trunks.image_prep.ImagePrepPlugin
       depends: []
       params: {}
 
     model_factory:
-      class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+      class: hmlib.aspen.trunks.model_factory.ModelFactoryPlugin
       depends: []
       enabled: true
       params:
@@ -106,7 +106,7 @@ aspen:
             enabled: false
 
     detector_factory:
-      class: hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk
+      class: hmlib.aspen.trunks.detector_factory.DetectorFactoryPlugin
       depends: []
       enabled: true
       params:
@@ -118,29 +118,29 @@ aspen:
           use_det_processor: true
 
     boundaries:
-      class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+      class: hmlib.aspen.trunks.boundaries.BoundariesPlugin
       depends: [model_factory]
       params:
         plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     detector:
-      class: hmlib.aspen.trunks.detector.DetectorInferenceTrunk
+      class: hmlib.aspen.trunks.detector.DetectorInferencePlugin
       depends: [image_prep, detector_factory]
       params: {}
 
     save_detections:
-      class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+      class: hmlib.aspen.trunks.save.SaveDetectionsPlugin
       depends: [detector]
       enabled: false
       params: {}
 
     ice_config:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigPlugin
       depends: [image_prep]
       params: {}
 
     ice_boundaries:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesPlugin
       depends: [detector, ice_config]
       params:
         enabled: true
@@ -150,7 +150,7 @@ aspen:
         plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     tracker:
-      class: hmlib.aspen.trunks.tracker.TrackerTrunk
+      class: hmlib.aspen.trunks.tracker.TrackerPlugin
       depends: [detector, ice_boundaries, model_factory, boundaries]
       # params:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
@@ -161,14 +161,14 @@ aspen:
         #   max_tracks: 100
 
     save_tracking:
-      class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+      class: hmlib.aspen.trunks.save.SaveTrackingPlugin
       depends: [tracker]
       enabled: false
       params: {}
 
     # Optional camera dataframe load/save for camera.csv
     load_camera:
-      class: hmlib.aspen.trunks.load.LoadCameraTrunk
+      class: hmlib.aspen.trunks.load.LoadCameraPlugin
       depends: []
       enabled: false
       params: {}
@@ -176,7 +176,7 @@ aspen:
     # Optional camera controller (rule-based by default). Enable transformer by
     # setting controller: transformer and model_path to your checkpoint.
     camera_controller:
-      class: hmlib.aspen.trunks.camera_controller.CameraControllerTrunk
+      class: hmlib.aspen.trunks.camera_controller.CameraControllerPlugin
       depends: [tracker]
       params:
         controller: rule
@@ -184,13 +184,13 @@ aspen:
         window: 8
 
     postprocess:
-      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      class: hmlib.aspen.trunks.postprocess.CamPostProcessPlugin
       depends: [tracker, camera_controller, ice_config]
       enabled: true
       params: {}
 
     play_tyracker:
-      class: hmlib.aspen.trunks.play_tracker.PlayTrackerTrunk
+      class: hmlib.aspen.trunks.play_tracker.PlayTrackerPlugin
       # Does this really need postprocess?
       depends: [tracker, camera_controller, postprocess]
       enabled: true
@@ -206,13 +206,13 @@ aspen:
         plot_actions: GLOBAL.plot.plot_actions
 
     save_camera:
-      class: hmlib.aspen.trunks.save.SaveCameraTrunk
+      class: hmlib.aspen.trunks.save.SaveCameraPlugin
       depends: [play_tyracker]
       enabled: false
       params: {}
 
     video_out:
-      class: hmlib.aspen.trunks.video_out.VideoOutTrunk
+      class: hmlib.aspen.trunks.video_out.VideoOutPlugin
       depends: [postprocess]
       enabled: true
       params: {

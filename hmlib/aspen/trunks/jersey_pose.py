@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
-from hmlib.aspen.trunks.base import Trunk
+from hmlib.aspen.trunks.base import Plugin
 from hmlib.bbox.tiling import (
     clamp_boxes_to_image,
     get_original_bbox_index_from_tiled_image,
@@ -27,7 +27,7 @@ def _to_tensor(x: Any) -> torch.Tensor:
     return torch.from_numpy(x)
 
 
-class JerseyNumberFromPoseTrunk(Trunk):
+class JerseyNumberFromPosePlugin(Plugin):
     """
     Recognizes jersey numbers per tracked person using pose-guided ROIs and MMOCR.
 
@@ -35,7 +35,7 @@ class JerseyNumberFromPoseTrunk(Trunk):
       - data: dict with keys:
           - data_samples: TrackDataSample or [TrackDataSample]
           - original_images: Tensor [T, C, H, W] or [T, H, W, C]
-          - pose_results: optional (mirrored by PoseToDetTrunk); if absent, falls back to bbox heuristic
+          - pose_results: optional (mirrored by PoseToDetPlugin); if absent, falls back to bbox heuristic
 
     Produces in context:
       - data: with key 'jersey_results': List[List[TrackJerseyInfo]] per frame

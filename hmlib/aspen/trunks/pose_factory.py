@@ -2,10 +2,10 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from .base import Trunk
+from .base import Plugin
 
 
-class PoseInferencerFactoryTrunk(Trunk):
+class PoseInferencerFactoryPlugin(Plugin):
     """
     Builds and caches an MMPoseInferencer and exposes it via context['pose_inferencer'].
 
@@ -132,7 +132,7 @@ class PoseInferencerFactoryTrunk(Trunk):
                             quantize_int8=bool(self._onnx_cfg.get("quantize_int8", False)),
                             calib_frames=int(self._onnx_cfg.get("calib_frames", 0)),
                         )
-                        # Attach for PoseTrunk to pick up
+                        # Attach for PosePlugin to pick up
                         setattr(self._inferencer, "_hm_onnx_runner", self._onnx_runner)
             except Exception:
                 # Non-fatal; fall back to PyTorch model
@@ -170,8 +170,8 @@ class _BackboneNeckWrapper(torch.nn.Module):
 class _OnnxPoseRunner:
     """Run pose model with ONNX Runtime for backbone+neck, then decode with PyTorch head.
 
-    This integrates with PoseTrunk's bypass path by attaching to the inferencer
-    as `._hm_onnx_runner` so PoseTrunk can optionally use it.
+    This integrates with PosePlugin's bypass path by attaching to the inferencer
+    as `._hm_onnx_runner` so PosePlugin can optionally use it.
     """
 
     def __init__(

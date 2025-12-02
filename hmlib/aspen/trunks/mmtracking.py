@@ -2,15 +2,15 @@ from typing import Any, Dict
 
 import torch
 
-from .base import Trunk
+from .base import Plugin
 
 
-class MMTrackingTrunk(Trunk):
+class MMTrackingPlugin(Plugin):
     """
     Runs an MMTracking-style model that returns tracking results.
 
     Expects in context:
-      - data: dict prepared by ImagePrepTrunk (has 'img' and 'original_images')
+      - data: dict prepared by ImagePrepPlugin (has 'img' and 'original_images')
       - model: callable like mmdet model (already eval mode)
       - fp16: bool
       - tracking_dataframe, detection_dataframe: optional for logging
@@ -44,8 +44,8 @@ class MMTrackingTrunk(Trunk):
         if detect_timer is not None:
             detect_timer.tic()
 
-        # If the model is an Aspen Trunk, delegate end-to-end to it
-        if isinstance(model, Trunk):
+        # If the model is an Aspen Plugin, delegate end-to-end to it
+        if isinstance(model, Plugin):
             # Let the model's trunk implementation handle timing and context updates
             return model(context)
 

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Trunk
+from .base import Plugin
 from .trt_nms import DetectorNMS
 
 
@@ -53,7 +53,7 @@ def _strip_static_padding(instances: InstanceData, strip: bool) -> InstanceData:
     return instances[:keep]
 
 
-class DetectorFactoryTrunk(Trunk):
+class DetectorFactoryPlugin(Plugin):
     """
     Builds and caches a pure detection model (e.g., YOLOX) from Aspen YAML.
 
@@ -267,7 +267,7 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
 
     - Exposes a `.predict(images, [data_sample])` compatible with mmdet
       SingleStageDetector.predict() return type expectations used by
-      DetectorInferenceTrunk (list with object having .pred_instances).
+      DetectorInferencePlugin (list with object having .pred_instances).
     - Optional on-the-fly static INT8 quantization after collecting N frames.
     """
 

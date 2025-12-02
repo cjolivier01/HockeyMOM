@@ -18,11 +18,11 @@ from hmlib.camera.camera_transformer import (
 )
 from hmlib.camera.clusters import ClusterMan
 
-from .base import Trunk
+from .base import Plugin
 
 
 @HM.register_module()
-class CameraControllerTrunk(Trunk):
+class CameraControllerPlugin(Plugin):
     """
     Camera controller trunk that computes per-frame camera boxes (pan/zoom).
 

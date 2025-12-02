@@ -4,10 +4,10 @@ from typing import Any, Dict, Optional
 
 from hmlib.utils.pipeline import update_pipeline_item
 
-from .base import Trunk
+from .base import Plugin
 
 
-class BoundariesTrunk(Trunk):
+class BoundariesPlugin(Plugin):
     """
     Legacy trunk for updating boundary-related transforms on legacy models.
 

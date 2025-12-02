@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from .base import Trunk
+from .base import Plugin
 
 try:
     from mmengine.config import Config, ConfigDict
@@ -22,8 +22,8 @@ def _import_class(path: str):
     return getattr(mod, cls_name)
 
 
-class ModelFactoryTrunk(Trunk):
-    """Trunk that builds and caches the MMTracking-style end-to-end model.
+class ModelFactoryPlugin(Plugin):
+    """Plugin that builds and caches the MMTracking-style end-to-end model.
 
     Parameters (YAML fields):
       - ``model_class``: str import path (default: ``hmlib.models.end_to_end.HmEndToEnd``).

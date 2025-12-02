@@ -6,10 +6,10 @@ from typing import Any, Dict, Optional, Set
 import torch
 
 
-class Trunk(torch.nn.Module):
+class Plugin(torch.nn.Module):
     """Base trunk interface. Subclasses implement forward(context) -> dict.
 
-    Trunks read from and write to a shared 'context' dict. The return value
+    Plugins read from and write to a shared 'context' dict. The return value
     should be a dict of new or updated context entries.
     """
 

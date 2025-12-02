@@ -11,16 +11,16 @@ from hmlib.config import get_nested_value
 from hmlib.utils.image import image_height, image_width
 from hmlib.video.video_out import MAX_NEVC_VIDEO_WIDTH, VideoOutput
 
-from .base import Trunk
+from .base import Plugin
 
 
 @HM.register_module()
-class VideoOutTrunk(Trunk):
+class VideoOutPlugin(Plugin):
     """
-    Trunk wrapping VideoOutput to process final overlays/cropping and save/show frames.
+    Plugin wrapping VideoOutput to process final overlays/cropping and save/show frames.
 
     Expects in context:
-      - img: batched image tensor (from PlayTrackerTrunk)
+      - img: batched image tensor (from PlayTrackerPlugin)
       - current_box: TLBR camera boxes per frame
       - frame_ids: tensor[B]
       - play_box: TLBR arena/play box (for sizing when crop_play_box)
@@ -93,7 +93,7 @@ class VideoOutTrunk(Trunk):
         if img is None:
             # Try fallbacks
             img = context.get("data", {}).get("original_images")
-        assert img is not None, "VideoOutTrunk requires 'img' in context"
+        assert img is not None, "VideoOutPlugin requires 'img' in context"
 
         # Decide final output size
         H = int(image_height(img))

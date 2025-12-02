@@ -1,9 +1,9 @@
 from typing import Any, Dict, List, Optional
 
-from .base import Trunk
+from .base import Plugin
 
 
-class ModelConfigTrunk(Trunk):
+class ModelConfigPlugin(Plugin):
     """
     Configures the MMTracking model instance from Aspen YAML.
 
