@@ -41,7 +41,7 @@ def convert(mm_config: str) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     model = extract_model(cfg)
     out["model"] = {
-        "class": "hmlib.models.end_to_end.HmEndToEnd",
+        "class": "hmlib.models.end_to_end_plugin.HmEndToEnd",
         "params": model,
     }
     out["inference_pipeline"] = extract_inference_pipeline(cfg)
@@ -75,7 +75,7 @@ def main():
     elif args.emit == "model":
         # Emit under Aspen namespace for consistency, though current trunks use detector_factory
         out_data = {
-            "aspen": {"model": {"class": "hmlib.models.end_to_end.HmEndToEnd", "params": model}}
+            "aspen": {"model": {"class": "hmlib.models.end_to_end_plugin.HmEndToEnd", "params": model}}
         }
         suffix = ".model.yaml"
     elif args.emit == "inference_pipeline":
@@ -84,7 +84,7 @@ def main():
     else:
         out_data = {
             "aspen": {
-                "model": {"class": "hmlib.models.end_to_end.HmEndToEnd", "params": model},
+                "model": {"class": "hmlib.models.end_to_end_plugin.HmEndToEnd", "params": model},
                 "inference_pipeline": pipeline,
             }
         }

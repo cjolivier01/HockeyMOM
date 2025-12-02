@@ -11,7 +11,7 @@ from hmlib.config import get_nested_value
 from hmlib.utils.image import image_height, image_width
 from hmlib.video.video_out import MAX_NEVC_VIDEO_WIDTH, VideoOutput
 
-from .base import Plugin
+from .base_plugin import Plugin
 
 
 @HM.register_module()

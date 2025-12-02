@@ -463,7 +463,7 @@ def _main(args, num_gpu):
                     df = trunks_cfg.setdefault(
                         "detector_factory",
                         {
-                            "class": "hmlib.aspen.plugins.detector_factory.DetectorFactoryPlugin",
+                            "class": "hmlib.aspen.plugins.detector_factory_plugin.DetectorFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },
@@ -480,7 +480,7 @@ def _main(args, num_gpu):
                     df = trunks_cfg.setdefault(
                         "detector_factory",
                         {
-                            "class": "hmlib.aspen.plugins.detector_factory.DetectorFactoryPlugin",
+                            "class": "hmlib.aspen.plugins.detector_factory_plugin.DetectorFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },
@@ -504,7 +504,7 @@ def _main(args, num_gpu):
                     df = trunks_cfg.setdefault(
                         "detector_factory",
                         {
-                            "class": "hmlib.aspen.plugins.detector_factory.DetectorFactoryPlugin",
+                            "class": "hmlib.aspen.plugins.detector_factory_plugin.DetectorFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },
@@ -536,7 +536,7 @@ def _main(args, num_gpu):
                     pf = trunks_cfg.setdefault(
                         "pose_factory",
                         {
-                            "class": "hmlib.aspen.plugins.pose_factory.PoseInferencerFactoryPlugin",
+                            "class": "hmlib.aspen.plugins.pose_factory_plugin.PoseInferencerFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },
@@ -558,7 +558,7 @@ def _main(args, num_gpu):
                     pf = trunks_cfg.setdefault(
                         "pose_factory",
                         {
-                            "class": "hmlib.aspen.plugins.pose_factory.PoseInferencerFactoryPlugin",
+                            "class": "hmlib.aspen.plugins.pose_factory_plugin.PoseInferencerFactoryPlugin",
                             "depends": [],
                             "params": {},
                         },

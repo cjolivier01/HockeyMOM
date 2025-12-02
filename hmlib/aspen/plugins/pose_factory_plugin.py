@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from .base import Plugin
+from .base_plugin import Plugin
 
 
 class PoseInferencerFactoryPlugin(Plugin):

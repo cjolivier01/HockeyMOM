@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Plugin
+from .base_plugin import Plugin
 
 
 class ActionFromPosePlugin(Plugin):
