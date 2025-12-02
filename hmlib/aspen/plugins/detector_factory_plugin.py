@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from mmengine.structures import InstanceData
 
-from .base_plugin import Plugin
-from .trt_nms import DetectorNMS
+from .base import Plugin
+from hmlib.utils.nms import DetectorNMS
 
 
 def _strip_static_padding(instances: InstanceData, strip: bool) -> InstanceData:

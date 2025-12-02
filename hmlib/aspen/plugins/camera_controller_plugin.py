@@ -18,7 +18,7 @@ from hmlib.camera.camera_transformer import (
 )
 from hmlib.camera.clusters import ClusterMan
 
-from .base_plugin import Plugin
+from .base import Plugin
 
 
 @HM.register_module()

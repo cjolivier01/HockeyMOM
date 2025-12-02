@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Set
 
-from .base_plugin import DeleteKey, Plugin
+from .base import DeleteKey, Plugin
 
 
 class PruneKeysPlugin(Plugin):

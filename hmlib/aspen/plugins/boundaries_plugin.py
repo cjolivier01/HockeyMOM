@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 from hmlib.utils.pipeline import update_pipeline_item
 
-from .base_plugin import Plugin
+from .base import Plugin
 
 
 class BoundariesPlugin(Plugin):

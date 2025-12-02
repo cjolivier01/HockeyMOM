@@ -4,7 +4,7 @@ This module exposes :data:`DATASETS`, :data:`PIPELINES` (an alias for
 ``mmengine.TRANSFORMS``) and :data:`HM` registries used to register Aspen
 trunks and custom components.
 
-@see @ref hmlib.aspen.plugins.base_plugin "Aspen trunk base classes" for usage.
+@see @ref hmlib.aspen.plugins.base "Aspen trunk base classes" for usage.
 """
 
 from mmengine import Registry

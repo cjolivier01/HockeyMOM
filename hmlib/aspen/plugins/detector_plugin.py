@@ -3,7 +3,7 @@ from typing import Any, Dict
 
 import torch
 
-from .base_plugin import Plugin
+from .base import Plugin
 from .detector_factory_plugin import _strip_static_padding
 
 

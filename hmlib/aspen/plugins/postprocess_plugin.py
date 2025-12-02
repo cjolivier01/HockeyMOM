@@ -7,7 +7,7 @@ import torch
 from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.config import get_nested_value
 
-from .base_plugin import Plugin
+from .base import Plugin
 
 
 class CamPostProcessPlugin(Plugin):

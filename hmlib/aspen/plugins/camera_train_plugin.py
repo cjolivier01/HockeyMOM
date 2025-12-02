@@ -12,7 +12,7 @@ from hmlib.camera.camera_model_dataset import CameraPanZoomDataset
 from hmlib.camera.camera_transformer import CameraPanZoomTransformer, pack_checkpoint
 from hmlib.log import logger
 
-from .base_plugin import Plugin
+from .base import Plugin
 
 
 @HM.register_module()
