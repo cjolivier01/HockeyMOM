@@ -177,7 +177,7 @@ _FP_TYPES: Set[torch.dtype] = {
 }
 
 
-class VideoOutput(torch.nn.Module):
+class VideoOutput(torch.nn.ModuleDict):
 
     VIDEO_DEFAULT: str = "default"
     VIDEO_END_ZONES: str = "end_zones"
@@ -355,11 +355,7 @@ class VideoOutput(torch.nn.Module):
             else contextlib.nullcontext()
         )
 
-        self._video_out_pipeline = video_out_pipeline
-        if self._video_out_pipeline:
-            self._video_out_pipeline = Compose(self._video_out_pipeline)
-        else:
-            print(f"WARNING: No video_out_pipeline provided to VideoOutput {self._name}")
+        self._video_out_pipeline = self.compose_pipeline(video_out_pipeline)
 
         # Cache pointer to color adjust transform (if present)
         self._color_adjust_tf = None
@@ -376,9 +372,15 @@ class VideoOutput(torch.nn.Module):
 
         self._mean_tracker: Optional[MeanTracker] = None
 
-        # assert not start
-        # if start:
-        #     self.start()
+    def compose_pipeline(self, pipeline):
+        if pipeline is None or not pipeline:
+            return None
+        composed_pipeline = Compose(pipeline)
+        for mod in composed_pipeline:
+            if isinstance(mod, torch.nn.Module):
+                name = str(mod)
+                self[name] = mod
+        return composed_pipeline
 
     def _ensure_initialized(self, context: Dict[str, Any]):
         if self._device is not None:
@@ -387,9 +389,9 @@ class VideoOutput(torch.nn.Module):
         if self._fourcc == "auto":
             if self._device.type == "cuda":
                 self._fourcc, is_gpu = get_best_codec(
-                    device.index,
-                    width=int(output_frame_width),
-                    height=int(output_frame_height),
+                    self._device.index,
+                    width=self._output_frame_width_int,
+                    height=self._output_frame_height_int,
                     allow_scaling=self._allow_scaling,
                 )
                 if not is_gpu:
@@ -398,8 +400,8 @@ class VideoOutput(torch.nn.Module):
             else:
                 self._fourcc = "XVID"
             logger.info(
-                f"Output video {self._name} {int(self._output_frame_width)}x"
-                f"{int(self._output_frame_height)} will use codec: {self._fourcc}"
+                f"Output video {self._name} {self._output_frame_width_int}x"
+                f"{self._output_frame_height_int} will use codec: {self._fourcc}"
             )
 
     def set_progress_bar(self, progress_bar: ProgressBar):
