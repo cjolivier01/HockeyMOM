@@ -275,8 +275,7 @@ def get_alpha_mask(img: torch.Tensor) -> torch.Tensor:
     return mask
 
 
-class LaplacianBlend(torch.jit.ScriptModule):
-    # class LaplacianBlend(torch.nn.Module):
+class LaplacianBlend(torch.nn.Module):
     def __init__(
         self,
         max_levels=4,
@@ -344,25 +343,51 @@ class LaplacianBlend(torch.jit.ScriptModule):
             assert input_shape is None
             mask = self.seam_mask.unsqueeze(0).unsqueeze(0).clone()
             unique_values = torch.unique(mask)
-            assert len(unique_values) == 2
-            left_value = self.seam_mask[self.seam_mask.shape[0] // 2][0]
-            right_value = self.seam_mask[self.seam_mask.shape[0] // 2][self.seam_mask.shape[1] - 1]
-            # Can we make assumption that they were discovered left-to-right?
-            assert left_value == unique_values[0]
-            assert right_value == unique_values[1]
-            mask[mask == left_value] = 1
-            mask[mask == right_value] = 0
-            mask = mask.to(self._dtype)
+            if unique_values.numel() < 2:
+                mask = torch.zeros(
+                    self.seam_mask.shape[-2:], dtype=self._dtype, device=device
+                )
+                mask[:, : mask.shape[-1] // 2] = 1.0
+                mask = mask.unsqueeze(0).unsqueeze(0)
+                left_value = torch.tensor(1.0, dtype=self._dtype, device=device)
+                right_value = torch.tensor(0.0, dtype=self._dtype, device=device)
+            else:
+                mid_row = self.seam_mask.shape[0] // 2
+                left_value = self.seam_mask[mid_row][0]
+                right_value = self.seam_mask[mid_row][self.seam_mask.shape[1] - 1]
+                if left_value == right_value:
+                    left_value = unique_values[0]
+                    right_value = unique_values[-1]
+                if unique_values.numel() > 2:
+                    thresh = (float(left_value) + float(right_value)) / 2.0
+                    if float(left_value) < float(right_value):
+                        mask = (mask <= thresh).to(self._dtype)
+                    else:
+                        mask = (mask >= thresh).to(self._dtype)
+                else:
+                    mask[mask == left_value] = 1
+                    mask[mask == right_value] = 0
+                    mask = mask.to(self._dtype)
 
-        self._unique_values = torch.unique(self.seam_mask)
+        self._unique_values = torch.stack(
+            [
+                torch.as_tensor(left_value, dtype=self._dtype, device=device),
+                torch.as_tensor(right_value, dtype=self._dtype, device=device),
+            ]
+        )
         self._left_value = self._unique_values[0]
         self._right_value = self._unique_values[1]
 
         mask_img = mask
         self.mask_small_gaussian_blurred = [mask.squeeze(0).squeeze(0)]
-        for _ in range(self.max_levels + 1):
+        current_levels = 0
+        while current_levels < self.max_levels:
+            if mask_img.shape[-2] < 2 or mask_img.shape[-1] < 2:
+                break
             mask_img = one_level_gaussian_pyramid(mask_img, self.mask_gaussian_kernel)
             self.mask_small_gaussian_blurred.append(mask_img.squeeze(0).squeeze(0))
+            current_levels += 1
+        self.max_levels = current_levels
 
         for i in range(len(self.mask_small_gaussian_blurred)):
             self.mask_small_gaussian_blurred[i] = self.mask_small_gaussian_blurred[i] / torch.max(
