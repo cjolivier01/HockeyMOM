@@ -96,10 +96,7 @@ class CamPostProcessPlugin(Plugin):
             video_out_pipeline = {}
 
         save_frame_dir = getattr(args_ns, "save_frame_dir", None)
-        async_post_processing = bool(getattr(args_ns, "async_post_processing", False))
-        async_video_out = bool(getattr(args_ns, "async_video_out", False))
         no_cuda_streams = bool(getattr(args_ns, "no_cuda_streams", False))
-        cache_size = int(getattr(args_ns, "cache_size", 2) or 2)
 
         self._postprocessor = CamTrackPostProcessor(
             opt=args_ns,
@@ -113,10 +110,7 @@ class CamPostProcessPlugin(Plugin):
             video_out_pipeline=video_out_pipeline,
             data_type="mot",
             postprocess=True,
-            async_post_processing=async_post_processing,
             video_out_device=video_out_device,
-            video_out_cache_size=cache_size,
-            async_video_out=async_video_out,
             no_cuda_streams=no_cuda_streams,
             camera_name=camera_name or "",
         )

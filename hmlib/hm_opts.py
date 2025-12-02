@@ -677,18 +677,6 @@ class hm_opts(object):
         #     help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
         # )
         parser.add_argument(
-            "--async-post-processing",
-            type=int,
-            default=0,
-            help="Async post-processing",
-        )
-        parser.add_argument(
-            "--async-video-out",
-            type=int,
-            default=1,
-            help="Async video output",
-        )
-        parser.add_argument(
             "-o",
             "--output",
             dest="output_file",
@@ -1048,8 +1036,6 @@ class hm_opts(object):
     def init(opt, parser: Optional[argparse.ArgumentParser] = None):
         # Normalize some conflicting arguments
         if opt.serial:
-            opt.async_post_processing = 0
-            opt.async_video_out = 0
             opt.cache_size = 0
             opt.stitch_cache_size = 0
             opt.no_async_dataset = True

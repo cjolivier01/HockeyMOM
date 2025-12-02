@@ -11,9 +11,6 @@ from __future__ import absolute_import, division, print_function
 import contextlib
 import math
 import os
-import time
-import traceback
-from threading import Thread
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 import cv2
@@ -24,11 +21,8 @@ from mmcv.transforms import Compose
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.log import logger
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
-from hmlib.tracking_utils.timer import Timer, TimeTracker
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
-from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
-from hmlib.utils.exceptions import raise_exception_in_thread
 from hmlib.utils.gpu import (
     StreamCheckpoint,
     StreamTensorBase,
@@ -43,7 +37,6 @@ from hmlib.utils.image import (
     resize_image,
     to_uint8_image,
 )
-from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import make_const_tensor
@@ -184,36 +177,35 @@ class VideoOutput(torch.nn.ModuleDict):
 
     def __init__(
         self,
-        args,
         output_video_path: str,
         output_frame_width: Union[int, float, torch.Tensor],
         output_frame_height: Union[int, float, torch.Tensor],
         fps: float,
-        video_out_pipeline: Dict[str, Any],
+        video_out_pipeline: Dict[str, Any] | None = None,
         fourcc: str = "auto",
         bit_rate: int = int(55e6),
-        save_frame_dir: str = None,
-        # start: bool = True,
-        max_queue_backlog: int = 1,
-        # device: torch.device = None,
+        save_frame_dir: str | None = None,
         name: str = "",
         simple_save: bool = False,
         skip_final_save: bool = False,
-        image_channel_adjustment: List[float] = None,
+        image_channel_adjustment: List[float] | None = None,
         print_interval: int = 50,
-        original_clip_box: torch.Tensor = None,
+        original_clip_box: torch.Tensor | None = None,
         progress_bar: ProgressBar | None = None,
         cache_size: int = 2,
         clip_to_max_dimensions: bool = True,
-        async_output: bool = False,
-        visualization_config: Dict[str, Any] = None,
+        visualization_config: Dict[str, Any] | None = None,
         no_cuda_streams: bool = False,
-        dtype: torch.dtype = None,
+        dtype: torch.dtype | None = None,
+        device: Union[torch.device, str, None] = None,
+        show_image: bool = False,
+        show_scaled: Optional[float] = None,
+        profiler: Any = None,
+        game_config: Optional[Dict[str, Any]] = None,
+        enable_end_zones: bool = False,
     ):
         super().__init__()
-        self._args = args
         self._allow_scaling = False
-        self._async_output = async_output
         self._clip_to_max_dimensions = clip_to_max_dimensions
         self._visualization_config = visualization_config
         self._no_cuda_streams = no_cuda_streams
@@ -265,8 +257,10 @@ class VideoOutput(torch.nn.ModuleDict):
 
         # -----------
 
-        # self._device = device if isinstance(device, torch.device) else torch.device(device)
-        self._device = None
+        if device is not None:
+            self._device = device if isinstance(device, torch.device) else torch.device(device)
+        else:
+            self._device = None
         self._name = name
         self._simple_save = simple_save
         self._fps = fps
@@ -274,27 +268,17 @@ class VideoOutput(torch.nn.ModuleDict):
         self._skip_final_save = skip_final_save
         self._progress_bar = progress_bar
         self._original_clip_box = original_clip_box
-        self._max_queue_backlog = max_queue_backlog
-        self._imgproc_thread = None
-        self._imgproc_queue = create_queue(mp=False)
-        assert isinstance(self._imgproc_queue, SidebandQueue)
-        self._imgproc_thread = None
         self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
         self._print_interval = print_interval
         self._output_videos: Dict[str, VideoStreamWriterInterface] = {}
         self._cuda_stream = None
-        # if not self._async_output:
-        #     self._cuda_stream = (
-        #         torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
-        #     )
-        # else:
-        #     self._cuda_stream = None
 
         self._bit_rate = bit_rate
+        self._game_config = game_config
         self._end_zones = None
-        if args is not None and args.end_zones:
-            lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(args.game_config)
+        if enable_end_zones and game_config is not None:
+            lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(game_config)
             if lines:
                 # Adjust for clip box, if any
                 if original_clip_box is not None:
@@ -336,14 +320,12 @@ class VideoOutput(torch.nn.ModuleDict):
         # self._zero_f32 = torch.tensor(0, dtype=torch.float, device=device)
         # self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=device)
 
-        self._send_to_video_out_timer = Timer()
-
         self._image_color_scaler = None
         if image_channel_adjustment:
             assert len(image_channel_adjustment) == 3
             self._image_color_scaler = ImageColorScaler(image_channel_adjustment)
 
-        self._prof = getattr(self._args, "profiler", None) if self.has_args() else None
+        self._prof = profiler
         self._fctx = (
             self._prof.rf("video_out.forward")
             if getattr(self._prof, "enabled", False)
@@ -363,12 +345,13 @@ class VideoOutput(torch.nn.ModuleDict):
         if self._save_frame_dir and not os.path.isdir(self._save_frame_dir):
             os.makedirs(self._save_frame_dir)
 
-        if self.has_args() and self._args.show_image:
-            self._shower = Shower(
-                label="Video Out", show_scaled=self._args.show_scaled, max_size=self._cache_size
-            )
-        else:
-            self._shower = None
+        self._show_image = bool(show_image)
+        self._show_scaled = show_scaled
+        self._shower = (
+            Shower(label="Video Out", show_scaled=self._show_scaled, max_size=self._cache_size)
+            if self._show_image
+            else None
+        )
 
         self._mean_tracker: Optional[MeanTracker] = None
 
@@ -383,9 +366,8 @@ class VideoOutput(torch.nn.ModuleDict):
         return composed_pipeline
 
     def _ensure_initialized(self, context: Dict[str, Any]):
-        if self._device is not None:
-            return
-        self._device = self._output_aspect_ratio.device
+        if self._device is None:
+            self._device = self._output_aspect_ratio.device
         if self._fourcc == "auto":
             if self._device.type == "cuda":
                 self._fourcc, is_gpu = get_best_codec(
@@ -395,7 +377,9 @@ class VideoOutput(torch.nn.ModuleDict):
                     allow_scaling=self._allow_scaling,
                 )
                 if not is_gpu:
-                    logger.info(f"Can't use GPU for output video {output_video_path}")
+                    logger.info(
+                        f"Can't use GPU for output video {self._output_video_path}"
+                    )
                     self._device = torch.device("cpu")
             else:
                 self._fourcc = "XVID"
@@ -409,74 +393,28 @@ class VideoOutput(torch.nn.ModuleDict):
         self._progress_bar = progress_bar
 
     def start(self):
-        if not self._async_output:
-            return
-        assert self._imgproc_thread is None and "Video output thread was already started"
-        self._imgproc_thread = Thread(
-            target=self._final_image_processing_wrapper,
-            name="VideoOutput",
-        )
-        self._imgproc_thread.start()
+        # VideoOutput now runs synchronously; start is a no-op kept for API compatibility.
+        return None
 
     def stop(self):
-        self._imgproc_queue.put(None)
-        if self._imgproc_thread is not None:
-            self._imgproc_thread.join()
-            self._imgproc_thread = None
+        # Close UI resources; video streams are closed by their own lifecycle.
         if self._shower is not None:
             self._shower.close()
             self._shower = None
 
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
         self._ensure_initialized(results)
-        if not self._async_output:
-            with cuda_stream_scope(self._cuda_stream):
-                if not self._output_videos:
-                    self.create_output_videos()
-                if isinstance(results["img"], StreamTensorBase):
-                    results["img"] = results["img"].wait()
-                with self._fctx:
-                    results = self.forward(results)
-                assert results["img"].device == self._device
-                with self._sctx:
-                    results = self.save_frame(results)
-            return results
-        else:
-            with TimeTracker(
-                "Send to Video-Out queue", self._send_to_video_out_timer, print_interval=50
-            ):
-                counter = 0
-                assert self._max_queue_backlog > 0
-                while self._imgproc_queue.qsize() >= self._max_queue_backlog:
-                    counter += 1
-                    if (
-                        not self.has_args()
-                        or (
-                            not self._args.show_image
-                            and (not hasattr(self._args, "debug") or not self._args.debug)
-                        )
-                    ) and counter % 10 == 0:
-                        logger.info(f"Video out queue too large: {self._imgproc_queue.qsize()}")
-                    time.sleep(0.001)
-                self._imgproc_queue.put(results)
-
-    def _final_image_processing_wrapper(self):
-        try:
-            self._final_image_processing_worker()
-        except Exception as ex:
-            print(ex)
-            traceback.print_exc()
-            raise
-        finally:
-            for _, video_out in self._output_videos.items():
-                video_out.close()
-            self._output_videos.clear()
-
-    def has_args(self):
-        return self._args is not None
-
-    def _float_type(self):
-        return torch.float16 if self._args.fp16 else torch.float
+        with cuda_stream_scope(self._cuda_stream):
+            if not self._output_videos:
+                self.create_output_videos()
+            if isinstance(results["img"], StreamTensorBase):
+                results["img"] = results["img"].wait()
+            with self._fctx:
+                results = self.forward(results)
+            assert results["img"].device == self._device
+            with self._sctx:
+                results = self.save_frame(results)
+        return results
 
     def create_output_videos(self):
         if self._output_video_path and not self._skip_final_save:
@@ -506,88 +444,6 @@ class VideoOutput(torch.nn.ModuleDict):
                 )
                 assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
 
-    def _final_image_processing_worker(self):
-        logger.info("VideoOutput thread started.")
-
-        # For opencv, needs to be in the same thread as what writes to it
-        self.create_output_videos()
-
-        # plot_interias = False
-        timer = Timer()
-        # The timer that reocrds the overall throughput
-        final_all_timer = None
-
-        batch_count = 0
-
-        # last_frame_id = None
-
-        cuda_stream = None
-
-        if self._device.type == "cuda" and not self._no_cuda_streams:
-            cuda_stream = torch.cuda.Stream(self._device)
-
-        mean_track_mode = None
-        if mean_track_mode and self._mean_tracker is None:
-            self._mean_tracker = MeanTracker(file_path="video_out.txt", mode=mean_track_mode)
-        with cuda_stream_scope(cuda_stream):
-            iqueue = IterableQueue(self._imgproc_queue)
-            imgproc_iter = iter(iqueue)
-
-            imgproc_iter = CachedIterator(iterator=imgproc_iter, cache_size=self._cache_size)
-
-            try:
-                while True:
-                    batch_count += 1
-                    try:
-                        results = next(imgproc_iter)
-                    except StopIteration:
-                        break
-
-                    if isinstance(results["img"], StreamTensorBase):
-                        results["img"] = results["img"].wait()
-
-                    timer.tic()
-
-                    batch_size = results["img"].size(0)
-
-                    with self._fctx:
-                        results = self.forward(results)
-                    with self._sctx:
-                        results = self.save_frame(results)
-
-                    timer.toc()
-
-                    if self._print_interval and batch_count % self._print_interval == 0:
-                        logger.info(
-                            "Image Post-Processing {} frame {} ({:.2f} fps)".format(
-                                self._name,
-                                results["frame_ids"][0],
-                                batch_size * 1.0 / max(1e-5, timer.average_time),
-                            )
-                        )
-                        timer = Timer()
-
-                    if True:
-                        # Overall FPS
-                        if final_all_timer is None:
-                            final_all_timer = Timer()
-                        else:
-                            final_all_timer.toc()
-
-                        if self._print_interval and batch_count % (self._print_interval * 4) == 0:
-                            logger.info(
-                                "*** Overall performance, frame {} ({:.2f} fps)  -- open files count: {}".format(
-                                    results["frame_ids"][0],
-                                    batch_size * 1.0 / max(1e-5, final_all_timer.average_time),
-                                    get_open_files_count(),
-                                )
-                            )
-                            final_all_timer = Timer()
-                        final_all_timer.tic()
-            except Exception as ex:
-                traceback.print_exc()
-                raise_exception_in_thread(exception=ex)
-
     def save_frame(
         self,
         results: Dict[str, Any],
@@ -606,7 +462,7 @@ class VideoOutput(torch.nn.ModuleDict):
             img = online_im
             self._mean_tracker(img)
 
-        if self.has_args() and self._args.show_image:
+        if self._show_image and self._shower is not None:
             online_im = slow_to_tensor(online_im)
             for show_img in online_im:
                 self._shower.show(show_img)
@@ -710,10 +566,10 @@ class VideoOutput(torch.nn.ModuleDict):
                         if tf.__class__.__name__ == "HmImageColorAdjust":
                             self._color_adjust_tf = tf
                             break
-                if self._color_adjust_tf is not None and self.has_args():
+                if self._color_adjust_tf is not None and self._game_config is not None:
                     cam = None
                     try:
-                        cam = self._args.game_config.get("rink", {}).get("camera", {})
+                        cam = self._game_config.get("rink", {}).get("camera", {})
                     except Exception:
                         cam = None
                     if isinstance(cam, dict):
