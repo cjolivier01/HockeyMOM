@@ -53,9 +53,6 @@ _FOURCC_TO_CODEC = {
 MAX_VIDEO_WIDTH = 8000  # 8K is 7680 x 4320
 MAX_NEVC_VIDEO_WIDTH: int = 8192
 
-# MAX_PIXEL_AREA: int = int(7680 * 4320)
-
-
 def _load_jetson_utils():
     """
     Best-effort import of jetson_utils Python bindings (used by the GStreamer backend).
