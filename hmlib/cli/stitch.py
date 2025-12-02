@@ -170,6 +170,7 @@ def stitch_videos(
             # no_cuda_streams=args.no_cuda_streams,
             no_cuda_streams=True,
             async_mode=False,
+            max_blend_levels=getattr(args, "max_blend_levels", None),
         )
 
         data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)

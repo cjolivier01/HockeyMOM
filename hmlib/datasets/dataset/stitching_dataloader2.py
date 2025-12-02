@@ -188,6 +188,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         config_ref: Optional[Dict[str, Any]] = None,
         left_color_pipeline: Optional[List[Dict[str, Any]]] = None,
         right_color_pipeline: Optional[List[Dict[str, Any]]] = None,
+        max_blend_levels: Optional[int] = None,
     ):
         super().__init__()
         if not async_mode:
@@ -228,6 +229,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._right_color_pipeline_cfg: Optional[List[Dict[str, Any]]] = right_color_pipeline
         self._left_color_pipeline: Optional[Compose] = None
         self._right_color_pipeline: Optional[Compose] = None
+        self._max_blend_levels: Optional[int] = max_blend_levels
 
         # Optimize the roi box
         if image_roi is not None:
@@ -717,6 +719,15 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         assert self._remapping_device.type != "cpu"
         from hmlib.stitching.blender2 import create_stitcher
 
+        if self._blend_mode == "laplacian":
+            levels_arg = (
+                int(self._max_blend_levels)
+                if self._max_blend_levels is not None and self._max_blend_levels > 0
+                else 11
+            )
+        else:
+            levels_arg = 0
+
         self._stitcher = create_stitcher(
             dir_name=self._dir_name,
             batch_size=self._batch_size,
@@ -731,6 +742,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             minimize_blend=self._minimize_blend,
             blend_mode=self._blend_mode,
             add_alpha_channel=False,
+            levels=levels_arg,
             auto_adjust_exposure=self._auto_adjust_exposure,
         )
 
