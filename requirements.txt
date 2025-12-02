@@ -1,5 +1,6 @@
 cython
 typeguard
+flask
 terminaltables
 seaborn
 rich
