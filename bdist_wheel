@@ -1,5 +1,10 @@
 #!/bin/bash
 set -e
-bazelisk run --config=release $@ //hockeymom:bdist_wheel
-bazelisk run --config=release $@ //hmlib:bdist_wheel
+
+SCRIPT_DIR=$(dirname $(realpath $0))
+
+source "${SCRIPT_DIR}"/.bazel_setup.sh
+
+bazelisk run ${BAZEL_FLAGS} --config=release $@ //hockeymom:bdist_wheel
+bazelisk run ${BAZEL_FLAGS} --config=release $@ //hmlib:bdist_wheel
 
