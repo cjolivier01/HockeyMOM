@@ -1,6 +1,7 @@
 import torch
 
 from hmlib.scoreboard.scoreboard import Scoreboard
+from hmlib.transforms.perspective_rotation import HmPerspectiveRotation
 from hmlib.transforms.scoreboard_transforms import HmCaptureScoreboard, HmRenderScoreboard
 
 
@@ -81,3 +82,43 @@ def should_capture_and_render_scoreboard_with_fixed_shape():
 
     assert rendered_img2.shape == img2.shape
     assert torch.allclose(rendered_img2[:, :dest_height, :dest_width, :], scoreboard_img2)
+
+
+def should_perspective_rotation_pre_clip_keep_fixed_width():
+    src_pts = [[10.0, 20.0], [110.0, 20.0], [110.0, 70.0], [10.0, 70.0]]
+
+    img = torch.rand(2, 180, 320, 3, dtype=torch.float32)
+    camera_boxes = torch.tensor(
+        [
+            [40.0, 50.0, 140.0, 110.0],
+            [60.0, 40.0, 190.0, 100.0],
+        ],
+        dtype=torch.float32,
+    )
+
+    transform = HmPerspectiveRotation(
+        fixed_edge_rotation=True,
+        fixed_edge_rotation_angle=10.0,
+        pre_clip=True,
+        image_label="img",
+        bbox_label="camera_box",
+    )
+
+    results = {
+        "img": img.clone(),
+        "camera_box": camera_boxes.clone(),
+        "scoreboard_cfg": {"scoreboard_points": src_pts},
+    }
+
+    results = transform(results)
+    rotated_imgs = results["img"]
+
+    assert isinstance(rotated_imgs, list)
+    assert len(rotated_imgs) == 2
+    w0 = rotated_imgs[0].shape[1]
+    w1 = rotated_imgs[1].shape[1]
+    h0 = rotated_imgs[0].shape[0]
+    h1 = rotated_imgs[1].shape[0]
+
+    assert w0 == w1
+    assert h0 == h1
