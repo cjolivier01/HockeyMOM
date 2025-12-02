@@ -170,8 +170,8 @@ class CamTrackPostProcessor:
             )
         # Expose arena/play box for downstream trunks (e.g., PlayTrackerTrunk, VideoOutTrunk)
         results["arena"] = self.get_arena_box()
-        results["final_frame_width"] = self.final_frame_width
-        results["final_frame_height"] = self.final_frame_height
+        # results["final_frame_width"] = self.final_frame_width
+        # results["final_frame_height"] = self.final_frame_height
         return results
 
     def on_first_image(

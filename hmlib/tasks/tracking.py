@@ -258,6 +258,7 @@ def run_mmtrack(
                     shared["profiler"] = profiler
                 aspen_name = aspen_cfg.get("name") or config.get("game_id") or "aspen"
                 aspen_net = AspenNet(aspen_name, aspen_cfg, shared=shared)
+                aspen_net = aspen_net.to(device)
             # Optional torch profiler context spanning the run
             prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
             with prof_ctx:

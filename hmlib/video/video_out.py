@@ -177,7 +177,7 @@ _FP_TYPES: Set[torch.dtype] = {
 }
 
 
-class VideoOutput:
+class VideoOutput(torch.nn.Module):
 
     VIDEO_DEFAULT: str = "default"
     VIDEO_END_ZONES: str = "end_zones"
@@ -193,9 +193,9 @@ class VideoOutput:
         fourcc: str = "auto",
         bit_rate: int = int(55e6),
         save_frame_dir: str = None,
-        start: bool = True,
+        # start: bool = True,
         max_queue_backlog: int = 1,
-        device: torch.device = None,
+        # device: torch.device = None,
         name: str = "",
         simple_save: bool = False,
         skip_final_save: bool = False,
@@ -210,6 +210,7 @@ class VideoOutput:
         no_cuda_streams: bool = False,
         dtype: torch.dtype = None,
     ):
+        super().__init__()
         self._args = args
         self._allow_scaling = False
         self._async_output = async_output
@@ -219,41 +220,43 @@ class VideoOutput:
         self._dtype = dtype if dtype is not None else torch.get_default_dtype()
         assert self._dtype in _FP_TYPES
 
-        output_frame_width = make_const_tensor(output_frame_width, device=device, dtype=torch.int64)
-        output_frame_height = make_const_tensor(
-            output_frame_height, device=device, dtype=torch.int64
-        )
-
-        if fourcc == "auto" and device.type == "cuda":
-            fourcc = "hevc_nvenc"
-            # fourcc = "h264_nvenc"
+        output_frame_width = torch.tensor(output_frame_width, dtype=torch.int64)
+        output_frame_height = torch.tensor(output_frame_height, dtype=torch.int64)
+        self._fourcc = fourcc
+        # if fourcc == "auto" and device.type == "cuda":
+        #     fourcc = "hevc_nvenc"
+        # fourcc = "h264_nvenc"
 
         if simple_save and self._clip_to_max_dimensions:
             original_width = int(output_frame_width)
             output_frame_width, output_frame_height = clamp_max_video_dimensions(
                 output_frame_width,
                 output_frame_height,
-                codec=fourcc,
+                codec=self._fourcc,
             )
             self._allow_scaling = original_width != int(output_frame_width)
         elif is_nearly_8k(output_frame_width, output_frame_height)[0]:
             # Check if close to standard 8k dimensions, in which case, make that the output
             original_width = int(output_frame_width)
-            output_frame_width = standard_8k_width
-            output_frame_height = standard_8k_height
+            output_frame_width = torch.tensor(standard_8k_width)
+            output_frame_height = torch.tensor(standard_8k_height)
             self._allow_scaling = original_width != int(output_frame_width)
 
-        if device is not None:
-            logger.info(
-                f"Video output {output_frame_width}x{output_frame_height} "
-                f"using device: {device} ({output_video_path})"
-            )
+        # if device is not None:
+        #     logger.info(
+        #         f"Video output {output_frame_width}x{output_frame_height} "
+        #         f"using device: {device} ({output_video_path})"
+        #     )
         assert output_frame_width > 4 and output_frame_height > 4
-        self._output_frame_width = output_frame_width
-        self._output_frame_height = output_frame_height
+        self.register_buffer("_output_frame_width", output_frame_width, persistent=False)
+        self.register_buffer("_output_frame_height", output_frame_height, persistent=False)
         self._output_frame_width_int = int(self._output_frame_width)
         self._output_frame_height_int = int(self._output_frame_height)
-        self._output_aspect_ratio = self._output_frame_width / self._output_frame_height
+        self.register_buffer(
+            "_output_aspect_ratio",
+            self._output_frame_width / self._output_frame_height,
+            persistent=False,
+        )
         self._video_frame_config = {
             "output_frame_width": int(self._output_frame_width_int),
             "output_frame_height": int(self._output_frame_height_int),
@@ -262,7 +265,8 @@ class VideoOutput:
 
         # -----------
 
-        self._device = device if isinstance(device, torch.device) else torch.device(device)
+        # self._device = device if isinstance(device, torch.device) else torch.device(device)
+        self._device = None
         self._name = name
         self._simple_save = simple_save
         self._fps = fps
@@ -279,12 +283,13 @@ class VideoOutput:
         self._save_frame_dir = save_frame_dir
         self._print_interval = print_interval
         self._output_videos: Dict[str, VideoStreamWriterInterface] = {}
-        if not self._async_output:
-            self._cuda_stream = (
-                torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
-            )
-        else:
-            self._cuda_stream = None
+        self._cuda_stream = None
+        # if not self._async_output:
+        #     self._cuda_stream = (
+        #         torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
+        #     )
+        # else:
+        #     self._cuda_stream = None
 
         self._bit_rate = bit_rate
         self._end_zones = None
@@ -306,29 +311,30 @@ class VideoOutput:
                     output_height=self._output_frame_height_int,
                 )
 
-        if fourcc == "auto":
-            if self._device.type == "cuda":
-                self._fourcc, is_gpu = get_best_codec(
-                    device.index,
-                    width=int(output_frame_width),
-                    height=int(output_frame_height),
-                    allow_scaling=self._allow_scaling,
-                )
-                if not is_gpu:
-                    logger.info(f"Can't use GPU for output video {output_video_path}")
-                    self._device = torch.device("cpu")
-            else:
-                self._fourcc = "XVID"
-            logger.info(
-                f"Output video {self._name} {int(self._output_frame_width)}x"
-                f"{int(self._output_frame_height)} will use codec: {self._fourcc}"
-            )
-        else:
-            self._fourcc = fourcc
+        self._fourcc = fourcc
+        # if fourcc == "auto":
+        #     if self._device.type == "cuda":
+        #         self._fourcc, is_gpu = get_best_codec(
+        #             device.index,
+        #             width=int(output_frame_width),
+        #             height=int(output_frame_height),
+        #             allow_scaling=self._allow_scaling,
+        #         )
+        #         if not is_gpu:
+        #             logger.info(f"Can't use GPU for output video {output_video_path}")
+        #             self._device = torch.device("cpu")
+        #     else:
+        #         self._fourcc = "XVID"
+        #     logger.info(
+        #         f"Output video {self._name} {int(self._output_frame_width)}x"
+        #         f"{int(self._output_frame_height)} will use codec: {self._fourcc}"
+        #     )
+        # else:
+        #     self._fourcc = fourcc
 
         self._horizontal_image_gaussian_distribution = None
-        self._zero_f32 = torch.tensor(0, dtype=torch.float, device=device)
-        self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=device)
+        # self._zero_f32 = torch.tensor(0, dtype=torch.float, device=device)
+        # self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=device)
 
         self._send_to_video_out_timer = Timer()
 
@@ -370,8 +376,31 @@ class VideoOutput:
 
         self._mean_tracker: Optional[MeanTracker] = None
 
-        if start:
-            self.start()
+        # assert not start
+        # if start:
+        #     self.start()
+
+    def _ensure_initialized(self, context: Dict[str, Any]):
+        if self._device is not None:
+            return
+        self._device = self._output_aspect_ratio.device
+        if self._fourcc == "auto":
+            if self._device.type == "cuda":
+                self._fourcc, is_gpu = get_best_codec(
+                    device.index,
+                    width=int(output_frame_width),
+                    height=int(output_frame_height),
+                    allow_scaling=self._allow_scaling,
+                )
+                if not is_gpu:
+                    logger.info(f"Can't use GPU for output video {output_video_path}")
+                    self._device = torch.device("cpu")
+            else:
+                self._fourcc = "XVID"
+            logger.info(
+                f"Output video {self._name} {int(self._output_frame_width)}x"
+                f"{int(self._output_frame_height)} will use codec: {self._fourcc}"
+            )
 
     def set_progress_bar(self, progress_bar: ProgressBar):
         # Should we hook any callbacks here for adding displayed fields?
@@ -397,6 +426,7 @@ class VideoOutput:
             self._shower = None
 
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        self._ensure_initialized(results)
         if not self._async_output:
             with cuda_stream_scope(self._cuda_stream):
                 if not self._output_videos:
