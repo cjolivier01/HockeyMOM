@@ -28,6 +28,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
+from hmlib.utils.progress_bar import convert_hms_to_seconds
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
@@ -110,7 +111,7 @@ class ImageAndPos:
         self.ypos = ypos
 
 
-class PtImageBlender(torch.jit.ScriptModule):
+class PtImageBlender(torch.nn.Module):
     def __init__(
         self,
         images_info: List[BlendImageInfo],
@@ -155,10 +156,18 @@ class PtImageBlender(torch.jit.ScriptModule):
         print(
             f"Blending image size: {image_width(self._seam_mask)} x {image_height(self._seam_mask)}"
         )
-        self._unique_values = torch.unique(self._seam_mask)
-        self._left_value = self._unique_values[0]
-        self._right_value = self._unique_values[1]
-        assert len(self._unique_values) == 2
+        unique_values = torch.unique(self._seam_mask)
+        if unique_values.numel() >= 2:
+            self._left_value = unique_values[0]
+            self._right_value = unique_values[-1]
+        else:
+            self._left_value = torch.tensor(
+                1.0, dtype=self._seam_mask.dtype, device=self._seam_mask.device
+            )
+            self._right_value = torch.tensor(
+                0.0, dtype=self._seam_mask.dtype, device=self._seam_mask.device
+            )
+        self._unique_values = torch.stack([self._left_value, self._right_value])
         print("Initialized")
 
     # @torch.jit.script_method
@@ -390,9 +399,7 @@ def create_blender_config(
     config.mode = mode
     config.levels = levels
     config.device = str(device)
-    config.seam, xor_map = make_seam_and_xor_masks(dir_name=dir_name, basename=basename)
-    if xor_map is not None:
-        config.xor_map = xor_map
+    config.seam, _ = make_seam_and_xor_masks(dir_name=dir_name, basename=basename)
     config.lazy_init = lazy_init
     config.interpolation = interpolation
     return config
@@ -478,6 +485,7 @@ def get_canvas_info(
 
 
 class SmartRemapperBlender(torch.nn.Module):
+
     def __init__(
         self,
         remapper_1: ImageRemapper,
@@ -490,7 +498,6 @@ class SmartRemapperBlender(torch.nn.Module):
         draw: bool,
         blend_mode: str,
         seam_tensor: torch.Tensor,
-        xor_mask_tensor: torch.Tensor | None,
         device: torch.device,
         add_alpha_channel: bool = False,
     ) -> None:
@@ -518,6 +525,14 @@ class SmartRemapperBlender(torch.nn.Module):
         self._empty_image_pixel_value: int = 0
         self._use_trt: bool = False
         self._trt_blender: Optional[torch2trt.TRTModule] = None
+        if self._minimize_blend:
+            width_1 = self._remapper_1.width
+            x2 = self._canvas_info.positions[1].x
+            max_valid_pad_canvas = max(0, self._canvas_info.width - width_1)
+            max_valid_pad_left = max(0, width_1 - x2)
+            effective_pad = min(self._overlap_pad, x2, max_valid_pad_canvas, max_valid_pad_left)
+            if effective_pad != self._overlap_pad:
+                self._overlap_pad = int(effective_pad)
         if seam_tensor is not None:
             self.register_buffer("_seam_tensor", self.convert_mask_tensor(seam_tensor))
         else:
@@ -571,7 +586,6 @@ class SmartRemapperBlender(torch.nn.Module):
                 half=False,
                 levels=self._blend_levels,
                 seam=self._seam_tensor,
-                # xor_map=self._xor_mask_tensor if self._xor_mask_tensor is not None else None,
                 lazy_init=True,
                 interpolation="bilinear",
                 # add_alpha_channel=self._add_alpha_channel,
@@ -848,7 +862,6 @@ class ImageStitcher(torch.nn.Module):
             use_python_blender=use_python_blender,
             blend_mode=blender_config.mode,
             seam_tensor=self._blender_config.seam,
-            xor_mask_tensor=self._blender_config.xor_map,
             device=self._device,
         )
         self.to(device=self._device)
@@ -1086,11 +1099,20 @@ def blend_video(
     vidinfo_1 = BasicVideoInfo(video_file_1)
     vidinfo_2 = BasicVideoInfo(video_file_2)
 
+    max_frames = getattr(opts, "max_frames", None)
+    if (max_frames in (None, 0)) and getattr(opts, "max_time", None):
+        try:
+            seconds = convert_hms_to_seconds(opts.max_time)
+            if seconds > 0 and vidinfo_1.fps > 0:
+                max_frames = int(seconds * vidinfo_1.fps)
+        except Exception:
+            max_frames = None
+
     if use_cuda_pano:
         size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
         size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
         adjust_exposure: bool = True
-        num_levels: int = 6
+        num_levels: int = 11
         stitcher: CudaStitchPanoU8 = CudaStitchPanoU8(
             dir_name, batch_size, num_levels, size1, size2, adjust_exposure
         )
@@ -1224,6 +1246,9 @@ def blend_video(
                 )
                 if frame_count % 50 == 0:
                     timer = Timer()
+
+            if max_frames is not None and frame_count >= max_frames:
+                break
 
             if show:
                 for this_blended in blended:
