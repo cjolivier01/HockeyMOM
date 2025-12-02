@@ -145,12 +145,12 @@ class VideoOutTrunk(Trunk):
             video_out_pipeline=self._pipeline,
             bit_rate=getattr(cam_args, "output_video_bit_rate", int(55e6)),
             save_frame_dir=self._save_dir,
-            start=True,
-            device=(
-                vo_dev
-                if isinstance(vo_dev, torch.device)
-                else torch.device(vo_dev) if vo_dev else None
-            ),
+            # start=True,
+            # device=(
+            #     vo_dev
+            #     if isinstance(vo_dev, torch.device)
+            #     else torch.device(vo_dev) if vo_dev else None
+            # ),
             name="TRACKING",
             skip_final_save=self._skip_final_save,
             original_clip_box=shared.get("original_clip_box"),
@@ -158,6 +158,7 @@ class VideoOutTrunk(Trunk):
             async_output=self._async,
             no_cuda_streams=self._no_cuda_streams,
         )
+        self._vo = self._vo.to(device)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -167,6 +168,7 @@ class VideoOutTrunk(Trunk):
             "img": context.get("img"),
             "current_box": context.get("current_box"),
             "frame_ids": context.get("frame_ids"),
+            "game_id": context.get("game_id"),
         }
         # Preserve optional extras for overlays
         for k in ("player_bottom_points", "player_ids", "rink_profile", "pano_size_wh"):
@@ -188,6 +190,7 @@ class VideoOutTrunk(Trunk):
             "rink_profile",
             "shared",
             "data",
+            "game_id",
         }
 
     def output_keys(self):

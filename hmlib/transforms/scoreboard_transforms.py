@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from mmengine.registry import TRANSFORMS
@@ -17,15 +17,18 @@ def _try_pop(d: Dict[str, Any], k: str) -> Union[Any, None]:
 
 @TRANSFORMS.register_module()
 class HmConfigureScoreboard:
+
     def __init__(
         self,
-        game_id: str,
+        game_id: Optional[str] = None,
     ):
         self._game_id = game_id
         self._scoreboard_config = None
         self._configured = False
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        if self._game_id is None:
+            self._game_id = results.get("game_id", None)
         if self._game_id and not self._configured:
             self._configured = True
             scoreboard_points = configure_scoreboard(game_id=self._game_id, image=results["img"])

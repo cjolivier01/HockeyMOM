@@ -107,6 +107,12 @@ class AspenNet(torch.nn.Module):
         self.save_graphviz(self.dot_path)
         self.initialized = False
 
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        for node in self.nodes:
+            node.module.to(*args, **kwargs)
+        return self
+
     @staticmethod
     def _normalize_name(name: str) -> str:
         if name is None:
