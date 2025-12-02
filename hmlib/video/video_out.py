@@ -166,6 +166,27 @@ _FP_TYPES: Set[torch.dtype] = {
 
 
 class VideoOutput(torch.nn.ModuleDict):
+    """Synchronous video writer for final HockeyMOM frames.
+
+    This module owns the lifecycle of one or more output video streams and
+    encapsulates tensor-to-video conversion and IO. It does **not** perform
+    camera logic, cropping, or overlays; those are handled upstream
+    (e.g., :class:`hmlib.camera.apply_camera_plugin.ApplyCameraPlugin`).
+
+    Typical usage::
+
+        video_out = VideoOutput(...)
+        video_out = video_out.to(device)
+        for results in dataset:
+            # results must include:
+            #   - "img": tensor[B, H, W, C] or StreamTensorBase
+            #   - "frame_ids": tensor[B] (1-based ids)
+            # optionally:
+            #   - "end_zone_img": tensor[B, H, W, C]
+            video_out(results)
+
+    The return value is the updated ``results`` dict; most callers ignore it.
+    """
 
     VIDEO_DEFAULT: str = "default"
     VIDEO_END_ZONES: str = "end_zones"
@@ -199,6 +220,61 @@ class VideoOutput(torch.nn.ModuleDict):
         game_config: Optional[Dict[str, Any]] = None,
         enable_end_zones: bool = False,
     ):
+        """Construct a synchronous video writer.
+
+        @param output_video_path: Destination filename for the main output video
+                                  (e.g., ``tracking_output.mkv``). When
+                                  ``skip_final_save`` is True, no file is written.
+        @param output_frame_width: Final output width in pixels. Can be an
+                                   ``int``, ``float`` or scalar ``torch.Tensor``.
+        @param output_frame_height: Final output height in pixels. Same type
+                                    semantics as ``output_frame_width``.
+        @param fps: Frames per second to encode the output stream with.
+        @param video_out_pipeline: Deprecated; camera processing/pipelines are
+                                   handled upstream and ignored here.
+        @param fourcc: Codec identifier. Use ``"auto"`` to pick a codec based
+                       on GPU capabilities (e.g., ``"hevc_nvenc"`` or ``"XVID"``).
+        @param bit_rate: Target bitrate in bits per second for the encoder.
+        @param save_frame_dir: Optional directory for saving individual frames
+                               as PNGs alongside the encoded video.
+        @param name: Human-readable name used in logs (e.g., ``"TRACKING"``).
+        @param simple_save: When True, disables some dynamic scaling logic and
+                            assumes input frames are already at output size.
+        @param skip_final_save: When True, the underlying writer is not asked to
+                                finalize/flush the container at shutdown.
+        @param image_channel_adjustment: Deprecated per-channel adjustment; kept
+                                         for API compatibility but not used.
+        @param print_interval: Interval (in frames) at which throughput logs can
+                               be emitted (currently used only via callers).
+        @param original_clip_box: Optional crop box applied earlier in the pipeline;
+                                  used only for naming/logging, not for IO here.
+        @param progress_bar: Optional :class:`ProgressBar` instance used by callers
+                             to surface IO/throughput metrics.
+        @param cache_size: Reserved for historical async batching; currently only
+                           used to size the optional UI shower cache.
+        @param clip_to_max_dimensions: When ``simple_save`` is True, scales video
+                                      down to encoder-specific maximums (e.g., 8K).
+        @param visualization_config: Reserved for future visualization options
+                                     (not currently consumed).
+        @param no_cuda_streams: When True, disables the use of dedicated CUDA
+                                streams for IO; all work happens on the default
+                                stream.
+        @param dtype: Preferred floating-point dtype for any internal tensors that
+                      may be created (defaults to ``torch.get_default_dtype()``).
+        @param device: Torch device or device string (e.g., ``"cuda:0"`` or
+                       ``"cpu"``) on which encoding should run. When ``None``,
+                       the device is inferred from input tensors at first call.
+        @param show_image: When True, enables an interactive OpenCV window that
+                           displays frames as they are written.
+        @param show_scaled: Optional scale factor for the interactive viewer.
+        @param profiler: Optional profiler object exposing ``rf(label)`` for
+                         scoped timings; see :mod:`hmlib.utils.profiler`.
+        @param game_config: Optional game configuration dict; kept for parity with
+                            older APIs but not consumed directly by this class.
+        @param enable_end_zones: When True, a secondary ``VIDEO_END_ZONES`` stream
+                                 will be opened and any ``"end_zone_img"`` tensors
+                                 present in ``results`` will be written there.
+        """
         super().__init__()
         self._allow_scaling = False
         self._clip_to_max_dimensions = clip_to_max_dimensions
@@ -318,7 +394,15 @@ class VideoOutput(torch.nn.ModuleDict):
 
         self._mean_tracker: Optional[MeanTracker] = None
 
-    def _ensure_initialized(self, context: Dict[str, Any]):
+    def _ensure_initialized(self, context: Dict[str, Any]) -> None:
+        """Resolve device and codec configuration before the first write.
+
+        This method is intentionally idempotent and cheap to call. It:
+          - Infers the writer device from the registered output-size buffers
+            when no explicit device was provided.
+          - Resolves ``"auto"`` codecs to concrete GPU/CPU codecs using
+            :func:`get_best_codec`.
+        """
         if self._device is None:
             self._device = self._output_aspect_ratio.device
         if self._fourcc == "auto":
@@ -342,34 +426,21 @@ class VideoOutput(torch.nn.ModuleDict):
             )
 
     def set_progress_bar(self, progress_bar: ProgressBar):
-        # Should we hook any callbacks here for adding displayed fields?
+        """Attach a progress bar instance used for external UI updates."""
         self._progress_bar = progress_bar
 
     def start(self):
-        # VideoOutput now runs synchronously; start is a no-op kept for API compatibility.
+        """Legacy no-op; synchronous VideoOutput does not require start()."""
         return None
 
     def stop(self):
-        # Close UI resources; video streams are closed by their own lifecycle.
+        """Close any interactive UI resources (e.g., OpenCV shower)."""
         if self._shower is not None:
             self._shower.close()
             self._shower = None
 
-    def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        self._ensure_initialized(results)
-        with cuda_stream_scope(self._cuda_stream):
-            if not self._output_videos:
-                self.create_output_videos()
-            if isinstance(results["img"], StreamTensorBase):
-                results["img"] = results["img"].wait()
-            with self._fctx:
-                results = self.forward(results)
-            assert results["img"].device == self._device
-            with self._sctx:
-                results = self.save_frame(results)
-        return results
-
     def create_output_videos(self):
+        """Create underlying VideoStreamWriter instances if not already open."""
         if self._output_video_path and not self._skip_final_save:
             if self.VIDEO_DEFAULT not in self._output_videos:
                 self._output_videos[self.VIDEO_DEFAULT] = create_output_video_stream(
@@ -401,6 +472,15 @@ class VideoOutput(torch.nn.ModuleDict):
         self,
         results: Dict[str, Any],
     ) -> Dict[str, Any]:
+        """Write a batch of frames to the configured video streams.
+
+        Expected keys in ``results`` on entry:
+          - ``"img"``: tensor[B, H, W, C] or StreamTensorBase
+          - ``"frame_ids"``: tensor[B] (used for logging and PNG naming)
+          - ``"end_zone_img"``: optional tensor[B, H, W, C] for far-end output
+
+        The ``"img"`` key is consumed and reattached in-place.
+        """
         online_im = results.pop("img")
         image_w = image_width(online_im)
         image_h = image_height(online_im)
@@ -453,35 +533,74 @@ class VideoOutput(torch.nn.ModuleDict):
             )
         return results
 
-    def forward(self, results) -> Dict[str, Any]:
-        online_im = results.pop("img")
+    def forward(self, results: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
+        """Normalize input images and synchronously write them to disk.
 
-        if isinstance(online_im, StreamTensorBase):
-            online_im._verbose = True
-            online_im = online_im.get()
+        This is the primary public API. It:
+          1. Lazily initializes device/codec/streams.
+          2. Opens output video writers on first use.
+          3. Normalizes ``results["img"]`` to a uint8 tensor on the writer device.
+          4. Writes the frames via :meth:`save_frame`.
 
-        if isinstance(online_im, np.ndarray):
-            online_im = torch.from_numpy(online_im)
+        @param results: Dict containing at least ``"img"`` and ``"frame_ids"``.
+        @return: The updated ``results`` dict (for chaining if desired).
+        """
+        # Step 1: Lazy initialization of device + codec
+        self._ensure_initialized(results)
 
-        if online_im.ndim == 3:
-            online_im = online_im.unsqueeze(0)
+        with cuda_stream_scope(self._cuda_stream):
+            # Step 2: Ensure underlying video streams are open
+            if not self._output_videos:
+                self.create_output_videos()
 
-        if self._device is not None:
-            online_im = make_channels_last(online_im)
-            if str(online_im.device) != str(self._device):
-                online_im = online_im.to(self._device, non_blocking=True)
+            # Step 3: Normalize image tensors onto the writer device
+            online_im = results.get("img")
+            if isinstance(online_im, StreamTensorBase):
+                # Block until the tensor is ready; keep verbose flag for debugging
+                online_im._verbose = True
+                online_im = online_im.wait()
 
-        online_im = to_uint8_image(online_im)
+            if isinstance(online_im, np.ndarray):
+                online_im = torch.from_numpy(online_im)
 
-        # Move to CPU last (if necessary)
-        if online_im.device.type != "cpu" and self._device is not None and self._device.type == "cpu":
-            online_im = online_im.to("cpu", non_blocking=True)
-            online_im = StreamCheckpoint(online_im)
+            if online_im.ndim == 3:
+                # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
+                online_im = online_im.unsqueeze(0)
 
-        results["img"] = online_im
+            if self._device is not None:
+                # Move to writer device and ensure channels-last layout
+                online_im = make_channels_last(online_im)
+                if str(online_im.device) != str(self._device):
+                    online_im = online_im.to(self._device, non_blocking=True)
+
+            # Convert to uint8 in-place
+            online_im = to_uint8_image(online_im)
+
+            # Optional final move to CPU for CPU-only writers
+            if (
+                online_im.device.type != "cpu"
+                and self._device is not None
+                and self._device.type == "cpu"
+            ):
+                online_im = online_im.to("cpu", non_blocking=True)
+                online_im = StreamCheckpoint(online_im)
+
+            results["img"] = online_im
+
+            # Step 4: Persist frames to disk under profiling scopes
+            assert self._device is None or results["img"].device == self._device
+            with self._sctx:
+                results = self.save_frame(results)
+
         return results
 
 
 def get_open_files_count():
+    """Return the number of open file descriptors for the current process.
+
+    This is used for lightweight leak/debug checks when writing long videos.
+
+    @return: Integer count of entries under ``/proc/<pid>/fd``.
+    """
     pid = os.getpid()
     return len(os.listdir(f"/proc/{pid}/fd"))

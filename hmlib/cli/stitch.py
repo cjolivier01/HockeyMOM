@@ -237,7 +237,8 @@ def stitch_videos(
                     device=encoder_device,
                 )
             if video_out is not None:
-                video_out.append(dict(frame_ids=frame_ids, img=StreamCheckpoint(frame)))
+                # VideoOutput is a nn.Module; calling it writes frames synchronously.
+                video_out(dict(frame_ids=frame_ids, img=StreamCheckpoint(frame)))
 
         try:
             start = None
