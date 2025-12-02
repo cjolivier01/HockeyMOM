@@ -138,7 +138,7 @@ class VideoOutPlugin(Plugin):
             output_frame_width=self._final_w,
             output_frame_height=self._final_h,
             fps=fps,
-            video_out_pipeline=self._pipeline,
+            video_out_pipeline=None,
             bit_rate=getattr(cam_args, "output_video_bit_rate", int(55e6)),
             save_frame_dir=self._save_dir,
             name="TRACKING",
@@ -150,8 +150,8 @@ class VideoOutPlugin(Plugin):
             show_image=bool(getattr(cam_args, "show_image", False)),
             show_scaled=getattr(cam_args, "show_scaled", None),
             profiler=getattr(cam_args, "profiler", None),
-            game_config=getattr(cam_args, "game_config", None),
-            enable_end_zones=bool(getattr(cam_args, "end_zones", False)),
+            game_config=None,
+            enable_end_zones=False,
         )
         self._vo = self._vo.to(device)
 

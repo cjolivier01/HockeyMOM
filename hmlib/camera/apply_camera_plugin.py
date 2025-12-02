@@ -1,0 +1,321 @@
+from __future__ import annotations
+
+import argparse
+from typing import Any, Dict, Optional
+
+import numpy as np
+import torch
+from mmcv.transforms import Compose
+
+from hmlib.aspen.trunks.base import Plugin
+from hmlib.camera.end_zones import EndZones, load_lines_from_config
+from hmlib.config import get_nested_value
+from hmlib.log import logger
+from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
+from hmlib.utils.gpu import StreamTensorBase
+from hmlib.utils.image import image_height, image_width, make_channels_last
+from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
+
+
+class ApplyCameraPlugin(Plugin):
+    """
+    Aspen trunk that applies camera cropping/rotation and video-out transforms.
+
+    This trunk mirrors the high-level camera pipeline previously implemented
+    inside :class:`hmlib.video.video_out.VideoOutput.forward`, but runs it as
+    an explicit Aspen stage before video encoding.
+
+    Expects in context:
+      - img: batched image tensor (from PlayTrackerPlugin)
+      - current_box: TLBR camera boxes per frame
+      - frame_ids: tensor[B]
+      - play_box: TLBR arena/play box (for sizing when crop_play_box)
+      - current_fast_box_list: optional fast camera boxes (for EndZones)
+      - data.dataset_results: optional far-end frames for EndZones
+      - shared.game_config: full game config dict
+      - shared.original_clip_box: optional clip box
+      - shared.cam_args: argparse.Namespace (optional; derived from game_config otherwise)
+
+    Params:
+      - video_out_pipeline: dict/list pipeline; applied via mmcv.Compose
+    """
+
+    def __init__(
+        self,
+        enabled: bool = True,
+        video_out_pipeline: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(enabled=enabled)
+        self._pipeline_cfg = video_out_pipeline or {}
+        self._pipeline: Optional[Compose] = None
+        self._color_adjust_tf = None
+        self._video_frame_cfg: Optional[Dict[str, Any]] = None
+        self._end_zones: Optional[EndZones] = None
+        self._game_config: Optional[Dict[str, Any]] = None
+        self._initialized: bool = False
+
+    def _ensure_initialized(self, context: Dict[str, Any]) -> None:
+        if self._initialized:
+            return
+        shared = context.get("shared", {}) if isinstance(context, dict) else {}
+        self._game_config = shared.get("game_config") or {}
+
+        cam_args = shared.get("cam_args")
+        if cam_args is None:
+            cfg = self._game_config
+            init_args = cfg.get("initial_args") or {}
+            try:
+                cam_args = argparse.Namespace(**init_args)  # type: ignore[name-defined]
+            except Exception:
+                cam_args = argparse.Namespace()  # type: ignore[name-defined]
+            cam_args.game_config = cfg
+            if not hasattr(cam_args, "cam_ignore_largest"):
+                cam_args.cam_ignore_largest = get_nested_value(
+                    cfg, "rink.tracking.cam_ignore_largest", default_value=False
+                )
+            if not hasattr(cam_args, "crop_play_box"):
+                cam_args.crop_play_box = bool(getattr(cam_args, "crop_play_box", False))
+            if not hasattr(cam_args, "crop_output_image"):
+                no_crop = bool(getattr(cam_args, "no_crop", False))
+                cam_args.crop_output_image = not no_crop
+            shared["cam_args"] = cam_args
+
+        img = context.get("img")
+        if img is None:
+            img = context.get("data", {}).get("original_images")
+        if img is None:
+            raise AssertionError("ApplyCameraPlugin requires 'img' or data['original_images']")
+
+        # Decide final output size (mirrors VideoOutPlugin logic)
+        H = int(image_height(img))
+        W = int(image_width(img))
+        ar = 16.0 / 9.0
+        play_box = context.get("play_box")
+
+        if getattr(cam_args, "crop_play_box", False):
+            if getattr(cam_args, "crop_output_image", True):
+                final_h = H if play_box is None else int((play_box[3] - play_box[1]))
+                final_w = int(final_h * ar)
+                if final_w > MAX_NEVC_VIDEO_WIDTH:
+                    final_w = MAX_NEVC_VIDEO_WIDTH
+                    final_h = int(final_w / ar)
+            else:
+                final_h = H if play_box is None else int((play_box[3] - play_box[1]))
+                final_w = W if play_box is None else int((play_box[2] - play_box[0]))
+        else:
+            if getattr(cam_args, "crop_output_image", True):
+                final_h = H
+                final_w = int(final_h * ar)
+                if final_w > MAX_NEVC_VIDEO_WIDTH:
+                    final_w = MAX_NEVC_VIDEO_WIDTH
+                    final_h = int(final_w / ar)
+            else:
+                final_h = H
+                final_w = W
+
+        final_w = int(final_w)
+        final_h = int(final_h)
+        self._video_frame_cfg = {
+            "output_frame_width": final_w,
+            "output_frame_height": final_h,
+            "output_aspect_ratio": float(final_w) / float(final_h),
+        }
+
+        if self._pipeline_cfg:
+            pipeline = Compose(self._pipeline_cfg)
+            for mod in pipeline:
+                if isinstance(mod, torch.nn.Module):
+                    name = str(mod)
+                    self.add_module(name, mod)
+            self._pipeline = pipeline
+
+        enable_end_zones = bool(getattr(cam_args, "end_zones", False))
+        if enable_end_zones and self._game_config:
+            lines = load_lines_from_config(self._game_config)
+            if lines:
+                original_clip_box = shared.get("original_clip_box")
+                if original_clip_box is not None:
+                    orig_lines = lines
+                    lines = {}
+                    for key, line in orig_lines.items():
+                        line[0] = adjust_point_for_clip_box(line[0], original_clip_box)
+                        line[1] = adjust_point_for_clip_box(line[1], original_clip_box)
+                        lines[key] = line
+                self._end_zones = EndZones(
+                    lines=lines,
+                    output_width=final_w,
+                    output_height=final_h,
+                )
+
+        # Ensure any registered pipeline modules/buffers match the image device
+        try:
+            self.to(img.device)
+        except Exception:
+            logger.exception("ApplyCameraPlugin.to(img.device) failed; continuing on CPU/GPU mix")
+
+        self._initialized = True
+
+    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
+        if not self.enabled:
+            return {}
+        self._ensure_initialized(context)
+        assert self._video_frame_cfg is not None
+
+        img = context.get("img")
+        if img is None:
+            img = context.get("data", {}).get("original_images")
+        if img is None:
+            return {}
+
+        frame_ids = context.get("frame_ids")
+        current_boxes = context.get("current_box")
+
+        results: Dict[str, Any] = {}
+        pano_size_wh = [image_width(img), image_height(img)]
+        results["pano_size_wh"] = pano_size_wh
+
+        if current_boxes is None:
+            # Fallback: cover the entire frame
+            if img.ndim == 4:
+                batch_size = img.size(0)
+            else:
+                batch_size = 1
+            whole_box = torch.tensor(
+                [0, 0, image_width(img), image_height(img)],
+                dtype=torch.float,
+                device=img.device,
+            )
+            current_boxes = whole_box.repeat(batch_size, 1)
+        else:
+            current_boxes = current_boxes.clone().to(img.device, non_blocking=True)
+
+        # Resolve streamed / numpy images to concrete tensors
+        if isinstance(img, StreamTensorBase):
+            img._verbose = True
+            img = img.get()
+        if isinstance(img, np.ndarray):
+            img = torch.from_numpy(img)
+        if img.ndim == 3:
+            img = img.unsqueeze(0)
+        img = make_channels_last(img)
+
+        # Optional end-zone camera handling
+        if self._end_zones is not None:
+            ez_data: Dict[str, Any] = {
+                "img": img,
+                "pano_size_wh": pano_size_wh,
+            }
+            dataset_results = context.get("data", {}).get("dataset_results") if isinstance(
+                context.get("data"), dict
+            ) else None
+            if dataset_results is not None:
+                ez_data["dataset_results"] = dataset_results
+            fast_boxes = context.get("current_fast_box_list")
+            if fast_boxes is not None:
+                ez_data["current_fast_box_list"] = fast_boxes
+            ez_data = self._end_zones(ez_data)
+            img = ez_data.get("img", img)
+            if "end_zone_img" in ez_data:
+                results["end_zone_img"] = ez_data["end_zone_img"]
+
+        # Video-out pipeline (perspective, cropping, overlays, etc.)
+        if self._pipeline is not None:
+            try:
+                if self._color_adjust_tf is None:
+                    for tf in getattr(self._pipeline, "transforms", []):
+                        if tf.__class__.__name__ == "HmImageColorAdjust":
+                            self._color_adjust_tf = tf
+                            break
+                if self._color_adjust_tf is not None and self._game_config is not None:
+                    cam = None
+                    try:
+                        cam = self._game_config.get("rink", {}).get("camera", {})
+                    except Exception:
+                        cam = None
+                    if isinstance(cam, dict):
+                        color = cam.get("color", {}) or {}
+                        wb = color.get("white_balance", cam.get("white_balance"))
+                        wbk = color.get(
+                            "white_balance_temp",
+                            cam.get("white_balance_k", cam.get("white_balance_temp")),
+                        )
+                        bright = color.get("brightness", cam.get("color_brightness"))
+                        contr = color.get("contrast", cam.get("color_contrast"))
+                        gamma = color.get("gamma", cam.get("color_gamma"))
+                        if wbk is not None and wb is None:
+                            try:
+                                self._color_adjust_tf.white_balance = (
+                                    self._color_adjust_tf._gains_from_kelvin(wbk)
+                                )
+                            except Exception:
+                                pass
+                        elif wb is not None:
+                            try:
+                                if isinstance(wb, (list, tuple)) and len(wb) == 3:
+                                    self._color_adjust_tf.white_balance = [float(x) for x in wb]
+                            except Exception:
+                                pass
+                        if bright is not None:
+                            try:
+                                self._color_adjust_tf.brightness = float(bright)
+                            except Exception:
+                                pass
+                        if contr is not None:
+                            try:
+                                self._color_adjust_tf.contrast = float(contr)
+                            except Exception:
+                                pass
+                        if gamma is not None:
+                            try:
+                                self._color_adjust_tf.gamma = float(gamma)
+                            except Exception:
+                                pass
+            except Exception:
+                # Non-fatal if color transform not found
+                pass
+
+            pipeline_inputs: Dict[str, Any] = {
+                "img": img,
+                "camera_box": current_boxes,
+                "video_frame_cfg": self._video_frame_cfg,
+            }
+            # Preserve optional extras for overlays
+            for key in ("player_bottom_points", "player_ids", "rink_profile", "game_id"):
+                if key in context:
+                    pipeline_inputs[key] = context[key]
+            pipeline_inputs["pano_size_wh"] = pano_size_wh
+
+            pipeline_outputs = self._pipeline(pipeline_inputs)
+            img = pipeline_outputs.pop("img")
+            current_boxes = pipeline_outputs.pop("camera_box", current_boxes)
+            results.update(pipeline_outputs)
+
+        results["img"] = img
+        results["current_box"] = current_boxes
+        if frame_ids is not None:
+            results["frame_ids"] = frame_ids
+        results["video_frame_cfg"] = self._video_frame_cfg
+        return results
+
+    def input_keys(self):
+        return {
+            "img",
+            "current_box",
+            "frame_ids",
+            "current_fast_box_list",
+            "play_box",
+            "shared",
+            "data",
+            "rink_profile",
+            "game_id",
+        }
+
+    def output_keys(self):
+        return {
+            "img",
+            "current_box",
+            "frame_ids",
+            "pano_size_wh",
+            "video_frame_cfg",
+            "end_zone_img",
+        }

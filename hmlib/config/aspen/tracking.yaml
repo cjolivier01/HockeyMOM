@@ -189,7 +189,7 @@ aspen:
       enabled: true
       params: {}
 
-    play_tyracker:
+    play_tracker:
       class: hmlib.aspen.trunks.play_tracker.PlayTrackerPlugin
       # Does this really need postprocess?
       depends: [tracker, camera_controller, postprocess]
@@ -207,14 +207,20 @@ aspen:
 
     save_camera:
       class: hmlib.aspen.trunks.save.SaveCameraPlugin
-      depends: [play_tyracker]
+      depends: [play_tracker]
       enabled: false
       params: {}
 
-    video_out:
-      class: hmlib.aspen.trunks.video_out.VideoOutPlugin
-      depends: [postprocess]
+    apply_camera:
+      class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
+      depends: [play_tracker]
       enabled: true
       params: {
         video_out_pipeline: GLOBAL.aspen.video_out_pipeline
       }
+
+    video_out:
+      class: hmlib.aspen.trunks.video_out.VideoOutPlugin
+      depends: [apply_camera]
+      enabled: true
+      params: {}
