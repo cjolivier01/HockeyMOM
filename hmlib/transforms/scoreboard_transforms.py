@@ -104,11 +104,19 @@ class HmCaptureScoreboard:
 class HmRenderScoreboard:
     def __init__(self, image_labels: List[str]):
         self._image_labels = image_labels
+        self._scoreboard_width: Optional[int] = None
+        self._scoreboard_height: Optional[int] = None
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         scoreboard_img = _try_pop(results, "scoreboard_img")
         if scoreboard_img is None:
             return results
+
+        if self._scoreboard_height is None or self._scoreboard_width is None:
+            assert scoreboard_img.ndim == 4
+            self._scoreboard_height = int(scoreboard_img.shape[1])
+            self._scoreboard_width = int(scoreboard_img.shape[2])
+
         results.pop("scoreboard_cfg", None)
         for img_label in self._image_labels:
             img = results.get(img_label)
@@ -116,8 +124,9 @@ class HmRenderScoreboard:
                 img = make_channels_last(img)
                 if torch.is_floating_point(img) and not torch.is_floating_point(scoreboard_img):
                     scoreboard_img = scoreboard_img.to(scoreboard_img.dtype, non_blocking=True)
-                sw, sh = int(image_width(scoreboard_img)), int(image_height(scoreboard_img))
-                # show_image("scoreboard", scoreboard_img)
+                assert self._scoreboard_height is not None and self._scoreboard_width is not None
+                sh = self._scoreboard_height
+                sw = self._scoreboard_width
                 img[:, :sh, :sw, :] = scoreboard_img
                 results[img_label] = img
         return results
