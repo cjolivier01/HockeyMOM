@@ -6,7 +6,7 @@ from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import StreamTensorBase, copy_gpu_to_gpu_async
 from hmlib.utils.image import make_channels_first
 
-from .base_plugin import Plugin
+from .base import Plugin
 
 
 class ImagePrepPlugin(Plugin):

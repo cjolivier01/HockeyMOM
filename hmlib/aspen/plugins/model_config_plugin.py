@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from .base_plugin import Plugin
+from .base import Plugin
 
 
 class ModelConfigPlugin(Plugin):

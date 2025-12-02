@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
-from .base_plugin import Plugin
+from .base import Plugin
 
 
 class PoseToDetPlugin(Plugin):

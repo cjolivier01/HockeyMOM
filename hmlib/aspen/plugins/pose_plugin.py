@@ -6,7 +6,7 @@ import torch
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_channels_last
 
-from .base_plugin import Plugin
+from .base import Plugin
 
 
 class PosePlugin(Plugin):
