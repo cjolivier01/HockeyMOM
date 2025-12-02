@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
-from hmlib.aspen.trunks.base import Plugin
+from hmlib.aspen.plugins.base import Plugin
 from hmlib.bbox.tiling import (
     clamp_boxes_to_image,
     get_original_bbox_index_from_tiled_image,

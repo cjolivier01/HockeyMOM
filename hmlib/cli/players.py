@@ -10,7 +10,7 @@ from hmlib.analytics.analyze_jerseys import (
     interval_jerseys_to_merged_jersey_time_intervals,
 )
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
-from hmlib.aspen.trunks.load import LoadCameraPlugin
+from hmlib.aspen.plugins.load import LoadCameraPlugin
 from hmlib.config import get_game_dir
 from hmlib.hm_opts import hm_opts
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame

@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from mmengine.structures import InstanceData
 
-from hmlib.aspen.trunks.base import Plugin
+from hmlib.aspen.plugins.base import Plugin
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
 from hmlib.utils.gpu import StreamTensorBase

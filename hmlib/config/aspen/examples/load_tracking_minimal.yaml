@@ -3,19 +3,19 @@ aspen:
 
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepPlugin
+      class: hmlib.aspen.plugins.image_prep.ImagePrepPlugin
       depends: []
       params: {}
 
     load_tracking:
-      class: hmlib.aspen.trunks.load.LoadTrackingPlugin
+      class: hmlib.aspen.plugins.load.LoadTrackingPlugin
       depends: [image_prep]
       params: {}
 
     # Postprocess is optional; include a no-op dependency so pipeline is valid.
     # If full camera post-processing is desired, use tracking_pose.yaml.
     postprocess:
-      class: hmlib.aspen.trunks.base.Plugin
+      class: hmlib.aspen.plugins.base.Plugin
       depends: [load_tracking]
       params: {enabled: false}
 

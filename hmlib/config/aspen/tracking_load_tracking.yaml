@@ -42,24 +42,24 @@ aspen:
 
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepPlugin
+      class: hmlib.aspen.plugins.image_prep.ImagePrepPlugin
       depends: []
       params: {}
 
     # Ice rink segmentation support (optional but kept for parity)
     ice_config:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigPlugin
+      class: hmlib.aspen.plugins.ice_rink_boundaries.IceRinkSegmConfigPlugin
       depends: [image_prep]
       params: {}
 
     # Load tracking results from CSV instead of running the tracker/detector
     load_tracking:
-      class: hmlib.aspen.trunks.load.LoadTrackingPlugin
+      class: hmlib.aspen.plugins.load.LoadTrackingPlugin
       depends: [image_prep]
       params: {}
 
     camera_controller:
-      class: hmlib.aspen.trunks.camera_controller.CameraControllerPlugin
+      class: hmlib.aspen.plugins.camera_controller.CameraControllerPlugin
       depends: [load_tracking]
       params:
         controller: rule
@@ -67,7 +67,7 @@ aspen:
         window: 8
 
     postprocess:
-      class: hmlib.aspen.trunks.postprocess.CamPostProcessPlugin
+      class: hmlib.aspen.plugins.postprocess.CamPostProcessPlugin
       depends: [load_tracking, camera_controller]
       params: {}
 
