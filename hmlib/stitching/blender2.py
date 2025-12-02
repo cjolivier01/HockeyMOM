@@ -858,34 +858,8 @@ class ImageStitcher(torch.nn.Module):
         return super().to(device, **kwargs)
 
     def forward(self, inputs: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        # show_image("inputs[0]", inputs[0], wait=False)
-        # path = "remapper.onnx"
-        # # Export to ONNX
-        # torch.onnx.export(
-        #     self._remapper_1,
-        #     inputs[0],
-        #     path=path,
-        #     verbose=True,
-        #     input_names=["input"],
-        #     output_names=["output"],
-        #     dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-        #     opset_version=13,
-        #     do_constant_folding=True,
-        # )
-
-        # # Verify ONNX model
-        # onnx_model = onnx.load(path)
-        # onnx.checker.check_model(onnx_model)
-        # print("ONNX export successful and verified!")
-        # return path
-
-        # self._rm_trt1: torch2trt.TRTModule = torch2trt.torch2trt(
-        #     self._remapper_1, [inputs[0]], fp16_mode=False, max_workspace_size=1 << 25
-        # )
-
         remapped_tensor_1 = self._remapper_1.forward(source_tensor=inputs[0])
         remapped_tensor_2 = self._remapper_2.forward(source_tensor=inputs[1])
-        # show_image("remapped_tensor_1", remapped_tensor_1, wait=False)
         return self._smart_remapper_blender.forward(remapped_tensor_1, remapped_tensor_2)
 
 
