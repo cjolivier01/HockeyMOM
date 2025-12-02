@@ -8,7 +8,7 @@ from mmdet.registry import MODELS
 from mmdet.structures import OptTrackSampleList
 from mmengine.structures import InstanceData
 
-from hmlib.aspen.trunks.base import Plugin
+from hmlib.aspen.plugins.base import Plugin
 from hmlib.datasets.dataframe import HmDataFrameBase
 from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
 

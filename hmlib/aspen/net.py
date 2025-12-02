@@ -19,7 +19,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import networkx as nx
 import torch
 
-from hmlib.aspen.trunks.base import Plugin
+from hmlib.aspen.plugins.base import Plugin
 from hmlib.utils.containers import SidebandQueue as Queue
 from hmlib.utils.containers import create_queue
 
@@ -44,7 +44,7 @@ class AspenNet(torch.nn.Module):
     - Executes nodes in topological order, passing and accumulating a
       shared context dict across nodes.
 
-    @see @ref hmlib.aspen.trunks.base.Plugin "Plugin" for the trunk interface.
+    @see @ref hmlib.aspen.plugins.base.Plugin "Plugin" for the trunk interface.
     """
 
     def __init__(
@@ -378,7 +378,7 @@ class AspenNet(torch.nn.Module):
         declared = set(getattr(trunk, "output_keys", lambda: set())())
         update_keys = declared if declared else set(out.keys())
 
-        from .trunks.base import DeleteKey  # local import avoids cycle
+        from .plugins.base import DeleteKey  # local import avoids cycle
 
         for key in update_keys:
             if key in out:

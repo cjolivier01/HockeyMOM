@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from mmcv.transforms import Compose
 
-from hmlib.aspen.trunks.base import Plugin
+from hmlib.aspen.plugins.base import Plugin
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.log import logger
