@@ -13,7 +13,7 @@ from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
-from .base import Plugin
+from .base_plugin import Plugin
 
 
 def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:

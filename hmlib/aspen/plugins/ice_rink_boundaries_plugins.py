@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Plugin
+from .base_plugin import Plugin
 
 
 class IceRinkSegmBoundariesPlugin(Plugin):

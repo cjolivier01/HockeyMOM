@@ -20,25 +20,25 @@ aspen:
 
   trunks:
     image_prep:
-      class: hmlib.aspen.plugins.image_prep.ImagePrepPlugin
+      class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
       depends: []
       params: {}
 
     model_factory:
-      class: hmlib.aspen.plugins.model_factory.ModelFactoryPlugin
+      class: hmlib.aspen.plugins.model_factory_plugin.ModelFactoryPlugin
       depends: []
       params:
-        model_class: hmlib.models.end_to_end.HmEndToEnd
+        model_class: hmlib.models.end_to_end_plugin.HmEndToEnd
         # post_* pipelines not used for rink mask
         post_tracking_pipeline: []
 
     boundaries:
-      class: hmlib.aspen.plugins.boundaries.BoundariesPlugin
+      class: hmlib.aspen.plugins.boundaries_plugin.BoundariesPlugin
       depends: [model_factory]
       params: {}
 
     pose_factory:
-      class: hmlib.aspen.plugins.pose_factory.PoseInferencerFactoryPlugin
+      class: hmlib.aspen.plugins.pose_factory_plugin.PoseInferencerFactoryPlugin
       depends: []
       params:
         pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
@@ -47,39 +47,39 @@ aspen:
         disable_internal_detector: true
 
     pose:
-      class: hmlib.aspen.plugins.pose.PosePlugin
+      class: hmlib.aspen.plugins.pose_plugin.PosePlugin
       depends: [image_prep, pose_factory]
       params: {}
 
     pose_to_det:
-      class: hmlib.aspen.plugins.pose_to_det.PoseToDetPlugin
+      class: hmlib.aspen.plugins.pose_to_det_plugin.PoseToDetPlugin
       depends: [pose]
       params: {}
 
     ice_boundaries:
-      class: hmlib.aspen.plugins.ice_rink_boundaries.IceRinkSegmBoundariesPlugin
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
       depends: [pose_to_det]
       params: {}
 
     ice_config:
-      class: hmlib.aspen.plugins.ice_rink_boundaries.IceRinkSegmConfigPlugin
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmConfigPlugin
       depends: [image_prep]
       params: {}
 
     tracker:
-      class: hmlib.aspen.plugins.tracker.TrackerPlugin
+      class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
       depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
       params: {}
 
     action_factory:
-      class: hmlib.aspen.plugins.action_factory.ActionRecognizerFactoryPlugin
+      class: hmlib.aspen.plugins.action_factory_plugin.ActionRecognizerFactoryPlugin
       depends: []
       params:
         action_config: openmm/mmaction2/configs/skeleton/posec3d/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint.py
         action_checkpoint: https://download.openmmlab.com/mmaction/v1.0/skeleton/posec3d/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint_20220815-38db104b.pth
 
     actions:
-      class: hmlib.aspen.plugins.action_pose.ActionFromPosePlugin
+      class: hmlib.aspen.plugins.action_pose_plugin.ActionFromPosePlugin
       depends: [tracker, action_factory]
       params:
         top_k: 3
@@ -87,21 +87,21 @@ aspen:
 
     # Optional: write a dedicated actions.csv when enabled in CLI
     save_actions:
-      class: hmlib.aspen.plugins.save.SaveActionsPlugin
+      class: hmlib.aspen.plugins.save_plugins.SaveActionsPlugin
       depends: [actions]
       params: {}
 
     save_detections:
-      class: hmlib.aspen.plugins.save.SaveDetectionsPlugin
+      class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [pose_to_det]
       params: {}
 
     save_pose:
-      class: hmlib.aspen.plugins.save.SavePosePlugin
+      class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
       depends: [pose]
       params: {}
 
     save_tracking:
-      class: hmlib.aspen.plugins.save.SaveTrackingPlugin
+      class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [actions]
       params: {}

@@ -44,7 +44,7 @@ class AspenNet(torch.nn.Module):
     - Executes nodes in topological order, passing and accumulating a
       shared context dict across nodes.
 
-    @see @ref hmlib.aspen.plugins.base.Plugin "Plugin" for the trunk interface.
+    @see @ref hmlib.aspen.plugins.base_plugin.Plugin "Plugin" for the trunk interface.
     """
 
     def __init__(

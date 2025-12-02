@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Plugin
+from .base_plugin import Plugin
 from .trt_nms import DetectorNMS
 
 

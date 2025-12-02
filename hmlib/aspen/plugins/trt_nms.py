@@ -93,7 +93,7 @@ class TrtBatchedNMS:
         stream: Optional[torch.cuda.Stream] = None,
         max_per_img: int = 250,
         plugin: str = "batched",
-    ) -> "TrtBatchedNMS":
+    ) -> TrtBatchedNMS:
         """Construct a config from an mmdet/mmyolo bbox head."""
         num_classes = int(getattr(bbox_head, "num_classes", 1))
         test_cfg = getattr(bbox_head, "test_cfg", None)
@@ -773,4 +773,4 @@ class DetectorNMS:
         return self.run_batch([instance], [img_meta])[0]
 
 
-__all__ = ["TrtNmsConfig", "TrtBatchedNMS", "DetectorNMS"]
+__all__ = ["DetectorNMS"]

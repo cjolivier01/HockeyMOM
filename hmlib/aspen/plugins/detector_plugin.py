@@ -3,8 +3,8 @@ from typing import Any, Dict
 
 import torch
 
-from .base import Plugin
-from .detector_factory import _strip_static_padding
+from .base_plugin import Plugin
+from .detector_factory_plugin import _strip_static_padding
 
 
 class DetectorInferencePlugin(Plugin):

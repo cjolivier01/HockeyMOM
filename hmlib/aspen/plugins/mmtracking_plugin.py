@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 import torch
 
-from .base import Plugin
+from .base_plugin import Plugin
 
 
 class MMTrackingPlugin(Plugin):

@@ -11,7 +11,7 @@ from hmlib.camera.play_tracker import PlayTracker as _PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.utils.image import image_height, image_width
 
-from .base import Plugin
+from .base_plugin import Plugin
 
 
 @HM.register_module()

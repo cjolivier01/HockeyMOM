@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from .base import Plugin
+from .base_plugin import Plugin
 
 try:
     from mmengine.config import Config, ConfigDict
@@ -26,7 +26,7 @@ class ModelFactoryPlugin(Plugin):
     """Plugin that builds and caches the MMTracking-style end-to-end model.
 
     Parameters (YAML fields):
-      - ``model_class``: str import path (default: ``hmlib.models.end_to_end.HmEndToEnd``).
+      - ``model_class``: str import path (default: ``hmlib.models.end_to_end_plugin.HmEndToEnd``).
       - ``data_preprocessor``: dict (optional).
       - ``detector``: dict (optional).
       - ``detector_mmconfig``: path to an mmengine config with a ``model.detector`` field (optional).
@@ -38,12 +38,12 @@ class ModelFactoryPlugin(Plugin):
     Outputs in context:
       - ``model``: the constructed model instance.
 
-    @see @ref hmlib.models.end_to_end.HmEndToEnd "HmEndToEnd" for the default implementation.
+    @see @ref hmlib.models.end_to_end_plugin.HmEndToEnd "HmEndToEnd" for the default implementation.
     """
 
     def __init__(
         self,
-        model_class: str = "hmlib.models.end_to_end.HmEndToEnd",
+        model_class: str = "hmlib.models.end_to_end_plugin.HmEndToEnd",
         data_preprocessor: Optional[Dict[str, Any]] = None,
         detector: Optional[Dict[str, Any]] = None,
         detector_mmconfig: Optional[str] = None,
