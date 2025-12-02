@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from mmengine.structures import InstanceData
 
-from hmlib.aspen.trunks.base import Trunk
+from hmlib.aspen.trunks.base import Plugin
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
 from hmlib.utils.gpu import StreamTensorBase
@@ -50,7 +50,7 @@ class _IdentityLegibility(nn.Module):
         return torch.ones((x.size(0),), dtype=torch.float32, device=x.device)
 
 
-class KoshkinaJerseyNumberTrunk(Trunk):
+class KoshkinaJerseyNumberPlugin(Plugin):
     """
     Jersey number recognition trunk using the jersey-number-pipeline approach:
       - Pose-guided torso crops (shoulders + hips)
@@ -409,7 +409,7 @@ class KoshkinaJerseyNumberTrunk(Trunk):
         # Sum with bias
         totals: Dict[int, float] = defaultdict(float)
         for v, w in filtered:
-            totals[v] += w * KoshkinaJerseyNumberTrunk._double_digit_bias(v)
+            totals[v] += w * KoshkinaJerseyNumberPlugin._double_digit_bias(v)
         best_v = -1
         best_w = 0.0
         for k, tot in totals.items():

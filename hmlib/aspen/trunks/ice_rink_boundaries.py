@@ -3,10 +3,10 @@ from typing import Any, Dict, Optional
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Trunk
+from .base import Plugin
 
 
-class IceRinkSegmBoundariesTrunk(Trunk):
+class IceRinkSegmBoundariesPlugin(Plugin):
     """
     Prune detections using the ice rink segmentation mask and optionally draw it.
 
@@ -229,7 +229,7 @@ class IceRinkSegmBoundariesTrunk(Trunk):
         return {"data"}
 
 
-class IceRinkSegmConfigTrunk(Trunk):
+class IceRinkSegmConfigPlugin(Plugin):
     """
     Compute and attach the rink segmentation profile to TrackDataSample metainfo.
 

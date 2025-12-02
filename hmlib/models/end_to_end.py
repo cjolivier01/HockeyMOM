@@ -8,7 +8,7 @@ from mmdet.registry import MODELS
 from mmdet.structures import OptTrackSampleList
 from mmengine.structures import InstanceData
 
-from hmlib.aspen.trunks.base import Trunk
+from hmlib.aspen.trunks.base import Plugin
 from hmlib.datasets.dataframe import HmDataFrameBase
 from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
 
@@ -22,7 +22,7 @@ def _use_cpp_tracker(dflt: bool = False) -> bool:
 
 
 @MODELS.register_module()
-class HmEndToEnd(BaseMOTModel, Trunk):
+class HmEndToEnd(BaseMOTModel, Plugin):
     def __init__(
         self,
         *args,
@@ -95,7 +95,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
 
     # @auto_fp16(apply_to=("img",))
     def forward(self, img, return_loss=True, **kwargs):
-        # Trunk-mode: if a dict is passed (AspenNet), treat it as context
+        # Plugin-mode: if a dict is passed (AspenNet), treat it as context
         if isinstance(img, dict):
             context: Dict[str, Any] = img
             return self._forward_trunk(context)
@@ -183,7 +183,7 @@ class HmEndToEnd(BaseMOTModel, Trunk):
             "max_tracking_id": max_tracking_id,
         }
 
-    # Trunk introspection for AspenNet minimal_context mode
+    # Plugin introspection for AspenNet minimal_context mode
     def input_keys(self):
         return {
             "data",

@@ -3,7 +3,7 @@
 This module computes the play/arena box from rink profiles and input frames,
 configures `HockeyMOM` video geometry, and optionally drives `VideoOutput`
 for camera debugging/training videos. Camera play tracking logic is handled
-by `PlayTrackerTrunk` and the underlying `PlayTracker` module.
+by `PlayTrackerPlugin` and the underlying `PlayTracker` module.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -168,7 +168,7 @@ class CamTrackPostProcessor:
                 arena=arena,
                 device=self._device,
             )
-        # Expose arena/play box for downstream trunks (e.g., PlayTrackerTrunk, VideoOutTrunk)
+        # Expose arena/play box for downstream trunks (e.g., PlayTrackerPlugin, VideoOutPlugin)
         results["arena"] = self.get_arena_box()
         # results["final_frame_width"] = self.final_frame_width
         # results["final_frame_height"] = self.final_frame_height

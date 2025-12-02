@@ -6,10 +6,10 @@ import torch
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_channels_last
 
-from .base import Trunk
+from .base import Plugin
 
 
-class PoseTrunk(Trunk):
+class PosePlugin(Plugin):
     """
     Runs multi-pose inference using an MMPose inferencer.
 

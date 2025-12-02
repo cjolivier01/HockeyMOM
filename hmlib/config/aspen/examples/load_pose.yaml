@@ -3,12 +3,12 @@ aspen:
 
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      class: hmlib.aspen.trunks.image_prep.ImagePrepPlugin
       depends: []
       params: {}
 
     detector_factory:
-      class: hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk
+      class: hmlib.aspen.trunks.detector_factory.DetectorFactoryPlugin
       depends: []
       params:
       detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
@@ -18,28 +18,28 @@ aspen:
           use_det_processor: true
 
     detector:
-      class: hmlib.aspen.trunks.detector.DetectorInferenceTrunk
+      class: hmlib.aspen.trunks.detector.DetectorInferencePlugin
       depends: [image_prep, detector_factory]
       params: {}
 
     tracker:
-      class: hmlib.aspen.trunks.tracker.TrackerTrunk
+      class: hmlib.aspen.trunks.tracker.TrackerPlugin
       depends: [detector]
       params: {}
 
     # Replace pose inferencer with a dataframe-backed loader
     load_pose:
-      class: hmlib.aspen.trunks.load.LoadPoseTrunk
+      class: hmlib.aspen.trunks.load.LoadPosePlugin
       depends: [tracker]
       params: {}
 
     # Optional saver for pose results
     save_pose:
-      class: hmlib.aspen.trunks.save.SavePoseTrunk
+      class: hmlib.aspen.trunks.save.SavePosePlugin
       depends: [load_pose]
       params: {}
 
     postprocess:
-      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      class: hmlib.aspen.trunks.postprocess.CamPostProcessPlugin
       depends: [load_pose]
       params: {}

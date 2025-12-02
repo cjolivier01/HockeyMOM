@@ -11,13 +11,13 @@ from hmlib.camera.play_tracker import PlayTracker as _PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.utils.image import image_height, image_width
 
-from .base import Trunk
+from .base import Plugin
 
 
 @HM.register_module()
-class PlayTrackerTrunk(Trunk):
+class PlayTrackerPlugin(Plugin):
     """
-    Trunk wrapping the PlayTracker to compute per-frame camera boxes and
+    Plugin wrapping the PlayTracker to compute per-frame camera boxes and
     attach visualization images.
 
     Expects context keys (minimal_context ready):

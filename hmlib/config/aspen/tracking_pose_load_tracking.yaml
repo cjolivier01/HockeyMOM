@@ -3,7 +3,7 @@ aspen:
 
   # Inherit the same inference pipeline and video_out_pipeline details from
   # tracking_pose.yaml where appropriate. We omit detector and tracker trunks
-  # in favor of loading tracking results from a CSV via LoadTrackingTrunk.
+  # in favor of loading tracking results from a CSV via LoadTrackingPlugin.
 
   inference_pipeline:
     - type: LoadImageFromFile
@@ -39,13 +39,13 @@ aspen:
 
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      class: hmlib.aspen.trunks.image_prep.ImagePrepPlugin
       depends: []
       params: {}
 
     # Provide pose inferencer for downstream pose trunk
     pose_factory:
-      class: hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk
+      class: hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryPlugin
       depends: []
       params:
         pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
@@ -55,29 +55,29 @@ aspen:
 
     # Ice rink segmentation support (optional but kept for parity)
     ice_config:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigPlugin
       depends: [image_prep]
       params: {}
 
     # Load tracking results from CSV instead of running the tracker/detector
     load_tracking:
-      class: hmlib.aspen.trunks.load.LoadTrackingTrunk
+      class: hmlib.aspen.trunks.load.LoadTrackingPlugin
       depends: [image_prep]
       params: {}
 
     ice_boundaries:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesPlugin
       depends: [load_tracking, ice_config]
       params: {}
 
     # Run pose on top of loaded tracks
     pose:
-      class: hmlib.aspen.trunks.pose.PoseTrunk
+      class: hmlib.aspen.trunks.pose.PosePlugin
       depends: [load_tracking, pose_factory]
       params:
         plot_pose: GLOBAL.plot.plot_pose
 
     postprocess:
-      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      class: hmlib.aspen.trunks.postprocess.CamPostProcessPlugin
       depends: [pose]
       params: {}

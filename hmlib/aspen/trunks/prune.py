@@ -1,9 +1,9 @@
 from typing import Any, Dict, List, Set
 
-from .base import DeleteKey, Trunk
+from .base import DeleteKey, Plugin
 
 
-class PruneKeysTrunk(Trunk):
+class PruneKeysPlugin(Plugin):
     """
     Example trunk demonstrating DeleteKey usage to drop keys from context.
 

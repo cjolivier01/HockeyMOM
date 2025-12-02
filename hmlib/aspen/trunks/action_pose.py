@@ -8,10 +8,10 @@ import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Trunk
+from .base import Plugin
 
 
-class ActionFromPoseTrunk(Trunk):
+class ActionFromPosePlugin(Plugin):
     """
     Runs skeleton-based action recognition (MMAction2) per tracked player.
 
@@ -19,8 +19,8 @@ class ActionFromPoseTrunk(Trunk):
       - data: dict with keys:
           - data_samples: TrackDataSample or [TrackDataSample]
           - original_images: Tensor [T, C, H, W] or [T, H, W, C]
-          - pose_results: List[dict] as produced by PoseTrunk/PoseToDetTrunk
-      - action_recognizer: mmaction model (from ActionRecognizerFactoryTrunk)
+          - pose_results: List[dict] as produced by PosePlugin/PoseToDetPlugin
+      - action_recognizer: mmaction model (from ActionRecognizerFactoryPlugin)
       - action_label_map: Optional[List[str]] label names
 
     Produces in context:
@@ -29,7 +29,7 @@ class ActionFromPoseTrunk(Trunk):
     Notes:
       - We map track IDs to pose indices per frame using
         pred_track_instances.source_pose_index when available; otherwise
-        we fallback to an IoU-based assignment derived from SaveTrackingTrunk.
+        we fallback to an IoU-based assignment derived from SaveTrackingPlugin.
       - For each active track across the current clip, we build a per-track
         keypoint sequence and run inference, then attach the action label
         (top-1) per frame for that track.
@@ -58,7 +58,7 @@ class ActionFromPoseTrunk(Trunk):
     def _extract_pose_arrays(pose_result_item: Any) -> Tuple[np.ndarray, np.ndarray]:
         """Return (keypoints [N,K,2], keypoint_scores [N,K]) from a pose result item.
 
-        Supports both MMPose DataSample and simplified dict written by SavePoseTrunk.
+        Supports both MMPose DataSample and simplified dict written by SavePosePlugin.
         Returns empty arrays if not present.
         """
         try:

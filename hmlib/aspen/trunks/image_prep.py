@@ -6,10 +6,10 @@ from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import StreamTensorBase, copy_gpu_to_gpu_async
 from hmlib.utils.image import make_channels_first
 
-from .base import Trunk
+from .base import Plugin
 
 
-class ImagePrepTrunk(Trunk):
+class ImagePrepPlugin(Plugin):
     """
     Prepares detection input tensor for MMTracking-like models.
 

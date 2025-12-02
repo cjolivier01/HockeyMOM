@@ -15,7 +15,7 @@ from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
-from .base import Trunk
+from .base import Plugin
 
 
 def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
@@ -29,10 +29,10 @@ def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
     return None
 
 
-class LoadDetectionsTrunk(Trunk):
+class LoadDetectionsPlugin(Plugin):
     """
     Loads detections from `detection_dataframe` and attaches them to data_samples
-    as `pred_instances`, emulating DetectorInferenceTrunk.
+    as `pred_instances`, emulating DetectorInferencePlugin.
 
     Expects in context:
       - data: dict with 'data_samples'
@@ -66,7 +66,7 @@ class LoadDetectionsTrunk(Trunk):
             )
         if not path or not os.path.exists(path):
             if not self._warned_missing:
-                logger.info("LoadDetectionsTrunk: no %s CSV found; skipping load", self._file_stem)
+                logger.info("LoadDetectionsPlugin: no %s CSV found; skipping load", self._file_stem)
                 self._warned_missing = True
             return None
         self._detection_dataframe = DetectionDataFrame(
@@ -139,11 +139,11 @@ class LoadDetectionsTrunk(Trunk):
         return {"data", "detection_dataframe"}
 
 
-class LoadTrackingTrunk(Trunk):
+class LoadTrackingPlugin(Plugin):
     """
     Loads tracks from `tracking_dataframe` and attaches `pred_track_instances`.
 
-    Produces `data`, `nr_tracks`, and `max_tracking_id` analogous to TrackerTrunk.
+    Produces `data`, `nr_tracks`, and `max_tracking_id` analogous to TrackerPlugin.
 
     Expects in context:
       - data: dict with 'data_samples'
@@ -177,7 +177,7 @@ class LoadTrackingTrunk(Trunk):
             )
         if not path or not os.path.exists(path):
             if not self._warned_missing:
-                logger.info("LoadTrackingTrunk: no %s CSV found; skipping load", self._file_stem)
+                logger.info("LoadTrackingPlugin: no %s CSV found; skipping load", self._file_stem)
                 self._warned_missing = True
             return None
         self._tracking_dataframe = TrackingDataFrame(
@@ -286,11 +286,11 @@ class LoadTrackingTrunk(Trunk):
         return {"data", "nr_tracks", "max_tracking_id", "tracking_dataframe"}
 
 
-class LoadPoseTrunk(Trunk):
+class LoadPosePlugin(Plugin):
     """
     Loads per-frame pose JSON from `pose_dataframe` and sets data['pose_results'].
 
-    The stored format is a simplified structure, but PoseToDetTrunk tolerates dict predictions
+    The stored format is a simplified structure, but PoseToDetPlugin tolerates dict predictions
     if extended accordingly. Downstream postprocess uses pose results only if required.
 
     Expects in context:
@@ -323,7 +323,7 @@ class LoadPoseTrunk(Trunk):
             )
         if not path or not os.path.exists(path):
             if not self._warned_missing:
-                logger.info("LoadPoseTrunk: no %s CSV found; skipping load", self._file_stem)
+                logger.info("LoadPosePlugin: no %s CSV found; skipping load", self._file_stem)
                 self._warned_missing = True
             return None
         self._pose_dataframe = PoseDataFrame(input_file=path, write_interval=100)
@@ -374,7 +374,7 @@ class LoadPoseTrunk(Trunk):
         return {"data", "pose_dataframe"}
 
 
-class LoadCameraTrunk(Trunk):
+class LoadCameraPlugin(Plugin):
     """
     Loads per-frame camera boxes from `camera_dataframe` and exposes them in context.
 
@@ -410,7 +410,7 @@ class LoadCameraTrunk(Trunk):
             )
         if not path or not os.path.exists(path):
             if not self._warned_missing:
-                logger.info("LoadCameraTrunk: no %s CSV found; skipping load", self._file_stem)
+                logger.info("LoadCameraPlugin: no %s CSV found; skipping load", self._file_stem)
                 self._warned_missing = True
             return None
         self._camera_dataframe = CameraTrackingDataFrame(
