@@ -163,14 +163,13 @@ def copy_video(
             else:
                 video_out = VideoOutput(
                     name="VideoOutput",
-                    args=None,
                     output_video_path=path,
                     output_frame_width=video_info.width,
                     output_frame_height=video_info.height,
                     fps=video_info.fps,
-                    device=output_device,
                     skip_final_save=skip_final_video_save,
                     fourcc="auto",
+                    device=output_device,
                 )
             return video_out
 

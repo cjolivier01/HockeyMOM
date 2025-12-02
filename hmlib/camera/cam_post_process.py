@@ -9,9 +9,6 @@ by `PlayTrackerPlugin` and the underlying `PlayTracker` module.
 from __future__ import absolute_import, division, print_function
 
 import argparse
-import contextlib
-import os
-import traceback
 from typing import Any, Dict, List, Optional, Union
 
 import torch
@@ -27,9 +24,8 @@ from hmlib.bbox.box_functions import (
 from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
 from hmlib.log import logger
-from hmlib.ui import Shower
 from hmlib.utils.image import image_height, image_width
-from hmlib.video.video_out import VideoOutput, get_open_files_count
+from hmlib.video.video_out import get_open_files_count
 from hmlib.video.video_stream import MAX_VIDEO_WIDTH
 
 
@@ -60,10 +56,7 @@ class CamTrackPostProcessor:
         save_frame_dir: Optional[str] = None,
         data_type: str = "mot",
         postprocess: bool = True,
-        async_post_processing: bool = False,
         video_out_device: Optional[torch.device] = None,
-        video_out_cache_size: int = 2,
-        async_video_out: bool = False,
         no_cuda_streams: bool = False,
     ):
         # Head-level configuration
@@ -73,8 +66,6 @@ class CamTrackPostProcessor:
         self._data_type = data_type
         self._postprocess = postprocess
         self._video_out_pipeline = video_out_pipeline
-        self._async_post_processing = async_post_processing
-        self._async_video_out = async_video_out
         self._original_clip_box = original_clip_box
         self._fps = fps
         self._save_dir = save_dir
@@ -82,15 +73,12 @@ class CamTrackPostProcessor:
         self._save_frame_dir = save_frame_dir
         self._device = device
         self._video_out_device: Optional[torch.device] = video_out_device or device
-        self._video_out_cache_size = video_out_cache_size
         self._no_cuda_streams = no_cuda_streams
         self._counter = 0
 
         # Core post-processing state (initialized on first frame)
         self._hockey_mom: Optional[HockeyMOM] = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
-        self._video_output_campp: Optional[VideoOutput] = None
-        self._shower: Union[None, Shower] = None
         self._arena_box: Optional[torch.Tensor] = None
         self.final_frame_width: Optional[int] = None
         self.final_frame_height: Optional[int] = None
@@ -234,66 +222,17 @@ class CamTrackPostProcessor:
         self.final_frame_width = int(self.final_frame_width + 0.5)
         self.final_frame_height = int(self.final_frame_height + 0.5)
 
-        # if not getattr(self._args, "no_frame_postprocessing", False) and self.output_video_path:
-        #     assert self._video_output_campp is None
-        #     self._video_output_campp = VideoOutput(
-        #         name="TRACKING",
-        #         args=self._args,
-        #         output_video_path=self.output_video_path,
-        #         fps=self._fps,
-        #         start=False,
-        #         bit_rate=self._args.output_video_bit_rate,
-        #         output_frame_width=self.final_frame_width,
-        #         output_frame_height=self.final_frame_height,
-        #         save_frame_dir=self._save_frame_dir,
-        #         original_clip_box=self._original_clip_box,
-        #         cache_size=self._video_out_cache_size,
-        #         async_output=self._async_video_out,
-        #         video_out_pipeline=self._video_out_pipeline,
-        #         device=self._video_out_device,
-        #         skip_final_save=self._args.skip_final_video_save,
-        #         no_cuda_streams=self._no_cuda_streams,
-        #     )
-        #     self._video_output_campp.start()
-        # elif getattr(self._args, "show_image", False):
-        #     self._shower = Shower("CamTrackPostProcessor", self._args.show_scaled, max_size=1)
-
     @property
     def output_video_path(self) -> Optional[str]:
         return self._output_video_path
 
     def start(self) -> None:
-        # Deprecated: CamTrackPostProcessor now runs synchronously.
+        # CamTrackPostProcessor runs synchronously; kept for API compatibility.
         return None
 
     def stop(self) -> None:
-        if self._video_output_campp is not None:
-            self._video_output_campp.stop()
-
-    def send(
-        self,
-        data: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        # CamTrackPostProcessor no longer owns PlayTracker; this is kept for API
-        # compatibility and simply forwards video frames to VideoOutput when present.
-        try:
-            results = data
-            if self._video_output_campp is not None:
-                prof = getattr(self._args, "profiler", None)
-                ctx = (
-                    prof.rf("video_out.append")
-                    if getattr(prof, "enabled", False)
-                    else contextlib.nullcontext()
-                )
-                with ctx:
-                    self._video_output_campp.append(results)
-            elif self._shower is not None and "img" in results:
-                self._shower.show(results["img"].cpu())
-            return results
-        except Exception as ex:
-            print(ex)
-            traceback.print_exc()
-            raise
+        # Kept for API compatibility; nothing to stop in synchronous mode.
+        return None
 
     def get_arena_box(self) -> torch.Tensor:
         assert self._hockey_mom is not None

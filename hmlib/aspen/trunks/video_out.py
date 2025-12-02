@@ -31,8 +31,7 @@ class VideoOutPlugin(Plugin):
 
     Params:
       - output_video_path: str or None (if None, creates under CWD; skip_final_save honored)
-      - cache_size: int for async queue sizing
-      - async_output: bool
+      - cache_size: int for small internal buffering
       - video_out_device: torch.device or str
       - video_out_pipeline: dict/list pipeline; passed to VideoOutput
       - no_cuda_streams: bool
@@ -45,7 +44,6 @@ class VideoOutPlugin(Plugin):
         enabled: bool = True,
         output_video_path: Optional[str] = None,
         cache_size: int = 2,
-        async_output: bool = False,
         video_out_device: Optional[str] = None,
         video_out_pipeline: Optional[Dict[str, Any]] = None,
         no_cuda_streams: bool = False,
@@ -56,7 +54,6 @@ class VideoOutPlugin(Plugin):
         self._vo: Optional[VideoOutput] = None
         self._out_path = output_video_path
         self._cache = int(cache_size)
-        self._async = bool(async_output)
         self._vo_dev = video_out_device
         self._pipeline = video_out_pipeline
         self._no_cuda_streams = bool(no_cuda_streams)
@@ -137,7 +134,6 @@ class VideoOutPlugin(Plugin):
             fps = 30.0
 
         self._vo = VideoOutput(
-            args=cam_args,
             output_video_path=out_path,
             output_frame_width=self._final_w,
             output_frame_height=self._final_h,
@@ -149,8 +145,13 @@ class VideoOutPlugin(Plugin):
             skip_final_save=self._skip_final_save,
             original_clip_box=shared.get("original_clip_box"),
             cache_size=self._cache,
-            async_output=self._async,
             no_cuda_streams=self._no_cuda_streams,
+            device=vo_dev,
+            show_image=bool(getattr(cam_args, "show_image", False)),
+            show_scaled=getattr(cam_args, "show_scaled", None),
+            profiler=getattr(cam_args, "profiler", None),
+            game_config=getattr(cam_args, "game_config", None),
+            enable_end_zones=bool(getattr(cam_args, "end_zones", False)),
         )
         self._vo = self._vo.to(device)
 
