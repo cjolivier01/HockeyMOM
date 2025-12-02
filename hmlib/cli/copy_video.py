@@ -239,9 +239,11 @@ def copy_video(
                                 torch.uint8, non_blocking=True
                             )
                         torch.cuda.synchronize()
+                        # Raw VideoStreamWriter path (non-VideoOutput) keeps append().
                         video_out.append(source_tensor)
                     else:
-                        video_out.append(
+                        # For VideoOutput, call the module directly to trigger forward().
+                        video_out(
                             {
                                 "frame_id": frame_ids,
                                 "img": source_tensor,

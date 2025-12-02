@@ -172,7 +172,8 @@ class VideoOutPlugin(Plugin):
 
         self._ensure_initialized(context)
         assert self._vo is not None
-        self._vo.append(results)
+        # Call VideoOutput as a regular nn.Module (forward) to write frames.
+        self._vo(results)
         return {}
 
     def input_keys(self):

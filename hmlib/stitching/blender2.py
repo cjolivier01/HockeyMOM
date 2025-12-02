@@ -1226,7 +1226,8 @@ def blend_video(
                     )
 
             if video_out is not None:
-                video_out.append(
+                # VideoOutput is a nn.Module; calling it writes frames synchronously.
+                video_out(
                     {
                         "frame_id": torch.tensor(frame_id, dtype=torch.int64),
                         "img": blended,
