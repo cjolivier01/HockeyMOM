@@ -90,6 +90,9 @@ class HmImageOverlays(torch.nn.Module):
                     watermark_alpha_channel,
                 ]
             )
+            # Scale mask to [0, 1]
+            mask_dtype = watermark_mask.dtype
+            watermark_mask = (watermark_mask / np.max(watermark_mask)).astype(mask_dtype)
             self.register_buffer(
                 "_watermark_rgb_channels",
                 torch.from_numpy(watermark_rgb_channels),
@@ -100,17 +103,6 @@ class HmImageOverlays(torch.nn.Module):
                 torch.from_numpy(watermark_mask),
                 persistent=False,
             )
-            # Scale mask to [0, 1]
-            self._watermark_mask = self._watermark_mask / torch.max(self._watermark_mask)
-            # if self._device is not None:
-            #     self._watermark_rgb_channels = torch.from_numpy(self._watermark_rgb_channels).to(
-            #         self._device
-            #     )
-            #     self._watermark_mask = (
-            #         torch.from_numpy(self._watermark_mask).to(self._device).to(torch.half)
-            #     )
-            #     # Scale mask to [0, 1]
-            #     self._watermark_mask = self._watermark_mask / torch.max(self._watermark_mask)
         else:
             self._watermark = None
 
