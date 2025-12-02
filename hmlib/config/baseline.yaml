@@ -206,7 +206,8 @@ model:
     # checkpoint_local: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
     # ^ the above checkpoint, but on Google drive (pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth)
     # checkpoint_remote: https://drive.google.com/file/d/1WgJ-u2aL1Yv6VNXF5w-0DtsxCCDXAEe7/view?usp=drive_link
-    
+  
+  detection:
     # config: config/models/hm2/hm_crowdhuman_yolox_s_2240x800.py
     # checkpoint: /mnt/data/pretrained/mmdetection/yolox_s_8x8_300e_coco_1312x480_80e_ch_2240x800_1e_with_detector_prefix.pth
     # checkpoint: https://github.com/cjolivier01/HockeyMOM/releases/download/v0.0.1/yolox_s_8x8_300e_coco_1312x480_80e_ch_2240x800_1e_with_detector_prefix.pth
