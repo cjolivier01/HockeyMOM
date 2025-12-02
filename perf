@@ -1,10 +1,14 @@
 #!/bin/bash
 
-CPU="$(uname -p)"
-if [ "$CPU" == "x86_64" ]; then
-  CPU="k8"
+SCRIPT_DIR=$(dirname $(realpath $0))
+
+source "${SCRIPT_DIR}"/.bazel_setup.sh
+
+BAZEL_FLAGS="${BAZEL_FLAGS} --config=release --cpu=${CPU}"
+
+TARGET="$@"
+if [ -z "${TARGET}" ]; then
+  TARGET="//..."
 fi
 
-BAZEL_FLAGS="--config=release --cpu=${CPU}"
-
-bazelisk build ${BAZEL_FLAGS} //...
+bazelisk build ${BAZEL_FLAGS} ${TARGET}
