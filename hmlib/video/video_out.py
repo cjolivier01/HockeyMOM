@@ -16,11 +16,8 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 import cv2
 import numpy as np
 import torch
-from mmcv.transforms import Compose
 
-from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.log import logger
-from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import (
@@ -30,11 +27,9 @@ from hmlib.utils.gpu import (
     get_gpu_capabilities,
 )
 from hmlib.utils.image import (
-    ImageColorScaler,
     image_height,
     image_width,
     make_channels_last,
-    resize_image,
     to_uint8_image,
 )
 from hmlib.utils.path import add_suffix_to_filename
@@ -275,25 +270,7 @@ class VideoOutput(torch.nn.ModuleDict):
         self._cuda_stream = None
 
         self._bit_rate = bit_rate
-        self._game_config = game_config
-        self._end_zones = None
-        if enable_end_zones and game_config is not None:
-            lines: Dict[str, List[Tuple[int, int]]] = load_lines_from_config(game_config)
-            if lines:
-                # Adjust for clip box, if any
-                if original_clip_box is not None:
-                    orig_lines = lines
-                    lines: Dict[str, List[Tuple[int, int]]] = {}
-                    for key, line in orig_lines.items():
-                        line[0] = adjust_point_for_clip_box(line[0], original_clip_box)
-                        line[1] = adjust_point_for_clip_box(line[1], original_clip_box)
-                        lines[key] = line
-
-                self._end_zones = EndZones(
-                    lines=lines,
-                    output_width=self._output_frame_width_int,
-                    output_height=self._output_frame_height_int,
-                )
+        self._enable_end_zones: bool = bool(enable_end_zones)
 
         self._fourcc = fourcc
         # if fourcc == "auto":
@@ -316,15 +293,6 @@ class VideoOutput(torch.nn.ModuleDict):
         # else:
         #     self._fourcc = fourcc
 
-        self._horizontal_image_gaussian_distribution = None
-        # self._zero_f32 = torch.tensor(0, dtype=torch.float, device=device)
-        # self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=device)
-
-        self._image_color_scaler = None
-        if image_channel_adjustment:
-            assert len(image_channel_adjustment) == 3
-            self._image_color_scaler = ImageColorScaler(image_channel_adjustment)
-
         self._prof = profiler
         self._fctx = (
             self._prof.rf("video_out.forward")
@@ -336,11 +304,6 @@ class VideoOutput(torch.nn.ModuleDict):
             if getattr(self._prof, "enabled", False)
             else contextlib.nullcontext()
         )
-
-        self._video_out_pipeline = self.compose_pipeline(video_out_pipeline)
-
-        # Cache pointer to color adjust transform (if present)
-        self._color_adjust_tf = None
 
         if self._save_frame_dir and not os.path.isdir(self._save_frame_dir):
             os.makedirs(self._save_frame_dir)
@@ -354,16 +317,6 @@ class VideoOutput(torch.nn.ModuleDict):
         )
 
         self._mean_tracker: Optional[MeanTracker] = None
-
-    def compose_pipeline(self, pipeline):
-        if pipeline is None or not pipeline:
-            return None
-        composed_pipeline = Compose(pipeline)
-        for mod in composed_pipeline:
-            if isinstance(mod, torch.nn.Module):
-                name = str(mod)
-                self[name] = mod
-        return composed_pipeline
 
     def _ensure_initialized(self, context: Dict[str, Any]):
         if self._device is None:
@@ -431,7 +384,7 @@ class VideoOutput(torch.nn.ModuleDict):
                 )
                 assert self._output_videos[self.VIDEO_DEFAULT].isOpened()
 
-            if self._end_zones is not None and self.VIDEO_END_ZONES not in self._output_videos:
+            if self._enable_end_zones and self.VIDEO_END_ZONES not in self._output_videos:
                 self._output_videos[self.VIDEO_END_ZONES] = create_output_video_stream(
                     filename=str(add_suffix_to_filename(self._output_video_path, "-end-zones")),
                     fps=self._fps,
@@ -480,7 +433,7 @@ class VideoOutput(torch.nn.ModuleDict):
                     self._output_videos[self.VIDEO_DEFAULT].write(online_im)
 
                 if self.VIDEO_END_ZONES in self._output_videos:
-                    ez_img = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
+                    ez_img = results.get("end_zone_img")
                     if ez_img is None:
                         ez_img = online_im
                     if not isinstance(ez_img, StreamTensorBase):
@@ -501,148 +454,27 @@ class VideoOutput(torch.nn.ModuleDict):
         return results
 
     def forward(self, results) -> Dict[str, Any]:
-
         online_im = results.pop("img")
-        frame_ids = results.get("frame_ids")
-        current_boxes = get_and_pop(results, "current_box")
-
-        results["pano_size_wh"] = [image_width(online_im), image_height(online_im)]
-
-        if current_boxes is None:
-            assert self._simple_save
-            assert online_im.ndim == 4
-            batch_size: int = online_im.size(0)
-            whole_box = torch.tensor(
-                [0, 0, image_width(online_im), image_height(online_im)], dtype=torch.float
-            )
-            current_boxes = whole_box.repeat(batch_size, 1)
-        else:
-            current_boxes = current_boxes.clone()
-
-        current_boxes = current_boxes.to(online_im.device, non_blocking=True)
 
         if isinstance(online_im, StreamTensorBase):
             online_im._verbose = True
             online_im = online_im.get()
-
-        # if self._end_zones is not None:
-        #     online_im = self._end_zones.draw(online_im)
 
         if isinstance(online_im, np.ndarray):
             online_im = torch.from_numpy(online_im)
 
         if online_im.ndim == 3:
             online_im = online_im.unsqueeze(0)
-            # current_box = current_box.unsqueeze(0)
 
-        if self._device is not None and (not self._simple_save or "nvenc" in self._fourcc):
-            if isinstance(online_im, np.ndarray):
-                online_im = torch.from_numpy(online_im)
+        if self._device is not None:
             online_im = make_channels_last(online_im)
             if str(online_im.device) != str(self._device):
                 online_im = online_im.to(self._device, non_blocking=True)
 
-        if not self._simple_save:
-            #
-            # BEGIN END-ZONE
-            #
-            if self._end_zones is not None:
-                # EZ needs an image only for matching the lighting
-                results["img"] = online_im
-                results = self._end_zones(results)
-                online_im = results.pop("img")
-            #
-            # END END-ZONE
-            #
-
-        #
-        # Video-out pipeline
-        #
-        if self._video_out_pipeline is not None:
-            # Update color adjust transform at runtime from YAML-like args config
-            try:
-                if self._color_adjust_tf is None:
-                    for tf in getattr(self._video_out_pipeline, "transforms", []):
-                        if tf.__class__.__name__ == "HmImageColorAdjust":
-                            self._color_adjust_tf = tf
-                            break
-                if self._color_adjust_tf is not None and self._game_config is not None:
-                    cam = None
-                    try:
-                        cam = self._game_config.get("rink", {}).get("camera", {})
-                    except Exception:
-                        cam = None
-                    if isinstance(cam, dict):
-                        color = cam.get("color", {}) or {}
-                        # Allow fallback to flat camera keys too
-                        wb = color.get("white_balance", cam.get("white_balance"))
-                        wbk = color.get(
-                            "white_balance_temp",
-                            cam.get("white_balance_k", cam.get("white_balance_temp")),
-                        )
-                        bright = color.get("brightness", cam.get("color_brightness"))
-                        contr = color.get("contrast", cam.get("color_contrast"))
-                        gamma = color.get("gamma", cam.get("color_gamma"))
-                        if wbk is not None and wb is None:
-                            try:
-                                # Kelvin can be numeric or string like '3500k'
-                                self._color_adjust_tf.white_balance = (
-                                    self._color_adjust_tf._gains_from_kelvin(wbk)
-                                )
-                            except Exception:
-                                pass
-                        elif wb is not None:
-                            try:
-                                if isinstance(wb, (list, tuple)) and len(wb) == 3:
-                                    self._color_adjust_tf.white_balance = [float(x) for x in wb]
-                            except Exception:
-                                pass
-                        # Scalars
-                        if bright is not None:
-                            try:
-                                self._color_adjust_tf.brightness = float(bright)
-                            except Exception:
-                                pass
-                        if contr is not None:
-                            try:
-                                self._color_adjust_tf.contrast = float(contr)
-                            except Exception:
-                                pass
-                        if gamma is not None:
-                            try:
-                                self._color_adjust_tf.gamma = float(gamma)
-                            except Exception:
-                                pass
-            except Exception:
-                # Non-fatal if color transform not found
-                pass
-            results["img"] = online_im
-            results["camera_box"] = current_boxes
-            results["video_frame_cfg"] = self._video_frame_config
-            results = self._video_out_pipeline(results)
-            online_im = results.pop("img")
-            current_boxes = results.pop("camera_box")
-
-        if not self._simple_save:
-            if self._end_zones is not None:
-                ez_image = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
-                if ez_image is not None:
-                    self._end_zones.put_ez_image(
-                        data=results,
-                        img=self.draw_final_overlays(img=ez_image, frame_ids=frame_ids),
-                    )
-
-        if self._allow_scaling and int(self._output_frame_width) != image_width(online_im):
-            online_im = resize_image(
-                img=online_im,
-                new_width=self._output_frame_width,
-                new_height=self._output_frame_height,
-            )
-
         online_im = to_uint8_image(online_im)
 
         # Move to CPU last (if necessary)
-        if online_im.device.type != "cpu" and self._device.type == "cpu":
+        if online_im.device.type != "cpu" and self._device is not None and self._device.type == "cpu":
             online_im = online_im.to("cpu", non_blocking=True)
             online_im = StreamCheckpoint(online_im)
 
