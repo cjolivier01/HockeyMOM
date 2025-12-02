@@ -29,7 +29,7 @@ class RemapImageInfoEx(core.RemapImageInfo):
         self.ypos: int = ypos
 
 
-class ImageRemapper(torch.jit.ScriptModule):
+class ImageRemapper(torch.nn.Module):
     # class ImageRemapper(torch.nn.Module):
     UNMAPPED_PIXEL_VALUE = 65535
 
@@ -239,7 +239,6 @@ class ImageRemapper(torch.jit.ScriptModule):
             self._remap_op.to(dev)
         return super().to(device, **kwargs)
 
-    # @torch.jit.script_method
     def forward(self, source_tensor: torch.Tensor) -> torch.Tensor:
         # show_image("mask", self._unmapped_mask, wait=True)
         assert self._initialized
