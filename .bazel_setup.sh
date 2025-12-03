@@ -19,7 +19,7 @@ LOGIN_PATH=$(
 )
 
 # Maybe add the current conda env
-if [ ! -z "${CONDA_PREFIX}"]; then
+if [ ! -z "${CONDA_PREFIX}" ]; then
   LOGIN_SHELL="${CONDA_PREFIX}/bin:${LOGIN_SHELL}"
 fi
 
