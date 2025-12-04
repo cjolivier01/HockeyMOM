@@ -26,12 +26,7 @@ from hmlib.utils.gpu import (
     cuda_stream_scope,
     get_gpu_capabilities,
 )
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_last,
-    to_uint8_image,
-)
+from hmlib.utils.image import image_height, image_width, make_channels_last, to_uint8_image
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import make_const_tensor
@@ -349,25 +344,6 @@ class VideoOutput(torch.nn.ModuleDict):
         self._enable_end_zones: bool = bool(enable_end_zones)
 
         self._fourcc = fourcc
-        # if fourcc == "auto":
-        #     if self._device.type == "cuda":
-        #         self._fourcc, is_gpu = get_best_codec(
-        #             device.index,
-        #             width=int(output_frame_width),
-        #             height=int(output_frame_height),
-        #             allow_scaling=self._allow_scaling,
-        #         )
-        #         if not is_gpu:
-        #             logger.info(f"Can't use GPU for output video {output_video_path}")
-        #             self._device = torch.device("cpu")
-        #     else:
-        #         self._fourcc = "XVID"
-        #     logger.info(
-        #         f"Output video {self._name} {int(self._output_frame_width)}x"
-        #         f"{int(self._output_frame_height)} will use codec: {self._fourcc}"
-        #     )
-        # else:
-        #     self._fourcc = fourcc
 
         self._prof = profiler
         self._fctx = (
@@ -376,7 +352,7 @@ class VideoOutput(torch.nn.ModuleDict):
             else contextlib.nullcontext()
         )
         self._sctx = (
-            self._prof.rf("video_out.save_frame")
+            self._prof.rf("video_out._save_frame")
             if getattr(self._prof, "enabled", False)
             else contextlib.nullcontext()
         )
@@ -468,7 +444,7 @@ class VideoOutput(torch.nn.ModuleDict):
                 )
                 assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
 
-    def save_frame(
+    def _save_frame(
         self,
         results: Dict[str, Any],
     ) -> Dict[str, Any]:
@@ -540,7 +516,7 @@ class VideoOutput(torch.nn.ModuleDict):
           1. Lazily initializes device/codec/streams.
           2. Opens output video writers on first use.
           3. Normalizes ``results["img"]`` to a uint8 tensor on the writer device.
-          4. Writes the frames via :meth:`save_frame`.
+          4. Writes the frames via :meth:`_save_frame`.
 
         @param results: Dict containing at least ``"img"`` and ``"frame_ids"``.
         @return: The updated ``results`` dict (for chaining if desired).
@@ -590,17 +566,6 @@ class VideoOutput(torch.nn.ModuleDict):
             # Step 4: Persist frames to disk under profiling scopes
             assert self._device is None or results["img"].device == self._device
             with self._sctx:
-                results = self.save_frame(results)
+                results = self._save_frame(results)
 
         return results
-
-
-def get_open_files_count():
-    """Return the number of open file descriptors for the current process.
-
-    This is used for lightweight leak/debug checks when writing long videos.
-
-    @return: Integer count of entries under ``/proc/<pid>/fd``.
-    """
-    pid = os.getpid()
-    return len(os.listdir(f"/proc/{pid}/fd"))

@@ -203,9 +203,6 @@ def point_line_position(
     x1, y1 = line_segment[0]
     x2, y2 = line_segment[1]
 
-    # y1 = image_height - y1
-    # y2 = image_height - y2
-
     assert x1 <= x2
 
     # TODO: Precalculate as much as possible
@@ -214,16 +211,9 @@ def point_line_position(
     # # Unpack the point
     x, y = point
 
-    # y = image_height - y
-
-    # y = mx + b
-    # mx = y - b
-    # x = (y - b) / m
     b = leq[1]
     m = leq[0]
     xx = (y - b) / m
-
-    # # cross_product = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
 
     if x < xx:
         # Is to the left of the line @ y
