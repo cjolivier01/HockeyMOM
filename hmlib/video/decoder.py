@@ -1,7 +1,9 @@
-from torchcodec.decoders import VideoDecoder
-from torch import Tensor
+import os
 
-decoder = VideoDecoder("/mnt/home/colivier-local/Videos/dh-bh-1/tracking_output-with-audio.mp4")
+from torch import Tensor
+from torchcodec.decoders import VideoDecoder
+
+decoder = VideoDecoder(f"{os.environ['HOME']}/Videos/dh-bh-1/tracking_output-with-audio.mp4")
 
 # Index based frame retrieval.
 first_ten_frames: Tensor = decoder[10:]

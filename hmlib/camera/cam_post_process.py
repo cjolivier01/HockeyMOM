@@ -25,19 +25,9 @@ from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
 from hmlib.log import logger
 from hmlib.utils.image import image_height, image_width
-from hmlib.video.video_out import get_open_files_count
 from hmlib.video.video_stream import MAX_VIDEO_WIDTH
 
 
-##
-#  _____         __             _ _                                                     _
-# |  __ \       / _|           | | |      /\                                           | |
-# | |  | | ___ | |_  __ _ _   _| | |_    /  \    _ __  __ _ _   _ _ __ ___   ___  _ __ | |_  ___
-# | |  | |/ _ \|  _|/ _` | | | | | __|  / /\ \  | '__|/ _` | | | | '_ ` _ \ / _ \| '_ \| __|/ __|
-# | |__| |  __/| | | (_| | |_| | | |_  / ____ \ | |  | (_| | |_| | | | | | |  __/| | | | |_ \__ \
-# |_____/ \___||_|  \__,_|\__,_|_|\__|/_/    \_\|_|   \__, |\__,_|_| |_| |_|\___||_| |_|\__||___/
-#                                                      __/ |
-#                                                     |___/
 @HM.register_module()
 class CamTrackPostProcessor:
     """Camera tracking head that owns HockeyMOM and the post-processing pipeline."""
@@ -134,8 +124,6 @@ class CamTrackPostProcessor:
         context: Dict[str, Any],
     ):
         self._counter += 1
-        if self._counter % 100 == 0:
-            logger.info(f"open file count: {get_open_files_count()}")
         if not self._postprocess:
             return results
         if self._hockey_mom is None:
