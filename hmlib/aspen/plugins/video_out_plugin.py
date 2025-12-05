@@ -126,6 +126,8 @@ class VideoOutPlugin(Plugin):
 
         device = shared.get("device")
         vo_dev = self._vo_dev if self._vo_dev is not None else device
+        if not self._out_path:
+            self._out_path = context.get("work_dir")
         out_path = self._out_path or os.path.join(os.getcwd(), "tracking_output.mkv")
         fps = None
         try:
@@ -179,17 +181,20 @@ class VideoOutPlugin(Plugin):
         return {}
 
     def input_keys(self):
-        return {
-            "img",
-            "current_box",
-            "frame_ids",
-            "player_bottom_points",
-            "player_ids",
-            "rink_profile",
-            "shared",
-            "data",
-            "game_id",
-        }
+        if not hasattr(self, "_input_keys"):
+            self._input_keys = {
+                "img",
+                "current_box",
+                "frame_ids",
+                "player_bottom_points",
+                "player_ids",
+                "rink_profile",
+                "shared",
+                "data",
+                "game_id",
+                "work_dir",
+            }
+        return self._input_keys
 
     def output_keys(self):
         return set()
