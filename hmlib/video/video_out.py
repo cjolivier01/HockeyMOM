@@ -27,7 +27,7 @@ from hmlib.utils.gpu import (
     unwrap_tensor,
     wrap_tensor,
 )
-from hmlib.utils.image import image_height, image_width, make_channels_last, to_uint8_image
+from hmlib.utils.image import image_height, image_width
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
@@ -278,9 +278,6 @@ class VideoOutput(torch.nn.ModuleDict):
         output_frame_width = torch.tensor(output_frame_width, dtype=torch.int64)
         output_frame_height = torch.tensor(output_frame_height, dtype=torch.int64)
         self._fourcc = fourcc
-        # if fourcc == "auto" and device.type == "cuda":
-        #     fourcc = "hevc_nvenc"
-        # fourcc = "h264_nvenc"
 
         if simple_save and self._clip_to_max_dimensions:
             original_width = int(output_frame_width)
@@ -297,11 +294,6 @@ class VideoOutput(torch.nn.ModuleDict):
             output_frame_height = torch.tensor(standard_8k_height)
             self._allow_scaling = original_width != int(output_frame_width)
 
-        # if device is not None:
-        #     logger.info(
-        #         f"Video output {output_frame_width}x{output_frame_height} "
-        #         f"using device: {device} ({output_video_path})"
-        #     )
         assert output_frame_width > 4 and output_frame_height > 4
         self.register_buffer("_output_frame_width", output_frame_width, persistent=False)
         self.register_buffer("_output_frame_height", output_frame_height, persistent=False)
@@ -458,33 +450,33 @@ class VideoOutput(torch.nn.ModuleDict):
         image_h = image_height(online_im)
         assert online_im.ndim == 4  # Should have a batch dimension
 
-        online_im = unwrap_tensor(online_im).to(torch.uint8)
+        assert online_im.dtype == torch.uint8
+        assert online_im.is_contiguous
 
         # Output (and maybe show) the final image
-        online_im = make_channels_last(online_im)
         assert int(self._output_frame_width) == image_w
         assert int(self._output_frame_height) == image_h
+
+        if isinstance(online_im, StreamTensorBase):
+            online_im.verbose = True
+            online_im = online_im.get()
 
         if self._mean_tracker is not None:
             self._mean_tracker(online_im)
 
         if self._show_image and self._shower is not None:
             for show_img in online_im:
-                self._shower.show(wrap_tensor(show_img))
+                self._shower.show(show_img)
 
-        online_im = online_im.contiguous()
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
-                self._output_videos[self.VIDEO_DEFAULT].write(wrap_tensor(online_im))
+                self._output_videos[self.VIDEO_DEFAULT].write(online_im)
 
             if self.VIDEO_END_ZONES in self._output_videos:
                 ez_img = results.get("end_zone_img")
                 if ez_img is None:
                     ez_img = online_im
-                else:
-                    ez_img = unwrap_tensor(ez_img).to(torch.uint8)
-                ez_img = make_channels_last(ez_img).contiguous()
-                self._output_videos[self.VIDEO_END_ZONES].write(wrap_tensor(ez_img))
+                self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
         else:
             # Sync the stream if skipping final save
             wrap_tensor(online_im, verbose=True).get()
@@ -501,6 +493,22 @@ class VideoOutput(torch.nn.ModuleDict):
                 online_im,
             )
         return results
+
+    # @staticmethod
+    # def _make_visible_image(
+    #     img: Union[torch.Tensor, StreamTensorBase],
+    # ) -> torch.Tensor:
+    #     """Convert an input image tensor to a visible uint8 format.
+
+    #     This method assumes the input is either:
+    #       - A floating-point tensor in [0, 1] range.
+    #       - An integer tensor in [0, 255] range.
+    #     """
+    #     img = unwrap_tensor(img)
+    #     img = make_channels_last(img)
+    #     img = to_uint8_image(img)
+    #     img = img.contiguous()
+    #     return wrap_tensor(img, verbose=True).get()
 
     def forward(self, results: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
         """Normalize input images and synchronously write them to disk.
@@ -531,13 +539,11 @@ class VideoOutput(torch.nn.ModuleDict):
             # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
             online_im = online_im.unsqueeze(0)
 
-        # Convert to uint8 in-place
-        online_im = to_uint8_image(online_im)
+        # online_im = self._make_visible_image(online_im)
 
         if not self._skip_final_save:
             if self._device is not None:
                 # Move to writer device and ensure channels-last layout
-                online_im = make_channels_last(online_im)
                 if str(online_im.device) != str(self._device):
                     online_im = online_im.to(self._device)
 
@@ -552,10 +558,10 @@ class VideoOutput(torch.nn.ModuleDict):
 
             assert self._device is None or results["img"].device == self._device
 
+        # results["img"] = online_im
+
         # Step 4: Persist frames to disk under profiling scopes
         with self._sctx:
             results = self._save_frame(results)
-
-        results["img"] = wrap_tensor(online_im)
 
         return results

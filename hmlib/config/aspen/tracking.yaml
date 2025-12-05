@@ -85,6 +85,7 @@ aspen:
     - type: HmImageOverlays
       watermark_config:
         image: images/sports_ai_watermark.png
+    - type: HmMakeVisibleImage
 
   plugins:
     image_prep:
