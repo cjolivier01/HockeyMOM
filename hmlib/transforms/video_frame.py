@@ -6,16 +6,15 @@ Aspen pipelines to prepare frames for downstream models.
 @see @ref hmlib.hm_opts.hm_opts "hm_opts" for CLI flags that configure video-frame behavior.
 """
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 
 import numpy as np
 import torch
 from mmengine.registry import TRANSFORMS
 
 from hmlib.algo.unsharp_mask import unsharp_mask
-from hmlib.bbox.box_functions import height, width
 from hmlib.log import logger
-from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
+from hmlib.utils.gpu import unwrap_tensor
 from hmlib.utils.image import crop_image, image_height, image_width, resize_image, to_float_image
 
 
@@ -120,16 +119,8 @@ class HmUnsharpMask:
     def __init__(self, enabled: bool = False, image_label: str = "img") -> None:
         self._enabled = enabled
         self._image_label = image_label
-        # self._count = 0
-        # self._flip = False
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if self._enabled:
-            # if self._count % 250 == 0:
-            #     self._flip = not self._flip
-            #     print("off" if not self._flip else "on")
-            # if self._flip:
             results[self._image_label] = unsharp_mask(results[self._image_label])
-        # self._count += 1
-        return results
         return results
