@@ -100,7 +100,10 @@ class VideoOutPlugin(Plugin):
         ar = 16.0 / 9.0
         play_box = context.get("play_box")
 
-        if getattr(cam_args, "crop_play_box", False):
+        if cam_args.no_crop:
+            final_w = W
+            final_h = H
+        elif getattr(cam_args, "crop_play_box", False):
             if getattr(cam_args, "crop_output_image", True):
                 final_h = H if play_box is None else int((play_box[3] - play_box[1]))
                 final_w = int(final_h * ar)
@@ -142,7 +145,6 @@ class VideoOutPlugin(Plugin):
             output_frame_width=self._final_w,
             output_frame_height=self._final_h,
             fps=fps,
-            video_out_pipeline=None,
             bit_rate=getattr(cam_args, "output_video_bit_rate", int(55e6)),
             save_frame_dir=self._save_dir,
             name="TRACKING",
