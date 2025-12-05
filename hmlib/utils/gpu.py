@@ -186,22 +186,6 @@ class StreamTensorBase:
         return self.ref().size(index)
 
 
-def unwrap_tensor(
-    tensor: Union[torch.Tensor, StreamTensorBase],
-    current_stream: Optional[torch.cuda.Stream] = None,
-) -> torch.Tensor:
-    if isinstance(tensor, StreamTensorBase):
-        return tensor.wait(current_stream)
-    return tensor
-
-
-def wrap_tensor(tensor: Union[torch.Tensor, StreamTensorBase]) -> StreamTensorX:
-    if isinstance(tensor, StreamTensorBase):
-        tensor.checkpoint()
-        return tensor
-    return StreamTensorX(tensor)
-
-
 class StreamTensorX(StreamTensorBase):
     """Enhanced tensor wrapper with explicit CUDA stream + event tracking."""
 
@@ -423,6 +407,22 @@ class StreamCheckpoint(StreamTensorX):
             verbose=verbose,
             print_thresh=print_thresh,
         )
+
+
+def unwrap_tensor(
+    tensor: Union[torch.Tensor, StreamTensorBase],
+    current_stream: Optional[torch.cuda.Stream] = None,
+) -> torch.Tensor:
+    if isinstance(tensor, StreamTensorBase):
+        return tensor.wait(current_stream)
+    return tensor
+
+
+def wrap_tensor(tensor: Union[torch.Tensor, StreamTensorBase]) -> StreamTensorX:
+    if isinstance(tensor, StreamTensorBase):
+        tensor.checkpoint()
+        return tensor
+    return StreamTensorX(tensor)
 
 
 def copy_gpu_to_gpu_async(
