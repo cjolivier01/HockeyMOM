@@ -458,7 +458,7 @@ class VideoOutput(torch.nn.ModuleDict):
         image_h = image_height(online_im)
         assert online_im.ndim == 4  # Should have a batch dimension
 
-        online_im = unwrap_tensor(online_im)
+        online_im = unwrap_tensor(online_im).to(torch.uint8)
 
         # Output (and maybe show) the final image
         online_im = make_channels_last(online_im)
@@ -472,18 +472,18 @@ class VideoOutput(torch.nn.ModuleDict):
             for show_img in online_im:
                 self._shower.show(wrap_tensor(show_img))
 
+        online_im = online_im.contiguous()
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
-                # if not isinstance(online_im, StreamTensorBase):
-                #     online_im = StreamCheckpoint(tensor=online_im)
                 self._output_videos[self.VIDEO_DEFAULT].write(wrap_tensor(online_im))
 
             if self.VIDEO_END_ZONES in self._output_videos:
                 ez_img = results.get("end_zone_img")
                 if ez_img is None:
                     ez_img = online_im
-                # if not isinstance(ez_img, StreamTensorBase):
-                #     ez_img = StreamCheckpoint(tensor=ez_img)
+                else:
+                    ez_img = unwrap_tensor(ez_img).to(torch.uint8)
+                ez_img = make_channels_last(ez_img).contiguous()
                 self._output_videos[self.VIDEO_END_ZONES].write(wrap_tensor(ez_img))
         else:
             # Sync the stream if skipping final save
