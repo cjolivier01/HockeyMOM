@@ -639,7 +639,7 @@ class SaveCameraPlugin(Plugin):
         return {"camera_dataframe": df}
 
     def input_keys(self):
-        return {"frame_id", "current_box", "shared", "data"}
+        return {"frame_id", "current_box", "shared"}
 
     def output_keys(self):
         return {"camera_dataframe"}

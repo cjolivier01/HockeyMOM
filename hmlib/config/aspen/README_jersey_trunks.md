@@ -1,9 +1,9 @@
 Jersey Number Plugins (Aspen)
 
 Overview
-- Two jersey recognition trunks are available:
-  - Simple ROI + MMOCR: `hmlib/aspen/trunks/jersey_pose.py`
-  - Koshkina-style framework: `hmlib/aspen/trunks/jersey_koshkina.py`
+- Two jersey recognition plugins are available:
+  - Simple ROI + MMOCR: `hmlib/aspen/plugins/jersey_pose.py`
+  - Koshkina-style framework: `hmlib/aspen/plugins/jersey_koshkina.py`
 
 Configs (aspen-namespaced)
 - Simple: `hmlib/config/aspen/tracking_pose_pose_det_jersey.yaml`

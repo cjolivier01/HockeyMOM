@@ -641,7 +641,7 @@ class PlayTracker(torch.nn.Module):
     def forward(self, results: Dict[str, Any]):
         track_data_sample = results["data_samples"]
 
-        original_images = results.pop("origin_imgs")
+        original_images = results.pop("original_images")
 
         if isinstance(original_images, StreamTensorBase):
             original_images._verbose = True

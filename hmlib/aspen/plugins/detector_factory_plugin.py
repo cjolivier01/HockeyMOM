@@ -222,7 +222,7 @@ class DetectorFactoryPlugin(Plugin):
         return {"detector_model": self._model}
 
     def input_keys(self):
-        return {"device", "using_precalculated_detection"}
+        return {"device", "using_precalculated_detection", "game_id"}
 
     def output_keys(self):
         return {"detector_model"}

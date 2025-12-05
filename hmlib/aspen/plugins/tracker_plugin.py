@@ -126,7 +126,7 @@ class TrackerPlugin(Plugin):
         # using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
         # using_precalc_det: bool = bool(context.get("using_precalculated_detection", False))
 
-        self._ensure_tracker(image_size=context["origin_imgs"].shape)
+        self._ensure_tracker(image_size=context["original_images"].shape)
 
         # Access TrackDataSample list
         track_samples = data.get("data_samples")
@@ -295,7 +295,7 @@ class TrackerPlugin(Plugin):
             except Exception:
                 pass
 
-            # Saving to dataframes is now handled by dedicated Save* trunks.
+            # Saving to dataframes is now handled by dedicated Save* plugins.
 
             # For performance: record current active tracks
             img_data_sample.set_metainfo({"nr_tracks": active_track_count})
@@ -315,7 +315,7 @@ class TrackerPlugin(Plugin):
         return {
             "data",
             "frame_id",
-            "origin_imgs",
+            "original_images",
             # "using_precalculated_tracking",
             # "using_precalculated_detection",
             # no longer depends on model's post-detection pipeline

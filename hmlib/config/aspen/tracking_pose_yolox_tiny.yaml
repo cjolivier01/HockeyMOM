@@ -31,7 +31,7 @@ aspen:
     - type: HmImageOverlays
       watermark_config:
         image: images/sports_ai_watermark.png
-  trunks:
+  plugins:
     image_prep:
       class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
       depends: []

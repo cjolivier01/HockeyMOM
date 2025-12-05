@@ -144,7 +144,7 @@ class CamTrackPostProcessor:
                 arena=arena,
                 device=self._device,
             )
-        # Expose arena/play box for downstream trunks (e.g., PlayTrackerPlugin, VideoOutPlugin)
+        # Expose arena/play box for downstream plugins (e.g., PlayTrackerPlugin, VideoOutPlugin)
         results["arena"] = self.get_arena_box()
         # results["final_frame_width"] = self.final_frame_width
         # results["final_frame_height"] = self.final_frame_height

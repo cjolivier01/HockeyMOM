@@ -1,6 +1,6 @@
 """Aspen graph-based inference engine and trunk interfaces.
 
-Aspen treats the end-to-end pipeline as a directed-acyclic graph of "trunks"
+Aspen treats the end-to-end pipeline as a directed-acyclic graph of "plugins"
 that process and annotate a shared context dictionary.
 
 @see @ref hmlib.aspen.net.AspenNet "AspenNet" for the graph executor.

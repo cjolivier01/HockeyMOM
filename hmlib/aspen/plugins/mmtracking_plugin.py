@@ -111,4 +111,4 @@ class MMTrackingPlugin(Plugin):
         }
 
     def output_keys(self):
-        return {"data", "data", "nr_tracks", "max_tracking_id"}
+        return {"data", "nr_tracks", "max_tracking_id"}
