@@ -86,7 +86,7 @@ class PlayTrackerPlugin(Plugin):
         track_container = results["data_samples"]
         vds = track_container.video_data_samples[0]
         prof = getattr(vds, "metainfo", {}).get("rink_profile", None)
-        image = results["original_images"]
+        image = results["origin_imgs"]
         if prof and "combined_bbox" in prof:
             play_box = torch.tensor(prof["combined_bbox"], dtype=torch.int64, device=image.device)
             ww, hh = width(play_box), height(play_box)
@@ -126,13 +126,13 @@ class PlayTrackerPlugin(Plugin):
         self._clip_box = shared.get("original_clip_box")
         # Prefer provided device; fallback to image's device
         dev = context.get("device")
-        if dev is None and isinstance(results.get("original_images"), torch.Tensor):
-            dev = results["original_images"].device
+        if dev is None and isinstance(results.get("origin_imgs"), torch.Tensor):
+            dev = results["origin_imgs"].device
         self._device = (
             dev if isinstance(dev, torch.device) else torch.device(str(dev) if dev else "cuda")
         )
         # Determine video geometry and fps
-        ori = results["original_images"]
+        ori = results["origin_imgs"]
         H = int(ori.shape[-2])
         W = int(ori.shape[-1])
         fps = None
@@ -230,7 +230,7 @@ class PlayTrackerPlugin(Plugin):
         # Build results dictionary expected by PlayTracker
         results: Dict[str, Any] = {
             "data_samples": data.get("data_samples"),
-            "original_images": data.get("original_images"),
+            "origin_imgs": context.get("origin_imgs"),
         }
         # Optional per-frame annotations propagated if present
         for k in ("jersey_results", "action_results"):
@@ -249,7 +249,13 @@ class PlayTrackerPlugin(Plugin):
         return out
 
     def input_keys(self):
-        return {"data", "device", "shared", "arena"}
+        return {
+            "data",
+            "device",
+            "shared",
+            "arena",
+            "origin_imgs",
+        }
 
     def output_keys(self):
         return {

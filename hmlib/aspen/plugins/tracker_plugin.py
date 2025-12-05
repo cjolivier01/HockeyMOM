@@ -126,7 +126,7 @@ class TrackerPlugin(Plugin):
         # using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
         # using_precalc_det: bool = bool(context.get("using_precalculated_detection", False))
 
-        self._ensure_tracker(image_size=data["original_images"].shape)
+        self._ensure_tracker(image_size=context["origin_imgs"].shape)
 
         # Access TrackDataSample list
         track_samples = data.get("data_samples")
@@ -315,6 +315,7 @@ class TrackerPlugin(Plugin):
         return {
             "data",
             "frame_id",
+            "origin_imgs",
             # "using_precalculated_tracking",
             # "using_precalculated_detection",
             # no longer depends on model's post-detection pipeline
