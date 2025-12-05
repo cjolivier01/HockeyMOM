@@ -249,7 +249,7 @@ class PlayTrackerPlugin(Plugin):
         results = {k: v for k, v in out.items() if k in self.output_keys()}
         return results
 
-    def input_keys(self):
+    def input_keys(self) -> set[str]:
         return {
             "data",
             "device",
@@ -259,9 +259,9 @@ class PlayTrackerPlugin(Plugin):
             "rink_profile",
         }
 
-    def output_keys(self):
+    def output_keys(self) -> set[str]:
         if not hasattr(self, "_output_keys"):
-            self._output_keys = {
+            self._output_keys: set[str] = {
                 "img",
                 "current_box",
                 "player_bottom_points",
