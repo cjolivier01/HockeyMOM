@@ -49,6 +49,10 @@ class Plugin(torch.nn.Module):
             return nullcontext()
         return profiler.rf(label)
 
+    def is_output(self) -> bool:
+        """Return True if this plugin is considered a graph output node."""
+        return False
+
 
 class DeleteKey:
     """Sentinel indicating a key should be removed from context."""

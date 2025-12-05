@@ -62,6 +62,10 @@ class VideoOutPlugin(Plugin):
         self._final_w: Optional[int] = None
         self._final_h: Optional[int] = None
 
+    def is_output(self) -> bool:
+        """If enabled, this node is an output."""
+        return self.enabled
+
     def _ensure_initialized(self, context: Dict[str, Any]) -> None:
         if self._vo is not None:
             return

@@ -20,12 +20,7 @@ import torch
 from hmlib.log import logger
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensorBase,
-    cuda_stream_scope,
-    get_gpu_capabilities,
-)
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, get_gpu_capabilities
 from hmlib.utils.image import image_height, image_width, make_channels_last, to_uint8_image
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
@@ -338,7 +333,6 @@ class VideoOutput(torch.nn.ModuleDict):
         self._save_frame_dir = save_frame_dir
         self._print_interval = print_interval
         self._output_videos: Dict[str, VideoStreamWriterInterface] = {}
-        self._cuda_stream = None
 
         self._bit_rate = bit_rate
         self._enable_end_zones: bool = bool(enable_end_zones)
@@ -524,48 +518,47 @@ class VideoOutput(torch.nn.ModuleDict):
         # Step 1: Lazy initialization of device + codec
         self._ensure_initialized(results)
 
-        with cuda_stream_scope(self._cuda_stream):
-            # Step 2: Ensure underlying video streams are open
-            if not self._output_videos:
-                self.create_output_videos()
+        # Step 2: Ensure underlying video streams are open
+        if not self._output_videos:
+            self.create_output_videos()
 
-            # Step 3: Normalize image tensors onto the writer device
-            online_im = results.get("img")
-            if isinstance(online_im, StreamTensorBase):
-                # Block until the tensor is ready; keep verbose flag for debugging
-                online_im._verbose = True
-                online_im = online_im.wait()
+        # Step 3: Normalize image tensors onto the writer device
+        online_im = results.get("img")
+        if isinstance(online_im, StreamTensorBase):
+            # Block until the tensor is ready; keep verbose flag for debugging
+            online_im._verbose = True
+            online_im = online_im.wait()
 
-            if isinstance(online_im, np.ndarray):
-                online_im = torch.from_numpy(online_im)
+        if isinstance(online_im, np.ndarray):
+            online_im = torch.from_numpy(online_im)
 
-            if online_im.ndim == 3:
-                # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
-                online_im = online_im.unsqueeze(0)
+        if online_im.ndim == 3:
+            # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
+            online_im = online_im.unsqueeze(0)
 
-            if self._device is not None:
-                # Move to writer device and ensure channels-last layout
-                online_im = make_channels_last(online_im)
-                if str(online_im.device) != str(self._device):
-                    online_im = online_im.to(self._device, non_blocking=True)
+        if self._device is not None:
+            # Move to writer device and ensure channels-last layout
+            online_im = make_channels_last(online_im)
+            if str(online_im.device) != str(self._device):
+                online_im = online_im.to(self._device, non_blocking=True)
 
-            # Convert to uint8 in-place
-            online_im = to_uint8_image(online_im)
+        # Convert to uint8 in-place
+        online_im = to_uint8_image(online_im)
 
-            # Optional final move to CPU for CPU-only writers
-            if (
-                online_im.device.type != "cpu"
-                and self._device is not None
-                and self._device.type == "cpu"
-            ):
-                online_im = online_im.to("cpu", non_blocking=True)
-                online_im = StreamCheckpoint(online_im)
+        # Optional final move to CPU for CPU-only writers
+        if (
+            online_im.device.type != "cpu"
+            and self._device is not None
+            and self._device.type == "cpu"
+        ):
+            online_im = online_im.to("cpu", non_blocking=True)
+            online_im = StreamCheckpoint(online_im)
 
-            results["img"] = online_im
+        results["img"] = online_im
 
-            # Step 4: Persist frames to disk under profiling scopes
-            assert self._device is None or results["img"].device == self._device
-            with self._sctx:
-                results = self._save_frame(results)
+        # Step 4: Persist frames to disk under profiling scopes
+        assert self._device is None or results["img"].device == self._device
+        with self._sctx:
+            results = self._save_frame(results)
 
         return results
