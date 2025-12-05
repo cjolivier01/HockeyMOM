@@ -18,6 +18,7 @@ import torch.nn.functional as TF
 import torchvision as tv
 from torchvision.transforms import functional as F
 
+from hmlib.log import logger
 from hmlib.utils.gpu import StreamTensorBase
 
 
@@ -534,7 +535,7 @@ def get_best_resize_mode(
             if verbose:
                 # Maybe you have a one-off match error somewhere
                 # causing an expensive resize?
-                print(f"PERF WARNING: Almost trvial resize from {w1}x{h1} -> {w2}x{h2}")
+                logger.warning(f"PERF WARNING: Almost trvial resize from {w1}x{h1} -> {w2}x{h2}")
         # Downsampling
         # return F.InterpolationMode.BOX
         return "area"
@@ -546,7 +547,7 @@ def get_best_resize_mode(
             if verbose:
                 # Maybe you have a one-off match error somewhere
                 # causing an expensive resize?
-                print(f"PERF WARNING: lmost trvial resize from {w1}x{h1} -> {w2}x{h2}")
+                logger.warning(f"PERF WARNING: Almost trivial resize from {w1}x{h1} -> {w2}x{h2}")
         # Upsampling
         return "bilinear"
     elif w1 == w2:
