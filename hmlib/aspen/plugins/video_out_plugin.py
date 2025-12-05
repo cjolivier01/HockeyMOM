@@ -4,8 +4,6 @@ import argparse
 import os
 from typing import Any, Dict, Optional
 
-import torch
-
 from hmlib.builder import HM
 from hmlib.config import get_nested_value
 from hmlib.utils.image import image_height, image_width
