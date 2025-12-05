@@ -423,7 +423,9 @@ def unwrap_tensor(
 
 def wrap_tensor(
     tensor: Union[torch.Tensor, StreamTensorBase], verbose: bool = True
-) -> StreamTensorX:
+) -> Union[torch.Tensor, StreamTensorBase]:
+    if not tensor.is_cuda:
+        return tensor
     if isinstance(tensor, StreamTensorBase):
         tensor.checkpoint()
         tensor.verbose = verbose

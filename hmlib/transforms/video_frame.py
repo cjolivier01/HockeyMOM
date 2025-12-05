@@ -61,7 +61,10 @@ class HmCropToVideoFrame:
             # box_w = width(bbox)
             # box_ar = box_w / box_h
             # assert np.isclose(float(box_ar), float(video_frame_cfg["output_aspect_ratio"]))
-            intbox = [int(i) for i in bbox]
+            if video_frame_cfg["no_crop"]:
+                intbox = [0, 0, src_image_width, src_image_height]
+            else:
+                intbox = [int(i) for i in bbox]
             x1 = intbox[0]
             y1 = intbox[1]
             y2 = intbox[3]

@@ -1134,9 +1134,9 @@ def main():
         if merged_extra:
             game_config = recursive_update(game_config, merged_extra)
 
-    # Propagate CLI plotting/debug flags into the consolidated config before
-    # resolving GLOBAL.* references so Aspen plugins (e.g., PlayTrackerPlugin)
-    # see the updated values via GLOBAL.plot.*.
+    # Propagate CLI plotting/debug and related flags into the consolidated
+    # config before resolving GLOBAL.* references so Aspen plugins see the
+    # updated values via GLOBAL.*.
     try:
         # Helper: set plot.<key> from args.<attr> when truthy / non-None.
         def _set_plot_from_arg(plot_key: str, arg_name: str, allow_false: bool = False):
@@ -1157,6 +1157,11 @@ def main():
         _set_plot_from_arg("plot_pose", "plot_pose")
         _set_plot_from_arg("plot_ice_mask", "plot_ice_mask")
         _set_plot_from_arg("plot_all_detections", "plot_all_detections", allow_false=True)
+        # Skip-final-video-save: when explicitly enabled via CLI, override the
+        # Aspen VideoOutPlugin default so GLOBAL.aspen.video_out.skip_final_save
+        # resolves to True.
+        if getattr(args, "skip_final_video_save", None):
+            set_nested_value(game_config, "aspen.video_out.skip_final_save", True)
         # Treat --debug>=1 as enabling PlayTracker debug logging, equivalent
         # to passing --debug-play-tracker.
         try:

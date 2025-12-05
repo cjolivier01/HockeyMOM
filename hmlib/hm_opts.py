@@ -800,6 +800,7 @@ class hm_opts(object):
             "--skip_final_video_save",
             "--skip-final-video-save",
             action="store_true",
+            default=None,
             help="Don't save the output video frames",
         )
         parser.add_argument(

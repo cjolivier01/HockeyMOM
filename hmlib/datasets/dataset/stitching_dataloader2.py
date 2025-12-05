@@ -70,7 +70,7 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> torc
         return tensor
     if isinstance(tensor, StreamTensorBase):
         tensor.verbose = True
-        return tensor.get()
+        return tensor.wait()
     elif isinstance(tensor, np.ndarray):
         return torch.from_numpy(tensor)
     else:
@@ -781,7 +781,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         if not image_roi:
             if image.shape[-1] == 4:
                 if isinstance(image, StreamTensorBase):
-                    image = image.get()
+                    image = image.wait()
                 if len(image.shape) == 4:
                     image = make_channels_last(image)[:, :, :, :3]
                 else:
