@@ -261,9 +261,9 @@ class PlayTrackerPlugin(Plugin):
         return {
             "img",
             "current_box",
-            "frame_ids",
+            # "frame_ids",
             "player_bottom_points",
             "player_ids",
-            "rink_profile",
+            # "rink_profile",
             "play_box",
         }
