@@ -27,7 +27,15 @@ def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
     return None
 
 
-class SaveDetectionsPlugin(Plugin):
+class SavePluginBase(Plugin):
+    """Base class for save plugins with common utilities."""
+
+    def is_output(self) -> bool:
+        """If enabled, this node is an output."""
+        return self.enabled
+
+
+class SaveDetectionsPlugin(SavePluginBase):
     """
     Saves per-frame detections into `detection_dataframe`.
 
@@ -134,7 +142,7 @@ class SaveDetectionsPlugin(Plugin):
             self._detection_dataframe.close()
 
 
-class SaveTrackingPlugin(Plugin):
+class SaveTrackingPlugin(SavePluginBase):
     """
     Saves per-frame tracking results into `tracking_dataframe`.
 
@@ -350,7 +358,7 @@ class SaveTrackingPlugin(Plugin):
             self._tracking_dataframe.close()
 
 
-class SavePosePlugin(Plugin):
+class SavePosePlugin(SavePluginBase):
     """
     Saves per-frame pose results from `data['pose_results']` into `pose_dataframe`.
 
@@ -470,7 +478,7 @@ class SavePosePlugin(Plugin):
             self._pose_dataframe.close()
 
 
-class SaveActionsPlugin(Plugin):
+class SaveActionsPlugin(SavePluginBase):
     """
     Saves per-frame action results. By default, writes into the `tracking_dataframe`
     action columns, if a TrackingDataFrame is provided in context. This trunk is
@@ -574,7 +582,7 @@ class SaveActionsPlugin(Plugin):
             self._action_dataframe.close()
 
 
-class SaveCameraPlugin(Plugin):
+class SaveCameraPlugin(SavePluginBase):
     """
     Saves per-frame camera boxes into `camera_dataframe`.
 
