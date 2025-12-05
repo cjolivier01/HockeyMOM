@@ -246,7 +246,8 @@ class PlayTrackerPlugin(Plugin):
             out["play_box"] = self._play_tracker.play_box
         except Exception:
             pass
-        return out
+        results = {k: v for k, v in out.items() if k in self.output_keys()}
+        return results
 
     def input_keys(self):
         return {
@@ -255,15 +256,16 @@ class PlayTrackerPlugin(Plugin):
             "shared",
             "arena",
             "origin_imgs",
+            "rink_profile",
         }
 
     def output_keys(self):
-        return {
-            "img",
-            "current_box",
-            # "frame_ids",
-            "player_bottom_points",
-            "player_ids",
-            # "rink_profile",
-            "play_box",
-        }
+        if not hasattr(self, "_output_keys"):
+            self._output_keys = {
+                "img",
+                "current_box",
+                "player_bottom_points",
+                "player_ids",
+                "play_box",
+            }
+        return self._output_keys

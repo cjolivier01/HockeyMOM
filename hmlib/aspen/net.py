@@ -14,7 +14,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 import networkx as nx
 import torch
@@ -55,6 +55,7 @@ class AspenNet(torch.nn.Module):
         minimal_context: bool = False,
         max_concurrent: int = 3,
         verbose: bool = False,
+        validate_output_keys_each_time: bool = False,
     ):
         super().__init__()
         self.name: str = self._normalize_name(name)
@@ -66,6 +67,9 @@ class AspenNet(torch.nn.Module):
         self.nodes: List[_Node] = []
         self.max_concurrent: int = max_concurrent
         self.num_concurrent: int = 0
+        self._thread_error: Optional[BaseException] = None
+        # Track which trunks have already had their output_keys() contract validated.
+        self._output_keys_validated: Set[str] = set()
         # NetworkX DiGraph storing the trunks graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
         self.minimal_context = bool(
@@ -81,6 +85,12 @@ class AspenNet(torch.nn.Module):
         if threaded_flag is None and isinstance(graph_cfg, dict):
             threaded_flag = graph_cfg.get("threaded_trunks", False)
         self.threaded_trunks: bool = bool(threaded_flag)
+        output_check_flag = pipeline_cfg.get("check_output_keys_each_time", None)
+        if output_check_flag is None and isinstance(graph_cfg, dict):
+            output_check_flag = graph_cfg.get("check_output_keys_each_time", None)
+        self.check_output_keys_each_time: bool = bool(
+            validate_output_keys_each_time or output_check_flag
+        )
         queue_size_cfg = pipeline_cfg.get("queue_size", 1)
         try:
             self.thread_queue_size: int = max(1, int(queue_size_cfg))
@@ -224,6 +234,7 @@ class AspenNet(torch.nn.Module):
         context.setdefault("shared", self.shared)
         context.setdefault("trunks", {})
         if self.threaded_trunks:
+            self._maybe_reraise_thread_error()
             return self._forward_threaded(context)
         grad_ctx = torch.enable_grad() if self.training else torch.no_grad()
         with grad_ctx:
@@ -360,6 +371,17 @@ class AspenNet(torch.nn.Module):
 
     # endregion
 
+    def _maybe_reraise_thread_error(self) -> None:
+        """Raise any exception captured from threaded trunk workers."""
+        err = self._thread_error
+        if err is None:
+            return
+        # Prefer wrapped exceptions that preserve original traceback.
+        reraise = getattr(err, "reraise", None)
+        if callable(reraise):
+            reraise()
+        raise err
+
     def _execute_node(self, node: _Node, context: Dict[str, Any]) -> None:
         trunk = node.module
         subctx = self._make_subcontext(trunk, context) if self.minimal_context else context
@@ -376,7 +398,24 @@ class AspenNet(torch.nn.Module):
             out = trunk(subctx) or {}
 
         declared = set(getattr(trunk, "output_keys", lambda: set())())
-        update_keys = declared if declared else set(out.keys())
+        returned_keys = set(out.keys())
+
+        if declared:
+            should_check = self.check_output_keys_each_time or (
+                node.name not in self._output_keys_validated
+            )
+            if should_check:
+                extra_keys = returned_keys - declared
+                if extra_keys:
+                    raise ValueError(
+                        f"AspenNet trunk '{node.name}' ({node.cls_path}) returned keys "
+                        f"{sorted(extra_keys)} not declared in output_keys(). "
+                        f"Declared keys: {sorted(declared)}"
+                    )
+                if not self.check_output_keys_each_time:
+                    self._output_keys_validated.add(node.name)
+
+        update_keys = declared if declared else returned_keys
 
         from .plugins.base import DeleteKey  # local import avoids cycle
 
@@ -447,8 +486,10 @@ class AspenNet(torch.nn.Module):
                                 assert self.num_concurrent > 0
                                 self.num_concurrent -= 1
                         except BaseException as exc:
+                            wrapper = _ExceptionWrapper(exc)
+                            self._thread_error = wrapper
                             print(exc)
-                            out_queue.put(_ExceptionWrapper(exc))
+                            out_queue.put(wrapper)
                             self.stop(wait=False)
                             break
                 finally:
