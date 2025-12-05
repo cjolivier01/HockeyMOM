@@ -37,6 +37,15 @@ plot:
   plot_ice_mask: false
 
 #
+# Aspen / video output defaults
+#
+aspen:
+  video_out:
+    # Whether to skip final container flush/save in VideoOutput.
+    # CLI flag --skip-final-video-save overrides this when provided.
+    skip_final_save: false
+
+#
 # Rink config
 #
 rink:

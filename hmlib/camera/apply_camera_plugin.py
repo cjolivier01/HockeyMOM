@@ -119,6 +119,7 @@ class ApplyCameraPlugin(Plugin):
             "output_frame_width": final_w,
             "output_frame_height": final_h,
             "output_aspect_ratio": float(final_w) / float(final_h),
+            "no_crop": not bool(getattr(cam_args, "crop_output_image", True)),
         }
 
         if self._pipeline_cfg:
@@ -157,7 +158,7 @@ class ApplyCameraPlugin(Plugin):
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
-            return {}
+            return {"img": context.get("img", None)}
         self._ensure_initialized(context)
         assert self._video_frame_cfg is not None
 
