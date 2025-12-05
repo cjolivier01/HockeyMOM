@@ -290,11 +290,13 @@ class ApplyCameraPlugin(Plugin):
             current_boxes = pipeline_outputs.pop("camera_box", current_boxes)
             results.update(pipeline_outputs)
 
+        results = {
+            "img": wrap_tensor(img),
+            "video_frame_cfg": self._video_frame_cfg,
+        }
         #  results["current_box"] = wrap_tensor(current_boxes)
         # if frame_ids is not None:
         #     results["frame_ids"] = frame_ids
-        # results["video_frame_cfg"] = self._video_frame_cfg
-        results = {"img": wrap_tensor(img)}
         if "end_zone_img" in pipeline_outputs:
             results["end_zone_img"] = pipeline_outputs["end_zone_img"]
         return results
@@ -320,6 +322,6 @@ class ApplyCameraPlugin(Plugin):
             # "current_box",
             # "frame_ids",
             # "pano_size_wh",
-            # "video_frame_cfg",
+            "video_frame_cfg",
             "end_zone_img",
         }
