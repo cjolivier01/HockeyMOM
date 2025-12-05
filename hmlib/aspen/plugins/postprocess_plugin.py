@@ -129,7 +129,7 @@ class CamPostProcessPlugin(Plugin):
         return {}
 
     def input_keys(self):
-        return {"data", "rink_profile", "shared"}
+        return {"data", "rink_profile", "shared", "original_images"}
 
     def output_keys(self):
         return {"arena"}
