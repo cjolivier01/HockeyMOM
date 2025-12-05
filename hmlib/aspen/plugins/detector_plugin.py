@@ -5,6 +5,8 @@ import torch
 
 from .base import Plugin
 from .detector_factory_plugin import _strip_static_padding
+from hmlib.utils.gpu import wrap_tensor, unwrap_tensor
+from hmlib.utils.image import make_channels_first
 
 
 class DetectorInferencePlugin(Plugin):
@@ -40,8 +42,9 @@ class DetectorInferencePlugin(Plugin):
         if detect_timer is not None:
             detect_timer.tic()
 
-        detection_image = data["img"]
-        assert detection_image.ndim == 5 and detection_image.size(0) == 1
+        detection_image = unwrap_tensor(data["img"])
+        data["img"] = detection_image
+
         track_samples = data.get("data_samples")
         # Accept either TrackDataSample or [TrackDataSample]
         if isinstance(track_samples, list):
@@ -65,15 +68,15 @@ class DetectorInferencePlugin(Plugin):
             )
 
             if isinstance(detection_image, torch.Tensor):
-                batch_inputs = detection_image.squeeze(0)
+                batch_inputs = detection_image
             else:
                 batch_inputs = torch.as_tensor(detection_image)
-                batch_inputs = batch_inputs.squeeze(0)
+                batch_inputs = batch_inputs
             if batch_inputs.ndim != 4:
                 raise AssertionError(
                     "DetectorInferencePlugin expects per-frame tensors shaped (T, C, H, W)"
                 )
-            batch_inputs = batch_inputs.contiguous()
+            batch_inputs = make_channels_first(batch_inputs).contiguous()
             assert batch_inputs.size(0) == video_len, "Mismatch between frames and detection inputs"
 
             batch_data_samples = []
@@ -102,7 +105,15 @@ class DetectorInferencePlugin(Plugin):
                 img_data_sample.pred_instances = _strip_static_padding(
                     det_sample.pred_instances, strip=False
                 )
-
+                img_data_sample.pred_instances.bboxes = wrap_tensor(
+                    img_data_sample.pred_instances.bboxes
+                )
+                img_data_sample.pred_instances.labels = wrap_tensor(
+                    img_data_sample.pred_instances.labels
+                )
+                img_data_sample.pred_instances.scores = wrap_tensor(
+                    img_data_sample.pred_instances.scores
+                )
         if detect_timer is not None:
             detect_timer.toc()
 
