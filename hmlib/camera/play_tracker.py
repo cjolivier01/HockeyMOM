@@ -156,9 +156,11 @@ class PlayTracker(torch.nn.Module):
         self._cam_ignore_largest: bool = bool(cam_ignore_largest)
         self._no_wide_start: bool = bool(no_wide_start)
         self._debug_play_tracker: bool = bool(debug_play_tracker)
-        self._plot_moving_boxes: bool = bool(plot_moving_boxes)
+        self._plot_moving_boxes: bool = bool(plot_moving_boxes) or debug_play_tracker
         self._plot_trajectories: bool = bool(plot_trajectories)
-        self._plot_individual_player_tracking: bool = bool(plot_individual_player_tracking)
+        self._plot_individual_player_tracking: bool = (
+            bool(plot_individual_player_tracking) or debug_play_tracker
+        )
         self._plot_boundaries: bool = bool(plot_boundaries)
         self._plot_all_detections: Optional[float] = plot_all_detections
         self._cpp_boxes = cpp_boxes
@@ -166,7 +168,7 @@ class PlayTracker(torch.nn.Module):
         self._playtracker: Union[PlayTracker, None] = None
         self._ui_dirty_paths: Set[Tuple[str, ...]] = set()
         self._hockey_mom: HockeyMOM = hockey_mom
-        self._plot_cluster_tracking = plot_cluster_tracking
+        self._plot_cluster_tracking = plot_cluster_tracking or debug_play_tracker
         self._plot_speed = bool(plot_speed)
         # Amount to scale speed-related calculations based upon non-standard fps
         self._play_box = clamp_box(play_box, hockey_mom._video_frame.bounding_box())
@@ -674,12 +676,12 @@ class PlayTracker(torch.nn.Module):
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             scalar_frame_id = video_data_sample.frame_id
             frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
-            det_count = (
-                len(video_data_sample.pred_instances.bboxes)
-                if hasattr(video_data_sample, "pred_instances")
-                and hasattr(video_data_sample.pred_instances, "bboxes")
-                else -1
-            )
+            # det_count = (
+            #     len(video_data_sample.pred_instances.bboxes)
+            #     if hasattr(video_data_sample, "pred_instances")
+            #     and hasattr(video_data_sample.pred_instances, "bboxes")
+            #     else -1
+            # )
             online_tlwhs = batch_tlbrs_to_tlwhs(video_data_sample.pred_track_instances.bboxes)
             online_ids = video_data_sample.pred_track_instances.instances_id
 
@@ -689,12 +691,12 @@ class PlayTracker(torch.nn.Module):
                 online_tlwhs = online_tlwhs.cpu()
                 online_ids = online_ids.cpu()
 
-            if debug:
-                try:
-                    n = int(len(online_ids))
-                except Exception:
-                    n = -1
-                logger.info(f"PlayTracker frame {int(scalar_frame_id)}: det={det_count} tracks={n}")
+            # if debug:
+            #     try:
+            #         n = int(len(online_ids))
+            #     except Exception:
+            #         n = -1
+            #     logger.info(f"PlayTracker frame {int(scalar_frame_id)}: det={det_count} tracks={n}")
 
             self.process_jerseys_info(
                 frame_index=frame_index, frame_id=scalar_frame_id, data=results
@@ -767,12 +769,12 @@ class PlayTracker(torch.nn.Module):
 
                 current_box = from_bbox(playtracker_results.tracking_boxes[1])
                 current_box_list.append(current_box)
-                if debug:
-                    logger.info(
-                        f"  boxes: fast={fast_roi_bounding_box.tolist()} current={current_box.tolist()}"
-                    )
+                # if debug:
+                #     logger.info(
+                #         f"  boxes: fast={fast_roi_bounding_box.tolist()} current={current_box.tolist()}"
+                #     )
 
-                if self._plot_moving_boxes:
+                if debug or self._plot_moving_boxes:
                     # Play box
                     if (
                         torch.sum(self._play_box == self._hockey_mom._video_frame.bounding_box())
