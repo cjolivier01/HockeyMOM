@@ -305,7 +305,7 @@ class IceRinkSegmConfigPlugin(Plugin):
         return results
 
     def input_keys(self):
-        return {"data", "game_id", "device"}
+        return {"data", "game_id"}
 
     def output_keys(self):
         return {"data", "rink_profile"}

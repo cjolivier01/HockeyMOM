@@ -413,7 +413,7 @@ def _main(args, num_gpu):
             is_detecting=not using_precalculated_tracking and not using_precalculated_detections,
             stitch_with_fastest=not args.detect_jersey_numbers,
         )
-        # Expose per-role devices to downstream components (Aspen trunks, postprocessor)
+        # Expose per-role devices to downstream components (Aspen plugins, postprocessor)
         args.camera_device = gpus.get("camera")
         args.encoder_device = gpus.get("encoder")
         if is_single_lowmem_gpu:
@@ -447,7 +447,7 @@ def _main(args, num_gpu):
         # Expose to downstream run_mmtrack() via args dict
         args.aspen = aspen_cfg_for_pipeline
 
-        # If ONNX/TRT detector flags are provided, thread them into Aspen trunks.detector_factory.params
+        # If ONNX/TRT detector flags are provided, thread them into Aspen plugins.detector_factory.params
         if args.aspen and isinstance(args.aspen, dict):
             try:
                 onnx_enable = bool(
@@ -455,7 +455,7 @@ def _main(args, num_gpu):
                     or args.detector_onnx_path
                     or args.detector_onnx_quantize_int8
                 )
-                trunks_cfg = args.aspen.setdefault("trunks", {}) or {}
+                trunks_cfg = args.aspen.setdefault("plugins", {}) or {}
                 # Optional static detection outputs (fixed-shape top-k)
                 static_det_enable = bool(getattr(args, "detector_static_detections", False))
                 static_det_max = int(getattr(args, "detector_static_max_detections", 0) or 0)
@@ -576,7 +576,7 @@ def _main(args, num_gpu):
                     pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf
-                args.aspen["trunks"] = trunks_cfg
+                args.aspen["plugins"] = trunks_cfg
             except Exception:
                 traceback.print_exc()
 
@@ -662,7 +662,7 @@ def _main(args, num_gpu):
             args.initial_args["original_clip_box"] = get_clip_box(
                 game_id=args.game_id, root_dir=args.root_dir
             )
-            # Keep a copy under game_config for Aspen trunks that read from game_config.initial_args
+            # Keep a copy under game_config for Aspen plugins that read from game_config.initial_args
             if hasattr(args, "game_config") and isinstance(args.game_config, dict):
                 args.game_config["initial_args"] = args.initial_args
 
@@ -987,7 +987,7 @@ def _main(args, num_gpu):
                             device=gpus["encoder"],
                         ),
                     )
-                # Make video_out_pipeline available to Aspen trunks via args
+                # Make video_out_pipeline available to Aspen plugins via args
                 args.video_out_pipeline = video_out_pipeline
             postprocessor = None
 

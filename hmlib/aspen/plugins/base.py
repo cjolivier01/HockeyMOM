@@ -1,4 +1,4 @@
-"""Base interfaces and helpers for Aspen pipeline trunks."""
+"""Base interfaces and helpers for Aspen pipeline plugins."""
 
 from contextlib import nullcontext
 from typing import Any, Dict, Optional, Set

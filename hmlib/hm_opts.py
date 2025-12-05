@@ -571,7 +571,7 @@ class hm_opts(object):
             "--aspen-threaded",
             dest="aspen_threaded",
             action="store_true",
-            help="Run Aspen trunks in threaded pipeline mode",
+            help="Run Aspen plugins in threaded pipeline mode",
         )
         aspen_thread_group.add_argument(
             "--no-aspen-threaded",
@@ -585,7 +585,7 @@ class hm_opts(object):
             dest="aspen_thread_queue_size",
             type=int,
             default=None,
-            help="Queue size between threaded Aspen trunks (defaults to 1)",
+            help="Queue size between threaded Aspen plugins (defaults to 1)",
         )
         aspen_stream_group = parser.add_mutually_exclusive_group()
         aspen_stream_group.add_argument(

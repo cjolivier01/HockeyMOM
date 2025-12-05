@@ -143,7 +143,7 @@ class PoseInferencerFactoryPlugin(Plugin):
         return {"pose_inferencer": self._inferencer}
 
     def input_keys(self):
-        return {"device"}
+        return {"device", "using_precalculated_detection"}
 
     def output_keys(self):
         return {"pose_inferencer"}

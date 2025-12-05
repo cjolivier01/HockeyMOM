@@ -6,39 +6,6 @@ import pytest
 from hmlib.aspen import AspenNet, Plugin
 
 
-class BadOutputPlugin(Plugin):
-    """Plugin that always returns an undeclared key."""
-
-    def input_keys(self) -> Set[str]:
-        return set()
-
-    def output_keys(self) -> Set[str]:
-        return {"allowed_key"}
-
-    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
-        return {"allowed_key": 1, "extra_key": 2}
-
-
-class FlakyOutputPlugin(Plugin):
-    """Plugin that only returns an extra key on subsequent calls."""
-
-    def __init__(self):
-        super().__init__()
-        self.calls = 0
-
-    def input_keys(self) -> Set[str]:
-        return set()
-
-    def output_keys(self) -> Set[str]:
-        return {"value"}
-
-    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
-        self.calls += 1
-        if self.calls == 1:
-            return {"value": self.calls}
-        return {"value": self.calls, "extra_key": 99}
-
-
 def make_graph(class_path: str, threaded: bool = False, pipeline: Dict[str, Any] | None = None):
     graph: Dict[str, Any] = {
         "trunks": {
@@ -57,7 +24,7 @@ def make_graph(class_path: str, threaded: bool = False, pipeline: Dict[str, Any]
 
 
 def should_output_keys_violation_raise_non_threaded():
-    graph = make_graph("test_aspen_output_keys.BadOutputPlugin")
+    graph = make_graph("hmlib.aspen.plugins.test_output_keys_plugin.BadOutputPlugin")
     net = AspenNet("non_threaded", graph)
 
     with pytest.raises(ValueError) as excinfo:
@@ -69,7 +36,7 @@ def should_output_keys_violation_raise_non_threaded():
 
 
 def should_output_keys_be_checked_only_first_call_by_default():
-    graph = make_graph("test_aspen_output_keys.FlakyOutputPlugin")
+    graph = make_graph("hmlib.aspen.plugins.test_output_keys_plugin.FlakyOutputPlugin")
     net = AspenNet("default_check_once", graph)
 
     context: Dict[str, Any] = {}
@@ -83,7 +50,7 @@ def should_output_keys_be_checked_only_first_call_by_default():
 
 def should_output_keys_be_checked_every_call_when_enabled():
     graph = make_graph(
-        "test_aspen_output_keys.FlakyOutputPlugin",
+        "hmlib.aspen.plugins.test_output_keys_plugin.FlakyOutputPlugin",
         threaded=False,
         pipeline={"check_output_keys_each_time": True},
     )
@@ -99,7 +66,7 @@ def should_output_keys_be_checked_every_call_when_enabled():
 
 def should_output_keys_violation_be_propagated_in_threaded_mode():
     graph = make_graph(
-        "test_aspen_output_keys.BadOutputPlugin",
+        "hmlib.aspen.plugins.test_output_keys_plugin.BadOutputPlugin",
         threaded=True,
         pipeline={"threaded": True, "queue_size": 1},
     )

@@ -24,7 +24,18 @@ aspen:
       scale: 1.0
 
   # Default camera post-processing pipeline (was in hm_end_to_end.py)
+  # Default camera post-processing pipeline (was in hm_end_to_end.py)
   video_out_pipeline:
+    - type: HmImageColorAdjust
+      # Runtime-tunable via camera UI (PlayTracker) or CLI
+      # Defaults to no-op; UI writes values under rink.camera.color
+      # white_balance: GLOBAL.camera.color.white_balance
+      # brightness: GLOBAL.camera.color.brightness
+      # contrast: GLOBAL.camera.color.contrast
+      # gamma: GLOBAL.camera.color.gamma
+    - type: HmUnsharpMask
+      enabled: false
+      image_label: img
     - type: HmConfigureScoreboard
     - type: HmCaptureScoreboard
     - type: HmPerspectiveRotation
@@ -32,14 +43,11 @@ aspen:
     - type: HmCropToVideoFrame
     - type: HmRenderScoreboard
       image_labels: [img, end_zone_img]
-    - type: HmUnsharpMask
-      enabled: false
-      image_label: img
     - type: HmImageOverlays
       watermark_config:
         image: images/sports_ai_watermark.png
 
-  trunks:
+  plugins:
     image_prep:
       class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
       depends: []

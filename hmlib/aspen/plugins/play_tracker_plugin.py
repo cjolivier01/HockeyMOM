@@ -86,7 +86,7 @@ class PlayTrackerPlugin(Plugin):
         track_container = results["data_samples"]
         vds = track_container.video_data_samples[0]
         prof = getattr(vds, "metainfo", {}).get("rink_profile", None)
-        image = results["origin_imgs"]
+        image = results["original_images"]
         if prof and "combined_bbox" in prof:
             play_box = torch.tensor(prof["combined_bbox"], dtype=torch.int64, device=image.device)
             ww, hh = width(play_box), height(play_box)
@@ -126,13 +126,13 @@ class PlayTrackerPlugin(Plugin):
         self._clip_box = shared.get("original_clip_box")
         # Prefer provided device; fallback to image's device
         dev = context.get("device")
-        if dev is None and isinstance(results.get("origin_imgs"), torch.Tensor):
-            dev = results["origin_imgs"].device
+        if dev is None and isinstance(results.get("original_images"), torch.Tensor):
+            dev = results["original_images"].device
         self._device = (
             dev if isinstance(dev, torch.device) else torch.device(str(dev) if dev else "cuda")
         )
         # Determine video geometry and fps
-        ori = results["origin_imgs"]
+        ori = results["original_images"]
         H = int(ori.shape[-2])
         W = int(ori.shape[-1])
         fps = None
@@ -230,7 +230,7 @@ class PlayTrackerPlugin(Plugin):
         # Build results dictionary expected by PlayTracker
         results: Dict[str, Any] = {
             "data_samples": data.get("data_samples"),
-            "origin_imgs": context.get("origin_imgs"),
+            "original_images": context.get("original_images"),
         }
         # Optional per-frame annotations propagated if present
         for k in ("jersey_results", "action_results"):
@@ -255,8 +255,7 @@ class PlayTrackerPlugin(Plugin):
             "device",
             "shared",
             "arena",
-            "origin_imgs",
-            "rink_profile",
+            "original_images",
         }
 
     def output_keys(self) -> set[str]:
@@ -264,8 +263,11 @@ class PlayTrackerPlugin(Plugin):
             self._output_keys: set[str] = {
                 "img",
                 "current_box",
+                "current_fast_box_list",
+                # "frame_ids",
                 "player_bottom_points",
                 "player_ids",
                 "play_box",
+                "rink_profile",
             }
         return self._output_keys

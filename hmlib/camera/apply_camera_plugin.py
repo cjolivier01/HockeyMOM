@@ -12,7 +12,7 @@ from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
-from hmlib.utils.gpu import StreamTensorBase
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import image_height, image_width, make_channels_last
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
@@ -167,7 +167,9 @@ class ApplyCameraPlugin(Plugin):
         if img is None:
             return {}
 
-        frame_ids = context.get("frame_ids")
+        img = unwrap_tensor(img)
+
+        # frame_ids = context.get("frame_ids")
         current_boxes = context.get("current_box")
 
         results: Dict[str, Any] = {}
@@ -190,9 +192,6 @@ class ApplyCameraPlugin(Plugin):
             current_boxes = current_boxes.clone().to(img.device, non_blocking=True)
 
         # Resolve streamed / numpy images to concrete tensors
-        if isinstance(img, StreamTensorBase):
-            img._verbose = True
-            img = img.get()
         if isinstance(img, np.ndarray):
             img = torch.from_numpy(img)
         if img.ndim == 3:
@@ -290,32 +289,36 @@ class ApplyCameraPlugin(Plugin):
             current_boxes = pipeline_outputs.pop("camera_box", current_boxes)
             results.update(pipeline_outputs)
 
-        results["img"] = img
-        results["current_box"] = current_boxes
-        if frame_ids is not None:
-            results["frame_ids"] = frame_ids
-        results["video_frame_cfg"] = self._video_frame_cfg
+        #  results["current_box"] = wrap_tensor(current_boxes)
+        # if frame_ids is not None:
+        #     results["frame_ids"] = frame_ids
+        # results["video_frame_cfg"] = self._video_frame_cfg
+        results = {"img": wrap_tensor(img)}
+        if "end_zone_img" in pipeline_outputs:
+            results["end_zone_img"] = pipeline_outputs["end_zone_img"]
         return results
 
-    def input_keys(self):
-        return {
-            "img",
-            "current_box",
-            "frame_ids",
-            "current_fast_box_list",
-            "play_box",
-            "shared",
-            "data",
-            "rink_profile",
-            "game_id",
-        }
+    def input_keys(self) -> set[str]:
+        if not hasattr(self, "_input_keys"):
+            self._input_keys = {
+                "img",
+                "current_box",
+                "frame_ids",
+                "current_fast_box_list",
+                "play_box",
+                "shared",
+                "data",
+                "rink_profile",
+                "game_id",
+            }
+        return self._input_keys
 
-    def output_keys(self):
+    def output_keys(self) -> set[str]:
         return {
             "img",
-            "current_box",
-            "frame_ids",
-            "pano_size_wh",
-            "video_frame_cfg",
+            # "current_box",
+            # "frame_ids",
+            # "pano_size_wh",
+            # "video_frame_cfg",
             "end_zone_img",
         }

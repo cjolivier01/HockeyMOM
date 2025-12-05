@@ -412,15 +412,21 @@ class StreamCheckpoint(StreamTensorX):
 def unwrap_tensor(
     tensor: Union[torch.Tensor, StreamTensorBase],
     current_stream: Optional[torch.cuda.Stream] = None,
+    verbose: Optional[bool] = None,
 ) -> torch.Tensor:
     if isinstance(tensor, StreamTensorBase):
+        if verbose is not None:
+            tensor.verbose = verbose
         return tensor.wait(current_stream)
     return tensor
 
 
-def wrap_tensor(tensor: Union[torch.Tensor, StreamTensorBase]) -> StreamTensorX:
+def wrap_tensor(
+    tensor: Union[torch.Tensor, StreamTensorBase], verbose: bool = True
+) -> StreamTensorX:
     if isinstance(tensor, StreamTensorBase):
         tensor.checkpoint()
+        tensor.verbose = verbose
         return tensor
     return StreamTensorX(tensor)
 
