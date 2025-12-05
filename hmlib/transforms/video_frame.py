@@ -8,27 +8,15 @@ Aspen pipelines to prepare frames for downstream models.
 
 from typing import Any, Dict, List, Union
 
+import numpy as np
 import torch
 from mmengine.registry import TRANSFORMS
 
 from hmlib.algo.unsharp_mask import unsharp_mask
+from hmlib.bbox.box_functions import height, width
 from hmlib.log import logger
-from hmlib.utils.gpu import StreamTensorBase
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 from hmlib.utils.image import crop_image, image_height, image_width, resize_image, to_float_image
-
-
-def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:
-    """Convert a possibly streamed tensor to a concrete :class:`torch.Tensor`.
-
-    @param tensor: Plain tensor or :class:`hmlib.utils.gpu.StreamTensorBase`.
-    @return: Synchronized tensor on the same device.
-    @see @ref hmlib.utils.gpu.StreamTensorBase "StreamTensorBase" for details.
-    """
-    if isinstance(tensor, StreamTensorBase):
-        tensor._verbose = True
-        # return tensor.get()
-        return tensor.wait()
-    return tensor
 
 
 @TRANSFORMS.register_module()
@@ -42,11 +30,16 @@ class HmCropToVideoFrame:
     @see @ref HmUnsharpMask "HmUnsharpMask" for optional sharpening later in the pipeline.
     """
 
-    def __init__(self, crop_image: bool = True, unsharp_mask: bool = True):
+    def __init__(
+        self, crop_image: bool = True, unsharp_mask: bool = True, enabled: bool = True
+    ) -> None:
         self._crop_image = crop_image
         self._unsharp_mask = unsharp_mask
+        self._enabled = enabled
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._enabled:
+            return results
         video_frame_cfg = results["video_frame_cfg"]
         images = results.pop("img")
         if not self._crop_image:
@@ -59,25 +52,33 @@ class HmCropToVideoFrame:
             return results
         current_boxes = results["camera_box"]
         cropped_images: List[torch.Tensor] = []
+        src_image_height = image_height(images)
+        src_image_width = image_width(images)
+        images = unwrap_tensor(images)
+        if not torch.is_floating_point(images):
+            images = to_float_image(images, dtype=torch.float)
         for img, bbox in zip(images, current_boxes):
-            src_image_height = image_height(img)
-            src_image_width = image_width(img)
-            img = _slow_to_tensor(img)
-            img = to_float_image(img, non_blocking=True, dtype=torch.float)
+            # box_h = height(bbox)
+            # box_w = width(bbox)
+            # box_ar = box_w / box_h
+            # assert np.isclose(float(box_ar), float(video_frame_cfg["output_aspect_ratio"]))
             intbox = [int(i) for i in bbox]
             x1 = intbox[0]
             y1 = intbox[1]
             y2 = intbox[3]
-            x2 = int(x1 + int(float(y2 - y1) * video_frame_cfg["output_aspect_ratio"]))
-            if True:
-                if not (y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0):
-                    pass
+            x2 = intbox[2]
+            # x2 = int(x1 + int(float(y2 - y1) * video_frame_cfg["output_aspect_ratio"]))
+            # if True:
+            #     if not (y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0):
+            #         pass
             assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
             if y1 > src_image_height or y2 > src_image_height:
+                assert False
                 logger.info(f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}")
                 y1 = min(y1, src_image_height)
                 y2 = min(y2, src_image_height)
             if x1 > src_image_width or x2 > src_image_width:
+                assert False
                 logger.info(f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}")
                 x1 = min(x1, src_image_width)
                 x2 = min(x2, src_image_width)
@@ -85,7 +86,15 @@ class HmCropToVideoFrame:
             img = crop_image(img, x1, y1, x2, y2)
             video_frame_width = int(video_frame_cfg["output_frame_width"])
             video_frame_height = int(video_frame_cfg["output_frame_height"])
-            if image_height(img) != video_frame_height or image_width(img) != video_frame_width:
+            image_h = image_height(img)
+            image_w = image_width(img)
+            # Make sure they have the same aspect ratio
+            image_ar = image_w / image_h
+            vf_ar = video_frame_width / video_frame_height
+            assert np.isclose(image_ar, vf_ar, 0.001, 0.001), (
+                f"Image aspect ratio {image_ar} does not match " f"video frame aspect ratio {vf_ar}"
+            )
+            if image_h != video_frame_height or image_w != video_frame_width:
                 img = resize_image(
                     img=img,
                     new_width=video_frame_width,
@@ -122,4 +131,5 @@ class HmUnsharpMask:
             # if self._flip:
             results[self._image_label] = unsharp_mask(results[self._image_label])
         # self._count += 1
+        return results
         return results

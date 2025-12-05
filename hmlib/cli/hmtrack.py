@@ -1134,6 +1134,47 @@ def main():
         if merged_extra:
             game_config = recursive_update(game_config, merged_extra)
 
+    # Propagate CLI plotting/debug flags into the consolidated config before
+    # resolving GLOBAL.* references so Aspen plugins (e.g., PlayTrackerPlugin)
+    # see the updated values via GLOBAL.plot.*.
+    try:
+        # Helper: set plot.<key> from args.<attr> when truthy / non-None.
+        def _set_plot_from_arg(plot_key: str, arg_name: str, allow_false: bool = False):
+            if not hasattr(args, arg_name):
+                return
+            val = getattr(args, arg_name)
+            if isinstance(val, bool) and not val and not allow_false:
+                return
+            if val is None:
+                return
+            set_nested_value(game_config, f"plot.{plot_key}", val)
+
+        _set_plot_from_arg("debug_play_tracker", "debug_play_tracker")
+        _set_plot_from_arg("plot_moving_boxes", "plot_moving_boxes")
+        _set_plot_from_arg("plot_trajectories", "plot_trajectories")
+        _set_plot_from_arg("plot_jersey_numbers", "plot_jersey_numbers")
+        _set_plot_from_arg("plot_actions", "plot_actions")
+        _set_plot_from_arg("plot_pose", "plot_pose")
+        _set_plot_from_arg("plot_ice_mask", "plot_ice_mask")
+        _set_plot_from_arg("plot_all_detections", "plot_all_detections", allow_false=True)
+        # Treat --debug>=1 as enabling PlayTracker debug logging, equivalent
+        # to passing --debug-play-tracker.
+        try:
+            dbg_val = getattr(args, "debug", 0)
+            if isinstance(dbg_val, str):
+                dbg_val = int(dbg_val)
+        except Exception:
+            dbg_val = 0
+        if dbg_val and int(dbg_val) >= 1:
+            set_nested_value(game_config, "plot.debug_play_tracker", True)
+        # Convenience flag: --plot-tracking maps to individual tracking + boundaries.
+        if getattr(args, "plot_tracking", False):
+            set_nested_value(game_config, "plot.plot_individual_player_tracking", True)
+            set_nested_value(game_config, "plot.plot_boundaries", True)
+    except Exception:
+        # Plotting overrides are non-fatal; fall back to config defaults on error.
+        pass
+
     game_config = resolve_global_refs(game_config)
 
     # Set up the task flags

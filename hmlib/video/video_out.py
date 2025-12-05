@@ -187,7 +187,6 @@ class VideoOutput(torch.nn.ModuleDict):
         output_frame_width: Union[int, float, torch.Tensor],
         output_frame_height: Union[int, float, torch.Tensor],
         fps: float,
-        video_out_pipeline: Dict[str, Any] | None = None,
         fourcc: str = "auto",
         bit_rate: int = int(55e6),
         save_frame_dir: str | None = None,
@@ -220,8 +219,6 @@ class VideoOutput(torch.nn.ModuleDict):
         @param output_frame_height: Final output height in pixels. Same type
                                     semantics as ``output_frame_width``.
         @param fps: Frames per second to encode the output stream with.
-        @param video_out_pipeline: Deprecated; camera processing/pipelines are
-                                   handled upstream and ignored here.
         @param fourcc: Codec identifier. Use ``"auto"`` to pick a codec based
                        on GPU capabilities (e.g., ``"hevc_nvenc"`` or ``"XVID"``).
         @param bit_rate: Target bitrate in bits per second for the encoder.

@@ -183,11 +183,11 @@ aspen:
         model_path: null
         window: 8
 
-    postprocess:
-      class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
-      depends: [tracker, camera_controller, ice_config]
-      enabled: true
-      params: {}
+    # postprocess:
+    #   class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
+    #   depends: [tracker, camera_controller, ice_config]
+    #   enabled: true
+    #   params: {}
 
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
@@ -195,7 +195,7 @@ aspen:
       depends: [
         tracker, 
         camera_controller, 
-        postprocess,
+        # postprocess,
       ]
       enabled: true
       params:
