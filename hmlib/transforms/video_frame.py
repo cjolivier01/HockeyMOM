@@ -6,7 +6,7 @@ Aspen pipelines to prepare frames for downstream models.
 @see @ref hmlib.hm_opts.hm_opts "hm_opts" for CLI flags that configure video-frame behavior.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 import numpy as np
 import torch
@@ -14,8 +14,16 @@ from mmengine.registry import TRANSFORMS
 
 from hmlib.algo.unsharp_mask import unsharp_mask
 from hmlib.log import logger
-from hmlib.utils.gpu import unwrap_tensor
-from hmlib.utils.image import crop_image, image_height, image_width, resize_image, to_float_image
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
+from hmlib.utils.image import (
+    crop_image,
+    image_height,
+    image_width,
+    make_channels_last,
+    resize_image,
+    to_float_image,
+    to_uint8_image,
+)
 
 
 @TRANSFORMS.register_module()
@@ -126,4 +134,54 @@ class HmUnsharpMask:
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if self._enabled:
             results[self._image_label] = unsharp_mask(results[self._image_label])
+        return results
+        self._image_label = image_label
+
+    def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        if self._enabled:
+            results[self._image_label] = unsharp_mask(results[self._image_label])
+        return results
+
+
+@TRANSFORMS.register_module()
+class HmMakeVisibleImage:
+    """Convert image tensors to a visible format for saving or display.
+
+    This transform ensures that the image tensor has
+    channels-last memory layout, and is in uint8 format with values in [0, 255].
+    Also makes it contiguous in memory.
+
+    Expects ``results`` to contain an image tensor under ``\"img\"``.
+
+    @param enabled: If ``True``, apply the conversion to each call.
+    """
+
+    def __init__(self, enabled: bool = True, image_labels: list[str] = ["img", "ez_img"]) -> None:
+        self._enabled = enabled
+        self._image_labels = image_labels
+
+    @staticmethod
+    def _make_visible_image(
+        img: Union[torch.Tensor, StreamTensorBase],
+    ) -> torch.Tensor:
+        """Convert an input image tensor to a visible uint8 format.
+
+        This method assumes the input is either:
+          - A floating-point tensor in [0, 1] range.
+          - An integer tensor in [0, 255] range.
+        """
+        img = unwrap_tensor(img)
+        img = make_channels_last(img)
+        img = to_uint8_image(img)
+        img = img.contiguous()
+        return img
+
+    def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._enabled:
+            return results
+        for label in self._image_labels:
+            img = results.get(label)
+            if img is None:
+                continue
+            results[label] = self._make_visible_image(img)
         return results
