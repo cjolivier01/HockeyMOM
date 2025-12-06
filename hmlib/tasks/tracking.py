@@ -13,6 +13,7 @@ from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import cuda_stream_scope
+from hmlib.utils.image import make_channels_first
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
 
@@ -263,11 +264,15 @@ def run_mmtrack(
             prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
             with prof_ctx:
                 for cur_iter, dataset_results in enumerate(dataloader_iterator):
-                    original_images, data, _, info_imgs, ids = dataset_results.pop("pano")
+                    data_item = dataset_results.pop("pano")
+                    original_images = data_item.pop("original_images")
+                    info_imgs = data_item["img_info"]
+                    ids = data_item["ids"]
+
                     if fps:
-                        data["fps"] = fps
+                        data_item["fps"] = fps
                     with torch.no_grad():
-                        frame_id = info_imgs[2][0]
+                        frame_id = info_imgs["frame_id"]
 
                     batch_size = original_images.shape[0]
 
@@ -286,8 +291,8 @@ def run_mmtrack(
                         # Execute the configured DAG
                         # Prepare per-iteration context
                         iter_context: Dict[str, Any] = dict(
-                            original_images=original_images,
-                            data=data,
+                            original_images=make_channels_first(original_images),
+                            data=data_item,
                             ids=ids,
                             info_imgs=info_imgs,
                             frame_id=int(frame_id),

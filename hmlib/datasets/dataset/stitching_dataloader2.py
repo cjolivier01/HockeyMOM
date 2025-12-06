@@ -30,7 +30,13 @@ from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope
-from hmlib.utils.image import image_height, image_width, make_channels_last, make_visible_image
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    make_visible_image,
+)
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.utils.tensor import make_const_tensor
@@ -549,7 +555,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             raise ValueError(
                 f"Expected tensor of shape (C, H, W) or (B, C, H, W), got {tensor.shape}"
             )
-
+        tensor = make_channels_first(tensor)
         B, C, H, W = tensor.shape
         if C == 4:
             return tensor[0] if squeezed else tensor  # Already RGBA
@@ -718,7 +724,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                 wait=False,
                                 enable_resizing=0.2,
                             )
-                    blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
+                    blended_stream_tensor = StreamCheckpoint(blended_stream_tensor)
 
             self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
             if self._capture_rgb_stats and rgb_stats is not None:
