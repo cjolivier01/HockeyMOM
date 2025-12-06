@@ -61,6 +61,15 @@ class hm_opts(object):
         )
         parser.add_argument("--debug", default=0, type=int, help="debug level")
         parser.add_argument(
+            "--checkerboard-input",
+            dest="checkerboard_input",
+            action="store_true",
+            help=(
+                "Replace input video frames with a synthetic checkerboard pattern "
+                "and emit per-frame RGB statistics for debugging."
+            ),
+        )
+        parser.add_argument(
             "--crop-play-box",
             default=None,
             type=int,
@@ -1044,6 +1053,7 @@ class hm_opts(object):
     CONFIG_TO_ARGS = [
         # "model.tracker.pre_hm": "pre_hm",
         "model.tracker",
+        "debug",
     ]
 
     @staticmethod

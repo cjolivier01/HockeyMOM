@@ -802,11 +802,13 @@ def _main(args, num_gpu):
                     config_ref=args.game_config,
                     left_color_pipeline=left_stitch_pipeline_cfg,
                     right_color_pipeline=right_stitch_pipeline_cfg,
+                    capture_rgb_stats=bool(getattr(args, "checkerboard_input", False)),
+                    checkerboard_input=args.checkerboard_input,
                 )
-                try:
-                    cam_args.stitch_rotation_controller = stitched_dataset
-                except Exception:
-                    pass
+                # try:
+                #     cam_args.stitch_rotation_controller = stitched_dataset
+                # except Exception:
+                #     pass
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
                 mot_dataloader = MOTLoadVideoWithOrig(
@@ -823,6 +825,7 @@ def _main(args, num_gpu):
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                     async_mode=not args.no_async_dataset,
+                    checkerboard_input=args.checkerboard_input,
                 )
                 try:
                     mot_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -861,6 +864,7 @@ def _main(args, num_gpu):
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                     async_mode=not args.no_async_dataset,
+                    checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
                 )
                 try:
                     pano_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -886,6 +890,7 @@ def _main(args, num_gpu):
                             original_image_only=True,
                             no_cuda_streams=args.no_cuda_streams,
                             async_mode=args.no_async_dataset,
+                            checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
                         )
                     try:
                         extra_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -1162,6 +1167,9 @@ def main():
         # resolves to True.
         if getattr(args, "skip_final_video_save", None):
             set_nested_value(game_config, "aspen.video_out.skip_final_save", True)
+        # Enable RGB stats checker when checkerboard-input debugging is active.
+        if getattr(args, "checkerboard_input", False):
+            set_nested_value(game_config, "debug.rgb_stats_check.enable", True)
         # Treat --debug>=1 as enabling PlayTracker debug logging, equivalent
         # to passing --debug-play-tracker.
         try:

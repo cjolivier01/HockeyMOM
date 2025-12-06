@@ -169,6 +169,10 @@ rink:
       # After nonstop (breakaway catch-up) ends, optionally brake to stop over N frames
       post_nonstop_stop_delay_count: 6
 
+debug:
+  rgb_stats_check:
+    enable: false
+
 #
 # Game config
 #
