@@ -95,7 +95,7 @@ inference_pipeline = [
     dict(type="LoadImageFromFile"),
     # Crop first in order to not affect any subsequent coordinates,
     # as well as not waste compute on parts of the image that will be thrown away
-    dict(type="HmCrop", keys=["img"], save_clipped_images=True),
+    dict(type="HmCrop", keys=["img"]),
     # Make sure this is a PyTorch tensor
     dict(type="HmImageToTensor", keys=["img"]),
     # Find ice rink segmentation
@@ -109,7 +109,6 @@ inference_pipeline = [
         size_divisor=32,
     ),
     # Not sure exactly what this does.  Puts stuff in particular dicrt entries, maybe?
-    # dict(type="HmVideoCollect", keys=["img", "clipped_image"]),
     dict(type="mmdet.PackTrackInputs", meta_keys=("img_metas", "rink_profile")),
 ]
 

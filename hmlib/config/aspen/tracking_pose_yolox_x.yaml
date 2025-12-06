@@ -4,7 +4,6 @@ aspen:
     - type: LoadImageFromFile
     - type: HmCrop
       keys: [img]
-      save_clipped_images: true
     - type: HmImageToTensor
       keys: [img]
       scale_factor: 255.0

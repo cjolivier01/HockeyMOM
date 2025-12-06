@@ -1400,16 +1400,15 @@ class HmImageColorAdjust:
 
 @TRANSFORMS.register_module()
 class HmCrop:
+
     def __init__(
         self,
         rectangle: List[int] = list(),
         keys: List[str] = list(),
-        save_clipped_images: bool = False,
     ):
         self.keys = keys
         self.rectangle = rectangle
         self.calculated_clip_boxes: Dict = dict()
-        self.save_clipped_images = save_clipped_images
         if self.rectangle is not None:
             if isinstance(self.rectangle, (list, tuple)):
                 if not any(item is not None for item in self.rectangle):
@@ -1463,10 +1462,6 @@ class HmCrop:
                         # TODO: shape probably needs to be 2 elements only
                         results["img_shape"] = [torch.tensor(img.shape, dtype=torch.int64)]
                         results["ori_shape"] = [results["img_shape"][0].clone()]
-                    if self.save_clipped_images:
-                        if "clipped_image" not in results:
-                            results["clipped_image"] = dict()
-                        results["clipped_image"][key] = img
             return results
 
     def __repr__(self):
