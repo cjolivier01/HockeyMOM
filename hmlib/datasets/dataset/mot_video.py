@@ -592,14 +592,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     raise
             # END READ NEXT IMAGE
 
-            # if self._path_list:
-            #     show_image(
-            #         # show_cuda_tensor(
-            #         self._path_list[0],
-            #         make_visible_image(img0),
-            #         wait=False,
-            #     )
-
             if isinstance(img0, np.ndarray):
                 img0 = torch.from_numpy(img0)
 
@@ -747,7 +739,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 and self._device_for_original_image != orig_img.device
             ):
                 orig_img = orig_img.to(device=self._device_for_original_image, non_blocking=True)
-            return StreamCheckpoint(orig_img)
+            return wrap_tensor(orig_img)
 
         # END _wrap_original_image
 
@@ -763,7 +755,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             data_item.update(
                 dict(
                     original_images=_wrap_original_image(original_img0),
-                    img=StreamCheckpoint(tensor=img),
+                    img=wrap_tensor(img),
                     imgs_info=imgs_info,
                     ids=ids,
                 )

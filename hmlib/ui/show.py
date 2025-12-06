@@ -74,7 +74,6 @@ def show_image(
                 label,
                 make_visible_image(
                     i,
-                    # scale_elements=255.0,
                     enable_resizing=enable_resizing,
                     force_numpy=True,
                 ),
@@ -85,7 +84,6 @@ def show_image(
             label,
             make_visible_image(
                 img,
-                # scale_elements=255.0,
                 enable_resizing=enable_resizing,
                 force_numpy=True,
             ),
