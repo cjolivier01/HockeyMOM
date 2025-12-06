@@ -57,8 +57,6 @@ class VideoOutPlugin(Plugin):
         self._no_cuda_streams = bool(no_cuda_streams)
         self._skip_final_save = bool(skip_final_save)
         self._save_dir = save_frame_dir
-        # self._final_w: Optional[int] = None
-        # self._final_h: Optional[int] = None
 
     def is_output(self) -> bool:
         """If enabled, this node is an output."""
@@ -94,39 +92,6 @@ class VideoOutPlugin(Plugin):
             img = context.get("data", {}).get("original_images")
         assert img is not None, "VideoOutPlugin requires 'img' in context"
 
-        # Decide final output size
-        # H = int(image_height(img))
-        # W = int(image_width(img))
-        # ar = 16.0 / 9.0
-        # play_box = context.get("play_box")
-
-        # if cam_args.no_crop:
-        #     final_w = W
-        #     final_h = H
-        # elif getattr(cam_args, "crop_play_box", False):
-        #     if getattr(cam_args, "crop_output_image", True):
-        #         final_h = H if play_box is None else int((play_box[3] - play_box[1]))
-        #         final_w = int(final_h * ar)
-        #         if final_w > MAX_NEVC_VIDEO_WIDTH:
-        #             final_w = MAX_NEVC_VIDEO_WIDTH
-        #             final_h = int(final_w / ar)
-        #     else:
-        #         final_h = H if play_box is None else int((play_box[3] - play_box[1]))
-        #         final_w = W if play_box is None else int((play_box[2] - play_box[0]))
-        # else:
-        #     if getattr(cam_args, "crop_output_image", True):
-        #         final_h = H
-        #         final_w = int(final_h * ar)
-        #         if final_w > MAX_NEVC_VIDEO_WIDTH:
-        #             final_w = MAX_NEVC_VIDEO_WIDTH
-        #             final_h = int(final_w / ar)
-        #     else:
-        #         final_h = H
-        #         final_w = W
-
-        # self._final_w = int(final_w)
-        # self._final_h = int(final_h)
-
         device = shared.get("device")
         vo_dev = self._vo_dev if self._vo_dev is not None else device
         if not self._out_path:
@@ -142,21 +107,16 @@ class VideoOutPlugin(Plugin):
 
         self._vo = VideoOutput(
             output_video_path=out_path,
-            # output_frame_width=self._final_w,
-            # output_frame_height=self._final_h,
             fps=fps,
             bit_rate=getattr(cam_args, "output_video_bit_rate", int(55e6)),
             save_frame_dir=self._save_dir,
             name="TRACKING",
             skip_final_save=self._skip_final_save,
-            original_clip_box=shared.get("original_clip_box"),
             cache_size=self._cache,
-            no_cuda_streams=self._no_cuda_streams,
             device=vo_dev,
             show_image=bool(getattr(cam_args, "show_image", False)),
             show_scaled=getattr(cam_args, "show_scaled", None),
             profiler=getattr(cam_args, "profiler", None),
-            game_config=None,
             enable_end_zones=False,
         )
         self._vo = self._vo.to(device)
@@ -164,18 +124,6 @@ class VideoOutPlugin(Plugin):
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
-        # We expect img/current_box/frame_ids present from prior trunk
-        # results = {
-        #     "img": context.get("img"),
-        #     "current_box": context.get("current_box"),
-        #     "frame_ids": context.get("frame_ids"),
-        #     "game_id": context.get("game_id"),
-        # }
-        # Preserve optional extras for overlays
-        # for k in ("player_bottom_points", "player_ids", "rink_profile", "pano_size_wh"):
-        #     if k in context:
-        #         results[k] = context[k]
-
         self._ensure_initialized(context)
         assert self._vo is not None
         # Call VideoOutput as a regular nn.Module (forward) to write frames.

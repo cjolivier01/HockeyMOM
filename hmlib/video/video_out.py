@@ -32,11 +32,7 @@ from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
-from .video_stream import (
-    VideoStreamWriterInterface,
-    clamp_max_video_dimensions,
-    create_output_video_stream,
-)
+from .video_stream import VideoStreamWriterInterface, create_output_video_stream
 
 standard_8k_width: int = 7680
 standard_8k_height: int = 4320
@@ -196,20 +192,15 @@ class VideoOutput(torch.nn.ModuleDict):
         name: str = "",
         simple_save: bool = False,
         skip_final_save: bool = False,
-        image_channel_adjustment: List[float] | None = None,
-        print_interval: int = 50,
-        original_clip_box: torch.Tensor | None = None,
         progress_bar: ProgressBar | None = None,
         cache_size: int = 2,
         clip_to_max_dimensions: bool = True,
         visualization_config: Dict[str, Any] | None = None,
-        no_cuda_streams: bool = False,
         dtype: torch.dtype | None = None,
         device: Union[torch.device, str, None] = None,
         show_image: bool = False,
         show_scaled: Optional[float] = None,
         profiler: Any = None,
-        game_config: Optional[Dict[str, Any]] = None,
         enable_end_zones: bool = False,
     ):
         """Construct a synchronous video writer.
@@ -242,9 +233,6 @@ class VideoOutput(torch.nn.ModuleDict):
                                       down to encoder-specific maximums (e.g., 8K).
         @param visualization_config: Reserved for future visualization options
                                      (not currently consumed).
-        @param no_cuda_streams: When True, disables the use of dedicated CUDA
-                                streams for IO; all work happens on the default
-                                stream.
         @param dtype: Preferred floating-point dtype for any internal tensors that
                       may be created (defaults to ``torch.get_default_dtype()``).
         @param device: Torch device or device string (e.g., ``"cuda:0"`` or
@@ -265,7 +253,6 @@ class VideoOutput(torch.nn.ModuleDict):
         self._allow_scaling = False
         self._clip_to_max_dimensions = clip_to_max_dimensions
         self._visualization_config = visualization_config
-        self._no_cuda_streams = no_cuda_streams
         self._dtype = dtype if dtype is not None else torch.get_default_dtype()
         assert self._dtype in _FP_TYPES
 
@@ -440,7 +427,7 @@ class VideoOutput(torch.nn.ModuleDict):
         #     torch.cuda.current_stream(online_im.device)
         # )
 
-        # torch.cuda.synchronize()
+        torch.cuda.synchronize()
 
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
