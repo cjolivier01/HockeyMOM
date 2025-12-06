@@ -821,7 +821,7 @@ def _main(args, num_gpu):
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
-                    original_image_only=True,
+                    original_image_only=False,
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                     async_mode=not args.no_async_dataset,

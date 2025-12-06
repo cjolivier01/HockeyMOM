@@ -15,7 +15,13 @@ from torch.utils.data import Dataset
 from hmlib.log import get_root_logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensorBase,
+    cuda_stream_scope,
+    unwrap_tensor,
+    wrap_tensor,
+)
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -75,6 +81,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         if original_image_only and device_for_original_image is None:
             device_for_original_image = device
+
+        assert (
+            not original_image_only or data_pipeline is None
+        ), "original_image_only cannot be used with a data_pipeline at this time"
 
         self._current_path_index = 0
         self._game_id = game_id
@@ -220,7 +230,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
     # Debug helpers: RGB stats and checkerboard generation
     # ------------------------------------------------------------------
     @staticmethod
-    def compute_rgb_stats(img: torch.Tensor) -> Dict[str, Tuple[float, float, float]]:
+    def compute_rgb_stats(
+        img: torch.Tensor, cpu: bool = False
+    ) -> Dict[str, Tuple[float, float, float]]:
         """Compute per-channel min, max, mean for R/G/B over an image or batch.
 
         Accepts tensors with layout (B, C, H, W), (B, H, W, C), (C, H, W) or
@@ -245,9 +257,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         max_vals, _ = flat.max(dim=0)
         mean_vals = flat.mean(dim=0)
         return {
-            "min": tuple(min_vals.tolist()),
-            "max": tuple(max_vals.tolist()),
-            "mean": tuple(mean_vals.tolist()),
+            "min": min_vals.cpu() if cpu else min_vals,
+            "max": max_vals.cpu() if cpu else max_vals,
+            "mean": mean_vals.cpu() if cpu else mean_vals,
         }
 
     @staticmethod
@@ -278,8 +290,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if ref_vals is None or cur_vals is None:
                 changed = True
                 break
-            ref_t = _to_tensor(ref_vals)
-            cur_t = _to_tensor(cur_vals)
+            ref_t = ref_vals
+            cur_t = cur_vals
             if not torch.allclose(ref_t, cur_t, atol=atol, rtol=rtol):
                 changed = True
                 break
@@ -630,17 +642,21 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 stats = MOTLoadVideoWithOrig.compute_rgb_stats(checkerboard_image)
                 data_item.setdefault("debug_rgb_stats", {})["mot_input"] = stats
 
-
             # Does this need to be in imgs_info this way as an array?
             ids = torch.tensor(
                 [int(self._next_frame_id + i) for i in range(len(img0))],
                 dtype=torch.int64,
             )
+
+            fps_value = self.fps
+            if fps_value and fps_value > 0:
+                fps_scalar = float(fps_value)
+                data_item["hm_real_time_fps"] = [fps_scalar for _ in range(len(ids))]
+
             self._next_frame_id += len(ids)
 
             if self._data_pipeline is not None:
-                if isinstance(img0, StreamTensorBase):
-                    img0 = img0.get()
+                img0 = unwrap_tensor(img0)
 
                 # Optional per-channel additive offsets for input images
                 if self._image_channel_adders is not None:
@@ -651,25 +667,28 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if torch.is_floating_point(img0) and img0.dtype != self._dtype:
                     img0 = img0.to(dtype=self._dtype, non_blocking=True)
 
-                data_item.update(dict(
-                    img=make_channels_last(img0),
-                    img_info=dict(frame_id=ids[0]),
-                    img_prefix=None,
-                    img_id=ids,
-                ))
-                fps_value = self.fps
-                if fps_value and fps_value > 0:
-                    fps_scalar = float(fps_value)
-                    data_item["hm_real_time_fps"] = [fps_scalar for _ in range(len(ids))]
+                data_item.update(
+                    dict(
+                        img=make_channels_last(img0),
+                        img_info=dict(frame_id=ids[0]),
+                        img_prefix=None,
+                        img_id=ids,
+                    )
+                )
                 # Propagate any debug metadata coming from an embedded loader (e.g., StitchDataset).
                 if embedded_debug is not None:
                     data_item.setdefault("debug_rgb_stats", {})["stitch"] = embedded_debug
-                data_item = self._data_pipeline(data_item)
-                assert "img" not in data_item
-                data_item["img"] = data_item.pop("inputs")
+                dctx = (
+                    prof.rf("dataloader.data_pipeline")
+                    if getattr(prof, "enabled", False)
+                    else _contextlib.nullcontext()
+                )
+                with dctx:
+                    pipeline_result = self._data_pipeline(data_item.copy())
+                assert "img" not in pipeline_result
+                data_item["img"] = pipeline_result.pop("inputs")
+                data_item.update(pipeline_result)
                 img = data_item["img"]
-
-                # data = data_item
             else:
                 if isinstance(img0, StreamTensorBase):
                     img0 = img0.wait()
@@ -718,66 +737,40 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         def _wrap_original_image(
             orig_img: torch.Tensor,
         ) -> Union[StreamCheckpoint, torch.Tensor]:
-            assert isinstance(orig_img, torch.Tensor)
-            if cuda_stream is not None:
-                if (
-                    not self._original_image_only
-                    and self._device_for_original_image is not None
-                    and self._device_for_original_image != orig_img.device
-                ):
-                    orig_img = orig_img.to(self._device_for_original_image, non_blocking=True)
-                return StreamCheckpoint(
-                    tensor=orig_img,
+            if checkerboard_image is not None:
+                orig_img = checkerboard_image.to(
+                    device=orig_img.device, dtype=orig_img.dtype, non_blocking=True
                 )
-            return orig_img
+            if (
+                not self._original_image_only
+                and self._device_for_original_image is not None
+                and self._device_for_original_image != orig_img.device
+            ):
+                orig_img = orig_img.to(device=self._device_for_original_image, non_blocking=True)
+            return StreamCheckpoint(orig_img)
 
         # END _wrap_original_image
 
         if self._data_pipeline is not None:
-            if cuda_stream is not None:
-                if isinstance(data_item["img"], list):
-                    # mmcv1 path
-                    for i, img in enumerate(data_item["img"]):
-                        img = StreamCheckpoint(
-                            tensor=img,
-                        )
-                else:
-                    # New mmcv2 path
-                    assert isinstance(data_item["img"], torch.Tensor)
-                    data_item["img"] = StreamCheckpoint(tensor=data_item["img"])
+            assert isinstance(data_item["img"], torch.Tensor)
+            data_item["img"] = StreamCheckpoint(tensor=data_item["img"])
             prof = getattr(self, "_profiler", None)
-            dctx = (
-                prof.rf("dataloader.data_pipeline")
-                if getattr(prof, "enabled", False)
-                else _contextlib.nullcontext()
-            )
-            with dctx:
-                return data_item
-                # return dict(
-                #     original_images=_wrap_original_image(original_img0),
-                #     data=data,
-                #     imgs_info=imgs_info,
-                #     ids=ids,
-                # )
-                # return _wrap_original_image(original_img0), data, None, imgs_info, ids
         if self._original_image_only:
             if not isinstance(original_img0, StreamTensorBase):
                 original_img0 = _wrap_original_image(original_img0)
-            return data_item.update(dict(img=original_img0, imgs_info=imgs_info, frame_ids=ids))
+            data_item.update(dict(img=original_img0, imgs_info=imgs_info, frame_ids=ids))
         else:
-            if cuda_stream is not None:
-                img = StreamCheckpoint(
-                    tensor=img,
+            data_item.update(
+                dict(
+                    original_images=_wrap_original_image(original_img0),
+                    img=StreamCheckpoint(tensor=img),
+                    imgs_info=imgs_info,
+                    ids=ids,
                 )
-            return data_item.update(dict(
-                original_images=_wrap_original_image(original_img0),
-                img=img,
-                imgs_info=imgs_info,
-                ids=ids,
-            ))
+            )
             # assert False # Don't use this path anymore
             # return _wrap_original_image(original_img0), img, None, imgs_info, ids
-
+        return data_item
     def __next__(self):
         with self._seek_lock:
             self._timer.tic()
