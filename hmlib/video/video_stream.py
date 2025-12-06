@@ -54,6 +54,19 @@ _FOURCC_TO_CODEC = {
 MAX_VIDEO_WIDTH = 8000  # 8K is 7680 x 4320
 MAX_NEVC_VIDEO_WIDTH: int = 8192
 
+
+def _load_pynvcodec():
+    try:
+        import PyNvVideoCodec as nvc  # type: ignore[import-not-found]
+
+        return nvc
+    except Exception as exc:  # pragma: no cover - environment dependent
+        raise ImportError(
+            "PyNvVideoCodec backend requires the PyNvVideoCodec package. "
+            f"Failed to import: {exc}"
+        )
+
+
 def _load_jetson_utils():
     """
     Best-effort import of jetson_utils Python bindings (used by the GStreamer backend).
@@ -517,6 +530,47 @@ class GStreamerVideoReaderIterator:
         return self
 
 
+class PyNvVideoCodecIterator:
+    def __init__(
+        self,
+        decoder,
+        device: torch.device,
+        batch_size: int = 1,
+    ):
+        self._decoder = decoder
+        self._batch_size = batch_size
+        self._device = device
+        self.frames_delivered_count = 0
+
+    def __next__(self):
+        frames = self._decoder.get_batch_frames(self._batch_size)
+        if not frames:
+            raise StopIteration()
+
+        batch_tensors = []
+        for frame in frames:
+            planes = frame.cuda()
+            if planes is None:
+                continue
+            plane_tensors = [torch.as_tensor(p, device=self._device) for p in planes]
+            if len(plane_tensors) >= 3:
+                # RGB->BGR
+                tmp = plane_tensors[0]
+                plane_tensors[0] = plane_tensors[2]
+                plane_tensors[2] = tmp
+            tensor = torch.stack(plane_tensors, dim=0)
+            batch_tensors.append(tensor)
+            self.frames_delivered_count += 1
+
+        if not batch_tensors:
+            raise StopIteration()
+
+        return torch.stack(batch_tensors, dim=0)
+
+    def __iter__(self):
+        return self
+
+
 class CVVideoCaptureIterator:
     def __init__(self, cap: cv2.VideoCapture, batch_size: int = 1):
         self._cap = cap
@@ -713,6 +767,12 @@ class VideoStreamReader:
                 device=self._device,
                 timeout_ms=5000,
             )
+        elif self._type == "pynvcodec":
+            return PyNvVideoCodecIterator(
+                self._video_in,
+                device=self._device,
+                batch_size=self._batch_size,
+            )
         elif self._type == "ffmpeg":
             return FFmpegVideoReaderIterator(
                 filename=self._filename,
@@ -768,6 +828,11 @@ class VideoStreamReader:
             self._ss = timestamp
         elif self._gstreamer_stream:
             logger.warning("GStreamer backend does not currently support seeking; ignoring request")
+        elif self._type == "pynvcodec":
+            if timestamp is not None and frame_number is None:
+                frame_number = int(self._video_in.get_index_from_time_in_seconds(timestamp))
+            assert frame_number is not None
+            self._video_in.seek_to_index(int(frame_number))
         else:
             assert False
 
@@ -784,7 +849,7 @@ class VideoStreamReader:
     def open(self):
         assert self._video_in is None
         self._video_info = BasicVideoInfo(self._filename)
-        if self._codec is None and self._type != "ffmpeg":
+        if self._codec is None and self._type not in ("ffmpeg", "pynvcodec"):
             self._codec = _FOURCC_TO_CODEC.get(self._video_info.codec.upper(), None)
             if self._codec is None and self._type != "cv2":
                 print(
@@ -836,6 +901,22 @@ class VideoStreamReader:
                 # Best-effort; older jetson_utils builds may not expose GetOptions
                 pass
             self._gstreamer_stream = True
+        elif self._type == "pynvcodec":
+            if self._device.type != "cuda":
+                raise AssertionError(
+                    "PyNvVideoCodec backend requires a CUDA device (set decoder-device to cuda:N)."
+                )
+            nvc = _load_pynvcodec()
+            gpu_id = self._device.index if self._device.index is not None else 0
+            self._video_in = nvc.SimpleDecoder(
+                self._filename,
+                gpu_id=gpu_id,
+                use_device_memory=True,
+                max_width=int(self._video_info.width),
+                max_height=int(self._video_info.height),
+                need_scanned_stream_metadata=0,
+                output_color_type=nvc.OutputColorType.RGBP,
+            )
         elif self._type == "ffmpeg":
             self._video_in = FFMpegVideoReader()
         else:
@@ -851,6 +932,8 @@ class VideoStreamReader:
                 self._video_in.release()
             elif self._gstreamer_stream and hasattr(self._video_in, "Close"):
                 self._video_in.Close()
+            elif self._type == "pynvcodec":
+                pass
             elif isinstance(self._video_in, FFMpegVideoReader):
                 pass
             else:
