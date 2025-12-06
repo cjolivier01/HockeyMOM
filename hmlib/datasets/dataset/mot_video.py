@@ -366,7 +366,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if self._embedded_data_loader is None:
             self._decoder_type = "cv2"
             if self._decoder_device is not None and self._decoder_device.type == "cuda":
-                self._decoder_type = "torchaudio"
+                # self._decoder_type = "torchaudio"
+                self._decoder_type = "pynvcodec"
             file_path = str(self._path_list[self._current_path_index])
             if not os.path.isfile(file_path):
                 raise RuntimeError(f"Video file {file_path} does not exist")

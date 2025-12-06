@@ -663,7 +663,7 @@ class hm_opts(object):
             # default="ffmpeg",
             default="cv2",
             type=str,
-            help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
+            help="Video stream decode method [cv2, ffmpeg, torchvision, torchaudio, gstreamer, pynvcodec]",
         )
         parser.add_argument(
             "--decoder-device",
