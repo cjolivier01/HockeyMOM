@@ -462,6 +462,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
                 ext = ".h265"
             if not self._filename.endswith(ext):
                 self._filename += ext
+            # self._filename += ".mkv"
             self._nv_encoder = nvc.CreateEncoder(
                 int(self._width),
                 int(self._height),
@@ -469,8 +470,11 @@ class VideoStreamWriter(VideoStreamWriterInterface):
                 False,
                 codec=encoder_codec,
                 bitrate=int(self._bit_rate),
-                fpsNum=int(round(self._fps)),
-                fpsDen=1,
+                fpsNum=int(self._fps * 1001),
+                fpsDen=1001,
+                cudastream=(
+                    torch.cuda.current_stream(self._device).cuda_stream if self._device else 0
+                ),
             )
             self._video_f = open(self._filename, "wb")
         else:
@@ -1126,7 +1130,8 @@ def create_output_video_stream(
     bit_rate: int = int(55e6),
     batch_size: Optional[int] = 1,
 ) -> VideoStreamWriterInterface:
-    use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
+    # use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
+    use_pynvcodec_env = True
     if "_nvenc" in codec or filename.startswith("rtmp://"):
         output_video = VideoStreamWriter(
             filename=filename,
