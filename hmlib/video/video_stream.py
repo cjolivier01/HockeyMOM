@@ -1037,8 +1037,9 @@ class PyNvVideoCodecWriter(VideoStreamWriterInterface):
         container_env = os.environ.get("HM_VIDEO_ENCODER_CONTAINER", "").lower()
         if container_env in ("mkv", "matroska"):
             try:
-                import av  # type: ignore[import-not-found]
                 from fractions import Fraction
+
+                import av  # type: ignore[import-not-found]
             except Exception as exc:  # pragma: no cover - optional dependency
                 raise ImportError(
                     "HM_VIDEO_ENCODER_CONTAINER=mkv requires the 'av' package (PyAV). "
@@ -1214,8 +1215,8 @@ def create_output_video_stream(
     bit_rate: int = int(55e6),
     batch_size: Optional[int] = 1,
 ) -> VideoStreamWriterInterface:
-    # use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
-    use_pynvcodec_env = True
+    use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
+    # use_pynvcodec_env = True
     if ("_nvenc" in (codec or "")) and use_pynvcodec_env:
         output_video = PyNvVideoCodecWriter(
             filename=filename,
