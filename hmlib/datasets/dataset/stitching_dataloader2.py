@@ -602,13 +602,12 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                             for img1, img2 in zip(imgs_1, imgs_2):
                                 t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
                                 t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
-                                torch.cuda.synchronize()
+                                torch.cuda.current_stream(t1.device).synchronize()
                                 # show_cuda_tensor(
                                 show_image(
                                     "img-1",
                                     make_visible_image(t1),
                                     wait=False,
-                                    # stream=int(stream.cuda_stream),
                                     enable_resizing=0.2,
                                 )
                                 show_image(
@@ -616,7 +615,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                     "img-2",
                                     make_visible_image(t2),
                                     wait=False,
-                                    # stream=int(stream.cuda_stream),
                                     enable_resizing=0.2,
                                 )
 
@@ -674,12 +672,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                 "blended",
                                 make_visible_image(blended_image),
                                 wait=False,
-                                # stream=int(stream.cuda_stream),
                                 enable_resizing=0.2,
                             )
-
-                    if stream is not None:
-                        blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
+                    blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
 
             self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
             self._ordering_queue.put((ids_1, blended_stream_tensor))
@@ -966,6 +961,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         # show_image("stitched_frame", stitched_frame.get(), wait=False)
         # for img in stitched_frame:
         #     show_cuda_tensor("stitched_frame", make_channels_last(img), wait=False)
+
+        torch.cuda.synchronize()
+
         return stitched_frame
 
     def __len__(self):
