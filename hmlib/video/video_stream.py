@@ -8,6 +8,7 @@ interfaces used across the stitching and tracking CLIs.
 
 import os
 import platform
+import subprocess
 import sys
 from typing import Any, Dict, Literal, Optional, Tuple, Union
 
@@ -242,7 +243,6 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         local_resize: bool = True,
         streaming_drop_frame_interval: int = 3,
         stream_fps: int = 15,
-        use_pynvcodec: bool = False,
     ):
         self._filename = filename
         self._container_type = container_type
@@ -262,7 +262,6 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         self._codec = codec
         self._streaming = False
         self._local_resize = local_resize
-        self._use_pynvcodec = use_pynvcodec
         self._timer = Timer()
         if self._filename.startswith("rtmp://"):
             self._format = format
@@ -294,7 +293,6 @@ class VideoStreamWriter(VideoStreamWriterInterface):
             bit_rate=bit_rate,
         )
         self._frame_counter = 0
-        self._nv_encoder = None
 
     def __enter__(self):
         if self._video_f is None:
@@ -386,14 +384,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         self.close()
 
     def _finish(self):
-        if self._use_pynvcodec:
-            self.flush(flush_video_file=False, flush_all=True)
-            if self._nv_encoder is not None and self._video_f is not None:
-                tail = self._nv_encoder.EndEncode()
-                if tail:
-                    self._video_f.write(tail)
-        else:
-            self.flush(flush_video_file=True, flush_all=True)
+        self.flush(flush_video_file=True, flush_all=True)
 
     def flush(self, flush_video_file: bool = True, flush_all: bool = False):
         def _get_tensor(t):
@@ -429,16 +420,13 @@ class VideoStreamWriter(VideoStreamWriterInterface):
                 else:
                     image_batch = torch.cat(batch_items, dim=0)
             frame_count = len(image_batch)
-            if self._use_pynvcodec:
-                self._encode_with_pynvcodec(image_batch)
-            else:
-                self._video_out.write_video_chunk(
-                    i=0,
-                    chunk=image_batch,
-                )
+            self._video_out.write_video_chunk(
+                i=0,
+                chunk=image_batch,
+            )
             self._frame_counter += frame_count
 
-        if flush_video_file and self._video_f is not None and not self._use_pynvcodec:
+        if flush_video_file and self._video_f is not None:
             self._video_f.flush()
 
     def isOpened(self):
@@ -446,75 +434,13 @@ class VideoStreamWriter(VideoStreamWriterInterface):
 
     def open(self):
         assert self._video_f is None
-        if self._use_pynvcodec:
-            if self._streaming:
-                raise AssertionError(
-                    "PyNvVideoCodec backend does not support RTMP/UDP streaming outputs."
-                )
-            if self._device is None or self._device.type != "cuda":
-                raise AssertionError("PyNvVideoCodec backend requires a CUDA device.")
-            nvc = _load_pynvcodec()
-            codec_lower = self._codec.lower()
-            encoder_codec = "h264"
-            ext = ".h264"
-            if "hevc" in codec_lower or "h265" in codec_lower:
-                encoder_codec = "hevc"
-                ext = ".h265"
-            if not self._filename.endswith(ext):
-                self._filename += ext
-            # self._filename += ".mkv"
-            self._nv_encoder = nvc.CreateEncoder(
-                int(self._width),
-                int(self._height),
-                "ABGR",
-                False,
-                codec=encoder_codec,
-                bitrate=int(self._bit_rate),
-                fpsNum=int(self._fps * 1001),
-                fpsDen=1001,
-                cudastream=(
-                    torch.cuda.current_stream(self._device).cuda_stream if self._device else 0
-                ),
-            )
-            self._video_f = open(self._filename, "wb")
-        else:
-            if not self._streaming:
-                ext = _EXTENSION_MAPPING.get(self._container_type, self._container_type)
-                if not self._filename.endswith("." + ext):
-                    self._filename += "." + ext
-            self._video_out = StreamingMediaEncoder(dst=self._filename, format=self._container_type)
-            self._add_stream()
-            self._video_f = self._video_out.open()
-
-    def _encode_with_pynvcodec(self, image_batch: torch.Tensor):
-        assert self._nv_encoder is not None
-        if image_batch.ndim == 3:
-            image_batch = image_batch.unsqueeze(0)
-        assert image_batch.ndim == 4
-        if torch.is_floating_point(image_batch):
-            image_batch = image_batch.clamp(0, 255).to(torch.uint8)
-        if image_batch.shape[1] not in (3, 4) and image_batch.shape[-1] in (3, 4):
-            image_batch = image_batch.permute(0, 3, 1, 2)
-        assert image_batch.shape[1] in (3, 4)
-        batch_size, channels, h, w = image_batch.shape
-        assert h == self._height and w == self._width
-        for idx in range(batch_size):
-            frame = image_batch[idx]
-            if channels == 3:
-                b = frame[0]
-                g = frame[1]
-                r = frame[2]
-                a = torch.full_like(b, 255)
-            else:
-                b = frame[0]
-                g = frame[1]
-                r = frame[2]
-                a = frame[3]
-            abgr = torch.stack([a, b, g, r], dim=-1)
-            bitstream = self._nv_encoder.Encode(abgr)
-            if bitstream:
-                assert self._video_f is not None
-                self._video_f.write(bitstream)
+        if not self._streaming:
+            ext = _EXTENSION_MAPPING.get(self._container_type, self._container_type)
+            if not self._filename.endswith("." + ext):
+                self._filename += "." + ext
+        self._video_out = StreamingMediaEncoder(dst=self._filename, format=self._container_type)
+        self._add_stream()
+        self._video_f = self._video_out.open()
 
     def set(self, key: int, value: any):
         pass
@@ -1045,6 +971,164 @@ class VideoStreamReader:
         return True, next_data
 
 
+class PyNvVideoCodecWriter(VideoStreamWriterInterface):
+    def __init__(
+        self,
+        filename: str,
+        fps: float,
+        width: int,
+        height: int,
+        codec: Optional[str],
+        device: torch.device,
+        bit_rate: int = int(55e6),
+        batch_size: Optional[int] = 1,
+    ):
+        if device is None or device.type != "cuda":
+            raise AssertionError("PyNvVideoCodecWriter requires a CUDA device.")
+        self._filename = filename
+        self._fps = fps
+        self._width = int(width)
+        self._height = int(height)
+        self._codec = codec or "hevc_nvenc"
+        self._bit_rate = int(bit_rate)
+        self._device = device if isinstance(device, torch.device) else torch.device(device)
+        self._batch_size = batch_size or 1
+        self._nv_encoder = None
+        self._raw_filename = None
+        self._video_f = None
+        self._frame_counter = 0
+        self._av_container = None
+        self._av_stream = None
+        self._next_pts = 0
+
+    def isOpened(self) -> bool:
+        return self._video_f is not None
+
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
+    def open(self):
+        assert self._video_f is None
+        nvc = _load_pynvcodec()
+        codec_lower = self._codec.lower()
+        encoder_codec = "h264"
+        ext = ".h264"
+        if "hevc" in codec_lower or "h265" in codec_lower:
+            encoder_codec = "hevc"
+            ext = ".h265"
+        self._raw_filename = self._filename
+        if not self._raw_filename.endswith(ext):
+            self._raw_filename += ext
+        self._nv_encoder = nvc.CreateEncoder(
+            int(self._width),
+            int(self._height),
+            "ABGR",
+            False,
+            codec=encoder_codec,
+            bitrate=int(self._bit_rate),
+            fpsNum=int(self._fps * 1001),
+            fpsDen=1001,
+            cudastream=(
+                torch.cuda.current_stream(self._device).cuda_stream if self._device else 0
+            ),
+        )
+        self._video_f = open(self._raw_filename, "wb")
+        container_env = os.environ.get("HM_VIDEO_ENCODER_CONTAINER", "").lower()
+        if container_env in ("mkv", "matroska"):
+            try:
+                import av  # type: ignore[import-not-found]
+                from fractions import Fraction
+            except Exception as exc:  # pragma: no cover - optional dependency
+                raise ImportError(
+                    "HM_VIDEO_ENCODER_CONTAINER=mkv requires the 'av' package (PyAV). "
+                    f"Failed to import: {exc}"
+                )
+            mkv_filename = self._filename
+            if not (mkv_filename.endswith(".mkv") or mkv_filename.endswith(".MKV")):
+                mkv_filename += ".mkv"
+            self._av_container = av.open(mkv_filename, mode="w", format="matroska")
+            fps_num = int(round(self._fps * 1001))
+            fps_den = 1001
+            self._av_stream = self._av_container.add_stream(
+                encoder_codec, rate=Fraction(fps_num, fps_den)
+            )
+            self._next_pts = 0
+
+    def _encode_batch(self, image_batch: torch.Tensor):
+        assert self._nv_encoder is not None
+        assert self._video_f is not None
+        if image_batch.ndim == 3:
+            image_batch = image_batch.unsqueeze(0)
+        assert image_batch.ndim == 4
+        if torch.is_floating_point(image_batch):
+            image_batch = image_batch.clamp(0, 255).to(torch.uint8)
+        # Ensure channels-first
+        if image_batch.shape[1] not in (3, 4) and image_batch.shape[-1] in (3, 4):
+            image_batch = image_batch.permute(0, 3, 1, 2)
+        assert image_batch.shape[1] in (3, 4)
+        batch_size, channels, h, w = image_batch.shape
+        assert h == self._height and w == self._width
+        for idx in range(batch_size):
+            frame = image_batch[idx]
+            if channels == 3:
+                b = frame[0]
+                g = frame[1]
+                r = frame[2]
+                a = torch.full_like(b, 255)
+            else:
+                b = frame[0]
+                g = frame[1]
+                r = frame[2]
+                a = frame[3]
+            abgr = torch.stack([a, b, g, r], dim=-1)
+            bitstream = self._nv_encoder.Encode(abgr)
+            if bitstream:
+                self._video_f.write(bitstream)
+                if self._av_container is not None and self._av_stream is not None:
+                    import av  # type: ignore[import-not-found]
+
+                    packet = av.packet.Packet(bitstream)
+                    packet.stream = self._av_stream
+                    packet.pts = self._next_pts
+                    packet.dts = self._next_pts
+                    self._av_container.mux(packet)
+                    self._next_pts += 1
+        self._frame_counter += batch_size
+
+    def append(self, images: torch.Tensor):
+        assert images.device == self._device
+        self._encode_batch(images)
+
+    def write(self, images: torch.Tensor):
+        return self.append(images)
+
+    def flush(self):
+        # PyNvVideoCodec flush is handled via EndEncode in close().
+        pass
+
+    def close(self):
+        if self._video_f is not None and self._nv_encoder is not None:
+            tail = self._nv_encoder.EndEncode()
+            if tail:
+                self._video_f.write(tail)
+                if self._av_container is not None and self._av_stream is not None:
+                    import av  # type: ignore[import-not-found]
+
+                    packet = av.packet.Packet(tail)
+                    packet.stream = self._av_stream
+                    packet.pts = self._next_pts
+                    packet.dts = self._next_pts
+                    self._av_container.mux(packet)
+                    self._next_pts += 1
+            self._video_f.close()
+            self._video_f = None
+            if self._av_container is not None:
+                self._av_container.close()
+                self._av_container = None
+                self._av_stream = None
+
+
 class VideoStreamWriterCV2(VideoStreamWriterInterface):
     def __init__(
         self,
@@ -1132,18 +1216,28 @@ def create_output_video_stream(
 ) -> VideoStreamWriterInterface:
     # use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
     use_pynvcodec_env = True
-    if "_nvenc" in codec or filename.startswith("rtmp://"):
+    if ("_nvenc" in (codec or "")) and use_pynvcodec_env:
+        output_video = PyNvVideoCodecWriter(
+            filename=filename,
+            fps=fps,
+            height=int(height),
+            width=int(width),
+            codec=codec,
+            bit_rate=bit_rate,
+            device=device,
+            batch_size=batch_size,
+        )
+        output_video.open()
+    elif "_nvenc" in (codec or "") or filename.startswith("rtmp://"):
         output_video = VideoStreamWriter(
             filename=filename,
             fps=fps,
             height=int(height),
             width=int(width),
-            # codec="hevc_nvenc",
-            codec=codec if "_nvenc" in codec else "hevc_nvenc",
+            codec=codec if codec is not None else "hevc_nvenc",
             bit_rate=bit_rate,
             device=device,
             batch_size=batch_size,
-            use_pynvcodec=use_pynvcodec_env,
         )
         output_video.open()
     else:
