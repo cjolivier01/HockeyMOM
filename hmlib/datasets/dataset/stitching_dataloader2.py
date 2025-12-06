@@ -627,17 +627,15 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                 t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
                                 t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
                                 torch.cuda.current_stream(t1.device).synchronize()
-                                # show_cuda_tensor(
                                 show_image(
                                     "img-1",
-                                    make_visible_image(t1),
+                                    make_visible_image(t1.clone()),
                                     wait=False,
                                     enable_resizing=0.2,
                                 )
                                 show_image(
-                                    # show_cuda_tensor(
                                     "img-2",
-                                    make_visible_image(t2),
+                                    make_visible_image(t2.clone()),
                                     wait=False,
                                     enable_resizing=0.2,
                                 )
