@@ -422,13 +422,6 @@ class VideoOutput(torch.nn.ModuleDict):
             for show_img in online_im:
                 self._shower.show(show_img.clone())
 
-        # online_im = wrap_tensor(online_im, verbose=True).get()
-        # torch.cuda.default_stream(online_im.device).wait_stream(
-        #     torch.cuda.current_stream(online_im.device)
-        # )
-
-        torch.cuda.synchronize()
-
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
                 self._output_videos[self.VIDEO_DEFAULT].write(online_im)
