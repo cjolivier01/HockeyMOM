@@ -405,7 +405,10 @@ class VideoOutput(torch.nn.ModuleDict):
 
         The ``"img"`` key is consumed and reattached in-place.
         """
+
+        # Consume the image tensor
         online_im = context.pop("img")
+
         image_w = image_width(online_im)
         image_h = image_height(online_im)
         assert online_im.ndim == 4  # Should have a batch dimension
@@ -430,7 +433,14 @@ class VideoOutput(torch.nn.ModuleDict):
 
         if self._show_image and self._shower is not None:
             for show_img in online_im:
-                self._shower.show(show_img)
+                self._shower.show(show_img.clone())
+
+        # online_im = wrap_tensor(online_im, verbose=True).get()
+        # torch.cuda.default_stream(online_im.device).wait_stream(
+        #     torch.cuda.current_stream(online_im.device)
+        # )
+
+        # torch.cuda.synchronize()
 
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
@@ -443,7 +453,7 @@ class VideoOutput(torch.nn.ModuleDict):
                 self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
         else:
             # Sync the stream if skipping final save
-            wrap_tensor(online_im, verbose=True).get()
+            online_im = wrap_tensor(online_im, verbose=True).get()
 
         # Save frames as individual frames
         if self._save_frame_dir:
@@ -457,22 +467,6 @@ class VideoOutput(torch.nn.ModuleDict):
                 online_im,
             )
         return context
-
-    # @staticmethod
-    # def _make_visible_image(
-    #     img: Union[torch.Tensor, StreamTensorBase],
-    # ) -> torch.Tensor:
-    #     """Convert an input image tensor to a visible uint8 format.
-
-    #     This method assumes the input is either:
-    #       - A floating-point tensor in [0, 1] range.
-    #       - An integer tensor in [0, 255] range.
-    #     """
-    #     img = unwrap_tensor(img)
-    #     img = make_channels_last(img)
-    #     img = to_uint8_image(img)
-    #     img = img.contiguous()
-    #     return wrap_tensor(img, verbose=True).get()
 
     def forward(self, results: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
         """Normalize input images and synchronously write them to disk.
@@ -521,10 +515,12 @@ class VideoOutput(torch.nn.ModuleDict):
 
             assert self._device is None or results["img"].device == self._device
 
-        # results["img"] = online_im
+        results["img"] = online_im
 
         # Step 4: Persist frames to disk under profiling scopes
         with self._sctx:
             results = self._save_frame(results)
+
+        assert "img" not in results
 
         return results
