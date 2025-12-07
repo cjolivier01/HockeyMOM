@@ -21,6 +21,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.progress import BarColumn, Progress as RichProgress, TaskProgressColumn, TextColumn
 from rich.live import Live
+from rich.rule import Rule
 
 # Optional curses support
 try:
@@ -535,34 +536,80 @@ class ProgressBar:
             self._log_lines = self._log_lines[-self._log_max_lines :]
 
     def _build_table(self) -> Table:
-        """Build a two-column rich Table from the current table_map."""
+        """Build a two-column-of-entries rich Table from the current table_map.
+
+        Layout:
+          [label_1] [value_1]   [label_2] [value_2]
+        """
         table = Table.grid(expand=True, padding=(0, 1))
-        table.style = "white on dark_blue"
+        # Black background for labels and values; text white for readability.
+        table.style = "white on black"
         table.add_column(justify="left", style="bold white", ratio=1)
         table.add_column(justify="right", style="white", ratio=1)
-        for key, value in self.table_map.items():
-            table.add_row(str(key), str(value))
+        table.add_column(justify="left", style="bold white", ratio=1)
+        table.add_column(justify="right", style="white", ratio=1)
+
+        items = list(self.table_map.items())
+        if not items:
+            return table
+
+        half = (len(items) + 1) // 2
+        left_items = items[:half]
+        right_items = items[half:]
+
+        # Pad right side to match left length
+        while len(right_items) < len(left_items):
+            right_items.append(("", ""))
+
+        for (k1, v1), (k2, v2) in zip(left_items, right_items):
+            table.add_row(str(k1), str(v1), str(k2), str(v2))
         return table
 
     def _build_log_table(self) -> Table:
         """Build a table containing the scrolling log area."""
         log_table = Table.grid(expand=True, padding=(0, 1))
-        log_table.style = "white on dark_blue"
-        log_table.add_column(style="white", justify="left")
+        # Do not set a background style here so that per-line rich markup
+        # colors and the enclosing panel's background can show through.
+        log_table.style = ""
+        log_table.add_column(justify="left")
         # Take the last N lines for display
         for line in self._log_lines[-self._log_max_lines :]:
             log_table.add_row(line)
         return log_table
 
     def _build_layout(self) -> Group:
-        """Compose the status table, progress bar, and log area inside a single panel."""
+        """Compose the status table, progress bar, and log area inside a single bordered panel."""
         status_table = self._build_table()
         log_table = self._build_log_table()
-        body = Group(status_table, self._progress, log_table)
+
+        status_panel = Panel(
+            status_table,
+            border_style="black",
+            style="white on dark_blue",
+            padding=(0, 1),
+        )
+        progress_panel = Panel(
+            self._progress,
+            border_style="black",
+            style="white on grey35",
+            padding=(0, 1),
+        )
+        log_panel = Panel(
+            log_table,
+            border_style="black",
+            # Gray background for the scrolling log area; individual lines
+            # can still use rich markup colors on top of this.
+            style="on grey23",
+            padding=(0, 1),
+        )
+
+        # Horizontal ASCII separators between sections
+        sep = Rule(style="black")
+
+        body = Group(status_panel, sep, progress_panel, sep, log_panel)
         outer = Panel(
             body,
-            border_style="dark_blue",
-            style="white on dark_blue",
+            border_style="black",
             padding=(0, 1),
         )
         return outer
@@ -593,7 +640,9 @@ class ProgressBar:
         self._ensure_rich_started()
         # Allow callers to update table_map before we format the description/table.
         self._run_callbacks(self.table_map)
-        description = self._format_description()
+        # Progress bar label is a fixed prefix; tabular values are shown only
+        # in the status table above, not in the bar description.
+        description = "Progress: "
         if self._total > 0:
             completed = min(self._counter, self._total)
             total_val = self._total
