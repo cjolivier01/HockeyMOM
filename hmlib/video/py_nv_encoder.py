@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional, Union
@@ -206,6 +207,8 @@ class PyNvVideoEncoder:
         the requested container format based on the output file extension.
         """
         from shutil import which
+        import ctypes
+        import signal
 
         ffmpeg = which("ffmpeg")
         if ffmpeg is None:
@@ -240,12 +243,26 @@ class PyNvVideoEncoder:
             str(self.output_path),
         ]
 
-        proc: subprocess.Popen[bytes] = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        kwargs: dict[str, object] = {
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+        }
+
+        if os.name == "posix":
+
+            def _set_pdeathsig() -> None:
+                try:
+                    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+                    PR_SET_PDEATHSIG = 1
+                    libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+                except Exception:
+                    # Best-effort; keep encoder usable even if prctl fails.
+                    pass
+
+            kwargs["preexec_fn"] = _set_pdeathsig
+
+        proc: subprocess.Popen[bytes] = subprocess.Popen(cmd, **kwargs)  # type: ignore[arg-type]
         return proc
 
     def _normalize_frames(self, frames: torch.Tensor) -> torch.Tensor:
@@ -326,4 +343,3 @@ class PyNvVideoEncoder:
             )
 
         return _DLPackFrame(yuv420.contiguous())
-
