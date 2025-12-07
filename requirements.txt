@@ -1,5 +1,6 @@
 cython
 rich
+av
 PyNvVideoCodec
 typeguard
 flask
