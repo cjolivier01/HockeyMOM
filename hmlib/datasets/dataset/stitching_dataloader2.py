@@ -281,7 +281,10 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             self._dir_name = _get_dir_name(str(videos["left"]["files"][0]))
         # This would affect number of frames, but actually it's supported
         # for stitching later if one os a modulus of the other
-        assert np.isclose(self._video_left_info.fps, self._video_right_info.fps)
+        assert np.isclose(
+            float(self._video_left_info.fps),
+            float(self._video_right_info.fps),
+        )
 
         v1o = 0 if self._video_left_offset_frame is None else self._video_left_offset_frame
         v2o = 0 if self._video_right_offset_frame is None else self._video_right_offset_frame

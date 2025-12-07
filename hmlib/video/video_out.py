@@ -262,7 +262,8 @@ class VideoOutput(torch.nn.ModuleDict):
             self._device = None
         self._name = name
         self._simple_save = simple_save
-        self._fps = fps
+        # Normalize to float even if upstream passes a Fraction
+        self._fps = float(fps)
         self._skip_final_save = skip_final_save
         self._progress_bar = progress_bar
         self._output_video_path = output_video_path
