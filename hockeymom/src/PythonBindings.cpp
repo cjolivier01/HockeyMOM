@@ -4,6 +4,8 @@
 #include <torch/extension.h>
 #include <torch/torch.h>
 
+#include "cudaYUV.h"
+
 #include "cupano/pano/cudaPano.h"
 #include "cupano/pano/cudaPano3.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
@@ -176,6 +178,54 @@ at::Tensor bgr_to_rgb(const at::Tensor& bgr_hwc) {
   at::Tensor rgb_chw = chw.index_select(0, idx); // swap
   at::Tensor rgb_hwc = rgb_chw.permute({1, 2, 0}); // [H, W, 3]
   return rgb_hwc;
+}
+
+at::Tensor bgr_to_i420_cuda(const at::Tensor& bgr_hwc) {
+  TORCH_CHECK(bgr_hwc.device().is_cuda(), "bgr_hwc must be a CUDA tensor");
+  TORCH_CHECK(
+      bgr_hwc.scalar_type() == at::kByte,
+      "bgr_to_i420_cuda expects uint8 tensor");
+  TORCH_CHECK(
+      bgr_hwc.dim() == 3 && bgr_hwc.size(2) == 3,
+      "bgr_to_i420_cuda expects shape [H, W, 3]");
+
+  c10::cuda::CUDAGuard device_guard(bgr_hwc.device());
+
+  at::Tensor rgb_hwc = bgr_to_rgb(
+      bgr_hwc.is_contiguous() ? bgr_hwc : bgr_hwc.contiguous());
+
+  const int64_t height = rgb_hwc.size(0);
+  const int64_t width = rgb_hwc.size(1);
+
+  TORCH_CHECK(
+      (height % 2 == 0) && (width % 2 == 0),
+      "bgr_to_i420_cuda requires even width/height (got ",
+      width,
+      "x",
+      height,
+      ")");
+
+  at::Tensor rgb_contig = rgb_hwc.contiguous();
+
+  at::Tensor i420 =
+      at::empty({height * 3 / 2, width}, rgb_contig.options().dtype(at::kByte));
+
+  cudaStream_t stream =
+      c10::cuda::getCurrentCUDAStream(bgr_hwc.device().index()).stream();
+
+  auto* input_ptr =
+      reinterpret_cast<uchar3*>(rgb_contig.data_ptr<uint8_t>());
+  void* output_ptr = static_cast<void*>(i420.data_ptr<uint8_t>());
+
+  const cudaError_t err =
+      cudaRGBToI420(input_ptr, output_ptr, static_cast<size_t>(width), static_cast<size_t>(height), stream);
+
+  TORCH_CHECK(
+      err == cudaSuccess,
+      "cudaRGBToI420 failed with error: ",
+      cudaGetErrorString(err));
+
+  return i420;
 }
 
 void show_cuda_tensor_impl(
@@ -1573,6 +1623,12 @@ void init_cuda_pano(::pybind11::module_& m) {
       py::arg("img"),
       py::arg("wait") = false,
       py::arg("stream") = py::none(),
+      py::call_guard<py::gil_scoped_release>());
+
+  m.def(
+      "bgr_to_i420_cuda",
+      [](at::Tensor bgr_hwc) { return hm::bgr_to_i420_cuda(bgr_hwc); },
+      py::arg("bgr_hwc"),
       py::call_guard<py::gil_scoped_release>());
 
   m.def(

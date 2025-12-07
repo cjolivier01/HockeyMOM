@@ -111,6 +111,7 @@ def compute_kmeans_clusters(
 def show_cuda_tensor(
     label: str, img_cuda: torch.Tensor, wait: bool = ..., stream: Optional[int] = ...
 ) -> None: ...
+def bgr_to_i420_cuda(bgr_hwc: torch.Tensor) -> torch.Tensor: ...
 
 __all__ = [
     "ImageRemapper",
@@ -139,5 +140,6 @@ __all__ = [
     "WHDims",
     "GrowShrink",
     "compute_kmeans_clusters",
+    "bgr_to_i420_cuda",
     "show_cuda_tensor",
 ]
