@@ -317,18 +317,18 @@ class PyNvVideoEncoder:
             "stderr": subprocess.PIPE,
         }
 
-        # if os.name == "posix":
+        if os.name == "posix":
 
-        #     def _set_pdeathsig() -> None:
-        #         try:
-        #             libc = ctypes.CDLL("libc.so.6", use_errno=True)
-        #             PR_SET_PDEATHSIG = 1
-        #             libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
-        #         except Exception:
-        #             # Best-effort; keep encoder usable even if prctl fails.
-        #             pass
+            def _set_pdeathsig() -> None:
+                try:
+                    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+                    PR_SET_PDEATHSIG = 1
+                    libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+                except Exception:
+                    # Best-effort; keep encoder usable even if prctl fails.
+                    pass
 
-        #     kwargs["preexec_fn"] = _set_pdeathsig
+            kwargs["preexec_fn"] = _set_pdeathsig
 
         proc: subprocess.Popen[bytes] = subprocess.Popen(cmd, **kwargs)  # type: ignore[arg-type]
         return proc
@@ -348,20 +348,19 @@ class PyNvVideoEncoder:
         # elementary stream produced by NVENC.
         fps_num = int(round(self.fps * 1001))
         fps_den = 1001
-        self._av_stream = self._av_container.add_stream(
-            self.codec, rate=Fraction(fps_num, fps_den)
-        )
-        self._av_stream.width = self.width
-        self._av_stream.height = self.height
-        self._av_stream.pix_fmt = "yuv420p"
-        if self._av_stream.time_base is None:
-            self._av_stream.time_base = Fraction(1, 90000)
-
-        tb = self._av_stream.time_base or Fraction(1, 90000)
-        self._av_stream.time_base = tb
-
         fps = Fraction(fps_num, fps_den)
-        ticks_per_frame = int((Fraction(1, 1) / fps) / tb)  # 3003 for 29.97 with 1/90000
+        self._av_stream = self._av_container.add_stream(
+            self.codec,
+            rate=fps,
+            width=self.width,
+            height=self.height,
+            bit_rate=self.bitrate,
+            time_base=Fraction(1, 90000),
+        )
+        assert self._av_stream.pix_fmt == "yuv420p"
+        ticks_per_frame = int(
+            (Fraction(1, 1) / fps) / self._av_stream.time_base
+        )  # 3003 for 29.97 with 1/90000
 
         self._ticks_per_frame = ticks_per_frame
         self._next_pts = 0  # in ticks
