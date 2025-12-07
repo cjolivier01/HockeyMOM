@@ -107,3 +107,92 @@ def should_store_camera_color_only_under_rink_level():
     root_cam = game_cfg.get("camera")
     assert not isinstance(root_cam, dict) or "color" not in root_cam
 
+
+def should_clear_rink_geometry_when_stitch_rotation_changes(monkeypatch):
+    # Simulate an existing private config with rink geometry + a previous stitch angle.
+    priv_store: Dict[str, Any] = {
+        "game": {
+            "stitching": {
+                "stitch-rotate-degrees": 0.0,
+            },
+        },
+        "rink": {
+            "ice_contours_mask_count": 1,
+            "ice_contours_mask_centroid": [100.0, 200.0],
+            "ice_contours_combined_bbox": [0.0, 0.0, 10.0, 10.0],
+            "scoreboard": {"perspective_polygon": [[0, 0], [1, 1]]},
+        },
+    }
+
+    from hmlib import camera as camera_mod
+
+    monkeypatch.setattr(
+        camera_mod.play_tracker,
+        "get_game_config_private",
+        lambda game_id=None: priv_store,
+    )
+
+    saved: Dict[str, Any] = {}
+
+    def _save_private_config(game_id=None, data=None, verbose=None):
+        saved.clear()
+        saved.update(data or {})
+
+    monkeypatch.setattr(
+        camera_mod.play_tracker,
+        "save_private_config",
+        _save_private_config,
+    )
+
+    cfg = _base_game_config()
+    hockey_mom = HockeyMOM(
+        image_width=1920,
+        image_height=1080,
+        fps=30.0,
+        device=torch.device("cpu"),
+        camera_name="GoPro",
+    )
+    play_box = torch.tensor([0.0, 0.0, 1920.0, 1080.0], dtype=torch.float32)
+    tracker = PlayTracker(
+        hockey_mom=hockey_mom,
+        play_box=play_box,
+        device=torch.device("cpu"),
+        original_clip_box=None,
+        progress_bar=None,
+        game_config=cfg,
+        game_id="test-game",
+        cam_ignore_largest=False,
+        no_wide_start=False,
+        track_ids=None,
+        debug_play_tracker=False,
+        plot_individual_player_tracking=False,
+        plot_boundaries=False,
+        plot_all_detections=None,
+        plot_trajectories=False,
+        plot_speed=False,
+        plot_jersey_numbers=False,
+        plot_actions=False,
+        plot_moving_boxes=False,
+        camera_ui=0,
+        camera_controller="rule",
+        camera_model=None,
+        camera_window=8,
+        force_stitching=False,
+        stitch_rotation_controller=None,
+        cluster_centroids=None,
+        cpp_boxes=False,
+        cpp_playtracker=False,
+        plot_cluster_tracking=False,
+    )
+
+    # Mark a change in stitch rotation; _set_stitch_rotation_degrees flags the
+    # path as dirty and updates cfg["game"]["stitching"]["stitch-rotate-degrees"].
+    tracker._set_stitch_rotation_degrees(8.0)
+    tracker._save_ui_config()
+
+    # Rink geometry keys should be removed from the saved private config.
+    rink_saved = saved.get("rink", {})
+    assert "ice_contours_mask_count" not in rink_saved
+    assert "ice_contours_mask_centroid" not in rink_saved
+    assert "ice_contours_combined_bbox" not in rink_saved
+    assert "scoreboard" not in rink_saved

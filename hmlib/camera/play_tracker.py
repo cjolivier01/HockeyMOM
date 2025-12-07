@@ -1983,6 +1983,38 @@ class PlayTracker(torch.nn.Module):
             if not self._ui_dirty_paths:
                 return
             priv = get_game_config_private(game_id=game_id) or {}
+
+            # If the stitched rotation angle changed, clear cached rink geometry
+            # that would become stale under a new rotation.
+            stitch_path: Tuple[str, ...] = ("game", "stitching", "stitch-rotate-degrees")
+            if stitch_path in self._ui_dirty_paths:
+                # Helper: read a nested value from the private config.
+                def _get_priv_path(path: Tuple[str, ...]):
+                    cur: Any = priv
+                    for key in path:
+                        if not isinstance(cur, dict) or key not in cur:
+                            return _MISSING
+                        cur = cur[key]
+                    return cur
+
+                new_val = self._get_config_path_value(stitch_path)
+                old_val = _get_priv_path(stitch_path)
+                try:
+                    changed = not self._values_equal(new_val, old_val)
+                except Exception:
+                    changed = True
+                if changed:
+                    for path in (
+                        ("rink", "ice_contours_mask_count"),
+                        ("rink", "ice_contours_mask_centroid"),
+                        ("rink", "ice_contours_combined_bbox"),
+                        ("rink", "scoreboard"),
+                    ):
+                        try:
+                            self._delete_priv_path(priv, path)
+                        except Exception:
+                            pass
+
             dirty = False
             for path in list(self._ui_dirty_paths):
                 current_value = self._get_config_path_value(path)
