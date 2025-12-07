@@ -991,6 +991,7 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
         device: torch.device,
         bit_rate: int = int(55e6),
         batch_size: Optional[int] = 1,
+        profiler: Any = None,
     ):
         if device is None or device.type != "cuda":
             raise AssertionError("PyNvVideoEncoderWriter requires a CUDA device.")
@@ -1002,6 +1003,7 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
         self._bit_rate = int(bit_rate)
         self._device = device if isinstance(device, torch.device) else torch.device(device)
         self._batch_size = batch_size or 1
+        self._profiler = profiler
 
         codec_lower = (codec or "hevc_nvenc").lower()
         encoder_codec = "h264"
@@ -1025,6 +1027,7 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
                 else None
             ),
             bitrate=self._bit_rate,
+            profiler=self._profiler,
         )
         self._frame_counter = 0
 
@@ -1143,6 +1146,7 @@ def create_output_video_stream(
     device: torch.device,
     bit_rate: int = int(55e6),
     batch_size: Optional[int] = 1,
+    profiler: Any = None,
 ) -> VideoStreamWriterInterface:
     # use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
     use_pynvcodec_env = True
@@ -1156,6 +1160,7 @@ def create_output_video_stream(
             bit_rate=bit_rate,
             device=device,
             batch_size=batch_size,
+            profiler=profiler,
         )
         output_video.open()
     elif "_nvenc" in (codec or "") or filename.startswith("rtmp://"):

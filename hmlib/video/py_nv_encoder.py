@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import torch
 
@@ -68,7 +69,8 @@ class PyNvVideoEncoder:
         cuda_context: Optional[int] = None,
         cuda_stream: Optional[int] = None,
         bitrate: Optional[int] = None,
-        use_pyav: Optional[bool] = None,
+        use_pyav: Optional[bool] = False,
+        profiler: Optional[Any] = None,
     ) -> None:
         if nvc is None:
             raise ImportError(
@@ -95,6 +97,8 @@ class PyNvVideoEncoder:
         self.cuda_context = cuda_context
         self.cuda_stream = cuda_stream
         self.bitrate = int(bitrate) if bitrate is not None else None
+        # Optional HmProfiler instance injected by callers.
+        self._profiler: Optional[Any] = profiler
 
         backend_env = os.environ.get("HM_VIDEO_ENCODER_BACKEND", "").lower()
         if use_pyav is not None:
@@ -153,32 +157,47 @@ class PyNvVideoEncoder:
             raise RuntimeError("Encoder is not properly initialized.")
 
         batch = self._normalize_frames(frames)
-
-        for frame in batch:
-            yuv420 = self._bgr_to_yuv420(frame)
-            # yuv420 is a 2D CUDA tensor with shape [H*3/2, W], uint8.
-            bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
-            if bitstream:
-                if self._use_pyav:
-                    self._mux_packet_pyav(bitstream)
-                else:
-                    assert self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None
-                    try:
-                        self._ffmpeg_proc.stdin.write(bytearray(bitstream))
-                    except BrokenPipeError as exc:
-                        rc = None
-                        stderr_output = ""
-                        try:
-                            rc = self._ffmpeg_proc.poll()
-                            out, err = self._ffmpeg_proc.communicate(timeout=0.1)
-                            if err:
-                                stderr_output = err.decode("utf-8", errors="ignore")
-                        except Exception:
-                            pass
-                        raise RuntimeError(
-                            f"ffmpeg muxer exited while writing NVENC bitstream "
-                            f"(returncode={rc}, stderr={stderr_output!r})"
-                        ) from exc
+        prof = self._profiler
+        batch_ctx = (
+            prof.rf("video.nvenc.write_batch")  # type: ignore[union-attr]
+            if getattr(prof, "enabled", False)
+            else contextlib.nullcontext()
+        )
+        with batch_ctx:
+            for frame in batch:
+                frame_ctx = (
+                    prof.rf("video.nvenc.encode_frame")  # type: ignore[union-attr]
+                    if getattr(prof, "enabled", False)
+                    else contextlib.nullcontext()
+                )
+                with frame_ctx:
+                    yuv420 = self._bgr_to_yuv420(frame)
+                    # yuv420 is a 2D CUDA tensor with shape [H*3/2, W], uint8.
+                    bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
+                    if bitstream:
+                        if self._use_pyav:
+                            self._mux_packet_pyav(bitstream)
+                        else:
+                            assert (
+                                self._ffmpeg_proc is not None
+                                and self._ffmpeg_proc.stdin is not None
+                            )
+                            try:
+                                self._ffmpeg_proc.stdin.write(bytearray(bitstream))
+                            except BrokenPipeError as exc:
+                                rc = None
+                                stderr_output = ""
+                                try:
+                                    rc = self._ffmpeg_proc.poll()
+                                    out, err = self._ffmpeg_proc.communicate(timeout=0.1)
+                                    if err:
+                                        stderr_output = err.decode("utf-8", errors="ignore")
+                                except Exception:
+                                    pass
+                                raise RuntimeError(
+                                    "ffmpeg muxer exited while writing NVENC bitstream "
+                                    f"(returncode={rc}, stderr={stderr_output!r})"
+                                ) from exc
 
     def close(self) -> None:
         """Flush pending frames, finalize container, and release resources."""

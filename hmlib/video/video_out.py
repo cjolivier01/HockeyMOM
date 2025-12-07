@@ -363,6 +363,7 @@ class VideoOutput(torch.nn.ModuleDict):
                     bit_rate=self._bit_rate,
                     device=self._device,
                     batch_size=1,
+                    profiler=self._prof,
                 )
                 assert self._output_videos[self.VIDEO_DEFAULT].isOpened()
 
@@ -376,6 +377,7 @@ class VideoOutput(torch.nn.ModuleDict):
                     bit_rate=self._bit_rate,
                     device=self._device,
                     batch_size=1,
+                    profiler=self._prof,
                 )
                 assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
 
