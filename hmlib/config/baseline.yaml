@@ -48,7 +48,9 @@ aspen:
     # Valid values:
     #   - auto   : let the runtime decide / use library defaults
     #   - pyav   : use the PyAV container muxer
-    #   - ffmpeg : use the ffmpeg CLI muxer
+    #   - ffmpeg : use the streaming ffmpeg CLI muxer
+    #   - raw    : write a raw elementary bitstream sidecar (.h264/.h265/.ivf)
+    #              and invoke ffmpeg once at close() to mux into the container
     # The CLI flag --video-encoder-backend overrides this when provided.
     encoder_backend: "auto"
 
