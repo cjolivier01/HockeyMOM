@@ -56,8 +56,8 @@ def synchronize_by_audio(
     audio_items_per_frame_1 = audio1.shape[0] / video_1_subclip_frame_count
     audio_items_per_frame_2 = audio2.shape[0] / video_2_subclip_frame_count
 
-    assert np.isclose(sample_rate1 / video1_info.fps, audio_items_per_frame_1)
-    assert np.isclose(sample_rate2 / video2_info.fps, audio_items_per_frame_2)
+    assert np.isclose(float(sample_rate1 / video1_info.fps), float(audio_items_per_frame_1))
+    assert np.isclose(float(sample_rate2 / video2_info.fps), float(audio_items_per_frame_2))
 
     # Calculate the cross-correlation of audio1 and audio2
     if verbose:
