@@ -10,9 +10,6 @@
       "path": "../jersey-number-pipeline"
     },
     {
-      "path": "../TensorRT"
-    },
-    {
       "path": "../cuda-stacktrace"
     },
     {

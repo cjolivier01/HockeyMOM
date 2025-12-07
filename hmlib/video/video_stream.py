@@ -1148,8 +1148,8 @@ def create_output_video_stream(
     # Normalize fps to a plain float so downstream writers and backends
     # never see Fraction instances.
     fps_val = float(fps)
-    use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
-    # use_pynvcodec_env = True
+    # use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
+    use_pynvcodec_env = True
     if ("_nvenc" in (codec or "")) and use_pynvcodec_env:
         output_video = PyNvVideoEncoderWriter(
             filename=filename,
