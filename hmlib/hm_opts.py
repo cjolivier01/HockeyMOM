@@ -704,6 +704,17 @@ class hm_opts(object):
             type=str,
             help="Video stream encode device [cpu, cude, cuda:0, etc.]",
         )
+        parser.add_argument(
+            "--video-encoder-backend",
+            dest="video_encoder_backend",
+            choices=["auto", "pyav", "ffmpeg"],
+            default=None,
+            help=(
+                "Backend for PyNvVideoEncoder when using NVENC writers. "
+                "Values: auto (use baseline.yaml / auto-detect), pyav, ffmpeg. "
+                "When provided, this overrides aspen.video_out.encoder_backend from baseline.yaml."
+            ),
+        )
         # parser.add_argument(
         #     "--encoder",
         #     "--video-stream-encode-method",

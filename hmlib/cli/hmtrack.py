@@ -1184,6 +1184,12 @@ def main():
         # resolves to True.
         if getattr(args, "skip_final_video_save", None):
             set_nested_value(game_config, "aspen.video_out.skip_final_save", True)
+        # Video encoder backend: when provided via CLI, override baseline.yaml
+        # aspen.video_out.encoder_backend so Aspen/VideoOutPlugin can configure
+        # PyNvVideoEncoder accordingly.
+        backend = getattr(args, "video_encoder_backend", None)
+        if backend:
+            set_nested_value(game_config, "aspen.video_out.encoder_backend", backend)
         # Enable RGB stats checker when checkerboard-input debugging is active.
         if getattr(args, "checkerboard_input", False):
             set_nested_value(game_config, "debug.rgb_stats_check.enable", True)

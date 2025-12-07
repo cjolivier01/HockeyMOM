@@ -97,10 +97,15 @@ class PyNvVideoEncoder:
         self.bitrate = int(bitrate) if bitrate is not None else None
 
         backend_env = os.environ.get("HM_VIDEO_ENCODER_BACKEND", "").lower()
-        if use_pyav is None:
+        if use_pyav is not None:
+            # Explicit caller override wins.
+            self._use_pyav = bool(use_pyav)
+        elif backend_env:
+            # Environment variable controls backend when set.
             self._use_pyav = backend_env == "pyav"
         else:
-            self._use_pyav = bool(use_pyav)
+            # Default to ffmpeg CLI backend when no override is provided.
+            self._use_pyav = False
 
         if self.width % 2 or self.height % 2:
             raise ValueError("Width and height must be even for YUV420 encoding.")
@@ -158,7 +163,22 @@ class PyNvVideoEncoder:
                     self._mux_packet_pyav(bitstream)
                 else:
                     assert self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None
-                    self._ffmpeg_proc.stdin.write(bytearray(bitstream))
+                    try:
+                        self._ffmpeg_proc.stdin.write(bytearray(bitstream))
+                    except BrokenPipeError as exc:
+                        rc = None
+                        stderr_output = ""
+                        try:
+                            rc = self._ffmpeg_proc.poll()
+                            out, err = self._ffmpeg_proc.communicate(timeout=0.1)
+                            if err:
+                                stderr_output = err.decode("utf-8", errors="ignore")
+                        except Exception:
+                            pass
+                        raise RuntimeError(
+                            f"ffmpeg muxer exited while writing NVENC bitstream "
+                            f"(returncode={rc}, stderr={stderr_output!r})"
+                        ) from exc
 
     def close(self) -> None:
         """Flush pending frames, finalize container, and release resources."""
@@ -257,8 +277,10 @@ class PyNvVideoEncoder:
             stream_format,
             "-i",
             "pipe:0",
-            "-c",
-            "copy",
+            "-c:v",
+            "libx265" if self.codec in ("hevc", "h265") else "libx264",
+            "-preset",
+            "medium",
             str(self.output_path),
         ]
 
