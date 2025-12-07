@@ -16,6 +16,16 @@ import time
 from collections import OrderedDict
 from typing import Any, Callable, Iterator, List, Optional
 
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    Progress as RichProgress,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
+
 # Optional curses support
 try:
     # import curses  # type: ignore
@@ -30,6 +40,9 @@ except Exception:  # pragma: no cover - curses may not be available
 
 progress_out = sys.stderr
 logging_out = sys.stdout
+
+# Shared rich console used for both progress bars and log output.
+RICH_CONSOLE = Console(file=progress_out, stderr=True)
 
 
 def _get_terminal_width():
@@ -344,16 +357,17 @@ class ScrollOutput:
         self._column_width: Optional[int] = None
 
     def write(self, msg):
-        # If curses is active, enqueue logs and return immediately
-        if self._curses_ui is not None:
-            # Avoid calling curses from writer threads; just enqueue
-            self._curses_ui.enqueue_log(msg)
-            return
+        # When used with rich-based ProgressBar, write logs directly via the
+        # shared rich console so they appear below the active progress display.
         if msg == "\n":
             return
-        self.capture.append(msg)
+        text = msg.rstrip("\n")
+        if not text:
+            return
+        self.capture.append(text)
         if len(self.capture) > self.lines:
             self.capture.pop(0)
+        RICH_CONSOLE.print(text)
 
     def flush(self):
         pass
@@ -457,6 +471,8 @@ class ProgressBar:
         self.table_callbacks: List[Callable] = []
         self.bar_length = bar_length
         self._use_curses_requested = use_curses
+        # Legacy curses support is disabled; ProgressBar now uses rich.Progress
+        # for all rendering, but we retain these attributes for API stability.
         self._curses_ui: Optional[_CursesUI] = None
         if not self.bar_length:
             self.terminal_width = _get_terminal_width()
@@ -466,6 +482,23 @@ class ProgressBar:
             self.terminal_width = None
         if table_callback is not None:
             self.add_table_callback(table_callback)
+
+        # Rich progress UI setup
+        self._console = RICH_CONSOLE
+        self._progress = RichProgress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=self._console,
+            transient=False,
+        )
+        description = ""  # table_map may be mutated later by callbacks
+        total_value = self._total if self._total > 0 else None
+        self._rich_task = self._progress.add_task(description=description, total=total_value)
+        self._rich_started: bool = False
+        self._line_count: int = 0
 
     def add_table_callback(self, callback: Callable):
         self.table_callbacks.append(callback)
@@ -478,6 +511,13 @@ class ProgressBar:
         for cb in self.table_callbacks:
             cb(table_map)
 
+    def _format_description(self) -> str:
+        """Format the current table_map into a single-line description."""
+        if not self.table_map:
+            return ""
+        parts = [f"{key}: {value}" for key, value in self.table_map.items()]
+        return " | ".join(parts)
+
     @property
     def total(self) -> int:
         return self._total
@@ -486,15 +526,51 @@ class ProgressBar:
     def current(self) -> int:
         return self._counter
 
+    def _ensure_rich_started(self) -> None:
+        if not self._rich_started:
+            # Enter the rich.Progress context the first time we render.
+            self._progress.__enter__()
+            self._rich_started = True
+
+    def _render_rich(self, final: bool = False) -> None:
+        """Render or update the rich progress bar."""
+        self._ensure_rich_started()
+        # Allow callers to update table_map before we format the description.
+        self._run_callbacks(self.table_map)
+        description = self._format_description()
+        if self._total > 0:
+            completed = min(self._counter, self._total)
+            total_val = self._total
+        else:
+            completed = self._counter
+            total_val = None
+        self._progress.update(
+            self._rich_task,
+            completed=completed,
+            total=total_val,
+            description=description,
+            refresh=True,
+        )
+        if final and total_val is not None:
+            # Ensure we show a fully-complete bar if requested.
+            self._progress.update(
+                self._rich_task,
+                completed=total_val,
+                description=description,
+                refresh=True,
+            )
+
     def __iter__(self):
         return self
 
     def __next__(self):
         next_item = None
+        # Drive the wrapped iterator when provided; otherwise behave as a manual counter.
         if self.iterator is not None:
             try:
                 next_item = next(self.iterator)
             except StopIteration:
+                # Final update on completion
                 self.refresh(final=True)
                 self.close()
                 raise
@@ -508,7 +584,6 @@ class ProgressBar:
             self.terminal_width = _get_terminal_width()
 
         if self._counter % self.update_rate == 0:
-            self._run_callbacks(table_map=self.table_map)
             self.refresh()
             if next_item is None:
                 time.sleep(0.001)  # Simulating work by sleeping
@@ -517,53 +592,21 @@ class ProgressBar:
         return next_item
 
     def _maybe_init_curses(self):
-        if self._curses_ui is not None:
-            return
-        if not self._use_curses_requested:
-            return
-        if curses is None or not _isatty():
-            return
-        try:
-            self._curses_ui = _CursesUI()
-            if self.scroll_output is not None:
-                self.scroll_output._attach_curses_ui(self._curses_ui)
-        except Exception:
-            # Fallback on failure
-            self._curses_ui = None
+        # Legacy no-op: curses UI has been replaced by rich.Progress.
+        return
 
     def close(self):
-        if self._curses_ui is not None:
+        # Tear down the rich progress context if it was started.
+        if getattr(self, "_rich_started", False):
             try:
-                # Final drain of logs and render one last time
-                self._curses_ui.render(self.table_map, self._counter, max(1, self._total), 100.0)
-                self._curses_ui.drain_logs()
+                self._progress.__exit__(None, None, None)
             except Exception:
                 pass
-            self._curses_ui.close()
-            self._curses_ui = None
-            if self.scroll_output is not None:
-                self.scroll_output._attach_curses_ui(None)
+            self._rich_started = False
 
     def refresh(self, final: bool = False):
-        # Attempt to use curses if available
-        if self._curses_ui is None:
-            self._maybe_init_curses()
-
-        if self._curses_ui is not None:
-            # Curses path: render header and progress; drain logs
-            total = max(1, self._total)
-            percent = 100.0 if final else (self._counter / total) * 100.0
-            try:
-                self._curses_ui.render(self.table_map, self._counter, total, percent)
-                self._curses_ui.drain_logs()
-            except Exception:
-                # If curses rendering fails mid-run, silently fallback to non-curses printing
-                self.close()
-                self._refresh_fallback()
-            return
-
-        # Fallback path using ANSI printing
-        self._refresh_fallback()
+        # Single rich-backed rendering path
+        self._render_rich(final=final)
 
     def _refresh_fallback(self):
         # Compute a column width consistent with the table box
