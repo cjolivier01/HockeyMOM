@@ -77,6 +77,12 @@ class DetectorFactoryPlugin(Plugin):
         onnx: Optional[Dict[str, Any]] = None,
         trt: Optional[Dict[str, Any]] = None,
         static_detections: Optional[Dict[str, Any]] = None,
+        # Optional NMS configuration applied across backends (PyTorch, ONNX, TRT).
+        # When not provided, defaults mirror the CLI flags in hm_opts (--detector-nms-backend
+        # and --detector-trt-nms-plugin), with TensorRT batched NMS as the default.
+        nms_backend: str = "trt",
+        nms_test: bool = False,
+        nms_plugin: str = "batched",
     ):
         super().__init__(enabled=enabled)
         self._detector_dict = detector
@@ -98,6 +104,17 @@ class DetectorFactoryPlugin(Plugin):
         self._static_detections: Dict[str, Any] = dict(trt_static)
         if static_detections:
             self._static_detections.update(static_detections)
+        # Unified NMS configuration shared across all detector backends.
+        self._nms_backend: str = str(nms_backend or "trt").lower()
+        self._nms_test: bool = bool(nms_test)
+        self._nms_plugin: str = str(nms_plugin or "batched")
+        # Optional cached wrapper for pure-PyTorch YOLOX detectors so we don't
+        # rebuild the wrapper on every forward().
+        self._torch_wrapper: Optional[_TorchDetectorWrapper] = None
+        # Fully-resolved runtime detector (PyTorch, ONNX, or TRT). This is
+        # selected once after the base model is built and reused for all
+        # subsequent forward() calls.
+        self._runtime_detector: Optional[Any] = None
         self._pass: int = 0
 
     def _load_detector_from_yaml(self, path: str) -> Dict[str, Any]:
@@ -156,11 +173,29 @@ class DetectorFactoryPlugin(Plugin):
             if hasattr(model, "init_weights"):
                 model.init_weights()
 
-            if self._static_detections:
-                head = getattr(model, "bbox_head", None)
-                setter = getattr(head, "set_static_detections", None)
-                if callable(setter):
+            # Enable static-shape detection outputs whenever the head supports
+            # it (e.g., YOLOXHead). This avoids dynamic mask-based selects and
+            # plays nicely with the TensorRT NMS path.
+            head = getattr(model, "bbox_head", None)
+            setter = getattr(head, "set_static_detections", None)
+            if callable(setter):
+                if self._static_detections:
                     setter(**self._static_detections)
+                else:
+                    # Defaults: enable static detections and, when possible,
+                    # mirror max_per_img from test_cfg.
+                    static_kwargs: Dict[str, Any] = {"enable": True}
+                    try:
+                        test_cfg = getattr(head, "test_cfg", None)
+                        if test_cfg is not None:
+                            max_per_img = int(test_cfg.get("max_per_img", 0) or 0)
+                        else:
+                            max_per_img = 0
+                    except Exception:
+                        max_per_img = 0
+                    if max_per_img > 0:
+                        static_kwargs["max_detections"] = max_per_img
+                    setter(**static_kwargs)
 
             if (
                 self._to_device
@@ -171,55 +206,88 @@ class DetectorFactoryPlugin(Plugin):
             model.eval()
             self._model = model
 
-        # Decide backend: TensorRT (highest), ONNX, or PyTorch
-        use_trt = bool(self._trt_cfg.get("enable", False))
-        if use_trt:
-            if self._trt_wrapper is None:
-                try:
-                    self._trt_wrapper = _TrtDetectorWrapper(
-                        model=self._model,
-                        engine_path=str(self._trt_cfg.get("engine", "detector.engine")),
-                        force_build=bool(self._trt_cfg.get("force_build", False)),
-                        fp16=bool(self._trt_cfg.get("fp16", True)),
-                        int8=bool(self._trt_cfg.get("int8", False)),
-                        calib_frames=int(self._trt_cfg.get("calib_frames", 0)),
-                        profiler=self._profiler,
-                        nms_backend=str(self._trt_cfg.get("nms_backend", "trt")),
-                        nms_test=bool(self._trt_cfg.get("nms_test", False)),
-                        nms_plugin=str(self._trt_cfg.get("nms_plugin", "batched")),
-                    )
-                except Exception as ex:
-                    # Fall back to next option if TRT init fails
-                    print(f"Failed to initialize TensorRT detector wrapper: {ex}")
-                    self._trt_wrapper = None
-            if self._trt_wrapper is not None:
-                context["detector_model"] = self._trt_wrapper
-                return {"detector_model": self._trt_wrapper}
+        # Decide backend: TensorRT (highest), ONNX, or PyTorch exactly once
+        # after the base model is constructed. Subsequent forward() calls reuse
+        # the resolved runtime detector to avoid per-step backend selection.
+        if self._runtime_detector is None:
+            detector_model: Any = self._model
 
-        use_onnx = bool(self._onnx_cfg.get("enable", False))
-        if use_onnx:
-            if self._onnx_wrapper is None:
-                try:
-                    self._onnx_wrapper = _OnnxDetectorWrapper(
-                        model=self._model,
-                        onnx_path=str(self._onnx_cfg.get("path", "detector.onnx")),
-                        force_export=bool(self._onnx_cfg.get("force_export", False)),
-                        quantize_int8=bool(self._onnx_cfg.get("quantize_int8", False)),
-                        calib_frames=int(self._onnx_cfg.get("calib_frames", 0)),
-                        game_id=str(context.get("game_id", "")),
-                        profiler=self._profiler,
-                    )
-                except Exception as ex:
-                    # Fall back to PyTorch if ONNX init fails
-                    print(f"Failed to initialize ONNX detector wrapper: {ex}")
-                    self._onnx_wrapper = None
-            if self._onnx_wrapper is not None:
-                context["detector_model"] = self._onnx_wrapper
-                return {"detector_model": self._onnx_wrapper}
+            # Prefer TensorRT backbone+neck when explicitly enabled.
+            use_trt = bool(self._trt_cfg.get("enable", False))
+            if use_trt:
+                if self._trt_wrapper is None:
+                    try:
+                        self._trt_wrapper = _TrtDetectorWrapper(
+                            model=self._model,
+                            engine_path=str(self._trt_cfg.get("engine", "detector.engine")),
+                            force_build=bool(self._trt_cfg.get("force_build", False)),
+                            fp16=bool(self._trt_cfg.get("fp16", True)),
+                            int8=bool(self._trt_cfg.get("int8", False)),
+                            calib_frames=int(self._trt_cfg.get("calib_frames", 0)),
+                            profiler=self._profiler,
+                            nms_backend=str(self._trt_cfg.get("nms_backend", self._nms_backend)),
+                            nms_test=bool(self._trt_cfg.get("nms_test", self._nms_test)),
+                            nms_plugin=str(self._trt_cfg.get("nms_plugin", self._nms_plugin)),
+                        )
+                    except Exception as ex:
+                        # Fall back to next option if TRT init fails
+                        print(f"Failed to initialize TensorRT detector wrapper: {ex}")
+                        self._trt_wrapper = None
+                if self._trt_wrapper is not None:
+                    detector_model = self._trt_wrapper
 
-        # Default: PyTorch detector
-        context["detector_model"] = self._model
-        return {"detector_model": self._model}
+            # If no TensorRT wrapper is active, consider ONNX backbone+neck.
+            if detector_model is self._model:
+                use_onnx = bool(self._onnx_cfg.get("enable", False))
+                if use_onnx:
+                    if self._onnx_wrapper is None:
+                        try:
+                            self._onnx_wrapper = _OnnxDetectorWrapper(
+                                model=self._model,
+                                onnx_path=str(self._onnx_cfg.get("path", "detector.onnx")),
+                                force_export=bool(self._onnx_cfg.get("force_export", False)),
+                                quantize_int8=bool(self._onnx_cfg.get("quantize_int8", False)),
+                                calib_frames=int(self._onnx_cfg.get("calib_frames", 0)),
+                                game_id=str(context.get("game_id", "")),
+                                profiler=self._profiler,
+                                nms_backend=str(
+                                    self._onnx_cfg.get("nms_backend", self._nms_backend)
+                                ),
+                                nms_test=bool(self._onnx_cfg.get("nms_test", self._nms_test)),
+                                nms_plugin=str(
+                                    self._onnx_cfg.get("nms_plugin", self._nms_plugin)
+                                ),
+                            )
+                        except Exception as ex:
+                            # Fall back to PyTorch if ONNX init fails
+                            print(f"Failed to initialize ONNX detector wrapper: {ex}")
+                            self._onnx_wrapper = None
+                    if self._onnx_wrapper is not None:
+                        detector_model = self._onnx_wrapper
+
+            # Default: PyTorch detector. For YOLOX-style heads, wrap the model so
+            # that we can reuse the DetectorNMS path (TensorRT / static shapes)
+            # even when backbone+neck are running in pure PyTorch.
+            if detector_model is self._model:
+                try:
+                    bbox_head = getattr(self._model, "bbox_head", None)
+                    if bbox_head is not None and bbox_head.__class__.__name__ == "YOLOXHead":
+                        if self._torch_wrapper is None:
+                            self._torch_wrapper = _TorchDetectorWrapper(
+                                model=self._model,
+                                profiler=self._profiler,
+                                nms_backend=self._nms_backend,
+                                nms_test=self._nms_test,
+                                nms_plugin=self._nms_plugin,
+                            )
+                        detector_model = self._torch_wrapper
+                except Exception:
+                    detector_model = self._model
+
+            self._runtime_detector = detector_model
+
+        context["detector_model"] = self._runtime_detector
+        return {"detector_model": self._runtime_detector}
 
     def input_keys(self):
         return {"device", "using_precalculated_detection", "game_id"}
@@ -280,6 +348,9 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
         calib_frames: int = 0,
         game_id: str = "",
         profiler: Optional[Any] = None,
+        nms_backend: str = "trt",
+        nms_test: bool = False,
+        nms_plugin: str = "batched",
     ):
         super().__init__(profiler=profiler, label="onnx_predictor")
         self.model = model
@@ -291,6 +362,19 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
         self._quantized = False
         self._quantized_path: Optional[str] = None
         self._use_cuda = False
+        # NMS configuration and dispatcher (mirrors TensorRT wrapper).
+        self._nms_backend: str = str(nms_backend or "trt").lower()
+        self._nms_test: bool = bool(nms_test)
+        self._nms_plugin: str = str(nms_plugin or "batched")
+        compare_backends: List[str] = []
+        if self._nms_test and self._nms_backend == "trt":
+            compare_backends.append("torchvision")
+        self._nms = DetectorNMS(
+            bbox_head=getattr(model, "bbox_head", model),
+            backend=self._nms_backend,
+            compare_backends=compare_backends,
+            trt_plugin=self._nms_plugin,
+        )
 
         # Gather preproc config
         self._mean = None
@@ -531,12 +615,15 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
             with torch.inference_mode():
                 with self._profile_scope("head"):
                     cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
-                    metas = []
+                    metas: List[Dict[str, Any]] = []
                     for i in range(N):
                         try:
                             metas.append(getattr(data_samples[i], "metainfo", {}))
                         except Exception:
                             metas.append({})
+                    # Decode boxes/scores but defer NMS to DetectorNMS so that
+                    # the same TensorRT/static-shape path can be used across
+                    # ONNX and pure PyTorch backends.
                     result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
                         cls_scores=cls_scores,
                         bbox_preds=bbox_preds,
@@ -544,18 +631,23 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
                         batch_img_metas=metas,
                         cfg=None,
                         rescale=True,
-                        with_nms=True,
+                        with_nms=False,
                     )
             results: List[Any] = []
             with self._profile_scope("postprocess"):
                 self._maybe_quantize_after_calib()
-                for inst in result_list:
+                for inst, meta in zip(result_list, metas):
+                    # Apply configured NMS backend (TensorRT by default).
+                    with self._profile_scope("nms"):
+                        inst = self._nms.run_single(inst, meta)
 
                     class _Wrap:
                         def __init__(self, inst_):
                             self.pred_instances = inst_
 
-                    results.append(_Wrap(_strip_static_padding(inst)))
+                    results.append(
+                        _Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt"))
+                    )
             return results
 
 
@@ -812,4 +904,83 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                 pass
 
             self._pass += 1
+            return results
+
+
+class _TorchDetectorWrapper(_ProfilerMixin):
+    """Pure-PyTorch detector wrapper that mirrors the YOLOX + DetectorNMS flow.
+
+    Used for YOLOX-based detectors when neither ONNX nor TensorRT backbone/neck
+    acceleration is enabled, so that the same TensorRT-based NMS (or alternate
+    backends) and static-shape decoding paths can be reused without changing
+    the upstream Aspen graph.
+    """
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        profiler: Optional[Any] = None,
+        nms_backend: str = "trt",
+        nms_test: bool = False,
+        nms_plugin: str = "batched",
+    ):
+        super().__init__(profiler=profiler, label="torch_predictor")
+        self.model = model
+        self._nms_backend: str = str(nms_backend or "trt").lower()
+        self._nms_test: bool = bool(nms_test)
+        self._nms_plugin: str = str(nms_plugin or "batched")
+        compare_backends: List[str] = []
+        if self._nms_test and self._nms_backend == "trt":
+            compare_backends.append("torchvision")
+        self._nms = DetectorNMS(
+            bbox_head=getattr(model, "bbox_head", model),
+            backend=self._nms_backend,
+            compare_backends=compare_backends,
+            trt_plugin=self._nms_plugin,
+        )
+
+    def predict(self, imgs: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
+        with self._profile_scope():
+            assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
+            N = imgs.size(0)
+            try:
+                dev = next(self.model.parameters()).device
+            except StopIteration:
+                dev = imgs.device
+
+            results: List[Any] = []
+            with torch.inference_mode():
+                with self._profile_scope("backbone"):
+                    feats = self.model.extract_feat(imgs.to(device=dev, non_blocking=True))
+                with self._profile_scope("head"):
+                    cls_scores, bbox_preds, objectnesses = self.model.bbox_head(feats)
+                    metas: List[Dict[str, Any]] = []
+                    for i in range(N):
+                        try:
+                            metas.append(getattr(data_samples[i], "metainfo", {}))
+                        except Exception:
+                            metas.append({})
+                    result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                        cls_scores=cls_scores,
+                        bbox_preds=bbox_preds,
+                        objectnesses=objectnesses,
+                        batch_img_metas=metas,
+                        cfg=None,
+                        rescale=True,
+                        with_nms=False,
+                    )
+
+                with self._profile_scope("postprocess"):
+                    for inst, meta in zip(result_list, metas):
+                        with self._profile_scope("nms"):
+                            inst = self._nms.run_single(inst, meta)
+
+                        class _Wrap:
+                            def __init__(self, inst_):
+                                self.pred_instances = inst_
+
+                        results.append(
+                            _Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt"))
+                        )
+
             return results

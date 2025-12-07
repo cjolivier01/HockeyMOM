@@ -473,7 +473,10 @@ def _main(args, num_gpu):
                 # Optional static detection outputs (fixed-shape top-k)
                 static_det_enable = bool(getattr(args, "detector_static_detections", False))
                 static_det_max = int(getattr(args, "detector_static_max_detections", 0) or 0)
-                if static_det_enable and "detector" in trunks_cfg:
+                # Configure static-shape detection outputs by default whenever the
+                # detector supports them (e.g., YOLOXHead). The CLI flag controls
+                # additional overrides such as max_detections.
+                if "detector" in trunks_cfg:
                     df = trunks_cfg.setdefault(
                         "detector_factory",
                         {
@@ -484,8 +487,10 @@ def _main(args, num_gpu):
                     )
                     df_params = df.setdefault("params", {}) or {}
                     static_cfg = df_params.setdefault("static_detections", {}) or {}
-                    static_cfg["enable"] = True
-                    if static_det_max > 0:
+                    # Always enable static detections when supported; allow CLI
+                    # to override max_detections when provided.
+                    static_cfg.setdefault("enable", True)
+                    if static_det_enable and static_det_max > 0:
                         static_cfg["max_detections"] = static_det_max
                     df_params["static_detections"] = static_cfg
                     df["params"] = df_params
@@ -509,6 +514,11 @@ def _main(args, num_gpu):
                     onnx_cfg["force_export"] = bool(args.detector_onnx_force_export)
                     onnx_cfg["quantize_int8"] = bool(args.detector_onnx_quantize_int8)
                     onnx_cfg["calib_frames"] = int(args.detector_onnx_calib_frames or 0)
+                    # Mirror NMS configuration for ONNX-backed detectors so the
+                    # same DetectorNMS path can be used.
+                    onnx_cfg["nms_backend"] = getattr(args, "detector_nms_backend", "trt")
+                    onnx_cfg["nms_test"] = bool(getattr(args, "detector_nms_test", False))
+                    onnx_cfg["nms_plugin"] = getattr(args, "detector_trt_nms_plugin", "batched")
                     df_params["onnx"] = onnx_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df

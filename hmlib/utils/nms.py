@@ -23,18 +23,15 @@ def get_trt_logger(trt_module):
     if _TRT_LOGGER is not None:
         return _TRT_LOGGER
 
-    # Prefer the existing global TensorRT logger if available. This avoids
-    # triggering warnings about mismatched loggers when other code has
-    # already created a Builder/Runtime with its own Logger instance.
+    # Use a dedicated logger with elevated severity so that noisy TensorRT
+    # warnings (e.g., BatchedNMSPlugin deprecation messages) do not spam
+    # the console during inference. Errors are still reported.
     try:
-        get_logger = getattr(trt_module, "get_logger", None)
+        _TRT_LOGGER = trt_module.Logger(trt_module.Logger.ERROR)
     except Exception:
-        get_logger = None
-
-    if callable(get_logger):
-        _TRT_LOGGER = get_logger()
-    else:
-        _TRT_LOGGER = trt_module.Logger(trt_module.Logger.WARNING)
+        # Fallback to default WARNING severity if the constructor signature
+        # differs on older TensorRT versions.
+        _TRT_LOGGER = trt_module.Logger()
 
     # Best-effort plugin initialization; non-fatal if this fails or if
     # plugins were already initialized elsewhere.
@@ -61,7 +58,7 @@ class TrtNmsConfig:
     clip_boxes: bool = False
     score_bits: int = 16
     caffe_semantics: bool = True
-    plugin: str = "batched"
+    plugin: str = "efficient"
 
 
 class TrtBatchedNMS:
@@ -191,7 +188,9 @@ class TrtBatchedNMS:
         N = int(self.cfg.max_num_boxes)
         C = int(self.cfg.num_classes)
 
-        plugin_kind = getattr(self.cfg, "plugin", "batched").lower()
+        # Prefer EfficientNMS_TRT when available; fall back to BatchedNMS
+        # for older TensorRT builds where EfficientNMS is missing.
+        plugin_kind = getattr(self.cfg, "plugin", "efficient").lower()
         registry = trt.get_plugin_registry()
 
         if plugin_kind == "efficient":
@@ -210,33 +209,37 @@ class TrtBatchedNMS:
 
             creator = registry.get_plugin_creator("EfficientNMS_TRT", "1", "")
             if creator is None:
-                raise RuntimeError("EfficientNMS_TRT plugin not found in TensorRT registry")
+                # Fall back to BatchedNMSDynamic_TRT on older TensorRT builds.
+                plugin_kind = "batched"
+            else:
+                fields = []
 
-            fields = []
+                def add_field(name: str, value, ftype):
+                    arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
+                    fields.append(trt.PluginField(name, arr, ftype))
 
-            def add_field(name: str, value, ftype):
-                arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
-                fields.append(trt.PluginField(name, arr, ftype))
+                # EfficientNMS parameters
+                add_field(
+                    "score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32
+                )
+                add_field(
+                    "iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32
+                )
+                add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
+                add_field(
+                    "background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32
+                )
+                # 0 = no activation (scores already in [0,1]), 1 = sigmoid
+                add_field("score_activation", 0, trt.PluginFieldType.INT32)
+                # 0 = per-class NMS, 1 = class-agnostic
+                add_field("class_agnostic", 0, trt.PluginFieldType.INT32)
+                # 0 = boxes in [x1, y1, x2, y2], 1 = [x, y, w, h]
+                add_field("box_coding", 0, trt.PluginFieldType.INT32)
 
-            # EfficientNMS parameters
-            add_field(
-                "score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32
-            )
-            add_field("iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
-            add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
-            add_field(
-                "background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32
-            )
-            # 0 = no activation (scores already in [0,1]), 1 = sigmoid
-            add_field("score_activation", 0, trt.PluginFieldType.INT32)
-            # 0 = per-class NMS, 1 = class-agnostic
-            add_field("class_agnostic", 0, trt.PluginFieldType.INT32)
-            # 0 = boxes in [x1, y1, x2, y2], 1 = [x, y, w, h]
-            add_field("box_coding", 0, trt.PluginFieldType.INT32)
+                plugin = creator.create_plugin("efficient_nms", trt.PluginFieldCollection(fields))
+                layer = network.add_plugin_v2([boxes, scores], plugin)
 
-            plugin = creator.create_plugin("efficient_nms", trt.PluginFieldCollection(fields))
-            layer = network.add_plugin_v2([boxes, scores], plugin)
-        else:
+        if plugin_kind != "efficient":
             # Legacy BatchedNMSDynamic_TRT plugin.
             boxes = network.add_input(
                 name="boxes",
@@ -503,7 +506,7 @@ class DetectorNMS:
     """Unified NMS dispatcher for detector outputs.
 
     Handles multiple backends:
-      - 'trt': TensorRT BatchedNMSDynamic_TRT plugin via TrtBatchedNMS
+      - 'trt': TensorRT NMS plugin (EfficientNMS_TRT by default) via TrtBatchedNMS
       - 'torchvision': torchvision.ops.nms per class
       - 'head': reuse the detection head's own _bbox_post_process NMS
 
@@ -517,12 +520,12 @@ class DetectorNMS:
         bbox_head: torch.nn.Module,
         backend: str = "trt",
         compare_backends: Optional[Sequence[str]] = None,
-        trt_plugin: str = "batched",
+        trt_plugin: str = "efficient",
     ) -> None:
         self.bbox_head = bbox_head
         self.backend: str = str(backend or "trt").lower()
         self.compare_backends: List[str] = [b.lower() for b in (compare_backends or [])]
-        self.trt_plugin: str = str(trt_plugin or "batched").lower()
+        self.trt_plugin: str = str(trt_plugin or "efficient").lower()
         self._trt_nms: Optional[TrtBatchedNMS] = None
 
     def _ensure_trt(self, max_num_boxes: int, stream: Optional[torch.cuda.Stream]) -> None:
@@ -533,6 +536,7 @@ class DetectorNMS:
                 stream=stream,
                 plugin=self.trt_plugin,
             )
+            assert self._trt_nms is not None
         # else:
         #     # If we ever see a larger pre-NMS set, rebuild with the larger
         #     # capacity to avoid truncation.
