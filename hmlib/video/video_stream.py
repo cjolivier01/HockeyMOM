@@ -371,11 +371,6 @@ class VideoStreamWriter(VideoStreamWriterInterface):
                 hw_accel=str(self._device),
             )
 
-    # def bgr_to_rgb(self, batch: torch.Tensor):
-    #     # Assuming batch is a PyTorch tensor of shape [N, C, H, W]
-    #     # and the channel order is BGR
-    #     return batch[:, [2, 1, 0], :, :]
-
     def close(self):
         if self._video_f is not None:
             self._finish()
