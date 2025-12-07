@@ -44,6 +44,13 @@ aspen:
     # Whether to skip final container flush/save in VideoOutput.
     # CLI flag --skip-final-video-save overrides this when provided.
     skip_final_save: false
+    # Default NVENC video encoder backend used by VideoOutput / PyNvVideoEncoder.
+    # Valid values:
+    #   - auto   : let the runtime decide / use library defaults
+    #   - pyav   : use the PyAV container muxer
+    #   - ffmpeg : use the ffmpeg CLI muxer
+    # The CLI flag --video-encoder-backend overrides this when provided.
+    encoder_backend: "auto"
 
 #
 # Rink config
