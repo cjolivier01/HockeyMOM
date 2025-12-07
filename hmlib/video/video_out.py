@@ -344,6 +344,9 @@ class VideoOutput(torch.nn.ModuleDict):
 
     def stop(self):
         """Close any interactive UI resources (e.g., OpenCV shower)."""
+        for stream in self._output_videos.values():
+            stream.close()
+        self._output_videos.clear()
         if self._shower is not None:
             self._shower.close()
             self._shower = None

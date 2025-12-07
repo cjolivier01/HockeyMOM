@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import os
 import subprocess
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -63,14 +64,14 @@ class PyNvVideoEncoder:
         width: int,
         height: int,
         fps: float,
-        codec: str = "h264",
-        preset: str = "P3",
+        codec: str = "h265",
+        preset: str = "P1",
         device: Optional[torch.device] = None,
         gpu_id: Optional[int] = None,
         cuda_context: Optional[int] = None,
         cuda_stream: Optional[int] = None,
         bitrate: Optional[int] = None,
-        use_pyav: Optional[bool] = True,
+        use_pyav: Optional[bool] = None,
         profiler: Optional[Any] = None,
     ) -> None:
         if nvc is None:
@@ -110,7 +111,7 @@ class PyNvVideoEncoder:
             self._use_pyav = backend_env == "pyav"
         else:
             # Default to ffmpeg CLI backend when no override is provided.
-            self._use_pyav = False
+            self._use_pyav = True
 
         if self.width % 2 or self.height % 2:
             raise ValueError("Width and height must be even for YUV420 encoding.")
@@ -181,6 +182,7 @@ class PyNvVideoEncoder:
                     if bitstream:
                         if self._use_pyav:
                             self._mux_packet_pyav(bitstream)
+                            self._frames_in_current_bitstream = 0
                         else:
                             assert (
                                 self._ffmpeg_proc is not None
@@ -204,7 +206,6 @@ class PyNvVideoEncoder:
                                     "See ffmpeg logs for more details. "
                                     f"(returncode={rc}, stderr={stderr_output!r})"
                                 ) from exc
-                        self._frames_in_current_bitstream = 0
 
     def close(self) -> None:
         """Flush pending frames, finalize container, and release resources."""
@@ -249,7 +250,7 @@ class PyNvVideoEncoder:
         config: dict[str, str] = {
             "codec": self.codec,
             "preset": self.preset,
-            "fps": str(int(self.fps)),
+            "fps": str(self.fps),
             "gpu_id": str(self.gpu_id),
         }
 
@@ -342,8 +343,6 @@ class PyNvVideoEncoder:
                 f"Failed to import: {exc}"
             )
 
-        from fractions import Fraction
-
         self._av_container = av.open(str(self.output_path), mode="w")
         # Use codec name directly (e.g. 'h264', 'hevc', 'av1'); this matches the
         # elementary stream produced by NVENC.
@@ -357,10 +356,15 @@ class PyNvVideoEncoder:
         self._av_stream.pix_fmt = "yuv420p"
         if self._av_stream.time_base is None:
             self._av_stream.time_base = Fraction(1, 90000)
-        self._frame_duration_units = (1 / Fraction(fps_num, fps_den)) * (
-            1 / self._av_stream.time_base
-        )
-        self._next_pts = 0
+
+        tb = self._av_stream.time_base or Fraction(1, 90000)
+        self._av_stream.time_base = tb
+
+        fps = Fraction(fps_num, fps_den)
+        ticks_per_frame = int((Fraction(1, 1) / fps) / tb)  # 3003 for 29.97 with 1/90000
+
+        self._ticks_per_frame = ticks_per_frame
+        self._next_pts = 0  # in ticks
 
     def _mux_packet_pyav(self, bitstream: bytes) -> None:
         """Mux a single encoded packet into the PyAV container."""
@@ -369,14 +373,16 @@ class PyNvVideoEncoder:
 
         import av  # type: ignore[import-not-found]
 
+        dur = int(self._frames_in_current_bitstream * self._ticks_per_frame)
+
         packet = av.packet.Packet(bitstream)
         packet.stream = self._av_stream
-        packet.pts = self._next_pts / self._av_stream.time_base
-        packet.dts = self._next_pts / self._av_stream.time_base
-        packet.duration = self._frames_in_current_bitstream * self._frame_duration_units
         packet.time_base = self._av_stream.time_base
+        packet.pts = self._next_pts
+        packet.dts = self._next_pts
+        packet.duration = dur
         self._av_container.mux(packet)
-        self._next_pts += self._frames_in_current_bitstream
+        self._next_pts += dur
 
     def _normalize_frames(self, frames: torch.Tensor) -> torch.Tensor:
         """
