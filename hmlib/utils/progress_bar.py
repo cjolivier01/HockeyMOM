@@ -19,9 +19,10 @@ from typing import Any, Callable, Iterator, List, Optional
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
-from rich.progress import BarColumn, Progress as RichProgress, TaskProgressColumn, TextColumn
+from rich.progress import BarColumn, Progress as RichProgress, TaskProgressColumn, TextColumn, ProgressColumn
 from rich.live import Live
 from rich.rule import Rule
+from rich.text import Text
 
 # Optional curses support
 try:
@@ -40,6 +41,23 @@ logging_out = sys.stdout
 
 # Shared rich console used for both progress bars and log output.
 RICH_CONSOLE = Console(file=progress_out, stderr=True)
+
+
+class FramesColumn(ProgressColumn):
+    """Right-aligned 'completed/total' frames column with fixed width."""
+
+    def render(self, task) -> Text:  # type: ignore[override]
+        completed = int(task.completed)
+        total = task.total
+        if total is None or (isinstance(total, (int, float)) and total <= 0):
+            total_str = " " * 8
+        else:
+            try:
+                total_str = f"{int(total):>8}"
+            except Exception:
+                total_str = " " * 8
+        text = f"{completed:>8}/{total_str}"
+        return Text(text, style="white")
 
 
 def _get_terminal_width():
@@ -347,7 +365,7 @@ class ScrollOutput:
     @param lines: Maximum number of lines to retain in the buffer.
     """
 
-    def __init__(self, lines=4):
+    def __init__(self, lines=10):
         self.capture = []
         self.lines = lines
         self._curses_ui: Optional[_CursesUI] = None
@@ -486,19 +504,23 @@ class ProgressBar:
             self.terminal_width_interval = 250
         else:
             self.terminal_width = None
+        # Delay initializing/rendering the rich UI until after a warm-up
+        # period so that early startup text does not interfere with it.
+        self._start_threshold: int = 250
         if table_callback is not None:
             self.add_table_callback(table_callback)
 
         # Rich progress UI setup
         self._console = RICH_CONSOLE
         self._progress = RichProgress(
-            TextColumn("{task.description}", justify="left", style="white"),
+            TextColumn("Progress:", justify="left", style="white"),
             BarColumn(bar_width=None, complete_style="bright_green", finished_style="bright_green"),
             TaskProgressColumn(),
+            FramesColumn(),
             console=self._console,
             transient=False,
         )
-        description = ""  # table_map may be mutated later by callbacks
+        description = ""  # description column is a fixed label
         total_value = self._total if self._total > 0 else None
         self._rich_task = self._progress.add_task(description=description, total=total_value)
         self._rich_started: bool = False
@@ -642,7 +664,7 @@ class ProgressBar:
         self._run_callbacks(self.table_map)
         # Progress bar label is a fixed prefix; tabular values are shown only
         # in the status table above, not in the bar description.
-        description = "Progress: "
+        description = ""
         if self._total > 0:
             completed = min(self._counter, self._total)
             total_val = self._total
@@ -710,7 +732,13 @@ class ProgressBar:
             self._rich_started = False
 
     def refresh(self, final: bool = False):
-        # Single rich-backed rendering path
+        # Avoid starting the rich UI until after the warm-up threshold so
+        # that early startup output does not interfere with the layout.
+        if not getattr(self, "_rich_started", False) and self._counter < self._start_threshold:
+            # Still allow table callbacks to keep table_map up to date.
+            self._run_callbacks(self.table_map)
+            return
+        # Single rich-backed rendering path once started
         self._render_rich(final=final)
 
     def _refresh_fallback(self):
