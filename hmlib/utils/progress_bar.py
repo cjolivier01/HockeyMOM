@@ -58,8 +58,6 @@ def _get_terminal_width():
     return shutil.get_terminal_size().columns
 
 
-
-
 class CallbackStreamHandler(logging.StreamHandler):
     def __init__(self, callback):
         super().__init__()
@@ -216,7 +214,7 @@ class ProgressBar:
         self._live: Optional[Live] = None
         self._line_count: int = 0
         self._log_lines: List[str] = []
-        self._log_max_lines: int = scroll_output.lines if scroll_output is not None else 4
+        self._log_max_lines: int = scroll_output.lines if scroll_output is not None else 11
 
         if self.scroll_output is not None:
             # Route ScrollOutput lines into this ProgressBar's log buffer.

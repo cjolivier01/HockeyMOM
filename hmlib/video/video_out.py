@@ -263,7 +263,7 @@ class VideoOutput(torch.nn.ModuleDict):
         self._name = name
         self._simple_save = simple_save
         # Normalize to float even if upstream passes a Fraction
-        self._fps = float(fps)
+        self._fps = fps
         self._skip_final_save = skip_final_save
         self._progress_bar = progress_bar
         self._output_video_path = output_video_path
@@ -427,6 +427,9 @@ class VideoOutput(torch.nn.ModuleDict):
         if self._show_image and self._shower is not None:
             for show_img in online_im:
                 self._shower.show(show_img.clone())
+
+        torch.cuda.synchronize()
+        # torch.cuda.current_stream(online_im.device).synchronize()
 
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:

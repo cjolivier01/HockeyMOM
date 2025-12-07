@@ -120,7 +120,6 @@ class PyNvVideoEncoder:
         self._ffmpeg_proc: Optional[subprocess.Popen[bytes]] = None
         self._av_container = None
         self._av_stream = None
-        self._av_parser = None
         self._next_pts: int = 0
         self._opened = False
         self._frames_in_current_bitstream: int = 0
@@ -221,9 +220,6 @@ class PyNvVideoEncoder:
                     self._mux_packet_pyav(bitstream)
                 elif self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
                     self._ffmpeg_proc.stdin.write(bytearray(bitstream))
-        if self._use_pyav:
-            # Drain any buffered packets left in the parser before closing.
-            self._flush_pyav_parser()
 
         if not self._use_pyav:
             if self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
@@ -238,7 +234,6 @@ class PyNvVideoEncoder:
         self._ffmpeg_proc = None
         self._av_container = None
         self._av_stream = None
-        self._av_parser = None
         self._opened = False
 
     # ------------------------------------------------------------------
@@ -347,7 +342,6 @@ class PyNvVideoEncoder:
 
         codec_name = "hevc" if self.codec in ("h265", "hevc") else self.codec
         self._av_stream = self._av_container.add_stream(codec_name, rate=fps)
-        self._av_parser = av.codec.CodecContext.create(codec_name, "r")
         self._av_stream.width = self.width
         self._av_stream.height = self.height
         self._av_stream.pix_fmt = "yuv420p"
@@ -367,31 +361,18 @@ class PyNvVideoEncoder:
     def _mux_packet_pyav(self, bitstream: bytes) -> None:
         import av
 
-        if self._av_parser is None:
-            raise RuntimeError("PyAV parser not initialized for NVENC muxing.")
+        dur = int(self._frames_in_current_bitstream * self._ticks_per_frame)
 
-        for packet in self._av_parser.parse(bitstream):
-            packet.stream = self._av_stream
-            packet.time_base = self._av_stream.time_base
-            packet.pts = self._next_pts
-            packet.dts = self._next_pts
-            packet.duration = self._ticks_per_frame
-            self._av_container.mux_one(packet)
-            self._next_pts += self._ticks_per_frame
+        packet = av.packet.Packet(bitstream)
+        packet.stream = self._av_stream
+        packet.time_base = self._av_stream.time_base
+        packet.pts = self._next_pts
+        packet.dts = self._next_pts
+        packet.duration = dur
 
-    def _flush_pyav_parser(self) -> None:
-        """Drain any buffered packets from the parser into the container."""
-        if self._av_container is None or self._av_parser is None:
-            return
+        self._av_container.mux_one(packet)
 
-        for packet in self._av_parser.parse(b""):
-            packet.stream = self._av_stream
-            packet.time_base = self._av_stream.time_base
-            packet.pts = self._next_pts
-            packet.dts = self._next_pts
-            packet.duration = self._ticks_per_frame
-            self._av_container.mux_one(packet)
-            self._next_pts += self._ticks_per_frame
+        self._next_pts += dur
 
     def _normalize_frames(self, frames: torch.Tensor) -> torch.Tensor:
         """
