@@ -819,10 +819,9 @@ def _main(args, num_gpu):
                     capture_rgb_stats=bool(getattr(args, "checkerboard_input", False)),
                     checkerboard_input=args.checkerboard_input,
                 )
-                # try:
-                #     cam_args.stitch_rotation_controller = stitched_dataset
-                # except Exception:
-                #     pass
+                # Expose the StitchDataset instance so PlayTracker can control
+                # post-stitch rotation via the UI slider.
+                args.stitch_rotation_controller = stitched_dataset
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
                 mot_dataloader = MOTLoadVideoWithOrig(

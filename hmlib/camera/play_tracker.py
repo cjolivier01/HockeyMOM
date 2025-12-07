@@ -1335,9 +1335,10 @@ class PlayTracker(torch.nn.Module):
             self._set_ui_config_value(prefix + (key,), value)
 
     def _set_ui_color_value(self, key: str, value: Any):
-        # Update both rink-scoped and global camera color blocks so GLOBAL.* lookups stay in sync.
+        # Update rink-scoped camera color block; this is the canonical location
+        # for runtime camera color configuration.
         self._set_ui_color_value_at_prefixes(
-            prefixes=[("rink", "camera", "color"), ("camera", "color")],
+            prefixes=[("rink", "camera", "color")],
             key=key,
             value=value,
         )
@@ -1678,7 +1679,7 @@ class PlayTracker(torch.nn.Module):
                 # Global stitched color adjustments
                 self._apply_color_window(
                     self._ui_color_window_name,
-                    prefixes=[("rink", "camera", "color"), ("camera", "color")],
+                    prefixes=[("rink", "camera", "color")],
                 )
             if self._ui_color_left_inited:
                 # Left camera in stitching dataloader

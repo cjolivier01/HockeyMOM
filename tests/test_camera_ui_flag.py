@@ -25,6 +25,7 @@ class _DummyDataloader:
 
 def should_propagate_camera_ui_into_aspen_shared(monkeypatch):
     captured: Dict[str, Any] = {}
+    sentinel_controller: object = object()
 
     # Stub AspenNet so we can inspect the shared dict passed from run_mmtrack.
     class DummyAspenNet(torch.nn.Module):
@@ -57,6 +58,7 @@ def should_propagate_camera_ui_into_aspen_shared(monkeypatch):
         },
         "camera_ui": 1,
         "game_config": {},
+        "stitch_rotation_controller": sentinel_controller,
     }
 
     tracking.run_mmtrack(
@@ -78,4 +80,5 @@ def should_propagate_camera_ui_into_aspen_shared(monkeypatch):
     assert isinstance(shared, dict)
     # Ensure the CLI flag is threaded into Aspen shared context for PlayTrackerPlugin.
     assert shared.get("camera_ui") == 1
-
+    # Stitch rotation controller should also be forwarded untouched.
+    assert shared.get("stitch_rotation_controller") is sentinel_controller

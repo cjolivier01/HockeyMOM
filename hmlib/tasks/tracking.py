@@ -260,9 +260,9 @@ def run_mmtrack(
                     game_config=config.get("game_config"),
                     initial_args=config.get("initial_args"),
                     # Runtime camera braking UI toggle (OpenCV trackbars) for PlayTrackerPlugin
-                    camera_ui=int(
-                        initial_args.get("camera_ui") or config.get("camera_ui") or 0
-                    ),
+                    camera_ui=int(initial_args.get("camera_ui") or config.get("camera_ui") or 0),
+                    # Optional stitching rotation controller (e.g., StitchDataset instance)
+                    stitch_rotation_controller=config.get("stitch_rotation_controller"),
                 )
                 if profiler is not None:
                     shared["profiler"] = profiler

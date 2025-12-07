@@ -28,10 +28,10 @@ aspen:
     - type: HmImageColorAdjust
       # Runtime-tunable via camera UI (PlayTracker) or CLI
       # Defaults to no-op; UI writes values under rink.camera.color
-      # white_balance: GLOBAL.camera.color.white_balance
-      # brightness: GLOBAL.camera.color.brightness
-      # contrast: GLOBAL.camera.color.contrast
-      # gamma: GLOBAL.camera.color.gamma
+      # white_balance: GLOBAL.rink.camera.color.white_balance
+      # brightness: GLOBAL.rink.camera.color.brightness
+      # contrast: GLOBAL.rink.camera.color.contrast
+      # gamma: GLOBAL.rink.camera.color.gamma
     - type: HmUnsharpMask
       enabled: false
       image_label: img
