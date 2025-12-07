@@ -19,7 +19,7 @@ from typing import Any, Callable, Iterator, List, Optional
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
-from rich.progress import BarColumn, Progress as RichProgress, TaskProgressColumn, TextColumn, ProgressColumn
+from rich.progress import BarColumn, Progress as RichProgress, TextColumn, ProgressColumn
 from rich.live import Live
 from rich.rule import Rule
 from rich.text import Text
@@ -515,7 +515,6 @@ class ProgressBar:
         self._progress = RichProgress(
             TextColumn("Progress:", justify="left", style="white"),
             BarColumn(bar_width=None, complete_style="bright_green", finished_style="bright_green"),
-            TaskProgressColumn(),
             FramesColumn(),
             console=self._console,
             transient=False,
