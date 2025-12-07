@@ -38,7 +38,9 @@ def _get_terminal_width():
 
 def write_dict_in_columns(data_dict, out_file, table_width: int) -> int:
     lines_out = 0
-    column_width = (table_width - 2) // 2
+    # Treat table_width as the full box width including three vertical borders.
+    # Each column then gets roughly half of the interior width.
+    column_width = max(1, (table_width - 3) // 2)
     # Create list of formatted key-value strings
     kv_pairs = [f"{key}: {value}"[:column_width] for key, value in data_dict.items()]
 
@@ -186,7 +188,8 @@ class _CursesUI:
 
     # -------- Rendering --------
     def _format_table_lines(self, data_dict: OrderedDict[Any, Any], table_width: int) -> List[str]:
-        column_width = max(1, (table_width - 2) // 2)
+        # table_width is the full box width including three vertical borders.
+        column_width = max(1, (table_width - 3) // 2)
         kv_pairs = [f"{key}: {value}"[:column_width] for key, value in data_dict.items()]
         if len(kv_pairs) % 2 != 0:
             kv_pairs.append("")
@@ -207,8 +210,14 @@ class _CursesUI:
         total: int,
         percent: float,
     ):
+        # Use an effective table width that is 80% of the current terminal
+        # width, capped at 120 columns. Keep it odd so that two columns plus
+        # three borders line up cleanly.
+        effective_width = min(max(int(self._width * 0.8), 20), 120)
+        if effective_width % 2 == 0:
+            effective_width -= 1
         # Compute header height: table box + 1 progress line
-        table_lines = self._format_table_lines(table_map, self._width)
+        table_lines = self._format_table_lines(table_map, effective_width)
         header_height = len(table_lines) + 1
         self._ensure_layout(header_height)
 
@@ -220,7 +229,7 @@ class _CursesUI:
         except Exception:
             pass
         self._header_win.erase()
-        maxw = self._width - 1
+        maxw = effective_width
         y = 0
         # Top border
         if table_lines:
@@ -238,7 +247,7 @@ class _CursesUI:
             y += 1
 
         # Progress bar line inside the same 2-column box
-        colw = max(1, (self._width - 2) // 2)
+        colw = max(1, (effective_width - 3) // 2)
         total_content = colw * 2
         prefix = "Progress: "
         suffix = f" {percent:.1f}% Complete {current}/{total}"
@@ -450,7 +459,8 @@ class ProgressBar:
         self._curses_ui: Optional[_CursesUI] = None
         if not self.bar_length:
             self.terminal_width = _get_terminal_width()
-            self.terminal_width_interval = 100
+            # Re-evaluate the terminal width periodically to handle resizes.
+            self.terminal_width_interval = 250
         else:
             self.terminal_width = None
         if table_callback is not None:
@@ -576,8 +586,9 @@ class ProgressBar:
             self.scroll_output.refresh()
 
     def _get_bar_width(self):
-        # When bar_length is not provided, use the full current terminal width.
-        # This keeps the header and progress bar aligned with the real window size.
+        # When bar_length is not provided, scale the bar to 80% of the current
+        # terminal width with a hard cap of 120 columns so it doesn't dominate
+        # very wide terminals.
         if self.bar_length:
             return self.bar_length
         # terminal_width is kept up-to-date in __next__; guard defensively here.
@@ -586,7 +597,15 @@ class ProgressBar:
                 self.terminal_width = _get_terminal_width()
             except Exception:
                 self.terminal_width = 80
-        return self.terminal_width
+        width = int(self.terminal_width * 0.8)
+        width = min(max(width, 20), 120)
+        # Ensure an odd width so that two equal columns plus three borders
+        # add up exactly to this width.
+        if width % 2 == 0:
+            width -= 1
+        if width < 5:
+            width = 5
+        return width
 
     def print_progress_bar(self):
         # Build a progress line sized to the table's two-column width and close with right border
@@ -596,7 +615,7 @@ class ProgressBar:
             percent = (self._counter / self._total) * 100
 
         table_width = self._get_bar_width()
-        colw = max(1, (table_width - 2) // 2)
+        colw = max(1, (table_width - 3) // 2)
         total_content = colw * 2
 
         # Estimate bar length to fit within content width after fixed text
@@ -620,9 +639,14 @@ class ProgressBar:
         # Split across two columns and add borders to match table width
         left = content[:colw]
         right = content[colw : colw * 2]
+        # Progress bar line
         progress_out.write(f"\r\x1b[2K│{left}│{right}│\n")
+        # Horizontal separator below the progress bar to visually separate
+        # it from the scrolling log area.
+        bottom = "└" + "─" * colw + "┴" + "─" * colw + "┘"
+        progress_out.write(f"\x1b[2K{bottom}\n")
         progress_out.flush()
-        self._line_count += 1
+        self._line_count += 2
 
     def print_table(self):
         self._line_count += write_dict_in_columns(
