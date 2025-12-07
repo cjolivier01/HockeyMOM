@@ -16,15 +16,11 @@ import time
 from collections import OrderedDict
 from typing import Any, Callable, Iterator, List, Optional
 
-from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    Progress as RichProgress,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.table import Table
+from rich.progress import BarColumn, Progress as RichProgress, TaskProgressColumn, TextColumn
+from rich.live import Live
 
 # Optional curses support
 try:
@@ -355,10 +351,9 @@ class ScrollOutput:
         self.lines = lines
         self._curses_ui: Optional[_CursesUI] = None
         self._column_width: Optional[int] = None
+        self._sink: Optional[Callable[[str], None]] = None
 
     def write(self, msg):
-        # When used with rich-based ProgressBar, write logs directly via the
-        # shared rich console so they appear below the active progress display.
         if msg == "\n":
             return
         text = msg.rstrip("\n")
@@ -367,7 +362,12 @@ class ScrollOutput:
         self.capture.append(text)
         if len(self.capture) > self.lines:
             self.capture.pop(0)
-        RICH_CONSOLE.print(text)
+        if self._sink is not None:
+            try:
+                self._sink(text)
+            except Exception:
+                # Best-effort; avoid breaking logging on sink errors.
+                RICH_CONSOLE.print(text)
 
     def flush(self):
         pass
@@ -433,6 +433,11 @@ class ScrollOutput:
         # Treat column_width as the total interior width (without outer borders)
         self._column_width = column_width if column_width and column_width > 0 else None
 
+    def set_sink(self, sink: Callable[[str], None]) -> ScrollOutput:
+        """Register a callback that receives each log line."""
+        self._sink = sink
+        return self
+
 
 class ProgressBar:
     """
@@ -486,11 +491,9 @@ class ProgressBar:
         # Rich progress UI setup
         self._console = RICH_CONSOLE
         self._progress = RichProgress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
+            TextColumn("{task.description}", justify="left", style="white"),
+            BarColumn(bar_width=None, complete_style="bright_green", finished_style="bright_green"),
             TaskProgressColumn(),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
             console=self._console,
             transient=False,
         )
@@ -498,7 +501,14 @@ class ProgressBar:
         total_value = self._total if self._total > 0 else None
         self._rich_task = self._progress.add_task(description=description, total=total_value)
         self._rich_started: bool = False
+        self._live: Optional[Live] = None
         self._line_count: int = 0
+        self._log_lines: List[str] = []
+        self._log_max_lines: int = scroll_output.lines if scroll_output is not None else 4
+
+        if self.scroll_output is not None:
+            # Route ScrollOutput lines into this ProgressBar's log buffer.
+            self.scroll_output.set_sink(self._append_log_line)
 
     def add_table_callback(self, callback: Callable):
         self.table_callbacks.append(callback)
@@ -518,6 +528,45 @@ class ProgressBar:
         parts = [f"{key}: {value}" for key, value in self.table_map.items()]
         return " | ".join(parts)
 
+    def _append_log_line(self, line: str) -> None:
+        """Append a log line to the in-memory buffer used for the log area."""
+        self._log_lines.append(line)
+        if len(self._log_lines) > self._log_max_lines:
+            self._log_lines = self._log_lines[-self._log_max_lines :]
+
+    def _build_table(self) -> Table:
+        """Build a two-column rich Table from the current table_map."""
+        table = Table.grid(expand=True, padding=(0, 1))
+        table.style = "white on dark_blue"
+        table.add_column(justify="left", style="bold white", ratio=1)
+        table.add_column(justify="right", style="white", ratio=1)
+        for key, value in self.table_map.items():
+            table.add_row(str(key), str(value))
+        return table
+
+    def _build_log_table(self) -> Table:
+        """Build a table containing the scrolling log area."""
+        log_table = Table.grid(expand=True, padding=(0, 1))
+        log_table.style = "white on dark_blue"
+        log_table.add_column(style="white", justify="left")
+        # Take the last N lines for display
+        for line in self._log_lines[-self._log_max_lines :]:
+            log_table.add_row(line)
+        return log_table
+
+    def _build_layout(self) -> Group:
+        """Compose the status table, progress bar, and log area inside a single panel."""
+        status_table = self._build_table()
+        log_table = self._build_log_table()
+        body = Group(status_table, self._progress, log_table)
+        outer = Panel(
+            body,
+            border_style="dark_blue",
+            style="white on dark_blue",
+            padding=(0, 1),
+        )
+        return outer
+
     @property
     def total(self) -> int:
         return self._total
@@ -528,14 +577,21 @@ class ProgressBar:
 
     def _ensure_rich_started(self) -> None:
         if not self._rich_started:
-            # Enter the rich.Progress context the first time we render.
-            self._progress.__enter__()
+            # Start the rich.Progress and Live render loop the first time we render.
+            self._progress.start()
+            self._live = Live(
+                self._build_layout(),
+                console=self._console,
+                screen=True,
+                auto_refresh=False,
+            )
+            self._live.start()
             self._rich_started = True
 
     def _render_rich(self, final: bool = False) -> None:
-        """Render or update the rich progress bar."""
+        """Render or update the rich progress bar and surrounding layout."""
         self._ensure_rich_started()
-        # Allow callers to update table_map before we format the description.
+        # Allow callers to update table_map before we format the description/table.
         self._run_callbacks(self.table_map)
         description = self._format_description()
         if self._total > 0:
@@ -544,21 +600,16 @@ class ProgressBar:
         else:
             completed = self._counter
             total_val = None
-        self._progress.update(
-            self._rich_task,
-            completed=completed,
-            total=total_val,
-            description=description,
-            refresh=True,
-        )
+        self._progress.update(self._rich_task, completed=completed, total=total_val, description=description)
         if final and total_val is not None:
             # Ensure we show a fully-complete bar if requested.
-            self._progress.update(
-                self._rich_task,
-                completed=total_val,
-                description=description,
-                refresh=True,
-            )
+            self._progress.update(self._rich_task, completed=total_val, description=description)
+
+        # Render the composed layout (status table + progress bar + log panel)
+        # in-place using Live so the UI appears stationary in the terminal.
+        renderable = self._build_layout()
+        if self._live is not None:
+            self._live.update(renderable, refresh=True)
 
     def __iter__(self):
         return self
@@ -596,10 +647,15 @@ class ProgressBar:
         return
 
     def close(self):
-        # Tear down the rich progress context if it was started.
+        # Tear down the rich progress / Live context if it was started.
         if getattr(self, "_rich_started", False):
             try:
-                self._progress.__exit__(None, None, None)
+                if self._live is not None:
+                    self._live.stop()
+            except Exception:
+                pass
+            try:
+                self._progress.stop()
             except Exception:
                 pass
             self._rich_started = False
