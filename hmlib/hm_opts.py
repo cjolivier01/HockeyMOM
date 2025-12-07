@@ -416,10 +416,10 @@ class hm_opts(object):
             "--detector-trt-nms-plugin",
             dest="detector_trt_nms_plugin",
             type=str,
-            default="batched",
+            default="efficient",
             choices=["batched", "efficient"],
             help="TensorRT NMS plugin to use for detector path when backend is 'trt': "
-            "'batched' (BatchedNMSDynamic_TRT, default) or 'efficient' (EfficientNMS_TRT).",
+            "'efficient' (EfficientNMS_TRT, default) or 'batched' (BatchedNMSDynamic_TRT).",
         )
         #
         # TensorRT options (Pose)
