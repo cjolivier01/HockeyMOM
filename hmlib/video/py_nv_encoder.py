@@ -377,6 +377,10 @@ class PyNvVideoEncoder:
             str(bitstream_path),
             "-c:v",
             "copy",
+            "-vsync",
+            "cfr",
+            "-f",
+            "mp4",
             str(self.output_path),
         ]
 
