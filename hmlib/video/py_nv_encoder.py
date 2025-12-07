@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+from typing import Optional, Union
+
+import torch
+
+from hockeymom import bgr_to_i420_cuda
+
+try:
+    import PyNvVideoCodec as nvc  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - optional dependency
+    nvc = None  # type: ignore[assignment]
+
+
+class _DLPackFrame:
+    """
+    Lightweight wrapper exposing a torch CUDA tensor via the DLPack protocol.
+
+    This exists to adapt to PyNvEncoder's expectation of calling
+    __dlpack__(consumer_stream) with a positional argument, while newer
+    PyTorch versions require keyword-only parameters. We ignore the
+    consumer stream and delegate to tensor.__dlpack__().
+    """
+
+    def __init__(self, tensor: torch.Tensor) -> None:
+        self._tensor = tensor
+
+    def cuda(self) -> "_DLPackFrame":
+        # PyNvEncoder's Encode() checks for a .cuda() method and calls it;
+        # returning self keeps everything on the GPU while still allowing
+        # the encoder to discover the DLPack interface on this wrapper.
+        return self
+
+    def __dlpack__(self, *args, **kwargs):
+        # Ignore consumer_stream argument; rely on PyTorch defaults.
+        return self._tensor.__dlpack__()
+
+    def __dlpack_device__(self):
+        return self._tensor.__dlpack_device__()
+
+
+class PyNvVideoEncoder:
+    """
+    High-level GPU-only video encoder backed by PyNvVideoCodec.
+
+    - Accepts BGR torch.Tensors on CUDA (single frame or batch).
+    - Uses jetson-utils (via hockeymom.bgr_to_i420_cuda) to convert
+      BGR -> planar YUV420 (I420) entirely on the GPU.
+    - Feeds YUV420 frames to PyNvVideoCodec's NVENC bindings using CUDA
+      memory through the DLPack interface (no CPU copies of raw frames).
+    - Streams the elementary bitstream to ffmpeg for container muxing
+      (MP4/MKV/etc., based on the output file extension).
+    """
+
+    def __init__(
+        self,
+        output_path: Union[str, Path],
+        width: int,
+        height: int,
+        fps: float = 30.0,
+        codec: str = "h264",
+        preset: str = "P3",
+        device: Optional[torch.device] = None,
+        gpu_id: Optional[int] = None,
+        cuda_context: Optional[int] = None,
+        cuda_stream: Optional[int] = None,
+        bitrate: Optional[int] = None,
+    ) -> None:
+        if nvc is None:
+            raise ImportError(
+                "PyNvVideoEncoder requires the PyNvVideoCodec package "
+                "(import PyNvVideoCodec failed)."
+            )
+
+        self.output_path = Path(output_path)
+        self.width = int(width)
+        self.height = int(height)
+        self.fps = float(fps)
+        self.codec = codec.lower()
+        self.preset = preset.upper()
+
+        if device is None:
+            device = torch.device("cuda", 0)
+        if not isinstance(device, torch.device):
+            device = torch.device(device)
+        if device.type != "cuda":
+            raise ValueError("PyNvVideoEncoder requires a CUDA device.")
+        self.device = device
+
+        self.gpu_id = int(gpu_id if gpu_id is not None else (device.index or 0))
+        self.cuda_context = cuda_context
+        self.cuda_stream = cuda_stream
+        self.bitrate = int(bitrate) if bitrate is not None else None
+
+        if self.width % 2 or self.height % 2:
+            raise ValueError("Width and height must be even for YUV420 encoding.")
+
+        self._encoder: Optional[nvc.PyNvEncoder] = None  # type: ignore[assignment]
+        self._ffmpeg_proc: Optional[subprocess.Popen[bytes]] = None
+        self._opened = False
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def open(self) -> None:
+        """Initialize NVENC encoder and ffmpeg remuxer."""
+        if self._opened:
+            return
+
+        self._encoder = self._create_encoder()
+        self._ffmpeg_proc = self._spawn_ffmpeg()
+        self._opened = True
+
+    def write(self, frames: torch.Tensor) -> None:
+        """
+        Encode one or more BGR frames and append them to the output stream.
+
+        Args:
+            frames: torch.Tensor with shape:
+                - [H, W, 3]
+                - [N, H, W, 3]
+                - [3, H, W]
+                - [N, 3, H, W]
+              Values are interpreted as 8-bit BGR (0–255) or floats in
+              [0, 1] or [0, 255]. All processing stays on CUDA.
+        """
+        if not self._opened:
+            raise RuntimeError("Encoder is not open. Call open() before write().")
+
+        if (
+            self._encoder is None
+            or self._ffmpeg_proc is None
+            or self._ffmpeg_proc.stdin is None
+        ):
+            raise RuntimeError("Encoder is not properly initialized.")
+
+        batch = self._normalize_frames(frames)
+
+        for frame in batch:
+            yuv420 = self._bgr_to_yuv420(frame)
+            # yuv420 is a 2D CUDA tensor with shape [H*3/2, W], uint8.
+            bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
+            if bitstream:
+                self._ffmpeg_proc.stdin.write(bytearray(bitstream))
+
+    def close(self) -> None:
+        """Flush pending frames, finalize container, and release resources."""
+        if not self._opened:
+            return
+
+        if (
+            self._encoder is not None
+            and self._ffmpeg_proc is not None
+            and self._ffmpeg_proc.stdin is not None
+        ):
+            # Flush encoder
+            bitstream = self._encoder.EndEncode()  # type: ignore[union-attr]
+            if bitstream:
+                self._ffmpeg_proc.stdin.write(bytearray(bitstream))
+
+            # Close ffmpeg stdin and wait for it to finish writing the container
+            self._ffmpeg_proc.stdin.close()
+            self._ffmpeg_proc.wait()
+
+        self._encoder = None
+        self._ffmpeg_proc = None
+        self._opened = False
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _create_encoder(self) -> nvc.PyNvEncoder:  # type: ignore[override]
+        """
+        Create a PyNvEncoder configured for YUV420 (I420) input and the requested codec.
+
+        The encoder expects CUDA-accessible YUV420 surfaces; we provide them
+        via torch tensors implementing __dlpack__/__cuda_array_interface__.
+        """
+        config: dict[str, str] = {
+            "codec": self.codec,
+            "preset": self.preset,
+            "fps": str(int(self.fps)),
+            "gpu_id": str(self.gpu_id),
+        }
+
+        if self.cuda_context is not None:
+            config["cudacontext"] = int(self.cuda_context)
+        if self.cuda_stream is not None:
+            config["cudastream"] = int(self.cuda_stream)
+        if self.bitrate is not None:
+            config["bitrate"] = str(self.bitrate)
+
+        # YUV420 (I420) is efficient for NVENC and maps to yuv420p in the container.
+        # Set usecpuinputbuffer=False to keep frames on CUDA.
+        return nvc.CreateEncoder(self.width, self.height, "YUV420", False, **config)
+
+    def _spawn_ffmpeg(self) -> subprocess.Popen[bytes]:
+        """
+        Launch ffmpeg to remux an elementary bitstream into a container.
+
+        No re-encoding is done; ffmpeg simply copies the video stream into
+        the requested container format based on the output file extension.
+        """
+        from shutil import which
+
+        ffmpeg = which("ffmpeg")
+        if ffmpeg is None:
+            raise RuntimeError(
+                "ffmpeg is required for container muxing but was not found in PATH."
+            )
+
+        if self.codec == "h264":
+            stream_format = "h264"
+        elif self.codec in ("hevc", "h265"):
+            stream_format = "hevc"
+        elif self.codec == "av1":
+            stream_format = "av1"
+        else:
+            raise ValueError(f"Unsupported codec for muxing: {self.codec}")
+
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-fflags",
+            "+genpts",
+            "-r",
+            str(self.fps),
+            "-f",
+            stream_format,
+            "-i",
+            "pipe:0",
+            "-c",
+            "copy",
+            str(self.output_path),
+        ]
+
+        proc: subprocess.Popen[bytes] = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return proc
+
+    def _normalize_frames(self, frames: torch.Tensor) -> torch.Tensor:
+        """
+        Normalize input to a CUDA tensor with shape [N, H, W, 3] and dtype uint8 (BGR).
+        """
+        if not isinstance(frames, torch.Tensor):
+            raise TypeError("frames must be a torch.Tensor")
+
+        # Move to the requested GPU and drop gradients; no CPU round-trip.
+        frames = frames.to(device=self.device, non_blocking=True).detach()
+
+        if frames.ndim == 3:
+            # HWC or CHW
+            if frames.shape[0] == 3 and frames.shape[-1] != 3:
+                # CHW -> HWC
+                frames = frames.permute(1, 2, 0)
+            frames = frames.unsqueeze(0)
+        elif frames.ndim == 4:
+            # NHWC or NCHW
+            if frames.shape[1] == 3 and frames.shape[-1] != 3:
+                # NCHW -> NHWC
+                frames = frames.permute(0, 2, 3, 1)
+        else:
+            raise ValueError("frames must have 3 or 4 dimensions")
+
+        if frames.shape[-1] != 3:
+            raise ValueError("Last dimension must be 3 (BGR channels)")
+
+        n, h, w, _c = frames.shape
+        if h != self.height or w != self.width:
+            raise ValueError(
+                f"Expected frames of shape (*, {self.height}, {self.width}, 3), "
+                f"got {tuple(frames.shape)}"
+            )
+
+        # Normalize dtype to uint8 in [0, 255]
+        if frames.dtype.is_floating_point:
+            max_val = frames.max()
+            if float(max_val) <= 1.0:
+                frames = frames * 255.0
+            frames = frames.clamp(0, 255).to(torch.uint8)
+        elif frames.dtype != torch.uint8:
+            frames = frames.to(torch.uint8)
+
+        return frames.contiguous()
+
+    def _bgr_to_yuv420(self, frame: torch.Tensor) -> _DLPackFrame:
+        """
+        Convert a single BGR frame (H, W, 3) in uint8 (CUDA) to planar YUV420 (I420)
+        layout suitable for PyNvEncoder when configured with format \"YUV420\".
+
+        The resulting tensor has shape [H * 3 / 2, W] on CUDA.
+        """
+        if frame.ndim != 3 or frame.shape[-1] != 3:
+            raise ValueError("Expected BGR frame with shape (H, W, 3)")
+
+        h, w, _ = frame.shape
+        if h != self.height or w != self.width:
+            raise ValueError(
+                f"Frame size mismatch: expected {self.width}x{self.height}, got {w}x{h}"
+            )
+
+        if frame.device != self.device:
+            frame = frame.to(self.device, non_blocking=True)
+        if frame.dtype != torch.uint8:
+            frame = frame.clamp(0, 255).to(torch.uint8)
+
+        frame = frame.contiguous()
+
+        # Delegate BGR -> I420 conversion to jetson-utils via hockeymom binding.
+        yuv420 = bgr_to_i420_cuda(frame)
+
+        if yuv420.dim() != 2 or yuv420.size(0) != h * 3 // 2 or yuv420.size(1) != w:
+            raise RuntimeError(
+                "bgr_to_i420_cuda returned unexpected shape "
+                f"{tuple(yuv420.shape)} for input {h}x{w}"
+            )
+
+        return _DLPackFrame(yuv420.contiguous())
+

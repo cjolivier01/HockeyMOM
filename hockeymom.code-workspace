@@ -25,7 +25,7 @@
       "path": "../pytorch"
     },
     {
-      "path": "../PyNvVideoCodec_2.0.2"
+      "path": "../PyNvVideoCodec"
     }
   ],
   "settings": {
