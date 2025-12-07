@@ -259,6 +259,10 @@ def run_mmtrack(
                     # Full game config and CLI-derived initial args for plugins
                     game_config=config.get("game_config"),
                     initial_args=config.get("initial_args"),
+                    # Runtime camera braking UI toggle (OpenCV trackbars) for PlayTrackerPlugin
+                    camera_ui=int(
+                        initial_args.get("camera_ui") or config.get("camera_ui") or 0
+                    ),
                 )
                 if profiler is not None:
                     shared["profiler"] = profiler
