@@ -1,7 +1,7 @@
 """Rich terminal progress bar and table utilities for HockeyMOM CLIs.
 
-Provides ANSI-based and optional curses-based status views used by many
-command-line tools in :mod:`hmlib`.
+Provides a rich-based, stationary progress UI used by many command-line
+tools in :mod:`hmlib`.
 
 @see @ref ProgressBar "ProgressBar" for the main iteration helper.
 """
@@ -17,24 +17,13 @@ from collections import OrderedDict
 from typing import Any, Callable, Iterator, List, Optional
 
 from rich.console import Console, Group
-from rich.panel import Panel
-from rich.table import Table
-from rich.progress import BarColumn, Progress as RichProgress, TextColumn, ProgressColumn
 from rich.live import Live
+from rich.panel import Panel
+from rich.progress import BarColumn, ProgressColumn, TextColumn
+from rich.progress import Progress as RichProgress
 from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
-
-# Optional curses support
-try:
-    # import curses  # type: ignore
-    # import queue
-    # import threading
-
-    raise Exception()
-except Exception:  # pragma: no cover - curses may not be available
-    curses = None  # type: ignore
-    queue = None  # type: ignore
-    threading = None  # type: ignore
 
 progress_out = sys.stderr
 logging_out = sys.stdout
@@ -44,7 +33,11 @@ RICH_CONSOLE = Console(file=progress_out, stderr=True)
 
 
 class FramesColumn(ProgressColumn):
-    """Right-aligned 'completed/total' frames column with fixed width."""
+    """Right-aligned ``completed/total`` frames column with fixed width.
+
+    @brief Shows iteration progress in terms of frames, reserving space for
+    up to eight digits for both completed and total counts.
+    """
 
     def render(self, task) -> Text:  # type: ignore[override]
         completed = int(task.completed)
@@ -61,290 +54,10 @@ class FramesColumn(ProgressColumn):
 
 
 def _get_terminal_width():
-    width = shutil.get_terminal_size().columns
-    return width
+    """Return the current terminal width in columns."""
+    return shutil.get_terminal_size().columns
 
 
-def write_dict_in_columns(data_dict, out_file, table_width: int) -> int:
-    lines_out = 0
-    # Treat table_width as the full box width including three vertical borders.
-    # Each column then gets roughly half of the interior width.
-    column_width = max(1, (table_width - 3) // 2)
-    # Create list of formatted key-value strings
-    kv_pairs = [f"{key}: {value}"[:column_width] for key, value in data_dict.items()]
-
-    # Ensure the list has an even number of elements
-    if len(kv_pairs) % 2 != 0:
-        kv_pairs.append("")
-
-    # Calculate the number of rows needed for two columns
-    num_rows = len(kv_pairs) // 2
-
-    # Prepare horizontal border and empty row format
-    border_top = "\x1b[2K┌" + "─" * column_width + "┬" + "─" * column_width + "┐\n"
-    row_format = "\x1b[2K│{:<" + str(column_width) + "}│{:<" + str(column_width) + "}│\n"
-    border_bottom = "\x1b[2K└" + "─" * column_width + "┴" + "─" * column_width + "┘\n"
-
-    # Print the top border
-    out_file.write(border_top)
-    lines_out += 1
-
-    # Print each row
-    for i in range(num_rows):
-        left = kv_pairs[i]
-        right = kv_pairs[i + num_rows]
-        out_file.write(row_format.format(left, right))
-        lines_out += 1
-
-    # Print the bottom border
-    out_file.write(border_bottom)
-    lines_out += 1
-    return lines_out
-
-
-def _isatty() -> bool:
-    try:
-        return progress_out.isatty()
-    except Exception:
-        return False
-
-
-class _CursesUI:
-    """
-    Thin wrapper that manages a curses screen with a fixed
-    header for progress + table and a scrolling log window below.
-
-    All curses drawing occurs in the thread that calls `render()`/`drain_logs()`;
-    producers must enqueue log lines via `enqueue_log()` to avoid cross-thread curses calls.
-    """
-
-    def __init__(self):
-        if curses is None:
-            raise RuntimeError("curses is not available")
-        # Curses init
-        self._stdscr = curses.initscr()
-        curses.noecho()
-        curses.cbreak()
-        try:
-            self._stdscr.keypad(True)
-        except Exception:
-            pass
-        try:
-            curses.curs_set(0)
-        except Exception:
-            pass
-        # Colors
-        self._has_colors = False
-        self._hdr_attr = 0
-        try:
-            if curses.has_colors():
-                curses.start_color()
-                try:
-                    curses.use_default_colors()
-                except Exception:
-                    pass
-                # 1: white on magenta (purple background)
-                try:
-                    curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_MAGENTA)
-                    self._hdr_attr = curses.color_pair(1)
-                    self._has_colors = True
-                except Exception:
-                    self._hdr_attr = 0
-        except Exception:
-            self._hdr_attr = 0
-        self._height, self._width = self._stdscr.getmaxyx()
-        # Windows; created on first render when we know header height
-        self._header_win = None
-        self._log_win = None
-        # Thread-safe queue for log lines
-        self._log_queue = queue.Queue() if queue is not None else None
-        self._lock = threading.Lock() if threading is not None else None
-        self._last_header_height = 0
-
-    def close(self):
-        # Tear down curses; safe to call multiple times
-        try:
-            if curses is None:
-                return
-            try:
-                if self._stdscr is not None:
-                    self._stdscr.keypad(False)
-            except Exception:
-                pass
-            curses.echo()
-            curses.nocbreak()
-            curses.endwin()
-        except Exception:
-            # Best-effort cleanup
-            pass
-
-    # -------- Layout management --------
-    def _ensure_layout(self, header_height: int):
-        # Resize detection
-        h, w = self._stdscr.getmaxyx()
-        if (h, w) != (self._height, self._width):
-            self._height, self._width = h, w
-            try:
-                curses.resizeterm(h, w)
-            except Exception:
-                pass
-        # Recreate windows if needed
-        if (
-            self._header_win is None
-            or self._log_win is None
-            or header_height != self._last_header_height
-        ):
-            self._last_header_height = header_height
-            if self._header_win is not None:
-                del self._header_win
-            if self._log_win is not None:
-                del self._log_win
-            header_h = min(max(1, header_height), max(1, self._height - 1))
-            log_h = max(1, self._height - header_h)
-            self._header_win = curses.newwin(header_h, self._width, 0, 0)
-            # Apply purple background to header area if colors available
-            try:
-                if self._hdr_attr:
-                    self._header_win.bkgd(" ", self._hdr_attr)
-            except Exception:
-                pass
-            self._log_win = curses.newwin(log_h, self._width, header_h, 0)
-            try:
-                self._log_win.scrollok(True)
-                self._log_win.idlok(True)
-            except Exception:
-                pass
-
-    # -------- Rendering --------
-    def _format_table_lines(self, data_dict: OrderedDict[Any, Any], table_width: int) -> List[str]:
-        # table_width is the full box width including three vertical borders.
-        column_width = max(1, (table_width - 3) // 2)
-        kv_pairs = [f"{key}: {value}"[:column_width] for key, value in data_dict.items()]
-        if len(kv_pairs) % 2 != 0:
-            kv_pairs.append("")
-        num_rows = len(kv_pairs) // 2
-        lines: List[str] = []
-        lines.append("┌" + "─" * column_width + "┬" + "─" * column_width + "┐")
-        for i in range(num_rows):
-            left = kv_pairs[i]
-            right = kv_pairs[i + num_rows]
-            lines.append(f"│{left:<{column_width}}│{right:<{column_width}}│")
-        lines.append("└" + "─" * column_width + "┴" + "─" * column_width + "┘")
-        return lines
-
-    def render(
-        self,
-        table_map: OrderedDict[Any, Any],
-        current: int,
-        total: int,
-        percent: float,
-    ):
-        # Use an effective table width that is 80% of the current terminal
-        # width, capped at 120 columns. Keep it odd so that two columns plus
-        # three borders line up cleanly.
-        effective_width = min(max(int(self._width * 0.8), 20), 120)
-        if effective_width % 2 == 0:
-            effective_width -= 1
-        # Compute header height: table box + 1 progress line
-        table_lines = self._format_table_lines(table_map, effective_width)
-        header_height = len(table_lines) + 1
-        self._ensure_layout(header_height)
-
-        # Draw header
-        # Fill header area with background color, then draw
-        try:
-            if self._hdr_attr:
-                self._header_win.bkgd(" ", self._hdr_attr)
-        except Exception:
-            pass
-        self._header_win.erase()
-        maxw = effective_width
-        y = 0
-        # Top border
-        if table_lines:
-            try:
-                self._header_win.addnstr(y, 0, table_lines[0], maxw)
-            except Exception:
-                pass
-            y += 1
-        # Rows (without bottom border)
-        for line in table_lines[1:-1]:
-            try:
-                self._header_win.addnstr(y, 0, line, maxw)
-            except Exception:
-                pass
-            y += 1
-
-        # Progress bar line inside the same 2-column box
-        colw = max(1, (effective_width - 3) // 2)
-        total_content = colw * 2
-        prefix = "Progress: "
-        suffix = f" {percent:.1f}% Complete {current}/{total}"
-        reserved = len(prefix) + len(suffix) + 2  # two for bar delimiters
-        bar_len = max(1, total_content - reserved)
-        filled_length = 0 if total <= 0 else int(bar_len * current // max(1, total))
-        bar = "█" * filled_length + "-" * (bar_len - filled_length)
-        content = f"{prefix}|{bar}|{suffix}"
-        content = content[:total_content]
-        content = f"{content:<{total_content}}"
-        left = content[:colw]
-        right = content[colw : colw * 2]
-        progress_line = f"│{left}│{right}│"
-        try:
-            self._header_win.addnstr(y, 0, progress_line, maxw)
-        except Exception:
-            pass
-        y += 1
-
-        # Bottom border to close the box
-        if table_lines:
-            try:
-                self._header_win.addnstr(y, 0, table_lines[-1], maxw)
-            except Exception:
-                pass
-        try:
-            self._header_win.noutrefresh()
-        except Exception:
-            pass
-
-    # -------- Logs --------
-    def enqueue_log(self, msg: str):
-        if self._log_queue is None:
-            return
-        # Normalize to lines; avoid pushing empty newlines alone
-        for part in msg.splitlines():
-            if part:
-                self._log_queue.put(part)
-
-    def drain_logs(self):
-        if self._log_win is None or self._log_queue is None:
-            return
-        maxw = max(1, self._width - 1)
-        drained = False
-        while True:
-            try:
-                line = self._log_queue.get_nowait()
-            except Exception:
-                break
-            drained = True
-            try:
-                self._log_win.addnstr(line + "\n", maxw)
-            except Exception:
-                # As a fallback, try to ensure we progress even on encoding issues
-                try:
-                    safe = line.encode("utf-8", errors="ignore").decode("utf-8", errors="ignore")
-                    self._log_win.addnstr(safe + "\n", maxw)
-                except Exception:
-                    pass
-        if drained:
-            try:
-                self._log_win.noutrefresh()
-            except Exception:
-                pass
-        try:
-            curses.doupdate()
-        except Exception:
-            pass
 
 
 class CallbackStreamHandler(logging.StreamHandler):
@@ -362,14 +75,16 @@ class CallbackStreamHandler(logging.StreamHandler):
 class ScrollOutput:
     """Maintain a simple scrolling text buffer for log output.
 
-    @param lines: Maximum number of lines to retain in the buffer.
+    @brief Collects recent log lines and forwards them into a sink callback.
+    This is used together with :class:`ProgressBar` to feed a scrolling log
+    area inside the rich-based progress UI.
+
+    @param lines Maximum number of lines to retain in the buffer.
     """
 
     def __init__(self, lines=10):
         self.capture = []
         self.lines = lines
-        self._curses_ui: Optional[_CursesUI] = None
-        self._column_width: Optional[int] = None
         self._sink: Optional[Callable[[str], None]] = None
 
     def write(self, msg):
@@ -392,36 +107,12 @@ class ScrollOutput:
         pass
 
     def reset(self):
-        # In curses mode, reset is a no-op
-        if self._curses_ui is not None:
-            return
-        progress_out.write(f"\x1b[0G\x1b[{self.lines}A")
-        progress_out.flush()
+        """Legacy no-op kept for API compatibility."""
+        return
 
     def refresh(self):
-        if self._curses_ui is not None:
-            # Rendering handled by ProgressBar via CursesUI.drain_logs()
-            return
-        for i in reversed(range(self.lines)):
-            cap_count = len(self.capture)
-            if i < cap_count:
-                line = self.capture[cap_count - i - 1]
-            else:
-                line = ""
-            # Use a single full-width log line; avoid a vertical divider in the middle
-            inner_width = self._column_width
-            if inner_width is None or inner_width <= 0:
-                try:
-                    # Fallback to current terminal width minus borders
-                    inner_width = max(1, _get_terminal_width() - 2)
-                except Exception:
-                    inner_width = 78
-            # Normalize and truncate the line to fit
-            text = line.replace("\n", " ")
-            if len(text) > inner_width:
-                text = text[:inner_width]
-            progress_out.write(f"\x1b[2K│{text:<{inner_width}}│\n")
-        progress_out.flush()
+        """Legacy no-op kept for API compatibility."""
+        return
 
     def register_logger(self, logger) -> ScrollOutput:
         """
@@ -441,16 +132,14 @@ class ScrollOutput:
         return self
 
     # Internal: set by ProgressBar when using curses
-    def _attach_curses_ui(self, ui: _CursesUI | None):
-        self._curses_ui = ui
-        # When using curses, we don't manage ANSI box widths
-        if ui is not None:
-            self._column_width = None
+    def _attach_curses_ui(self, ui: object | None):
+        """Legacy no-op kept for API compatibility."""
+        return
 
     # Optional: used by fallback ANSI renderer to align right border
     def _set_column_width(self, column_width: int | None):
-        # Treat column_width as the total interior width (without outer borders)
-        self._column_width = column_width if column_width and column_width > 0 else None
+        """Legacy no-op kept for API compatibility."""
+        return
 
     def set_sink(self, sink: Callable[[str], None]) -> ScrollOutput:
         """Register a callback that receives each log line."""
@@ -459,19 +148,23 @@ class ScrollOutput:
 
 
 class ProgressBar:
-    """
-    This class wraps an iterator (or manual counter) and renders progress
-    alongside arbitrary key-value statistics in a terminal-friendly format.
+    """Rich-based progress bar with a status table and scrolling log area.
 
-    @param table_map: Initial key-value mapping displayed in the header table.
-    @param total: Total number of iterations expected.
-    @param iterator: Optional iterator to wrap; if provided, the bar is iterable.
-    @param scroll_output: Optional :class:`ScrollOutput` used for log lines.
-    @param bar_length: Explicit bar width; inferred from terminal when ``None``.
-    @param update_rate: Refresh interval in iterations.
-    @param table_callback: Optional callback to mutate ``table_map`` on refresh.
-    @param use_curses: Enable curses-based UI when available.
-    @see @ref hmlib.utils.profiler.HmProfiler "HmProfiler" for complementary profiling.
+    @brief Wraps an iterator (or manual counter) and renders a stationary
+    progress UI using :mod:`rich`. The UI contains:
+
+      - A two-column status table built from ``table_map``.
+      - A progress bar with percentage and `completed/total` frames.
+      - A scrolling log area fed by :class:`ScrollOutput`.
+
+    @param table_map Initial key-value mapping displayed in the status table.
+    @param total Total number of iterations expected.
+    @param iterator Optional iterator to wrap; if provided, the bar is iterable.
+    @param scroll_output Optional :class:`ScrollOutput` used for log lines.
+    @param bar_length Explicit bar width (currently unused; reserved for future).
+    @param update_rate Refresh interval in iterations.
+    @param table_callback Optional callback to mutate ``table_map`` on refresh.
+    @param use_curses Deprecated flag; kept for API compatibility only.
     """
 
     def __init__(
@@ -494,10 +187,7 @@ class ProgressBar:
         self.update_rate = update_rate
         self.table_callbacks: List[Callable] = []
         self.bar_length = bar_length
-        self._use_curses_requested = use_curses
-        # Legacy curses support is disabled; ProgressBar now uses rich.Progress
-        # for all rendering, but we retain these attributes for API stability.
-        self._curses_ui: Optional[_CursesUI] = None
+        self._use_curses_requested = use_curses  # Deprecated, no effect
         if not self.bar_length:
             self.terminal_width = _get_terminal_width()
             # Re-evaluate the terminal width periodically to handle resizes.
@@ -506,7 +196,7 @@ class ProgressBar:
             self.terminal_width = None
         # Delay initializing/rendering the rich UI until after a warm-up
         # period so that early startup text does not interfere with it.
-        self._start_threshold: int = 250
+        self._start_threshold: int = 50
         if table_callback is not None:
             self.add_table_callback(table_callback)
 
@@ -712,10 +402,6 @@ class ProgressBar:
         self._counter += 1
         return next_item
 
-    def _maybe_init_curses(self):
-        # Legacy no-op: curses UI has been replaced by rich.Progress.
-        return
-
     def close(self):
         # Tear down the rich progress / Live context if it was started.
         if getattr(self, "_rich_started", False):
@@ -739,115 +425,6 @@ class ProgressBar:
             return
         # Single rich-backed rendering path once started
         self._render_rich(final=final)
-
-    def _refresh_fallback(self):
-        # Compute a column width consistent with the table box
-        table_width = self._get_bar_width()
-        if self.scroll_output is not None:
-            # Inform ScrollOutput so it can close the box on the right
-            try:
-                inner_width = max(1, table_width - 2)
-                self.scroll_output._set_column_width(inner_width)
-            except Exception:
-                pass
-
-        if self._counter > 0:
-            if self.scroll_output is not None:
-                self.scroll_output.reset()
-            progress_out.write(f"\x1b[0G\x1b[{self._line_count}A")
-        self._line_count = 0
-        self.print_table()
-        self.print_progress_bar()
-        if self.scroll_output is not None:
-            self.scroll_output.refresh()
-
-    def _get_bar_width(self):
-        # When bar_length is not provided, scale the bar to 80% of the current
-        # terminal width with a hard cap of 120 columns so it doesn't dominate
-        # very wide terminals.
-        if self.bar_length:
-            return self.bar_length
-        # terminal_width is kept up-to-date in __next__; guard defensively here.
-        if self.terminal_width is None:
-            try:
-                self.terminal_width = _get_terminal_width()
-            except Exception:
-                self.terminal_width = 80
-        width = int(self.terminal_width * 0.8)
-        width = min(max(width, 20), 120)
-        # Ensure an odd width so that two equal columns plus three borders
-        # add up exactly to this width.
-        if width % 2 == 0:
-            width -= 1
-        if width < 5:
-            width = 5
-        return width
-
-    def print_progress_bar(self):
-        # Build a progress line sized to the table's two-column width and close with right border
-        if self._total - self._counter < self.update_rate:
-            percent = 100
-        else:
-            percent = (self._counter / self._total) * 100
-
-        table_width = self._get_bar_width()
-        colw = max(1, (table_width - 3) // 2)
-        total_content = colw * 2
-
-        # Estimate bar length to fit within content width after fixed text
-        suffix = f" {percent:.1f}% Complete {self._counter}/{self._total}"
-        prefix = "Progress: "
-        # Reserve 2 characters for bar delimiters '|' '|'
-        reserved = len(prefix) + len(suffix) + 2
-        bar_len = max(1, total_content - reserved)
-
-        # Compute filled length and build bar
-        try:
-            filled_length = int(bar_len * self._counter // max(1, self._total))
-        except Exception:
-            filled_length = 0
-        bar = "█" * filled_length + "-" * (bar_len - filled_length)
-        content = f"{prefix}|{bar}|{suffix}"
-        # Truncate if still too long and pad to fit
-        content = content[:total_content]
-        content = f"{content:<{total_content}}"
-
-        # Split across two columns and add borders to match table width
-        left = content[:colw]
-        right = content[colw : colw * 2]
-        # Progress bar line
-        progress_out.write(f"\r\x1b[2K│{left}│{right}│\n")
-        # Horizontal separator below the progress bar to visually separate
-        # it from the scrolling log area.
-        bottom = "└" + "─" * colw + "┴" + "─" * colw + "┘"
-        progress_out.write(f"\x1b[2K{bottom}\n")
-        progress_out.flush()
-        self._line_count += 2
-
-    def print_table(self):
-        self._line_count += write_dict_in_columns(
-            self.table_map, progress_out, self._get_bar_width()
-        )
-        progress_out.flush()
-
-    @contextlib.contextmanager
-    def stdout_redirect(self):
-        # Redirect stdout to the scroll output handler (curses-aware)
-        with contextlib.redirect_stdout(self.scroll_output):
-            yield
-
-
-class ProgressBarWith:
-    def __init__(self, dataloader):
-        self._len = len(dataloader)
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args, **kwargs):
-        return None
-
 
 def convert_seconds_to_hms(total_seconds: Any) -> str:
     hours = int(total_seconds // 3600)  # Calculate the number of hours

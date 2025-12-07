@@ -340,14 +340,21 @@ def run_mmtrack(
                     if detect_timer is not None and cur_iter % 50 == 0:
                         # print(
                         logger.info(
-                            "mmtrack tracking, frame {} ({:.2f} fps)".format(
+                            "AspenNet iteration, frame {} ({:.2f} fps)".format(
                                 frame_id,
                                 batch_size * 1.0 / max(1e-5, detect_timer.average_time),
                             )
                         )
-                        detect_timer = Timer()
 
                     if cur_iter % 200 == 0:
+                        if wraparound_timer is not None:
+                            wraparound_timer.toc()
+                            logger.info(
+                                "Full wraparound time, frame {} ({:.2f} fps)".format(
+                                    frame_id,
+                                    batch_size * 1.0 / max(1e-5, wraparound_timer.average_time),
+                                )
+                            )
                         wraparound_timer = Timer()
                     elif wraparound_timer is None:
                         wraparound_timer = Timer()
