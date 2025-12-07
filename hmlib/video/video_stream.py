@@ -1136,7 +1136,7 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
 @typechecked
 def create_output_video_stream(
     filename: str,
-    fps: float,
+    fps: float | Fraction,
     width: int,
     height: int,
     codec: Optional[str],
@@ -1153,7 +1153,7 @@ def create_output_video_stream(
     if ("_nvenc" in (codec or "")) and use_pynvcodec_env:
         output_video = PyNvVideoEncoderWriter(
             filename=filename,
-            fps=fps_val,
+            fps=fps,
             height=int(height),
             width=int(width),
             codec=codec,
