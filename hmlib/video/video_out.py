@@ -428,7 +428,7 @@ class VideoOutput(torch.nn.ModuleDict):
             for show_img in online_im:
                 self._shower.show(show_img.clone())
 
-        torch.cuda.synchronize()
+        # torch.cuda.synchronize()
         # torch.cuda.current_stream(online_im.device).synchronize()
 
         if not self._skip_final_save:
