@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -33,9 +33,20 @@ class DetectionDataFrame(HmDataFrameBase):
         super().__init__(*args, fields=fields, **kwargs)
 
     @staticmethod
-    def _make_array(t: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
+    def _make_array(t: Union[np.ndarray, torch.Tensor, List[Any], Tuple[Any, ...]]) -> np.ndarray:
+        """Convert tensors (including sequences of tensors) to CPU numpy arrays."""
         if isinstance(t, torch.Tensor):
-            return t.to("cpu").numpy()
+            return t.detach().cpu().numpy()
+        if isinstance(t, (list, tuple)):
+            if not t:
+                return np.empty((0,), dtype=np.float32)
+            converted = []
+            for item in t:
+                if isinstance(item, torch.Tensor):
+                    converted.append(item.detach().cpu().numpy())
+                else:
+                    converted.append(item)
+            return np.asarray(converted)
         return t
 
     def add_frame_records(
@@ -51,9 +62,9 @@ class DetectionDataFrame(HmDataFrameBase):
         if pose_indices is None:
             pose_indices = -np.ones((len(bboxes),), dtype=np.int64)
         else:
-            if isinstance(pose_indices, torch.Tensor):
-                pose_indices = pose_indices.to("cpu").numpy()
-            pose_indices = pose_indices.astype(np.int64, copy=False)
+            # Normalize pose indices to a CPU int64 numpy array.
+            pose_indices = self._make_array(pose_indices)
+            pose_indices = np.asarray(pose_indices, dtype=np.int64)
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(bboxes))],

@@ -130,6 +130,15 @@ class VideoOutPlugin(Plugin):
         self._vo(context)
         return {}
 
+    def finalize(self) -> None:
+        """Release any UI/video resources held by VideoOutput."""
+        if self._vo is not None:
+            try:
+                self._vo.stop()
+            except Exception:
+                # Finalization should be best-effort; ignore errors here.
+                pass
+
     def input_keys(self):
         if not hasattr(self, "_input_keys"):
             self._input_keys = {

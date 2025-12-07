@@ -76,6 +76,11 @@ aspen:
       params:
         plot_pose: GLOBAL.plot.plot_pose
 
+    save_pose:
+      class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
+      depends: [pose]
+      params: {}
+
     postprocess:
       class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
       depends: [pose]
