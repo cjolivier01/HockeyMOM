@@ -1037,8 +1037,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         # for img in stitched_frame:
         #     show_cuda_tensor("stitched_frame", make_channels_last(img), wait=False)
 
-        torch.cuda.synchronize()
-
         if self._capture_rgb_stats:
             return stitched_frame, rgb_stats
         return stitched_frame
