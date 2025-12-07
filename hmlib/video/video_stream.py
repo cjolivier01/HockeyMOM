@@ -10,6 +10,7 @@ import os
 import platform
 import subprocess
 import sys
+from fractions import Fraction
 from typing import Any, Dict, Literal, Optional, Tuple, Union
 
 import cv2
@@ -247,7 +248,8 @@ class VideoStreamWriter(VideoStreamWriterInterface):
     ):
         self._filename = filename
         self._container_type = container_type
-        self._fps = fps
+        # Always keep a float internally even if callers pass a Fraction
+        self._fps = float(fps)
 
         self._stream_fps = stream_fps
         self._stream_frame_indexes = set(
@@ -984,7 +986,7 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
     def __init__(
         self,
         filename: str,
-        fps: float,
+        fps: Fraction,
         width: int,
         height: int,
         codec: Optional[str],
@@ -1148,12 +1150,15 @@ def create_output_video_stream(
     batch_size: Optional[int] = 1,
     profiler: Any = None,
 ) -> VideoStreamWriterInterface:
+    # Normalize fps to a plain float so downstream writers and backends
+    # never see Fraction instances.
+    fps_val = float(fps)
     # use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
     use_pynvcodec_env = True
     if ("_nvenc" in (codec or "")) and use_pynvcodec_env:
         output_video = PyNvVideoEncoderWriter(
             filename=filename,
-            fps=fps,
+            fps=fps_val,
             height=int(height),
             width=int(width),
             codec=codec,
@@ -1166,7 +1171,7 @@ def create_output_video_stream(
     elif "_nvenc" in (codec or "") or filename.startswith("rtmp://"):
         output_video = VideoStreamWriter(
             filename=filename,
-            fps=fps,
+            fps=fps_val,
             height=int(height),
             width=int(width),
             codec=codec if codec is not None else "hevc_nvenc",
@@ -1178,7 +1183,7 @@ def create_output_video_stream(
     else:
         output_video = VideoStreamWriterCV2(
             filename=filename,
-            fps=fps,
+            fps=fps_val,
             height=int(height),
             width=int(width),
             codec=codec,

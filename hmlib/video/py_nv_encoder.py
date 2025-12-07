@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional, Union
 
 import torch
+from typeguard import typechecked
 
 from hockeymom import bgr_to_i420_cuda
 
@@ -55,13 +56,13 @@ class PyNvVideoEncoder:
     - Streams the elementary bitstream to ffmpeg for container muxing
       (MP4/MKV/etc., based on the output file extension).
     """
-
+    @typechecked
     def __init__(
         self,
         output_path: Union[str, Path],
         width: int,
         height: int,
-        fps: float = 30.0,
+        fps: float,
         codec: str = "h264",
         preset: str = "P3",
         device: Optional[torch.device] = None,
@@ -69,7 +70,7 @@ class PyNvVideoEncoder:
         cuda_context: Optional[int] = None,
         cuda_stream: Optional[int] = None,
         bitrate: Optional[int] = None,
-        use_pyav: Optional[bool] = False,
+        use_pyav: Optional[bool] = True,
         profiler: Optional[Any] = None,
     ) -> None:
         if nvc is None:
@@ -120,6 +121,8 @@ class PyNvVideoEncoder:
         self._av_stream = None
         self._next_pts: int = 0
         self._opened = False
+        self._frames_in_current_bitstream: int = 0
+        self._frame_duration_units: Optional[int] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -174,6 +177,7 @@ class PyNvVideoEncoder:
                     yuv420 = self._bgr_to_yuv420(frame)
                     # yuv420 is a 2D CUDA tensor with shape [H*3/2, W], uint8.
                     bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
+                    self._frames_in_current_bitstream += 1
                     if bitstream:
                         if self._use_pyav:
                             self._mux_packet_pyav(bitstream)
@@ -195,9 +199,12 @@ class PyNvVideoEncoder:
                                 except Exception:
                                     pass
                                 raise RuntimeError(
-                                    "ffmpeg muxer exited while writing NVENC bitstream "
+                                    "ffmpeg muxer exited unexpectedly while writing NVENC bitstream. "
+                                    "Check that codec/format settings are valid and disk space is available. "
+                                    "See ffmpeg logs for more details. "
                                     f"(returncode={rc}, stderr={stderr_output!r})"
                                 ) from exc
+                        self._frames_in_current_bitstream = 0
 
     def close(self) -> None:
         """Flush pending frames, finalize container, and release resources."""
@@ -348,6 +355,11 @@ class PyNvVideoEncoder:
         self._av_stream.width = self.width
         self._av_stream.height = self.height
         self._av_stream.pix_fmt = "yuv420p"
+        if self._av_stream.time_base is None:
+            self._av_stream.time_base = Fraction(1, 90000)
+        self._frame_duration_units = (1 / Fraction(fps_num, fps_den)) * (
+            1 / self._av_stream.time_base
+        )
         self._next_pts = 0
 
     def _mux_packet_pyav(self, bitstream: bytes) -> None:
@@ -359,10 +371,12 @@ class PyNvVideoEncoder:
 
         packet = av.packet.Packet(bitstream)
         packet.stream = self._av_stream
-        packet.pts = self._next_pts
-        packet.dts = self._next_pts
+        packet.pts = self._next_pts / self._av_stream.time_base
+        packet.dts = self._next_pts / self._av_stream.time_base
+        packet.duration = self._frames_in_current_bitstream * self._frame_duration_units
+        packet.time_base = self._av_stream.time_base
         self._av_container.mux(packet)
-        self._next_pts += 1
+        self._next_pts += self._frames_in_current_bitstream
 
     def _normalize_frames(self, frames: torch.Tensor) -> torch.Tensor:
         """
@@ -403,7 +417,7 @@ class PyNvVideoEncoder:
             max_val = frames.max()
             if float(max_val) <= 1.0:
                 frames = frames * 255.0
-            frames = frames.clamp(0, 255).to(torch.uint8)
+            frames.clamp_(0, 255).to(torch.uint8)
         elif frames.dtype != torch.uint8:
             frames = frames.to(torch.uint8)
 

@@ -8,6 +8,7 @@ Provides :class:`BasicVideoInfo` and small utilities around ``ffprobe`` and
 
 import ctypes
 import os
+from fractions import Fraction
 import platform
 import re
 import signal
@@ -26,6 +27,44 @@ libc = ctypes.CDLL("libc.so.6")
 def preexec_fn():
     # Ensure the child process gets SIGTERM if the parent dies
     libc.prctl(1, signal.SIGTERM)
+
+
+def _frame_rate_to_fraction(value) -> Fraction:
+    """
+    Convert an ffprobe-style frame rate (float or 'num/den' string) to a Fraction.
+
+    Falls back to 0/1 on parse errors.
+    """
+    # Already a Fraction
+    if isinstance(value, Fraction):
+        return value
+    # Numeric (int/float)
+    try:
+        if isinstance(value, (int, float)):
+            return Fraction.from_float(float(value)).limit_denominator()
+    except Exception:
+        pass
+    # String (e.g. "30000/1001" or "30")
+    try:
+        s = str(value).strip()
+        if not s:
+            return Fraction(0, 1)
+        tokens = s.split("/")
+        if len(tokens) == 1:
+            return Fraction(int(tokens[0]), 1)
+        if len(tokens) == 2:
+            num = int(tokens[0])
+            den = int(tokens[1])
+            if den == 0:
+                return Fraction(0, 1)
+            return Fraction(num, den)
+    except Exception:
+        # Fall through to float-based parsing
+        pass
+    try:
+        return Fraction.from_float(float(value)).limit_denominator()
+    except Exception:
+        return Fraction(0, 1)
 
 
 @classinstancememoize
@@ -70,12 +109,15 @@ class BasicVideoInfo:
                     #     f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
                     # )
                 self._ffstream = probe.video[0]
-                # self.frame_count = self._ffstream.frames()
-                self.frame_count = int(
-                    self._ffstream.durationSeconds() * self._ffstream.realFrameRate()
-                )
-                self.fps = self._ffstream.realFrameRate()
+                # Duration in seconds is kept as float; fps is stored as Fraction
                 self.duration = self._ffstream.durationSeconds()
+                # Prefer the exact r_frame_rate string when available
+                r_frame_rate = getattr(self._ffstream, "r_frame_rate", None)
+                self.fps = _frame_rate_to_fraction(r_frame_rate)
+                # Fall back to realFrameRate() if r_frame_rate was missing/invalid
+                if self.fps == 0:
+                    self.fps = _frame_rate_to_fraction(self._ffstream.realFrameRate())
+                self.frame_count = int(self.duration * float(self.fps))
                 sz = self._ffstream.frameSize()
                 self.width = sz[0]
                 self.height = sz[1]
@@ -87,8 +129,14 @@ class BasicVideoInfo:
                 if not cap.isOpened():
                     raise AssertionError(f"Unable to open video file {video_file}")
                 self.frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                self.fps = cap.get(cv2.CAP_PROP_FPS)
-                self.duration = self.frame_count / self.fps
+                cap_fps = cap.get(cv2.CAP_PROP_FPS)
+                self.fps = _frame_rate_to_fraction(cap_fps)
+                # Avoid division by zero if FPS is unavailable
+                self.duration = (
+                    float("inf")
+                    if float(self.fps) == 0.0
+                    else self.frame_count / float(self.fps)
+                )
                 self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 self.bit_rate = int(cap.get(cv2.CAP_PROP_BITRATE) * 1000)
@@ -325,7 +373,8 @@ class VideoWriter:
         fake_write: bool = False,
     ):
         self._output_file = filename
-        self._fps = fps
+        # Ensure a plain float is stored even if callers pass a Fraction
+        self._fps = float(fps)
         self._frame_size = frameSize
         self._is_color = isColor
         self._is_openned = False
