@@ -369,10 +369,10 @@ class VideoStreamWriter(VideoStreamWriterInterface):
                 hw_accel=str(self._device),
             )
 
-    def bgr_to_rgb(self, batch: torch.Tensor):
-        # Assuming batch is a PyTorch tensor of shape [N, C, H, W]
-        # and the channel order is BGR
-        return batch[:, [2, 1, 0], :, :]
+    # def bgr_to_rgb(self, batch: torch.Tensor):
+    #     # Assuming batch is a PyTorch tensor of shape [N, C, H, W]
+    #     # and the channel order is BGR
+    #     return batch[:, [2, 1, 0], :, :]
 
     def close(self):
         if self._video_f is not None:
@@ -1144,8 +1144,8 @@ def create_output_video_stream(
     bit_rate: int = int(55e6),
     batch_size: Optional[int] = 1,
 ) -> VideoStreamWriterInterface:
-    use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
-    # use_pynvcodec_env = True
+    # use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
+    use_pynvcodec_env = True
     if ("_nvenc" in (codec or "")) and use_pynvcodec_env:
         output_video = PyNvVideoEncoderWriter(
             filename=filename,

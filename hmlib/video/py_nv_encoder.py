@@ -68,6 +68,7 @@ class PyNvVideoEncoder:
         cuda_context: Optional[int] = None,
         cuda_stream: Optional[int] = None,
         bitrate: Optional[int] = None,
+        use_pyav: Optional[bool] = None,
     ) -> None:
         if nvc is None:
             raise ImportError(
@@ -95,11 +96,20 @@ class PyNvVideoEncoder:
         self.cuda_stream = cuda_stream
         self.bitrate = int(bitrate) if bitrate is not None else None
 
+        backend_env = os.environ.get("HM_VIDEO_ENCODER_BACKEND", "").lower()
+        if use_pyav is None:
+            self._use_pyav = backend_env == "pyav"
+        else:
+            self._use_pyav = bool(use_pyav)
+
         if self.width % 2 or self.height % 2:
             raise ValueError("Width and height must be even for YUV420 encoding.")
 
         self._encoder: Optional[nvc.PyNvEncoder] = None  # type: ignore[assignment]
         self._ffmpeg_proc: Optional[subprocess.Popen[bytes]] = None
+        self._av_container = None
+        self._av_stream = None
+        self._next_pts: int = 0
         self._opened = False
 
     # ------------------------------------------------------------------
@@ -107,12 +117,15 @@ class PyNvVideoEncoder:
     # ------------------------------------------------------------------
 
     def open(self) -> None:
-        """Initialize NVENC encoder and ffmpeg remuxer."""
+        """Initialize NVENC encoder and container muxer."""
         if self._opened:
             return
 
         self._encoder = self._create_encoder()
-        self._ffmpeg_proc = self._spawn_ffmpeg()
+        if self._use_pyav:
+            self._open_pyav_container()
+        else:
+            self._ffmpeg_proc = self._spawn_ffmpeg()
         self._opened = True
 
     def write(self, frames: torch.Tensor) -> None:
@@ -131,11 +144,7 @@ class PyNvVideoEncoder:
         if not self._opened:
             raise RuntimeError("Encoder is not open. Call open() before write().")
 
-        if (
-            self._encoder is None
-            or self._ffmpeg_proc is None
-            or self._ffmpeg_proc.stdin is None
-        ):
+        if self._encoder is None:
             raise RuntimeError("Encoder is not properly initialized.")
 
         batch = self._normalize_frames(frames)
@@ -145,29 +154,39 @@ class PyNvVideoEncoder:
             # yuv420 is a 2D CUDA tensor with shape [H*3/2, W], uint8.
             bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
             if bitstream:
-                self._ffmpeg_proc.stdin.write(bytearray(bitstream))
+                if self._use_pyav:
+                    self._mux_packet_pyav(bitstream)
+                else:
+                    assert self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None
+                    self._ffmpeg_proc.stdin.write(bytearray(bitstream))
 
     def close(self) -> None:
         """Flush pending frames, finalize container, and release resources."""
         if not self._opened:
             return
 
-        if (
-            self._encoder is not None
-            and self._ffmpeg_proc is not None
-            and self._ffmpeg_proc.stdin is not None
-        ):
+        if self._encoder is not None:
             # Flush encoder
             bitstream = self._encoder.EndEncode()  # type: ignore[union-attr]
             if bitstream:
-                self._ffmpeg_proc.stdin.write(bytearray(bitstream))
+                if self._use_pyav:
+                    self._mux_packet_pyav(bitstream)
+                elif self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
+                    self._ffmpeg_proc.stdin.write(bytearray(bitstream))
 
-            # Close ffmpeg stdin and wait for it to finish writing the container
-            self._ffmpeg_proc.stdin.close()
-            self._ffmpeg_proc.wait()
+        if not self._use_pyav:
+            if self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
+                # Close ffmpeg stdin and wait for it to finish writing the container
+                self._ffmpeg_proc.stdin.close()
+                self._ffmpeg_proc.wait()
+        else:
+            if self._av_container is not None:
+                self._av_container.close()
 
         self._encoder = None
         self._ffmpeg_proc = None
+        self._av_container = None
+        self._av_stream = None
         self._opened = False
 
     # ------------------------------------------------------------------
@@ -206,9 +225,9 @@ class PyNvVideoEncoder:
         No re-encoding is done; ffmpeg simply copies the video stream into
         the requested container format based on the output file extension.
         """
-        from shutil import which
         import ctypes
         import signal
+        from shutil import which
 
         ffmpeg = which("ffmpeg")
         if ffmpeg is None:
@@ -249,21 +268,60 @@ class PyNvVideoEncoder:
             "stderr": subprocess.PIPE,
         }
 
-        if os.name == "posix":
+        # if os.name == "posix":
 
-            def _set_pdeathsig() -> None:
-                try:
-                    libc = ctypes.CDLL("libc.so.6", use_errno=True)
-                    PR_SET_PDEATHSIG = 1
-                    libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
-                except Exception:
-                    # Best-effort; keep encoder usable even if prctl fails.
-                    pass
+        #     def _set_pdeathsig() -> None:
+        #         try:
+        #             libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        #             PR_SET_PDEATHSIG = 1
+        #             libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+        #         except Exception:
+        #             # Best-effort; keep encoder usable even if prctl fails.
+        #             pass
 
-            kwargs["preexec_fn"] = _set_pdeathsig
+        #     kwargs["preexec_fn"] = _set_pdeathsig
 
         proc: subprocess.Popen[bytes] = subprocess.Popen(cmd, **kwargs)  # type: ignore[arg-type]
         return proc
+
+    def _open_pyav_container(self) -> None:
+        """Open an output container using PyAV and prepare a passthrough video stream."""
+        try:
+            import av  # type: ignore[import-not-found]
+        except Exception as exc:  # pragma: no cover - optional dependency
+            raise ImportError(
+                "PyNvVideoEncoder with use_pyav=True requires the 'av' package. "
+                f"Failed to import: {exc}"
+            )
+
+        from fractions import Fraction
+
+        self._av_container = av.open(str(self.output_path), mode="w")
+        # Use codec name directly (e.g. 'h264', 'hevc', 'av1'); this matches the
+        # elementary stream produced by NVENC.
+        fps_num = int(round(self.fps * 1001))
+        fps_den = 1001
+        self._av_stream = self._av_container.add_stream(
+            self.codec, rate=Fraction(fps_num, fps_den)
+        )
+        self._av_stream.width = self.width
+        self._av_stream.height = self.height
+        self._av_stream.pix_fmt = "yuv420p"
+        self._next_pts = 0
+
+    def _mux_packet_pyav(self, bitstream: bytes) -> None:
+        """Mux a single encoded packet into the PyAV container."""
+        if self._av_container is None or self._av_stream is None:
+            raise RuntimeError("PyAV container is not initialized.")
+
+        import av  # type: ignore[import-not-found]
+
+        packet = av.packet.Packet(bitstream)
+        packet.stream = self._av_stream
+        packet.pts = self._next_pts
+        packet.dts = self._next_pts
+        self._av_container.mux(packet)
+        self._next_pts += 1
 
     def _normalize_frames(self, frames: torch.Tensor) -> torch.Tensor:
         """

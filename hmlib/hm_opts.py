@@ -172,6 +172,33 @@ class hm_opts(object):
             action="store_true",
             help="Save tracking data to camera.csv",
         )
+        io.add_argument(
+            "--input-tracking-data",
+            dest="input_tracking_data",
+            type=str,
+            default=None,
+            help="Path to a precomputed tracking CSV to load instead of running the tracker.",
+        )
+        io.add_argument(
+            "--input-detection-data",
+            dest="input_detection_data",
+            type=str,
+            default=None,
+            help="Path to a precomputed detections CSV to load instead of running the detector.",
+        )
+        io.add_argument(
+            "--input-pose-data",
+            dest="input_pose_data",
+            type=str,
+            default=None,
+            help="Path to a precomputed pose CSV to load instead of running pose inference.",
+        )
+        io.add_argument(
+            "--save-pose-data",
+            dest="save_pose_data",
+            action="store_true",
+            help="Enable saving pose results to pose.csv via Aspen SavePosePlugin (when configured).",
+        )
 
         #
         # Visualization & Plotting

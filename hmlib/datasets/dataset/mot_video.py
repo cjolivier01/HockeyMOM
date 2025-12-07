@@ -492,14 +492,25 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
     def close(self):
         if self._async_mode:
-            if self._thread is None:
-                return
-            self._to_worker_queue.put("stop")
-            self._thread.join()
-            self._thread = None
+            if self._thread is not None:
+                self._to_worker_queue.put("stop")
+                self._thread.join()
+                self._thread = None
         else:
             # In synchronous mode, just close any open video or embedded loader.
             self._close_video()
+
+        # Ensure any embedded loader (e.g., StitchDataset) is also shut down so
+        # its coordinator/worker threads do not keep the process alive after
+        # hmtrack exits with an error.
+        if self._embedded_data_loader is not None and hasattr(
+            self._embedded_data_loader, "close"
+        ):
+            try:
+                self._embedded_data_loader.close()
+            except Exception:
+                traceback.print_exc()
+
         if self._path_list is not None:
             print(
                 f"MOTLoadVideoWithOrig delivered {self._frame_read_count} frames for file {str(self._path_list[self._current_path_index])}"

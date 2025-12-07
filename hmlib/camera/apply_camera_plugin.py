@@ -115,6 +115,13 @@ class ApplyCameraPlugin(Plugin):
 
         final_w = int(final_w)
         final_h = int(final_h)
+
+        # Width and height should be even numbers
+        if final_w % 2 != 0:
+            final_w += 1
+        if final_h % 2 != 0:
+            final_h += 1
+
         self._video_frame_cfg = {
             "output_frame_width": final_w,
             "output_frame_height": final_h,

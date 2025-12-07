@@ -8,8 +8,8 @@ from hmlib.aspen import AspenNet, Plugin
 
 def make_graph(class_path: str, threaded: bool = False, pipeline: Dict[str, Any] | None = None):
     graph: Dict[str, Any] = {
-        "trunks": {
-            "test_trunk": {
+        "plugins": {
+            "test_plugin": {
                 "class": class_path,
                 "depends": [],
                 "params": {},
@@ -31,7 +31,7 @@ def should_output_keys_violation_raise_non_threaded():
         net({})
 
     msg = str(excinfo.value)
-    assert "test_trunk" in msg
+    assert "test_plugin" in msg
     assert "extra_key" in msg
 
 
@@ -76,15 +76,20 @@ def should_output_keys_violation_be_propagated_in_threaded_mode():
     # in the worker and is captured there.
     net({})
 
-    # Subsequent calls to forward() should surface the exception raised in
-    # the worker thread.
-    raised = False
-    for _ in range(10):
-        try:
-            net({})
-        except ValueError:
-            raised = True
-            break
-        time.sleep(0.01)
+    # Enqueue a second context to ensure the worker processes at least one
+    # item and captures the violation.
+    net({})
 
-    assert raised, "Expected ValueError from threaded AspenNet but none was raised"
+    # Allow some time for the worker thread to run and record the error.
+    for _ in range(50):
+        if getattr(net, "_thread_error", None) is not None:
+            break
+        time.sleep(0.02)
+
+    # Once a worker has captured the exception, subsequent calls to forward()
+    # should surface it via _maybe_reraise_thread_error.
+    assert getattr(net, "_thread_error", None) is not None, (
+        "Expected _thread_error to be set in threaded AspenNet but it was still None"
+    )
+    with pytest.raises(ValueError):
+        net({})

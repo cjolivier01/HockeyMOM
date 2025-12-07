@@ -1,9 +1,8 @@
 import os
-from pathlib import Path
-
 import sys
 from pathlib import Path
 
+import av  # type: ignore[import-not-found]
 import pytest
 import torch
 
@@ -82,6 +81,41 @@ def should_support_mkv_container_with_pynvencoder(tmp_path: Path):
     """
     filename = tmp_path / "pynvencoder_out.mkv"
 
+    writer = PyNvVideoEncoderWriter(
+        filename=str(filename),
+        fps=30.0,
+        width=640,
+        height=360,
+        codec="hevc_nvenc",
+        device=torch.device("cuda", 0),
+        bit_rate=int(5e6),
+        batch_size=1,
+    )
+    writer.open()
+
+    frame = torch.randint(
+        0,
+        256,
+        (1, 360, 640, 3),
+        dtype=torch.uint8,
+        device=writer.device,
+    )
+    writer.write(frame)
+    writer.close()
+
+    assert filename.is_file()
+    assert filename.stat().st_size > 0
+
+
+def should_use_pyav_backend_with_pynvencoder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """
+    Ensure that the PyAV backend is exercised when HM_VIDEO_ENCODER_BACKEND=pyav.
+
+    This test imports av at module level, so it will fail if PyAV is not installed.
+    """
+    monkeypatch.setenv("HM_VIDEO_ENCODER_BACKEND", "pyav")
+
+    filename = tmp_path / "pynvencoder_pyav.mkv"
     writer = PyNvVideoEncoderWriter(
         filename=str(filename),
         fps=30.0,

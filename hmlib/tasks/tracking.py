@@ -229,6 +229,11 @@ def run_mmtrack(
                     set_if("centroid_reid_path", "jersey_centroid_reid_path")
                     set_if("centroid_reid_device", "jersey_centroid_reid_device")
                     j["params"] = j_params
+                # Disable postprocess trunk when CLI requests no play tracking.
+                if config.get("no_play_tracking") and "postprocess" in trunks_cfg:
+                    pp = trunks_cfg["postprocess"]
+                    if isinstance(pp, dict):
+                        pp["enabled"] = False
                 shared = dict(
                     model=model,
                     pose_inferencer=pose_inferencer,
