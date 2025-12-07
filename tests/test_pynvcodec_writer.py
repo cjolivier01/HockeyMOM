@@ -1,8 +1,13 @@
 import os
+import json
 import sys
+import subprocess
+from fractions import Fraction
 from pathlib import Path
 
 import av  # type: ignore[import-not-found]
+import cv2
+import numpy as np
 import pytest
 import torch
 
@@ -41,7 +46,7 @@ def _ensure_hockeymom_ext(repo_root: Path) -> None:
 _repo_root = _ensure_repo_on_path()
 _ensure_hockeymom_ext(_repo_root)
 
-from hmlib.video.video_stream import PyNvVideoEncoderWriter
+from hmlib.video.video_stream import PyNvVideoEncoderWriter, VideoStreamReader
 
 
 def should_write_h265_with_pynvencoder(tmp_path: Path):
@@ -140,3 +145,117 @@ def should_use_pyav_backend_with_pynvencoder(tmp_path: Path, monkeypatch: pytest
 
     assert filename.is_file()
     assert filename.stat().st_size > 0
+
+
+def _ffprobe_stream_metadata(video_path: Path) -> dict:
+    """Return ffprobe JSON metadata for the first video stream."""
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-count_frames",
+        "-show_entries",
+        "stream=nb_frames,nb_read_frames,r_frame_rate,avg_frame_rate,width,height,duration",
+        "-of",
+        "json",
+        str(video_path),
+    ]
+    raw = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+    data = json.loads(raw.decode("utf-8"))
+    assert data.get("streams"), f"ffprobe did not return streams for {video_path}"
+    return data["streams"][0]
+
+
+def _write_test_video_cv2(path: Path, *, fps: float, width: int, height: int, frames: int) -> None:
+    """Create a tiny mp4 using OpenCV (CPU) for transcoding tests."""
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
+    assert writer.isOpened()
+    for i in range(frames):
+        # Horizontal gradient + frame index to make frames distinct.
+        x = np.linspace(0, 255, width, dtype=np.uint8)
+        gradient = np.tile(x, (height, 1))
+        frame = np.stack(
+            [
+                gradient,  # blue
+                np.full_like(gradient, i * 10 % 255),  # green
+                255 - gradient,  # red
+            ],
+            axis=2,
+        )
+        writer.write(frame)
+    writer.release()
+
+
+def should_transcode_with_reader_and_pynvencoder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """
+    Transcode a CPU-written test clip via VideoStreamReader -> PyNvVideoEncoderWriter
+    and ensure fps/frame counts/durations match the source.
+    """
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA required for PyNvVideoEncoderWriter")
+    try:
+        import PyNvVideoCodec  # noqa: F401
+    except Exception:
+        pytest.skip("PyNvVideoCodec not available")
+    if subprocess.call(["which", "ffprobe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+        pytest.skip("ffprobe is required for metadata validation")
+
+    monkeypatch.setenv("HM_VIDEO_ENCODER_BACKEND", "pyav")
+
+    fps = 15.0
+    frame_count = 12
+    width, height = 320, 240
+    src = tmp_path / "source.mp4"
+    dst = tmp_path / "transcoded.mp4"
+
+    _write_test_video_cv2(src, fps=fps, width=width, height=height, frames=frame_count)
+
+    reader = VideoStreamReader(str(src), type="cv2", device=torch.device("cpu"))
+    collected = []
+    for batch in reader:
+        batch_t = torch.as_tensor(batch)
+        if batch_t.ndim == 3:
+            batch_t = batch_t.unsqueeze(0)
+        collected.append(batch_t.permute(0, 2, 3, 1).contiguous())
+    reader.close()
+
+    assert collected, "VideoStreamReader returned no frames"
+    frames = torch.cat(collected, dim=0)
+    assert frames.shape[0] == frame_count
+
+    writer = PyNvVideoEncoderWriter(
+        filename=str(dst),
+        fps=fps,
+        width=width,
+        height=height,
+        codec="hevc_nvenc",
+        device=torch.device("cuda", 0),
+        bit_rate=int(5e6),
+        batch_size=frame_count,
+    )
+    writer.open()
+    writer.write(frames.to(writer.device))
+    writer.close()
+
+    src_meta = _ffprobe_stream_metadata(src)
+    dst_meta = _ffprobe_stream_metadata(dst)
+
+    def _rate_to_float(rate: str) -> float:
+        return float(Fraction(rate)) if rate else 0.0
+
+    def _frame_count(meta: dict) -> int:
+        return int(meta.get("nb_frames") or meta.get("nb_read_frames") or 0)
+
+    assert _frame_count(src_meta) == frame_count
+    assert _frame_count(dst_meta) == frame_count
+    assert int(dst_meta["width"]) == width
+    assert int(dst_meta["height"]) == height
+    assert _rate_to_float(dst_meta.get("r_frame_rate")) == pytest.approx(fps, rel=0, abs=1e-3)
+    assert _rate_to_float(dst_meta.get("avg_frame_rate")) == pytest.approx(fps, rel=0, abs=1e-3)
+    # Duration matches to within one frame.
+    src_dur = float(src_meta.get("duration", frame_count / fps))
+    dst_dur = float(dst_meta.get("duration", frame_count / fps))
+    assert dst_dur == pytest.approx(src_dur, rel=0, abs=1.0 / fps)
