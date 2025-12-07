@@ -334,43 +334,32 @@ class PyNvVideoEncoder:
         return proc
 
     def _open_pyav_container(self) -> None:
-        """Open an output container using PyAV and prepare a passthrough video stream."""
-        try:
-            import av  # type: ignore[import-not-found]
-        except Exception as exc:  # pragma: no cover - optional dependency
-            raise ImportError(
-                "PyNvVideoEncoder with use_pyav=True requires the 'av' package. "
-                f"Failed to import: {exc}"
-            )
+        import av
 
         self._av_container = av.open(str(self.output_path), mode="w")
-        # Use codec name directly (e.g. 'h264', 'hevc', 'av1'); this matches the
-        # elementary stream produced by NVENC.
-        fps_num = int(round(self.fps * 1001))
-        fps_den = 1001
-        fps = Fraction(fps_num, fps_den)
-        self._av_stream = self._av_container.add_stream(
-            self.codec,
-            rate=fps,
-            width=self.width,
-            height=self.height,
-            bit_rate=self.bitrate,
-            time_base=Fraction(1, 90000),
-        )
-        assert self._av_stream.pix_fmt == "yuv420p"
-        ticks_per_frame = int(
-            (Fraction(1, 1) / fps) / self._av_stream.time_base
-        )  # 3003 for 29.97 with 1/90000
 
-        self._ticks_per_frame = ticks_per_frame
-        self._next_pts = 0  # in ticks
+        fps = Fraction(int(round(self.fps * 1001)), 1001)
+
+        codec_name = "hevc" if self.codec in ("h265", "hevc") else self.codec
+        self._av_stream = self._av_container.add_stream(codec_name, rate=fps)
+        self._av_stream.width = self.width
+        self._av_stream.height = self.height
+        self._av_stream.pix_fmt = "yuv420p"
+
+        # Give muxer a sensible hint (optional, but helps keep things stable).
+        self._av_stream.time_base = Fraction(1, 90000)
+
+        # IMPORTANT: finalize header so time_base is final
+        self._av_container.start_encoding()
+
+        tb = self._av_stream.time_base  # may have changed after start_encoding()
+        self._ticks_per_frame = int(round((Fraction(1, 1) / fps) / tb))
+
+        self._next_pts = 0  # in tb ticks
+        self._frames_in_current_bitstream = 0
 
     def _mux_packet_pyav(self, bitstream: bytes) -> None:
-        """Mux a single encoded packet into the PyAV container."""
-        if self._av_container is None or self._av_stream is None:
-            raise RuntimeError("PyAV container is not initialized.")
-
-        import av  # type: ignore[import-not-found]
+        import av
 
         dur = int(self._frames_in_current_bitstream * self._ticks_per_frame)
 
@@ -380,7 +369,9 @@ class PyNvVideoEncoder:
         packet.pts = self._next_pts
         packet.dts = self._next_pts
         packet.duration = dur
-        self._av_container.mux(packet)
+
+        self._av_container.mux_one(packet)
+
         self._next_pts += dur
 
     def _normalize_frames(self, frames: torch.Tensor) -> torch.Tensor:
@@ -422,7 +413,7 @@ class PyNvVideoEncoder:
             max_val = frames.max()
             if float(max_val) <= 1.0:
                 frames = frames * 255.0
-            frames.clamp_(0, 255).to(torch.uint8)
+            frames = frames.clamp(0, 255).to(torch.uint8)
         elif frames.dtype != torch.uint8:
             frames = frames.to(torch.uint8)
 
