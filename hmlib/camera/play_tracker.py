@@ -3,6 +3,7 @@
 from __future__ import absolute_import, division, print_function
 
 import copy
+import sys
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -34,9 +35,8 @@ from hmlib.tracking_utils import visualization as vis
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig, BBox
+from hockeymom.core import AllLivingBoxConfig, BBox, PlayTrackerConfig
 from hockeymom.core import PlayTracker as CppPlayTracker
-from hockeymom.core import PlayTrackerConfig
 
 from .camera_transformer import (
     CameraNorm,
@@ -196,6 +196,7 @@ class PlayTracker(torch.nn.Module):
         self._ui_defaults: Dict[str, Dict[str, int]] = {}
         self._ui_controls_dirty = True
         self._stitch_rotation_controller = stitch_rotation_controller
+        self._force_stitching: bool = bool(force_stitching)
         self._stitch_slider_enabled = False
 
         # Optional transformer-based camera controller
@@ -1382,44 +1383,32 @@ class PlayTracker(torch.nn.Module):
                     name, self._ui_window_name, int(init), int(maxv), self._on_trackbar
                 )
 
-            stop_dir_delay = int(
-                self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay")
-            )
+            stop_dir_delay = int(self._initial_camera_value("stop_on_dir_change_delay"))
             cancel_stop = (
                 1
                 if bool(
                     self._initial_camera_value(
-                        "cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir"
+                        "cancel_stop_on_opposite_dir"
                     )
                 )
                 else 0
             )
             hyst = int(
-                self._initial_camera_value(
-                    "stop_cancel_hysteresis_frames", "stop_cancel_hysteresis_frames"
-                )
+                self._initial_camera_value("stop_cancel_hysteresis_frames")
             )
             cooldown = int(
-                self._initial_camera_value(
-                    "stop_delay_cooldown_frames", "stop_delay_cooldown_frames"
-                )
+                self._initial_camera_value("stop_delay_cooldown_frames")
             )
             ov_delay = int(
-                self._initial_breakaway_value(
-                    "overshoot_stop_delay_count", "overshoot_stop_delay_count"
-                )
+                self._initial_breakaway_value("overshoot_stop_delay_count")
             )
             postns = int(
-                self._initial_breakaway_value(
-                    "post_nonstop_stop_delay_count", "post_nonstop_stop_delay_count"
-                )
+                self._initial_breakaway_value("post_nonstop_stop_delay_count")
             )
             ov_scale = int(
                 100
                 * float(
-                    self._initial_breakaway_value(
-                        "overshoot_scale_speed_ratio", "overshoot_scale_speed_ratio"
-                    )
+                    self._initial_breakaway_value("overshoot_scale_speed_ratio")
                 )
             )
             ttg = int(self._require_camera_value("time_to_dest_speed_limit_frames"))
@@ -1614,6 +1603,10 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     self._ui_color_right_inited = False
         except Exception:
+            import traceback
+
+            traceback.print_exc()
+            print("Failed to initialize camera UI controls.", file=sys.stderr)
             self._camera_ui_enabled = False
 
     def _apply_ui_controls(self):
