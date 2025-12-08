@@ -9,11 +9,12 @@ from cuda_stacktrace import CudaStackTracer
 from mmengine.structures import InstanceData
 
 from .base import Trunk
+from .trt_nms import DetectorNMS
 
 
-def _strip_static_padding(instances: InstanceData) -> InstanceData:
+def _strip_static_padding(instances: InstanceData, strip: bool) -> InstanceData:
     """Remove padded detections when static outputs are enabled."""
-    if instances is None:
+    if instances is None or not strip:
         return instances
     num_valid = getattr(instances, "num_valid_after_nms",
                         getattr(instances, "num_valid", None))
@@ -99,6 +100,7 @@ class DetectorFactoryTrunk(Trunk):
         self._static_detections: Dict[str, Any] = dict(trt_static)
         if static_detections:
             self._static_detections.update(static_detections)
+        self._pass: int = 0
 
     def _load_detector_from_yaml(self, path: str) -> Dict[str, Any]:
         import yaml
@@ -178,6 +180,9 @@ class DetectorFactoryTrunk(Trunk):
                         int8=bool(self._trt_cfg.get("int8", False)),
                         calib_frames=int(self._trt_cfg.get("calib_frames", 0)),
                         profiler=self._profiler,
+                        nms_backend=str(self._trt_cfg.get("nms_backend", "trt")),
+                        nms_test=bool(self._trt_cfg.get("nms_test", False)),
+                        nms_plugin=str(self._trt_cfg.get("nms_plugin", "batched")),
                     )
                 except Exception as ex:
                     # Fall back to next option if TRT init fails
@@ -570,6 +575,9 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         int8: bool = False,
         calib_frames: int = 0,
         profiler: Optional[Any] = None,
+        nms_backend: str = "trt",
+        nms_test: bool = False,
+        nms_plugin: str = "batched",
     ):
         super().__init__(profiler=profiler, label="trt_predictor")
         self.model = model
@@ -585,6 +593,19 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         self._swap_rgb = False
         self._calib_dataset = None
         self._pass: int = 0
+        self._nms_backend: str = str(nms_backend or "trt")
+        self._nms_test: bool = bool(nms_test)
+        self._nms_plugin: str = str(nms_plugin or "batched")
+        compare_backends: List[str] = []
+        if self._nms_test and self._nms_backend.lower() == "trt":
+            compare_backends.append("torchvision")
+        # Centralized NMS dispatcher; handles 'trt', 'torchvision', and 'head'.
+        self._nms = DetectorNMS(
+            bbox_head=getattr(model, "bbox_head", model),
+            backend=self._nms_backend,
+            compare_backends=compare_backends,
+            trt_plugin=self._nms_plugin,
+        )
 
         # Gather data_preprocessor normalization like ONNX path
         try:
@@ -709,7 +730,10 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         return x
 
     def predict(self, imgs: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
-        with self._profile_scope():
+        do_trace: bool = self._pass == 10
+        if do_trace:
+            pass
+        with self._profile_scope(), CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=False and do_trace):
             assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
             results: List[Any] = []
             try:
@@ -753,33 +777,35 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         feats = list(feats)
                     else:
                         feats = [torch.as_tensor(feats)]
-
-                if self._pass == 10:
-                    pass
-
                 with torch.inference_mode():
-                    with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False and self._pass == 10):
-                        with self._profile_scope("head"):
-                            cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
-                            result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
-                                cls_scores=cls_scores,
-                                bbox_preds=bbox_preds,
-                                objectnesses=objectnesses,
-                                batch_img_metas=[img_meta],
-                                cfg=None,
-                                rescale=True,
-                                with_nms=True,
-                            )
+                    with self._profile_scope("head"):
+                        cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
+                        # Decode boxes and scores but skip the built-in NMS,
+                        # so that we can apply TensorRT batched NMS instead.
+                        result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                            cls_scores=cls_scores,
+                            bbox_preds=bbox_preds,
+                            objectnesses=objectnesses,
+                            batch_img_metas=[img_meta],
+                            cfg=None,
+                            rescale=True,
+                            with_nms=False,
+                        )
                 inst = result_list[0]
 
-                if self._pass == 10:
-                    pass
+                # Apply configured NMS backend via the centralized dispatcher.
+                with self._profile_scope("nms"):
+                    inst = self._nms.run_single(inst, img_meta)
 
                 class _Wrap:
                     def __init__(self, inst_):
                         self.pred_instances = inst_
 
                 with self._profile_scope("postprocess"):
-                    results.append(_Wrap(_strip_static_padding(inst)))
+                    results.append(_Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt")))
+
+            if do_trace == 10:
+                pass
+
             self._pass += 1
             return results

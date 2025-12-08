@@ -29,6 +29,15 @@
     },
     {
       "path": "../jersey-number-pipeline"
+    },
+    {
+      "path": "../pytorch/audio"
+    },
+    {
+      "path": "../TensorRT"
+    },
+    {
+      "path": "../cuda-stacktrace"
     }
   ],
   "settings": {

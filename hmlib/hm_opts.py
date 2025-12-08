@@ -352,6 +352,33 @@ class hm_opts(object):
             default=0,
             help="Max detections to keep when static detections are enabled (default: use model test_cfg).",
         )
+        trt_det.add_argument(
+            "--detector-nms-backend",
+            dest="detector_nms_backend",
+            type=str,
+            default="trt",
+            choices=["trt", "torchvision", "head"],
+            help="NMS backend when using TensorRT detector: "
+            "'trt' (TensorRT batched NMS plugin), "
+            "'torchvision' (torchvision.ops.nms per class), or "
+            "'head' (use bbox head's original NMS).",
+        )
+        trt_det.add_argument(
+            "--detector-nms-test",
+            dest="detector_nms_test",
+            action="store_true",
+            help="Debug mode: when using TensorRT detector, run both TensorRT batched NMS "
+            "and torchvision NMS and log basic differences per frame.",
+        )
+        trt_det.add_argument(
+            "--detector-trt-nms-plugin",
+            dest="detector_trt_nms_plugin",
+            type=str,
+            default="batched",
+            choices=["batched", "efficient"],
+            help="TensorRT NMS plugin to use for detector path when backend is 'trt': "
+            "'batched' (BatchedNMSDynamic_TRT, default) or 'efficient' (EfficientNMS_TRT).",
+        )
         #
         # TensorRT options (Pose)
         #
@@ -518,6 +545,13 @@ class hm_opts(object):
             type=int,
             default=2,
             help="cache size for GPU stream async operations",
+        )
+        async_group = parser.add_mutually_exclusive_group()
+        async_group.add_argument(
+            "--no-async-dataset",
+            dest="no_async_dataset",
+            action="store_true",
+            help="Disable async dataset loading and use synchronous video I/O.",
         )
         parser.add_argument(
             "--no-cuda-streams",
@@ -988,6 +1022,10 @@ class hm_opts(object):
             opt.async_video_out = 0
             opt.cache_size = 0
             opt.stitch_cache_size = 0
+            opt.no_async_dataset = True
+
+        if opt.show_scaled:
+            opt.show_image = True
 
         for key in hm_opts.CONFIG_TO_ARGS:
             nested_item = get_nested_value(getattr(opt, "game_config", {}), key, None)

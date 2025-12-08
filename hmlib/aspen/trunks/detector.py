@@ -2,10 +2,9 @@ from contextlib import nullcontext
 from typing import Any, Dict
 
 import torch
-from cuda_stacktrace import CudaStackTracer
 
-from .detector_factory import _strip_static_padding
 from .base import Trunk
+from .detector_factory import _strip_static_padding
 
 
 class DetectorInferenceTrunk(Trunk):
@@ -86,7 +85,7 @@ class DetectorInferenceTrunk(Trunk):
                 img_data_sample.set_metainfo({"frame_id": int(fid)})
                 batch_data_samples.append(img_data_sample)
 
-            with amp_ctx, CudaStackTracer(functions="cudaStreamSynchronize", enabled=False):
+            with amp_ctx:
                 det_results = detector.predict(batch_inputs, batch_data_samples)
 
             assert (
@@ -94,7 +93,7 @@ class DetectorInferenceTrunk(Trunk):
             ), "Batch inference must return one result per frame"
             for img_data_sample, det_sample in zip(batch_data_samples, det_results):
                 # Attach detections to the video data sample for downstream tracker
-                img_data_sample.pred_instances = _strip_static_padding(det_sample.pred_instances)
+                img_data_sample.pred_instances = _strip_static_padding(det_sample.pred_instances, strip=False)
 
         if detect_timer is not None:
             detect_timer.toc()

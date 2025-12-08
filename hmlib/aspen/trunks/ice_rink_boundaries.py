@@ -283,11 +283,13 @@ class IceRinkSegmConfigTrunk(Trunk):
                             exp_shape = torch.Size(frame0.shape[-2:])
                 self._rink_profile = confgure_ice_rink_mask(
                     game_id=game_id,
-                    device=device if isinstance(device, torch.device) else torch.device("cpu"),
+                    # device=device if isinstance(device, torch.device) else torch.device("cpu"),
+                    device=torch.device("cpu"),
                     expected_shape=exp_shape,
                     image=frame0,
                 )
-            except Exception:
+            except Exception as ex:
+                print(ex)
                 self._rink_profile = None
         results = dict(data=data)
         if self._rink_profile is not None:

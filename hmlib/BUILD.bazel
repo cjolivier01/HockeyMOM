@@ -72,8 +72,6 @@ filegroup(
         ":embed_enblend",
         ":embed_multiblend",
         "images/sports_ai_watermark.png",
-        "pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth",
-        "pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth",
         "py.typed",
         # "@multiblend//:multiblend",
     ] + glob(["**/*.yaml"]),

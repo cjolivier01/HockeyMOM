@@ -7,6 +7,7 @@ produce input batches for the main stitching CLIs.
 from __future__ import annotations
 
 import contextlib
+import copy
 import math
 import os
 import threading
@@ -18,7 +19,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from cuda_stacktrace import CudaStackTracer
+from mmcv.transforms import Compose
 
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
@@ -32,6 +33,7 @@ from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_asyn
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
+from hmlib.utils.tensor import make_const_tensor
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hockeymom import show_cuda_tensor
 from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
@@ -183,6 +185,10 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         show_image_components: bool = False,
         post_stitch_rotate_degrees: Optional[float] = None,
         profiler: Any = None,
+        # Optional live config and per-camera color pipelines (from Aspen YAML).
+        config_ref: Optional[Dict[str, Any]] = None,
+        left_color_pipeline: Optional[List[Dict[str, Any]]] = None,
+        right_color_pipeline: Optional[List[Dict[str, Any]]] = None,
     ):
         super().__init__()
         if not async_mode:
@@ -204,8 +210,8 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._auto_adjust_exposure = auto_adjust_exposure
         self._exposure_adjustment: List[float] = None
         self._max_frames = max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
-        self._to_coordinator_queue = create_queue(mp=False)
-        self._from_coordinator_queue = create_queue(mp=False)
+        self._to_coordinator_queue = create_queue(mp=False, name="stitchinbg-to-coordinator")
+        self._from_coordinator_queue = create_queue(mp=False, name="stitching-from-coordinator")
         self._current_frame = start_frame_number
         self._next_requested_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
@@ -218,6 +224,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         # Optional rotation after stitching (degrees, about image center)
         self._post_stitch_rotate_degrees: Optional[float] = post_stitch_rotate_degrees
         self._profiler = profiler
+        self._config_ref: Optional[Dict[str, Any]] = config_ref
+        self._left_color_pipeline_cfg: Optional[List[Dict[str, Any]]] = left_color_pipeline
+        self._right_color_pipeline_cfg: Optional[List[Dict[str, Any]]] = right_color_pipeline
+        self._left_color_pipeline: Optional[Compose] = None
+        self._right_color_pipeline: Optional[Compose] = None
 
         # Optimize the roi box
         if image_roi is not None:
@@ -234,7 +245,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._batch_count = 0
         # Temporary until we get the middle-man (StitchingWorkersIterator)
         self._current_worker = 0
-        self._ordering_queue = create_queue(mp=False)
+        self._ordering_queue = create_queue(mp=False, name="stitching-ordering-queue")
         self._coordinator_thread = None
 
         self._next_frame_timer = Timer()
@@ -334,6 +345,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             self._channel_add_left = None
             self._channel_add_right = None
 
+        # Optional per-camera color adjustment pipelines (left/right) applied
+        # before stitching. These mirror the standard inference/video_out
+        # HmImageColorAdjust transform but operate on the individual streams.
+        self._build_color_pipelines()
+
     def __delete__(self):
         if hasattr(self, "close"):
             self.close()
@@ -361,6 +377,28 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
     def set_post_stitch_rotate_degrees(self, degrees: Optional[float]) -> None:
         self._post_stitch_rotate_degrees = degrees
+
+    def _build_color_pipelines(self) -> None:
+        """Instantiate optional left/right color pipelines from config specs."""
+        self._left_color_pipeline = None
+        self._right_color_pipeline = None
+
+        def _make_pipeline(spec: Optional[List[Dict[str, Any]]]) -> Optional[Compose]:
+            if not spec:
+                return None
+            try:
+                pipeline = Compose(copy.deepcopy(spec))
+                if self._config_ref is not None:
+                    for tf in getattr(pipeline, "transforms", []):
+                        # Bind live config so HmImageColorAdjust picks up runtime changes.
+                        if tf.__class__.__name__ == "HmImageColorAdjust":
+                            setattr(tf, "config_ref", self._config_ref)
+                return pipeline
+            except Exception:
+                return None
+
+        self._left_color_pipeline = _make_pipeline(self._left_color_pipeline_cfg)
+        self._right_color_pipeline = _make_pipeline(self._right_color_pipeline_cfg)
 
     def stitching_worker(self, worker_number: int):
         return self._stitching_workers[worker_number]
@@ -533,95 +571,111 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                     self._remapping_stream = torch.cuda.Stream(device=self._remapping_device)
 
                 stream = self._remapping_stream if self._async_mode else None
-                with CudaStackTracer(functions="cudaStreamSynchronize", enabled=False, stream=stream):
-                    with cuda_stream_scope(stream), torch.no_grad():
-                        imgs_1 = to_tensor(imgs_1)
-                        imgs_2 = to_tensor(imgs_2)
-                        if self._stitcher is None:
-                            # Lazily construct the stitcher on first use (async or sync).
-                            self._create_stitcher()
+                with cuda_stream_scope(stream), torch.no_grad():
+                    imgs_1 = to_tensor(imgs_1)
+                    imgs_2 = to_tensor(imgs_2)
+                    # Optional per-camera color pipelines for left/right inputs.
+                    if self._left_color_pipeline is not None:
+                        try:
+                            data_1 = {"img": imgs_1}
+                            data_1 = self._left_color_pipeline(data_1)
+                            if "img" in data_1:
+                                imgs_1 = data_1["img"]
+                        except Exception:
+                            pass
+                    if self._right_color_pipeline is not None:
+                        try:
+                            data_2 = {"img": imgs_2}
+                            data_2 = self._right_color_pipeline(data_2)
+                            if "img" in data_2:
+                                imgs_2 = data_2["img"]
+                        except Exception:
+                            pass
+                    if self._stitcher is None:
+                        # Lazily construct the stitcher on first use (async or sync).
+                        self._create_stitcher()
 
-                        if isinstance(self._stitcher, CudaStitchPanoF32 | CudaStitchPanoU8):
-
-                            if self._show_image_components:
-                                for img1, img2 in zip(imgs_1, imgs_2):
-                                    t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
-                                    t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
-                                    torch.cuda.synchronize()
-                                    # show_cuda_tensor(
-                                    show_image(
-                                        "img-1",
-                                        make_visible_image(t1),
-                                        wait=False,
-                                        # stream=int(stream.cuda_stream),
-                                        enable_resizing=0.2,
-                                    )
-                                    show_image(
-                                        # show_cuda_tensor(
-                                        "img-2",
-                                        make_visible_image(t2),
-                                        wait=False,
-                                        # stream=int(stream.cuda_stream),
-                                        enable_resizing=0.2,
-                                    )
-
-                            imgs_1 = make_channels_last(self.ensure_rgba(imgs_1))
-                            imgs_2 = make_channels_last(self.ensure_rgba(imgs_2))
-                            assert imgs_1.dtype == torch.uint8
-
-                            blended_stream_tensor = torch.empty(
-                                [
-                                    imgs_1.shape[0],
-                                    self._stitcher.canvas_height(),
-                                    self._stitcher.canvas_width(),
-                                    imgs_1.shape[-1],
-                                ],
-                                dtype=imgs_1.dtype,
-                                device=imgs_1.device,
-                            )
-                            stream_handle = (
-                                stream.cuda_stream
-                                if stream is not None
-                                else torch.cuda.current_stream(imgs_1.device).cuda_stream
-                            )
-                            self._stitcher.process(
-                                imgs_1.contiguous(), imgs_2.contiguous(), blended_stream_tensor, stream_handle
-                            )
-                            # Optional rotation (keep same size)
-                            if (
-                                self._post_stitch_rotate_degrees is not None
-                                and abs(self._post_stitch_rotate_degrees) > 1e-6
-                            ):
-                                blended_stream_tensor = self._rotate_tensor_keep_size(
-                                    blended_stream_tensor,
-                                    self._post_stitch_rotate_degrees,
-                                    use_cache=True,
-                                )
-                        else:
-                            blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
-                            # Optional rotation (keep same size)
-                            if (
-                                self._post_stitch_rotate_degrees is not None
-                                and abs(self._post_stitch_rotate_degrees) > 1e-6
-                            ):
-                                blended_stream_tensor = self._rotate_tensor_keep_size(
-                                    blended_stream_tensor,
-                                    self._post_stitch_rotate_degrees,
-                                    use_cache=True,
-                                )
+                    if isinstance(self._stitcher, CudaStitchPanoF32 | CudaStitchPanoU8):
 
                         if self._show_image_components:
-                            for blended_image in blended_stream_tensor:
+                            for img1, img2 in zip(imgs_1, imgs_2):
+                                t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
+                                t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
+                                torch.cuda.synchronize()
+                                # show_cuda_tensor(
                                 show_image(
-                                    "blended",
-                                    make_visible_image(blended_image),
+                                    "img-1",
+                                    make_visible_image(t1),
+                                    wait=False,
+                                    # stream=int(stream.cuda_stream),
+                                    enable_resizing=0.2,
+                                )
+                                show_image(
+                                    # show_cuda_tensor(
+                                    "img-2",
+                                    make_visible_image(t2),
                                     wait=False,
                                     # stream=int(stream.cuda_stream),
                                     enable_resizing=0.2,
                                 )
 
-                        if stream is not None:
-                            blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
+                        imgs_1 = make_channels_last(self.ensure_rgba(imgs_1))
+                        imgs_2 = make_channels_last(self.ensure_rgba(imgs_2))
+                        assert imgs_1.dtype == torch.uint8
+
+                        blended_stream_tensor = torch.empty(
+                            [
+                                imgs_1.shape[0],
+                                self._stitcher.canvas_height(),
+                                self._stitcher.canvas_width(),
+                                imgs_1.shape[-1],
+                            ],
+                            dtype=imgs_1.dtype,
+                            device=imgs_1.device,
+                        )
+                        stream_handle = (
+                            stream.cuda_stream
+                            if stream is not None
+                            else torch.cuda.current_stream(imgs_1.device).cuda_stream
+                        )
+                        self._stitcher.process(
+                            imgs_1.contiguous(), imgs_2.contiguous(), blended_stream_tensor, stream_handle
+                        )
+                        # Optional rotation (keep same size)
+                        if (
+                            self._post_stitch_rotate_degrees is not None
+                            and abs(self._post_stitch_rotate_degrees) > 1e-6
+                        ):
+                            blended_stream_tensor = self._rotate_tensor_keep_size(
+                                blended_stream_tensor,
+                                self._post_stitch_rotate_degrees,
+                                use_cache=True,
+                            )
+                    else:
+                        blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
+                        # Optional rotation (keep same size)
+                        if (
+                            self._post_stitch_rotate_degrees is not None
+                            and abs(self._post_stitch_rotate_degrees) > 1e-6
+                        ):
+                            blended_stream_tensor = self._rotate_tensor_keep_size(
+                                blended_stream_tensor,
+                                self._post_stitch_rotate_degrees,
+                                use_cache=True,
+                            )
+
+                    if self._show_image_components:
+                        for blended_image in blended_stream_tensor:
+                            show_image(
+                                "blended",
+                                make_visible_image(blended_image),
+                                wait=False,
+                                # stream=int(stream.cuda_stream),
+                                enable_resizing=0.2,
+                            )
+
+                    if stream is not None:
+                        blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
 
             self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
             self._ordering_queue.put((ids_1, blended_stream_tensor))
@@ -936,7 +990,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             self._persist_init_or_assert(True, x_work, extras)
 
         # --- Angle-dependent tensors ---
-        angle = torch.tensor(-degrees * math.pi / 180.0, device=device, dtype=torch.float32)
+        angle = make_const_tensor(-degrees * math.pi / 180.0, device=device, dtype=torch.float32)
         cos_a = torch.cos(angle)
         sin_a = torch.sin(angle)
 
@@ -955,7 +1009,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             center = make_center()
         cx, cy = center[0], center[1]
 
-        def make_S():
+        def make_S() -> torch.Tensor:
             return torch.tensor(
                 [
                     [(W - 1) / 2.0, 0.0, (W - 1) / 2.0],
@@ -966,7 +1020,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 dtype=torch.float32,
             )
 
-        def make_S_inv():
+        def make_S_inv() -> torch.Tensor:
             return torch.tensor(
                 [
                     [2.0 / (W - 1), 0.0, -1.0],
@@ -977,12 +1031,17 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 dtype=torch.float32,
             )
 
+        def make_001() -> torch.Tensor:
+            return torch.tensor([0.0, 0.0, 1.0], device=device, dtype=torch.float32)
+
         if use_cache and hasattr(self, "_persist_get"):
             S = self._persist_get("S", make_S, True)
             S_inv = self._persist_get("S_inv", make_S_inv, True)
+            S_001 = self._persist_get("S_001", make_001, True)
         else:
             S = make_S()
             S_inv = make_S_inv()
+            S_001 = make_001()
 
         # --- Compute transform matrices ---
         tx = (1.0 - cos_a) * cx - sin_a * cy
@@ -991,7 +1050,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             [
                 torch.stack([cos_a, sin_a, tx]),
                 torch.stack([-sin_a, cos_a, ty]),
-                torch.tensor([0.0, 0.0, 1.0], device=device, dtype=torch.float32),
+                S_001,
             ]
         )
 

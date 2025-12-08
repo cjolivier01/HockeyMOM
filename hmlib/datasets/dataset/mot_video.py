@@ -1,6 +1,7 @@
 """Video dataset helpers for MOT-style tracking and stitching pipelines."""
 
 import contextlib as _contextlib
+import os
 import threading
 import traceback
 from contextlib import contextmanager
@@ -121,8 +122,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._batch_size = batch_size
         self._timer = Timer()
         self._timer_counter = 0
-        self._to_worker_queue = create_queue(mp=False)
-        self._from_worker_queue = create_queue(mp=False)
         self.vn = None
         self.vw = None
         self.vh = None
@@ -139,6 +138,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._frame_read_count = 0
         self._video_info = None
         self._seek_lock = Lock()
+        self._to_worker_queue = create_queue(
+            mp=False, name="mot-video-to-worker" + ("-EDL" if embedded_data_loader is not None else "")
+        )
+        self._from_worker_queue = create_queue(
+            mp=False, name="mot-video-from-worker" + ("-EDL" if embedded_data_loader is not None else "")
+        )
 
         self.load_video_info()
 
@@ -218,8 +223,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             self._decoder_type = "cv2"
             if self._decoder_device is not None and self._decoder_device.type == "cuda":
                 self._decoder_type = "torchaudio"
+            file_path = str(self._path_list[self._current_path_index])
+            if not os.path.isfile(file_path):
+                raise RuntimeError(f"Video file {file_path} does not exist")
             self.cap = VideoStreamReader(
-                filename=str(self._path_list[self._current_path_index]),
+                filename=file_path,
                 type=self._decoder_type,
                 batch_size=self._batch_size,
                 device=self._decoder_device,

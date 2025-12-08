@@ -508,6 +508,10 @@ def _main(args, num_gpu):
                     # INT8 options
                     trt_cfg["int8"] = bool(getattr(args, "detector_trt_int8", False))
                     trt_cfg["calib_frames"] = int(getattr(args, "detector_trt_calib_frames", 0) or 0)
+                    # NMS backend selection for TensorRT detector
+                    trt_cfg["nms_backend"] = getattr(args, "detector_nms_backend", "trt")
+                    trt_cfg["nms_test"] = bool(getattr(args, "detector_nms_test", False))
+                    trt_cfg["nms_plugin"] = getattr(args, "detector_trt_nms_plugin", "batched")
                     df_params["trt"] = trt_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
@@ -726,6 +730,12 @@ def _main(args, num_gpu):
                     },
                 }
                 stitch_cache_size = args.cache_size if args.stitch_cache_size is None else args.stitch_cache_size
+                # Optional per-camera stitching color pipelines from Aspen config
+                left_stitch_pipeline_cfg = None
+                right_stitch_pipeline_cfg = None
+                if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
+                    left_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get("left_stitch_pipeline")
+                    right_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get("right_stitch_pipeline")
                 stitched_dataset = StitchDataset(
                     videos=stitch_videos,
                     pto_project_file=pto_project_file,
@@ -742,8 +752,12 @@ def _main(args, num_gpu):
                     python_blender=args.python_blender,
                     minimize_blend=not args.no_minimize_blend,
                     no_cuda_streams=args.no_cuda_streams,
+                    async_mode=not args.no_async_dataset,
                     post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
                     profiler=getattr(args, "profiler", None),
+                    config_ref=args.game_config,
+                    left_color_pipeline=left_stitch_pipeline_cfg,
+                    right_color_pipeline=right_stitch_pipeline_cfg,
                 )
                 try:
                     cam_args.stitch_rotation_controller = stitched_dataset
@@ -764,6 +778,7 @@ def _main(args, num_gpu):
                     original_image_only=True,
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
+                    async_mode=not args.no_async_dataset,
                 )
                 try:
                     mot_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -797,6 +812,7 @@ def _main(args, num_gpu):
                     original_image_only=True,
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
+                    async_mode=not args.no_async_dataset,
                 )
                 try:
                     pano_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -814,14 +830,15 @@ def _main(args, num_gpu):
                 for vid_name, vid_path in other_videos:
                     if os.path.exists(vid_path):
                         extra_dataloader = MOTLoadVideoWithOrig(
-                                path=vid_path,
-                                start_frame_number=args.start_frame,
-                                batch_size=args.batch_size,
-                                dtype=torch.float if not args.fp16 else torch.half,
-                                device=gpus["encoder"],
-                                original_image_only=True,
-                                no_cuda_streams=args.no_cuda_streams,
-                            )
+                            path=vid_path,
+                            start_frame_number=args.start_frame,
+                            batch_size=args.batch_size,
+                            dtype=torch.float if not args.fp16 else torch.half,
+                            device=gpus["encoder"],
+                            original_image_only=True,
+                            no_cuda_streams=args.no_cuda_streams,
+                            async_mode=args.no_async_dataset,
+                        )
                     try:
                         extra_dataloader.set_profiler(getattr(args, "profiler", None))
                     except Exception:

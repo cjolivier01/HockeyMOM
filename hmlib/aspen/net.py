@@ -15,6 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import networkx as nx
 import torch
+from cuda_stacktrace import CudaStackTracer
 
 from hmlib.aspen.trunks.base import Trunk
 
@@ -77,6 +78,7 @@ class AspenNet(torch.nn.Module):
         self._build_graph(trunks)
         self.exec_order = self._toposort()
         self.training: bool = False
+        self._iter_num: int = 0
         self.save_graphviz("aspennet.dot")
 
     def train(self, mode: bool = True):
@@ -175,8 +177,15 @@ class AspenNet(torch.nn.Module):
             return self._forward_threaded(context)
         grad_ctx = torch.enable_grad() if self.training else torch.no_grad()
         with grad_ctx:
-            for node in self.exec_order:
-                self._execute_node(node, context)
+            do_trace: bool = True and self._iter_num == 10
+            if do_trace:
+                pass
+            with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+                for node in self.exec_order:
+                    self._execute_node(node, context)
+            if do_trace:
+                pass
+        self._iter_num += 1
         return context
 
     # region graph export/visualization

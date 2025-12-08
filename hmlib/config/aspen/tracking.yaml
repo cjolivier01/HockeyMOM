@@ -42,6 +42,27 @@ aspen:
       enabled: false
       scale: 1.0
 
+  # Optional per-camera color pipelines for stitching inputs.
+  # These operate on the raw left/right camera frames *before* stitching and
+  # can be driven at runtime via the game.stitching.left/right.color blocks.
+  left_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      # Runtime values are pulled from args.game_config using these paths.
+      # If missing, the transform is a no-op.
+      config_paths:
+        - [game, stitching, left, color]
+        - [game, stitching, left]
+      refresh_from_config: true
+
+  right_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      config_paths:
+        - [game, stitching, right, color]
+        - [game, stitching, right]
+      refresh_from_config: true
+
   # Default camera post-processing pipeline (was in hm_end_to_end.py)
   video_out_pipeline:
     - type: HmConfigureScoreboard
@@ -129,13 +150,13 @@ aspen:
     tracker:
       class: hmlib.aspen.trunks.tracker.TrackerTrunk
       depends: [detector, ice_boundaries, model_factory, boundaries]
-      # params:
+      params:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
-        # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
-        # tracker_kwargs:
-        #   device: cuda:0
-        #   max_detections: 256
-        #   max_tracks: 100
+        tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
+        tracker_kwargs:
+          device: cuda:0
+          max_detections: 256
+          max_tracks: 100
 
     save_tracking:
       class: hmlib.aspen.trunks.save.SaveTrackingTrunk

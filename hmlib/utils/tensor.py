@@ -3,18 +3,15 @@ from typing import Union
 import torch
 
 
-def to_tensor_scalar(
-    value: Union[int, torch.Tensor],
+def make_const_tensor(
+    value: float | int,
     device: torch.device,
-    dtype=torch.int64,
-    non_blocking: bool = False,
+    dtype: torch.dtype,
+    shape: tuple[int, ...] = (),
 ) -> torch.Tensor:
-    if isinstance(value, torch.Tensor):
-        if device is not None and value.device != device:
-            value = value.to(device=device, non_blocking=non_blocking)
-
-        return value
-    value = torch.tensor(value, dtype=dtype)
-    if value.device != device:
-        value = value.to(device, non_blocking=non_blocking)
-    return value
+    """Utility to create a constant tensor."""
+    if isinstance(value, float):
+        tensor = torch.full(shape, value, dtype=dtype, device=device)
+    else:
+        tensor = torch.full(shape, value, dtype=dtype, device=device)
+    return tensor

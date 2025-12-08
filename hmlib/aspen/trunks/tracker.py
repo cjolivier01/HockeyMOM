@@ -10,7 +10,6 @@ from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
 
 from .base import Trunk
 
-
 logger = logging.getLogger(__name__)
 
 class TrackerTrunk(Trunk):
@@ -171,6 +170,11 @@ class TrackerTrunk(Trunk):
             det_labels = det_instances.labels
             det_scores = det_instances.scores
             # det_src_pose_idx = getattr(det_instances, "source_pose_index", None)
+
+            # if len(det_bboxes) == 0:
+            #     print("WARNING: No detections for frame", frame_index + frame_id0)
+            # else:
+            #     print(f"Frame {frame_index + frame_id0}: {len(det_bboxes)} detections")
 
             # Post-detection pruning is handled by a dedicated trunk upstream
 

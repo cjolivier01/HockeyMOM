@@ -223,7 +223,7 @@ class CamTrackPostProcessor:
         self._async_video_out = async_video_out
         self._video_out_cache_size = video_out_cache_size
         self._video_out_pipeline = video_out_pipeline
-        self._queue = create_queue(mp=False)
+        self._queue = create_queue(mp=False, name="CamPostProcess-Queue")
         self._data_type = data_type
         self._fps = fps
         self._thread = None
