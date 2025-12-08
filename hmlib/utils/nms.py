@@ -23,18 +23,15 @@ def get_trt_logger(trt_module):
     if _TRT_LOGGER is not None:
         return _TRT_LOGGER
 
-    # Prefer the existing global TensorRT logger if available. This avoids
-    # triggering warnings about mismatched loggers when other code has
-    # already created a Builder/Runtime with its own Logger instance.
+    # Use a dedicated logger with elevated severity so that noisy TensorRT
+    # warnings (e.g., BatchedNMSPlugin deprecation messages) do not spam
+    # the console during inference. Errors are still reported.
     try:
-        get_logger = getattr(trt_module, "get_logger", None)
+        _TRT_LOGGER = trt_module.Logger(trt_module.Logger.ERROR)
     except Exception:
-        get_logger = None
-
-    if callable(get_logger):
-        _TRT_LOGGER = get_logger()
-    else:
-        _TRT_LOGGER = trt_module.Logger(trt_module.Logger.WARNING)
+        # Fallback to default WARNING severity if the constructor signature
+        # differs on older TensorRT versions.
+        _TRT_LOGGER = trt_module.Logger()
 
     # Best-effort plugin initialization; non-fatal if this fails or if
     # plugins were already initialized elsewhere.
@@ -61,7 +58,7 @@ class TrtNmsConfig:
     clip_boxes: bool = False
     score_bits: int = 16
     caffe_semantics: bool = True
-    plugin: str = "batched"
+    plugin: str = "efficient"
 
 
 class TrtBatchedNMS:
@@ -77,14 +74,11 @@ class TrtBatchedNMS:
         self.cfg = cfg
         self._engine = None
         self._context = None
+        # Optional external stream; when None, the caller's current stream is
+        # used for execution so that no explicit cross-stream waits are needed.
         self._stream: Optional[torch.cuda.Stream] = stream
         self._trt = None
         self._np = None
-        if self._stream is not None:
-            assert (
-                self._stream.cuda_stream
-                != torch.cuda.default_stream(device=self._stream.device).cuda_stream
-            ), "TrtBatchedNMS stream must not be the default stream"
 
     @staticmethod
     def from_bbox_head(
@@ -135,7 +129,8 @@ class TrtBatchedNMS:
         # Use full max_num_boxes inside the plugin, and apply max_per_img
         # explicitly after TensorRT NMS for closer parity with mmcv.batched_nms.
         top_k = max_num_boxes
-        keep_top_k = max_num_boxes
+        # Prefer enforcing max_per_img inside the plugin when available.
+        keep_top_k = max_per_img if max_per_img > 0 else max_num_boxes
 
         cfg = TrtNmsConfig(
             num_classes=num_classes,
@@ -191,7 +186,9 @@ class TrtBatchedNMS:
         N = int(self.cfg.max_num_boxes)
         C = int(self.cfg.num_classes)
 
-        plugin_kind = getattr(self.cfg, "plugin", "batched").lower()
+        # Prefer EfficientNMS_TRT when available; fall back to BatchedNMS
+        # for older TensorRT builds where EfficientNMS is missing.
+        plugin_kind = getattr(self.cfg, "plugin", "efficient").lower()
         registry = trt.get_plugin_registry()
 
         if plugin_kind == "efficient":
@@ -210,33 +207,37 @@ class TrtBatchedNMS:
 
             creator = registry.get_plugin_creator("EfficientNMS_TRT", "1", "")
             if creator is None:
-                raise RuntimeError("EfficientNMS_TRT plugin not found in TensorRT registry")
+                # Fall back to BatchedNMSDynamic_TRT on older TensorRT builds.
+                plugin_kind = "batched"
+            else:
+                fields = []
 
-            fields = []
+                def add_field(name: str, value, ftype):
+                    arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
+                    fields.append(trt.PluginField(name, arr, ftype))
 
-            def add_field(name: str, value, ftype):
-                arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
-                fields.append(trt.PluginField(name, arr, ftype))
+                # EfficientNMS parameters
+                add_field(
+                    "score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32
+                )
+                add_field(
+                    "iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32
+                )
+                add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
+                add_field(
+                    "background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32
+                )
+                # 0 = no activation (scores already in [0,1]), 1 = sigmoid
+                add_field("score_activation", 0, trt.PluginFieldType.INT32)
+                # 0 = per-class NMS, 1 = class-agnostic
+                add_field("class_agnostic", 0, trt.PluginFieldType.INT32)
+                # 0 = boxes in [x1, y1, x2, y2], 1 = [x, y, w, h]
+                add_field("box_coding", 0, trt.PluginFieldType.INT32)
 
-            # EfficientNMS parameters
-            add_field(
-                "score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32
-            )
-            add_field("iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
-            add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
-            add_field(
-                "background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32
-            )
-            # 0 = no activation (scores already in [0,1]), 1 = sigmoid
-            add_field("score_activation", 0, trt.PluginFieldType.INT32)
-            # 0 = per-class NMS, 1 = class-agnostic
-            add_field("class_agnostic", 0, trt.PluginFieldType.INT32)
-            # 0 = boxes in [x1, y1, x2, y2], 1 = [x, y, w, h]
-            add_field("box_coding", 0, trt.PluginFieldType.INT32)
+                plugin = creator.create_plugin("efficient_nms", trt.PluginFieldCollection(fields))
+                layer = network.add_plugin_v2([boxes, scores], plugin)
 
-            plugin = creator.create_plugin("efficient_nms", trt.PluginFieldCollection(fields))
-            layer = network.add_plugin_v2([boxes, scores], plugin)
-        else:
+        if plugin_kind != "efficient":
             # Legacy BatchedNMSDynamic_TRT plugin.
             boxes = network.add_input(
                 name="boxes",
@@ -322,14 +323,10 @@ class TrtBatchedNMS:
 
         self._engine = engine
         self._context = context
-        if self._stream is None:
-            self._stream = torch.cuda.Stream(device=device)
 
     def _ensure_engine(self, device: torch.device) -> None:
-        if self._engine is None or self._context is None or self._stream is None:
+        if self._engine is None or self._context is None:
             self._build_engine(device)
-        elif self._stream.device != device:
-            self._stream = torch.cuda.Stream(device=device)
 
     def _infer(self, boxes: torch.Tensor, scores: torch.Tensor):
         assert boxes.is_cuda and scores.is_cuda
@@ -347,7 +344,7 @@ class TrtBatchedNMS:
         N = self.cfg.max_num_boxes
         C = self.cfg.num_classes
         K = self.cfg.keep_top_k
-        plugin_kind = getattr(self.cfg, "plugin", "batched").lower()
+        plugin_kind = getattr(self.cfg, "plugin", "efficient").lower()
 
         num_boxes = int(boxes.shape[0])
         if num_boxes > N:
@@ -380,20 +377,12 @@ class TrtBatchedNMS:
         context.set_tensor_address("nmsed_scores", out_scores.data_ptr())
         context.set_tensor_address("nmsed_classes", out_classes.data_ptr())
 
-        assert self._stream is not None
-        trt_stream = self._stream
-        # Needs to be the same stream or else we need to do some wait shenanigans, but why bother?
-        current_stream = torch.cuda.current_stream(out_boxes.device)
-        if current_stream.cuda_stream != trt_stream.cuda_stream:
-            trt_stream.wait_stream(current_stream)
-        ok = context.execute_async_v3(trt_stream.cuda_stream)
+        # Execute on the caller's current stream so that the entire NMS path
+        # stays on a single CUDA stream with no host-side synchronization.
+        current_stream = torch.cuda.current_stream(device)
+        ok = context.execute_async_v3(current_stream.cuda_stream)
         if not ok:
             raise RuntimeError("TensorRT NMS execution failed")
-
-        # Ensure results are visible on the caller's current stream without
-        # forcing a device-wide synchronize.
-        if current_stream.cuda_stream != trt_stream.cuda_stream:
-            current_stream.wait_stream(trt_stream)
 
         return num_det, out_boxes, out_scores, out_classes
 
@@ -432,47 +421,12 @@ class TrtBatchedNMS:
             bboxes.to(torch.float32), scores_full
         )
 
-        # num_det has shape [B, 1]; clamp to valid range.
-        try:
-            # TODO(colivier): this causes a sync, so needs to go
-            raw_valid = int(num_det[0, 0])
-        except Exception:
-            raw_valid = out_scores.shape[1]
-        raw_valid = max(0, min(raw_valid, out_scores.shape[1]))
-
-        # Slice to the number of valid detections reported by the plugin.
-        boxes = out_boxes[0][:raw_valid]
-        scores_vec = out_scores[0][:raw_valid]
-        labels_vec = out_classes[0][:raw_valid].to(torch.long)
-
-        # Apply the same max_per_img cap as the original head.
-        max_per = int(self.cfg.max_per_img or 0)
-        if max_per > 0 and boxes.shape[0] > max_per:
-            top_scores, top_idx = scores_vec.topk(max_per)
-            boxes = boxes[top_idx]
-            labels_vec = labels_vec[top_idx]
-            scores_vec = top_scores
-
-        num_valid = boxes.shape[0]
-
-        # Optionally pad back to a static shape for downstream consumers,
-        # mirroring the head's static_detections behavior.
-        if self.cfg.max_num_boxes > 0:
-            pad_to = int(self.cfg.max_num_boxes)
-            padded_bboxes = new_zeros(boxes, (pad_to, 4))
-            padded_scores = new_full(scores_vec, (pad_to,), float("-inf"))
-            padded_labels = new_full(labels_vec, (pad_to,), -1)
-            if num_valid > 0:
-                padded_bboxes[:num_valid] = boxes
-                padded_scores[:num_valid] = scores_vec
-                padded_labels[:num_valid] = labels_vec
-            boxes_out = padded_bboxes
-            scores_out = padded_scores
-            labels_out = padded_labels
-        else:
-            boxes_out = boxes
-            scores_out = scores_vec
-            labels_out = labels_vec
+        # Use plugin outputs directly; all tensors are already on the correct
+        # CUDA stream. Filtering to the top-k per image is handled via the
+        # plugin's keepTopK/max_output_boxes configuration.
+        boxes_out = out_boxes[0]
+        scores_out = out_scores[0]
+        labels_out = out_classes[0].to(torch.long)
 
         new_inst = InstanceData()
         new_inst.bboxes = boxes_out
@@ -480,13 +434,13 @@ class TrtBatchedNMS:
         new_inst.labels = labels_out
 
         # Propagate static padding metadata so _strip_static_padding can
-        # trim back to num_valid on the GPU.
+        # trim back to num_valid on the GPU. Keep num_valid on device to
+        # avoid a host-side sync here.
+        num_valid_tensor = num_det.view(-1)[0].to(device=device, dtype=torch.int32)
         try:
             new_inst.set_metainfo(
                 dict(
-                    num_valid_after_nms=make_const_tensor(
-                        num_valid, device=device, dtype=torch.int32
-                    ),
+                    num_valid_after_nms=num_valid_tensor,
                     max_detections=int(self.cfg.max_num_boxes),
                     num_valid_before_nms=int(num_boxes),
                 )
@@ -503,7 +457,7 @@ class DetectorNMS:
     """Unified NMS dispatcher for detector outputs.
 
     Handles multiple backends:
-      - 'trt': TensorRT BatchedNMSDynamic_TRT plugin via TrtBatchedNMS
+      - 'trt': TensorRT NMS plugin (EfficientNMS_TRT by default) via TrtBatchedNMS
       - 'torchvision': torchvision.ops.nms per class
       - 'head': reuse the detection head's own _bbox_post_process NMS
 
@@ -517,12 +471,12 @@ class DetectorNMS:
         bbox_head: torch.nn.Module,
         backend: str = "trt",
         compare_backends: Optional[Sequence[str]] = None,
-        trt_plugin: str = "batched",
+        trt_plugin: str = "efficient",
     ) -> None:
         self.bbox_head = bbox_head
         self.backend: str = str(backend or "trt").lower()
         self.compare_backends: List[str] = [b.lower() for b in (compare_backends or [])]
-        self.trt_plugin: str = str(trt_plugin or "batched").lower()
+        self.trt_plugin: str = str(trt_plugin or "efficient").lower()
         self._trt_nms: Optional[TrtBatchedNMS] = None
 
     def _ensure_trt(self, max_num_boxes: int, stream: Optional[torch.cuda.Stream]) -> None:
@@ -533,6 +487,7 @@ class DetectorNMS:
                 stream=stream,
                 plugin=self.trt_plugin,
             )
+            assert self._trt_nms is not None
         # else:
         #     # If we ever see a larger pre-NMS set, rebuild with the larger
         #     # capacity to avoid truncation.

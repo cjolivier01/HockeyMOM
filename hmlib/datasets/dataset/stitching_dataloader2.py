@@ -629,7 +629,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                             for img1, img2 in zip(imgs_1, imgs_2):
                                 t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
                                 t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
-                                torch.cuda.current_stream(t1.device).synchronize()
                                 show_image(
                                     "img-1",
                                     make_visible_image(t1.clone()),
@@ -1036,8 +1035,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         # show_image("stitched_frame", stitched_frame.get(), wait=False)
         # for img in stitched_frame:
         #     show_cuda_tensor("stitched_frame", make_channels_last(img), wait=False)
-
-        torch.cuda.synchronize()
 
         if self._capture_rgb_stats:
             return stitched_frame, rgb_stats

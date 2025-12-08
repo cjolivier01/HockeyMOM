@@ -416,10 +416,10 @@ class hm_opts(object):
             "--detector-trt-nms-plugin",
             dest="detector_trt_nms_plugin",
             type=str,
-            default="batched",
+            default="efficient",
             choices=["batched", "efficient"],
             help="TensorRT NMS plugin to use for detector path when backend is 'trt': "
-            "'batched' (BatchedNMSDynamic_TRT, default) or 'efficient' (EfficientNMS_TRT).",
+            "'efficient' (EfficientNMS_TRT, default) or 'batched' (BatchedNMSDynamic_TRT).",
         )
         #
         # TensorRT options (Pose)
@@ -707,11 +707,11 @@ class hm_opts(object):
         parser.add_argument(
             "--video-encoder-backend",
             dest="video_encoder_backend",
-            choices=["auto", "pyav", "ffmpeg"],
+            choices=["auto", "pyav", "ffmpeg", "raw"],
             default=None,
             help=(
                 "Backend for PyNvVideoEncoder when using NVENC writers. "
-                "Values: auto (use baseline.yaml / auto-detect), pyav, ffmpeg. "
+                "Values: auto (use baseline.yaml / auto-detect), pyav, ffmpeg, raw. "
                 "When provided, this overrides aspen.video_out.encoder_backend from baseline.yaml."
             ),
         )

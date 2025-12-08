@@ -1,4 +1,4 @@
-"""Execution engine for Aspen trunk graphs.
+"""Execution engine for Aspen plugin graphs.
 
 Constructs a directed acyclic graph of plugins, then runs them in
 topological order while sharing a mutable context dictionary.
@@ -44,7 +44,7 @@ class AspenNet(torch.nn.Module):
     - Executes nodes in topological order, passing and accumulating a
       shared context dict across nodes.
 
-    @see @ref hmlib.aspen.plugins.base.Plugin "Plugin" for the trunk interface.
+    @see @ref hmlib.aspen.plugins.base.Plugin "Plugin" for the plugin interface.
     """
 
     def __init__(
@@ -154,7 +154,7 @@ class AspenNet(torch.nn.Module):
     def _build_nodes(self, plugins: Dict[str, Any]):
         for name, spec in plugins.items():
             if spec is None:
-                raise ValueError(f"Empty spec for trunk '{name}'")
+                raise ValueError(f"Empty spec for plugin '{name}'")
             cls_path = spec.get("class")
             if not cls_path:
                 raise ValueError(f"Plugin '{name}' missing 'class'")
@@ -367,12 +367,12 @@ class AspenNet(torch.nn.Module):
                 try:
                     finalize_fn()
                 except Exception:
-                    logger.exception("Aspen trunk %s finalize failed", node.name)
+                    logger.exception("Aspen plugin %s finalize failed", node.name)
 
     # endregion
 
     def _maybe_reraise_thread_error(self) -> None:
-        """Raise any exception captured from threaded trunk workers."""
+        """Raise any exception captured from threaded plugin workers."""
         err = self._thread_error
         if err is None:
             return
@@ -383,21 +383,21 @@ class AspenNet(torch.nn.Module):
         raise err
 
     def _execute_node(self, node: _Node, context: Dict[str, Any]) -> None:
-        trunk = node.module
-        subctx = self._make_subcontext(trunk, context) if self.minimal_context else context
-        name = f"aspen.trunk.{node.name}"
+        plugin = node.module
+        subctx = self._make_subcontext(plugin, context) if self.minimal_context else context
+        name = f"aspen.plugin.{node.name}"
         if self._verbose:
-            print(f"AspenNet: Executing trunk '{node.name}' with class '{node.cls_path}'")
-        if isinstance(trunk, Plugin):
-            prof_ctx = trunk.profile_scope(name)
+            print(f"AspenNet: Executing plugin '{node.name}' with class '{node.cls_path}'")
+        if isinstance(plugin, Plugin):
+            prof_ctx = plugin.profile_scope(name)
         elif getattr(self._profiler, "enabled", False):
             prof_ctx = self._profiler.rf(name)
         else:
             prof_ctx = contextlib.nullcontext()
         with prof_ctx:
-            out = trunk(subctx) or {}
+            out = plugin(subctx) or {}
 
-        declared = set(getattr(trunk, "output_keys", lambda: set())())
+        declared = set(getattr(plugin, "output_keys", lambda: set())())
         returned_keys = set(out.keys())
 
         if declared:
@@ -408,7 +408,7 @@ class AspenNet(torch.nn.Module):
                 extra_keys = returned_keys - declared
                 if extra_keys:
                     raise ValueError(
-                        f"AspenNet trunk '{node.name}' ({node.cls_path}) returned keys "
+                        f"AspenNet plugin '{node.name}' ({node.cls_path}) returned keys "
                         f"{sorted(extra_keys)} not declared in output_keys(). "
                         f"Declared keys: {sorted(declared)}"
                     )
@@ -430,8 +430,8 @@ class AspenNet(torch.nn.Module):
 
         context["plugins"][node.name] = {k: out[k] for k in out.keys()}
 
-    def _make_subcontext(self, trunk: torch.nn.Module, context: Dict[str, Any]) -> Dict[str, Any]:
-        req_keys = set(getattr(trunk, "input_keys", lambda: set())())
+    def _make_subcontext(self, plugin: torch.nn.Module, context: Dict[str, Any]) -> Dict[str, Any]:
+        req_keys = set(getattr(plugin, "input_keys", lambda: set())())
         if not req_keys:
             subctx: Dict[str, Any] = {}
         else:
@@ -497,7 +497,7 @@ class AspenNet(torch.nn.Module):
                                     self.num_concurrent -= 1
                             break
                 finally:
-                    print(f"AspenNet: Thread for trunk '{node.name}' exiting.")
+                    print(f"AspenNet: Thread for plugin '{node.name}' exiting.")
 
             self.queues: List[Queue] = [
                 create_queue(

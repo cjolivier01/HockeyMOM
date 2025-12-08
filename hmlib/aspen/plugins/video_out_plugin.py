@@ -115,6 +115,8 @@ class VideoOutPlugin(Plugin):
             os.environ["HM_VIDEO_ENCODER_BACKEND"] = "pyav"
         elif backend == "ffmpeg":
             os.environ["HM_VIDEO_ENCODER_BACKEND"] = "ffmpeg"
+        elif backend == "raw":
+            os.environ["HM_VIDEO_ENCODER_BACKEND"] = "raw"
         elif backend == "auto":
             # Defer to library defaults / auto-detect; clear explicit override.
             os.environ.pop("HM_VIDEO_ENCODER_BACKEND", None)
