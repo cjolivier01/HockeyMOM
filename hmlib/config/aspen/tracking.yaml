@@ -88,16 +88,16 @@ aspen:
 
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
       depends: []
       params: {}
 
     model_factory:
-      class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+      class: hmlib.aspen.plugins.model_factory_plugin.ModelFactoryPlugin
       depends: []
       enabled: true
       params:
-        model_class: hmlib.models.end_to_end.HmEndToEnd
+        model_class: hmlib.models.end_to_end_plugin.HmEndToEnd
         # Pure YAML detector definition (converted from mmengine config)
         # No detector/tracker coupling here; post_* pipelines not used for rink mask
         post_tracking_pipeline:
@@ -106,7 +106,7 @@ aspen:
             enabled: false
 
     detector_factory:
-      class: hmlib.aspen.trunks.detector_factory.DetectorFactoryTrunk
+      class: hmlib.aspen.plugins.detector_factory_plugin.DetectorFactoryPlugin
       depends: []
       enabled: true
       params:
@@ -118,37 +118,39 @@ aspen:
           use_det_processor: true
 
     boundaries:
-      class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+      class: hmlib.aspen.plugins.boundaries_plugin.BoundariesPlugin
       depends: [model_factory]
-      params: {}
+      params:
+        plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     detector:
-      class: hmlib.aspen.trunks.detector.DetectorInferenceTrunk
+      class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
       depends: [image_prep, detector_factory]
       params: {}
 
     save_detections:
-      class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+      class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [detector]
       enabled: false
       params: {}
 
     ice_config:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmConfigPlugin
       depends: [image_prep]
       params: {}
 
     ice_boundaries:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
       depends: [detector, ice_config]
       params:
         enabled: true
         # Optional cap on detections that survive the rink mask.
         # If set, only the top-K scores inside the mask are kept.
         max_detections_in_mask: 50
+        plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     tracker:
-      class: hmlib.aspen.trunks.tracker.TrackerTrunk
+      class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
       depends: [detector, ice_boundaries, model_factory, boundaries]
       # params:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
@@ -159,15 +161,22 @@ aspen:
         #   max_tracks: 100
 
     save_tracking:
-      class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+      class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [tracker]
+      enabled: false
+      params: {}
+
+    # Optional camera dataframe load/save for camera.csv
+    load_camera:
+      class: hmlib.aspen.plugins.load_plugins.LoadCameraPlugin
+      depends: []
       enabled: false
       params: {}
 
     # Optional camera controller (rule-based by default). Enable transformer by
     # setting controller: transformer and model_path to your checkpoint.
     camera_controller:
-      class: hmlib.aspen.trunks.camera_controller.CameraControllerTrunk
+      class: hmlib.aspen.plugins.camera_controller_plugin.CameraControllerPlugin
       depends: [tracker]
       params:
         controller: rule
@@ -175,6 +184,43 @@ aspen:
         window: 8
 
     postprocess:
-      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
       depends: [tracker, camera_controller, ice_config]
+      enabled: true
+      params: {}
+
+    play_tracker:
+      class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
+      # Does this really need postprocess?
+      depends: [tracker, camera_controller, postprocess]
+      enabled: true
+      params:
+        debug_play_tracker: GLOBAL.plot.debug_play_tracker
+        plot_moving_boxes: GLOBAL.plot.plot_moving_boxes
+        plot_individual_player_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_boundaries: GLOBAL.plot.plot_boundaries
+        plot_all_detections: GLOBAL.plot.plot_all_detections
+        plot_trajectories: GLOBAL.plot.plot_trajectories
+        plot_speed: GLOBAL.plot.plot_speed
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_actions: GLOBAL.plot.plot_actions
+
+    save_camera:
+      class: hmlib.aspen.plugins.save_plugins.SaveCameraPlugin
+      depends: [play_tracker]
+      enabled: false
+      params: {}
+
+    apply_camera:
+      class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
+      depends: [play_tracker]
+      enabled: true
+      params: {
+        video_out_pipeline: GLOBAL.aspen.video_out_pipeline
+      }
+
+    video_out:
+      class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
+      depends: [apply_camera]
+      enabled: true
       params: {}

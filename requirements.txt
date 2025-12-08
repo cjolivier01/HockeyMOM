@@ -1,7 +1,7 @@
 cython
+typeguard
 terminaltables
 seaborn
-xtcocotools
 rich
 screeninfo
 yacs
@@ -35,7 +35,6 @@ thop
 pycocotools
 sympy
 python-ipmi
-numba
 ffmpegio
 pyquaternion
 ./external/fast_pytorch_kmeans

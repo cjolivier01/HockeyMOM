@@ -22,13 +22,20 @@ selects.config_setting_group(
 )
 
 
-# Use a genrule to rename _hockeymom.so to include the SOABI.
 genrule(
   name = "hockeymom_ext",
   srcs = ["//hockeymom/src:_hockeymom.so"],
-  outs = [ "_hockeymom.%s.so" % SOABI ],
+  outs = ["_hockeymom.%s.so" % SOABI],
   cmd = "cp $(location //hockeymom/src:_hockeymom.so) $@",
   visibility = ["//visibility:public"],
+)
+
+py_binary(
+    name = "link_ext",
+    srcs = ["scripts/link_ext.py"],
+    data = [":hockeymom_ext"],
+    args = [SOABI],
+    tags = ["manual"],
 )
 
 py_wheel(

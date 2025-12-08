@@ -12,14 +12,16 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
-from queue import Queue
 from typing import Any, Dict, Iterable, List, Optional
 
 import networkx as nx
 import torch
 
-from hmlib.aspen.trunks.base import Trunk
+from hmlib.aspen.plugins.base import Plugin
+from hmlib.utils.containers import SidebandQueue as Queue
+from hmlib.utils.containers import create_queue
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class _Node:
     depends: List[str]
     params: Dict[str, Any]
     module: torch.nn.Module
+    stream: torch.cuda.Stream = None  # type: ignore[assignment]
 
 
 class AspenNet(torch.nn.Module):
@@ -41,7 +44,7 @@ class AspenNet(torch.nn.Module):
     - Executes nodes in topological order, passing and accumulating a
       shared context dict across nodes.
 
-    @see @ref hmlib.aspen.trunks.base.Trunk "Trunk" for the trunk interface.
+    @see @ref hmlib.aspen.plugins.base.Plugin "Plugin" for the trunk interface.
     """
 
     def __init__(
@@ -50,14 +53,19 @@ class AspenNet(torch.nn.Module):
         graph_cfg: Dict[str, Any],
         shared: Optional[Dict[str, Any]] = None,
         minimal_context: bool = False,
+        max_concurrent: int = 3,
+        verbose: bool = False,
     ):
         super().__init__()
         self.name: str = self._normalize_name(name)
         self._safe_name: str = self._sanitize_name(self.name)
         self.dot_path: str = os.path.abspath(f"aspennet_{self._safe_name}.dot")
         self._last_dot_path: Optional[str] = None
+        self._verbose = verbose
         self.shared: Dict[str, Any] = shared or {}
         self.nodes: List[_Node] = []
+        self.max_concurrent: int = max_concurrent
+        self.num_concurrent: int = 0
         # NetworkX DiGraph storing the trunks graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
         self.minimal_context = bool(
@@ -97,6 +105,13 @@ class AspenNet(torch.nn.Module):
         self.training: bool = False
         self._iter_num: int = 0
         self.save_graphviz(self.dot_path)
+        self.initialized = False
+
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        for node in self.nodes:
+            node.module.to(*args, **kwargs)
+        return self
 
     @staticmethod
     def _normalize_name(name: str) -> str:
@@ -132,16 +147,16 @@ class AspenNet(torch.nn.Module):
                 raise ValueError(f"Empty spec for trunk '{name}'")
             cls_path = spec.get("class")
             if not cls_path:
-                raise ValueError(f"Trunk '{name}' missing 'class'")
+                raise ValueError(f"Plugin '{name}' missing 'class'")
             depends = list(spec.get("depends", []) or [])
             params = spec.get("params", {}) or {}
             enabled = spec.get("enabled", True)
             if not enabled:
                 # Create a no-op stub to keep graph shape predictable
-                module = _NoOpTrunk(name=name)
+                module = _NoOpPlugin(name=name)
             else:
                 module = self._instantiate(cls_path, params)
-            if isinstance(module, Trunk):
+            if isinstance(module, Plugin):
                 module.set_profiler(self._profiler)
             node = _Node(
                 name=name, cls_path=cls_path, depends=depends, params=params, module=module
@@ -315,7 +330,7 @@ class AspenNet(torch.nn.Module):
                 font_size=8,
                 arrows=True,
             )
-            plt.title("AspenNet Trunks Graph")
+            plt.title("AspenNet Plugins Graph")
             plt.show()
             return
         except Exception as e:
@@ -349,7 +364,9 @@ class AspenNet(torch.nn.Module):
         trunk = node.module
         subctx = self._make_subcontext(trunk, context) if self.minimal_context else context
         name = f"aspen.trunk.{node.name}"
-        if isinstance(trunk, Trunk):
+        if self._verbose:
+            print(f"AspenNet: Executing trunk '{node.name}' with class '{node.cls_path}'")
+        if isinstance(trunk, Plugin):
             prof_ctx = trunk.profile_scope(name)
         elif getattr(self._profiler, "enabled", False):
             prof_ctx = self._profiler.rf(name)
@@ -361,7 +378,7 @@ class AspenNet(torch.nn.Module):
         declared = set(getattr(trunk, "output_keys", lambda: set())())
         update_keys = declared if declared else set(out.keys())
 
-        from .trunks.base import DeleteKey  # local import avoids cycle
+        from .plugins.base import DeleteKey  # local import avoids cycle
 
         for key in update_keys:
             if key in out:
@@ -387,77 +404,121 @@ class AspenNet(torch.nn.Module):
         return subctx
 
     def _forward_threaded(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        stop_token = object()
+        if not self.initialized:
+            self.initialized = True
+            stop_token = object()
 
-        class _ExceptionWrapper:
-            __slots__ = ("exc", "tb")
+            class _ExceptionWrapper:
+                __slots__ = ("exc", "tb")
 
-            def __init__(self, exc: BaseException):
-                self.exc = exc
-                self.tb = exc.__traceback__
+                def __init__(self, exc: BaseException):
+                    self.exc = exc
+                    self.tb = exc.__traceback__
 
-            def reraise(self) -> None:
-                raise self.exc.with_traceback(self.tb)
+                def reraise(self) -> None:
+                    raise self.exc.with_traceback(self.tb)
 
-        def make_grad_ctx():
-            return torch.enable_grad() if self.training else torch.no_grad()
+            def make_grad_ctx():
+                return torch.enable_grad() if self.training else torch.no_grad()
 
-        def worker(index: int, node: _Node) -> None:
-            in_queue = queues[index]
-            out_queue = queues[index + 1]
-            while True:
-                item = in_queue.get()
-                if item is stop_token:
-                    out_queue.put(stop_token)
-                    break
-                if isinstance(item, _ExceptionWrapper):
-                    out_queue.put(item)
-                    break
-                grad_ctx = make_grad_ctx()
+            def worker(index: int, node: _Node) -> None:
+                in_queue = self.queues[index]
+                is_last = index == len(self.exec_order) - 1
+                out_queue = self.queues[index + 1]
                 try:
-                    with grad_ctx:
-                        self._execute_with_stream(node, item)
-                    out_queue.put(item)
-                except BaseException as exc:
-                    out_queue.put(_ExceptionWrapper(exc))
-                    break
+                    while True:
+                        item = in_queue.get()
+                        if is_last:
+                            pass
+                        if item is stop_token:
+                            out_queue.put(stop_token)
+                            break
+                        if isinstance(item, _ExceptionWrapper):
+                            out_queue.put(item)
+                            self.stop(wait=False)
+                            break
+                        grad_ctx = make_grad_ctx()
+                        try:
+                            with grad_ctx:
+                                self._execute_with_stream(node, item)
+                            if not is_last:
+                                out_queue.put(item)
+                            else:
+                                assert self.num_concurrent > 0
+                                self.num_concurrent -= 1
+                        except BaseException as exc:
+                            print(exc)
+                            out_queue.put(_ExceptionWrapper(exc))
+                            self.stop(wait=False)
+                            break
+                finally:
+                    print(f"AspenNet: Thread for trunk '{node.name}' exiting.")
 
-        queues: List[Queue] = [
-            Queue(maxsize=self.thread_queue_size) for _ in range(len(self.exec_order) + 1)
-        ]
-        threads = []
-        for idx, node in enumerate(self.exec_order):
-            thread = threading.Thread(target=worker, args=(idx, node), daemon=True, name=node.name)
-            thread.start()
-            threads.append(thread)
+            self.queues: List[Queue] = [
+                create_queue(
+                    mp=False,
+                    name=f"Aspen-{self.exec_order[i-1].name}",
+                    max_size=self.thread_queue_size,
+                )
+                for i in range(len(self.exec_order) + 1)
+            ]
+            self.threads = []
+            for idx, node in enumerate(self.exec_order):
+                thread = threading.Thread(
+                    target=worker, args=(idx, node), daemon=True, name=node.name
+                )
+                thread.start()
+                self.threads.append(thread)
 
-        queues[0].put(context)
-        result = queues[-1].get()
-        try:
-            if isinstance(result, _ExceptionWrapper):
-                result.reraise()
-            return result
-        finally:
-            if threads:
-                queues[0].put(stop_token)
-            for thread in threads:
+            # queues[0].put(context)
+            # result = queues[-1].get()
+            # try:
+            #     if isinstance(result, _ExceptionWrapper):
+            #         result.reraise()
+            #     return result
+            # finally:
+            #     if threads:
+            #         queues[0].put(stop_token)
+            #     for thread in threads:
+            #         thread.join()
+        while self.num_concurrent >= self.max_concurrent:
+            time.sleep(0.01)
+        self.queues[0].put(context)
+        self.num_concurrent += 1
+        return None
+
+    def stop(self, wait: bool = True) -> None:
+        """Stop all threaded trunks and join their threads."""
+        if not self.threaded_trunks or not hasattr(self, "queues"):
+            return
+        stop_token = object()
+        for _ in self.exec_order:
+            self.queues[0].put(stop_token)
+        for thread in self.threads:
+            if wait and thread.is_alive():
                 thread.join()
+        for q in self.queues:
+            q.close()
+        del self.queues
 
     def _execute_with_stream(self, node: _Node, context: Dict[str, Any]) -> None:
-        device = self._infer_device(context)
         use_cuda_stream = (
-            self.thread_cuda_streams and torch.cuda.is_available() and device is not None
+            self.thread_cuda_streams  # and torch.cuda.is_available() and device is not None
         )
         if use_cuda_stream:
-            stream = torch.cuda.Stream(device=device)
+            if node.stream is None:
+                device = self._infer_device(context)
+                node.stream = torch.cuda.Stream(
+                    device=device,
+                )
             # Ensure trunks that fetch context["cuda_stream"] see the stream actually running them.
             prev_stream = context.get("cuda_stream")
             has_prev_stream = "cuda_stream" in context
-            context["cuda_stream"] = stream
+            context["cuda_stream"] = node.stream
             try:
-                with torch.cuda.stream(stream):
+                with torch.cuda.stream(node.stream):
                     self._execute_node(node, context)
-                stream.synchronize()
+                # node.stream.synchronize()
             finally:
                 if has_prev_stream:
                     context["cuda_stream"] = prev_stream
@@ -502,7 +563,7 @@ class AspenNet(torch.nn.Module):
         return None
 
 
-class _NoOpTrunk(torch.nn.Module):
+class _NoOpPlugin(torch.nn.Module):
     def __init__(self, name: str):
         super().__init__()
         self._name = name

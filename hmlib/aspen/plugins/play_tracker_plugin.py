@@ -1,0 +1,263 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Optional, Set
+
+import torch
+
+from hmlib.bbox.box_functions import center, height, make_box_at_center, width
+from hmlib.builder import HM
+from hmlib.camera.camera import HockeyMOM
+from hmlib.camera.play_tracker import PlayTracker as _PlayTracker
+from hmlib.config import get_nested_value
+from hmlib.utils.image import image_height, image_width
+
+from .base import Plugin
+
+
+@HM.register_module()
+class PlayTrackerPlugin(Plugin):
+    """
+    Plugin wrapping the PlayTracker to compute per-frame camera boxes and
+    attach visualization images.
+
+    Expects context keys (minimal_context ready):
+      - data: dict with 'data_samples' and 'original_images'
+      - shared.game_config: full game config dict
+      - shared.original_clip_box: optional clip box
+      - shared.device: torch.device
+      - shared.cam_args: Namespace (optional; created if missing)
+      - arena: optional TLBR arena/play region tensor (from CamTrackPostProcessor)
+
+    Produces:
+      - img: image tensor batch after overlays (StreamCheckpoint)
+      - current_box: TLBR camera boxes per frame (tensor[B,4])
+      - frame_ids: tensor[B]
+      - player_bottom_points, player_ids, rink_profile (when available)
+      - play_box: current arena/play region tensor (TLBR)
+    """
+
+    def __init__(
+        self,
+        enabled: bool = True,
+        cam_ignore_largest: Optional[bool] = None,
+        no_wide_start: bool = False,
+        track_ids: Optional[str] = None,
+        debug_play_tracker: bool = False,
+        plot_moving_boxes: bool = False,
+        plot_individual_player_tracking: bool = False,
+        plot_boundaries: bool = False,
+        plot_all_detections: Optional[float] = None,
+        plot_trajectories: bool = False,
+        plot_speed: bool = False,
+        plot_jersey_numbers: bool = False,
+        plot_actions: bool = False,
+        camera_controller: Optional[str] = None,
+        camera_model: Optional[str] = None,
+        camera_window: Optional[int] = None,
+        force_stitching: bool = False,
+    ) -> None:
+        super().__init__(enabled=enabled)
+        self._hockey_mom: Optional[HockeyMOM] = None
+        self._play_tracker: Optional[_PlayTracker] = None
+        self._device: Optional[torch.device] = None
+        self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
+        self._clip_box: Optional[torch.Tensor] = None
+        self._cam_ignore_largest = cam_ignore_largest
+        self._no_wide_start = bool(no_wide_start)
+        self._track_ids = track_ids
+        self._debug_play_tracker = bool(debug_play_tracker)
+        self._plot_moving_boxes = bool(plot_moving_boxes)
+        self._plot_individual_player_tracking = bool(plot_individual_player_tracking)
+        self._plot_boundaries = bool(plot_boundaries)
+        self._plot_all_detections = plot_all_detections
+        self._plot_trajectories = bool(plot_trajectories)
+        self._plot_speed = bool(plot_speed)
+        self._plot_jersey_numbers = bool(plot_jersey_numbers)
+        self._plot_actions = bool(plot_actions)
+        self._camera_controller = camera_controller
+        self._camera_model = camera_model
+        self._camera_window = camera_window
+        self._force_stitching = bool(force_stitching)
+
+    # region helpers
+    @staticmethod
+    def _calc_seed_play_box(results: Dict[str, Any]) -> torch.Tensor:
+        # Use rink_profile combined bbox if present; scale a bit and clamp
+        track_container = results["data_samples"]
+        vds = track_container.video_data_samples[0]
+        prof = getattr(vds, "metainfo", {}).get("rink_profile", None)
+        image = results["original_images"]
+        if prof and "combined_bbox" in prof:
+            play_box = torch.tensor(prof["combined_bbox"], dtype=torch.int64, device=image.device)
+            ww, hh = width(play_box), height(play_box)
+            cc = center(play_box)
+            play_box = make_box_at_center(cc, ww * 1.3, hh * 1.3)
+        else:
+            # fallback to whole frame
+            play_box = torch.tensor(
+                [
+                    0,
+                    0,
+                    image_width(image),
+                    image_height(image),
+                ],
+                dtype=torch.int64,
+                device=image.device,
+            )
+        # Clamp to image bounds
+        zero = torch.zeros((), dtype=torch.int64, device=image.device)
+        play_box[0] = torch.max(zero, play_box[0].long())
+        play_box[1] = torch.max(zero, play_box[1].long())
+        play_box[2] = torch.min(
+            torch.tensor(image_width(image), dtype=torch.int64, device=image.device),
+            play_box[2].long(),
+        )
+        play_box[3] = torch.min(
+            torch.tensor(image_height(image), dtype=torch.int64, device=image.device),
+            play_box[3].long(),
+        )
+        return play_box
+
+    def _ensure_initialized(self, context: Dict[str, Any], results: Dict[str, Any]) -> None:
+        if self._play_tracker is not None:
+            return
+        shared = context.get("shared", {}) if isinstance(context, dict) else {}
+        game_cfg = shared.get("game_config") or {}
+        self._clip_box = shared.get("original_clip_box")
+        # Prefer provided device; fallback to image's device
+        dev = context.get("device")
+        if dev is None and isinstance(results.get("original_images"), torch.Tensor):
+            dev = results["original_images"].device
+        self._device = (
+            dev if isinstance(dev, torch.device) else torch.device(str(dev) if dev else "cuda")
+        )
+        # Determine video geometry and fps
+        ori = results["original_images"]
+        H = int(ori.shape[-2])
+        W = int(ori.shape[-1])
+        fps = None
+        try:
+            fps = float(context.get("data", {}).get("fps"))
+        except Exception:
+            fps = None
+        if fps is None:
+            fps = 30.0
+
+        cam_name = None
+        try:
+            cam_name = game_cfg.get("camera", {}).get("name")
+        except Exception:
+            pass
+
+        self._hockey_mom = HockeyMOM(
+            image_width=W,
+            image_height=H,
+            fps=fps,
+            device=self._device,
+            camera_name=cam_name,
+        )
+        # Prefer arena/play box provided by upstream CamTrackPostProcessor when available.
+        arena = context.get("arena")
+        if isinstance(arena, torch.Tensor):
+            seed_box = arena.to(device=self._device, dtype=torch.int64)
+        elif arena is not None:
+            seed_box = torch.as_tensor(arena, dtype=torch.int64, device=self._device)
+        else:
+            seed_box = self._calc_seed_play_box(results)
+        # Camera + plotting configuration
+        cam_ignore = (
+            self._cam_ignore_largest
+            if self._cam_ignore_largest is not None
+            else bool(get_nested_value(game_cfg, "rink.tracking.cam_ignore_largest", False))
+        )
+        controller = self._camera_controller or get_nested_value(
+            game_cfg, "rink.camera.controller", "rule"
+        )
+        cam_model = self._camera_model or get_nested_value(game_cfg, "rink.camera.camera_model", None)
+        cam_window = (
+            self._camera_window
+            if self._camera_window is not None
+            else int(get_nested_value(game_cfg, "rink.camera.camera_window", 8))
+        )
+
+        # Optional track id whitelist parsed here so tests/YAML can pass strings
+        track_ids: Optional[Set[int]] = None
+        if self._track_ids:
+            if isinstance(self._track_ids, str):
+                track_ids = {int(i) for i in self._track_ids.split(",") if i}
+            else:
+                try:
+                    track_ids = {int(i) for i in self._track_ids}  # type: ignore[arg-type]
+                except Exception:
+                    track_ids = None
+
+        self._play_tracker = _PlayTracker(
+            hockey_mom=self._hockey_mom,
+            play_box=seed_box,
+            device=self._device,
+            original_clip_box=self._clip_box,
+            progress_bar=None,
+            game_config=game_cfg,
+            game_id=shared.get("game_id"),
+            cam_ignore_largest=cam_ignore,
+            no_wide_start=self._no_wide_start,
+            track_ids=track_ids,
+            debug_play_tracker=self._debug_play_tracker,
+            plot_moving_boxes=self._plot_moving_boxes,
+            plot_individual_player_tracking=self._plot_individual_player_tracking,
+            plot_boundaries=self._plot_boundaries,
+            plot_all_detections=self._plot_all_detections,
+            plot_trajectories=self._plot_trajectories,
+            plot_speed=self._plot_speed,
+            plot_jersey_numbers=self._plot_jersey_numbers,
+            plot_actions=self._plot_actions,
+            camera_ui=int(context.get("shared", {}).get("camera_ui", 0)),
+            camera_controller=controller,
+            camera_model=cam_model,
+            camera_window=int(cam_window),
+            force_stitching=self._force_stitching,
+            stitch_rotation_controller=shared.get("stitch_rotation_controller"),
+            cluster_centroids=shared.get("cluster_centroids"),
+        )
+        self._play_tracker.eval()
+
+    # endregion
+
+    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
+        if not self.enabled:
+            return {}
+        data: Dict[str, Any] = context.get("data", {})
+        # Build results dictionary expected by PlayTracker
+        results: Dict[str, Any] = {
+            "data_samples": data.get("data_samples"),
+            "original_images": data.get("original_images"),
+        }
+        # Optional per-frame annotations propagated if present
+        for k in ("jersey_results", "action_results"):
+            if k in data:
+                results[k] = data[k]
+
+        self._ensure_initialized(context, results)
+        assert self._play_tracker is not None
+        with torch.no_grad():
+            out = self._play_tracker.forward(results=results)
+        # Surface current play_box for downstream video out sizing
+        try:
+            out["play_box"] = self._play_tracker.play_box
+        except Exception:
+            pass
+        return out
+
+    def input_keys(self):
+        return {"data", "device", "shared", "arena"}
+
+    def output_keys(self):
+        return {
+            "img",
+            "current_box",
+            "frame_ids",
+            "player_bottom_points",
+            "player_ids",
+            "rink_profile",
+            "play_box",
+        }

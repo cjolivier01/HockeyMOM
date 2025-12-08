@@ -35,25 +35,25 @@ aspen:
 
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
       depends: []
       params: {}
 
     model_factory:
-      class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+      class: hmlib.aspen.plugins.model_factory_plugin.ModelFactoryPlugin
       depends: []
       params:
-        model_class: hmlib.models.end_to_end.HmEndToEnd
+        model_class: hmlib.models.end_to_end_plugin.HmEndToEnd
         # post_* pipelines not used for rink mask
         post_tracking_pipeline: []
 
     boundaries:
-      class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+      class: hmlib.aspen.plugins.boundaries_plugin.BoundariesPlugin
       depends: [model_factory]
       params: {}
 
     pose_factory:
-      class: hmlib.aspen.trunks.pose_factory.PoseInferencerFactoryTrunk
+      class: hmlib.aspen.plugins.pose_factory_plugin.PoseInferencerFactoryPlugin
       depends: []
       params:
         pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
@@ -61,42 +61,43 @@ aspen:
         show_progress: false
 
     pose:
-      class: hmlib.aspen.trunks.pose.PoseTrunk
+      class: hmlib.aspen.plugins.pose_plugin.PosePlugin
       depends: [image_prep, pose_factory]
-      params: {}
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
 
     save_pose:
-      class: hmlib.aspen.trunks.save.SavePoseTrunk
+      class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
       depends: [pose]
       params: {}
 
     pose_to_det:
-      class: hmlib.aspen.trunks.pose_to_det.PoseToDetTrunk
+      class: hmlib.aspen.plugins.pose_to_det_plugin.PoseToDetPlugin
       depends: [pose]
       params: {}
 
     save_detections:
-      class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+      class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [pose_to_det]
       params: {}
 
     ice_config:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmConfigPlugin
       depends: [image_prep]
       params: {}
 
     ice_boundaries:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
       depends: [pose_to_det, ice_config]
       params: {}
 
     tracker:
-      class: hmlib.aspen.trunks.tracker.TrackerTrunk
+      class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
       depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
       params: {}
 
     jersey_numbers:
-      class: hmlib.aspen.trunks.jersey_koshkina.KoshkinaJerseyNumberTrunk
+      class: hmlib.aspen.plugins.jersey_koshkina_plugin.KoshkinaJerseyNumberPlugin
       depends: [tracker]
       params:
         # ROI selection: bbox (default), pose, or sam
@@ -135,11 +136,11 @@ aspen:
         rec_thresh: 0.8
 
     save_tracking:
-      class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+      class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [jersey_numbers, pose]
       params: {}
 
     postprocess:
-      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
       depends: [jersey_numbers]
       params: {}

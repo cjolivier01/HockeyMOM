@@ -224,24 +224,21 @@ def stitch_videos(
             nonlocal video_out
             if output_stitched_video_file and video_out is None:
                 video_out = VideoOutput(
-                    args=None,
                     output_video_path=output_stitched_video_file,
                     output_frame_width=image_width(frame),
                     output_frame_height=image_height(frame),
                     fps=data_loader.fps,
-                    video_out_pipeline=None,
-                    max_queue_backlog=cache_size,
-                    device=encoder_device,
                     simple_save=True,
                     skip_final_save=False,
                     original_clip_box=None,
                     progress_bar=progress_bar,
                     cache_size=cache_size,
-                    async_output=args.async_video_out,
                     no_cuda_streams=args.no_cuda_streams,
+                    device=encoder_device,
                 )
             if video_out is not None:
-                video_out.append(dict(frame_ids=frame_ids, img=StreamCheckpoint(frame)))
+                # VideoOutput is a nn.Module; calling it writes frames synchronously.
+                video_out(dict(frame_ids=frame_ids, img=StreamCheckpoint(frame)))
 
         try:
             start = None

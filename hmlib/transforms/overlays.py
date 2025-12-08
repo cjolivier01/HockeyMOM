@@ -33,7 +33,7 @@ def paste_watermark_at_position(dest_image, watermark_rgb_channels, watermark_ma
 
 
 @TRANSFORMS.register_module()
-class HmImageOverlays:
+class HmImageOverlays(torch.nn.Module):
     def __init__(
         self,
         frame_number: bool = False,
@@ -46,6 +46,7 @@ class HmImageOverlays:
         overhead_min_height_px: int = 120,
         overhead_max_height_ratio: float = 0.25,
     ):
+        super().__init__()
         self._draw_frame_number = frame_number
         self._draw_frame_time = frame_time
         self._watermark_config = watermark_config
@@ -80,25 +81,28 @@ class HmImageOverlays:
                 raise ValueError(f"Could not load watermark image: {self._watermark_image}")
             self._watermark_height = image_height(self._watermark)
             self._watermark_width = image_width(self._watermark)
-            self._watermark_rgb_channels = self._watermark[:, :, :3]
+            watermark_rgb_channels = self._watermark[:, :, :3]
             watermark_alpha_channel = self._watermark[:, :, 3]
-            self._watermark_mask = cv2.merge(
+            watermark_mask = cv2.merge(
                 [
                     watermark_alpha_channel,
                     watermark_alpha_channel,
                     watermark_alpha_channel,
                 ]
             )
-
-            if self._device is not None:
-                self._watermark_rgb_channels = torch.from_numpy(self._watermark_rgb_channels).to(
-                    self._device
-                )
-                self._watermark_mask = (
-                    torch.from_numpy(self._watermark_mask).to(self._device).to(torch.half)
-                )
-                # Scale mask to [0, 1]
-                self._watermark_mask = self._watermark_mask / torch.max(self._watermark_mask)
+            # Scale mask to [0, 1]
+            mask_dtype = watermark_mask.dtype
+            watermark_mask = (watermark_mask / np.max(watermark_mask)).astype(mask_dtype)
+            self.register_buffer(
+                "_watermark_rgb_channels",
+                torch.from_numpy(watermark_rgb_channels),
+                persistent=False,
+            )
+            self.register_buffer(
+                "_watermark_mask",
+                torch.from_numpy(watermark_mask),
+                persistent=False,
+            )
         else:
             self._watermark = None
 
@@ -115,6 +119,7 @@ class HmImageOverlays:
             )
         return img
 
+    @torch.no_grad()
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if self._watermark is not None:
             results["img"] = self._draw_watermark(results["img"])

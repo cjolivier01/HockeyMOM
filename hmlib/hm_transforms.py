@@ -8,6 +8,7 @@ import math
 import numbers
 import time
 import warnings
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
@@ -53,6 +54,42 @@ cv2_border_modes = {
     "transparent": cv2.BORDER_TRANSPARENT,
     "isolated": cv2.BORDER_ISOLATED,
 }
+
+
+def _get_results_profiler(results: Any) -> Optional[Any]:
+    """Extract a profiler instance from a results dict if present."""
+    if not isinstance(results, dict):
+        return None
+    profiler = results.get("profiler") or results.get("_profiler")
+    if profiler is None:
+        data_samples = results.get("data_samples")
+        profiler = getattr(data_samples, "profiler", None)
+    return profiler
+
+
+def _transform_profile_scope(results: Any, name: str):
+    """Return a torch profiling context manager for a transform call."""
+    label = f"transform.{name}"
+    profiler = _get_results_profiler(results)
+    if profiler is not None:
+        try:
+            if getattr(profiler, "enabled", True):
+                return profiler.rf(label)
+        except Exception:
+            # Fall through to torch.autograd profiler path
+            pass
+
+    enabled_flag = getattr(torch.autograd.profiler, "_is_profiler_enabled", False)
+    try:
+        enabled = bool(enabled_flag()) if callable(enabled_flag) else bool(enabled_flag)
+    except Exception:
+        enabled = False
+    if enabled:
+        try:
+            return torch.autograd.profiler.record_function(label)
+        except Exception:
+            return nullcontext()
+    return nullcontext()
 
 
 def get_affine_transform(center, scale, rot, output_size):
@@ -502,27 +539,28 @@ class HmImageToTensor:
             dict: The result dict contains the image converted
                 to :obj:`torch.Tensor` and permuted to (C, H, W) order.
         """
-        for key in self.keys:
-            img = results[key]
-            if len(img.shape) < 3:
-                img = img.unsqueeze(0)
-            if isinstance(img, torch.Tensor) and self.dtype is not None:
-                # If uint8, convert to float and optionally scale
-                if not torch.is_floating_point(img):
-                    assert img.dtype == torch.uint8
-                    img = img.to(self.dtype)
-                    assert (
-                        torch.is_floating_point(img)
-                        and "When converting uint8 Tensor to float, please specify the dtype in ToTensor"
-                    )
-                    if self.scale_factor is not None:
-                        img *= self.scale_factor
-                else:
-                    # Float tensors: optionally scale (e.g., 0..1 -> 0..255)
-                    if self.scale_factor is not None:
-                        img * self.scale_factor
-            results[key] = img
-        return results
+        with _transform_profile_scope(results, self.__class__.__name__):
+            for key in self.keys:
+                img = results[key]
+                if len(img.shape) < 3:
+                    img = img.unsqueeze(0)
+                if isinstance(img, torch.Tensor) and self.dtype is not None:
+                    # If uint8, convert to float and optionally scale
+                    if not torch.is_floating_point(img):
+                        assert img.dtype == torch.uint8
+                        img = img.to(self.dtype)
+                        assert (
+                            torch.is_floating_point(img)
+                            and "When converting uint8 Tensor to float, please specify the dtype in ToTensor"
+                        )
+                        if self.scale_factor is not None:
+                            img *= self.scale_factor
+                    else:
+                        # Float tensors: optionally scale (e.g., 0..1 -> 0..255)
+                        if self.scale_factor is not None:
+                            img * self.scale_factor
+                results[key] = img
+            return results
 
     def __repr__(self):
         return self.__class__.__name__ + f"(keys={self.keys})"
@@ -620,10 +658,11 @@ class HmPad:
         Returns:
             dict: Updated result dict.
         """
-        self._pad_img(results)
-        self._pad_masks(results)
-        self._pad_seg(results)
-        return results
+        with _transform_profile_scope(results, self.__class__.__name__):
+            self._pad_img(results)
+            self._pad_masks(results)
+            self._pad_seg(results)
+            return results
 
     def __repr__(self):
         repr_str = self.__class__.__name__
@@ -916,28 +955,29 @@ class HmResize:
                 'keep_ratio' keys are added into result dict.
         """
 
-        if "scale" not in results:
-            if "scale_factor" in results:
-                img_shape = results["img"].shape[:2]
-                scale_factor = results["scale_factor"]
-                assert isinstance(scale_factor, float)
-                results["scale"] = tuple([int(x * scale_factor) for x in img_shape][::-1])
-            else:
-                self._random_scale(results)
-        else:
-            if not self.override:
-                assert "scale_factor" not in results, "scale and scale_factor cannot be both set."
-            else:
-                results.pop("scale")
+        with _transform_profile_scope(results, self.__class__.__name__):
+            if "scale" not in results:
                 if "scale_factor" in results:
-                    results.pop("scale_factor")
-                self._random_scale(results)
+                    img_shape = results["img"].shape[:2]
+                    scale_factor = results["scale_factor"]
+                    assert isinstance(scale_factor, float)
+                    results["scale"] = tuple([int(x * scale_factor) for x in img_shape][::-1])
+                else:
+                    self._random_scale(results)
+            else:
+                if not self.override:
+                    assert "scale_factor" not in results, "scale and scale_factor cannot be both set."
+                else:
+                    results.pop("scale")
+                    if "scale_factor" in results:
+                        results.pop("scale_factor")
+                    self._random_scale(results)
 
-        self._resize_img(results)
-        self._resize_bboxes(results)
-        self._resize_masks(results)
-        self._resize_seg(results)
-        return results
+            self._resize_img(results)
+            self._resize_bboxes(results)
+            self._resize_masks(results)
+            self._resize_seg(results)
+            return results
 
     def __repr__(self):
         repr_str = self.__class__.__name__
@@ -1263,24 +1303,25 @@ class HmImageColorAdjust:
         return a
 
     def __call__(self, results):
-        self._refresh_from_config()
-        if not self._has_any_adjustment():
+        with _transform_profile_scope(results, self.__class__.__name__):
+            self._refresh_from_config()
+            if not self._has_any_adjustment():
+                return results
+            for key in self.keys:
+                if key not in results:
+                    continue
+                img = results[key]
+                if isinstance(img, (torch.Tensor, StreamTensorBase)):
+                    was_stream_tensor = isinstance(img, StreamTensorBase)
+                    tensor_input = img.wait() if was_stream_tensor else img
+                    adjusted = self._adjust_tensor(tensor_input)
+                    if was_stream_tensor:
+                        adjusted = StreamTensor(adjusted)
+                    results[key] = adjusted
+                else:
+                    # numpy array
+                    results[key] = self._adjust_numpy(img)
             return results
-        for key in self.keys:
-            if key not in results:
-                continue
-            img = results[key]
-            if isinstance(img, (torch.Tensor, StreamTensorBase)):
-                was_stream_tensor = isinstance(img, StreamTensorBase)
-                tensor_input = img.wait() if was_stream_tensor else img
-                adjusted = self._adjust_tensor(tensor_input)
-                if was_stream_tensor:
-                    adjusted = StreamTensor(adjusted)
-                results[key] = adjusted
-            else:
-                # numpy array
-                results[key] = self._adjust_numpy(img)
-        return results
 
     def __repr__(self):
         return (
@@ -1389,43 +1430,44 @@ class HmCrop:
         return clip_box
 
     def __call__(self, results):
-        if self.rectangle and self.keys:
-            for key in self.keys:
-                img = results[key]
-                if key not in self.calculated_clip_boxes:
-                    self.calculated_clip_boxes[key] = HmCrop.fix_clip_box(
-                        self.rectangle, [image_height(img), image_width(img)]
-                    )
-                clip_box = self.calculated_clip_boxes[key]
-                icf = is_channels_first(img)
-                if not icf:
-                    img = make_channels_first(img)
-                if len(img.shape) == 4:
-                    img = img[
-                        :,
-                        :,
-                        clip_box[1] : clip_box[3],
-                        clip_box[0] : clip_box[2],
-                    ]
-                else:
-                    assert len(img.shape) == 3
-                    img = img[
-                        :,
-                        clip_box[1] : clip_box[3],
-                        clip_box[0] : clip_box[2],
-                    ]
-                if not icf:
-                    img = make_channels_last(img)
-                results[key] = img
-                if key == "img":
-                    # TODO: shape probably needs to be 2 elements only
-                    results["img_shape"] = [torch.tensor(img.shape, dtype=torch.int64)]
-                    results["ori_shape"] = [results["img_shape"][0].clone()]
-                if self.save_clipped_images:
-                    if "clipped_image" not in results:
-                        results["clipped_image"] = dict()
-                    results["clipped_image"][key] = img
-        return results
+        with _transform_profile_scope(results, self.__class__.__name__):
+            if self.rectangle and self.keys:
+                for key in self.keys:
+                    img = results[key]
+                    if key not in self.calculated_clip_boxes:
+                        self.calculated_clip_boxes[key] = HmCrop.fix_clip_box(
+                            self.rectangle, [image_height(img), image_width(img)]
+                        )
+                    clip_box = self.calculated_clip_boxes[key]
+                    icf = is_channels_first(img)
+                    if not icf:
+                        img = make_channels_first(img)
+                    if len(img.shape) == 4:
+                        img = img[
+                            :,
+                            :,
+                            clip_box[1] : clip_box[3],
+                            clip_box[0] : clip_box[2],
+                        ]
+                    else:
+                        assert len(img.shape) == 3
+                        img = img[
+                            :,
+                            clip_box[1] : clip_box[3],
+                            clip_box[0] : clip_box[2],
+                        ]
+                    if not icf:
+                        img = make_channels_last(img)
+                    results[key] = img
+                    if key == "img":
+                        # TODO: shape probably needs to be 2 elements only
+                        results["img_shape"] = [torch.tensor(img.shape, dtype=torch.int64)]
+                        results["ori_shape"] = [results["img_shape"][0].clone()]
+                    if self.save_clipped_images:
+                        if "clipped_image" not in results:
+                            results["clipped_image"] = dict()
+                        results["clipped_image"][key] = img
+            return results
 
     def __repr__(self):
         repr_str = self.__class__.__name__
@@ -1445,11 +1487,12 @@ class CloneImage:
         assert (self.source_key and self.dest_key) or (not self.source_key and not self.dest_key)
 
     def __call__(self, results):
-        if self.source_key:
-            img = results.get(self.source_key, None)
-            if img is not None:
-                results[self.dest_key] = img.clone()
-        return results
+        with _transform_profile_scope(results, self.__class__.__name__):
+            if self.source_key:
+                img = results.get(self.source_key, None)
+                if img is not None:
+                    results[self.dest_key] = img.clone()
+            return results
 
     def __repr__(self):
         repr_str = self.__class__.__name__
@@ -1675,42 +1718,18 @@ class HmTopDownAffine:
         self.use_udp = use_udp
 
     def __call__(self, results):
-        image_size = results["ann_info"]["image_size"]
+        with _transform_profile_scope(results, self.__class__.__name__):
+            image_size = results["ann_info"]["image_size"]
 
-        img = results["img"]
-        joints_3d = results["joints_3d"]
-        joints_3d_visible = results["joints_3d_visible"]
-        c = results["center"]
-        s = results["scale"]
-        r = results["rotation"]
+            img = results["img"]
+            joints_3d = results["joints_3d"]
+            joints_3d_visible = results["joints_3d_visible"]
+            c = results["center"]
+            s = results["scale"]
+            r = results["rotation"]
 
-        if self.use_udp:
-            trans = get_warp_matrix(r, c * 2.0, image_size - 1.0, s * 200.0)
-            if not isinstance(img, list):
-                img = cv2.warpAffine(
-                    img,
-                    trans,
-                    (int(image_size[0]), int(image_size[1])),
-                    flags=cv2.INTER_LINEAR,
-                )
-            else:
-                img = [
-                    cv2.warpAffine(
-                        i,
-                        trans,
-                        (int(image_size[0]), int(image_size[1])),
-                        flags=cv2.INTER_LINEAR,
-                    )
-                    for i in img
-                ]
-
-            joints_3d[:, 0:2] = warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
-
-        else:
-            if r == 0 and isinstance(img, torch.Tensor):
-                pass
-            else:
-                trans = get_affine_transform(c, s, r, image_size)
+            if self.use_udp:
+                trans = get_warp_matrix(r, c * 2.0, image_size - 1.0, s * 200.0)
                 if not isinstance(img, list):
                     img = cv2.warpAffine(
                         img,
@@ -1728,15 +1747,40 @@ class HmTopDownAffine:
                         )
                         for i in img
                     ]
-                for i in range(results["ann_info"]["num_joints"]):
-                    if joints_3d_visible[i, 0] > 0.0:
-                        joints_3d[i, 0:2] = affine_transform(joints_3d[i, 0:2], trans)
 
-        results["img"] = img
-        results["joints_3d"] = joints_3d
-        results["joints_3d_visible"] = joints_3d_visible
+                joints_3d[:, 0:2] = warp_affine_joints(joints_3d[:, 0:2].copy(), trans)
 
-        return results
+            else:
+                if r == 0 and isinstance(img, torch.Tensor):
+                    pass
+                else:
+                    trans = get_affine_transform(c, s, r, image_size)
+                    if not isinstance(img, list):
+                        img = cv2.warpAffine(
+                            img,
+                            trans,
+                            (int(image_size[0]), int(image_size[1])),
+                            flags=cv2.INTER_LINEAR,
+                        )
+                    else:
+                        img = [
+                            cv2.warpAffine(
+                                i,
+                                trans,
+                                (int(image_size[0]), int(image_size[1])),
+                                flags=cv2.INTER_LINEAR,
+                            )
+                            for i in img
+                        ]
+                    for i in range(results["ann_info"]["num_joints"]):
+                        if joints_3d_visible[i, 0] > 0.0:
+                            joints_3d[i, 0:2] = affine_transform(joints_3d[i, 0:2], trans)
+
+            results["img"] = img
+            results["joints_3d"] = joints_3d
+            results["joints_3d_visible"] = joints_3d_visible
+
+            return results
 
 
 @TRANSFORMS.register_module()
@@ -1745,8 +1789,9 @@ class HmExtractBoundingBoxes:
         self.source_name = source_name
 
     def __call__(self, results):
-        results["bbox"] = results[self.source_name]
-        return results
+        with _transform_profile_scope(results, self.__class__.__name__):
+            results["bbox"] = results[self.source_name]
+            return results
 
 
 @TRANSFORMS.register_module()
@@ -1773,34 +1818,34 @@ class HmTopDownGetBboxCenterScale:
         self.padding = padding
 
     def __call__(self, results):
-
-        if "center" in results and "scale" in results:
-            warnings.warn(
-                'Use the "center" and "scale" that already exist in the data '
-                "sample. The padding will still be applied."
-            )
-            results["scale"] *= self.padding
-        else:
-            bbox = results["bbox"]
-            centers = []
-            scales = []
-            for video_data_sample in results["data_samples"].video_data_samples:
-                image_size = video_data_sample.metainfo["ori_shape"]
-                aspect_ratio = image_size[0] / image_size[1]
-
-                center, scale = bbox_xywh2cs(
-                    bbox,
-                    aspect_ratio=aspect_ratio,
-                    padding=self.padding,
-                    pixel_std=self.pixel_std,
+        with _transform_profile_scope(results, self.__class__.__name__):
+            if "center" in results and "scale" in results:
+                warnings.warn(
+                    'Use the "center" and "scale" that already exist in the data '
+                    "sample. The padding will still be applied."
                 )
+                results["scale"] *= self.padding
+            else:
+                bbox = results["bbox"]
+                centers = []
+                scales = []
+                for video_data_sample in results["data_samples"].video_data_samples:
+                    image_size = video_data_sample.metainfo["ori_shape"]
+                    aspect_ratio = image_size[0] / image_size[1]
 
-                centers.append(center)
-                scales.append(scale)
+                    center, scale = bbox_xywh2cs(
+                        bbox,
+                        aspect_ratio=aspect_ratio,
+                        padding=self.padding,
+                        pixel_std=self.pixel_std,
+                    )
 
-        results["centers"] = centers
-        results["scales"] = scales
-        return results
+                    centers.append(center)
+                    scales.append(scale)
+
+            results["centers"] = centers
+            results["scales"] = scales
+            return results
 
 
 def _to_float(t: Union[np.ndarray, torch.Tensor]):
@@ -1830,20 +1875,21 @@ class HmLoadImageFromWebcam(LoadImageFromFile):
             dict: The dict contains loaded image and meta information.
         """
 
-        img = results["img"]
-        if self.to_float32:
-            img = _to_float(img)
-        assert img.ndim == 4
-        img = make_channels_last(img)
-        batch_size = img.size(0)
-        shape = img.shape[1:3]
-        results["img"] = img
-        results["filename"] = [None for _ in range(batch_size)]
-        results["ori_filename"] = [None for _ in range(batch_size)]
-        results["img_shape"] = [shape for _ in range(batch_size)]
-        results["ori_shape"] = [shape for _ in range(batch_size)]
-        results["img_fields"] = ["img"]
-        return results
+        with _transform_profile_scope(results, self.__class__.__name__):
+            img = results["img"]
+            if self.to_float32:
+                img = _to_float(img)
+            assert img.ndim == 4
+            img = make_channels_last(img)
+            batch_size = img.size(0)
+            shape = img.shape[1:3]
+            results["img"] = img
+            results["filename"] = [None for _ in range(batch_size)]
+            results["ori_filename"] = [None for _ in range(batch_size)]
+            results["img_shape"] = [shape for _ in range(batch_size)]
+            results["ori_shape"] = [shape for _ in range(batch_size)]
+            results["img_fields"] = ["img"]
+            return results
 
 
 @TRANSFORMS.register_module()
@@ -1865,36 +1911,37 @@ class HmRealTime:
         self._next_available_time: Optional[float] = None
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        if not self.enabled:
-            return results
+        with _transform_profile_scope(results, self.__class__.__name__):
+            if not self.enabled:
+                return results
 
-        fps = self._extract_fps(results)
-        if fps is None:
-            return results
+            fps = self._extract_fps(results)
+            if fps is None:
+                return results
 
-        effective_fps = fps * self.scale if self.scale else fps
-        if effective_fps <= 0:
-            return results
+            effective_fps = fps * self.scale if self.scale else fps
+            if effective_fps <= 0:
+                return results
 
-        frame_count = max(1, self._count_frames(results))
-        interval = frame_count / effective_fps
+            frame_count = max(1, self._count_frames(results))
+            interval = frame_count / effective_fps
 
-        now = time.perf_counter()
-        next_time = self._next_available_time
-        if next_time is None:
-            self._next_available_time = now + interval
-            return results
-
-        wait_time = next_time - now
-        if wait_time > 0:
-            time.sleep(wait_time)
             now = time.perf_counter()
-            next_time = max(next_time, now)
-        else:
-            next_time = now
+            next_time = self._next_available_time
+            if next_time is None:
+                self._next_available_time = now + interval
+                return results
 
-        self._next_available_time = next_time + interval
-        return results
+            wait_time = next_time - now
+            if wait_time > 0:
+                time.sleep(wait_time)
+                now = time.perf_counter()
+                next_time = max(next_time, now)
+            else:
+                next_time = now
+
+            self._next_available_time = next_time + interval
+            return results
 
     def _count_frames(self, results: Dict[str, Any]) -> int:
         for key in ("inputs", "img"):

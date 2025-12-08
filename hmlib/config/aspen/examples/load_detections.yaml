@@ -3,60 +3,61 @@ aspen:
 
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
       depends: []
       params: {}
 
     model_factory:
-      class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+      class: hmlib.aspen.plugins.model_factory_plugin.ModelFactoryPlugin
       depends: []
       params:
-        model_class: hmlib.models.end_to_end.HmEndToEnd
+        model_class: hmlib.models.end_to_end_plugin.HmEndToEnd
         # post_* pipelines not used for rink mask
 
     boundaries:
-      class: hmlib.aspen.trunks.boundaries.BoundariesTrunk
+      class: hmlib.aspen.plugins.boundaries_plugin.BoundariesPlugin
       depends: [model_factory]
       params: {}
 
     load_detections:
-      class: hmlib.aspen.trunks.load.LoadDetectionsTrunk
+      class: hmlib.aspen.plugins.load_plugins.LoadDetectionsPlugin
       depends: [image_prep]
       params: {}
 
     ice_config:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmConfigTrunk
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmConfigPlugin
       depends: [image_prep]
       params: {}
 
     # Optional: save detections to disk when running with inferred detections
     save_detections:
-      class: hmlib.aspen.trunks.save.SaveDetectionsTrunk
+      class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [load_detections]
       params: {}
 
     ice_boundaries:
-      class: hmlib.aspen.trunks.ice_rink_boundaries.IceRinkSegmBoundariesTrunk
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
       depends: [load_detections, ice_config]
       params: {}
 
     tracker:
-      class: hmlib.aspen.trunks.tracker.TrackerTrunk
+      class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
       depends: [load_detections, ice_boundaries, model_factory, boundaries]
       params: {}
 
     # Optional: split-out saver for tracking
     save_tracking:
-      class: hmlib.aspen.trunks.save.SaveTrackingTrunk
+      class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [tracker]
       params: {}
 
     pose:
-      class: hmlib.aspen.trunks.pose.PoseTrunk
+      class: hmlib.aspen.plugins.pose_plugin.PosePlugin
       depends: [tracker]
-      params: {}
+       params:
+        plot_pose: GLOBAL.plot.plot_pose
 
     postprocess:
-      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
       depends: [pose]
       params: {}

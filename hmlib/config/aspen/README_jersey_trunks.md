@@ -1,4 +1,4 @@
-Jersey Number Trunks (Aspen)
+Jersey Number Plugins (Aspen)
 
 Overview
 - Two jersey recognition trunks are available:
@@ -12,7 +12,7 @@ Configs (aspen-namespaced)
 All Aspen YAMLs are nested under a top-level `aspen:` key. Use them via hmtrack `--config` (repeatable), e.g.:
 - `./hm_run.sh --config hmlib/config/aspen/tracking_pose_pose_det_jersey.yaml`
 
-Koshkina Trunk Parameters (jersey_numbers.params)
+Koshkina Plugin Parameters (jersey_numbers.params)
 - ROI selection
   - `roi_mode`: `bbox` (default), `pose`, or `sam`
     - `pose` uses shoulders+hips to form a torso ROI (matched to tracks by IoU).
@@ -51,7 +51,7 @@ Koshkina Trunk Parameters (jersey_numbers.params)
 
 Rendering
 - Add `--plot-jersey-numbers` to overlay jersey numbers on output video.
-- Results are written into `data['jersey_results']` and saved with `SaveTrackingTrunk`.
+- Results are written into `data['jersey_results']` and saved with `SaveTrackingPlugin`.
 
 Examples
 - Enable pose RoIs and legibility filter:

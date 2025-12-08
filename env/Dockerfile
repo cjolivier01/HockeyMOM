@@ -3,11 +3,14 @@ FROM nvidia/cuda:13.0.0-base-ubuntu24.04
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Build up the base system
-RUN apt-get update
+COPY install_deps.sh /tmp/install_deps.sh
 
-# Install necessary packages
-RUN apt-get install -y wget ssh openssh-server curl
+# Build up the base system and install common dependencies via script
+RUN apt-get update \
+  && apt-get install -y sudo wget ssh openssh-server curl \
+  && chmod +x /tmp/install_deps.sh \
+  && /tmp/install_deps.sh \
+  && rm -f /tmp/install_deps.sh
 
 # Update package list and install essential build tools
 RUN apt-get update && apt-get install -y \
@@ -21,31 +24,12 @@ RUN apt-get update && apt-get install -y \
 
 # Install Vigra/Hugin dependencies
 RUN apt-get install -y \
-  ccache \
-  libpano13-dev \
-  libglew-dev \
-  libexiv2-dev \
-  libopenexr-dev \
-  libilmbase-dev \
-  liblcms2-dev \
   libgl1-mesa-dev \
   libglu1-mesa-dev \
-  libsqlite3-dev \
   libavformat-dev \
-  liblapack-dev \
-  gettext \
-  libyaml-cpp-dev \
-  liblapack-dev \
-  libglfw3-dev \
-  libfftw3-dev \
-  libglew-dev \
   libgl-dev \
   libjpeg-turbo8-dev \
-  libtiff-dev \
-  libopus-dev \
   libboost-all-dev \
-  libprotobuf-dev \
-  libpng-dev \
   libopenblas-dev \
   libomp-dev \
   && apt-get clean
@@ -68,8 +52,6 @@ RUN apt-get install -y \
   libass-dev \
   libfreetype6-dev \
   libsdl2-dev \
-  libx264-dev \
-  libx265-dev \
   libtheora-dev \
   libva-dev \
   libgnutls28-dev \
@@ -84,7 +66,6 @@ RUN apt-get install -y \
   && apt-get clean
 
 RUN apt-get install -y libmkl-full-dev && apt-get clean
-RUN apt-get install -y libwxgtk3.2-dev && apt-get clean
 
 ####################################################################
 #

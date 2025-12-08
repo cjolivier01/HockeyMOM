@@ -2,7 +2,6 @@
 
 from __future__ import absolute_import, division, print_function
 
-import argparse
 import copy
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -87,6 +86,7 @@ class BreakawayDetection:
 
 @HM.register_module()
 class PlayTracker(torch.nn.Module):
+
     def __init__(
         self,
         hockey_mom: HockeyMOM,
@@ -94,9 +94,30 @@ class PlayTracker(torch.nn.Module):
         device: torch.device,
         original_clip_box: Optional[torch.Tensor],
         progress_bar: Optional[ProgressBar],
-        args: argparse.Namespace,
+        game_config: Dict[str, Any],
+        game_id: Optional[str] = None,
+        cam_ignore_largest: bool = True,
+        no_wide_start: bool = False,
+        track_ids: Optional[Union[str, List[int], Set[int]]] = None,
+        debug_play_tracker: bool = False,
+        plot_individual_player_tracking: bool = False,
+        plot_boundaries: bool = False,
+        plot_all_detections: Optional[float] = None,
+        plot_trajectories: bool = False,
+        plot_speed: bool = False,
+        plot_jersey_numbers: bool = False,
+        plot_actions: bool = False,
+        plot_moving_boxes: bool = False,
+        camera_ui: int = 0,
+        camera_controller: str = "rule",
+        camera_model: Optional[str] = None,
+        camera_window: int = 8,
+        force_stitching: bool = False,
+        stitch_rotation_controller: Optional[Any] = None,
+        cluster_centroids: Optional[torch.Tensor] = None,
         cpp_boxes: bool = _CPP_BOXES,
         cpp_playtracker: bool = _CPP_PLAYTRACKER,
+        plot_cluster_tracking: bool = False,
     ):
         """Track play and drive camera box based on detections and configs.
 
@@ -105,17 +126,48 @@ class PlayTracker(torch.nn.Module):
         @param device: Torch device for computations.
         @param original_clip_box: Clip box applied to original image, if any.
         @param progress_bar: Optional progress bar for CLI status.
-        @param args: Parsed CLI options (`hm_opts`).
+        @param game_config: Consolidated game configuration dict.
+        @param game_id: Optional game identifier (for saving UI edits).
+        @param cam_ignore_largest: Whether to ignore largest bbox.
+        @param no_wide_start: Whether to skip initial wide camera box.
+        @param track_ids: Optional track id whitelist (str or collection).
+        @param debug_play_tracker: Enable per-frame debug logging.
+        @param plot_moving_boxes: Enable ROI/mover overlay plotting.
+        @param plot_individual_player_tracking: Enable per-player overlays.
+        @param plot_boundaries: Enable rink boundary overlays.
+        @param plot_all_detections: Score threshold for plotting all dets.
+        @param plot_trajectories: Enable track trajectory overlays.
+        @param plot_speed: Enable velocity/acceleration overlays.
+        @param plot_jersey_numbers: Enable jersey number overlays.
+        @param plot_actions: Enable action overlays.
+        @param camera_ui: Enable camera UI windows (0/1).
+        @param camera_controller: Camera controller mode ('rule'/'transformer').
+        @param camera_model: Optional camera transformer checkpoint path.
+        @param camera_window: Transformer time window length.
+        @param force_stitching: Enable stitching side color UI controls.
+        @param stitch_rotation_controller: Optional stitching controller handle.
+        @param cluster_centroids: Optional precomputed cluster centroids.
         @param cpp_boxes: If True, use C++ BBox types internally.
         @param cpp_playtracker: If True, use the C++ PlayTracker backend.
         """
         super(PlayTracker, self).__init__()
-        self._args = args
+        self._game_config: Dict[str, Any] = game_config
+        self._game_id: Optional[str] = game_id
+        self._cam_ignore_largest: bool = bool(cam_ignore_largest)
+        self._no_wide_start: bool = bool(no_wide_start)
+        self._debug_play_tracker: bool = bool(debug_play_tracker)
+        self._plot_moving_boxes: bool = bool(plot_moving_boxes)
+        self._plot_trajectories: bool = bool(plot_trajectories)
+        self._plot_individual_player_tracking: bool = bool(plot_individual_player_tracking)
+        self._plot_boundaries: bool = bool(plot_boundaries)
+        self._plot_all_detections: Optional[float] = plot_all_detections
         self._cpp_boxes = cpp_boxes
         self._cpp_playtracker = cpp_playtracker
         self._playtracker: Union[PlayTracker, None] = None
         self._ui_dirty_paths: Set[Tuple[str, ...]] = set()
         self._hockey_mom: HockeyMOM = hockey_mom
+        self._plot_cluster_tracking = plot_cluster_tracking
+        self._plot_speed = bool(plot_speed)
         # Amount to scale speed-related calculations based upon non-standard fps
         self._play_box = clamp_box(play_box, hockey_mom._video_frame.bounding_box())
         self._thread = None
@@ -129,7 +181,7 @@ class PlayTracker(torch.nn.Module):
         self._cluster_centroids: Optional[torch.Tensor] = None
         self._original_clip_box = original_clip_box
         self._progress_bar = progress_bar
-        self._camera_ui_enabled = bool(getattr(args, "camera_ui", 0))
+        self._camera_ui_enabled = bool(camera_ui)
         self._ui_window_name = "Tracker Controls"
         self._ui_inited = False
         self._ui_color_window_name = "Tracker Controls (Color)"
@@ -141,22 +193,31 @@ class PlayTracker(torch.nn.Module):
         # Per-window slider defaults: {window_name: {slider_name: default_value}}
         self._ui_defaults: Dict[str, Dict[str, int]] = {}
         self._ui_controls_dirty = True
-        self._stitch_rotation_controller = getattr(args, "stitch_rotation_controller", None)
+        self._stitch_rotation_controller = stitch_rotation_controller
         self._stitch_slider_enabled = False
 
-        cluster_centroids = getattr(args, "cluster_centroids", None)
+        # Optional transformer-based camera controller
+        self._camera_controller = camera_controller or "rule"
+        self._camera_model: Optional[CameraPanZoomTransformer] = None
+        self._camera_norm: Optional[CameraNorm] = None
+        self._camera_window: int = int(camera_window)
+        self._camera_feat_buf: deque = deque(maxlen=self._camera_window)
+        self._camera_prev_center: Optional[Tuple[float, float]] = None
+        self._camera_prev_h: Optional[float] = None
+        self._camera_aspect = float(self._final_aspect_ratio)
+
         if cluster_centroids is not None:
             centroids_tensor = torch.as_tensor(cluster_centroids, dtype=torch.float32).cpu()
             if centroids_tensor.ndim != 2 or centroids_tensor.shape[1] != 2:
                 raise ValueError("cluster_centroids must be shaped (N, 2)")
             self._cluster_centroids = centroids_tensor
 
-        self._jersey_tracker = JerseyTracker(show=args.plot_jersey_numbers)
-        self._action_tracker = ActionTracker(show=getattr(args, "plot_actions", False))
+        self._jersey_tracker = JerseyTracker(show=bool(plot_jersey_numbers))
+        self._action_tracker = ActionTracker(show=bool(plot_actions))
         # Cache for rink_profile (combined_mask, centroid, etc.) pulled from data samples meta
         self._rink_profile_cache = None
 
-        camera_cfg = self._args.game_config.setdefault("rink", {}).setdefault("camera", {})
+        camera_cfg = self._game_config.setdefault("rink", {}).setdefault("camera", {})
         self._camera_base_speed_x = float(
             self._hockey_mom._camera_box_max_speed_x.detach().cpu().item()
         )
@@ -185,8 +246,12 @@ class PlayTracker(torch.nn.Module):
 
         # Tracking specific ids
         self._track_ids: Set[int] = set()
-        if args.track_ids:
-            self._track_ids = set([int(i) for i in args.track_ids.split(",")])
+        if track_ids:
+            if isinstance(track_ids, str):
+                ids_iter = (int(i) for i in track_ids.split(",") if i)
+            else:
+                ids_iter = (int(i) for i in track_ids)  # type: ignore[arg-type]
+            self._track_ids = set(ids_iter)
 
         # Persistent state across frames
         self._previous_cluster_union_box = None
@@ -232,7 +297,7 @@ class PlayTracker(torch.nn.Module):
             current_roi_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             # Frames-to-destination speed limiting (scaled by fps)
             ttg_frames = int(
-                args.game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10)
+                self._game_config["rink"]["camera"].get("time_to_dest_speed_limit_frames", 10)
             )
             current_roi_config.time_to_dest_speed_limit_frames = int(
                 ttg_frames * self._hockey_mom.fps_speed_scale
@@ -271,24 +336,10 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.stop_translation_on_dir_change = True
             current_roi_aspect_config.sticky_translation = True
             # Prefer YAML; fall back to CLI hm_opts defaults/overrides
-            stop_dir_delay = int(
-                self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay")
-            )
-            cancel_stop = bool(
-                self._initial_camera_value(
-                    "cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir"
-                )
-            )
-            cancel_hyst = int(
-                self._initial_camera_value(
-                    "stop_cancel_hysteresis_frames", "stop_cancel_hysteresis_frames"
-                )
-            )
-            cooldown_frames = int(
-                self._initial_camera_value(
-                    "stop_delay_cooldown_frames", "stop_delay_cooldown_frames"
-                )
-            )
+            stop_dir_delay = int(self._initial_camera_value("stop_on_dir_change_delay"))
+            cancel_stop = bool(self._initial_camera_value("cancel_stop_on_opposite_dir"))
+            cancel_hyst = int(self._initial_camera_value("stop_cancel_hysteresis_frames"))
+            cooldown_frames = int(self._initial_camera_value("stop_delay_cooldown_frames"))
             current_roi_aspect_config.stop_translation_on_dir_change_delay = stop_dir_delay
             current_roi_aspect_config.cancel_stop_on_opposite_dir = cancel_stop
             current_roi_aspect_config.cancel_stop_hysteresis_frames = cancel_hyst
@@ -299,30 +350,25 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.arena_angle_from_vertical = 30.0
 
             current_roi_aspect_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
-            current_roi_aspect_config.sticky_size_ratio_to_frame_width = args.game_config["rink"][
-                "camera"
-            ]["sticky_size_ratio_to_frame_width"]
-            current_roi_aspect_config.sticky_translation_gaussian_mult = args.game_config["rink"][
-                "camera"
-            ]["sticky_translation_gaussian_mult"]
-            current_roi_aspect_config.unsticky_translation_size_ratio = args.game_config["rink"][
-                "camera"
-            ]["unsticky_translation_size_ratio"]
+            cam_cfg = self._camera_cfg()
+            current_roi_aspect_config.sticky_size_ratio_to_frame_width = cam_cfg[
+                "sticky_size_ratio_to_frame_width"
+            ]
+            current_roi_aspect_config.sticky_translation_gaussian_mult = cam_cfg[
+                "sticky_translation_gaussian_mult"
+            ]
+            current_roi_aspect_config.unsticky_translation_size_ratio = cam_cfg[
+                "unsticky_translation_size_ratio"
+            ]
             current_roi_aspect_config.sticky_sizing = True
-            current_roi_aspect_config.scale_dest_width = args.game_config["rink"]["camera"][
-                "follower_box_scale_width"
-            ]
-            current_roi_aspect_config.scale_dest_height = args.game_config["rink"]["camera"][
-                "follower_box_scale_height"
-            ]
+            current_roi_aspect_config.scale_dest_width = cam_cfg["follower_box_scale_width"]
+            current_roi_aspect_config.scale_dest_height = cam_cfg["follower_box_scale_height"]
             current_roi_aspect_config.fixed_aspect_ratio = self._final_aspect_ratio
 
             # If we are not using the C++ PlayTracker, or if the controller is the transformer,
             # initialize Python-side movers without creating the C++ PlayTracker.
-            if (not self._cpp_playtracker) or (
-                getattr(args, "camera_controller", None) == "transformer"
-            ):
-                self._breakaway_detection = BreakawayDetection(args.game_config)
+            if not self._cpp_playtracker or self._camera_controller == "transformer":
+                self._breakaway_detection = BreakawayDetection(self._game_config)
                 #
                 # Initialize `_current_roi` MovingBox with `current_roi_config`
                 #
@@ -348,8 +394,8 @@ class PlayTracker(torch.nn.Module):
                     current_roi_config,
                     current_roi_aspect_config,
                 ]
-                pt_config.ignore_largest_bbox = self._args.cam_ignore_largest
-                pt_config.no_wide_start = self._args.no_wide_start
+                pt_config.ignore_largest_bbox = self._cam_ignore_largest
+                pt_config.no_wide_start = self._no_wide_start
 
                 pt_config.ignore_outlier_players = True  # EXPERIMENTAL
                 pt_config.ignore_left_and_right_extremes = False  # EXPERIMENTAL
@@ -388,27 +434,13 @@ class PlayTracker(torch.nn.Module):
         else:
             assert not self._cpp_playtracker
 
-            self._breakaway_detection = BreakawayDetection(args.game_config)
+            self._breakaway_detection = BreakawayDetection(self._game_config)
 
-            camera_cfg = args.game_config["rink"]["camera"]
-            stop_dir_delay = int(
-                self._initial_camera_value("stop_on_dir_change_delay", "stop_on_dir_change_delay")
-            )
-            cancel_stop = bool(
-                self._initial_camera_value(
-                    "cancel_stop_on_opposite_dir", "cancel_stop_on_opposite_dir"
-                )
-            )
-            cancel_hyst = int(
-                self._initial_camera_value(
-                    "stop_cancel_hysteresis_frames", "stop_cancel_hysteresis_frames"
-                )
-            )
-            cooldown_frames = int(
-                self._initial_camera_value(
-                    "stop_delay_cooldown_frames", "stop_delay_cooldown_frames"
-                )
-            )
+            camera_cfg = self._camera_cfg()
+            stop_dir_delay = int(self._initial_camera_value("stop_on_dir_change_delay"))
+            cancel_stop = bool(self._initial_camera_value("cancel_stop_on_opposite_dir"))
+            cancel_hyst = int(self._initial_camera_value("stop_cancel_hysteresis_frames"))
+            cooldown_frames = int(self._initial_camera_value("stop_delay_cooldown_frames"))
 
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="Current ROI",
@@ -448,18 +480,12 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
                 sticky_translation=True,
-                sticky_size_ratio_to_frame_width=self._args.game_config["rink"]["camera"][
-                    "sticky_size_ratio_to_frame_width"
-                ],
-                sticky_translation_gaussian_mult=self._args.game_config["rink"]["camera"][
-                    "sticky_translation_gaussian_mult"
-                ],
-                unsticky_translation_size_ratio=self._args.game_config["rink"]["camera"][
-                    "unsticky_translation_size_ratio"
-                ],
+                sticky_size_ratio_to_frame_width=camera_cfg["sticky_size_ratio_to_frame_width"],
+                sticky_translation_gaussian_mult=camera_cfg["sticky_translation_gaussian_mult"],
+                unsticky_translation_size_ratio=camera_cfg["unsticky_translation_size_ratio"],
                 sticky_sizing=True,
-                scale_width=self._args.game_config["rink"]["camera"]["follower_box_scale_width"],
-                scale_height=self._args.game_config["rink"]["camera"]["follower_box_scale_height"],
+                scale_width=camera_cfg["follower_box_scale_width"],
+                scale_height=camera_cfg["follower_box_scale_height"],
                 fixed_aspect_ratio=self._final_aspect_ratio,
                 color=(255, 0, 255),
                 thickness=5,
@@ -476,16 +502,7 @@ class PlayTracker(torch.nn.Module):
         if self._camera_ui_enabled:
             self._init_ui_controls()
 
-        # Optional transformer-based camera controller
-        self._camera_controller = getattr(args, "camera_controller", "rule")
-        self._camera_model: Optional[CameraPanZoomTransformer] = None
-        self._camera_norm: Optional[CameraNorm] = None
-        self._camera_window: int = int(getattr(args, "camera_window", 8))
-        self._camera_feat_buf: deque = deque(maxlen=self._camera_window)
-        self._camera_prev_center: Optional[Tuple[float, float]] = None
-        self._camera_prev_h: Optional[float] = None
-        self._camera_aspect = float(self._final_aspect_ratio)
-        cm_path = getattr(args, "camera_model", None)
+        cm_path = camera_model
         if self._camera_controller == "transformer" and cm_path:
             try:
                 ckpt = torch.load(cm_path, map_location="cpu")
@@ -497,7 +514,7 @@ class PlayTracker(torch.nn.Module):
                 self._camera_model.eval()
                 self._camera_norm = norm
                 # Override window if checkpoint carries its own
-                self._camera_window = int(getattr(args, "camera_window", window))
+                self._camera_window = int(window)
                 self._camera_feat_buf = deque(maxlen=self._camera_window)
                 logger.info(
                     f"Loaded camera transformer from {cm_path} (window={self._camera_window})"
@@ -530,7 +547,7 @@ class PlayTracker(torch.nn.Module):
         """
         Set the initial tracking boxes
         """
-        if (self._frame_counter > 1) and (not getattr(self._args, "no_wide_start", False)):
+        if (self._frame_counter > 1) and (not self._no_wide_start):
             raise AssertionError("Not currently meant for setting at runtime")
         frame_box = self.get_arena_box()
         # Should fit in the video frame
@@ -653,7 +670,7 @@ class PlayTracker(torch.nn.Module):
             original_images_list.append(original_images[i])
         del original_images
 
-        debug = getattr(self._args, "debug_play_tracker", False)
+        debug = self._debug_play_tracker
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             scalar_frame_id = video_data_sample.frame_id
             frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
@@ -755,7 +772,7 @@ class PlayTracker(torch.nn.Module):
                         f"  boxes: fast={fast_roi_bounding_box.tolist()} current={current_box.tolist()}"
                     )
 
-                if self._args.plot_moving_boxes:
+                if self._plot_moving_boxes:
                     # Play box
                     if (
                         torch.sum(self._play_box == self._hockey_mom._video_frame.bounding_box())
@@ -794,7 +811,8 @@ class PlayTracker(torch.nn.Module):
                     online_im = self._draw_ui_overlay(online_im)
 
                 if (
-                    self._args.plot_individual_player_tracking
+                    # TODO: move this to the tracker
+                    self._plot_individual_player_tracking
                     and playtracker_results.play_detection is not None
                     and playtracker_results.play_detection.breakaway_edge_center is not None
                 ):
@@ -823,7 +841,7 @@ class PlayTracker(torch.nn.Module):
 
             else:
                 largest_bbox = None
-                if self._args.cam_ignore_largest and len(online_tlwhs):
+                if self._cam_ignore_largest and len(online_tlwhs):
                     # Don't remove unless we have at least 4 online items being tracked
                     online_tlwhs, mask, largest_bbox = remove_largest_bbox(
                         online_tlwhs, min_boxes=4
@@ -896,7 +914,7 @@ class PlayTracker(torch.nn.Module):
                     else:
                         cluster_enclosing_box = self.get_arena_box()
                     current_box = cluster_enclosing_box
-                elif self._args.plot_cluster_tracking and not cluster_boxes_map:
+                elif self._plot_cluster_tracking and not cluster_boxes_map:
                     # Populate cluster boxes for visualization even if camera boxes are external.
                     cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
                         online_tlwhs, online_ids, cluster_counts=cluster_counts
@@ -934,16 +952,16 @@ class PlayTracker(torch.nn.Module):
                 online_ids.clone() if isinstance(online_ids, torch.Tensor) else torch.tensor([])
             )
 
-            if self._args.plot_boundaries and self._boundaries is not None:
-                online_im = self._boundaries.draw(online_im)
+            # if self._plot_boundaries and self._boundaries is not None:
+            #     online_im = self._boundaries.draw(online_im)
 
-            if self._args.plot_all_detections is not None:
+            if self._plot_all_detections is not None:
                 detections = video_data_sample.pred_instances.bboxes
                 if not isinstance(detections, dict):
                     for detection, score in zip(
                         detections, video_data_sample.pred_instances.scores
                     ):
-                        if score >= self._args.plot_all_detections:
+                        if score >= self._plot_all_detections:
                             online_im = vis.plot_rectangle(
                                 img=online_im,
                                 box=detection,
@@ -965,13 +983,13 @@ class PlayTracker(torch.nn.Module):
                                 )
 
             # Maybe draw trajectories...
-            if self._args.plot_trajectories:
+            if self._plot_trajectories:
                 for tid in online_ids:
                     hist = self._hockey_mom.get_history(tid)
                     if hist is not None:
                         hist.draw(online_im)
 
-            if self._args.plot_individual_player_tracking:
+            if self._plot_individual_player_tracking:
                 online_im = vis.plot_tracking(
                     online_im,
                     online_tlwhs,
@@ -992,7 +1010,7 @@ class PlayTracker(torch.nn.Module):
                         label="IGNORED",
                     )
 
-            if self._args.plot_cluster_tracking:
+            if self._plot_cluster_tracking:
                 cluster_box_colors = {
                     cluster_counts[0]: (128, 0, 0),  # dark red
                     cluster_counts[1]: (0, 0, 128),  # dark blue
@@ -1080,7 +1098,7 @@ class PlayTracker(torch.nn.Module):
                 current_box = clamp_box(current_box, self._play_box)
 
                 # Maybe set initial box sizes when --no-wide-start is enabled
-                if self._args.no_wide_start and (not self._initial_box_applied):
+                if self._no_wide_start and (not self._initial_box_applied):
                     has_valid_cluster_box = bool(cluster_boxes_map)
                     box_is_full_frame = torch.allclose(
                         current_box.to(dtype=torch.float32, device=self._play_box.device),
@@ -1104,7 +1122,7 @@ class PlayTracker(torch.nn.Module):
                 current_box_list.append(from_bbox(self._current_roi_aspect.bounding_box()))
                 current_fast_box_list.append(from_bbox(self._current_roi.bounding_box()))
 
-                if self._args.plot_moving_boxes:
+                if self._plot_moving_boxes:
                     online_im = self._current_roi_aspect.draw(
                         img=online_im,
                         draw_thresholds=True,
@@ -1119,7 +1137,7 @@ class PlayTracker(torch.nn.Module):
                         thickness=2,
                     )
 
-            if self._args.plot_speed:
+            if self._plot_speed:
                 vis.plot_frame_id_and_speeds(
                     online_im,
                     frame_id,
@@ -1194,9 +1212,7 @@ class PlayTracker(torch.nn.Module):
                 pass
         try:
             return (
-                self._args.game_config.get("game", {})
-                .get("stitching", {})
-                .get("stitch-rotate-degrees")
+                self._game_config.get("game", {}).get("stitching", {}).get("stitch-rotate-degrees")
             )
         except Exception:
             return None
@@ -1214,7 +1230,7 @@ class PlayTracker(torch.nn.Module):
             except Exception:
                 pass
         self._set_config_value(
-            self._args.game_config,
+            self._game_config,
             ("game", "stitching", "stitch-rotate-degrees"),
             degrees,
             mark_dirty=True,
@@ -1281,17 +1297,11 @@ class PlayTracker(torch.nn.Module):
         try:
             base_cfg: Dict[str, Any] = {}
             top_camera = (
-                self._args.game_config.get("camera", {})
-                if isinstance(self._args.game_config, dict)
-                else {}
+                self._game_config.get("camera", {}) if isinstance(self._game_config, dict) else {}
             )
             if isinstance(top_camera, dict):
                 base_cfg.update(top_camera.get("color", {}) or top_camera)
-            rink_camera = (
-                self._args.game_config.get("rink", {}).get("camera", {})
-                if isinstance(self._args.game_config, dict)
-                else {}
-            )
+            rink_camera = self._game_config.get("rink", {}).get("camera", {})  # type: ignore[assignment]
             if isinstance(rink_camera, dict):
                 base_cfg.update(rink_camera.get("color", {}) or rink_camera)
             color_cfg = base_cfg
@@ -1303,8 +1313,8 @@ class PlayTracker(torch.nn.Module):
         # Per-side stitching defaults under game.stitching.<side>.color (if present).
         cfg: Dict[str, Any] = {}
         try:
-            if isinstance(self._args.game_config, dict):
-                game_cfg = self._args.game_config.get("game", {})
+            if isinstance(self._game_config, dict):
+                game_cfg = self._game_config.get("game", {})
                 stitching = game_cfg.get("stitching", {}) if isinstance(game_cfg, dict) else {}
                 side_cfg = stitching.get(side, {}) if isinstance(stitching, dict) else {}
                 if isinstance(side_cfg, dict):
@@ -1514,7 +1524,7 @@ class PlayTracker(torch.nn.Module):
                 self._ui_color_inited = False
 
             # ---- Left/right stitching color controls (optional) ----
-            enable_stitch_side_ui = bool(getattr(self._args, "force_stitching", False))
+            enable_stitch_side_ui = bool(self._force_stitching)
             if enable_stitch_side_ui:
                 # Left stitching color window
                 try:
@@ -1757,7 +1767,7 @@ class PlayTracker(torch.nn.Module):
                     self._playtracker.set_breakaway_braking(ov_delay, ov_scal)
                 except Exception:
                     pass
-            # For Python-only breakaway values, we read from args.game_config in calculate_breakaway
+            # For Python-only breakaway values, we read from self._game_config in calculate_breakaway
         except Exception:
             # If we failed to read UI, try again next frame
             self._ui_controls_dirty = True
@@ -1844,7 +1854,7 @@ class PlayTracker(torch.nn.Module):
         return a == b
 
     def _camera_cfg(self) -> Dict[str, Any]:
-        cfg = self._args.game_config.get("rink", {}).get("camera")
+        cfg = self._game_config.get("rink", {}).get("camera")
         if not isinstance(cfg, dict):
             raise KeyError("Missing rink.camera configuration")
         return cfg
@@ -1868,16 +1878,10 @@ class PlayTracker(torch.nn.Module):
             raise KeyError(f"Missing rink.camera.breakaway_detection.{key}")
         return bkd[key]
 
-    def _initial_camera_value(self, attr_name: str, config_key: str):
-        override = getattr(self._args, attr_name, None)
-        if override is not None:
-            return override
+    def _initial_camera_value(self, config_key: str):
         return self._require_camera_value(config_key)
 
-    def _initial_breakaway_value(self, attr_name: str, key: str):
-        override = getattr(self._args, attr_name, None)
-        if override is not None:
-            return override
+    def _initial_breakaway_value(self, key: str):
         return self._require_breakaway_value(key)
 
     def _validate_required_camera_config(self):
@@ -1958,10 +1962,10 @@ class PlayTracker(torch.nn.Module):
         return True
 
     def _set_ui_config_value(self, path: Tuple[str, ...], value: Any):
-        self._set_config_value(self._args.game_config, path, value, mark_dirty=True)
+        self._set_config_value(self._game_config, path, value, mark_dirty=True)
 
     def _get_config_path_value(self, path: Tuple[str, ...]):
-        cur: Any = self._args.game_config
+        cur: Any = self._game_config
         for key in path:
             if not isinstance(cur, dict) or key not in cur:
                 return _MISSING
@@ -1977,7 +1981,7 @@ class PlayTracker(torch.nn.Module):
     def _save_ui_config(self):
         # Save current game_config to private config.yaml if game_id is present
         try:
-            game_id = getattr(self._args, "game_id", None)
+            game_id = self._game_id
             if not game_id:
                 return
             if not self._ui_dirty_paths:
@@ -2015,7 +2019,7 @@ class PlayTracker(torch.nn.Module):
             # if True:
             #     return current_box, online_im
 
-            if self._args.plot_individual_player_tracking:
+            if self._plot_individual_player_tracking:
                 """
                 When detecting a breakaway, draw a circle on the player
                 that represents the forward edge of the breakaway players
@@ -2045,7 +2049,7 @@ class PlayTracker(torch.nn.Module):
             if speed_adjust_box is not None:
                 speed_adjust_bbox = from_bbox(speed_adjust_box.bounding_box())
                 roi_center = center(speed_adjust_bbox)
-                if self._args.plot_individual_player_tracking:
+                if self._plot_individual_player_tracking:
                     online_im = vis.plot_line(
                         online_im,
                         edge_center,

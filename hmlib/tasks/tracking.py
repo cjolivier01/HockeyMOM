@@ -1,4 +1,5 @@
 import contextlib
+import traceback
 from collections import OrderedDict
 from typing import Any, Dict, Optional
 
@@ -236,7 +237,7 @@ def run_mmtrack(
                     # using_precalculated_tracking=using_precalculated_tracking,
                     # using_precalculated_detection=using_precalculated_detection,
                     plot_pose=bool(config.get("plot_pose", False)),
-                    # Propagate CLI flag to BoundariesTrunk -> IceRinkSegmBoundaries(draw)
+                    # Propagate CLI flag to BoundariesPlugin -> IceRinkSegmBoundaries(draw)
                     plot_ice_mask=bool(config.get("plot_ice_mask", False)),
                     # Boundary + identity context for trunks
                     game_id=config.get("game_id"),
@@ -249,11 +250,15 @@ def run_mmtrack(
                     original_clip_box=config.get("original_clip_box"),
                     top_border_lines=config.get("top_border_lines"),
                     bottom_border_lines=config.get("bottom_border_lines"),
+                    # Full game config and CLI-derived initial args for trunks
+                    game_config=config.get("game_config"),
+                    initial_args=config.get("initial_args"),
                 )
                 if profiler is not None:
                     shared["profiler"] = profiler
                 aspen_name = aspen_cfg.get("name") or config.get("game_id") or "aspen"
                 aspen_net = AspenNet(aspen_name, aspen_cfg, shared=shared)
+                aspen_net = aspen_net.to(device)
             # Optional torch profiler context spanning the run
             prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
             with prof_ctx:
@@ -302,14 +307,16 @@ def run_mmtrack(
                         else:
                             out_context = aspen_net(iter_context)
 
-                        # Update stats for progress bar
-                        nr_tracks = int(out_context.get("nr_tracks", 0))
-                        max_tracking_id = out_context.get("max_tracking_id", 0)
-                        if not isinstance(max_tracking_id, (int, float)):
-                            try:
-                                max_tracking_id = int(max_tracking_id)
-                            except Exception:
-                                max_tracking_id = 0
+                        # Async AspenNet returns None from forward()
+                        if out_context is not None:
+                            # Update stats for progress bar
+                            nr_tracks = int(out_context.get("nr_tracks", 0))
+                            max_tracking_id = out_context.get("max_tracking_id", 0)
+                            if not isinstance(max_tracking_id, (int, float)):
+                                try:
+                                    max_tracking_id = int(max_tracking_id)
+                                except Exception:
+                                    max_tracking_id = 0
                     else:
                         # Legacy MMTracking path has been removed. An Aspen config is required.
                         raise RuntimeError(
@@ -341,6 +348,7 @@ def run_mmtrack(
     except StopIteration:
         print("run_mmtrack reached end of dataset")
     except Exception:
+        traceback.print_exc()
         raise
     finally:
         if aspen_net is not None:

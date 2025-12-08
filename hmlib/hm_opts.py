@@ -677,18 +677,6 @@ class hm_opts(object):
         #     help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
         # )
         parser.add_argument(
-            "--async-post-processing",
-            type=int,
-            default=0,
-            help="Async post-processing",
-        )
-        parser.add_argument(
-            "--async-video-out",
-            type=int,
-            default=1,
-            help="Async video output",
-        )
-        parser.add_argument(
             "-o",
             "--output",
             dest="output_file",
@@ -1048,8 +1036,6 @@ class hm_opts(object):
     def init(opt, parser: Optional[argparse.ArgumentParser] = None):
         # Normalize some conflicting arguments
         if opt.serial:
-            opt.async_post_processing = 0
-            opt.async_video_out = 0
             opt.cache_size = 0
             opt.stitch_cache_size = 0
             opt.no_async_dataset = True
@@ -1110,6 +1096,14 @@ class hm_opts(object):
                     return parser is not None and getattr(opt, name) != parser.get_default(name)
                 except Exception:
                     return False
+
+            # cam_ignore_largest: prefer explicit CLI flag, otherwise YAML rink.tracking setting.
+            try:
+                cfg_val = get_nested_value(game_cfg, "rink.tracking.cam_ignore_largest", None)
+                if cfg_val is not None and not _cli_spec("cam_ignore_largest"):
+                    opt.cam_ignore_largest = bool(cfg_val)
+            except Exception:
+                pass
 
             # stop_on_dir_change_delay
             try:

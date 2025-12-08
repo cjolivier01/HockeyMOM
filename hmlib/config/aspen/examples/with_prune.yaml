@@ -2,14 +2,14 @@ aspen:
   minimal_context: true
   trunks:
     image_prep:
-      class: hmlib.aspen.trunks.image_prep.ImagePrepTrunk
+      class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
       depends: []
       params: {}
     model_factory:
-      class: hmlib.aspen.trunks.model_factory.ModelFactoryTrunk
+      class: hmlib.aspen.plugins.model_factory_plugin.ModelFactoryPlugin
       depends: []
       params:
-        model_class: hmlib.models.end_to_end.HmEndToEnd
+        model_class: hmlib.models.end_to_end_plugin.HmEndToEnd
         detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
         data_preprocessor:
           type: TrackDataPreprocessor
@@ -24,19 +24,20 @@ aspen:
           match_iou_thrs: {high: 0.1, low: 0.5, tentative: 0.3}
           num_frames_retain: 30
     mmtracking:
-      class: hmlib.aspen.trunks.mmtracking.MMTrackingTrunk
+      class: hmlib.aspen.plugins.mmtracking_plugin.MMTrackingPlugin
       depends: [image_prep, model_factory]
       params: {}
     prune:
-      class: hmlib.aspen.trunks.prune.PruneKeysTrunk
+      class: hmlib.aspen.plugins.prune_plugin.PruneKeysPlugin
       depends: [mmtracking]
       params:
         remove_keys: [detection_image]
     pose:
-      class: hmlib.aspen.trunks.pose.PoseTrunk
+      class: hmlib.aspen.plugins.pose_plugin.PosePlugin
       depends: [prune]
-      params: {}
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
     postprocess:
-      class: hmlib.aspen.trunks.postprocess.CamPostProcessTrunk
+      class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
       depends: [pose]
       params: {}

@@ -1213,21 +1213,21 @@ def blend_video(
                     )
                     fps = cap_1.fps
                     video_out = VideoOutput(
-                        name="StitchedOutput",
-                        args=None,
                         output_video_path=output_video,
                         output_frame_width=video_dim_width,
                         output_frame_height=video_dim_height,
                         fps=fps,
-                        device=blended.device,
                         skip_final_save=skip_final_video_save,
                         fourcc="auto",
                         # batch_size=batch_size,
                         cache_size=queue_size,
+                        name="StitchedOutput",
+                        device=blended.device,
                     )
 
             if video_out is not None:
-                video_out.append(
+                # VideoOutput is a nn.Module; calling it writes frames synchronously.
+                video_out(
                     {
                         "frame_id": torch.tensor(frame_id, dtype=torch.int64),
                         "img": blended,
