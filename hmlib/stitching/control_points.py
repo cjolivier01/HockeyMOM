@@ -13,10 +13,7 @@ import cv2
 import numpy as np
 import torch
 
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-)
+from hmlib.utils.image import image_height, image_width
 
 
 def evenly_spaced_indices(n_points, n_samples):

@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Aspen trunk that computes per-frame camera boxes (pan/zoom)."""
+
+from __future__ import annotations
 
 from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
@@ -8,15 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from mmengine.structures import InstanceData
 
-from hmlib.bbox.box_functions import (
-    center,
-    clamp_box,
-    get_enclosing_box,
-    height,
-    make_box_at_center,
-    tlwh_to_tlbr_single,
-    width,
-)
+from hmlib.bbox.box_functions import center, clamp_box, make_box_at_center
 from hmlib.builder import HM
 from hmlib.camera.camera_transformer import (
     CameraNorm,
@@ -76,7 +68,7 @@ class CameraControllerTrunk(Trunk):
                 self._norm = norm
                 self._window = int(w)
                 self._feat_buf = deque(maxlen=self._window)
-            except Exception as ex:
+            except Exception:
                 # Fall back to rule-based
                 self._controller = "rule"
 
@@ -111,7 +103,10 @@ class CameraControllerTrunk(Trunk):
                 h_px = H * 0.8
                 w_px = h_px * self._ar
                 cx, cy = W / 2.0, H / 2.0
-                box = torch.tensor([cx - w_px / 2, cy - h_px / 2, cx + w_px / 2, cy + h_px / 2], dtype=torch.float32)
+                box = torch.tensor(
+                    [cx - w_px / 2, cy - h_px / 2, cx + w_px / 2, cy + h_px / 2],
+                    dtype=torch.float32,
+                )
                 cam_boxes.append(box)
                 setattr(img_data_sample, "pred_cam_box", box)
                 continue
@@ -125,7 +120,11 @@ class CameraControllerTrunk(Trunk):
             tlwh[:, 3] = tlwh[:, 3] - tlwh[:, 1]
 
             box_out: Optional[torch.Tensor] = None
-            if self._controller == "transformer" and self._model is not None and self._norm is not None:
+            if (
+                self._controller == "transformer"
+                and self._model is not None
+                and self._norm is not None
+            ):
                 feat = build_frame_features(
                     tlwh=tlwh.cpu().numpy(),
                     norm=self._norm,

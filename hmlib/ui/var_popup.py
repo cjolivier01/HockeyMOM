@@ -3,20 +3,18 @@ import time
 from tkinter import Button, Entry, Label, Tk
 
 # Shared variables
-shared_data = {
-    'lr': 0,
-    'conf': 0,
-    'foob': 0
-}
+shared_data = {"lr": 0, "conf": 0, "foob": 0}
+
 
 # Function to update variables from GUI entries
 def update_values():
     try:
-        shared_data['lr'] = float(lr_entry.get())
-        shared_data['conf'] = float(conf_entry.get())
-        shared_data['foob'] = float(foob_entry.get())
+        shared_data["lr"] = float(lr_entry.get())
+        shared_data["conf"] = float(conf_entry.get())
+        shared_data["foob"] = float(foob_entry.get())
     except ValueError:
         print("Please enter valid numbers")
+
 
 # GUI Thread Function
 def gui_thread():
@@ -40,6 +38,7 @@ def gui_thread():
     Button(window, text="Update Values", command=update_values).grid(row=3, columnspan=2)
 
     window.mainloop()
+
 
 if __name__ == "__main__":
     # Create and start the GUI thread

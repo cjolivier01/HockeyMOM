@@ -1,7 +1,7 @@
 """Base interfaces and helpers for Aspen pipeline trunks."""
 
 from contextlib import nullcontext
-from typing import Any, Dict, Iterable, Optional, Set
+from typing import Any, Dict, Optional, Set
 
 import torch
 

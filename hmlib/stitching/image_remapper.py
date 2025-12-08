@@ -5,7 +5,7 @@ panorama canvas, optionally via the native ``core.ImageRemapper`` op.
 """
 
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -13,10 +13,8 @@ import torch
 import torch.nn.functional as F
 
 import hockeymom.core as core
-
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.utils.image import image_height, image_width, pad_tensor_to_size_batched
-from hmlib.ui import show_image
 
 
 class RemapImageInfoEx(core.RemapImageInfo):

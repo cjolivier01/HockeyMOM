@@ -8,7 +8,6 @@ from torch.utils.data import Dataset
 
 
 class MultiDatasetWrapper(Dataset):
-
     def __init__(self, *args, forgive_missing_attributes: List[str] = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._datasets: OrderedDict[str, Dataset] = {}

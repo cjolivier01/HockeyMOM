@@ -3,11 +3,12 @@ Experiments in stitching
 """
 
 import argparse
+import contextlib
 import os
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import torch
 
@@ -20,7 +21,7 @@ from hmlib.segm.ice_rink import main as ice_rink_main
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
-from hmlib.utils.gpu import GpuAllocator, StreamTensor
+from hmlib.utils.gpu import GpuAllocator, StreamCheckpoint, StreamTensorBase
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
@@ -38,7 +39,9 @@ def make_parser():
     parser.add_argument("--num-workers", default=1, type=int, help="Number of stitching workers")
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs")
-    parser.add_argument("--configure-only", action="store_true", help="Run stitching configuration only")
+    parser.add_argument(
+        "--configure-only", action="store_true", help="Run stitching configuration only"
+    )
     parser.add_argument(
         "--single-file",
         default=0,
@@ -89,13 +92,13 @@ def stitch_videos(
     auto_adjust_exposure: Optional[bool] = False,
     minimize_blend: bool = True,
     python_blender: bool = False,
-    async_output: bool = False,
     configure_only: bool = False,
     lowmem: bool = False,
     post_stitch_rotate_degrees: Optional[float] = None,
     args: Optional[argparse.Namespace] = None,
 ):
     cuda_stream = torch.cuda.Stream(remapping_device)
+    torch.cuda.synchronize()
     with torch.cuda.stream(cuda_stream):
         if configure_only:
             cache_size = 0
@@ -152,7 +155,9 @@ def stitch_videos(
             batch_size=batch_size,
             num_workers=1,
             max_input_queue_size=cache_size,
-            image_roi=(get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None),
+            image_roi=(
+                get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None
+            ),
             decoder_device=decoder_device,
             blend_mode=blend_mode,
             remapping_device=remapping_device,
@@ -162,8 +167,9 @@ def stitch_videos(
             python_blender=python_blender,
             post_stitch_rotate_degrees=post_stitch_rotate_degrees,
             profiler=profiler,
-            no_cuda_streams=getattr(args, "no_cuda_streams", False) if args is not None else False,
-            async_mode=getattr(args, "async_mode", True) if args is not None else True,
+            # no_cuda_streams=args.no_cuda_streams,
+            no_cuda_streams=True,
+            async_mode=False,
         )
 
         data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
@@ -209,16 +215,12 @@ def stitch_videos(
                 update_rate=20,
                 table_callback=_table_callback,
                 use_curses=True,
-                enable_gpu_metrics=getattr(args, "progress_gpu_metrics", True) if args is not None else True,
-                enable_cuda_sync_counter=(
-                    getattr(args, "progress_cuda_sync_counter", True) if args is not None else True
-                ),
             )
             data_loader_iter = progress_bar
 
         video_out = None
 
-        def _maybe_save_frame(frame: torch.Tensor) -> None:
+        def _maybe_save_frame(frame_ids: torch.Tensor, frame: torch.Tensor) -> None:
             nonlocal video_out
             if output_stitched_video_file and video_out is None:
                 video_out = VideoOutput(
@@ -235,64 +237,82 @@ def stitch_videos(
                     original_clip_box=None,
                     progress_bar=progress_bar,
                     cache_size=cache_size,
-                    async_output=async_output,
+                    async_output=args.async_video_out,
+                    no_cuda_streams=args.no_cuda_streams,
                 )
             if video_out is not None:
-                video_out.append(dict(img=frame))
+                video_out.append(dict(frame_ids=frame_ids, img=StreamCheckpoint(frame)))
 
         try:
             start = None
 
             dataset_timer = Timer()
-            for i, stitched_image in enumerate(data_loader_iter):
-                if configure_only:
-                    break
-                if not output_stitched_video_file and isinstance(stitched_image, StreamTensor):
-                    stitched_image._verbose = False
-                    stitched_image = stitched_image.get()
+            with (
+                (
+                    profiler
+                    if (profiler is not None and profiler.enabled)
+                    else contextlib.nullcontext()
+                ),
+                torch.no_grad(),
+            ):
+                for i, stitched_image in enumerate(data_loader_iter):
+                    if configure_only:
+                        break
+                    if not output_stitched_video_file and isinstance(
+                        stitched_image, StreamTensorBase
+                    ):
+                        stitched_image._verbose = False
+                        stitched_image = stitched_image.get()
 
-                _maybe_save_frame(frame=stitched_image)
+                    frame_ids = torch.arange(i * batch_size, (i + 1) * batch_size)
 
-                if shower is not None:
-                    if False and stitched_image.device.type == "cuda":
-                        for stitched_img in stitched_image:
-                            show_cuda_tensor(
-                                "Stitched Image", stitched_img.clamp(min=0, max=255).to(torch.uint8), False, None
+                    cuda_stream.synchronize()
+
+                    _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
+
+                    # Per-iteration profiler step for gated profiling windows
+                    if profiler.enabled:
+                        profiler.step()
+
+                    if shower is not None:
+                        if False and stitched_image.device.type == "cuda":
+                            for stitched_img in stitched_image:
+                                show_cuda_tensor(
+                                    "Stitched Image",
+                                    stitched_img.clamp(min=0, max=255).to(torch.uint8),
+                                    False,
+                                    None,
+                                )
+                        else:
+                            shower.show(stitched_image)
+
+                    if i > 1:
+                        dataset_timer.toc()
+                    if (i + 1) % 20 == 0:
+                        assert stitched_image.ndim == 4
+                        dataset_delivery_fps = batch_size / max(1e-5, dataset_timer.average_time)
+                        logger.info(
+                            "Dataset frame {} ({:.2f} fps)".format(
+                                i * batch_size,
+                                batch_size / max(1e-5, dataset_timer.average_time),
                             )
-                    else:
-                        shower.show(stitched_image)
-
-                cuda_stream.synchronize()
-
-                # Per-iteration profiler step for gated profiling windows
-                if getattr(profiler, "enabled", False):
-                    profiler.step()
-
-                if i > 1:
-                    dataset_timer.toc()
-                if (i + 1) % 20 == 0:
-                    assert stitched_image.ndim == 4
-                    dataset_delivery_fps = batch_size / max(1e-5, dataset_timer.average_time)
-                    logger.info(
-                        "Dataset frame {} ({:.2f} fps)".format(
-                            i * batch_size,
-                            batch_size / max(1e-5, dataset_timer.average_time),
                         )
+                        if i % 100 == 0:
+                            dataset_timer = Timer()
+
+                    frame_count += batch_size
+
+                    if i == 1:
+                        start = time.time()
+                    dataset_timer.tic()
+
+                    del stitched_image
+
+                if start is not None:
+                    duration = time.time() - start
+                    print(
+                        f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)"
                     )
-                    if i % 100 == 0:
-                        dataset_timer = Timer()
-
-                frame_count += batch_size
-
-                if i == 1:
-                    start = time.time()
-                dataset_timer.tic()
-
-                del stitched_image
-
-            if start is not None:
-                duration = time.time() - start
-                print(f"{frame_count} frames in {duration} seconds ({(frame_count)/duration} fps)")
         except StopIteration:
             pass
         finally:
@@ -359,7 +379,9 @@ def _main(args) -> None:
     remapping_device = torch.device("cuda", gpu_allocator.allocate_fast())
     if args.multi_gpu:
         encoder_device = torch.device("cuda", gpu_allocator.allocate_modern())
-        decoder_device = torch.device(args.decoder_device) if args.decoder_device else remapping_device
+        decoder_device = (
+            torch.device(args.decoder_device) if args.decoder_device else remapping_device
+        )
     else:
         encoder_device, decoder_device = remapping_device, remapping_device
     if args.encoder_device:
@@ -401,7 +423,12 @@ def _main(args) -> None:
 
     if args.configure_only:
         # Configure the rink mask as well
-        ice_rink_main(args, device=decoder_device if not gpu_allocator.is_single_lowmem_gpu() else torch.device("cpu"))
+        ice_rink_main(
+            args,
+            device=(
+                decoder_device if not gpu_allocator.is_single_lowmem_gpu() else torch.device("cpu")
+            ),
+        )
 
 
 def main() -> None:

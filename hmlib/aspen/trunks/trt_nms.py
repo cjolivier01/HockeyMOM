@@ -50,8 +50,8 @@ def get_trt_logger(trt_module):
 class TrtNmsConfig:
     num_classes: int
     max_num_boxes: int  # static input/output size per image
-    top_k: int          # plugin topK (per class * image)
-    keep_top_k: int     # plugin keepTopK (per image, before our own max_per_img)
+    top_k: int  # plugin topK (per class * image)
+    keep_top_k: int  # plugin keepTopK (per image, before our own max_per_img)
     score_threshold: float
     iou_threshold: float
     max_per_img: int
@@ -82,7 +82,8 @@ class TrtBatchedNMS:
         self._np = None
         if self._stream is not None:
             assert (
-                self._stream.cuda_stream != torch.cuda.default_stream(device=self._stream.device).cuda_stream
+                self._stream.cuda_stream
+                != torch.cuda.default_stream(device=self._stream.device).cuda_stream
             ), "TrtBatchedNMS stream must not be the default stream"
 
     @staticmethod
@@ -218,10 +219,14 @@ class TrtBatchedNMS:
                 fields.append(trt.PluginField(name, arr, ftype))
 
             # EfficientNMS parameters
-            add_field("score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32)
+            add_field(
+                "score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32
+            )
             add_field("iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
             add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
-            add_field("background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32)
+            add_field(
+                "background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32
+            )
             # 0 = no activation (scores already in [0,1]), 1 = sigmoid
             add_field("score_activation", 0, trt.PluginFieldType.INT32)
             # 0 = per-class NMS, 1 = class-agnostic
@@ -254,17 +259,25 @@ class TrtBatchedNMS:
                 arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
                 fields.append(trt.PluginField(name, arr, ftype))
 
-            add_field("shareLocation", int(bool(self.cfg.share_location)), trt.PluginFieldType.INT32)
-            add_field("backgroundLabelId", int(self.cfg.background_label_id), trt.PluginFieldType.INT32)
+            add_field(
+                "shareLocation", int(bool(self.cfg.share_location)), trt.PluginFieldType.INT32
+            )
+            add_field(
+                "backgroundLabelId", int(self.cfg.background_label_id), trt.PluginFieldType.INT32
+            )
             add_field("numClasses", int(self.cfg.num_classes), trt.PluginFieldType.INT32)
             add_field("topK", int(self.cfg.top_k), trt.PluginFieldType.INT32)
             add_field("keepTopK", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
-            add_field("scoreThreshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32)
+            add_field(
+                "scoreThreshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32
+            )
             add_field("iouThreshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
             add_field("isNormalized", int(bool(self.cfg.is_normalized)), trt.PluginFieldType.INT32)
             add_field("clipBoxes", int(bool(self.cfg.clip_boxes)), trt.PluginFieldType.INT32)
             add_field("scoreBits", int(self.cfg.score_bits), trt.PluginFieldType.INT32)
-            add_field("caffeSemantics", int(bool(self.cfg.caffe_semantics)), trt.PluginFieldType.INT32)
+            add_field(
+                "caffeSemantics", int(bool(self.cfg.caffe_semantics)), trt.PluginFieldType.INT32
+            )
 
             plugin = creator.create_plugin("batched_nms", trt.PluginFieldCollection(fields))
             layer = network.add_plugin_v2([boxes, scores], plugin)
@@ -347,9 +360,7 @@ class TrtBatchedNMS:
             boxes_pad = torch.zeros((B, N, 4), device=device, dtype=torch.float32)
         else:
             boxes_pad = torch.zeros((B, N, 1, 4), device=device, dtype=torch.float32)
-        scores_pad = torch.zeros(
-            (B, N, C), device=device, dtype=torch.float32
-        )
+        scores_pad = torch.zeros((B, N, C), device=device, dtype=torch.float32)
         if plugin_kind == "efficient":
             boxes_pad[0, : boxes.shape[0], :] = boxes
         else:
@@ -392,7 +403,11 @@ class TrtBatchedNMS:
         labels = getattr(instances, "labels", None)
         if bboxes is None or scores is None or labels is None:
             return instances
-        if not torch.is_tensor(bboxes) or not torch.is_tensor(scores) or not torch.is_tensor(labels):
+        if (
+            not torch.is_tensor(bboxes)
+            or not torch.is_tensor(scores)
+            or not torch.is_tensor(labels)
+        ):
             return instances
         if bboxes.numel() == 0:
             return instances
@@ -468,7 +483,9 @@ class TrtBatchedNMS:
         try:
             new_inst.set_metainfo(
                 dict(
-                    num_valid_after_nms=make_const_tensor(num_valid, device=device, dtype=torch.int32),
+                    num_valid_after_nms=make_const_tensor(
+                        num_valid, device=device, dtype=torch.int32
+                    ),
                     max_detections=int(self.cfg.max_num_boxes),
                     num_valid_before_nms=int(num_boxes),
                 )
@@ -521,7 +538,9 @@ class DetectorNMS:
         #     if max_num_boxes > self._trt_nms.cfg.max_num_boxes:
         #         self._trt_nms = TrtBatchedNMS.from_bbox_head(self.bbox_head, max_num_boxes=max_num_boxes, stream=stream)
 
-    def _run_trt(self, instances: Sequence[InstanceData], img_metas: Sequence[Dict[str, Any]]) -> List[InstanceData]:
+    def _run_trt(
+        self, instances: Sequence[InstanceData], img_metas: Sequence[Dict[str, Any]]
+    ) -> List[InstanceData]:
         if not instances:
             return []
         # Determine maximum pre-NMS count across the batch so the plugin
@@ -544,7 +563,9 @@ class DetectorNMS:
         try:
             from torchvision.ops import nms as tv_nms  # type: ignore
         except Exception as ex:
-            raise RuntimeError("torchvision.ops.nms is required for torchvision NMS backend") from ex
+            raise RuntimeError(
+                "torchvision.ops.nms is required for torchvision NMS backend"
+            ) from ex
 
         def _single(inst: InstanceData, img_meta: Dict[str, Any]) -> InstanceData:
             bboxes = getattr(inst, "bboxes", None)
@@ -552,7 +573,11 @@ class DetectorNMS:
             labels = getattr(inst, "labels", None)
             if bboxes is None or scores is None or labels is None:
                 return inst
-            if not torch.is_tensor(bboxes) or not torch.is_tensor(scores) or not torch.is_tensor(labels):
+            if (
+                not torch.is_tensor(bboxes)
+                or not torch.is_tensor(scores)
+                or not torch.is_tensor(labels)
+            ):
                 return inst
 
             device = bboxes.device
@@ -636,7 +661,9 @@ class DetectorNMS:
             try:
                 new_inst.set_metainfo(
                     dict(
-                        num_valid_after_nms=make_const_tensor(num_valid, device=device, dtype=torch.int32),
+                        num_valid_after_nms=make_const_tensor(
+                            num_valid, device=device, dtype=torch.int32
+                        ),
                         num_valid_before_nms=int(num_before),
                     )
                 )
@@ -653,11 +680,15 @@ class DetectorNMS:
     ) -> List[InstanceData]:
         """Reuse the bbox head's own _bbox_post_process NMS."""
         if not hasattr(self.bbox_head, "_bbox_post_process"):
-            raise RuntimeError("bbox_head does not implement _bbox_post_process; cannot use 'head' NMS backend")
+            raise RuntimeError(
+                "bbox_head does not implement _bbox_post_process; cannot use 'head' NMS backend"
+            )
 
         test_cfg = getattr(self.bbox_head, "test_cfg", None)
         if test_cfg is None:
-            raise RuntimeError("bbox_head.test_cfg is None; cannot infer NMS config for 'head' backend")
+            raise RuntimeError(
+                "bbox_head.test_cfg is None; cannot infer NMS config for 'head' backend"
+            )
 
         out: List[InstanceData] = []
         for inst, img_meta in zip(instances, img_metas):
@@ -699,7 +730,9 @@ class DetectorNMS:
     ) -> List[InstanceData]:
         """Apply the configured primary backend (and optional comparators) to a batch."""
         if len(instances) != len(img_metas):
-            raise ValueError(f"DetectorNMS.run_batch expected equal lengths, got {len(instances)} and {len(img_metas)}")
+            raise ValueError(
+                f"DetectorNMS.run_batch expected equal lengths, got {len(instances)} and {len(img_metas)}"
+            )
 
         backend = self.backend
         if backend == "trt":

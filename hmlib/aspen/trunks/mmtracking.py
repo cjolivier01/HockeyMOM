@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import torch
 
@@ -31,8 +31,6 @@ class MMTrackingTrunk(Trunk):
             return {}
 
         data: Dict[str, Any] = context["data"]
-        # Preserve original_images from input context before model overwrites data
-        preserved_original_images = data.get("original_images")
         model = context["model"]
         fp16: bool = context.get("fp16", False)
 
@@ -81,7 +79,9 @@ class MMTrackingTrunk(Trunk):
                     tlbr=pred_track_instances.bboxes,
                     scores=pred_track_instances.scores,
                     labels=pred_track_instances.labels,
-                    jersey_info=(jersey_results[frame_index] if jersey_results is not None else None),
+                    jersey_info=(
+                        jersey_results[frame_index] if jersey_results is not None else None
+                    ),
                 )
             if not using_precalculated_detection and detection_dataframe is not None:
                 detection_dataframe.add_frame_records(

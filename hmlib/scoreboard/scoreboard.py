@@ -1,29 +1,17 @@
-import math
 import os
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from PIL import Image
 from torch import Tensor
 from torch.nn import functional as F
 from torchvision.transforms import functional as TF
 
-import hmlib.tracking_utils.visualization as vis
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.hm_opts import hm_opts
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-    make_visible_image,
-    pad_tensor_to_size_batched,
-    resize_image,
-)
+from hmlib.utils.image import make_channels_first, make_channels_last, resize_image
 
 
 def point_distance(pt0: torch.Tensor, pt1: torch.Tensor) -> torch.Tensor:
@@ -40,16 +28,15 @@ def order_points_clockwise(pts: torch.Tensor):
 
     # Allocate an array for the ordered points: [top-left, top-right, bottom-right, bottom-left]
     ordered = np.zeros((4, 2), dtype="float32")
-    ordered[0] = pts[np.argmin(s)]       # top-left: smallest sum
-    ordered[2] = pts[np.argmax(s)]       # bottom-right: largest sum
-    ordered[1] = pts[np.argmin(diff)]    # top-right: smallest difference
-    ordered[3] = pts[np.argmax(diff)]    # bottom-left: largest difference
+    ordered[0] = pts[np.argmin(s)]  # top-left: smallest sum
+    ordered[2] = pts[np.argmax(s)]  # bottom-right: largest sum
+    ordered[1] = pts[np.argmin(diff)]  # top-right: smallest difference
+    ordered[3] = pts[np.argmax(diff)]  # bottom-left: largest difference
 
     return torch.from_numpy(ordered)
 
 
 class Scoreboard(torch.nn.Module):
-
     def __init__(
         self,
         src_pts: torch.Tensor,

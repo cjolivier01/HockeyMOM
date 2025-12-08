@@ -20,7 +20,9 @@ class PersistCacheMixin:
         self._persist_cache = None
 
     # ---- internal helpers ----
-    def _persist_fingerprint(self, image: torch.Tensor, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _persist_fingerprint(
+        self, image: torch.Tensor, extras: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Fingerprint of things that must not change across persisted calls."""
         H, W = int(image.shape[-2]), int(image.shape[-1])  # ignore batch size
         fp = {
@@ -49,7 +51,9 @@ class PersistCacheMixin:
                 "Call clear_persist_cache(), or pass persist=False for a one-off recompute."
             )
 
-    def _persist_get(self, key: str, factory: Callable[[], torch.Tensor], persist: bool) -> torch.Tensor:
+    def _persist_get(
+        self, key: str, factory: Callable[[], torch.Tensor], persist: bool
+    ) -> torch.Tensor:
         """
         Return cached tensor if available (when persist=True); otherwise compute.
         Tensors are detached on cache write to avoid holding onto past graphs.
@@ -62,5 +66,3 @@ class PersistCacheMixin:
         if key not in cache:
             cache[key] = factory().detach()
         return cache[key]
-
-

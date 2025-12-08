@@ -6,22 +6,19 @@ frame data plus a thin :class:`Dataset` wrapper for training.
 
 import json
 import os
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from dataclasses import asdict, dataclass, is_dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Type, Union
+from typing import Any, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from hmlib.builder import PIPELINES as TRANSFORMS
-from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
 
 
 class HmDataFrameBase:
-
     def __init__(
         self,
         fields: List[str],
@@ -39,7 +36,7 @@ class HmDataFrameBase:
         self._dataframe_list: List[pd.DataFrame] = []
         self.counter = 0  # Counter to track number of records since the last write
         self.data: Optional[pd.DataFrame] = None
-        self._ilocator: ILocator = None
+        self._ilocator = None
         if input_file:
             self.read_data()
 
@@ -128,7 +125,6 @@ def json_to_dataclass(json_str, cls):
 
 
 class DataFrameDataset(Dataset):
-
     def __init__(
         self, dataframe: Union[pd.DataFrame, HmDataFrameBase], transform=None, seek_base: int = 0
     ):
@@ -195,7 +191,9 @@ class DataFrameDatasetIterator:
 #         return data
 
 
-def find_latest_dataframe_file(game_dir: Optional[str], stem: str, extension: str = ".csv") -> Optional[str]:
+def find_latest_dataframe_file(
+    game_dir: Optional[str], stem: str, extension: str = ".csv"
+) -> Optional[str]:
     """Return the newest CSV path for a dataframe in ``game_dir``.
 
     Looks for ``{stem}.csv`` and ``{stem}-N.csv`` files, returning the one with

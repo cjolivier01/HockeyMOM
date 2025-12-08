@@ -1,6 +1,6 @@
 import importlib
 import pkgutil
-import inspect
+
 
 def find_item_in_module(module, item_name):
     """
@@ -11,15 +11,15 @@ def find_item_in_module(module, item_name):
     :return: The module path as a string if the item is found, otherwise None.
     """
     # Check if the item exists in the current module
-    
+
     if isinstance(module, str):
         module = importlib.import_module(module)
-    
+
     if hasattr(module, item_name):
         return module.__name__
 
     # If the module has a __path__ attribute, it's a package that can contain submodules
-    if hasattr(module, '__path__'):
+    if hasattr(module, "__path__"):
         for _, submodule_name, is_pkg in pkgutil.walk_packages(module.__path__):
             full_submodule_name = f"{module.__name__}.{submodule_name}"
             try:
@@ -36,6 +36,7 @@ def find_item_in_module(module, item_name):
     # Item not found in this module or its submodules
     return None
 
+
 # Example usage
 if __name__ == "__main__":
-    import some_module  # Replace 'some_module' with
+    pass  # Replace 'some_module' with

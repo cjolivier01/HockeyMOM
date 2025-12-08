@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -103,7 +103,11 @@ class PoseInferencerFactoryTrunk(Trunk):
                 # Prefer TensorRT if enabled
                 if bool(self._trt_cfg.get("enable", False)):
                     pose_impl = getattr(self._inferencer, "inferencer", None)
-                    if pose_impl is not None and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown":
+                    if (
+                        pose_impl is not None
+                        and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None)
+                        == "topdown"
+                    ):
                         self._trt_runner = _TrtPoseRunner(
                             model=pose_impl.model,
                             engine_path=str(self._trt_cfg.get("engine", "pose.engine")),
@@ -116,7 +120,11 @@ class PoseInferencerFactoryTrunk(Trunk):
                 # Otherwise, enable ONNX if requested
                 if self._trt_runner is None and bool(self._onnx_cfg.get("enable", False)):
                     pose_impl = getattr(self._inferencer, "inferencer", None)
-                    if pose_impl is not None and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None) == "topdown":
+                    if (
+                        pose_impl is not None
+                        and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None)
+                        == "topdown"
+                    ):
                         self._onnx_runner = _OnnxPoseRunner(
                             model=pose_impl.model,
                             onnx_path=str(self._onnx_cfg.get("path", "pose.onnx")),
@@ -188,6 +196,7 @@ class _OnnxPoseRunner:
 
     def _export_and_create_session(self) -> None:
         import os
+
         export_needed = self.force_export or (not os.path.exists(self.onnx_path))
         if export_needed:
             wrapper = _BackboneNeckWrapper(self.model).eval()
@@ -214,6 +223,7 @@ class _OnnxPoseRunner:
                     },
                 )
         import onnxruntime as ort  # type: ignore
+
         # Session options with higher optimization level
         so = ort.SessionOptions()
         try:
@@ -233,6 +243,7 @@ class _OnnxPoseRunner:
 
     def _run_feats(self, x: torch.Tensor) -> Any:
         import numpy as np
+
         x = x.to(torch.float32)
         # Calibration capture from CPU
         if self.quantize_int8 and not self._quantized and self.calib_target > 0:
@@ -264,6 +275,7 @@ class _OnnxPoseRunner:
             outs_t: List[torch.Tensor] = []
             try:
                 from torch.utils.dlpack import from_dlpack  # type: ignore
+
                 for ov in ort_outs:
                     outs_t.append(from_dlpack(ov.to_dlpack()).to(device=dev))
             except Exception:
@@ -287,20 +299,29 @@ class _OnnxPoseRunner:
         if self.calib_target <= 0 or len(self._calib_inputs) < self.calib_target:
             return
         try:
-            from onnxruntime.quantization import CalibrationDataReader, QuantType, QuantFormat, quantize_static  # type: ignore
+            from onnxruntime.quantization import (  # type: ignore
+                CalibrationDataReader,
+                QuantFormat,
+                QuantType,
+                quantize_static,
+            )
         except Exception:
             self._calib_inputs = []
             return
         input_name = self._ort_sess.get_inputs()[0].name
+
         class _Reader(CalibrationDataReader):  # type: ignore
-            def __init__(self, name, samples): self.name, self._it = name, iter(samples)
+            def __init__(self, name, samples):
+                self.name, self._it = name, iter(samples)
+
             def get_next(self):
                 try:
                     x = next(self._it)
                     return {self.name: x}
                 except StopIteration:
                     return None
-        q_path = self.onnx_path.replace('.onnx', '.int8.onnx')
+
+        q_path = self.onnx_path.replace(".onnx", ".int8.onnx")
         try:
             quantize_static(
                 model_input=self.onnx_path,
@@ -312,6 +333,7 @@ class _OnnxPoseRunner:
                 per_channel=True,
             )
             import onnxruntime as ort  # type: ignore
+
             self._ort_sess = ort.InferenceSession(q_path, providers=self._providers)
             self._quantized = True
         except Exception:
@@ -373,8 +395,11 @@ class _TrtPoseRunner:
         try:
             import torch2trt  # type: ignore
         except Exception as ex:
-            raise RuntimeError("torch2trt is required for TensorRT pose path but is not available") from ex
+            raise RuntimeError(
+                "torch2trt is required for TensorRT pose path but is not available"
+            ) from ex
         import os
+
         # Try to load an existing engine at the provided path; otherwise, defer building
         if (not self.force_build) and os.path.exists(self.engine_path):
             try:
@@ -396,8 +421,9 @@ class _TrtPoseRunner:
             import torch2trt  # type: ignore
         except Exception:
             return
-        from pathlib import Path as _Path
         import os
+        from pathlib import Path as _Path
+
         # Append shape (and int8 tag) to engine filename to specialize per input
         base = _Path(self.engine_path)
         portions = [base.stem]
@@ -410,6 +436,7 @@ class _TrtPoseRunner:
             try:
                 trt_mod = torch2trt.TRTModule()
                 import torch as _torch
+
                 trt_mod.load_state_dict(_torch.load(engine_path))
                 self._trt_module = trt_mod
                 return
@@ -445,6 +472,7 @@ class _TrtPoseRunner:
                     )
             try:
                 import torch as _torch
+
                 _torch.save(trt_mod.state_dict(), engine_path)
             except Exception:
                 pass
@@ -463,7 +491,6 @@ class _TrtPoseRunner:
             import torch2trt  # type: ignore
         except Exception:
             return
-        import os
         # Prepare dataset and build when enough samples
         if self._calib_dataset is None:
             try:
@@ -492,6 +519,7 @@ class _TrtPoseRunner:
             # Save
             try:
                 import torch as _torch
+
                 _torch.save(trt_mod.state_dict(), self.engine_path)
             except Exception:
                 pass
@@ -510,6 +538,7 @@ class _TrtPoseRunner:
                     )
                 try:
                     import torch as _torch
+
                     _torch.save(trt_mod.state_dict(), self.engine_path)
                 except Exception:
                     pass
@@ -538,6 +567,7 @@ class _TrtPoseRunner:
                 if self._calib_dataset is None and self.calib_frames > 0:
                     try:
                         from torch2trt import ListDataset  # type: ignore
+
                         self._calib_dataset = ListDataset()
                     except Exception:
                         self._calib_dataset = None

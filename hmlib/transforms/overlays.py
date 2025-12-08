@@ -1,35 +1,22 @@
-from contextlib import contextmanager
-from typing import Any, Dict, Optional, Tuple, Union, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
+import numpy as np
 import torch
 from mmengine.registry import TRANSFORMS
 
-from hmlib.bbox.box_functions import center, height, width
-from hmlib.config import get_clip_box, get_config, get_nested_value, prepend_root_dir
-from hmlib.log import logger
-from hmlib.scoreboard.selector import configure_scoreboard
+import hmlib.vis.pt_visualization as ptv
+from hmlib.config import prepend_root_dir
+from hmlib.segm.ice_rink import MaskEdgeDistances, find_extreme_points
 from hmlib.tracking_utils import visualization as vis
-from hmlib.ui import show_image
-from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
-from hmlib.utils.gpu import StreamTensor
 from hmlib.utils.image import (
-    crop_image,
     image_height,
     image_width,
     is_channels_first,
     make_channels_first,
     make_channels_last,
-    resize_image,
-    rotate_image,
-    to_float_image,
 )
-from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.time import format_duration_to_hhmmss
-from hmlib.video.video_stream import VideoStreamReader
-import numpy as np
-from hmlib.segm.ice_rink import find_extreme_points, MaskEdgeDistances
-import hmlib.vis.pt_visualization as ptv
 
 
 def paste_watermark_at_position(dest_image, watermark_rgb_channels, watermark_mask, x: int, y: int):
@@ -47,7 +34,6 @@ def paste_watermark_at_position(dest_image, watermark_rgb_channels, watermark_ma
 
 @TRANSFORMS.register_module()
 class HmImageOverlays:
-
     def __init__(
         self,
         frame_number: bool = False,
@@ -91,7 +77,7 @@ class HmImageOverlays:
                     cv2.IMREAD_UNCHANGED,
                 )
             if self._watermark is None:
-                raise InvalidArgumentError(f"Could not load watermark image: {self._watermark_image}")
+                raise ValueError(f"Could not load watermark image: {self._watermark_image}")
             self._watermark_height = image_height(self._watermark)
             self._watermark_width = image_width(self._watermark)
             self._watermark_rgb_channels = self._watermark[:, :, :3]
@@ -105,8 +91,12 @@ class HmImageOverlays:
             )
 
             if self._device is not None:
-                self._watermark_rgb_channels = torch.from_numpy(self._watermark_rgb_channels).to(self._device)
-                self._watermark_mask = torch.from_numpy(self._watermark_mask).to(self._device).to(torch.half)
+                self._watermark_rgb_channels = torch.from_numpy(self._watermark_rgb_channels).to(
+                    self._device
+                )
+                self._watermark_mask = (
+                    torch.from_numpy(self._watermark_mask).to(self._device).to(torch.half)
+                )
                 # Scale mask to [0, 1]
                 self._watermark_mask = self._watermark_mask / torch.max(self._watermark_mask)
         else:
@@ -205,20 +195,20 @@ class HmImageOverlays:
                 cy_cl = int((top_y + bot_y) / 2)
             src_pts = np.float32(
                 [
-                    [left_x, cy_cl],   # left mid
+                    [left_x, cy_cl],  # left mid
                     [right_x, cy_cl],  # right mid
-                    [cx_cl, top_y],    # top mid
-                    [cx_cl, bot_y],    # bottom mid
+                    [cx_cl, top_y],  # top mid
+                    [cx_cl, bot_y],  # bottom mid
                 ]
             )
             # Destination canonical rink coords (feet)
             Rw, Rh = self._rink_dims_ft
             dst_pts = np.float32(
                 [
-                    [0.0, Rh / 2.0],    # left mid
-                    [Rw, Rh / 2.0],     # right mid
-                    [Rw / 2.0, 0.0],    # top mid
-                    [Rw / 2.0, Rh],     # bottom mid
+                    [0.0, Rh / 2.0],  # left mid
+                    [Rw, Rh / 2.0],  # right mid
+                    [Rw / 2.0, 0.0],  # top mid
+                    [Rw / 2.0, Rh],  # bottom mid
                 ]
             )
             H = cv2.getPerspectiveTransform(src_pts, dst_pts)
@@ -227,7 +217,6 @@ class HmImageOverlays:
         # Prepare canvas dims
         B = img.shape[0] if img.ndim == 4 else 1
         H_out = image_height(img)
-        W_out = image_width(img)
         # Compute minimap size
         mini_h = max(self._overhead_min_h, int(H_out * self._overhead_max_h_ratio))
         scale = mini_h / self._rink_dims_ft[1]
@@ -274,31 +263,68 @@ class HmImageOverlays:
             )
             # Fill semicircles at ends
             rink_canvas = ptv.draw_circle(
-                rink_canvas, center_x=rect_left, center_y=radius, radius=radius, color=(255, 255, 255), thickness=1, fill=True
+                rink_canvas,
+                center_x=rect_left,
+                center_y=radius,
+                radius=radius,
+                color=(255, 255, 255),
+                thickness=1,
+                fill=True,
             )
             rink_canvas = ptv.draw_circle(
-                rink_canvas, center_x=rect_right, center_y=radius, radius=radius, color=(255, 255, 255), thickness=1, fill=True
+                rink_canvas,
+                center_x=rect_right,
+                center_y=radius,
+                radius=radius,
+                color=(255, 255, 255),
+                thickness=1,
+                fill=True,
             )
             # Border outline (approximate): vertical edges + circle outlines
             rink_canvas = vis.plot_rectangle(
-                rink_canvas, box=[rect_left, 0, rect_right, mini_h - 1], color=(0, 0, 0), thickness=2
+                rink_canvas,
+                box=[rect_left, 0, rect_right, mini_h - 1],
+                color=(0, 0, 0),
+                thickness=2,
             )
             rink_canvas = ptv.draw_circle(
-                rink_canvas, center_x=rect_left, center_y=radius, radius=radius, color=(0, 0, 0), thickness=2, fill=False
+                rink_canvas,
+                center_x=rect_left,
+                center_y=radius,
+                radius=radius,
+                color=(0, 0, 0),
+                thickness=2,
+                fill=False,
             )
             rink_canvas = ptv.draw_circle(
-                rink_canvas, center_x=rect_right, center_y=radius, radius=radius, color=(0, 0, 0), thickness=2, fill=False
+                rink_canvas,
+                center_x=rect_right,
+                center_y=radius,
+                radius=radius,
+                color=(0, 0, 0),
+                thickness=2,
+                fill=False,
             )
             # Center and blue lines
             cx_px = int((self._rink_dims_ft[0] / 2.0) * scale)
             rink_canvas = ptv.draw_vertical_line(
-                rink_canvas, start_x=cx_px, start_y=0, length=mini_h, color=(32, 0, 255), thickness=2
+                rink_canvas,
+                start_x=cx_px,
+                start_y=0,
+                length=mini_h,
+                color=(32, 0, 255),
+                thickness=2,
             )
             blue_off = int(25.0 * scale)
             for off in (-blue_off, blue_off):
                 x_bl = int(cx_px + off)
                 rink_canvas = ptv.draw_vertical_line(
-                    rink_canvas, start_x=x_bl, start_y=0, length=mini_h, color=(255, 0, 0), thickness=2
+                    rink_canvas,
+                    start_x=x_bl,
+                    start_y=0,
+                    length=mini_h,
+                    color=(255, 0, 0),
+                    thickness=2,
                 )
             # Map and draw players
             pts = points_list[bi]
@@ -311,8 +337,8 @@ class HmImageOverlays:
                     m = mask.to(torch.bool)
                     keep = []
                     for i in range(pts.shape[0]):
-                        x = int(max(0, min(m.shape[1]-1, int(pts[i,0].item()))))
-                        y = int(max(0, min(m.shape[0]-1, int(pts[i,1].item()))))
+                        x = int(max(0, min(m.shape[1] - 1, int(pts[i, 0].item()))))
+                        y = int(max(0, min(m.shape[0] - 1, int(pts[i, 1].item()))))
                         if y < m.shape[0] and x < m.shape[1] and bool(m[y, x].item()):
                             keep.append(True)
                         else:
@@ -331,9 +357,7 @@ class HmImageOverlays:
                 uv = uvw[:2, :] / w
                 uv = uv.t()  # Nx2 in rink feet
                 # Scale to canvas px
-                uv_px = torch.stack(
-                    [uv[:, 0] * scale, uv[:, 1] * scale], dim=1
-                )  # Nx2
+                uv_px = torch.stack([uv[:, 0] * scale, uv[:, 1] * scale], dim=1)  # Nx2
                 # Draw circles
                 for i in range(uv_px.shape[0]):
                     px = int(uv_px[i, 0].item())
@@ -343,7 +367,13 @@ class HmImageOverlays:
                         if isinstance(ids, torch.Tensor) and ids.numel() > i:
                             color = vis.get_color(int(ids[i].item()))
                         rink_canvas = ptv.draw_circle(
-                            rink_canvas, center_x=px, center_y=py, radius=5, color=color, thickness=2, fill=True
+                            rink_canvas,
+                            center_x=px,
+                            center_y=py,
+                            radius=5,
+                            color=color,
+                            thickness=2,
+                            fill=True,
                         )
             # Paste into frame with boundary checks and source offsets
             fh = image_height(frame_img)
@@ -361,7 +391,9 @@ class HmImageOverlays:
             paste_w = min(mini_w - sx, fw - dx)
             paste_h = min(mini_h - sy, fh - dy)
             if paste_w > 1 and paste_h > 1:
-                frame_img[:, dy:dy+paste_h, dx:dx+paste_w] = rink_canvas[:, sy:sy+paste_h, sx:sx+paste_w]
+                frame_img[:, dy : dy + paste_h, dx : dx + paste_w] = rink_canvas[
+                    :, sy : sy + paste_h, sx : sx + paste_w
+                ]
             img[bi] = frame_img
         # Restore original dims
         if sq:

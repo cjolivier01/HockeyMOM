@@ -104,13 +104,13 @@ def slurm_parse_brackets(s):
         if s[0] == "]":
             return lst, s[1:]
         a, s = slurm_parse_int(s)
-        assert len(s) > 0, f"Missing closing ']'"
+        assert len(s) > 0, "Missing closing ']'"
         if s[0] in ",]":
             lst.append(a)
         elif s[0] == "-":
             b, s = slurm_parse_int(s[1:])
             lst += string_range(a, int(b) + 1)
-    assert len(s) > 0, f"Missing closing ']'"
+    assert len(s) > 0, "Missing closing ']'"
 
 
 def slurm_parse_node(s):
@@ -167,9 +167,7 @@ def get_default_dist_url():
     """Return a default dist-url based on SLURM environment variables."""
     if "MASTER_ADDR" in os.environ:
         assert "MASTER_PORT" in os.environ
-        return get_dist_url(
-            os.environ["MASTER_ADDR"], port=int(os.environ["MASTER_PORT"])
-        )
+        return get_dist_url(os.environ["MASTER_ADDR"], port=int(os.environ["MASTER_PORT"]))
 
     nodelist = os.environ.get("SLURM_JOB_NODELIST", None)
     if not nodelist:

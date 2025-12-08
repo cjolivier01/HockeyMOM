@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import contextlib
 import os
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 import torch
 
@@ -135,9 +134,7 @@ class HmProfiler:
 
         if not self._opts.export_per_iter and self._opts.save_dir:
             # Export once after profiler context closes
-            path = os.path.join(
-                self._opts.save_dir, f"{self._opts.trace_basename}.json"
-            )
+            path = os.path.join(self._opts.save_dir, f"{self._opts.trace_basename}.json")
             try:
                 prof.export_chrome_trace(path)
             except Exception:

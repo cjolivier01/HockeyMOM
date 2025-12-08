@@ -18,7 +18,7 @@ from matplotlib.patches import Polygon
 from mmdet.apis import inference_detector, init_detector
 from mmdet.models.detectors.base import BaseDetector
 from mmdet.structures import DetDataSample
-from mmdet.structures.mask import PolygonMasks, bitmap_to_polygon
+from mmdet.structures.mask import bitmap_to_polygon
 from PIL import Image
 
 from hmlib.config import (
@@ -33,7 +33,7 @@ from hmlib.log import logger, logging
 from hmlib.models.loader import get_model_config
 from hmlib.segm.utils import calculate_centroid
 from hmlib.ui import show_image as do_show_image
-from hmlib.utils.gpu import GpuAllocator, StreamTensor
+from hmlib.utils.gpu import GpuAllocator, StreamTensorBase
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -264,7 +264,9 @@ def _rescale_rink_results(
         ]
 
     if "combined_mask" in rink_results and rink_results["combined_mask"] is not None:
-        rink_results["combined_mask"] = _resize_mask(rink_results["combined_mask"], orig_height, orig_width)
+        rink_results["combined_mask"] = _resize_mask(
+            rink_results["combined_mask"], orig_height, orig_width
+        )
 
     if "centroid" in rink_results and rink_results["centroid"] is not None:
         rink_results["centroid"] = rink_results["centroid"] * inv_scale
@@ -324,7 +326,9 @@ def find_ice_rink_masks(
     if device.type == "cpu":
         logger.info("Looking for the ice at the rink, this may take awhile...")
     model = init_detector(config_file, checkpoint, device=device)
-    results: List[Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]] = []
+    results: List[
+        Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]
+    ] = []
     for img in image:
         orig_height = image_height(img)
         orig_width = image_width(img)
@@ -339,7 +343,9 @@ def find_ice_rink_masks(
             new_width = max(1, int(round(orig_width * inference_scale)))
             new_height = max(1, int(round(orig_height * inference_scale)))
             interpolation = cv2.INTER_AREA if inference_scale < 1.0 else cv2.INTER_LINEAR
-            infer_image = cv2.resize(infer_image, (new_width, new_height), interpolation=interpolation)
+            infer_image = cv2.resize(
+                infer_image, (new_width, new_height), interpolation=interpolation
+            )
 
         rink_result = detect_ice_rink_mask(image=infer_image, model=model, show=show)
 
@@ -348,7 +354,9 @@ def find_ice_rink_masks(
             continue
 
         if inference_scale and inference_scale != 1.0:
-            rink_result = _rescale_rink_results(rink_result, inference_scale, (orig_height, orig_width))
+            rink_result = _rescale_rink_results(
+                rink_result, inference_scale, (orig_height, orig_width)
+            )
 
         results.append(rink_result)
 
@@ -506,7 +514,9 @@ def confgure_ice_rink_mask(
                     f"rink mask size of w={mask_w}, h={mask_h}, so mask must be reconstructed"
                 )
 
-    model_config_file, model_checkpoint = get_model_config(game_id=game_id, model_name="ice_rink_segm")
+    model_config_file, model_checkpoint = get_model_config(
+        game_id=game_id, model_name="ice_rink_segm"
+    )
 
     assert model_config_file
     assert model_checkpoint
@@ -524,7 +534,7 @@ def confgure_ice_rink_mask(
         assert image_height(image) == expected_shape[-2]
         image_frame = image
         if device is not None and image_frame.device != device:
-            if isinstance(image_frame, StreamTensor):
+            if isinstance(image_frame, StreamTensorBase):
                 image_frame = image_frame.get()
                 assert image_frame.ndim == 4
                 image_frame = image_frame[0]
@@ -658,10 +668,18 @@ def main(args: argparse.Namespace = None, device: torch.device = torch.device("c
     if args is None:
         parser = argparse.ArgumentParser(description="Ice rink segmentation script")
         parser.add_argument("--game-id", "-g", type=str, required=True, help="Game ID to process")
-        parser.add_argument("--show-image", "--show", action="store_true", help="Show the image with the mask")
-        parser.add_argument("--force", "-f", action="store_true", help="Force reconfiguration of the ice rink mask")
-        parser.add_argument("--scale", "-s", type=float, default=None, help="Scale factor for the image")
-        parser.add_argument("--device", "-d", type=str, default=None, help="Device used for inference")
+        parser.add_argument(
+            "--show-image", "--show", action="store_true", help="Show the image with the mask"
+        )
+        parser.add_argument(
+            "--force", "-f", action="store_true", help="Force reconfiguration of the ice rink mask"
+        )
+        parser.add_argument(
+            "--scale", "-s", type=float, default=None, help="Scale factor for the image"
+        )
+        parser.add_argument(
+            "--device", "-d", type=str, default=None, help="Device used for inference"
+        )
         args = parser.parse_args()
 
     if args.device is not None:

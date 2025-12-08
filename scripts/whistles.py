@@ -1,8 +1,8 @@
-import ffmpeg
-import librosa
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import find_peaks
+
+import ffmpeg
+import librosa
 
 
 def extract_audio(video_path, audio_path):

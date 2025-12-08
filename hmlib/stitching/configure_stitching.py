@@ -15,9 +15,7 @@ import cv2
 import numpy as np
 import tifffile
 import torch
-import torch.nn.functional as F
 
-import hockeymom
 from hmlib.config import (
     get_game_config_private,
     get_nested_value,
@@ -44,7 +42,9 @@ def _resolve_local_binary(executable: str) -> Optional[str]:
     return None
 
 
-def _get_color_adjustment_adders(game_id: str) -> Tuple[Optional[List[float]], Optional[List[float]]]:
+def _get_color_adjustment_adders(
+    game_id: str,
+) -> Tuple[Optional[List[float]], Optional[List[float]]]:
     """Return per-side RGB adders from game config, if present.
 
     Expected config structure in private game config (e.g. $HOME/Videos/<game_id>/config.yaml):
@@ -382,7 +382,9 @@ def get_pixel_value_percentages(image_path: str) -> Dict[int, float]:
     counts: np.ndarray = np.bincount(arr.flatten(), minlength=256)
 
     # Build percentage dict, omitting values with zero count
-    percentages: Dict[int, float] = {value: (count / total) * 100.0 for value, count in enumerate(counts) if count > 0}
+    percentages: Dict[int, float] = {
+        value: (count / total) * 100.0 for value, count in enumerate(counts) if count > 0
+    }
 
     return percentages
 

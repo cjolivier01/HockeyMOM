@@ -1,11 +1,9 @@
-import sys
 import argparse
 
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
-
 
 parser = argparse.ArgumentParser(
     description=(
@@ -88,6 +86,7 @@ def apply_rgb_offsets(data: np.ndarray, r: float, g: float, b: float) -> np.ndar
     # Unsupported format; return unchanged
     return data
 
+
 try:
     # Load image
     img = Image.open(image_path)
@@ -95,9 +94,7 @@ try:
 
     # Apply optional RGB offsets before any display/analysis
     if args.red != 0.0 or args.green != 0.0 or args.blue != 0.0:
-        print(
-            f"Applying offsets: R={args.red:+.2f}, G={args.green:+.2f}, B={args.blue:+.2f}"
-        )
+        print(f"Applying offsets: R={args.red:+.2f}, G={args.green:+.2f}, B={args.blue:+.2f}")
     data = apply_rgb_offsets(data, args.red, args.green, args.blue)
 
     # Ensure we work with RGB for averaging; ignore alpha if present
@@ -226,9 +223,7 @@ try:
         region = rgb_data[yi0 : yi1 + 1, xi0 : xi1 + 1]
         if region.size > 0:
             m = region.mean(axis=(0, 1))
-            ax.set_title(
-                f"{title_base} | Live avg RGB: R={m[0]:.2f}, G={m[1]:.2f}, B={m[2]:.2f}"
-            )
+            ax.set_title(f"{title_base} | Live avg RGB: R={m[0]:.2f}, G={m[1]:.2f}, B={m[2]:.2f}")
         else:
             ax.set_title(title_base)
         fig.canvas.draw()

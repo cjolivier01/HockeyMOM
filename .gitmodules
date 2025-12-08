@@ -7,9 +7,6 @@
 [submodule "external/hugin"]
 	path = external/hugin
 	url = ssh://git@github.com/cjolivier01/hugin
-[submodule "external/enblend-enfuse"]
-	path = external/enblend-enfuse
-	url = ssh://git@github.com/cjolivier01/enblend-enfuse
 [submodule "external/concurrentqueue"]
 	path = external/concurrentqueue
 	url = ssh://git@github.com/cjolivier01/concurrentqueue

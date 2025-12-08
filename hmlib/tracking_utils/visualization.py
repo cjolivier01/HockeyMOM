@@ -4,7 +4,7 @@ Bridges between OpenCV-based visualization and PyTorch tensor-based drawing
 functions from :mod:`hmlib.vis`.
 """
 
-from typing import Dict, List, Tuple, Union, Optional, Set
+from typing import List, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -12,8 +12,7 @@ import torch
 
 import hmlib.vis.pt_text as ptt
 import hmlib.vis.pt_visualization as ptv
-from hmlib.utils.gpu import StreamTensor
-from hmlib.utils.image import image_width
+from hmlib.utils.gpu import StreamTensorBase
 
 
 def tlwhs_to_tlbrs(tlwhs):
@@ -35,7 +34,7 @@ def get_color(idx):
 def to_cv2(image: torch.Tensor | np.ndarray) -> np.ndarray:
     # OpenCV likes [Height, Width, Channels]
     assert image.ndim <= 3
-    if isinstance(image, StreamTensor):
+    if isinstance(image, StreamTensorBase):
         image = image.get()
     if isinstance(image, torch.Tensor):
         if image.dtype == torch.float16:
@@ -279,8 +278,6 @@ last_frame_id = -1
 
 def plot_frame_id_and_speeds(im, frame_id, vel_x, vel_y, accel_x, accel_y):
     text_scale = max(2, im.shape[1] / 1600.0)
-    text_thickness = 2
-    line_thickness = 1
 
     y_delta = int(15 * text_scale)
     text_y_offset = y_delta
@@ -465,7 +462,7 @@ def plot_tracking(
                 box=intbox,
                 color=ignored_color,
                 thickness=1,
-                label=f"IGNORED",
+                label="IGNORED",
             )
         else:
             im = plot_rectangle(

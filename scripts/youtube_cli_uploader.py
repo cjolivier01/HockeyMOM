@@ -29,19 +29,19 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
-import os
-import sys
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 
 # Scopes:
 # - youtube.upload: upload videos
@@ -203,7 +203,8 @@ def create_test_video() -> Tuple[Path, str, str]:
         )
     except FileNotFoundError:
         raise RuntimeError(
-            "ffmpeg not found. Install it with 'sudo apt install ffmpeg' " "or provide your own small test video file."
+            "ffmpeg not found. Install it with 'sudo apt install ffmpeg' "
+            "or provide your own small test video file."
         )
 
     return out_path, title, description
@@ -212,7 +213,9 @@ def create_test_video() -> Tuple[Path, str, str]:
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     default_client_secrets, default_token_file = get_default_paths()
 
-    parser = argparse.ArgumentParser(description="Upload a video to your YouTube channel from the command line.")
+    parser = argparse.ArgumentParser(
+        description="Upload a video to your YouTube channel from the command line."
+    )
     parser.add_argument(
         "file",
         nargs="?",

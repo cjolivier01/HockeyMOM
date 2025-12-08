@@ -53,13 +53,16 @@ def main():
 
 
 def output_requirements(requirements: List[Requirement]) -> None:
-    output_lines = [
-        "_RULE_DEPS = [",
-        indent(1)("# The following deps are auto-generated using tools/python/pipenv/generate-pipenv-tool-deps.py")
-    ] + [
-        render_rule_dep(requirement)
-        for requirement in requirements
-    ] + ["]"]
+    output_lines = (
+        [
+            "_RULE_DEPS = [",
+            indent(1)(
+                "# The following deps are auto-generated using tools/python/pipenv/generate-pipenv-tool-deps.py"
+            ),
+        ]
+        + [render_rule_dep(requirement) for requirement in requirements]
+        + ["]"]
+    )
     print("\n".join(output_lines))
 
 
@@ -74,6 +77,7 @@ def render_rule_dep(requirement: Requirement) -> str:
 def indent(level: int = 1):
     def _wrap(text: str):
         return textwrap.indent(text, " " * level * 4)
+
     return _wrap
 
 
@@ -91,7 +95,7 @@ def get_pipenv_requirements(pipenv_version: str) -> List[Requirement]:
                 ":all",
                 "-d",
                 directory,
-                f"pipenv=={pipenv_version}"
+                f"pipenv=={pipenv_version}",
             ],
             check=True,
             capture_output=True,
@@ -111,8 +115,12 @@ def parse_wheel(path: Path) -> Requirement:
         with ZipFile(file) as zip_file:
             for wheel_file in zip_file.namelist():
                 wheel_file_path = Path(wheel_file)
-                if wheel_file_path.name == "METADATA" and wheel_file_path.parts[0].endswith(".dist-info"):
-                    wheel_metadata = HeaderParser().parsestr(zip_file.read(str(wheel_file_path)).decode("utf-8"))
+                if wheel_file_path.name == "METADATA" and wheel_file_path.parts[0].endswith(
+                    ".dist-info"
+                ):
+                    wheel_metadata = HeaderParser().parsestr(
+                        zip_file.read(str(wheel_file_path)).decode("utf-8")
+                    )
                     return Requirement(
                         wheel_filename=str(path.name),
                         name=wheel_metadata["Name"],

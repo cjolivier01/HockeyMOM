@@ -1,4 +1,3 @@
-from contextlib import contextmanager
 from typing import Tuple, Union
 
 import torch
@@ -6,17 +5,15 @@ from mmengine.registry import TRANSFORMS
 
 from hmlib.bbox.box_functions import center, height, width
 from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, rotate_image, to_float_image
-from hmlib.utils.iterators import CachedIterator
-from hmlib.video.video_stream import VideoStreamReader
 
 
-def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
+def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:
     """
     Give up on the stream and get the sync'd tensor
     """
-    if isinstance(tensor, StreamTensor):
+    if isinstance(tensor, StreamTensorBase):
         tensor._verbose = True
         return tensor.wait()
     return tensor

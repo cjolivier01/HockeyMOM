@@ -6,6 +6,7 @@ drawing = False
 points = []
 segments = []
 
+
 # Create a callback function for mouse events
 def draw_spline(event, x, y, flags, param):
     global drawing, points, image, segments
@@ -33,7 +34,10 @@ def draw_spline(event, x, y, flags, param):
                 x = int(np.interp(t, np.linspace(0, 1, len(points)), spline[:, 0]))
                 y = int(np.interp(t, np.linspace(0, 1, len(points)), spline[:, 1]))
                 approximated_points.append((x, y))
-            new_segments = [(approximated_points[i], approximated_points[i + 1]) for i in range(len(approximated_points) - 1)]
+            new_segments = [
+                (approximated_points[i], approximated_points[i + 1])
+                for i in range(len(approximated_points) - 1)
+            ]
             segments.extend(new_segments)
             points = []
 
@@ -41,6 +45,7 @@ def draw_spline(event, x, y, flags, param):
             for segment in new_segments:
                 cv2.line(image, segment[0], segment[1], (0, 0, 255), 2)
             cv2.imshow("Spline Drawing", image)
+
 
 # Create an image canvas
 width, height = 800, 600
@@ -53,7 +58,7 @@ while True:
     key = cv2.waitKey(1) & 0xFF
     if key == 27:  # Press 'Esc' to exit
         break
-    elif key == ord('x') or key == ord('X'):
+    elif key == ord("x") or key == ord("X"):
         if len(segments) > 0:
             # Remove the last drawn spline and line segments
             segments.pop()

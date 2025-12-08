@@ -1,15 +1,14 @@
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset
+from mmengine.structures import InstanceData
 
 from hmlib.bbox.box_functions import convert_tlbr_to_tlwh, tlwh_to_tlbr_multiple
 from hmlib.datasets.dataframe import HmDataFrameBase, dataclass_to_json, json_to_dataclass
 from hmlib.jersey.number_classifier import TrackJerseyInfo
-from mmengine.structures import InstanceData
+
 try:
     from mmdet.structures import DetDataSample, TrackDataSample
 except Exception:  # pragma: no cover
@@ -17,15 +16,14 @@ except Exception:  # pragma: no cover
     TrackDataSample = None  # type: ignore
 
 if TYPE_CHECKING:
-    from mmdet.structures import TrackDataSample as _TrackDataSample
     from mmdet.structures import DetDataSample as _DetDataSample
+    from mmdet.structures import TrackDataSample as _TrackDataSample
 else:
     _TrackDataSample = Any  # type: ignore
     _DetDataSample = Any  # type: ignore
 
 
 class TrackingDataFrame(HmDataFrameBase):
-
     def __init__(self, *args, input_batch_size: int, **kwargs):
         fields = [
             "Frame",
@@ -107,12 +105,16 @@ class TrackingDataFrame(HmDataFrameBase):
                     action_index_map[tid] = int(a.get("label_index", -1))
             except Exception:
                 pass
+
         def _action_label_item(id: int) -> str:
             return action_label_map.get(id, "")
+
         def _action_score_item(id: int) -> float:
             return float(action_score_map.get(id, 0.0))
+
         def _action_index_item(id: int) -> int:
             return int(action_index_map.get(id, -1))
+
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(tracking_ids))],
@@ -161,7 +163,9 @@ class TrackingDataFrame(HmDataFrameBase):
         labels = frame_data["Labels"].to_numpy()
         tlwh = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
         jersey_info = frame_data["JerseyInfo"]
-        pose_indices = frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
+        pose_indices = (
+            frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
+        )
 
         all_track_jersey_info: List[Optional[TrackJerseyInfo]] = []
         for tid, jersey in zip(tracking_ids, jersey_info):
@@ -295,7 +299,9 @@ class TrackingDataFrame(HmDataFrameBase):
             pass
         return vds
 
-    def get_samples(self, start_frame: Optional[int] = None, end_frame: Optional[int] = None) -> Optional[_TrackDataSample]:
+    def get_samples(
+        self, start_frame: Optional[int] = None, end_frame: Optional[int] = None
+    ) -> Optional[_TrackDataSample]:
         """Reconstruct a multi-frame TrackDataSample for a frame range (inclusive)."""
         if self.data is None or self.data.empty or TrackDataSample is None or DetDataSample is None:
             return None
@@ -317,7 +323,8 @@ class TrackingDataFrame(HmDataFrameBase):
                     scores=torch.empty((0,), dtype=torch.float32),
                     labels=torch.empty((0,), dtype=torch.long),
                 )
-                img_ds = DetDataSample(); img_ds.pred_track_instances = inst
+                img_ds = DetDataSample()
+                img_ds.pred_track_instances = inst
             else:
                 img_ds = ts[0]  # type: ignore[index]
             video_samples.append(img_ds)

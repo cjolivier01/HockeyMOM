@@ -8,23 +8,13 @@ images with text directly on GPU tensors.
 
 import string
 import subprocess
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
-from hmlib.bbox.box_functions import height, width
-from hmlib.ui import show_image
-
-from ..utils.image import (
-    image_height,
-    image_width,
-    is_channels_first,
-    is_channels_last,
-    make_channels_first,
-    make_channels_last,
-)
+from ..utils.image import is_channels_first, make_channels_first
 
 # Key: (point size, ttf file path) -> letter -> RGB tensor
 CHARACTERS: Dict[Tuple[int, str], Dict[str, torch.Tensor]] = {}

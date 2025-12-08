@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict
 
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, random_split
 
 from hmlib.builder import HM
-from hmlib.log import logger
 from hmlib.camera.camera_model_dataset import CameraPanZoomDataset
 from hmlib.camera.camera_transformer import CameraPanZoomTransformer, pack_checkpoint
+from hmlib.log import logger
 
 from .base import Trunk
 
@@ -107,4 +107,3 @@ class CameraTrainTrunk(Trunk):
                 torch.save(ckpt, self._out)
                 logger.info(f"Saved camera transformer checkpoint to {self._out}")
         return {"camera_model_path": self._out}
-

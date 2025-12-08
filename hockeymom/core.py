@@ -49,9 +49,9 @@ from ._hockeymom import (
     GrowShrink,
     HmByteTrackConfig,
     HmByteTracker,
-    HmTracker,
     HmByteTrackerCuda,
     HmByteTrackerCudaStatic,
+    HmTracker,
     HmTrackerPredictionMode,
     ImageBlender,
     ImageBlenderMode,
@@ -70,7 +70,7 @@ from ._hockeymom import (
 
 try:
     from ._hockeymom import EnBlender
-except:
+except Exception:
     EnBlender = None
 
 

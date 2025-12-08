@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional, Union, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import torch
+from mmengine.structures import InstanceData
 
 from hmlib.datasets.dataframe import HmDataFrameBase
-from mmengine.structures import InstanceData
+
 try:
     from mmpose.structures import PoseDataSample
 except Exception:  # pragma: no cover
@@ -38,10 +39,12 @@ class PoseDataFrame(HmDataFrameBase):
 
     def add_frame_records(self, frame_id: int, pose_json: str):
         frame_id = int(frame_id)
-        rec = pd.DataFrame({
-            "Frame": [frame_id],
-            "PoseJSON": [pose_json],
-        })
+        rec = pd.DataFrame(
+            {
+                "Frame": [frame_id],
+                "PoseJSON": [pose_json],
+            }
+        )
         self._dataframe_list.append(rec)
         self.counter += 1
         if self.counter >= self.write_interval:
@@ -54,6 +57,7 @@ class PoseDataFrame(HmDataFrameBase):
 
         Stores a compact JSON with only keypoints and scores.
         """
+
         def _to_list(x):
             try:
                 if isinstance(x, torch.Tensor):
@@ -70,7 +74,14 @@ class PoseDataFrame(HmDataFrameBase):
             simp["predictions"].append(
                 {
                     k: _to_list(getattr(inst, k))
-                    for k in ("bboxes", "scores", "bbox_scores", "labels", "keypoints", "keypoint_scores")
+                    for k in (
+                        "bboxes",
+                        "scores",
+                        "bbox_scores",
+                        "labels",
+                        "keypoints",
+                        "keypoint_scores",
+                    )
                     if hasattr(inst, k)
                 }
             )
@@ -147,7 +158,9 @@ class PoseDataFrame(HmDataFrameBase):
             return pose_ds
         return inst
 
-    def get_samples(self, start_frame: Optional[int] = None, end_frame: Optional[int] = None) -> List[_PoseDataSample]:
+    def get_samples(
+        self, start_frame: Optional[int] = None, end_frame: Optional[int] = None
+    ) -> List[_PoseDataSample]:
         """Return a list of PoseDataSample for a frame range (inclusive)."""
         if self.data is None or self.data.empty:
             return []

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 
@@ -11,7 +11,6 @@ from .segm_boundaries import SegmBoundaries
 
 @PIPELINES.register_module()
 class IceRinkSegmConfig:
-
     def __init__(
         self,
         *args,
@@ -81,7 +80,6 @@ class IceRinkSegmConfig:
 
 @PIPELINES.register_module()
 class IceRinkSegmBoundaries(SegmBoundaries):
-
     def __init__(
         self,
         *args,

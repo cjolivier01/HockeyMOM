@@ -19,4 +19,3 @@ def load_first_video_frame(filename: str) -> torch.Tensor:
         if cap is not None:
             cap.release()
     return None
-

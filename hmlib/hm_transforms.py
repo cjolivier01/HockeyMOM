@@ -15,14 +15,20 @@ import mmcv
 import mmengine
 import numpy as np
 import torch
+from mmcv.image.geometric import _scale_size
 from mmcv.transforms import LoadImageFromFile
 from mmengine.registry import TRANSFORMS
-from mmpose.structures.bbox.transforms import bbox_xywh2cs
-from torchvision.transforms import functional as F
+from mmengine.utils import to_2tuple
+from mmpose.structures.bbox.transforms import bbox_xywh2cs, get_warp_matrix
 
-from hmlib.ui.show import show_image
-from hmlib.utils.gpu import StreamTensor, tensor_call
-from hmlib.utils.image import image_height, image_width, is_channels_first, make_channels_first, make_channels_last
+from hmlib.utils.gpu import StreamTensor, StreamTensorBase
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    is_channels_first,
+    make_channels_first,
+    make_channels_last,
+)
 
 try:
     from PIL import Image
@@ -47,6 +53,30 @@ cv2_border_modes = {
     "transparent": cv2.BORDER_TRANSPARENT,
     "isolated": cv2.BORDER_ISOLATED,
 }
+
+
+def get_affine_transform(center, scale, rot, output_size):
+    """Lightweight wrapper to compute an affine transform matrix."""
+    center_np = np.array(center, dtype=np.float32)
+    scale_np = np.array(scale, dtype=np.float32)
+    if scale_np.shape == ():
+        scale_np = np.array([scale_np, scale_np], dtype=np.float32)
+    return get_warp_matrix(center_np, scale_np, rot, output_size)
+
+
+def affine_transform(point, mat):
+    """Apply affine transform to a single point."""
+    pt = np.array([point[0], point[1], 1.0], dtype=np.float32)
+    return np.dot(mat, pt)[:2]
+
+
+def warp_affine_joints(joints: np.ndarray, mat: np.ndarray) -> np.ndarray:
+    """Apply affine transform to an array of joints."""
+    ones = np.ones((joints.shape[0], 1), dtype=joints.dtype)
+    joints_h = np.concatenate([joints, ones], axis=1)
+    warped = (mat @ joints_h.T).T
+    return warped[:, :2]
+
 
 PIPELINE_SUBSTITUTIONS: Dict[str, str] = {
     "TopDownAffine": "HmTopDownAffine",
@@ -156,19 +186,23 @@ def hm_imresize(
     if backend is None:
         backend = mmcv.imread_backend
     if backend not in ["cv2", "pillow"]:
-        raise ValueError(f"backend: {backend} is not supported for resize." f"Supported backends are 'cv2', 'pillow'")
+        raise ValueError(
+            f"backend: {backend} is not supported for resize."
+            f"Supported backends are 'cv2', 'pillow'"
+        )
 
     target_w, target_h = size
 
     # Pure PyTorch path for tensors (no torchvision or Pillow codes)
-    if isinstance(img, torch.Tensor) or isinstance(img, StreamTensor):
-        tensor = img
+    if isinstance(img, torch.Tensor) or isinstance(img, StreamTensorBase):
+        tensor_stream = isinstance(img, StreamTensorBase)
+        tensor = img.wait() if tensor_stream else img
         ndim = tensor.ndim
 
         # Normalize to NCHW
         if ndim == 4:
             # Heuristic: NHWC if last dim is channel-like
-            is_nhwc = tensor.shape[-1] in (1, 3, 4) and not (tensor.shape[1] in (1, 3, 4))
+            is_nhwc = tensor.shape[-1] in (1, 3, 4) and tensor.shape[1] not in (1, 3, 4)
             tensor_nchw = tensor.permute(0, 3, 1, 2) if is_nhwc else tensor
             restore = "nhwc" if is_nhwc else "nchw"
         elif ndim == 3:
@@ -205,8 +239,7 @@ def hm_imresize(
             # align_corners=False is standard for image resizing
             kwargs["align_corners"] = False
 
-        # Use tensor_call to preserve StreamTensor behavior and CUDA stream semantics
-        tensor_resized = tensor_call(tensor_nchw, torch.nn.functional.interpolate, **kwargs)
+        tensor_resized = torch.nn.functional.interpolate(tensor_nchw, **kwargs)
 
         # Restore dtype if needed (clamp for integer ranges typical of images)
         if orig_dtype in (torch.uint8, torch.int8, torch.int16, torch.int32, torch.int64):
@@ -224,6 +257,9 @@ def hm_imresize(
         else:
             # Should not reach here
             img = tensor_resized
+
+        if tensor_stream:
+            img = StreamTensor(img)
 
     else:
         # Numpy path: keep fast cv2 implementation; do not use Pillow
@@ -373,7 +409,9 @@ def hm_impad(
     elif isinstance(padding, numbers.Number):
         padding = (padding, padding, padding, padding)
     else:
-        raise ValueError("Padding must be a int or a 2, or 4 element tuple." f"But received {padding}")
+        raise ValueError(
+            "Padding must be a int or a 2, or 4 element tuple." f"But received {padding}"
+        )
 
     # check padding mode
     assert padding_mode in ["constant", "edge", "reflect", "symmetric"]
@@ -384,20 +422,22 @@ def hm_impad(
         "reflect": cv2.BORDER_REFLECT_101,
         "symmetric": cv2.BORDER_REFLECT,
     }
-    if isinstance(img, torch.Tensor | StreamTensor):
+    if isinstance(img, torch.Tensor | StreamTensorBase):
         if img.ndim == 3:
             img = img.permute(2, 0, 1)
         else:
             assert img.ndim == 4
             if img.shape[-1] in (3, 4):
                 img = img.permute(0, 3, 1, 2)
-        img = tensor_call(
-            img,
-            torch.nn.functional.pad,
+        was_stream_tensor = isinstance(img, StreamTensorBase)
+        tensor_input = img.wait() if was_stream_tensor else img
+        padded = torch.nn.functional.pad(
+            tensor_input,
             (padding[0], padding[2], padding[1], padding[3]),
             padding_mode,
             value=pad_val,
         )
+        img = StreamTensor(padded) if was_stream_tensor else padded
         if img.ndim == 3:
             img = img.permute(1, 2, 0)
         else:
@@ -416,7 +456,9 @@ def hm_impad(
     return img
 
 
-def hm_impad_to_multiple(img: np.ndarray, divisor: int, pad_val: Union[float, List] = 0) -> np.ndarray:
+def hm_impad_to_multiple(
+    img: np.ndarray, divisor: int, pad_val: Union[float, List] = 0
+) -> np.ndarray:
     """Pad an image to ensure each edge to be multiple to some number.
 
     Args:
@@ -529,7 +571,9 @@ class HmPad:
                 "The size and size_divisor must be None " "when pad2square is True"
             )
         else:
-            assert size is not None or size_divisor is not None, "only one of size and size_divisor should be valid"
+            assert (
+                size is not None or size_divisor is not None
+            ), "only one of size and size_divisor should be valid"
             assert size is None or size_divisor is None
 
     def _pad_img(self, results):
@@ -665,7 +709,9 @@ class HmResize:
                     self.img_scale = [tuple(img_scale)]
                 except Exception:
                     self.img_scale = [img_scale]
-            assert all(isinstance(s, tuple) and len(s) == 2 for s in self.img_scale), "img_scale must be tuple(s)"
+            assert all(
+                isinstance(s, tuple) and len(s) == 2 for s in self.img_scale
+            ), "img_scale must be tuple(s)"
 
         if ratio_range is not None:
             # mode 1: given a scale and a range of image ratio
@@ -967,7 +1013,9 @@ class HmImageColorAdjust:
             assert isinstance(self.white_balance, (list, tuple)) and len(self.white_balance) == 3
 
     @staticmethod
-    def _normalize_paths(config_paths: Optional[List[Union[List[str], Tuple[str, ...], str]]]) -> List[Tuple[str, ...]]:
+    def _normalize_paths(
+        config_paths: Optional[List[Union[List[str], Tuple[str, ...], str]]],
+    ) -> List[Tuple[str, ...]]:
         if not config_paths:
             return []
         normalized: List[Tuple[str, ...]] = []
@@ -1064,7 +1112,9 @@ class HmImageColorAdjust:
 
     def _has_any_adjustment(self) -> bool:
         # Only return True if any adjustment is non-identity
-        if self.white_balance is not None and not self._isclose(self.white_balance, [1.0, 1.0, 1.0]):
+        if self.white_balance is not None and not self._isclose(
+            self.white_balance, [1.0, 1.0, 1.0]
+        ):
             return True
         if self.brightness is not None and not self._isclose(self.brightness, 1.0):
             return True
@@ -1081,9 +1131,17 @@ class HmImageColorAdjust:
         if not torch.is_floating_point(img):
             img = img.to(torch.float16)
         if img.ndim == 3:
-            g = torch.tensor(gains, dtype=img.dtype).to(device=img.device, non_blocking=True).view(3, 1, 1)
+            g = (
+                torch.tensor(gains, dtype=img.dtype)
+                .to(device=img.device, non_blocking=True)
+                .view(3, 1, 1)
+            )
         else:
-            g = torch.tensor(gains, dtype=img.dtype).to(device=img.device, non_blocking=True).view(1, 3, 1, 1)
+            g = (
+                torch.tensor(gains, dtype=img.dtype)
+                .to(device=img.device, non_blocking=True)
+                .view(1, 3, 1, 1)
+            )
         img = img * g
         # Clamp to 0..255 if original type was integer-like or float in 0..255
         img = img.clamp(0.0, 255.0)
@@ -1155,7 +1213,9 @@ class HmImageColorAdjust:
         if not torch.is_floating_point(t):
             t = t.to(torch.float16)
         # Apply adjustments
-        if self.white_balance is not None and not self._isclose(self.white_balance, [1.0, 1.0, 1.0]):
+        if self.white_balance is not None and not self._isclose(
+            self.white_balance, [1.0, 1.0, 1.0]
+        ):
             t = HmImageColorAdjust._apply_white_balance(t, self.white_balance)
         if self.brightness is not None and not self._isclose(self.brightness, 1.0):
             t = HmImageColorAdjust._apply_brightness(t, self.brightness)
@@ -1210,8 +1270,13 @@ class HmImageColorAdjust:
             if key not in results:
                 continue
             img = results[key]
-            if isinstance(img, (torch.Tensor, StreamTensor)):
-                results[key] = tensor_call(img, self._adjust_tensor)
+            if isinstance(img, (torch.Tensor, StreamTensorBase)):
+                was_stream_tensor = isinstance(img, StreamTensorBase)
+                tensor_input = img.wait() if was_stream_tensor else img
+                adjusted = self._adjust_tensor(tensor_input)
+                if was_stream_tensor:
+                    adjusted = StreamTensor(adjusted)
+                results[key] = adjusted
             else:
                 # numpy array
                 results[key] = self._adjust_numpy(img)
@@ -1285,7 +1350,9 @@ class HmImageColorAdjust:
         g /= 255.0
         b /= 255.0
         # Gains are inverse of illuminant RGB, normalized so mean gain = 1
-        inv = np.array([1.0 / max(1e-6, r), 1.0 / max(1e-6, g), 1.0 / max(1e-6, b)], dtype=np.float32)
+        inv = np.array(
+            [1.0 / max(1e-6, r), 1.0 / max(1e-6, g), 1.0 / max(1e-6, b)], dtype=np.float32
+        )
         inv /= float(inv.mean())
         return inv.tolist()
 
@@ -1789,7 +1856,9 @@ class HmRealTime:
     FPS reported by the dataset.
     """
 
-    def __init__(self, enabled: bool = False, scale: float = 1.0, fps_key: str = "hm_real_time_fps"):
+    def __init__(
+        self, enabled: bool = False, scale: float = 1.0, fps_key: str = "hm_real_time_fps"
+    ):
         self.enabled = bool(enabled)
         self.scale = float(scale)
         self.fps_key = fps_key
@@ -1842,7 +1911,7 @@ class HmRealTime:
             return None
         if isinstance(value, (list, tuple)):
             return len(value)
-        if isinstance(value, (torch.Tensor, StreamTensor)):
+        if isinstance(value, (torch.Tensor, StreamTensorBase)):
             if value.ndim == 0:
                 return 1
             return int(value.shape[0]) if value.shape else 1

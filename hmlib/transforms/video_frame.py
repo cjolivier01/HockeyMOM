@@ -11,26 +11,20 @@ from typing import Any, Dict, List, Union
 import torch
 from mmengine.registry import TRANSFORMS
 
-from hmlib.log import logger
-from hmlib.utils.gpu import StreamTensor
 from hmlib.algo.unsharp_mask import unsharp_mask
-from hmlib.utils.image import (
-    crop_image,
-    image_height,
-    image_width,
-    resize_image,
-    to_float_image,
-)
+from hmlib.log import logger
+from hmlib.utils.gpu import StreamTensorBase
+from hmlib.utils.image import crop_image, image_height, image_width, resize_image, to_float_image
 
 
-def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
+def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:
     """Convert a possibly streamed tensor to a concrete :class:`torch.Tensor`.
 
-    @param tensor: Plain tensor or :class:`hmlib.utils.gpu.StreamTensor`.
+    @param tensor: Plain tensor or :class:`hmlib.utils.gpu.StreamTensorBase`.
     @return: Synchronized tensor on the same device.
-    @see @ref hmlib.utils.gpu.StreamTensor "StreamTensor" for details.
+    @see @ref hmlib.utils.gpu.StreamTensorBase "StreamTensorBase" for details.
     """
-    if isinstance(tensor, StreamTensor):
+    if isinstance(tensor, StreamTensorBase):
         tensor._verbose = True
         # return tensor.get()
         return tensor.wait()

@@ -183,9 +183,7 @@ def parse_goal_token(token: str) -> GoalEvent:
     token = token.strip()
     m = re.fullmatch(r"(?i)(GF|GA)\s*:\s*([1-9]\d*)\s*/\s*([0-9:]+(?:\.[0-9]+)?)", token)
     if not m:
-        raise ValueError(
-            f"Bad goal token '{token}'. Expected GF:period/time or GA:period/time"
-        )
+        raise ValueError(f"Bad goal token '{token}'. Expected GF:period/time or GA:period/time")
     kind = m.group(1).upper()
     period = int(m.group(2))
     t_str = m.group(3)
@@ -259,6 +257,7 @@ def goals_from_t2s(
     away_sc = stats.get("awayScoring") or []
 
     events: List[GoalEvent] = []
+
     # Helper to ensure period is int and time is mm:ss string (floor fractional seconds)
     def _mk_event(kind: str, period_val, time_val) -> Optional[GoalEvent]:
         if period_val is None or time_val is None:
@@ -411,9 +410,7 @@ def process_sheet(
             (LABEL_END_V, end_v_cols),
         ]:
             if not cols:
-                raise ValueError(
-                    f"Missing header columns for '{lab}' in Period {period_num}"
-                )
+                raise ValueError(f"Missing header columns for '{lab}' in Period {period_num}")
 
         # Iterate rows (players) in the block
         for r in range(data_start, blk_end):
@@ -436,7 +433,7 @@ def process_sheet(
             # ---------------- Validation (per-row) ----------------
             if not skip_validation:
                 # Video times: must be strictly increasing and not excessively long
-                for (va, vb) in video_pairs:
+                for va, vb in video_pairs:
                     try:
                         vsa = parse_flex_time_to_seconds(va)
                         vsb = parse_flex_time_to_seconds(vb)
@@ -474,7 +471,7 @@ def process_sheet(
                         validation_errors += 1
 
                 # Scoreboard times: allow either count-up or count-down, but must not be equal and not excessively long
-                for (sa, sb) in sb_pairs:
+                for sa, sb in sb_pairs:
                     try:
                         ssa = parse_flex_time_to_seconds(sa)
                         ssb = parse_flex_time_to_seconds(sb)
@@ -638,7 +635,7 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
             # labeled start/end times (not the normalized interval) to handle edge rules.
             for ev in goals_by_period[period]:
                 matched = False
-                for (a, b) in pairs:
+                for a, b in pairs:
                     a_sec = parse_flex_time_to_seconds(a)
                     b_sec = parse_flex_time_to_seconds(b)
                     lo, hi = (a_sec, b_sec) if a_sec <= b_sec else (b_sec, a_sec)
@@ -697,7 +694,14 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
         "plus_minus",
     ]
     # Extend with per-period columns that were seen
-    periods_sorted = sorted({int(k.split("_p")[-1]) for r in stats_table_rows for k in r if re.search(r"^[gftoia_]*p\d+$", k)})
+    periods_sorted = sorted(
+        {
+            int(k.split("_p")[-1])
+            for r in stats_table_rows
+            for k in r
+            if re.search(r"^[gftoia_]*p\d+$", k)
+        }
+    )
     cols = list(base_cols)
     for pidx in periods_sorted:
         cols.extend([f"toi_p{pidx}", f"gf_p{pidx}", f"ga_p{pidx}"])
@@ -715,7 +719,7 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
         if period not in conv_segments_by_period:
             return None
         segs = conv_segments_by_period[period]
-        for (s1, s2, v1, v2) in segs:
+        for s1, s2, v1, v2 in segs:
             lo, hi = (s1, s2) if s1 <= s2 else (s2, s1)
             if lo <= t_sb <= hi and s1 != s2:
                 # Linear interpolation using labeled endpoints (preserve direction)
@@ -726,7 +730,7 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input "$INPUT" --timestamps "$T
     max_sb_by_period: Dict[int, int] = {}
     for period, segs in conv_segments_by_period.items():
         mx = 0
-        for (s1, s2, _, _) in segs:
+        for s1, s2, _, _ in segs:
             mx = max(mx, s1, s2)
         max_sb_by_period[period] = mx
 
@@ -826,7 +830,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         )
     )
     p.add_argument("--input", "-i", type=Path, required=True, help="Path to input .xls/.xlsx file.")
-    p.add_argument("--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet).")
+    p.add_argument(
+        "--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet)."
+    )
     p.add_argument(
         "--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory."
     )

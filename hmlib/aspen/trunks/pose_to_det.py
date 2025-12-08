@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Optional
 from types import SimpleNamespace
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
@@ -182,12 +182,16 @@ class PoseToDetTrunk(Trunk):
                     scores = torch.ones((N,), dtype=torch.float32, device=bboxes.device)
 
             # labels: assign default category (e.g., person=0)
-            labels = torch.full((N,), int(self._default_label), dtype=torch.long, device=bboxes.device)
+            labels = torch.full(
+                (N,), int(self._default_label), dtype=torch.long, device=bboxes.device
+            )
 
             if self._score_adder is not None and self._score_adder != 0.0:
                 scores += self._score_adder
                 scores = (
-                    torch.clamp(scores, 0.0, 1.0) if isinstance(scores, torch.Tensor) else np.clip(scores, 0.0, 1.0)
+                    torch.clamp(scores, 0.0, 1.0)
+                    if isinstance(scores, torch.Tensor)
+                    else np.clip(scores, 0.0, 1.0)
                 )
 
             new_inst = InstanceData()
@@ -197,7 +201,9 @@ class PoseToDetTrunk(Trunk):
             # Frame-local source indices into the pose instances for this frame
             try:
                 N = int(bboxes.shape[0])
-                new_inst.source_pose_index = torch.arange(N, dtype=torch.int64, device=bboxes.device)
+                new_inst.source_pose_index = torch.arange(
+                    N, dtype=torch.int64, device=bboxes.device
+                )
             except Exception:
                 pass
 

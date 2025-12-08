@@ -2,9 +2,8 @@ from pathlib import PurePath
 from typing import Sequence
 
 import torch
-from torch import nn
-
 import yaml
+from torch import nn
 
 
 class InvalidModelError(RuntimeError):
@@ -27,7 +26,7 @@ def _get_config(experiment: str, **kwargs):
     root = PurePath(__file__).parents[2]
     with open(root / 'configs/main.yaml', 'r') as f:
         config = yaml.load(f, yaml.Loader)['model']
-    with open(root / f'configs/charset/94_full.yaml', 'r') as f:
+    with open(root / "configs/charset/94_full.yaml", "r") as f:
         config.update(yaml.load(f, yaml.Loader)['model'])
     with open(root / f'configs/experiment/{experiment}.yaml', 'r') as f:
         exp = yaml.load(f, yaml.Loader)

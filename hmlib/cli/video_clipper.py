@@ -204,7 +204,11 @@ def durations_close(a: Optional[float], b: Optional[float], tol: float = 0.05) -
 
 
 def should_skip_existing(
-    output_file: str, expected_duration: Optional[float], cont: bool, dry_run: bool, tol: float = 0.05
+    output_file: str,
+    expected_duration: Optional[float],
+    cont: bool,
+    dry_run: bool,
+    tol: float = 0.05,
 ) -> bool:
     """
     If --continue is enabled and output exists and duration matches expected, skip.
@@ -218,15 +222,23 @@ def should_skip_existing(
         # Without an expected duration, be conservative: don't skip.
         return False
     if durations_close(actual, expected_duration, tol=tol):
-        print(f"[CONTINUE] Skipping existing {output_file} (duration matches ~{expected_duration:.3f}s)")
+        print(
+            f"[CONTINUE] Skipping existing {output_file} (duration matches ~{expected_duration:.3f}s)"
+        )
         return True
     # Otherwise, remake
-    print(f"[CONTINUE] Rebuilding {output_file} (duration mismatch: have {actual}, want {expected_duration})")
+    print(
+        f"[CONTINUE] Rebuilding {output_file} (duration mismatch: have {actual}, want {expected_duration})"
+    )
     return False
 
 
 def concat_video_clips(
-    list_file: str, output_file: str, dry_run: bool, cont: bool, expected_concat_duration: Optional[float]
+    list_file: str,
+    output_file: str,
+    dry_run: bool,
+    cont: bool,
+    expected_concat_duration: Optional[float],
 ) -> None:
     if should_skip_existing(output_file, expected_concat_duration, cont, dry_run):
         return
@@ -345,7 +357,9 @@ def extract_clip_with_overlay(
         # Determine the working duration of this output segment
         seg_duration: Optional[float] = None
         if start_time and end_time:
-            seg_duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
+            seg_duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(
+                start_time
+            )
         elif expected_duration is not None:
             seg_duration = expected_duration
         else:
@@ -387,7 +401,7 @@ def extract_clip_with_overlay(
         # Add a synthetic orange source as second input for overlay
         circle_src = "color=c=orange@1.0:s=500x500"
         # Provide a finite duration if known (helps some ffmpeg builds when mapping/shortest)
-        if 'seg_duration' in locals() and seg_duration is not None and seg_duration > 0:
+        if "seg_duration" in locals() and seg_duration is not None and seg_duration > 0:
             circle_src += f":d={seg_duration:.3f}"
         cmd += ["-f", "lavfi", "-i", circle_src]
 
@@ -410,9 +424,7 @@ def extract_clip_with_overlay(
         )
 
         # Compose overlay with enable blink expression, then draw the top-right label and convert to nv12
-        label_chain = (
-            f"drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin},format=nv12"
-        )
+        label_chain = f"drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin},format=nv12"
 
         fc = (
             f"[0:v]{base_chain_s}[base];"
@@ -570,7 +582,9 @@ def main():
         help="Output codec: hevc (H.265) or h264 (H.264). Default: hevc",
     )
     parser.add_argument("--video-file-list", type=str, default=None, help="List of video files")
-    parser.add_argument("--temp-dir", type=str, default=None, help="Directory to store intermediate clips")
+    parser.add_argument(
+        "--temp-dir", type=str, default=None, help="Directory to store intermediate clips"
+    )
     parser.add_argument(
         "--threads",
         "-j",
@@ -578,7 +592,9 @@ def main():
         default=1,
         help="Maximum number of clips to process in parallel",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print commands instead of executing them")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print commands instead of executing them"
+    )
     parser.add_argument(
         "--continue",
         dest="cont",
@@ -593,9 +609,7 @@ def main():
     parser.add_argument(
         "--blink-circle",
         action="store_true",
-        help=(
-            "Add a blinking bright orange circle in the top-left around the clip midpoint"
-        ),
+        help=("Add a blinking bright orange circle in the top-left around the clip midpoint"),
     )
     parser.add_argument(
         "--blink-pre",
@@ -630,13 +644,17 @@ def main():
                 ENCODER_ARGS_LOSSLESS_H264 if args.codec == "h264" else ENCODER_ARGS_LOSSLESS_HEVC
             )
         else:
-            WORKING_ENCODER_ARGS = ENCODER_ARGS_HQ_H264 if args.codec == "h264" else ENCODER_ARGS_HQ_HEVC
+            WORKING_ENCODER_ARGS = (
+                ENCODER_ARGS_HQ_H264 if args.codec == "h264" else ENCODER_ARGS_HQ_HEVC
+            )
 
     # Parse video file list
     if args.video_file_list:
         if os.path.isfile(args.video_file_list):
             with open(args.video_file_list, "r") as f:
-                args.video_file_list = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+                args.video_file_list = [
+                    line.strip() for line in f if line.strip() and not line.strip().startswith("#")
+                ]
         else:
             args.video_file_list = [s.strip() for s in args.video_file_list.split(",") if s.strip()]
 
@@ -722,7 +740,10 @@ def main():
             for fut in concurrent.futures.as_completed(future_map):
                 idx = future_map[fut]
                 paths = fut.result()
-                results[idx] = (paths, [3.0, get_media_duration_seconds(paths[1], dry_run=args.dry_run)])
+                results[idx] = (
+                    paths,
+                    [3.0, get_media_duration_seconds(paths[1], dry_run=args.dry_run)],
+                )
         for i in sorted(results.keys()):
             pths, durs = results[i]
             clips.extend(pths)
@@ -783,7 +804,9 @@ def main():
                 end_time = ts_jobs[idx][2]
                 exp_dur = None
                 if end_time:
-                    exp_dur = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
+                    exp_dur = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(
+                        start_time
+                    )
                 results[idx] = (paths, [3.0, exp_dur])
         for i in sorted(results.keys()):
             pths, durs = results[i]

@@ -18,7 +18,7 @@ import torch.nn.functional as TF
 import torchvision as tv
 from torchvision.transforms import functional as F
 
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 
 
 def flip(img):
@@ -52,7 +52,9 @@ def pt_transform_preds(coords, center, scale, output_size, trans):
     return target_coords, trans
 
 
-def get_affine_transform(center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0):
+def get_affine_transform(
+    center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0
+):
     if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
         scale = np.array([scale, scale], dtype=np.float32)
 
@@ -98,7 +100,9 @@ def pt_cv2_get_affine_transform(src, dst):
     return transform_matrix
 
 
-def pt_get_affine_transform(center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0):
+def pt_get_affine_transform(
+    center, scale, rot, output_size, shift=np.array([0, 0], dtype=np.float32), inv=0
+):
     if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
         scale = torch.tensor([scale, scale], dtype=torch.float, device=scale.device)
     if isinstance(shift, np.ndarray):
@@ -118,7 +122,9 @@ def pt_get_affine_transform(center, scale, rot, output_size, shift=np.array([0, 
     src[0, :] = center + scale_tmp * shift
     src[1, :] = center + src_dir + scale_tmp * shift
     dst[0, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], device=dst_w.device)
-    dst[1, :] = torch.tensor([dst_w * 0.5, dst_h * 0.5], dtype=torch.float, device=dst_w.device) + dst_dir
+    dst[1, :] = (
+        torch.tensor([dst_w * 0.5, dst_h * 0.5], dtype=torch.float, device=dst_w.device) + dst_dir
+    )
 
     src[2:, :] = pt_get_3rd_point(src[0, :], src[1, :])
     dst[2:, :] = pt_get_3rd_point(dst[0, :], dst[1, :])
@@ -138,7 +144,6 @@ def affine_transform(pt, t):
 
 
 def pt_affine_transform(pt, t):
-    one = torch.tensor(1, dtype=torch.float, device=pt.device)
     new_pt = torch.tensor([pt[0], pt[1], 1.0], dtype=torch.float, device=pt.device).T
     new_pt = torch.matmul(t, new_pt)
     return new_pt[:2]
@@ -187,7 +192,9 @@ def pt_get_dir(src_point, rot_rad):
 def crop(img, center, scale, output_size, rot=0):
     trans = get_affine_transform(center, scale, rot, output_size)
 
-    dst_img = cv2.warpAffine(img, trans, (int(output_size[0]), int(output_size[1])), flags=cv2.INTER_LINEAR)
+    dst_img = cv2.warpAffine(
+        img, trans, (int(output_size[0]), int(output_size[1])), flags=cv2.INTER_LINEAR
+    )
 
     return dst_img
 
@@ -265,7 +272,9 @@ def draw_dense_reg(regmap, heatmap, center, value, radius, is_offset=False):
     masked_gaussian = gaussian[radius - top : radius + bottom, radius - left : radius + right]
     masked_reg = reg[:, radius - top : radius + bottom, radius - left : radius + right]
     if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0:  # TODO debug
-        idx = (masked_gaussian >= masked_heatmap).reshape(1, masked_gaussian.shape[0], masked_gaussian.shape[1])
+        idx = (masked_gaussian >= masked_heatmap).reshape(
+            1, masked_gaussian.shape[0], masked_gaussian.shape[1]
+        )
         masked_regmap = (1 - idx) * masked_regmap + idx * masked_reg
     regmap[:, y - top : y + bottom, x - left : x + right] = masked_regmap
     return regmap
@@ -354,10 +363,16 @@ class ImageColorScaler:
                 )
                 self._scale_color_tensor = self._scale_color_tensor.view(1, 1, 3)
             else:
-                self._scale_color_tensor = np.array(self._image_channel_adjustment, dtype=np.float32)
-                self._scale_color_tensor = np.expand_dims(np.expand_dims(self._scale_color_tensor, 0), 0)
+                self._scale_color_tensor = np.array(
+                    self._image_channel_adjustment, dtype=np.float32
+                )
+                self._scale_color_tensor = np.expand_dims(
+                    np.expand_dims(self._scale_color_tensor, 0), 0
+                )
         if isinstance(image, torch.Tensor):
-            image = torch.clamp(image.to(torch.float) * self._scale_color_tensor, min=0, max=255.0).to(torch.uint8)
+            image = torch.clamp(
+                image.to(torch.float) * self._scale_color_tensor, min=0, max=255.0
+            ).to(torch.uint8)
         else:
             image = np.clip(
                 image.astype(np.float32) * self._scale_color_tensor,
@@ -373,22 +388,6 @@ def _permute(t, *args):
     return t.permute(*args)
 
 
-def is_channels_first(img: Union[torch.Tensor, np.ndarray]):
-    if img.ndim == 3:
-        return img.shape[0] in [3, 4] and img.shape[-1] not in [3, 4]
-    else:
-        assert img.ndim == 4
-        return img.shape[1] in [3, 4] and img.shape[-1] not in [3, 4]
-
-
-def is_channels_last(img: Union[torch.Tensor, np.ndarray]):
-    if img.ndim == 3:
-        return img.shape[-1] in [3, 4] and img.shape[0] not in [3, 4]
-    else:
-        assert img.ndim == 4
-        return img.shape[-1] in [3, 4] and img.shape[1] not in [3, 4]
-
-
 def make_channels_first(img: torch.Tensor):
     if len(img.shape) == 4:
         if img.shape[-1] in [1, 3, 4]:
@@ -400,7 +399,9 @@ def make_channels_first(img: torch.Tensor):
     return img
 
 
-def make_channels_last(img: Union[torch.Tensor, StreamTensor]) -> Union[torch.Tensor, StreamTensor]:
+def make_channels_last(
+    img: Union[torch.Tensor, StreamTensorBase],
+) -> Union[torch.Tensor, StreamTensorBase]:
     if len(img.shape) == 4:
         if img.shape[1] in [1, 3, 4]:
             return _permute(img, 0, 2, 3, 1)
@@ -411,7 +412,7 @@ def make_channels_last(img: Union[torch.Tensor, StreamTensor]) -> Union[torch.Te
     return img
 
 
-def is_channels_first(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> bool:
+def is_channels_first(img: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> bool:
     if len(img.shape) == 4:
         return img.shape[1] in [1, 3, 4]
     else:
@@ -419,14 +420,14 @@ def is_channels_first(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> boo
         return img.shape[0] in [1, 3, 4]
 
 
-def is_channels_last(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> bool:
+def is_channels_last(img: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> bool:
     return img.shape[-1] in [1, 3, 4]
 
 
-def image_width(img: Union[torch.Tensor, StreamTensor, np.ndarray]) -> int:
+def image_width(img: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> int:
     if img.ndim == 2:
         return img.shape[1]
-    if isinstance(img, (torch.Tensor, StreamTensor)):
+    if isinstance(img, (torch.Tensor, StreamTensorBase)):
         if img.ndim == 4:
             if img.shape[-1] in [1, 3, 4]:
                 return img.shape[-2]
@@ -469,10 +470,10 @@ def jittable_image_width(img: torch.Tensor) -> int:
             return img.shape[-1]
 
 
-def image_height(img: torch.Tensor | StreamTensor | np.ndarray) -> int:
+def image_height(img: torch.Tensor | StreamTensorBase | np.ndarray) -> int:
     if img.ndim == 2:
         return img.shape[0]
-    if isinstance(img, (torch.Tensor, StreamTensor)):
+    if isinstance(img, (torch.Tensor, StreamTensorBase)):
         if img.ndim == 4:
             if img.shape[-1] in [1, 3, 4]:
                 return img.shape[-3]
@@ -604,7 +605,9 @@ def resize_image(
                 was_batched = img.ndim == 4
                 if not was_batched:
                     img = img.unsqueeze(0)
-                img = TF.interpolate(img, size=(h, w), mode=mode, align_corners=_allow_align_corners(mode, False))
+                img = TF.interpolate(
+                    img, size=(h, w), mode=mode, align_corners=_allow_align_corners(mode, False)
+                )
                 if not was_batched:
                     img = img.squeeze(0)
                 # Assert that it reshaped as we expected
@@ -769,17 +772,16 @@ def to_uint8_image(tensor: torch.Tensor, apply_scale: bool = False, non_blocking
             def _clamp(t, *args, **kwargs):
                 return t.clamp(*args, **kwargs).to(torch.uint8, non_blocking=non_blocking)
 
-            if isinstance(tensor, StreamTensor):
-                assert False
-                return tensor.call_with_checkpoint(_clamp, min=0, max=255.0)
-            else:
-                return _clamp(tensor, min=0, max=255.0)
+            if isinstance(tensor, StreamTensorBase):
+                tensor = tensor.wait()
+            return _clamp(tensor, min=0, max=255.0)
     return tensor
 
 
 def rotate_image(img, angle: float, rotation_point: List[int]):
     rotation_point = [int(i) for i in rotation_point]
     if isinstance(img, torch.Tensor):
+        current_dtype = img.dtype
         if img.dim() == 4:
             # H, W, C -> C, W, H
             img = img.permute(0, 3, 2, 1)
@@ -800,7 +802,6 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
             # H, W, C -> C, W, H
             img = img.permute(2, 1, 0)
             angle = -angle
-            current_dtype = img.dtype
             if current_dtype == torch.half:
                 img = img.to(torch.float32, non_blocking=True)
             img = F.rotate(
@@ -814,7 +815,9 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
             # W, H, C -> C, H, W
             img = img.permute(2, 1, 0)
     elif isinstance(img, PIL.Image.Image):
-        img = img.rotate(angle, resample=PIL.Image.BICUBIC, center=(rotation_point[0], rotation_point[1]))
+        img = img.rotate(
+            angle, resample=PIL.Image.BICUBIC, center=(rotation_point[0], rotation_point[1])
+        )
     else:
         rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
         img = cv2.warpAffine(img, rotation_matrix, (image_width(img), image_height(img)))

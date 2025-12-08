@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 """Post-processing pipeline for camera tracking and play visualization.
 
 This script ties together tracking CSVs, camera config and visualization to
@@ -8,6 +6,8 @@ produce debug or training videos for the camera controller.
 @see @ref hmlib.camera.camera_dataframe.CameraTrackingDataFrame "CameraTrackingDataFrame"
 @see @ref hmlib.camera.play_tracker.PlayTracker "PlayTracker"
 """
+
+from __future__ import absolute_import, division, print_function
 
 import argparse
 import contextlib
@@ -192,7 +192,6 @@ class DefaultArguments:
 
 @HM.register_module()
 class CamTrackPostProcessor:
-
     def __init__(
         self,
         hockey_mom,
@@ -372,7 +371,11 @@ class CamTrackPostProcessor:
             else:
                 with torch.no_grad():
                     prof = getattr(self._args, "profiler", None)
-                    ctx = prof.rf("play_tracker.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                    ctx = (
+                        prof.rf("play_tracker.forward")
+                        if getattr(prof, "enabled", False)
+                        else contextlib.nullcontext()
+                    )
                     with ctx:
                         results = self._play_tracker.forward(results=data)
                 del data
@@ -385,7 +388,11 @@ class CamTrackPostProcessor:
                         )
                 if self._video_output_campp is not None:
                     prof = getattr(self._args, "profiler", None)
-                    ctx = prof.rf("video_out.append") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                    ctx = (
+                        prof.rf("video_out.append")
+                        if getattr(prof, "enabled", False)
+                        else contextlib.nullcontext()
+                    )
                     with ctx:
                         self._video_output_campp.append(results)
                 elif self._shower is not None and "img" in results:
@@ -416,7 +423,11 @@ class CamTrackPostProcessor:
 
             with torch.no_grad():
                 prof = getattr(self._args, "profiler", None)
-                ctx = prof.rf("play_tracker.forward") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                ctx = (
+                    prof.rf("play_tracker.forward")
+                    if getattr(prof, "enabled", False)
+                    else contextlib.nullcontext()
+                )
                 with ctx:
                     results = self._play_tracker.forward(results=results)
 
@@ -429,7 +440,11 @@ class CamTrackPostProcessor:
                     )
             if self._video_output_campp is not None:
                 prof = getattr(self._args, "profiler", None)
-                ctx = prof.rf("video_out.append") if getattr(prof, "enabled", False) else contextlib.nullcontext()
+                ctx = (
+                    prof.rf("video_out.append")
+                    if getattr(prof, "enabled", False)
+                    else contextlib.nullcontext()
+                )
                 with ctx:
                     self._video_output_campp.append(results)
             elif self._shower is not None and "img" in results:

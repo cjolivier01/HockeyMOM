@@ -8,6 +8,9 @@ import contextlib
 import importlib
 import logging
 import os
+import re
+import shutil
+import subprocess
 import threading
 from dataclasses import dataclass
 from queue import Queue
@@ -15,7 +18,6 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import networkx as nx
 import torch
-from cuda_stacktrace import CudaStackTracer
 
 from hmlib.aspen.trunks.base import Trunk
 
@@ -42,13 +44,26 @@ class AspenNet(torch.nn.Module):
     @see @ref hmlib.aspen.trunks.base.Trunk "Trunk" for the trunk interface.
     """
 
-    def __init__(self, graph_cfg: Dict[str, Any], shared: Optional[Dict[str, Any]] = None, minimal_context: bool = False):
+    def __init__(
+        self,
+        name: str,
+        graph_cfg: Dict[str, Any],
+        shared: Optional[Dict[str, Any]] = None,
+        minimal_context: bool = False,
+    ):
         super().__init__()
+        self.name: str = self._normalize_name(name)
+        self._safe_name: str = self._sanitize_name(self.name)
+        self.dot_path: str = os.path.abspath(f"aspennet_{self._safe_name}.dot")
+        self._last_dot_path: Optional[str] = None
         self.shared: Dict[str, Any] = shared or {}
         self.nodes: List[_Node] = []
         # NetworkX DiGraph storing the trunks graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
-        self.minimal_context = bool(minimal_context or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False)))
+        self.minimal_context = bool(
+            minimal_context
+            or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False))
+        )
         pipeline_cfg: Dict[str, Any] = {}
         if isinstance(graph_cfg, dict):
             pipeline_cfg = graph_cfg.get("pipeline", {}) or {}
@@ -62,7 +77,9 @@ class AspenNet(torch.nn.Module):
         try:
             self.thread_queue_size: int = max(1, int(queue_size_cfg))
         except Exception as exc:
-            raise ValueError(f"AspenNet pipeline queue_size must be an integer, got {queue_size_cfg!r}") from exc
+            raise ValueError(
+                f"AspenNet pipeline queue_size must be an integer, got {queue_size_cfg!r}"
+            ) from exc
         cuda_streams_flag = pipeline_cfg.get("cuda_streams", True)
         self.thread_cuda_streams: bool = bool(cuda_streams_flag)
 
@@ -79,7 +96,22 @@ class AspenNet(torch.nn.Module):
         self.exec_order = self._toposort()
         self.training: bool = False
         self._iter_num: int = 0
-        self.save_graphviz("aspennet.dot")
+        self.save_graphviz(self.dot_path)
+
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        if name is None:
+            raise ValueError("AspenNet requires a non-empty name.")
+        normalized = str(name).strip()
+        if not normalized:
+            raise ValueError("AspenNet requires a non-empty name.")
+        return normalized
+
+    @staticmethod
+    def _sanitize_name(name: str) -> str:
+        safe = re.sub(r"[^0-9A-Za-z_.-]+", "_", name).strip("_")
+        safe = safe.lstrip(".")
+        return safe or "aspen"
 
     def train(self, mode: bool = True):
         self.training = mode
@@ -111,7 +143,9 @@ class AspenNet(torch.nn.Module):
                 module = self._instantiate(cls_path, params)
             if isinstance(module, Trunk):
                 module.set_profiler(self._profiler)
-            node = _Node(name=name, cls_path=cls_path, depends=depends, params=params, module=module)
+            node = _Node(
+                name=name, cls_path=cls_path, depends=depends, params=params, module=module
+            )
             setattr(self, f"trunk_{name}", module)
             self.nodes.append(node)
 
@@ -161,6 +195,7 @@ class AspenNet(torch.nn.Module):
         name2node: Dict[str, _Node] = {n.name: n for n in self.nodes}
         order_names: List[str] = list(nx.topological_sort(self.graph))
         return [name2node[n] for n in order_names]
+
     # endregion
 
     def forward(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -180,9 +215,8 @@ class AspenNet(torch.nn.Module):
             do_trace: bool = True and self._iter_num == 10
             if do_trace:
                 pass
-            with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
-                for node in self.exec_order:
-                    self._execute_node(node, context)
+            for node in self.exec_order:
+                self._execute_node(node, context)
             if do_trace:
                 pass
         self._iter_num += 1
@@ -196,12 +230,15 @@ class AspenNet(torch.nn.Module):
     def _dot_lines(self) -> Iterable[str]:
         # Simple DOT writer without extra deps
         yield "digraph AspenNet {"
-        yield "  rankdir=LR;"
+        yield "  rankdir=TB;"
         yield "  node [shape=box, style=rounded];"
+        graph_label = self.name.replace("\\", "\\\\").replace('"', '\\"')
+        yield f'  label="{graph_label}";'
+        yield "  labelloc=t;"
         # Nodes with labels
         for n, data in self.graph.nodes(data=True):
-            label = f"{n}\n{data.get('cls_path', '')}"
-            yield f'  "{n}" [label="{label}"];'
+            node_label = f"{n}\n{data.get('cls_path', '')}"
+            yield f'  "{n}" [label="{node_label}"];'
         # Edges
         for u, v in self.graph.edges():
             yield f'  "{u}" -> "{v}";'
@@ -219,19 +256,36 @@ class AspenNet(torch.nn.Module):
             path: Destination file path (e.g., "graph.dot").
         """
         dot = self.to_dot()
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(dot)
+        self._last_dot_path = os.path.abspath(path)
 
     def display_graphviz(self) -> None:
         """
         Display the trunks graph.
 
         Tries, in order:
+        - xdot executable (if available) for an interactive popup
         - graphviz.Source (if `graphviz` python package is installed)
         - matplotlib via networkx (if matplotlib is available)
         - Prints DOT to stdout as a fallback
         """
         dot = self.to_dot()
+        dot_path = self._last_dot_path or self.dot_path
+
+        # Try xdot binary
+        try:
+            xdot_bin = shutil.which("xdot")
+            if xdot_bin:
+                path = dot_path or os.path.abspath("aspennet.dot")
+                self.save_graphviz(path)
+                subprocess.Popen([xdot_bin, path])
+                return
+        except Exception as ex:
+            print(f"AspenNet: xdot display failed: {ex}")
 
         # Try graphviz Python package
         try:
@@ -252,7 +306,15 @@ class AspenNet(torch.nn.Module):
                 if self._has_pygraphviz()
                 else nx.spring_layout(self.graph)
             )
-            nx.draw(self.graph, pos, with_labels=True, node_size=1500, node_color="#DDEEFF", font_size=8, arrows=True)
+            nx.draw(
+                self.graph,
+                pos,
+                with_labels=True,
+                node_size=1500,
+                node_color="#DDEEFF",
+                font_size=8,
+                arrows=True,
+            )
             plt.title("AspenNet Trunks Graph")
             plt.show()
             return
@@ -360,7 +422,9 @@ class AspenNet(torch.nn.Module):
                     out_queue.put(_ExceptionWrapper(exc))
                     break
 
-        queues: List[Queue] = [Queue(maxsize=self.thread_queue_size) for _ in range(len(self.exec_order) + 1)]
+        queues: List[Queue] = [
+            Queue(maxsize=self.thread_queue_size) for _ in range(len(self.exec_order) + 1)
+        ]
         threads = []
         for idx, node in enumerate(self.exec_order):
             thread = threading.Thread(target=worker, args=(idx, node), daemon=True, name=node.name)
@@ -381,12 +445,24 @@ class AspenNet(torch.nn.Module):
 
     def _execute_with_stream(self, node: _Node, context: Dict[str, Any]) -> None:
         device = self._infer_device(context)
-        use_cuda_stream = self.thread_cuda_streams and torch.cuda.is_available() and device is not None
+        use_cuda_stream = (
+            self.thread_cuda_streams and torch.cuda.is_available() and device is not None
+        )
         if use_cuda_stream:
             stream = torch.cuda.Stream(device=device)
-            with torch.cuda.stream(stream):
-                self._execute_node(node, context)
-            stream.synchronize()
+            # Ensure trunks that fetch context["cuda_stream"] see the stream actually running them.
+            prev_stream = context.get("cuda_stream")
+            has_prev_stream = "cuda_stream" in context
+            context["cuda_stream"] = stream
+            try:
+                with torch.cuda.stream(stream):
+                    self._execute_node(node, context)
+                stream.synchronize()
+            finally:
+                if has_prev_stream:
+                    context["cuda_stream"] = prev_stream
+                else:
+                    context.pop("cuda_stream", None)
         else:
             self._execute_node(node, context)
 

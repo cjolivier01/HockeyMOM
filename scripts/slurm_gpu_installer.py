@@ -4,7 +4,6 @@ import os
 import shlex
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -64,6 +63,7 @@ def ensure_munge():
 def detect_topology():
     # Use slurmd -C to get Sockets/Cores/Threads/RealMemory
     line = run("slurmd -C | head -n1", capture=True)
+
     def field(name):
         for tok in line.split():
             if tok.startswith(name + "="):
@@ -90,7 +90,7 @@ def detect_gpus():
     if shutil.which("nvidia-smi"):
         try:
             out = run("nvidia-smi --query-gpu=name --format=csv,noheader", capture=True)
-            count = len([l for l in out.splitlines() if l.strip()])
+            count = len([line for line in out.splitlines() if line.strip()])
         except subprocess.CalledProcessError:
             count = 0
     if count == 0:
@@ -254,7 +254,9 @@ def uninstall():
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Install/Uninstall single-node Slurm with GPU GRES (Ubuntu)")
+    ap = argparse.ArgumentParser(
+        description="Install/Uninstall single-node Slurm with GPU GRES (Ubuntu)"
+    )
     ap.add_argument("action", choices=["install", "uninstall", "verify"], help="Action to perform")
     args = ap.parse_args()
     if args.action == "install":
@@ -267,4 +269,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

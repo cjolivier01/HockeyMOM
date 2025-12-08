@@ -7,11 +7,10 @@ from mmdet.models.mot.base import BaseMOTModel
 from mmdet.registry import MODELS
 from mmdet.structures import OptTrackSampleList
 from mmengine.structures import InstanceData
-from torch.cuda.amp import autocast
 
 from hmlib.aspen.trunks.base import Trunk
 from hmlib.datasets.dataframe import HmDataFrameBase
-from hockeymom.core import HmByteTrackConfig, HmByteTracker, HmTracker, HmTrackerPredictionMode
+from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
 
 
 def _use_cpp_tracker(dflt: bool = False) -> bool:
@@ -24,7 +23,6 @@ def _use_cpp_tracker(dflt: bool = False) -> bool:
 
 @MODELS.register_module()
 class HmEndToEnd(BaseMOTModel, Trunk):
-
     def __init__(
         self,
         *args,
@@ -116,14 +114,19 @@ class HmEndToEnd(BaseMOTModel, Trunk):
             self.post_tracking_composed_pipeline = Compose(self.post_tracking_pipeline)
 
         data: Dict[str, Any] = context["data"]
-        preserved_original_images = data.get("original_images")
-        fp16: bool = bool(context.get("fp16", False))
 
-        using_precalculated_tracking: bool = bool(context.get("using_precalculated_tracking", False))
-        using_precalculated_detection: bool = bool(context.get("using_precalculated_detection", False))
+        using_precalculated_tracking: bool = bool(
+            context.get("using_precalculated_tracking", False)
+        )
+        using_precalculated_detection: bool = bool(
+            context.get("using_precalculated_detection", False)
+        )
         tracking_dataframe = context.get("tracking_dataframe")
         detection_dataframe = context.get("detection_dataframe")
         frame_id: int = int(context.get("frame_id", -1))
+        track_data_sample = data.get("data_samples")
+        if track_data_sample is None:
+            return {}
 
         detect_timer = context.get("detect_timer")
         if detect_timer is not None:
@@ -152,7 +155,9 @@ class HmEndToEnd(BaseMOTModel, Trunk):
                     tlbr=pred_track_instances.bboxes,
                     scores=pred_track_instances.scores,
                     labels=pred_track_instances.labels,
-                    jersey_info=(jersey_results[frame_index] if jersey_results is not None else None),
+                    jersey_info=(
+                        jersey_results[frame_index] if jersey_results is not None else None
+                    ),
                 )
             if not using_precalculated_detection and detection_dataframe is not None:
                 detection_dataframe.add_frame_records(

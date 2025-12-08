@@ -7,26 +7,17 @@ crowded periods and related summaries, and is often paired with CLI tools.
      for complementary break detection logic.
 """
 
-import argparse
-import json
 import math
-import os
 import traceback
 from collections import Counter, OrderedDict, defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Set, Tuple, Union
 
 import numpy as np
-from numba import jit
 
 from hmlib.analytics.play_breaks import find_low_velocity_ranges
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
-from hmlib.datasets.dataframe import (
-    DataFrameDataset,
-    HmDataFrameBase,
-    dataclass_to_json,
-    json_to_dataclass,
-)
+from hmlib.datasets.dataframe import json_to_dataclass
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.time import format_duration_to_hhmmss
@@ -360,12 +351,7 @@ def panoramic_distance(image_width, x1, x2, rink_width=200):
     angle1_rad = math.pi * normalized_x1 / 2  # -pi/2 to pi/2
     angle2_rad = math.pi * normalized_x2 / 2  # -pi/2 to pi/2
 
-    # Calculate positions on the rink using the radius (half the width) and the angles
     radius = rink_width / 2
-    position1 = radius * math.cos(angle1_rad)
-    position2 = radius * math.cos(angle2_rad)
-
-    # Calculate the real-world distance (arc length) between the two points on the circle
     angle_diff = abs(angle1_rad - angle2_rad)
     distance = radius * angle_diff  # Arc length = radius * angle in radians
 
@@ -409,7 +395,6 @@ def analyze_data(
     fps: float = 29.97,
     roster: Set[int] = None,
 ) -> List[IntervalJerseys]:
-    frame_data: OrderedDict[int, Any] = OrderedDict()
     # tracking_id -> [numbers]
     tracking_id_to_numbers: OrderedDict[int, Set[int]] = OrderedDict()
     # tracking_id -> frame_id -> number
@@ -418,21 +403,14 @@ def analyze_data(
     frame_to_tracking_ids: OrderedDict[Union[int, float], Set[int]] = OrderedDict()
     # track_id -> (last seen frame_id, last center point)
     track_id_to_last_frame_id: OrderedDict[int, Tuple[int, Tuple[float, float]]] = OrderedDict()
-    # frame_id -> tracking_id -> velocity (may need to consider bbox size relative to entire width when computing velocity)
-    track_id_to_last_frame_id: OrderedDict[int, OrderedDict[int, float]] = OrderedDict()
     # frame_id -> tracking_id -> velocity
     frame_track_velocity: Dict[int, Dict[int, float]] = {}
-    player_tracking_iter: Iterator[Dict[str, Any] | None] = iter(player_tracking_data)
+    player_tracking_iter = iter(player_tracking_data)
 
     # json strings that we can ignore
     empty_json_set: Set[str] = set()
     seen_numbers: Set[int] = set()
     item_count: int = 0
-    min_score: float = 0.7
-
-    # More than this number of active tracks for 2s or more,
-    # then it's a full shift-change (usually at a faceoff)
-    track_count_shift_change_threshhold: int = 15
 
     max_frame_id = 0
     # max_frame_id = 10000
@@ -499,7 +477,6 @@ def analyze_data(
             if jersey_item is not None:
                 number = int(jersey_item.number)
                 if not roster or number in roster:
-                    score = jersey_item.score
                     auto_dict(tracking_id_to_numbers, tracking_id, set).add(number)
                     # tracking_id_to_numbers[tracking_id].add(number)
                     auto_dict(tracking_id_frame_and_numbers, tracking_id)[frame_id] = number

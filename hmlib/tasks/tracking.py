@@ -3,10 +3,6 @@ from collections import OrderedDict
 from typing import Any, Dict, Optional
 
 import torch
-import yaml
-
-import hmlib.models.end_to_end  # Registers the model
-import hmlib.tracking_utils.segm_boundaries
 
 # AspenNet graph runner
 from hmlib.aspen import AspenNet
@@ -66,7 +62,6 @@ def run_mmtrack(
                 model.eval()
 
             wraparound_timer = None
-            get_timer = Timer()
             detect_timer = None
             last_frame_id = None
             max_tracking_id = 0
@@ -113,10 +108,18 @@ def run_mmtrack(
                 except Exception:
                     game_dir = None
             work_dir = config.get("work_dir") or config.get("results_folder")
-            tracking_data_path = config.get("tracking_data_path") or find_latest_dataframe_file(game_dir, "tracking")
-            detection_data_path = config.get("detection_data_path") or find_latest_dataframe_file(game_dir, "detections")
-            pose_data_path = config.get("pose_data_path") or find_latest_dataframe_file(game_dir, "pose")
-            action_data_path = config.get("action_data_path") or find_latest_dataframe_file(game_dir, "actions")
+            tracking_data_path = config.get("tracking_data_path") or find_latest_dataframe_file(
+                game_dir, "tracking"
+            )
+            detection_data_path = config.get("detection_data_path") or find_latest_dataframe_file(
+                game_dir, "detections"
+            )
+            pose_data_path = config.get("pose_data_path") or find_latest_dataframe_file(
+                game_dir, "pose"
+            )
+            action_data_path = config.get("action_data_path") or find_latest_dataframe_file(
+                game_dir, "actions"
+            )
 
             # using_precalculated_tracking = bool(tracking_data_path)
             # using_precalculated_detection = bool(detection_data_path)
@@ -192,6 +195,7 @@ def run_mmtrack(
                 if "jersey_numbers" in trunks_cfg:
                     j = trunks_cfg["jersey_numbers"]
                     j_params = j.setdefault("params", {}) or {}
+
                     def set_if(name_cfg: str, name_arg: str, allow_false: bool = False):
                         val = config.get(name_arg)
                         if val is None:
@@ -200,6 +204,7 @@ def run_mmtrack(
                             # Only set booleans when True unless explicitly allowed
                             return
                         j_params[name_cfg] = val
+
                     # ROI / SAM
                     set_if("roi_mode", "jersey_roi_mode")
                     set_if("sam_enabled", "jersey_sam_enabled")
@@ -247,7 +252,8 @@ def run_mmtrack(
                 )
                 if profiler is not None:
                     shared["profiler"] = profiler
-                aspen_net = AspenNet(aspen_cfg, shared=shared)
+                aspen_name = aspen_cfg.get("name") or config.get("game_id") or "aspen"
+                aspen_net = AspenNet(aspen_name, aspen_cfg, shared=shared)
             # Optional torch profiler context spanning the run
             prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
             with prof_ctx:
@@ -334,7 +340,7 @@ def run_mmtrack(
                     wraparound_timer.tic()
     except StopIteration:
         print("run_mmtrack reached end of dataset")
-    except Exception as ex:
+    except Exception:
         raise
     finally:
         if aspen_net is not None:

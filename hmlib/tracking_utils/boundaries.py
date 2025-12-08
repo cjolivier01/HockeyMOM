@@ -43,6 +43,7 @@ class BoundaryLines:
     """
     Obsolete manual boundary detection exclusion management
     """
+
     def __init__(
         self,
         upper_border_lines: Optional[torch.Tensor] = None,

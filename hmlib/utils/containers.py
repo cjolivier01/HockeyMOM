@@ -91,8 +91,12 @@ class LinkedList:
 
 
 class SidebandQueue:
-
-    def __init__(self, name: Optional[str] = None, warn_after: Optional[float] = None, repeat_warn: bool = False):
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        warn_after: Optional[float] = None,
+        repeat_warn: bool = False,
+    ):
         """Create a SidebandQueue.
 
         Args:
@@ -178,7 +182,10 @@ class SidebandQueue:
                         val = self._map.pop(ctr)
                     if warned:
                         total_wait = time.time() - start
-                        print(f"SidebandQueue '{self._name}' resumed after waiting {total_wait:.2f}s", file=sys.stderr)
+                        print(
+                            f"SidebandQueue '{self._name}' resumed after waiting {total_wait:.2f}s",
+                            file=sys.stderr,
+                        )
                     return val
                 except queue.Empty:
                     # segment timed out without getting an item
@@ -211,11 +218,18 @@ class IterableQueue:
         return item
 
 
-def create_queue(mp: bool, name: Optional[str] = None, warn_after: Optional[float] = None, repeat_warn: bool = False):
+def create_queue(
+    mp: bool,
+    name: Optional[str] = None,
+    warn_after: Optional[float] = None,
+    repeat_warn: bool = False,
+):
     if mp:
         assert False
         return multiprocessing.Queue()
     else:
         return SidebandQueue(
-            name=name, warn_after=warn_after if warn_after is not None else 300.0, repeat_warn=repeat_warn
+            name=name,
+            warn_after=warn_after if warn_after is not None else 300.0,
+            repeat_warn=repeat_warn,
         )

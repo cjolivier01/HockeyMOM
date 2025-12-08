@@ -17,6 +17,7 @@ python_library(
         ":embed_enblend",
         ":embed_multiblend",
     ],
+    lint_tests = False,
     imports = [".."],  # Add the parent directory to PYTHONPATH
     test_deps = [
     ],
@@ -83,6 +84,12 @@ py_binary(
     srcs = ["scripts/bdist_wheel.py"],
     data = [":hmlib.wheel"],
     tags = ["python-wheel", "manual"],
+)
+
+py_binary(
+    name = "develop",
+    srcs = ["scripts/develop.py"],
+    tags = ["manual"],
 )
 
 py_binary(

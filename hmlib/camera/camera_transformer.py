@@ -9,7 +9,7 @@ and a small transformer model for camera movement prediction.
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -49,8 +49,6 @@ def build_frame_features(
         n = 0
         cxs = np.array([0.0])
         cys = np.array([0.0])
-        lefts = np.array([0.0])
-        rights = np.array([0.0])
     else:
         n = len(tlwh)
         lefts = tlwh[:, 0]
@@ -115,10 +113,14 @@ class PositionalEncoding(nn.Module):
 
 
 class CameraPanZoomTransformer(nn.Module):
-    def __init__(self, d_in: int, d_model: int = 128, nhead: int = 4, nlayers: int = 2, dropout: float = 0.1):
+    def __init__(
+        self, d_in: int, d_model: int = 128, nhead: int = 4, nlayers: int = 2, dropout: float = 0.1
+    ):
         super().__init__()
         self.input = nn.Linear(d_in, d_model)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True, dropout=dropout)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=nhead, batch_first=True, dropout=dropout
+        )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=nlayers)
         self.pe = PositionalEncoding(d_model)
         self.head = nn.Sequential(
@@ -170,9 +172,13 @@ def pack_checkpoint(model: nn.Module, norm: CameraNorm, window: int) -> Dict[str
     }
 
 
-def unpack_checkpoint(ckpt: Dict[str, torch.Tensor]) -> Tuple[Dict[str, torch.Tensor], CameraNorm, int]:
+def unpack_checkpoint(
+    ckpt: Dict[str, torch.Tensor],
+) -> Tuple[Dict[str, torch.Tensor], CameraNorm, int]:
     sd = ckpt["state_dict"]
     n = ckpt["norm"]
     window = int(ckpt.get("window", 8))
-    norm = CameraNorm(scale_x=float(n["scale_x"]), scale_y=float(n["scale_y"]), max_players=int(n["max_players"]))
+    norm = CameraNorm(
+        scale_x=float(n["scale_x"]), scale_y=float(n["scale_y"]), max_players=int(n["max_players"])
+    )
     return sd, norm, window

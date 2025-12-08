@@ -1,23 +1,27 @@
-#-*-coding:utf-8-*-
+# -*-coding:utf-8-*-
 """
 kornia implemented warp perspective method
 Only for backup
 """
 
-from typing import Tuple, Optional
+from typing import Optional, Tuple
+
 import torch
 import torch.nn.functional as F
 
 
 def check_is_tensor(obj):
-    """Checks whether the supplied object is a tensor.
-    """
+    """Checks whether the supplied object is a tensor."""
     if not isinstance(obj, torch.Tensor):
         raise TypeError("Input type is not a torch.Tensor. Got {}".format(type(obj)))
 
+
 def normal_transform_pixel(
-    height: int, width: int, eps: float = 1e-14,
-    device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None
+    height: int,
+    width: int,
+    eps: float = 1e-14,
+    device: Optional[torch.device] = None,
+    dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
     r"""Compute the normalization matrix from image size in pixels to [-1, 1].
     Args:
@@ -27,9 +31,9 @@ def normal_transform_pixel(
     Returns:
         torch.Tensor: normalized transform with shape :math:`(1, 3, 3)`.
     """
-    tr_mat = torch.tensor([[1.0, 0.0, -1.0],
-                           [0.0, 1.0, -1.0],
-                           [0.0, 0.0, 1.0]], device=device, dtype=dtype)  # 3x3
+    tr_mat = torch.tensor(
+        [[1.0, 0.0, -1.0], [0.0, 1.0, -1.0], [0.0, 0.0, 1.0]], device=device, dtype=dtype
+    )  # 3x3
 
     # prevent divide by zero bugs
     width_denom: float = eps if width == 1 else width - 1.0
@@ -41,8 +45,9 @@ def normal_transform_pixel(
     return tr_mat.unsqueeze(0)  # 1x3x3
 
 
-def normalize_homography(dst_pix_trans_src_pix: torch.Tensor,
-                         dsize_src: Tuple[int, int], dsize_dst: Tuple[int, int]) -> torch.Tensor:
+def normalize_homography(
+    dst_pix_trans_src_pix: torch.Tensor, dsize_src: Tuple[int, int], dsize_dst: Tuple[int, int]
+) -> torch.Tensor:
     r"""Normalize a given homography in pixels to [-1, 1].
     Args:
         dst_pix_trans_src_pix (torch.Tensor): homography/ies from source to destination to be
@@ -55,41 +60,43 @@ def normalize_homography(dst_pix_trans_src_pix: torch.Tensor,
     check_is_tensor(dst_pix_trans_src_pix)
 
     if not (len(dst_pix_trans_src_pix.shape) == 3 or dst_pix_trans_src_pix.shape[-2:] == (3, 3)):
-        raise ValueError("Input dst_pix_trans_src_pix must be a Bx3x3 tensor. Got {}"
-                         .format(dst_pix_trans_src_pix.shape))
+        raise ValueError(
+            "Input dst_pix_trans_src_pix must be a Bx3x3 tensor. Got {}".format(
+                dst_pix_trans_src_pix.shape
+            )
+        )
 
     # source and destination sizes
     src_h, src_w = dsize_src
     dst_h, dst_w = dsize_dst
 
     # compute the transformation pixel/norm for src/dst
-    src_norm_trans_src_pix: torch.Tensor = normal_transform_pixel(
-        src_h, src_w).to(dst_pix_trans_src_pix)
+    src_norm_trans_src_pix: torch.Tensor = normal_transform_pixel(src_h, src_w).to(
+        dst_pix_trans_src_pix
+    )
     src_pix_trans_src_norm = torch.inverse(src_norm_trans_src_pix)
-    dst_norm_trans_dst_pix: torch.Tensor = normal_transform_pixel(
-        dst_h, dst_w).to(dst_pix_trans_src_pix)
+    dst_norm_trans_dst_pix: torch.Tensor = normal_transform_pixel(dst_h, dst_w).to(
+        dst_pix_trans_src_pix
+    )
 
     # compute chain transformations
-    dst_norm_trans_src_norm: torch.Tensor = (
-        dst_norm_trans_dst_pix @ (dst_pix_trans_src_pix @ src_pix_trans_src_norm)
+    dst_norm_trans_src_norm: torch.Tensor = dst_norm_trans_dst_pix @ (
+        dst_pix_trans_src_pix @ src_pix_trans_src_norm
     )
     return dst_norm_trans_src_norm
 
 
-def convert_points_from_homogeneous(
-        points: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+def convert_points_from_homogeneous(points: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     r"""Function that converts points from homogeneous to Euclidean space.
     Examples::
         >>> input = torch.rand(2, 4, 3)  # BxNx3
         >>> output = convert_points_from_homogeneous(input)  # BxNx2
     """
     if not isinstance(points, torch.Tensor):
-        raise TypeError("Input type is not a torch.Tensor. Got {}".format(
-            type(points)))
+        raise TypeError("Input type is not a torch.Tensor. Got {}".format(type(points)))
 
     if len(points.shape) < 2:
-        raise ValueError("Input must be at least a 2D tensor. Got {}".format(
-            points.shape))
+        raise ValueError("Input must be at least a 2D tensor. Got {}".format(points.shape))
 
     # we check for points at infinity
     z_vec: torch.Tensor = points[..., -1:]
@@ -98,7 +105,7 @@ def convert_points_from_homogeneous(
     # follow the convention of opencv:
     # https://github.com/opencv/opencv/pull/14411/files
     mask: torch.Tensor = torch.abs(z_vec) > eps
-    scale = torch.where(mask, 1. / (z_vec + eps), torch.ones_like(z_vec))
+    scale = torch.where(mask, 1.0 / (z_vec + eps), torch.ones_like(z_vec))
 
     return scale * points[..., :-1]
 
@@ -110,17 +117,14 @@ def convert_points_to_homogeneous(points: torch.Tensor) -> torch.Tensor:
         >>> output = convert_points_to_homogeneous(input)  # BxNx4
     """
     if not isinstance(points, torch.Tensor):
-        raise TypeError("Input type is not a torch.Tensor. Got {}".format(
-            type(points)))
+        raise TypeError("Input type is not a torch.Tensor. Got {}".format(type(points)))
     if len(points.shape) < 2:
-        raise ValueError("Input must be at least a 2D tensor. Got {}".format(
-            points.shape))
+        raise ValueError("Input must be at least a 2D tensor. Got {}".format(points.shape))
 
     return torch.nn.functional.pad(points, [0, 1], "constant", 1.0)
 
 
-def transform_points(trans_01: torch.Tensor,
-                     points_1: torch.Tensor) -> torch.Tensor:
+def transform_points(trans_01: torch.Tensor, points_1: torch.Tensor) -> torch.Tensor:
     r"""Function that applies transformations to a set of points.
     Args:
         trans_01 (torch.Tensor): tensor for transformations of shape
@@ -141,7 +145,8 @@ def transform_points(trans_01: torch.Tensor,
         raise TypeError(
             "Tensor must be in the same device and dtype. "
             f"Got trans_01 with ({trans_01.dtype}, {points_1.dtype}) and "
-            f"points_1 with ({points_1.dtype}, {points_1.dtype})")
+            f"points_1 with ({points_1.dtype}, {points_1.dtype})"
+        )
     if not trans_01.shape[0] == points_1.shape[0] and trans_01.shape[0] != 1:
         raise ValueError("Input batch size must be the same for both tensors or 1")
     if not trans_01.shape[-1] == (points_1.shape[-1] + 1):
@@ -152,12 +157,13 @@ def transform_points(trans_01: torch.Tensor,
     points_1 = points_1.reshape(-1, points_1.shape[-2], points_1.shape[-1])
     trans_01 = trans_01.reshape(-1, trans_01.shape[-2], trans_01.shape[-1])
     # We expand trans_01 to match the dimensions needed for bmm
-    trans_01 = torch.repeat_interleave(trans_01, repeats=points_1.shape[0] // trans_01.shape[0], dim=0)
+    trans_01 = torch.repeat_interleave(
+        trans_01, repeats=points_1.shape[0] // trans_01.shape[0], dim=0
+    )
     # to homogeneous
     points_1_h = convert_points_to_homogeneous(points_1)  # BxNxD+1
     # transform coordinates
-    points_0_h = torch.bmm(points_1_h,
-                           trans_01.permute(0, 2, 1))
+    points_0_h = torch.bmm(points_1_h, trans_01.permute(0, 2, 1))
     points_0_h = torch.squeeze(points_0_h, dim=-1)
     # to euclidean
     points_0 = convert_points_from_homogeneous(points_0_h)  # BxNxD
@@ -168,12 +174,12 @@ def transform_points(trans_01: torch.Tensor,
     return points_0
 
 
-
 def create_meshgrid(
-        height: int,
-        width: int,
-        normalized_coordinates: bool = True,
-        device: Optional[torch.device] = torch.device('cpu')) -> torch.Tensor:
+    height: int,
+    width: int,
+    normalized_coordinates: bool = True,
+    device: Optional[torch.device] = torch.device("cpu"),
+) -> torch.Tensor:
     """Generates a coordinate grid for an image.
     When the flag `normalized_coordinates` is set to True, the grid is
     normalized to be in the range [-1,1] to be consistent with the pytorch
@@ -202,13 +208,18 @@ def create_meshgrid(
         xs = (xs / (width - 1) - 0.5) * 2
         ys = (ys / (height - 1) - 0.5) * 2
     # generate grid by stacking coordinates
-    base_grid: torch.Tensor = torch.stack(
-        torch.meshgrid([xs, ys])).transpose(1, 2)  # 2xHxW
+    base_grid: torch.Tensor = torch.stack(torch.meshgrid([xs, ys])).transpose(1, 2)  # 2xHxW
     return torch.unsqueeze(base_grid, dim=0).permute(0, 2, 3, 1)  # 1xHxWx2
 
-def warp_perspective(src: torch.Tensor, M: torch.Tensor, dsize: Tuple[int, int],
-                     mode: str = 'bilinear', padding_mode: str = 'zeros',
-                     align_corners: Optional[bool] = None) -> torch.Tensor:
+
+def warp_perspective(
+    src: torch.Tensor,
+    M: torch.Tensor,
+    dsize: Tuple[int, int],
+    mode: str = "bilinear",
+    padding_mode: str = "zeros",
+    align_corners: Optional[bool] = None,
+) -> torch.Tensor:
     r"""Applies a perspective transformation to an image.
 
     The function warp_perspective transforms the source image using
@@ -235,27 +246,24 @@ def warp_perspective(src: torch.Tensor, M: torch.Tensor, dsize: Tuple[int, int],
 
     """
     if not isinstance(src, torch.Tensor):
-        raise TypeError("Input src type is not a torch.Tensor. Got {}"
-                        .format(type(src)))
+        raise TypeError("Input src type is not a torch.Tensor. Got {}".format(type(src)))
 
     if not isinstance(M, torch.Tensor):
-        raise TypeError("Input M type is not a torch.Tensor. Got {}"
-                        .format(type(M)))
+        raise TypeError("Input M type is not a torch.Tensor. Got {}".format(type(M)))
 
     if not len(src.shape) == 4:
-        raise ValueError("Input src must be a BxCxHxW tensor. Got {}"
-                         .format(src.shape))
+        raise ValueError("Input src must be a BxCxHxW tensor. Got {}".format(src.shape))
 
     if not (len(M.shape) == 3 and M.shape[-2:] == (3, 3)):
-        raise ValueError("Input M must be a Bx3x3 tensor. Got {}"
-                         .format(M.shape))
+        raise ValueError("Input M must be a Bx3x3 tensor. Got {}".format(M.shape))
 
     # TODO: remove the statement below in kornia v0.6
     if align_corners is None:
         print(
             "The align_corners default value has been changed. By default now is set True "
             "in order to match cv2.warpPerspective. In case you want to keep your previous "
-            "behaviour set it to False. This warning will disappear in kornia > v0.6.")
+            "behaviour set it to False. This warning will disappear in kornia > v0.6."
+        )
         # set default value for align corners
         align_corners = True
 
@@ -263,17 +271,18 @@ def warp_perspective(src: torch.Tensor, M: torch.Tensor, dsize: Tuple[int, int],
     h_out, w_out = dsize
 
     # we normalize the 3x3 transformation matrix and convert to 3x4
-    dst_norm_trans_src_norm: torch.Tensor = normalize_homography(
-        M, (H, W), (h_out, w_out))  # Bx3x3
+    dst_norm_trans_src_norm: torch.Tensor = normalize_homography(M, (H, W), (h_out, w_out))  # Bx3x3
 
     src_norm_trans_dst_norm = torch.inverse(dst_norm_trans_src_norm)  # Bx3x3
 
     # this piece of code substitutes F.affine_grid since it does not support 3x3
-    grid = create_meshgrid(h_out, w_out, normalized_coordinates=True,
-                           device=src.device).to(src.dtype).repeat(B, 1, 1, 1)
+    grid = (
+        create_meshgrid(h_out, w_out, normalized_coordinates=True, device=src.device)
+        .to(src.dtype)
+        .repeat(B, 1, 1, 1)
+    )
     grid = transform_points(src_norm_trans_dst_norm[:, None, None], grid)
 
-    return F.grid_sample(src, grid,
-                         align_corners=align_corners,
-                         mode=mode,
-                         padding_mode=padding_mode)
+    return F.grid_sample(
+        src, grid, align_corners=align_corners, mode=mode, padding_mode=padding_mode
+    )

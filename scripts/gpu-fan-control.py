@@ -1,11 +1,13 @@
 #!/usr/bin/python3
 import os
-import sys
 import subprocess
+import sys
+import time
+
 import pyipmi
 import pyipmi.interfaces
 import pyipmi.sensor
-import time
+
 import pynvml
 
 # setting fan speeds
@@ -102,9 +104,7 @@ def get_max_gpu_temp():
             # Get handle for the current GPU
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
             # Get the GPU temperature in Celsius
-            temperature = pynvml.nvmlDeviceGetTemperature(
-                handle, pynvml.NVML_TEMPERATURE_GPU
-            )
+            temperature = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
             try:
                 fan_speed = pynvml.nvmlDeviceGetFanSpeed(handle)
                 if fan_speed:
@@ -146,9 +146,7 @@ def main():
 
     while True:
         try:
-            gpu_mode = manage_temp(
-                match_str="GPU", zone=ZONE_PERIPHERAL, current_mode=gpu_mode
-            )
+            gpu_mode = manage_temp(match_str="GPU", zone=ZONE_PERIPHERAL, current_mode=gpu_mode)
 
             time.sleep(10)
 

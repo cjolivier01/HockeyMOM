@@ -6,22 +6,9 @@ import cv2
 import numpy as np
 import torch
 
-from hmlib.bbox.box_functions import (
-    center,
-    center_batch,
-    clamp_box,
-    get_enclosing_box,
-    height,
-    make_box_at_center,
-    move_box_to_center,
-    remove_largest_bbox,
-    scale_box,
-    tlwh_centers,
-    tlwh_to_tlbr_single,
-    width,
-)
+from hmlib.bbox.box_functions import center, make_box_at_center, move_box_to_center, scale_box
 from hmlib.tracking_utils import visualization as vis
-from hockeymom.core import AllLivingBoxConfig, BBox, LivingBox, WHDims
+from hockeymom.core import BBox, LivingBox, WHDims
 
 
 def to_bbox(tensor: torch.Tensor, is_cpp: bool) -> BBox:
@@ -136,7 +123,9 @@ class PyLivingBox(LivingBox):
         )
         # Small visual cue: if cancel-on-opposite triggered this frame, flash a thin cyan border
         try:
-            if getattr(tstate, "canceled_stop_x", False) or getattr(tstate, "canceled_stop_y", False):
+            if getattr(tstate, "canceled_stop_x", False) or getattr(
+                tstate, "canceled_stop_y", False
+            ):
                 img = vis.plot_rectangle(
                     img,
                     draw_box,

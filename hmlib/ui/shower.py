@@ -18,7 +18,7 @@ from PIL import Image, ImageTk
 
 from hmlib.log import get_root_logger
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase
 from hmlib.utils.image import make_channels_last, make_visible_image
 from hockeymom.core import show_cuda_tensor
 
@@ -51,7 +51,6 @@ class ImageDisplayer:
 
 
 class Shower:
-
     def __init__(
         self,
         label: str,
@@ -88,11 +87,11 @@ class Shower:
             assert False
 
         if img.ndim == 3:
-            if isinstance(img, torch.Tensor | StreamTensor):
+            if isinstance(img, torch.Tensor | StreamTensorBase):
                 img = img.unsqueeze(0)
             elif isinstance(img, np.ndarray):
                 img = np.expand_dims(img, axis=0)
-        if isinstance(img, StreamTensor):
+        if isinstance(img, StreamTensorBase):
             img = img.get()
         for s_img in img:
             if self._use_tk:
@@ -102,13 +101,17 @@ class Shower:
                     show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
                 else:
                     if self._allow_gpu_gl and s_img.device.type == "cuda":
-                        s_img = make_visible_image(s_img, enable_resizing=self._show_scaled, force_numpy=False)
+                        s_img = make_visible_image(
+                            s_img, enable_resizing=self._show_scaled, force_numpy=False
+                        )
                         show_cuda_tensor("Stitched Image", s_img, False, None)
 
                     else:
                         cv2.imshow(
                             self._label,
-                            make_visible_image(s_img, enable_resizing=self._show_scaled, force_numpy=True),
+                            make_visible_image(
+                                s_img, enable_resizing=self._show_scaled, force_numpy=True
+                            ),
                         )
                         cv2.waitKey(1)
 
@@ -151,7 +154,7 @@ class Shower:
                     self._do_show(frame_to_show)
                     last_frame = frame_to_show
 
-    def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensor]):
+    def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase]):
         if self._thread is not None:
             counter: int = 0
             while self._q.qsize() >= self._max_size:
@@ -163,7 +166,7 @@ class Shower:
             if self._cache_on_cpu and not isinstance(img, np.ndarray):
                 img = img.cpu()
             if self._fps is None or img.ndim == 3:
-                if not isinstance(img, StreamTensor):
+                if not self._cache_on_cpu and not isinstance(img, StreamTensorBase):
                     img = StreamCheckpoint(img)
                 self._q.put(img)
             else:

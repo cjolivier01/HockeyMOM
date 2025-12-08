@@ -29,13 +29,12 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, copy_gpu_to_gpu_async, cuda_stream_scope
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, make_visible_image
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope
+from hmlib.utils.image import image_height, image_width, make_channels_last, make_visible_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.utils.tensor import make_const_tensor
 from hmlib.video.ffmpeg import BasicVideoInfo
-from hockeymom import show_cuda_tensor
 from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
 
 
@@ -66,10 +65,10 @@ def safe_put_queue(queue: Any, object: Any) -> None:
 _LARGE_NUMBER_OF_FRAMES: float = 1e128
 
 
-def to_tensor(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> torch.Tensor:
+def to_tensor(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> torch.Tensor:
     if isinstance(tensor, torch.Tensor):
         return tensor
-    if isinstance(tensor, StreamTensor):
+    if isinstance(tensor, StreamTensorBase):
         tensor.verbose = True
         return tensor.get()
     elif isinstance(tensor, np.ndarray):
@@ -78,10 +77,8 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> torch.Te
         assert False
 
 
-def sync_required(tensor: Union[torch.Tensor, StreamTensor, np.ndarray]) -> bool:
+def sync_required(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> bool:
     if isinstance(tensor, (torch.Tensor, np.ndarray)):
-        return False
-    if getattr(tensor, "owns_stream", False):
         return False
     return True
 
@@ -101,8 +98,9 @@ def distribute_items_detailed(total_item_count: int, worker_count: int) -> List[
 
 
 class MultiDataLoaderWrapper:
-
-    def __init__(self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0) -> None:
+    def __init__(
+        self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0
+    ) -> None:
         self._dataloaders: List[MOTLoadVideoWithOrig] = dataloaders
         self._iters: List[Any] = []
         self._input_queueue_size: int = input_queueue_size
@@ -112,7 +110,9 @@ class MultiDataLoaderWrapper:
         self._iters = []
         for dl in self._dataloaders:
             if self._input_queueue_size:
-                self._iters.append(CachedIterator(iterator=iter(dl), cache_size=self._input_queueue_size))
+                self._iters.append(
+                    CachedIterator(iterator=iter(dl), cache_size=self._input_queueue_size)
+                )
             else:
                 self._iters.append(iter(dl))
         return self
@@ -159,7 +159,6 @@ def as_torch_device(device: Any) -> torch.device:
 #
 #
 class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
-
     def __init__(
         self,
         videos: Dict[str, List[Path]],
@@ -355,10 +354,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             self.close()
 
     @property
-    def bit_rate(self) -> int:
-        return max(self._video_left_info.bit_rate, self._video_right_info.bit_rate)
-
-    @property
     def lfo(self):
         assert self._video_left_offset_frame is not None
         return self._video_left_offset_frame
@@ -468,7 +463,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 async_mode=self._async_mode,
             )
         )
-        stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders, input_queueue_size=max_input_queue_size)
+        stitching_worker = MultiDataLoaderWrapper(
+            dataloaders=dataloaders, input_queueue_size=max_input_queue_size
+        )
         return stitching_worker
 
     def configure_stitching(self):
@@ -540,7 +537,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         elif tensor.ndim == 4:
             squeezed = False
         else:
-            raise ValueError(f"Expected tensor of shape (C, H, W) or (B, C, H, W), got {tensor.shape}")
+            raise ValueError(
+                f"Expected tensor of shape (C, H, W) or (B, C, H, W), got {tensor.shape}"
+            )
 
         B, C, H, W = tensor.shape
         if C == 4:
@@ -639,7 +638,10 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                             else torch.cuda.current_stream(imgs_1.device).cuda_stream
                         )
                         self._stitcher.process(
-                            imgs_1.contiguous(), imgs_2.contiguous(), blended_stream_tensor, stream_handle
+                            imgs_1.contiguous(),
+                            imgs_2.contiguous(),
+                            blended_stream_tensor,
+                            stream_handle,
                         )
                         # Optional rotation (keep same size)
                         if (
@@ -766,7 +768,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
     def prepare_frame_for_video(image: np.array, image_roi: np.array):
         if not image_roi:
             if image.shape[-1] == 4:
-                if isinstance(image, StreamTensor):
+                if isinstance(image, StreamTensorBase):
                     image = image.get()
                 if len(image.shape) == 4:
                     image = make_channels_last(image)[:, :, :, :3]
@@ -775,10 +777,14 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         else:
             image_roi = fix_clip_box(image_roi, [image_height(image), image_width(image)])
             if len(image.shape) == 4:
-                image = make_channels_last(image)[:, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
+                image = make_channels_last(image)[
+                    :, image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
+                ]
             else:
                 assert len(image.shape) == 3
-                image = make_channels_last(image)[image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3]
+                image = make_channels_last(image)[
+                    image_roi[1] : image_roi[3], image_roi[0] : image_roi[2], :3
+                ]
         return image
 
     def __iter__(self):
@@ -843,7 +849,10 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         if stitched_frame is not None:
             if self._async_mode:
                 # INFO(f"Locally dequeued frame id: {self._current_frame}")
-                if not self._max_frames or self._next_requested_frame < self._start_frame_number + self._max_frames:
+                if (
+                    not self._max_frames
+                    or self._next_requested_frame < self._start_frame_number + self._max_frames
+                ):
                     # INFO(f"putting _to_coordinator_queue.put({self._next_requested_frame})")
                     self._to_coordinator_queue.put(self._next_requested_frame)
                     self._next_requested_frame += self._batch_size
@@ -918,9 +927,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
         if self._batch_count == 1:
             frame_path = os.path.join(self._dir_name, "s.png")
-            print(f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}")
+            print(
+                f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}"
+            )
             print(f"Saving first stitched frame to {frame_path}")
-            if isinstance(stitched_frame, StreamTensor):
+            if isinstance(stitched_frame, StreamTensorBase):
                 stitched_frame = stitched_frame.get()
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0], force_numpy=True))
             if self._on_first_stitched_image_callback is not None:

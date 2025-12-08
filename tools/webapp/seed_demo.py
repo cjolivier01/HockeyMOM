@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import datetime as dt
 import json
 import os
 import random
 import string
 import sys
-import datetime as dt
 from pathlib import Path
 
 
@@ -57,7 +57,10 @@ def ensure_defaults(conn):
 
 def create_team(conn, user_id: int, name: str, is_external: int = 0) -> int:
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO teams(user_id, name, is_external, created_at) VALUES(%s,%s,%s,%s)", (user_id, name, is_external, dt.datetime.now().isoformat()))
+        cur.execute(
+            "INSERT INTO teams(user_id, name, is_external, created_at) VALUES(%s,%s,%s,%s)",
+            (user_id, name, is_external, dt.datetime.now().isoformat()),
+        )
         conn.commit()
         return int(cur.lastrowid)
 
@@ -72,7 +75,16 @@ def create_player(conn, user_id: int, team_id: int, name: str, jersey: str, posi
         return int(cur.lastrowid)
 
 
-def create_game(conn, user_id: int, team1_id: int, team2_id: int, game_type_name: str, starts_at: dt.datetime, location: str, score: tuple | None = None) -> int:
+def create_game(
+    conn,
+    user_id: int,
+    team1_id: int,
+    team2_id: int,
+    game_type_name: str,
+    starts_at: dt.datetime,
+    location: str,
+    score: tuple | None = None,
+) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM game_types WHERE name=%s", (game_type_name,))
         gt = cur.fetchone()
@@ -98,6 +110,7 @@ def create_game(conn, user_id: int, team1_id: int, team2_id: int, game_type_name
 
 def add_random_stats(conn, game_id: int, team_id: int, user_id: int):
     import random as _r
+
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM players WHERE team_id=%s ORDER BY id", (team_id,))
         pids = [int(r[0]) for r in cur.fetchall()]
@@ -121,18 +134,28 @@ def add_random_stats(conn, game_id: int, team_id: int, user_id: int):
 
 def main():
     ap = argparse.ArgumentParser(description="Seed demo data for HM WebApp hockey features")
-    ap.add_argument("--config", default=os.environ.get("HM_DB_CONFIG") or str((Path(__file__).resolve().parent / "config.json")))
+    ap.add_argument(
+        "--config",
+        default=os.environ.get("HM_DB_CONFIG")
+        or str((Path(__file__).resolve().parent / "config.json")),
+    )
     ap.add_argument("--email", default="demo@example.com")
     ap.add_argument("--name", default="Demo User")
-    ap.add_argument("--password-hash", default="pbkdf2:sha256:260000$demo$Yy6lWp5oSz5Ahh3yI9sRhW/9k5D5mZ0t8Xr6Z3YYc2U=")
+    ap.add_argument(
+        "--password-hash",
+        default="pbkdf2:sha256:260000$demo$Yy6lWp5oSz5Ahh3yI9sRhW/9k5D5mZ0t8Xr6Z3YYc2U=",
+    )
     ap.add_argument("--teams", nargs="*", default=["Thunderbirds 12U", "Falcons 12U"])
     args = ap.parse_args()
 
     db_cfg = load_db_cfg(args.config)
     try:
         conn = connect_pymysql(db_cfg)
-    except Exception as e:
-        print("Failed to connect to DB. Ensure the webapp was installed and DB configured.", file=sys.stderr)
+    except Exception:
+        print(
+            "Failed to connect to DB. Ensure the webapp was installed and DB configured.",
+            file=sys.stderr,
+        )
         raise
 
     ensure_defaults(conn)
@@ -146,7 +169,7 @@ def main():
 
     # Players
     def gen_name():
-        return "Player " + ''.join(random.choice(string.ascii_uppercase) for _ in range(3))
+        return "Player " + "".join(random.choice(string.ascii_uppercase) for _ in range(3))
 
     positions = ["F", "D", "G"]
     num = 1
@@ -157,8 +180,26 @@ def main():
 
     # Games
     now = dt.datetime.now()
-    g1 = create_game(conn, user_id, team_ids[0], team_ids[1], "Regular Season", now - dt.timedelta(days=1), "Main Rink", score=(3, 2))
-    g2 = create_game(conn, user_id, team_ids[0], ext_id, "Exhibition", now + dt.timedelta(days=2), "Community Ice", score=None)
+    g1 = create_game(
+        conn,
+        user_id,
+        team_ids[0],
+        team_ids[1],
+        "Regular Season",
+        now - dt.timedelta(days=1),
+        "Main Rink",
+        score=(3, 2),
+    )
+    create_game(
+        conn,
+        user_id,
+        team_ids[0],
+        ext_id,
+        "Exhibition",
+        now + dt.timedelta(days=2),
+        "Community Ice",
+        score=None,
+    )
 
     # Stats for completed game
     add_random_stats(conn, g1, team_ids[0], user_id)
@@ -169,4 +210,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

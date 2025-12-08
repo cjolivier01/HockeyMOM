@@ -1,6 +1,4 @@
-import argparse
 import os
-import sys
 import traceback
 from typing import List, Optional, Tuple, Union
 
@@ -8,24 +6,33 @@ import numpy as np
 import torch
 from PIL import Image
 
+from hmlib.config import (
+    get_game_config,
+    get_game_dir,
+    get_nested_value,
+    save_private_config,
+    set_nested_value,
+)
+from hmlib.hm_opts import hm_opts
+from hmlib.utils.image import make_visible_image
+
 # GUI backends
 try:
     import tkinter as tk
     from tkinter import messagebox
+
     from PIL import ImageTk  # type: ignore
+
     _tk_available = True
 except Exception:
     _tk_available = False
 
 try:
     import cv2  # type: ignore
+
     _cv2_available = True
 except Exception:
     _cv2_available = False
-
-from hmlib.config import get_game_config, get_game_dir, get_nested_value, save_private_config, set_nested_value
-from hmlib.hm_opts import hm_opts
-from hmlib.utils.image import make_visible_image
 
 
 class ScoreboardSelector:
@@ -87,13 +94,28 @@ class ScoreboardSelector:
                 button_font = ("Helvetica", 16, "bold")
 
                 ok_button: tk.Button = tk.Button(  # type: ignore
-                    button_frame, text="OK", command=self.process_ok, font=button_font, width=10, height=2
+                    button_frame,
+                    text="OK",
+                    command=self.process_ok,
+                    font=button_font,
+                    width=10,
+                    height=2,
                 )
                 delete_button: tk.Button = tk.Button(  # type: ignore
-                    button_frame, text="Delete", command=self.reset_selection, font=button_font, width=10, height=2
+                    button_frame,
+                    text="Delete",
+                    command=self.reset_selection,
+                    font=button_font,
+                    width=10,
+                    height=2,
                 )
                 none_button: tk.Button = tk.Button(  # type: ignore
-                    button_frame, text="None", command=root.quit, font=button_font, width=10, height=2
+                    button_frame,
+                    text="None",
+                    command=root.quit,
+                    font=button_font,
+                    width=10,
+                    height=2,
                 )
                 ok_button.pack(side=tk.LEFT, padx=10, pady=10)
                 delete_button.pack(side=tk.LEFT, padx=10, pady=10)
@@ -118,7 +140,8 @@ class ScoreboardSelector:
                     self.draw_points_and_lines()
                 elif initial_points:
                     messagebox.showwarning(  # type: ignore
-                        "Warning", "Initial points provided are not exactly 4 points. Ignoring them."
+                        "Warning",
+                        "Initial points provided are not exactly 4 points. Ignoring them.",
                     )
 
             except Exception:
@@ -201,7 +224,9 @@ class ScoreboardSelector:
                     )
                     lines.append(line)
                 if len(self.points) == 4:
-                    line = canvas.create_line(self.points[0][0], self.points[0][1], x, y, fill="red", width=2)
+                    line = canvas.create_line(
+                        self.points[0][0], self.points[0][1], x, y, fill="red", width=2
+                    )
                     lines.append(line)
             else:
                 try:
@@ -235,13 +260,12 @@ class ScoreboardSelector:
                     else:
                         print(f"Key pressed: {event.char}, ASCII code: {ascii_code}")
 
-
     def order_points_clockwise(self, pts: torch.Tensor):
         # Ensure pts is a NumPy array of shape (4, 2)
         if isinstance(pts, torch.Tensor):
             pts = pts.to(torch.float32).cpu().numpy()
         elif isinstance(pts, list):
-            pts =  np.array(pts, dtype=np.float32)
+            pts = np.array(pts, dtype=np.float32)
         else:
             pts = pts.astype(np.float32)
 
@@ -251,10 +275,10 @@ class ScoreboardSelector:
 
         # Allocate an array for the ordered points: [top-left, top-right, bottom-right, bottom-left]
         ordered = np.zeros((4, 2), dtype="float32")
-        ordered[0] = pts[np.argmin(s)]       # top-left: smallest sum
-        ordered[2] = pts[np.argmax(s)]       # bottom-right: largest sum
-        ordered[1] = pts[np.argmin(diff)]    # top-right: smallest difference
-        ordered[3] = pts[np.argmax(diff)]    # bottom-left: largest difference
+        ordered[0] = pts[np.argmin(s)]  # top-left: smallest sum
+        ordered[2] = pts[np.argmax(s)]  # bottom-right: largest sum
+        ordered[1] = pts[np.argmin(diff)]  # top-right: smallest difference
+        ordered[3] = pts[np.argmax(diff)]  # bottom-left: largest difference
 
         return list(map(list, ordered))
 
@@ -347,7 +371,7 @@ class ScoreboardSelector:
                 self.process_ok()
                 if len(self.points) == 4 or self.points == ScoreboardSelector.NULL_POINTS:
                     break
-            if key in (ord('d'), ord('D')):
+            if key in (ord("d"), ord("D")):
                 self.reset_selection()
 
         try:
@@ -381,7 +405,9 @@ def _untuple_points(points: List[Tuple[int, int]]) -> List[List[int]]:
     return results
 
 
-def configure_scoreboard(game_id: str, image: Optional[torch.Tensor] = None, force: bool = False) -> List[List[int]]:
+def configure_scoreboard(
+    game_id: str, image: Optional[torch.Tensor] = None, force: bool = False
+) -> List[List[int]]:
     assert game_id
     game_config = get_game_config(game_id=game_id)
     current_scoreboard = get_nested_value(game_config, "rink.scoreboard.perspective_polygon")

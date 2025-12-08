@@ -99,7 +99,9 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
     return {} if not merge_into_config else merge_into_config
 
 
-def load_yaml_files_ordered(paths: Sequence[str], base: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def load_yaml_files_ordered(
+    paths: Sequence[str], base: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """Load multiple YAML files in order and merge them into a dictionary.
 
     Later files override earlier values and add new fields.
@@ -242,7 +244,9 @@ def get_config(
     return consolidated_config
 
 
-def update_config(baseline_config: dict, config_type: str, config_name: str, root_dir: Optional[str] = None):
+def update_config(
+    baseline_config: dict, config_type: str, config_name: str, root_dir: Optional[str] = None
+):
     yaml_file_path = os.path.join(root_dir, "config", config_type, config_name + ".yaml")
     if not os.path.exists(yaml_file_path):
         return baseline_config
@@ -359,7 +363,9 @@ def _lookup_path(config: Dict[str, Any], path_parts: Sequence[str]) -> Tuple[boo
     return True, cur
 
 
-def _resolve_global_value(config: Dict[str, Any], value: Any, seen: Optional[Set[str]] = None) -> Any:
+def _resolve_global_value(
+    config: Dict[str, Any], value: Any, seen: Optional[Set[str]] = None
+) -> Any:
     if seen is None:
         seen = set()
     if isinstance(value, str) and value.startswith(GLOBAL_REF_PREFIX):

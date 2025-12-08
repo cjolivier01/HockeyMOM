@@ -1,4 +1,5 @@
 load("@rules_python//python:defs.bzl", "py_test")
+load("@python_deps//:requirements.bzl", "requirement")
 
 
 py_test(
@@ -26,6 +27,9 @@ py_test(
     data = [
         "//hmlib:wheel_data_files",
     ],
+    deps = [
+        requirement("pytest"),
+    ],
 )
 
 py_test(
@@ -33,6 +37,9 @@ py_test(
     srcs = ["test_tracking_pose_load_tracking.py"],
     data = [
         "//hmlib:wheel_data_files",
+    ],
+    deps = [
+        requirement("pytest"),
     ],
 )
 
@@ -55,4 +62,9 @@ py_test(
     deps = [
         "//hockeymom:hockeymom",
     ],
+)
+
+py_test(
+    name = "test_stream_tensorx",
+    srcs = ["test_stream_tensorx.py"],
 )

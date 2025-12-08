@@ -1,5 +1,4 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-import math
 import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -14,9 +13,6 @@ from mmpose.registry import VISUALIZERS
 from mmpose.structures import PoseDataSample
 
 from hmlib.vis.pt_text import draw_text as torch_draw_text
-from hmlib.vis.pt_text import is_channels_first as _is_cf
-from hmlib.vis.pt_text import make_channels_first as _mk_cf
-from hmlib.vis.pt_text import make_channels_last as _mk_cl
 
 # New torch-only drawing utilities
 from hmlib.vis.pt_visualization import draw_box as torch_draw_box
@@ -25,7 +21,10 @@ from hmlib.vis.pt_visualization import draw_line as torch_draw_line
 
 from .pytorch_backend_visualizer import PytorchBackendVisualizer
 
-# from .simcc_vis import SimCCVisualizer
+try:
+    from mmpose.visualization.simcc_vis import SimCCVisualizer
+except Exception:
+    SimCCVisualizer = None
 
 
 def _get_adaptive_scales(
@@ -135,16 +134,12 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
     ):
 
         warnings.filterwarnings(
-            'ignore',
-            message='.*please provide the `save_dir` argument.*',
-            category=UserWarning)
+            "ignore", message=".*please provide the `save_dir` argument.*", category=UserWarning
+        )
 
         super().__init__(
-            name=name,
-            image=image,
-            vis_backends=vis_backends,
-            save_dir=save_dir,
-            backend=backend)
+            name=name, image=image, vis_backends=vis_backends, save_dir=save_dir, backend=backend
+        )
 
         self.bbox_color = bbox_color
         self.kpt_color = kpt_color
@@ -160,37 +155,34 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         # it will override the default value.
         self.dataset_meta = {}
 
-    def set_dataset_meta(self,
-                         dataset_meta: Dict,
-                         skeleton_style: str = 'mmpose'):
+    def set_dataset_meta(self, dataset_meta: Dict, skeleton_style: str = "mmpose"):
         """Assign dataset_meta to the visualizer. The default visualization
         settings will be overridden.
 
         Args:
             dataset_meta (dict): meta information of dataset.
         """
-        if skeleton_style == 'openpose':
-            dataset_name = dataset_meta['dataset_name']
-            if dataset_name == 'coco':
+        if skeleton_style == "openpose":
+            dataset_name = dataset_meta["dataset_name"]
+            if dataset_name == "coco":
                 dataset_meta = parse_pose_metainfo(
-                    dict(from_file='configs/_base_/datasets/coco_openpose.py'))
-            elif dataset_name == 'coco_wholebody':
+                    dict(from_file="configs/_base_/datasets/coco_openpose.py")
+                )
+            elif dataset_name == "coco_wholebody":
                 dataset_meta = parse_pose_metainfo(
-                    dict(from_file='configs/_base_/datasets/'
-                         'coco_wholebody_openpose.py'))
+                    dict(from_file="configs/_base_/datasets/" "coco_wholebody_openpose.py")
+                )
             else:
                 raise NotImplementedError(
-                    f'openpose style has not been '
-                    f'supported for {dataset_name} dataset')
+                    f"openpose style has not been " f"supported for {dataset_name} dataset"
+                )
 
         if isinstance(dataset_meta, dict):
             self.dataset_meta = dataset_meta.copy()
-            self.bbox_color = dataset_meta.get('bbox_color', self.bbox_color)
-            self.kpt_color = dataset_meta.get('keypoint_colors',
-                                              self.kpt_color)
-            self.link_color = dataset_meta.get('skeleton_link_colors',
-                                               self.link_color)
-            self.skeleton = dataset_meta.get('skeleton_links', self.skeleton)
+            self.bbox_color = dataset_meta.get("bbox_color", self.bbox_color)
+            self.kpt_color = dataset_meta.get("keypoint_colors", self.kpt_color)
+            self.link_color = dataset_meta.get("skeleton_link_colors", self.link_color)
+            self.skeleton = dataset_meta.get("skeleton_links", self.skeleton)
 
             if isinstance(self.bbox_color[0], np.ndarray):
                 self.bbox_color = [tuple(c.tolist()) for c in self.bbox_color]
@@ -250,7 +242,15 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
             return (int(color[2]), int(color[1]), int(color[0]))
         raise ValueError(f"Unsupported color format: {color}")
 
-    def _draw_label(self, image: torch.Tensor, text: str, x: int, y: int, scale: float, color: Tuple[int, int, int]):
+    def _draw_label(
+        self,
+        image: torch.Tensor,
+        text: str,
+        x: int,
+        y: int,
+        scale: float,
+        color: Tuple[int, int, int],
+    ):
         # Calibrate font size: original used ~13 * scale in OpenCV; our torch_draw_text internally *10
         desired = max(8, int(13 * scale))
         font_size = max(1, desired // 10)  # inverse of *10 in implementation
@@ -268,7 +268,9 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
     # ----------------------------------------------------------------------------------
     # Torch drawing implementations
     # ----------------------------------------------------------------------------------
-    def _draw_instances_bbox(self, image: Union[np.ndarray, torch.Tensor], instances: InstanceData) -> torch.Tensor:
+    def _draw_instances_bbox(
+        self, image: Union[np.ndarray, torch.Tensor], instances: InstanceData
+    ) -> torch.Tensor:
         """Draw bounding boxes and corresponding labels of GT or prediction.
 
         Args:
@@ -293,9 +295,13 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
 
         # Draw each bbox
         for box in bboxes:
-            tlx, tly, brx, bry = [int(v.item()) if isinstance(v, torch.Tensor) else int(v) for v in box]
+            tlx, tly, brx, bry = [
+                int(v.item()) if isinstance(v, torch.Tensor) else int(v) for v in box
+            ]
             color_rgb = self._color_to_rgb_tuple(
-                self.bbox_color if not isinstance(self.bbox_color, (list, tuple)) else tuple(self.bbox_color)
+                self.bbox_color
+                if not isinstance(self.bbox_color, (list, tuple))
+                else tuple(self.bbox_color)
             )
             torch_image = torch_draw_box(
                 image=torch_image,
@@ -306,8 +312,8 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                 filled=False,
             )
 
-        if 'labels' in instances and self.text_color is not None:
-            classes = self.dataset_meta.get('classes', None)
+        if "labels" in instances and self.text_color is not None:
+            classes = self.dataset_meta.get("classes", None)
             labels = instances.labels
             if isinstance(labels, np.ndarray):
                 labels = torch.from_numpy(labels).to(device)
@@ -315,13 +321,17 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
             areas = (bboxes[:, 3] - bboxes[:, 1]) * (bboxes[:, 2] - bboxes[:, 0])
             scales = _get_adaptive_scales(areas)
             txt_color = self._color_to_rgb_tuple(
-                self.text_color if not isinstance(self.text_color, (list, tuple)) else tuple(self.text_color)
+                self.text_color
+                if not isinstance(self.text_color, (list, tuple))
+                else tuple(self.text_color)
             )
             for i, (pos, label) in enumerate(zip(positions, labels)):
                 label_int = int(label.item() if isinstance(label, torch.Tensor) else int(label))
                 label_text = classes[label_int] if classes is not None else f"class {label_int}"
                 x, y = int(pos[0].item()), int(pos[1].item())
-                scale_val = float(scales[i].item() if isinstance(scales, torch.Tensor) else scales[i])
+                scale_val = float(
+                    scales[i].item() if isinstance(scales, torch.Tensor) else scales[i]
+                )
                 torch_image = self._draw_label(torch_image, label_text, x, y, scale_val, txt_color)
 
         return torch_image
@@ -351,7 +361,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
             np.ndarray: the drawn image which channel is RGB.
         """
 
-        if skeleton_style == 'openpose':
+        if skeleton_style == "openpose":
             # (Optional) Not yet converted to torch-only; fallback (could be implemented similarly)
             return self._draw_instances_kpts_openpose(image, instances, kpt_thr)
 
@@ -483,10 +493,16 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
 
         keypoints_info = torch.cat((keypoints, keypoints_visible[..., None]), dim=-1)
         neck = keypoints_info[:, [5, 6]].mean(dim=1)
-        neck[:, 2:3] = ((keypoints_info[:, 5, 2:3] > kpt_thr) & (keypoints_info[:, 6, 2:3] > kpt_thr)).float()
-        keypoints_info = torch.cat([keypoints_info[:, :17], neck.unsqueeze(1), keypoints_info[:, 17:]], dim=1)
+        neck[:, 2:3] = (
+            (keypoints_info[:, 5, 2:3] > kpt_thr) & (keypoints_info[:, 6, 2:3] > kpt_thr)
+        ).float()
+        keypoints_info = torch.cat(
+            [keypoints_info[:, :17], neck.unsqueeze(1), keypoints_info[:, 17:]], dim=1
+        )
 
-        mmpose_idx = torch.tensor([17, 6, 8, 10, 7, 9, 12, 14, 16, 13, 15, 2, 1, 4, 3], device=device, dtype=torch.long)
+        mmpose_idx = torch.tensor(
+            [17, 6, 8, 10, 7, 9, 12, 14, 16, 13, 15, 2, 1, 4, 3], device=device, dtype=torch.long
+        )
         openpose_idx = torch.tensor(
             [1, 2, 3, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17], device=device, dtype=torch.long
         )
@@ -538,7 +554,9 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                     color_tuple = self._color_to_rgb_tuple(color)
                     transparency = float(self.alpha)
                     if self.show_keypoint_weight:
-                        transparency *= float(0.5 * (visible[sk[0]] + visible[sk[1]]).clamp(0, 1).item())
+                        transparency *= float(
+                            0.5 * (visible[sk[0]] + visible[sk[1]]).clamp(0, 1).item()
+                        )
                     if sk_id <= 16:
                         transparency = min(transparency, 0.6)
                     thickness = max(1, int(self.line_width if sk_id <= 16 else 2))
@@ -547,7 +565,11 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                     y_pair = torch.tensor([pos1[1], pos2[1]], device=device)
 
                     def _draw_line(
-                        img: torch.Tensor, x_pair=x_pair, y_pair=y_pair, color_tuple=color_tuple, thickness=thickness
+                        img: torch.Tensor,
+                        x_pair=x_pair,
+                        y_pair=y_pair,
+                        color_tuple=color_tuple,
+                        thickness=thickness,
                     ) -> torch.Tensor:
                         return torch_draw_line(
                             image=img,
@@ -559,7 +581,9 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                             thickness=thickness,
                         )
 
-                    torch_image = self._apply_draw(torch_image, _draw_line, max(0.0, min(1.0, transparency)))
+                    torch_image = self._apply_draw(
+                        torch_image, _draw_line, max(0.0, min(1.0, transparency))
+                    )
 
             for kid, kpt in enumerate(kpts):
                 if visible[kid] < kpt_thr or kpt_color_list[kid] is None:
@@ -581,7 +605,9 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                     transparency *= float(torch.clamp(visible[kid], 0, 1).item())
                 radius = self.radius // 2 if kid > 17 else self.radius
 
-                def _draw_circle(img: torch.Tensor, kpt=kpt, color_tuple=color_tuple, radius=radius) -> torch.Tensor:
+                def _draw_circle(
+                    img: torch.Tensor, kpt=kpt, color_tuple=color_tuple, radius=radius
+                ) -> torch.Tensor:
                     return torch_draw_circle(
                         image=img,
                         center_x=float(kpt[0].item()),
@@ -592,7 +618,9 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
                         fill=True,
                     )
 
-                torch_image = self._apply_draw(torch_image, _draw_circle, max(0.0, min(1.0, transparency)))
+                torch_image = self._apply_draw(
+                    torch_image, _draw_circle, max(0.0, min(1.0, transparency))
+                )
 
         return torch_image
 
@@ -611,7 +639,7 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         Returns:
             np.ndarray: the drawn image which channel is RGB.
         """
-        if 'heatmaps' not in fields:
+        if "heatmaps" not in fields:
             return None
         heatmaps = fields.heatmaps
         if isinstance(heatmaps, np.ndarray):
@@ -636,7 +664,9 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         if overlaid_image is not None:
             base = self._ensure_torch_image(overlaid_image).to(torch.uint8)
             alpha = 0.5
-            heat_rgb = (alpha * heat_rgb.to(torch.float32) + (1 - alpha) * base.to(torch.float32)).to(torch.uint8)
+            heat_rgb = (
+                alpha * heat_rgb.to(torch.float32) + (1 - alpha) * base.to(torch.float32)
+            ).to(torch.uint8)
         return heat_rgb
 
     def _draw_instance_xy_heatmap(
@@ -656,14 +686,15 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         Returns:
             np.ndarray: the drawn image which channel is RGB.
         """
-        if 'heatmaps' not in fields:
+        if "heatmaps" not in fields:
             return None
         heatmaps = fields.heatmaps
         _, h, w = heatmaps.shape
         if isinstance(heatmaps, np.ndarray):
             heatmaps = torch.from_numpy(heatmaps)
-        out_image = SimCCVisualizer().draw_instance_xy_heatmap(
-            heatmaps, overlaid_image, n)
+        if SimCCVisualizer is None:
+            return None
+        out_image = SimCCVisualizer().draw_instance_xy_heatmap(heatmaps, overlaid_image, n)
         out_image = cv2.resize(out_image[:, :, ::-1], (w, h))
         return out_image
 
@@ -724,7 +755,6 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
         """
 
         torch_image = self._ensure_torch_image(image)
-        device = torch_image.device
 
         gt_img_data: Optional[torch.Tensor] = None
         pred_img_data: Optional[torch.Tensor] = None
@@ -733,25 +763,27 @@ class PytorchPoseLocalVisualizer(PytorchBackendVisualizer):
 
         if draw_gt:
             gt_img_data = torch_image.clone() if clone_image else torch_image
-            if 'gt_instances' in data_sample:
+            if "gt_instances" in data_sample:
                 gt_img_data = self._draw_instances_kpts(
-                    gt_img_data, data_sample.gt_instances, kpt_thr,
-                    show_kpt_idx, skeleton_style)
+                    gt_img_data, data_sample.gt_instances, kpt_thr, show_kpt_idx, skeleton_style
+                )
                 if draw_bbox:
                     gt_img_data = self._draw_instances_bbox(gt_img_data, data_sample.gt_instances)
-            if 'gt_fields' in data_sample and draw_heatmap:
+            if "gt_fields" in data_sample and draw_heatmap:
                 gt_img_heatmap = self._draw_instance_heatmap(data_sample.gt_fields, torch_image)
                 if gt_img_heatmap is not None:
                     gt_img_data = torch.cat((gt_img_data, gt_img_heatmap), dim=1)
 
         if draw_pred:
             pred_img_data = torch_image.clone() if clone_image else torch_image
-            if 'pred_instances' in data_sample:
+            if "pred_instances" in data_sample:
                 pred_img_data = self._draw_instances_kpts(
-                    pred_img_data, data_sample.pred_instances, kpt_thr,
-                    show_kpt_idx, skeleton_style)
+                    pred_img_data, data_sample.pred_instances, kpt_thr, show_kpt_idx, skeleton_style
+                )
                 if draw_bbox:
-                    pred_img_data = self._draw_instances_bbox(pred_img_data, data_sample.pred_instances)
+                    pred_img_data = self._draw_instances_bbox(
+                        pred_img_data, data_sample.pred_instances
+                    )
             if "pred_fields" in data_sample and draw_heatmap:
                 pred_img_heatmap = self._draw_instance_heatmap(data_sample.pred_fields, torch_image)
                 if pred_img_heatmap is not None:

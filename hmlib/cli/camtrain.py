@@ -1,6 +1,6 @@
 import argparse
 import os
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 import torch
 from torch import nn, optim
@@ -11,7 +11,9 @@ from hmlib.camera.camera_transformer import CameraPanZoomTransformer, pack_check
 from hmlib.log import logger
 
 
-def train_one_epoch(model, loader, opt, device, limit_steps: Optional[int] = None) -> Tuple[float, float]:
+def train_one_epoch(
+    model, loader, opt, device, limit_steps: Optional[int] = None
+) -> Tuple[float, float]:
     model.train()
     total = 0
     loss_sum = 0.0

@@ -1,12 +1,8 @@
 from collections import OrderedDict
-from typing import Any, Dict, Set, Union
+from typing import Any, Dict, Union
 
 import torch
-from mmengine.runner.checkpoint import (
-    _load_checkpoint,
-    _load_checkpoint_to_model,
-    get_state_dict,
-)
+from mmengine.runner.checkpoint import _load_checkpoint, _load_checkpoint_to_model, get_state_dict
 from typeguard import typechecked
 
 # Final tokens where we don't substitute
@@ -60,9 +56,7 @@ def load_checkpoint_to_model(
     device = next(iter(model.parameters())).device
     base_checkpoint = get_state_dict(model)
     base_state_dict = _get_state_dict(base_checkpoint)
-    checkpoint_state_dict = _get_state_dict(
-        _load_checkpoint(checkpoint, map_location="cpu")
-    )
+    checkpoint_state_dict = _get_state_dict(_load_checkpoint(checkpoint, map_location="cpu"))
 
     # Convert first rather than doing, simply so that we can inspect if we'd like to
     converted_base_dict = base_state_dict

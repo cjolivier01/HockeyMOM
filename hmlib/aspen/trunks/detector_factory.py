@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-from cuda_stacktrace import CudaStackTracer
 from mmengine.structures import InstanceData
 
 from .base import Trunk
@@ -16,8 +15,7 @@ def _strip_static_padding(instances: InstanceData, strip: bool) -> InstanceData:
     """Remove padded detections when static outputs are enabled."""
     if instances is None or not strip:
         return instances
-    num_valid = getattr(instances, "num_valid_after_nms",
-                        getattr(instances, "num_valid", None))
+    num_valid = getattr(instances, "num_valid_after_nms", getattr(instances, "num_valid", None))
     if isinstance(num_valid, torch.Tensor):
         if num_valid.numel() == 0:
             return instances[:0]
@@ -147,9 +145,11 @@ class DetectorFactoryTrunk(Trunk):
             if "yolodetector" in model_cfg.get("type", "").lower():
                 # Ensure we have mmyolo installed for YOLOv8 support
                 try:
-                    import mmyolo.models.detectors.yolo_detector  # type: ignore
+                    pass  # type: ignore
                 except Exception as ex:
-                    raise RuntimeError("mmyolo is required for YOLOv8 models but is not installed.") from ex
+                    raise RuntimeError(
+                        "mmyolo is required for YOLOv8 models but is not installed."
+                    ) from ex
 
             model = MODELS.build(model_cfg)
 
@@ -162,7 +162,11 @@ class DetectorFactoryTrunk(Trunk):
                 if callable(setter):
                     setter(**self._static_detections)
 
-            if self._to_device and "device" in context and isinstance(context["device"], torch.device):
+            if (
+                self._to_device
+                and "device" in context
+                and isinstance(context["device"], torch.device)
+            ):
                 model = model.to(context["device"])  # type: ignore[assignment]
             model.eval()
             self._model = model
@@ -514,10 +518,6 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
         with self._profile_scope():
             assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
             N = imgs.size(0)
-            try:
-                dev = next(self.model.parameters()).device
-            except StopIteration:
-                dev = torch.device("cpu")
             if self.quantize_int8 and not self._quantized and self.calib_target > 0:
                 remaining = max(0, self.calib_target - len(self._calib_inputs))
                 if remaining > 0:
@@ -647,7 +647,9 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         try:
             import torch2trt  # type: ignore
         except Exception as ex:
-            raise RuntimeError("torch2trt is required for TensorRT path but is not available") from ex
+            raise RuntimeError(
+                "torch2trt is required for TensorRT path but is not available"
+            ) from ex
         import os
 
         portions: list[str] = [self.engine_path.stem]
@@ -733,7 +735,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         do_trace: bool = self._pass == 10
         if do_trace:
             pass
-        with self._profile_scope(), CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=False and do_trace):
+        with self._profile_scope():
             assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
             results: List[Any] = []
             try:
@@ -802,7 +804,9 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         self.pred_instances = inst_
 
                 with self._profile_scope("postprocess"):
-                    results.append(_Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt")))
+                    results.append(
+                        _Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt"))
+                    )
 
             if do_trace == 10:
                 pass

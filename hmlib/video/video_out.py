@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
 """High-level stitched video writer and visualization utilities.
 
 This module coordinates GPU streams, color transforms, overlays and IO to
@@ -7,6 +5,8 @@ produce the final rendered videos used by many CLIs.
 
 @see @ref hmlib.video.video_stream "video_stream" for the underlying encoder.
 """
+
+from __future__ import absolute_import, division, print_function
 
 import contextlib
 import math
@@ -20,26 +20,27 @@ import cv2
 import numpy as np
 import torch
 from mmcv.transforms import Compose
-from torchvision.transforms import functional as F
 
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
 from hmlib.log import logger
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.tracking_utils.timer import Timer, TimeTracker
-from hmlib.ui import show_image
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import IterableQueue, SidebandQueue, create_queue
 from hmlib.utils.exceptions import raise_exception_in_thread
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensor, cuda_stream_scope, get_gpu_capabilities
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensorBase,
+    cuda_stream_scope,
+    get_gpu_capabilities,
+)
 from hmlib.utils.image import (
     ImageColorScaler,
     image_height,
     image_width,
     make_channels_last,
-    make_visible_image,
     resize_image,
-    rotate_image,
     to_uint8_image,
 )
 from hmlib.utils.iterators import CachedIterator
@@ -48,7 +49,11 @@ from hmlib.utils.progress_bar import ProgressBar
 from hmlib.utils.tensor import make_const_tensor
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
-from .video_stream import VideoStreamWriterInterface, clamp_max_video_dimensions, create_output_video_stream
+from .video_stream import (
+    VideoStreamWriterInterface,
+    clamp_max_video_dimensions,
+    create_output_video_stream,
+)
 
 standard_8k_width: int = 7680
 standard_8k_height: int = 4320
@@ -62,12 +67,12 @@ def get_and_pop(map: Dict[str, Any], key: str) -> Any:
 
 
 def slow_to_tensor(
-    tensor: Union[torch.Tensor, StreamTensor], stream_wait: bool = True
+    tensor: Union[torch.Tensor, StreamTensorBase], stream_wait: bool = True
 ) -> torch.Tensor:
     """
     Give up on the stream and get the sync'd tensor
     """
-    if isinstance(tensor, StreamTensor):
+    if isinstance(tensor, StreamTensorBase):
         tensor._verbose = True
         if stream_wait:
             return tensor.wait()
@@ -91,16 +96,16 @@ def get_best_codec(
     # return "XVID", False
 
 
-def tensor_ref(tensor: Union[torch.Tensor, StreamTensor]) -> torch.Tensor:
-    if isinstance(tensor, StreamTensor):
+def tensor_ref(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:
+    if isinstance(tensor, StreamTensorBase):
         return tensor.ref()
     return tensor
 
 
 def tensor_checkpoint(
-    tensor: Union[torch.Tensor, StreamTensor]
-) -> Union[torch.Tensor, StreamTensor]:
-    if isinstance(tensor, StreamTensor):
+    tensor: Union[torch.Tensor, StreamTensorBase],
+) -> Union[torch.Tensor, StreamTensorBase]:
+    if isinstance(tensor, StreamTensorBase):
         tensor.new_checkpoint()
         return tensor
     return tensor
@@ -129,12 +134,16 @@ def is_nearly_8k(width, height, size_tolerance=0.10, aspect_ratio_tolerance=0.01
 
     # Check if dimensions are within 10% of 8K
     width_ok = ref_8k_width * (1 - size_tolerance) <= width <= ref_8k_width * (1 + size_tolerance)
-    height_ok = ref_8k_height * (1 - size_tolerance) <= height <= ref_8k_height * (1 + size_tolerance)
+    height_ok = (
+        ref_8k_height * (1 - size_tolerance) <= height <= ref_8k_height * (1 + size_tolerance)
+    )
 
     # Check if the aspect ratio is very close
     try:
         current_aspect_ratio = width / height
-        aspect_ratio_ok = math.isclose(current_aspect_ratio, ref_aspect_ratio, rel_tol=aspect_ratio_tolerance)
+        aspect_ratio_ok = math.isclose(
+            current_aspect_ratio, ref_aspect_ratio, rel_tol=aspect_ratio_tolerance
+        )
     except ZeroDivisionError:
         return False, "Height cannot be zero."
 
@@ -144,9 +153,13 @@ def is_nearly_8k(width, height, size_tolerance=0.10, aspect_ratio_tolerance=0.01
     else:
         details = []
         if not width_ok:
-            details.append(f"Width ({width}) is not within {size_tolerance*100}% of 8K width ({ref_8k_width}).")
+            details.append(
+                f"Width ({width}) is not within {size_tolerance*100}% of 8K width ({ref_8k_width})."
+            )
         if not height_ok:
-            details.append(f"Height ({height}) is not within {size_tolerance*100}% of 8K height ({ref_8k_height}).")
+            details.append(
+                f"Height ({height}) is not within {size_tolerance*100}% of 8K height ({ref_8k_height})."
+            )
         if not aspect_ratio_ok:
             details.append(
                 f"Aspect ratio ({current_aspect_ratio:.4f}) is not very close to 8K ({ref_aspect_ratio:.4f})."
@@ -207,7 +220,9 @@ class VideoOutput:
         assert self._dtype in _FP_TYPES
 
         output_frame_width = make_const_tensor(output_frame_width, device=device, dtype=torch.int64)
-        output_frame_height = make_const_tensor(output_frame_height, device=device, dtype=torch.int64)
+        output_frame_height = make_const_tensor(
+            output_frame_height, device=device, dtype=torch.int64
+        )
 
         if fourcc == "auto" and device.type == "cuda":
             fourcc = "hevc_nvenc"
@@ -264,8 +279,12 @@ class VideoOutput:
         self._save_frame_dir = save_frame_dir
         self._print_interval = print_interval
         self._output_videos: Dict[str, VideoStreamWriterInterface] = {}
-        self._cuda_stream = torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
-        self._default_cuda_stream = None
+        if not self._async_output:
+            self._cuda_stream = (
+                torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
+            )
+        else:
+            self._cuda_stream = None
 
         self._bit_rate = bit_rate
         self._end_zones = None
@@ -320,10 +339,14 @@ class VideoOutput:
 
         self._prof = getattr(self._args, "profiler", None) if self.has_args() else None
         self._fctx = (
-            self._prof.rf("video_out.forward") if getattr(self._prof, "enabled", False) else contextlib.nullcontext()
+            self._prof.rf("video_out.forward")
+            if getattr(self._prof, "enabled", False)
+            else contextlib.nullcontext()
         )
         self._sctx = (
-            self._prof.rf("video_out.save_frame") if getattr(self._prof, "enabled", False) else contextlib.nullcontext()
+            self._prof.rf("video_out.save_frame")
+            if getattr(self._prof, "enabled", False)
+            else contextlib.nullcontext()
         )
 
         self._video_out_pipeline = video_out_pipeline
@@ -371,22 +394,17 @@ class VideoOutput:
             self._shower = None
 
     def append(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        # torch.cuda.synchronize()
-        # show_image("video_out", results["img"], wait=False, enable_resizing=0.2)
-        # self._shower.show(results["img"]) if self._shower is not None else None
         if not self._async_output:
             with cuda_stream_scope(self._cuda_stream):
-                if isinstance(results["img"], StreamTensor):
+                if not self._output_videos:
+                    self.create_output_videos()
+                if isinstance(results["img"], StreamTensorBase):
                     results["img"] = results["img"].wait()
                 with self._fctx:
                     results = self.forward(results)
                 assert results["img"].device == self._device
                 with self._sctx:
-                    results = self.save_frame(
-                        results,
-                        cuda_stream=self._cuda_stream,
-                        default_cuda_stream=self._default_cuda_stream,
-                    )
+                    results = self.save_frame(results)
             return results
         else:
             with TimeTracker(
@@ -408,9 +426,6 @@ class VideoOutput:
                 self._imgproc_queue.put(results)
 
     def _final_image_processing_wrapper(self):
-        self._default_cuda_stream = (
-            torch.cuda.Stream(self._device) if self._device.type == "cuda" else None
-        )
         try:
             self._final_image_processing_worker()
         except Exception as ex:
@@ -471,17 +486,14 @@ class VideoOutput:
 
         # last_frame_id = None
 
-        default_cuda_stream = None
         cuda_stream = None
 
-        if self._device.type == "cuda":
-            default_cuda_stream = torch.cuda.default_stream(self._device)
+        if self._device.type == "cuda" and not self._no_cuda_streams:
             cuda_stream = torch.cuda.Stream(self._device)
 
         mean_track_mode = None
         if mean_track_mode and self._mean_tracker is None:
             self._mean_tracker = MeanTracker(file_path="video_out.txt", mode=mean_track_mode)
-        # torch.cuda.synchronize()
         with cuda_stream_scope(cuda_stream):
             iqueue = IterableQueue(self._imgproc_queue)
             imgproc_iter = iter(iqueue)
@@ -496,25 +508,17 @@ class VideoOutput:
                     except StopIteration:
                         break
 
-                    if isinstance(results["img"], StreamTensor):
+                    if isinstance(results["img"], StreamTensorBase):
                         results["img"] = results["img"].wait()
-
-                    # torch.cuda.synchronize()
 
                     timer.tic()
 
                     batch_size = results["img"].size(0)
 
                     with self._fctx:
-                        # torch.cuda.synchronize()
                         results = self.forward(results)
                     with self._sctx:
-                        # default_cuda_stream.wait_stream(default_cuda_stream)
-                        # cuda_stream.synchronize()
-                        # torch.cuda.synchronize()
-                        results = self.save_frame(
-                            results, cuda_stream=cuda_stream, default_cuda_stream=default_cuda_stream
-                        )
+                        results = self.save_frame(results)
 
                     timer.toc()
 
@@ -552,8 +556,6 @@ class VideoOutput:
     def save_frame(
         self,
         results: Dict[str, Any],
-        cuda_stream: torch.cuda.Stream,
-        default_cuda_stream: torch.cuda.Stream,
     ) -> Dict[str, Any]:
         online_im = results.pop("img")
         image_w = image_width(online_im)
@@ -569,29 +571,30 @@ class VideoOutput:
             img = online_im
             self._mean_tracker(img)
 
-        if not self._skip_final_save:
-            if self.VIDEO_DEFAULT in self._output_videos:
-                if not isinstance(online_im, StreamTensor):
-                    online_im = StreamCheckpoint(tensor=online_im)
-                with cuda_stream_scope(default_cuda_stream):
-                    self._output_videos[self.VIDEO_DEFAULT].write(online_im)
-
-            if self.VIDEO_END_ZONES in self._output_videos:
-                ez_img = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
-                if ez_img is None:
-                    ez_img = online_im
-                if not isinstance(ez_img, StreamTensor):
-                    ez_img = StreamCheckpoint(tensor=ez_img)
-                with cuda_stream_scope(default_cuda_stream):
-                    self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
-
         if self.has_args() and self._args.show_image:
             online_im = slow_to_tensor(online_im)
             for show_img in online_im:
-                # show_img = ez_img
                 self._shower.show(show_img)
-                # show_image("image", show_img, wait=False)
-                pass
+
+        with torch.cuda.stream(torch.cuda.default_stream(online_im.device)):
+
+            if online_im.is_cuda:
+                # torch.cuda.current_stream(online_im.device).synchronize()
+                torch.cuda.synchronize()
+
+            if not self._skip_final_save:
+                if self.VIDEO_DEFAULT in self._output_videos:
+                    if not isinstance(online_im, StreamTensorBase):
+                        online_im = StreamCheckpoint(tensor=online_im)
+                    self._output_videos[self.VIDEO_DEFAULT].write(online_im)
+
+                if self.VIDEO_END_ZONES in self._output_videos:
+                    ez_img = self._end_zones.get_ez_image(results, dtype=online_im.dtype)
+                    if ez_img is None:
+                        ez_img = online_im
+                    if not isinstance(ez_img, StreamTensorBase):
+                        ez_img = StreamCheckpoint(tensor=ez_img)
+                    self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
 
         # Save frames as individual frames
         if self._save_frame_dir:
@@ -627,7 +630,7 @@ class VideoOutput:
 
         current_boxes = current_boxes.to(online_im.device, non_blocking=True)
 
-        if isinstance(online_im, StreamTensor):
+        if isinstance(online_im, StreamTensorBase):
             online_im._verbose = True
             online_im = online_im.get()
 
@@ -682,14 +685,19 @@ class VideoOutput:
                         color = cam.get("color", {}) or {}
                         # Allow fallback to flat camera keys too
                         wb = color.get("white_balance", cam.get("white_balance"))
-                        wbk = color.get("white_balance_temp", cam.get("white_balance_k", cam.get("white_balance_temp")))
+                        wbk = color.get(
+                            "white_balance_temp",
+                            cam.get("white_balance_k", cam.get("white_balance_temp")),
+                        )
                         bright = color.get("brightness", cam.get("color_brightness"))
                         contr = color.get("contrast", cam.get("color_contrast"))
                         gamma = color.get("gamma", cam.get("color_gamma"))
                         if wbk is not None and wb is None:
                             try:
                                 # Kelvin can be numeric or string like '3500k'
-                                self._color_adjust_tf.white_balance = self._color_adjust_tf._gains_from_kelvin(wbk)
+                                self._color_adjust_tf.white_balance = (
+                                    self._color_adjust_tf._gains_from_kelvin(wbk)
+                                )
                             except Exception:
                                 pass
                         elif wb is not None:

@@ -47,5 +47,5 @@ test --test_output=errors
 
 # Coverage-related configuration:
 coverage --combined_report=lcov
-test --instrumentation_filter="^//src[/:]"
-test --collect_code_coverage
+coverage --instrumentation_filter="^//src[/:]"
+coverage --collect_code_coverage

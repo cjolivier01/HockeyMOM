@@ -1,16 +1,19 @@
+# ruff: noqa: E402
+
 import os
 import sys
 import tempfile
+
 import numpy as np
 import pandas as pd
 import torch
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
 from hmlib.camera.camera_model_dataset import CameraPanZoomDataset
 from hmlib.camera.camera_transformer import CameraPanZoomTransformer, pack_checkpoint
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 
 def _make_synth_csvs(tmpdir: str, n_frames: int = 50):
@@ -31,7 +34,9 @@ def _make_synth_csvs(tmpdir: str, n_frames: int = 50):
             px = cx + rng.randn() * (W / 10)
             py = cy + rng.randn() * (H / 10)
             pw, ph = 30 + rng.rand() * 20, 60 + rng.rand() * 20
-            t_rows.append([f, pid, px - pw / 2, py - ph / 2, pw, ph, 0.9, 0, 1, "{}", -1, "", 0.0, -1])
+            t_rows.append(
+                [f, pid, px - pw / 2, py - ph / 2, pw, ph, 0.9, 0, 1, "{}", -1, "", 0.0, -1]
+            )
     tracking_csv = os.path.join(tmpdir, "tracking.csv")
     camera_csv = os.path.join(tmpdir, "camera.csv")
     pd.DataFrame(t_rows).to_csv(tracking_csv, header=False, index=False)

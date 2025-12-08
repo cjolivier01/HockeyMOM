@@ -18,7 +18,11 @@ class Interval:
 
 
 def _parse_time_or_frames(
-    info: BasicVideoInfo, start: Optional[str], duration: Optional[str], start_frame: Optional[int], duration_frames: Optional[int]
+    info: BasicVideoInfo,
+    start: Optional[str],
+    duration: Optional[str],
+    start_frame: Optional[int],
+    duration_frames: Optional[int],
 ) -> Interval:
     fps = float(info.fps)
     total_frames = int(info.frame_count)
@@ -49,7 +53,6 @@ def _ensure_cam_df(
     """
     width = float(info.width)
     height = float(info.height)
-    aspect = default_aspect if default_aspect and default_aspect > 0 else width / height
     frames = np.arange(1, int(info.frame_count) + 1, dtype=np.int64)
     if input_camera_csv and os.path.exists(input_camera_csv):
         cams = pd.read_csv(input_camera_csv, header=None)
@@ -236,11 +239,9 @@ def annotate(
             # Determine w/h for this frame from baseline or defaults
             idx = frame_to_idx.get(csv_frame)
             h = default_h
-            w = int(round(h * (16.0 / 9.0)))
             if idx is not None:
                 try:
                     h = int(max(1, float(out_df.iloc[idx]["BBox_H"])))
-                    w = int(round(h * (16.0 / 9.0)))
                 except Exception:
                     pass
             # Initialize current adjustable size from baseline/default each frame
@@ -269,8 +270,17 @@ def annotate(
             if mouse_down:
                 cx, cy = mouse_xy
                 cur_w = float(round(cur_h * (16.0 / 9.0)))
-                fx, fy, fw, fh = _fit_box_within_frame(cx, cy, cur_w, cur_h, width, height, min_scale=0.25)
-                _draw_center_box(disp, int(fx + fw / 2.0), int(fy + fh / 2.0), int(fw), int(fh), color=(0, 255, 0))
+                fx, fy, fw, fh = _fit_box_within_frame(
+                    cx, cy, cur_w, cur_h, width, height, min_scale=0.25
+                )
+                _draw_center_box(
+                    disp,
+                    int(fx + fw / 2.0),
+                    int(fy + fh / 2.0),
+                    int(fw),
+                    int(fh),
+                    color=(0, 255, 0),
+                )
 
             locked_text = " [locked]" if lock_baseline_height else ""
             _put_text(
@@ -328,13 +338,17 @@ def annotate(
                     base_h = None
                     if csv_frame in baseline_idx_map:
                         try:
-                            base_h = float(cams.iloc[baseline_idx_map[csv_frame]]["BBox_H"])  # original baseline
+                            base_h = float(
+                                cams.iloc[baseline_idx_map[csv_frame]]["BBox_H"]
+                            )  # original baseline
                         except Exception:
                             base_h = None
                     if base_h is None or base_h <= 0:
                         # fallback to existing out_df row or default
                         try:
-                            base_h = float(out_df.iloc[idx]["BBox_H"]) if idx is not None else float(h)
+                            base_h = (
+                                float(out_df.iloc[idx]["BBox_H"]) if idx is not None else float(h)
+                            )
                         except Exception:
                             base_h = float(h)
                     save_h = float(base_h)
@@ -375,7 +389,9 @@ def annotate(
 def make_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser("Annotate camera centers over a video interval")
     ap.add_argument("--video", required=True, help="Path to video file")
-    ap.add_argument("--input-camera-csv", default=None, help="Existing camera.csv to use as baseline")
+    ap.add_argument(
+        "--input-camera-csv", default=None, help="Existing camera.csv to use as baseline"
+    )
     ap.add_argument(
         "--output-camera-csv",
         default=None,
@@ -383,7 +399,9 @@ def make_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--start", default=None, help="Start time (e.g. 90 or 00:01:30.0)")
     ap.add_argument("--duration", default=None, help="Duration (e.g. 30 or 00:00:30.0)")
-    ap.add_argument("--start-frame", type=int, default=None, help="Start at this 0-based frame index")
+    ap.add_argument(
+        "--start-frame", type=int, default=None, help="Start at this 0-based frame index"
+    )
     ap.add_argument("--duration-frames", type=int, default=None, help="Duration in frames")
     ap.add_argument("--save-every", type=int, default=120, help="Periodic save frequency in frames")
     ap.add_argument(
@@ -398,8 +416,15 @@ def make_parser() -> argparse.ArgumentParser:
         default=None,
         help="Default aspect ratio (width/height). If no baseline, a 16:9 box with full video height is used regardless",
     )
-    ap.add_argument("--playback-speed", type=float, default=1.0, help="Playback speed factor (e.g., 0.5 for half-speed)")
-    ap.add_argument("--overlay", dest="overlay", action="store_true", help="Show baseline overlay while playing")
+    ap.add_argument(
+        "--playback-speed",
+        type=float,
+        default=1.0,
+        help="Playback speed factor (e.g., 0.5 for half-speed)",
+    )
+    ap.add_argument(
+        "--overlay", dest="overlay", action="store_true", help="Show baseline overlay while playing"
+    )
     ap.add_argument(
         "--lock-baseline-height",
         dest="lock_baseline_height",

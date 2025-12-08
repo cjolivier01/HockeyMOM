@@ -5,17 +5,14 @@ but demonstrates how to wire GStreamer pipelines for video processing.
 """
 
 import argparse
-import sys
 import traceback
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
 import cv2
 import gi
-import numpy as np
-import torch
+from gi.repository import GLib, GObject, Gst  # noqa: E402
 
-gi.require_version('Gst', '1.0')
-from gi.repository import GLib, GObject, Gst
+gi.require_version("Gst", "1.0")
 
 
 class VideoTranscoder:
@@ -132,20 +129,24 @@ def check_opencv_gstreamer_support():
     build_info = cv2.getBuildInformation()
 
     # Check if GStreamer is mentioned in the build information
-    if 'GStreamer:' in build_info:
-        start = build_info.index('OpenCV GStreamer:')
-        end = build_info.index('\n', start)
+    if "GStreamer:" in build_info:
+        start = build_info.index("OpenCV GStreamer:")
+        end = build_info.index("\n", start)
         gstreamer_info = build_info[start:end]
         print(gstreamer_info)
     else:
         print("GStreamer is not mentioned in OpenCV's build information.")
 
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Transcode a video file with specific bitrate.")
     parser.add_argument("input_file", help="Input video file path")
     parser.add_argument("output_file", help="Output video file path")
-    parser.add_argument("--bitrate", type=int, default=2000, help="Bitrate for output video in kbps")
+    parser.add_argument(
+        "--bitrate", type=int, default=2000, help="Bitrate for output video in kbps"
+    )
     return parser.parse_args()
+
 
 if __name__ == "__main__":
     args = parse_arguments()

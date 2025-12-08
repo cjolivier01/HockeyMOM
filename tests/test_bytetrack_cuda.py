@@ -1,13 +1,16 @@
+import sys
 import unittest
 
-import torch
+try:
+    import torch
+except Exception:
+    torch = None
 
-from hockeymom.core import (
-    HmByteTrackConfig,
-    HmTracker,
-    HmByteTrackerCuda,
-    HmByteTrackerCudaStatic,
-)
+if torch is None or not torch.cuda.is_available():
+    print("SKIP: torch with CUDA not available", file=sys.stderr)
+    raise SystemExit(0)
+
+from hockeymom.core import HmByteTrackConfig, HmByteTrackerCuda, HmByteTrackerCudaStatic, HmTracker
 
 
 def _make_data(device: torch.device, frame_id: int, boxes, labels, scores):
@@ -124,13 +127,9 @@ class ByteTrackCudaStaticTest(unittest.TestCase):
                         atol=1e-4,
                     )
                 )
+                self.assertTrue(torch.equal(static_res["labels"][:num_tracks], dyn_res["labels"]))
                 self.assertTrue(
-                    torch.equal(static_res["labels"][:num_tracks], dyn_res["labels"])
-                )
-                self.assertTrue(
-                    torch.allclose(
-                        static_res["scores"][:num_tracks], dyn_res["scores"], atol=1e-4
-                    )
+                    torch.allclose(static_res["scores"][:num_tracks], dyn_res["scores"], atol=1e-4)
                 )
 
             if num_tracks < 8:

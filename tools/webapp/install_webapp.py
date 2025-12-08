@@ -61,7 +61,15 @@ def main():
     if not args.python_bin:
         try:
             user_py = subprocess.check_output(
-                ["sudo", "-H", "-u", args.user, "bash", "-lc", "command -v python || command -v python3"],
+                [
+                    "sudo",
+                    "-H",
+                    "-u",
+                    args.user,
+                    "bash",
+                    "-lc",
+                    "command -v python || command -v python3",
+                ],
                 text=True,
             ).strip()
             python_bin = user_py or "/usr/bin/python3"
@@ -167,7 +175,7 @@ server {{
     subprocess.check_call(["sudo", "systemctl", "restart", "nginx"])
 
     print("Installed webapp:")
-    print(f"  http://localhost/")
+    print("  http://localhost/")
     print(f"  install_root: {install_root}")
     print(f"  uploads root (watch): {args.watch_root}")
 

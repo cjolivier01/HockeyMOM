@@ -1,7 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
-import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -166,19 +165,22 @@ class hm_opts(object):
         )
 
         #
-        # Feature Cache (pipeline state caching: detection/tracking/pose/action)
-        #
-        cache = parser.add_argument_group("Feature Cache")
-
-        #
         # Visualization & Plotting
         #
         plot = parser.add_argument_group("Visualization & Plotting")
-        plot.add_argument("--plot-tracking", action="store_true", help="Plot individual tracking boxes")
+        plot.add_argument(
+            "--plot-tracking", action="store_true", help="Plot individual tracking boxes"
+        )
         plot.add_argument("--plot-ice-mask", action="store_true", help="Plot the ice mask")
-        plot.add_argument("--plot-trajectories", action="store_true", help="Plot individual track trajectories")
-        plot.add_argument("--plot-jersey-numbers", action="store_true", help="Plot individual jersey numbers")
-        plot.add_argument("--plot-actions", action="store_true", help="Plot action labels per tracked player")
+        plot.add_argument(
+            "--plot-trajectories", action="store_true", help="Plot individual track trajectories"
+        )
+        plot.add_argument(
+            "--plot-jersey-numbers", action="store_true", help="Plot individual jersey numbers"
+        )
+        plot.add_argument(
+            "--plot-actions", action="store_true", help="Plot action labels per tracked player"
+        )
         plot.add_argument("--plot-pose", action="store_true", help="Plot individual pose skeletons")
         plot.add_argument(
             "--plot-overhead-rink",
@@ -197,8 +199,12 @@ class hm_opts(object):
             help="Plot moving camera tracking boxes",
         )
         # Pose visualization tuning
-        plot.add_argument("--kpt-thr", type=float, default=0.3, help="Keypoint score threshold for overlay")
-        plot.add_argument("--bbox-thr", type=float, default=0.3, help="Bounding box score threshold for overlay")
+        plot.add_argument(
+            "--kpt-thr", type=float, default=0.3, help="Keypoint score threshold for overlay"
+        )
+        plot.add_argument(
+            "--bbox-thr", type=float, default=0.3, help="Bounding box score threshold for overlay"
+        )
         plot.add_argument("--radius", type=int, default=4, help="Keypoint radius for overlay")
         plot.add_argument("--thickness", type=int, default=1, help="Link thickness for overlay")
 
@@ -493,7 +499,9 @@ class hm_opts(object):
             "--pose-onnx-quantize-int8",
             dest="pose_onnx_quantize_int8",
             action="store_true",
-            help=("After exporting the float32 pose model, quantize to INT8 using calibration frames."),
+            help=(
+                "After exporting the float32 pose model, quantize to INT8 using calibration frames."
+            ),
         )
         onnx_pose.add_argument(
             "--pose-onnx-calib-frames",
@@ -821,8 +829,7 @@ class hm_opts(object):
             dest="stitch_rotate_degrees",
             type=float,
             default=None,
-            help=
-            "Optional rotation (degrees) applied after stitching, about image center; keeps same dimensions.",
+            help="Optional rotation (degrees) applied after stitching, about image center; keeps same dimensions.",
         )
         parser.add_argument(
             "--max-control-points",
@@ -870,27 +877,79 @@ class hm_opts(object):
         )
 
         # Jersey framework toggles (Koshkina trunk) for reuse across CLIs
-        parser.add_argument("--detect-jersey-numbers", action="store_true", help="Detect individual jersey numbers")
-        parser.add_argument("--jersey-roi-mode", type=str, choices=["bbox", "pose", "sam"], default=None,
-                            help="ROI mode for jersey trunk: bbox|pose|sam")
-        parser.add_argument("--jersey-str-backend", type=str, choices=["mmocr", "parseq"], default=None,
-                            help="STR backend: mmocr (default) or parseq")
-        parser.add_argument("--jersey-parseq-weights", type=str, default=None, help="PARSeq weights path")
-        parser.add_argument("--jersey-parseq-device", type=str, default=None, help="PARSeq device (e.g., cuda)")
-        parser.add_argument("--jersey-legibility-enabled", action="store_true", help="Enable legibility filter")
-        parser.add_argument("--jersey-legibility-weights", type=str, default=None, help="Legibility weights path")
-        parser.add_argument("--jersey-legibility-threshold", type=float, default=None, help="Legibility score threshold")
-        parser.add_argument("--jersey-reid-enabled", action="store_true", help="Enable ReID outlier removal")
-        parser.add_argument("--jersey-reid-backend", type=str, choices=["resnet", "centroid"], default=None,
-                            help="ReID backend: resnet (default) or centroid")
-        parser.add_argument("--jersey-reid-backbone", type=str, choices=["resnet18", "resnet34"], default=None,
-                            help="ReID resnet backbone")
-        parser.add_argument("--jersey-reid-threshold", type=float, default=None, help="ReID Mahalanobis threshold")
-        parser.add_argument("--jersey-centroid-reid-path", type=str, default=None, help="Path to centroid-reid repo/model")
-        parser.add_argument("--jersey-centroid-reid-device", type=str, default=None, help="Device for centroid-reid")
-        parser.add_argument("--jersey-sam-enabled", action="store_true", help="Enable SAM ROI refinement")
-        parser.add_argument("--jersey-sam-checkpoint", type=str, default=None, help="Path to SAM checkpoint")
-        parser.add_argument("--jersey-sam-model-type", type=str, default=None, help="SAM model type (e.g., vit_b)")
+        parser.add_argument(
+            "--detect-jersey-numbers", action="store_true", help="Detect individual jersey numbers"
+        )
+        parser.add_argument(
+            "--jersey-roi-mode",
+            type=str,
+            choices=["bbox", "pose", "sam"],
+            default=None,
+            help="ROI mode for jersey trunk: bbox|pose|sam",
+        )
+        parser.add_argument(
+            "--jersey-str-backend",
+            type=str,
+            choices=["mmocr", "parseq"],
+            default=None,
+            help="STR backend: mmocr (default) or parseq",
+        )
+        parser.add_argument(
+            "--jersey-parseq-weights", type=str, default=None, help="PARSeq weights path"
+        )
+        parser.add_argument(
+            "--jersey-parseq-device", type=str, default=None, help="PARSeq device (e.g., cuda)"
+        )
+        parser.add_argument(
+            "--jersey-legibility-enabled", action="store_true", help="Enable legibility filter"
+        )
+        parser.add_argument(
+            "--jersey-legibility-weights", type=str, default=None, help="Legibility weights path"
+        )
+        parser.add_argument(
+            "--jersey-legibility-threshold",
+            type=float,
+            default=None,
+            help="Legibility score threshold",
+        )
+        parser.add_argument(
+            "--jersey-reid-enabled", action="store_true", help="Enable ReID outlier removal"
+        )
+        parser.add_argument(
+            "--jersey-reid-backend",
+            type=str,
+            choices=["resnet", "centroid"],
+            default=None,
+            help="ReID backend: resnet (default) or centroid",
+        )
+        parser.add_argument(
+            "--jersey-reid-backbone",
+            type=str,
+            choices=["resnet18", "resnet34"],
+            default=None,
+            help="ReID resnet backbone",
+        )
+        parser.add_argument(
+            "--jersey-reid-threshold", type=float, default=None, help="ReID Mahalanobis threshold"
+        )
+        parser.add_argument(
+            "--jersey-centroid-reid-path",
+            type=str,
+            default=None,
+            help="Path to centroid-reid repo/model",
+        )
+        parser.add_argument(
+            "--jersey-centroid-reid-device", type=str, default=None, help="Device for centroid-reid"
+        )
+        parser.add_argument(
+            "--jersey-sam-enabled", action="store_true", help="Enable SAM ROI refinement"
+        )
+        parser.add_argument(
+            "--jersey-sam-checkpoint", type=str, default=None, help="Path to SAM checkpoint"
+        )
+        parser.add_argument(
+            "--jersey-sam-model-type", type=str, default=None, help="SAM model type (e.g., vit_b)"
+        )
         parser.add_argument("--jersey-sam-device", type=str, default=None, help="SAM device")
 
         #
@@ -970,35 +1029,6 @@ class hm_opts(object):
             type=int,
             help="Enable runtime camera braking UI (OpenCV trackbars)",
         )
-
-        # Progress bar instrumentation toggles
-        ui.add_argument(
-            "--progress-gpu-metrics",
-            dest="progress_gpu_metrics",
-            action="store_true",
-            help="Show GPU utilization metrics in progress UI (if available)",
-        )
-        ui.add_argument(
-            "--no-progress-gpu-metrics",
-            dest="progress_gpu_metrics",
-            action="store_false",
-            help="Disable GPU utilization metrics in progress UI",
-        )
-        parser.set_defaults(progress_gpu_metrics=True)
-        ui.add_argument(
-            "--progress-cuda-sync-counter",
-            dest="progress_cuda_sync_counter",
-            action="store_true",
-            help="Show CUDA stream sync count in progress UI (uses cuda_stacktrace if available)",
-        )
-        ui.add_argument(
-            "--no-progress-cuda-sync-counter",
-            dest="progress_cuda_sync_counter",
-            action="store_false",
-            help="Disable CUDA stream sync count in progress UI",
-        )
-        parser.set_defaults(progress_cuda_sync_counter=True)
-
         return parser
 
     def parse(self, args=""):
@@ -1051,12 +1081,16 @@ class hm_opts(object):
                 if isinstance(game_cfg, dict):
                     val = get_nested_value(game_cfg, "game.stitching.stitch-rotate-degrees", None)
                     if val is None:
-                        val = get_nested_value(game_cfg, "game.stitching.stitch_rotate_degrees", None)
+                        val = get_nested_value(
+                            game_cfg, "game.stitching.stitch_rotate_degrees", None
+                        )
                 if val is None and getattr(opt, "game_id", None):
                     cfg_priv = get_game_config_private(game_id=opt.game_id)
                     val = get_nested_value(cfg_priv, "game.stitching.stitch-rotate-degrees", None)
                     if val is None:
-                        val = get_nested_value(cfg_priv, "game.stitching.stitch_rotate_degrees", None)
+                        val = get_nested_value(
+                            cfg_priv, "game.stitching.stitch_rotate_degrees", None
+                        )
                 if val is not None:
                     try:
                         opt.stitch_rotate_degrees = float(val)
@@ -1076,15 +1110,28 @@ class hm_opts(object):
                     return parser is not None and getattr(opt, name) != parser.get_default(name)
                 except Exception:
                     return False
+
             # stop_on_dir_change_delay
             try:
-                if _cli_spec("stop_on_dir_change_delay") or get_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", None) is None:
-                    set_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", int(opt.stop_on_dir_change_delay))
+                if (
+                    _cli_spec("stop_on_dir_change_delay")
+                    or get_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", None)
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.stop_on_dir_change_delay",
+                        int(opt.stop_on_dir_change_delay),
+                    )
             except Exception:
                 pass
             # cancel_stop_on_opposite_dir (store as bool in YAML)
             try:
-                if _cli_spec("cancel_stop_on_opposite_dir") or get_nested_value(game_cfg, "rink.camera.cancel_stop_on_opposite_dir", None) is None:
+                if (
+                    _cli_spec("cancel_stop_on_opposite_dir")
+                    or get_nested_value(game_cfg, "rink.camera.cancel_stop_on_opposite_dir", None)
+                    is None
+                ):
                     set_nested_value(
                         game_cfg,
                         "rink.camera.cancel_stop_on_opposite_dir",
@@ -1094,7 +1141,11 @@ class hm_opts(object):
                 pass
             # cancel hysteresis frames
             try:
-                if _cli_spec("stop_cancel_hysteresis_frames") or get_nested_value(game_cfg, "rink.camera.stop_cancel_hysteresis_frames", None) is None:
+                if (
+                    _cli_spec("stop_cancel_hysteresis_frames")
+                    or get_nested_value(game_cfg, "rink.camera.stop_cancel_hysteresis_frames", None)
+                    is None
+                ):
                     set_nested_value(
                         game_cfg,
                         "rink.camera.stop_cancel_hysteresis_frames",
@@ -1104,7 +1155,11 @@ class hm_opts(object):
                 pass
             # stop delay cooldown frames
             try:
-                if _cli_spec("stop_delay_cooldown_frames") or get_nested_value(game_cfg, "rink.camera.stop_delay_cooldown_frames", None) is None:
+                if (
+                    _cli_spec("stop_delay_cooldown_frames")
+                    or get_nested_value(game_cfg, "rink.camera.stop_delay_cooldown_frames", None)
+                    is None
+                ):
                     set_nested_value(
                         game_cfg,
                         "rink.camera.stop_delay_cooldown_frames",
@@ -1114,7 +1169,13 @@ class hm_opts(object):
                 pass
             # time to dest speed limit frames
             try:
-                if _cli_spec("time_to_dest_speed_limit_frames") or get_nested_value(game_cfg, "rink.camera.time_to_dest_speed_limit_frames", None) is None:
+                if (
+                    _cli_spec("time_to_dest_speed_limit_frames")
+                    or get_nested_value(
+                        game_cfg, "rink.camera.time_to_dest_speed_limit_frames", None
+                    )
+                    is None
+                ):
                     set_nested_value(
                         game_cfg,
                         "rink.camera.time_to_dest_speed_limit_frames",
@@ -1140,7 +1201,9 @@ class hm_opts(object):
             try:
                 if _cli_spec("post_nonstop_stop_delay_count") or (
                     get_nested_value(
-                        game_cfg, "rink.camera.breakaway_detection.post_nonstop_stop_delay_count", None
+                        game_cfg,
+                        "rink.camera.breakaway_detection.post_nonstop_stop_delay_count",
+                        None,
                     )
                     is None
                 ):
@@ -1153,7 +1216,7 @@ class hm_opts(object):
                 pass
 
             # Apply generic overrides: key=value, with simple type inference
-            for ov in (opt.config_overrides or []):
+            for ov in opt.config_overrides or []:
                 if not isinstance(ov, str) or "=" not in ov:
                     continue
                 key, val = ov.split("=", 1)
@@ -1180,7 +1243,7 @@ class hm_opts(object):
             # If there's no game_config yet, create one to hold overrides
             if getattr(opt, "config_overrides", []):
                 opt.game_config = {}
-                for ov in (opt.config_overrides or []):
+                for ov in opt.config_overrides or []:
                     if not isinstance(ov, str) or "=" not in ov:
                         continue
                     key, val = ov.split("=", 1)

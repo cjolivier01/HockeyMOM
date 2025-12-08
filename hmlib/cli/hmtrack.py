@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import List, Tuple
 
 # We need this to get registered
-import mmdet.models.data_preprocessors.track_data_preprocessor
 import torch
 import torch.backends.cudnn as cudnn
 from mmcv.transforms import Compose
@@ -32,7 +31,6 @@ from hmlib.config import (
     get_nested_value,
     resolve_global_refs,
     set_nested_value,
-    update_config,
 )
 from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
@@ -76,7 +74,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("--root-dir", type=str, default=ROOT_DIR, help="Root directory")
     parser.add_argument("--local_rank", default=0, type=int, help="local rank for dist training")
     parser.add_argument("--num_machines", default=1, type=int, help="num of node for training")
-    parser.add_argument("--machine_rank", default=0, type=int, help="node rank for multi-node training")
+    parser.add_argument(
+        "--machine_rank", default=0, type=int, help="node rank for multi-node training"
+    )
     parser.add_argument(
         "-f",
         "--exp_file",
@@ -163,7 +163,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
         default=0.1,
         help="tracking confidence threshold lower bound",
     )
-    parser.add_argument("--track_buffer", type=int, default=30, help="the frames for keep lost tracks")
+    parser.add_argument(
+        "--track_buffer", type=int, default=30, help="the frames for keep lost tracks"
+    )
     parser.add_argument(
         "--match_thresh",
         type=float,
@@ -193,7 +195,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
             "Repeat --config to provide multiple files; later ones override earlier ones."
         ),
     )
-    parser.add_argument("--test-size", type=str, default=None, help="WxH of test box size (format WxH)")
+    parser.add_argument(
+        "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
+    )
     parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
     # Save frame dir moved to hm_opts.parser
     parser.add_argument(
@@ -206,7 +210,9 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     parser.add_argument("--iou_thresh", type=float, default=0.3)
     parser.add_argument("--min-box-area", type=float, default=100, help="filter out tiny boxes")
-    parser.add_argument("--mot20", dest="mot20", default=False, action="store_true", help="test mot20.")
+    parser.add_argument(
+        "--mot20", dest="mot20", default=False, action="store_true", help="test mot20."
+    )
     # Data I/O flags moved to hm_opts.parser
     # ONNX detector export/inference options moved to hm_opts.parser
     # TensorRT detector options moved to hm_opts.parser
@@ -223,11 +229,14 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument("--pose-config", type=str, default=None, help="Pose config file")
     parser.add_argument("--pose-checkpoint", type=str, default=None, help="Pose checkpoint file")
     # Pose visualization args moved to hm_opts.parser
-    parser.add_argument("--debug-play-tracker", action="store_true", help="Print per-frame play boxes and counts")
+    parser.add_argument(
+        "--debug-play-tracker", action="store_true", help="Print per-frame play boxes and counts"
+    )
     parser.add_argument(
         "--smooth",
         action="store_true",
-        help="Apply a temporal filter to smooth the pose estimation results. " "See also --smooth-filter-cfg.",
+        help="Apply a temporal filter to smooth the pose estimation results. "
+        "See also --smooth-filter-cfg.",
     )
     return parser
 
@@ -291,7 +300,6 @@ def _main(args, num_gpu):
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
 
-        is_distributed = num_gpu > 1
         if args.gpus and isinstance(args.gpus, str):
             args.gpus = [int(i) for i in args.gpus.split(",")]
 
@@ -338,7 +346,9 @@ def _main(args, num_gpu):
         )
         cam_args.show_image = args.show_image
         cam_args.crop_output_image = not args.no_crop
-        cam_args.cam_ignore_largest = get_nested_value(game_config, "rink.tracking.cam_ignore_largest", True)
+        cam_args.cam_ignore_largest = get_nested_value(
+            game_config, "rink.tracking.cam_ignore_largest", True
+        )
 
         if args.cvat_output:
             cam_args.crop_output_image = False
@@ -357,7 +367,9 @@ def _main(args, num_gpu):
                 if args.force_stitching:
                     args.input_video = game_video_dir
                 else:
-                    pre_stitched_file_name = find_stitched_file(dir_name=game_video_dir, game_id=args.game_id)
+                    pre_stitched_file_name = find_stitched_file(
+                        dir_name=game_video_dir, game_id=args.game_id
+                    )
                     if pre_stitched_file_name and os.path.exists(pre_stitched_file_name):
                         args.input_video = pre_stitched_file_name
                     else:
@@ -442,7 +454,9 @@ def _main(args, num_gpu):
         if args.aspen and isinstance(args.aspen, dict):
             try:
                 onnx_enable = bool(
-                    args.detector_onnx_enable or args.detector_onnx_path or args.detector_onnx_quantize_int8
+                    args.detector_onnx_enable
+                    or args.detector_onnx_path
+                    or args.detector_onnx_quantize_int8
                 )
                 trunks_cfg = args.aspen.setdefault("trunks", {}) or {}
                 # Optional static detection outputs (fixed-shape top-k)
@@ -507,7 +521,9 @@ def _main(args, num_gpu):
                     trt_cfg["fp16"] = bool(args.detector_trt_fp16)
                     # INT8 options
                     trt_cfg["int8"] = bool(getattr(args, "detector_trt_int8", False))
-                    trt_cfg["calib_frames"] = int(getattr(args, "detector_trt_calib_frames", 0) or 0)
+                    trt_cfg["calib_frames"] = int(
+                        getattr(args, "detector_trt_calib_frames", 0) or 0
+                    )
                     # NMS backend selection for TensorRT detector
                     trt_cfg["nms_backend"] = getattr(args, "detector_nms_backend", "trt")
                     trt_cfg["nms_test"] = bool(getattr(args, "detector_nms_test", False))
@@ -516,7 +532,9 @@ def _main(args, num_gpu):
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
                 # Pose ONNX integration (pose_factory)
-                pose_onnx_enable = bool(args.pose_onnx_enable or args.pose_onnx_path or args.pose_onnx_quantize_int8)
+                pose_onnx_enable = bool(
+                    args.pose_onnx_enable or args.pose_onnx_path or args.pose_onnx_quantize_int8
+                )
                 if pose_onnx_enable and "pose" in trunks_cfg:
                     pf = trunks_cfg.setdefault(
                         "pose_factory",
@@ -589,7 +607,9 @@ def _main(args, num_gpu):
                         "IceRinkSegmConfig",
                         dict(
                             game_id=args.game_id,
-                            ice_rink_inference_scale=getattr(args, "ice_rink_inference_scale", None),
+                            ice_rink_inference_scale=getattr(
+                                args, "ice_rink_inference_scale", None
+                            ),
                         ),
                     )
                 # Apply clip box if present
@@ -610,23 +630,9 @@ def _main(args, num_gpu):
             args.initial_args = vars(args)
             args.initial_args["top_border_lines"] = cam_args.top_border_lines
             args.initial_args["bottom_border_lines"] = cam_args.bottom_border_lines
-            args.initial_args["original_clip_box"] = get_clip_box(game_id=args.game_id, root_dir=args.root_dir)
-
-        # If Aspen config includes a pose factory trunk, defer inferencer creation to it
-        aspen_has_pose_factory = False
-        try:
-            if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
-                trunks_cfg = aspen_cfg_for_pipeline.get("trunks", {}) or {}
-                if "pose_factory" in trunks_cfg:
-                    aspen_has_pose_factory = True
-                else:
-                    # also detect by class path if authors used a different key
-                    for tname, tspec in trunks_cfg.items():
-                        if isinstance(tspec, dict) and tspec.get("class", "").endswith("PoseInferencerFactoryTrunk"):
-                            aspen_has_pose_factory = True
-                            break
-        except Exception:
-            pass
+            args.initial_args["original_clip_box"] = get_clip_box(
+                game_id=args.game_id, root_dir=args.root_dir
+            )
 
         pose_inferencer = None
         # if args.multi_pose and not aspen_has_pose_factory:
@@ -697,7 +703,9 @@ def _main(args, num_gpu):
 
                 assert not args.start_frame or not args.start_frame_time
                 if not args.start_frame and args.start_frame_time:
-                    args.start_frame = time_to_frame(time_str=args.start_frame_time, fps=left_vid.fps)
+                    args.start_frame = time_to_frame(
+                        time_str=args.start_frame_time, fps=left_vid.fps
+                    )
 
                 assert not args.max_frames or not args.max_time
                 if not args.max_frames and args.max_time:
@@ -729,7 +737,9 @@ def _main(args, num_gpu):
                         "frame_offset": rfo,
                     },
                 }
-                stitch_cache_size = args.cache_size if args.stitch_cache_size is None else args.stitch_cache_size
+                stitch_cache_size = (
+                    args.cache_size if args.stitch_cache_size is None else args.stitch_cache_size
+                )
                 # Optional per-camera stitching color pipelines from Aspen config
                 left_stitch_pipeline_cfg = None
                 right_stitch_pipeline_cfg = None
@@ -745,7 +755,9 @@ def _main(args, num_gpu):
                     image_roi=None,
                     batch_size=args.batch_size,
                     remapping_device=gpus["stitching"],
-                    decoder_device=(torch.device(args.decoder_device) if args.decoder_device else None),
+                    decoder_device=(
+                        torch.device(args.decoder_device) if args.decoder_device else None
+                    ),
                     blend_mode=opts.blend_mode,
                     dtype=torch.float if not args.fp16_stitch else torch.half,
                     auto_adjust_exposure=args.stitch_auto_adjust_exposure,
@@ -794,7 +806,9 @@ def _main(args, num_gpu):
                 assert not args.start_frame or not args.start_frame_time
                 if not args.start_frame and args.start_frame_time:
                     vid_info = BasicVideoInfo(input_video_files[0])
-                    args.start_frame = time_to_frame(time_str=args.start_frame_time, fps=vid_info.fps)
+                    args.start_frame = time_to_frame(
+                        time_str=args.start_frame_time, fps=vid_info.fps
+                    )
 
                 assert not args.max_frames or not args.max_time
                 if not args.max_frames and args.max_time:
@@ -806,7 +820,9 @@ def _main(args, num_gpu):
                     batch_size=args.batch_size,
                     max_frames=args.max_frames,
                     device=main_device,
-                    decoder_device=(torch.device(args.decoder_device) if args.decoder_device else None),
+                    decoder_device=(
+                        torch.device(args.decoder_device) if args.decoder_device else None
+                    ),
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     original_image_only=True,
@@ -849,7 +865,7 @@ def _main(args, num_gpu):
                     raise ValueError("--end-zones specified, but no end-zone videos found")
 
         if dataloader is None:
-            dataloader = exp.get_eval_loader(args.batch_size, is_distributed, args.test, return_origin_img=True)
+            raise ValueError("Dataloader could not be constructed")
 
         if not args.no_progress_bar:
             table_map = OrderedDict()
@@ -862,16 +878,12 @@ def _main(args, num_gpu):
                 update_rate=args.print_interval,
                 table_map=table_map,
                 use_curses=getattr(args, "curses_progress", False),
-                enable_gpu_metrics=getattr(args, "progress_gpu_metrics", True),
-                enable_cuda_sync_counter=getattr(args, "progress_cuda_sync_counter", True),
             )
         else:
             progress_bar = None
 
-        save_dir = None
         output_video_path = None
         if not args.no_save_video:
-            save_dir = results_folder
             output_video_path = os.path.join(results_folder, "tracking_output.mkv")
 
         if not args.audio_only:
@@ -906,7 +918,8 @@ def _main(args, num_gpu):
                         dict(
                             fixed_edge_rotation_angle=fixed_edge_rotation_angle,
                             fixed_edge_rotation=(
-                                fixed_edge_rotation_angle is not None and fixed_edge_rotation_angle != 0
+                                fixed_edge_rotation_angle is not None
+                                and fixed_edge_rotation_angle != 0
                             ),
                             pre_clip=cam_args.crop_output_image,
                             dtype=torch.float,
@@ -1039,12 +1052,12 @@ def _main(args, num_gpu):
             if postprocessor is not None:
                 try:
                     postprocessor.stop()
-                except:
+                except Exception:
                     traceback.print_exc()
             if dataloader is not None and hasattr(dataloader, "close"):
                 try:
                     dataloader.close()
-                except:
+                except Exception:
                     traceback.print_exc()
         except Exception as ex:
             print(f"Exception while shutting down: {ex}")
@@ -1064,14 +1077,19 @@ def setup_logging():
 def main():
     setup_logging()
 
-    # Just quick check to make sure you build PyTorch correctly
-    assert torch.cuda.is_available()
-    assert torch.backends.cudnn.is_available()
+    # Prefer CUDA, but don't hard-fail if the runtime isn't detected so CPU-only
+    # runs can still proceed (albeit slowly).
+    if not torch.cuda.is_available():
+        logger.warning("CUDA not detected; running hmtrack on CPU will be very slow.")
+    elif not torch.backends.cudnn.is_available():
+        logger.warning("cuDNN not detected; performance may be degraded.")
 
     parser = make_parser()
     args = parser.parse_args()
 
-    game_config = get_config(game_id=args.game_id, rink=args.rink, camera=args.camera_name, root_dir=args.root_dir)
+    game_config = get_config(
+        game_id=args.game_id, rink=args.rink, camera=args.camera_name, root_dir=args.root_dir
+    )
 
     # Merge user-provided YAML configs in order (--config can be repeated).
     # Later files override earlier values.
@@ -1149,8 +1167,11 @@ def main():
 
 if __name__ == "__main__":
     try:
-        # get off the NULL stream right away
-        with torch.cuda.stream(torch.cuda.Stream(torch.device("cuda"))):
+        # Prefer a dedicated CUDA stream when available; otherwise fall back to CPU-friendly start.
+        if torch.cuda.is_available():
+            with torch.cuda.stream(torch.cuda.Stream(torch.device("cuda"))):
+                main()
+        else:
             main()
     except Exception as e:
         print(f"Exception during processing: {e}")

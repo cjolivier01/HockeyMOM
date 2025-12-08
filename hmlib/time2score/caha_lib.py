@@ -120,12 +120,10 @@ tr_selectors = dict(
         " tbody:nth-child(1) > tr:nth-child(n+4)"
     ),
     awayPenalties=(
-        "body > div > div.d50l > div.d25r > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr"
+        "body > div > div.d50l > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
     ),
     homePenalties=(
-        "body > div > div.d50r > div.d25r > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr"
+        "body > div > div.d50r > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
     ),
     awayShootout=(
         "body > div > div.d50l > div.d25l > table:nth-child(2) >"
@@ -247,8 +245,13 @@ def fix_players_rows(rows: list[list[Any]]):
     return val
 
 
-NO_LINK_INT = lambda a: int(a[0]) if a[0] else 0
-NO_LINK = lambda a: a[0] if a[0] else ""
+def NO_LINK_INT(a):
+    return int(a[0]) if a[0] else 0
+
+
+def NO_LINK(a):
+    return a[0] if a[0] else ""
+
 
 DIVISION_GAME_CONVERTERS = {
     "G": NO_LINK_INT,
@@ -514,9 +517,7 @@ def sync_divisions(db: Database, season: int):
     divs = scrape_season_divisions(season_id=season)
     print("Found %d divisions in season %s..." % (len(divs), season))
     for div in divs:
-        db.add_division(
-            division_id=div["id"], conference_id=div["conferenceId"], name=div["name"]
-        )
+        db.add_division(division_id=div["id"], conference_id=div["conferenceId"], name=div["name"])
         print("%s teams in %s" % (len(div["teams"]), div["name"]))
         for team in div["teams"]:
             team_id = team.pop("id")
@@ -593,13 +594,9 @@ def add_game(db: Database, season: int, team: dict[str, Any], game: dict[str, An
     home, away = game["home"], game["away"]
     if home == team["name"]:
         home_id = team["team_id"]
-        away_id = get_team_or_unknown(
-            db, away, season, team["division_id"], team["conference_id"]
-        )
+        away_id = get_team_or_unknown(db, away, season, team["division_id"], team["conference_id"])
     else:
-        home_id = get_team_or_unknown(
-            db, home, season, team["division_id"], team["conference_id"]
-        )
+        home_id = get_team_or_unknown(db, home, season, team["division_id"], team["conference_id"])
         away_id = team["team_id"]
     db.add_game(
         season_id=season,

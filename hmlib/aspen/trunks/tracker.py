@@ -1,16 +1,17 @@
 import logging
 from importlib import import_module
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
-from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
+from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Trunk
 
 logger = logging.getLogger(__name__)
+
 
 class TrackerTrunk(Trunk):
     """
@@ -42,7 +43,9 @@ class TrackerTrunk(Trunk):
         super().__init__(enabled=enabled)
         self._cpp_tracker = bool(cpp_tracker)
         if tracker_class is None:
-            default_class = "hockeymom.core.HmTracker" if cpp_tracker else "hockeymom.core.HmByteTrackerCuda"
+            default_class = (
+                "hockeymom.core.HmTracker" if cpp_tracker else "hockeymom.core.HmByteTrackerCuda"
+            )
             self._tracker_class_path = default_class
         else:
             self._tracker_class_path = tracker_class
@@ -60,7 +63,9 @@ class TrackerTrunk(Trunk):
     def _resolve_tracker_class(self):
         module_name, _, attr = self._tracker_class_path.rpartition(".")
         if not module_name:
-            raise ValueError(f"tracker_class must be a module dotted path, got '{self._tracker_class_path}'")
+            raise ValueError(
+                f"tracker_class must be a module dotted path, got '{self._tracker_class_path}'"
+            )
         module = import_module(module_name)
         tracker_cls = getattr(module, attr)
         return tracker_cls
@@ -197,8 +202,12 @@ class TrackerTrunk(Trunk):
                 if len(det_labels) == 1 and N > 1:
                     det_labels = det_labels.expand(N).clone()
                 else:
-                    det_labels = torch.full((N,), int(det_labels[0].item()) if len(det_labels) else 0,
-                                            dtype=torch.long, device=det_bboxes.device)
+                    det_labels = torch.full(
+                        (N,),
+                        int(det_labels[0].item()) if len(det_labels) else 0,
+                        dtype=torch.long,
+                        device=det_bboxes.device,
+                    )
             if len(det_scores) != N:
                 if len(det_scores) == 1 and N > 1:
                     det_scores = det_scores.expand(N).clone()
@@ -219,7 +228,11 @@ class TrackerTrunk(Trunk):
             results, frame_track_count = self._trim_tracker_outputs(results)
             ids = results.get("user_ids", results.get("ids"))
             ll2 = frame_track_count
-            assert len(results["bboxes"]) == ll2 and len(results["scores"]) == ll2 and len(results["labels"]) == ll2
+            assert (
+                len(results["bboxes"]) == ll2
+                and len(results["scores"]) == ll2
+                and len(results["labels"]) == ll2
+            )
 
             pred_track_instances = InstanceData(
                 instances_id=ids.cpu(),
@@ -244,7 +257,11 @@ class TrackerTrunk(Trunk):
                     mapped = torch.full((len(tb),), -1, dtype=torch.int64)
                     # Try exact match first
                     for j in range(len(tb)):
-                        eq = torch.isclose(tb[j], db).all(dim=1) if len(db) else torch.zeros((0,), dtype=torch.bool)
+                        eq = (
+                            torch.isclose(tb[j], db).all(dim=1)
+                            if len(db)
+                            else torch.zeros((0,), dtype=torch.bool)
+                        )
                         match_idx = torch.nonzero(eq).reshape(-1)
                         if len(match_idx) == 1:
                             k = int(match_idx[0].item())
@@ -257,7 +274,9 @@ class TrackerTrunk(Trunk):
                             from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
                         except Exception:
                             from hmlib.utils.utils import bbox_iou as _bbox_iou
-                        iou = _bbox_iou(tb.to(dtype=torch.float32), db.to(dtype=torch.float32), x1y1x2y2=True)
+                        iou = _bbox_iou(
+                            tb.to(dtype=torch.float32), db.to(dtype=torch.float32), x1y1x2y2=True
+                        )
                         best_iou, best_idx = torch.max(iou, dim=1)
                         for j in range(len(tb)):
                             if mapped[j] < 0 and best_iou[j] > 0:

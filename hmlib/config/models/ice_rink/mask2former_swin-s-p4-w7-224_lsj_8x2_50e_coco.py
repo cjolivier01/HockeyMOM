@@ -1,175 +1,173 @@
 """Mask2Former Swin-S training recipe for ice rink segmentation dataset."""
 
-dataset_type = 'CocoIceRinkDataset'
-data_root = 'data/IceRink/'
-img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+dataset_type = "CocoIceRinkDataset"
+data_root = "data/IceRink/"
+img_norm_cfg = dict(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
-    dict(type='LoadImageFromFile', to_float32=True),
-    dict(type='LoadAnnotations', with_bbox=True, with_mask=True),
-    dict(type='RandomFlip', flip_ratio=0.5),
+    dict(type="LoadImageFromFile", to_float32=True),
+    dict(type="LoadAnnotations", with_bbox=True, with_mask=True),
+    dict(type="RandomFlip", flip_ratio=0.5),
     dict(
-        type='Resize',
+        type="Resize",
         img_scale=(1024, 1024),
         ratio_range=(0.1, 2.0),
-        multiscale_mode='range',
-        keep_ratio=True),
+        multiscale_mode="range",
+        keep_ratio=True,
+    ),
     dict(
-        type='RandomCrop',
+        type="RandomCrop",
         crop_size=(1024, 1024),
-        crop_type='absolute',
+        crop_type="absolute",
         recompute_bbox=True,
-        allow_negative_crop=True),
+        allow_negative_crop=True,
+    ),
+    dict(type="FilterAnnotations", min_gt_bbox_wh=(1e-05, 1e-05), by_mask=True),
+    dict(type="Pad", size=(1024, 1024), pad_val=dict(img=(128, 128, 128), masks=0, seg=255)),
     dict(
-        type='FilterAnnotations', min_gt_bbox_wh=(1e-05, 1e-05), by_mask=True),
-    dict(
-        type='Pad',
-        size=(1024, 1024),
-        pad_val=dict(img=(128, 128, 128), masks=0, seg=255)),
-    dict(
-        type='Normalize',
-        mean=[123.675, 116.28, 103.53],
-        std=[58.395, 57.12, 57.375],
-        to_rgb=True),
-    dict(type='DefaultFormatBundle', img_to_float=True),
-    dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels', 'gt_masks'])
+        type="Normalize", mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True
+    ),
+    dict(type="DefaultFormatBundle", img_to_float=True),
+    dict(type="Collect", keys=["img", "gt_bboxes", "gt_labels", "gt_masks"]),
 ]
 test_pipeline = [
-    dict(type='LoadImageFromFile'),
+    dict(type="LoadImageFromFile"),
     dict(
-        type='MultiScaleFlipAug',
+        type="MultiScaleFlipAug",
         img_scale=(1333, 800),
         flip=False,
         transforms=[
-            dict(type='Resize', keep_ratio=True),
-            dict(type='RandomFlip'),
+            dict(type="Resize", keep_ratio=True),
+            dict(type="RandomFlip"),
+            dict(type="Pad", size_divisor=32, pad_val=dict(img=(128, 128, 128), masks=0, seg=255)),
             dict(
-                type='Pad',
-                size_divisor=32,
-                pad_val=dict(img=(128, 128, 128), masks=0, seg=255)),
-            dict(
-                type='Normalize',
+                type="Normalize",
                 mean=[123.675, 116.28, 103.53],
                 std=[58.395, 57.12, 57.375],
-                to_rgb=True),
-            dict(type='ImageToTensor', keys=['img']),
-            dict(type='Collect', keys=['img'])
-        ])
+                to_rgb=True,
+            ),
+            dict(type="ImageToTensor", keys=["img"]),
+            dict(type="Collect", keys=["img"]),
+        ],
+    ),
 ]
 data = dict(
     samples_per_gpu=2,
     workers_per_gpu=2,
     train=dict(
-        type='CocoIceRinkDataset',
-        ann_file='data/IceRink/annotations/train.json',
-        img_prefix='data/IceRink/train/',
+        type="CocoIceRinkDataset",
+        ann_file="data/IceRink/annotations/train.json",
+        img_prefix="data/IceRink/train/",
         pipeline=[
-            dict(type='LoadImageFromFile', to_float32=True),
-            dict(type='LoadAnnotations', with_bbox=True, with_mask=True),
-            dict(type='RandomFlip', flip_ratio=0.5),
+            dict(type="LoadImageFromFile", to_float32=True),
+            dict(type="LoadAnnotations", with_bbox=True, with_mask=True),
+            dict(type="RandomFlip", flip_ratio=0.5),
             dict(
-                type='Resize',
+                type="Resize",
                 img_scale=(1024, 1024),
                 ratio_range=(0.1, 2.0),
-                multiscale_mode='range',
-                keep_ratio=True),
+                multiscale_mode="range",
+                keep_ratio=True,
+            ),
             dict(
-                type='RandomCrop',
+                type="RandomCrop",
                 crop_size=(1024, 1024),
-                crop_type='absolute',
+                crop_type="absolute",
                 recompute_bbox=True,
-                allow_negative_crop=True),
+                allow_negative_crop=True,
+            ),
+            dict(type="FilterAnnotations", min_gt_bbox_wh=(1e-05, 1e-05), by_mask=True),
             dict(
-                type='FilterAnnotations',
-                min_gt_bbox_wh=(1e-05, 1e-05),
-                by_mask=True),
+                type="Pad", size=(1024, 1024), pad_val=dict(img=(128, 128, 128), masks=0, seg=255)
+            ),
             dict(
-                type='Pad',
-                size=(1024, 1024),
-                pad_val=dict(img=(128, 128, 128), masks=0, seg=255)),
-            dict(
-                type='Normalize',
+                type="Normalize",
                 mean=[123.675, 116.28, 103.53],
                 std=[58.395, 57.12, 57.375],
-                to_rgb=True),
-            dict(type='DefaultFormatBundle', img_to_float=True),
-            dict(
-                type='Collect',
-                keys=['img', 'gt_bboxes', 'gt_labels', 'gt_masks'])
-        ]),
+                to_rgb=True,
+            ),
+            dict(type="DefaultFormatBundle", img_to_float=True),
+            dict(type="Collect", keys=["img", "gt_bboxes", "gt_labels", "gt_masks"]),
+        ],
+    ),
     val=dict(
-        type='CocoIceRinkDataset',
-        ann_file='data/IceRink/annotations/valid.json',
-        img_prefix='data/IceRink/valid/',
-        seg_prefix='data/IceRink/annotations/panoptic_valid/',
+        type="CocoIceRinkDataset",
+        ann_file="data/IceRink/annotations/valid.json",
+        img_prefix="data/IceRink/valid/",
+        seg_prefix="data/IceRink/annotations/panoptic_valid/",
         pipeline=[
-            dict(type='LoadImageFromFile'),
+            dict(type="LoadImageFromFile"),
             dict(
-                type='MultiScaleFlipAug',
+                type="MultiScaleFlipAug",
                 img_scale=(1333, 800),
                 flip=False,
                 transforms=[
-                    dict(type='Resize', keep_ratio=True),
-                    dict(type='RandomFlip'),
+                    dict(type="Resize", keep_ratio=True),
+                    dict(type="RandomFlip"),
                     dict(
-                        type='Pad',
+                        type="Pad",
                         size_divisor=32,
-                        pad_val=dict(img=(128, 128, 128), masks=0, seg=255)),
+                        pad_val=dict(img=(128, 128, 128), masks=0, seg=255),
+                    ),
                     dict(
-                        type='Normalize',
+                        type="Normalize",
                         mean=[123.675, 116.28, 103.53],
                         std=[58.395, 57.12, 57.375],
-                        to_rgb=True),
-                    dict(type='ImageToTensor', keys=['img']),
-                    dict(type='Collect', keys=['img'])
-                ])
-        ]),
+                        to_rgb=True,
+                    ),
+                    dict(type="ImageToTensor", keys=["img"]),
+                    dict(type="Collect", keys=["img"]),
+                ],
+            ),
+        ],
+    ),
     test=dict(
-        type='CocoIceRinkDataset',
-        ann_file='data/IceRink/annotations/test.json',
-        img_prefix='data/IceRink/test/',
+        type="CocoIceRinkDataset",
+        ann_file="data/IceRink/annotations/test.json",
+        img_prefix="data/IceRink/test/",
         pipeline=[
-            dict(type='LoadImageFromFile'),
+            dict(type="LoadImageFromFile"),
             dict(
-                type='MultiScaleFlipAug',
+                type="MultiScaleFlipAug",
                 img_scale=(1333, 800),
                 flip=False,
                 transforms=[
-                    dict(type='Resize', keep_ratio=True),
-                    dict(type='RandomFlip'),
+                    dict(type="Resize", keep_ratio=True),
+                    dict(type="RandomFlip"),
                     dict(
-                        type='Pad',
+                        type="Pad",
                         size_divisor=32,
-                        pad_val=dict(img=(128, 128, 128), masks=0, seg=255)),
+                        pad_val=dict(img=(128, 128, 128), masks=0, seg=255),
+                    ),
                     dict(
-                        type='Normalize',
+                        type="Normalize",
                         mean=[123.675, 116.28, 103.53],
                         std=[58.395, 57.12, 57.375],
-                        to_rgb=True),
-                    dict(type='ImageToTensor', keys=['img']),
-                    dict(type='Collect', keys=['img'])
-                ])
-        ]))
-evaluation = dict(
-    interval=1500,
-    metric=['bbox', 'segm'],
-    dynamic_intervals=[(367501, 368750)])
-checkpoint_config = dict(
-    interval=1500, by_epoch=False, save_last=True, max_keep_ckpts=3)
+                        to_rgb=True,
+                    ),
+                    dict(type="ImageToTensor", keys=["img"]),
+                    dict(type="Collect", keys=["img"]),
+                ],
+            ),
+        ],
+    ),
+)
+evaluation = dict(interval=1500, metric=["bbox", "segm"], dynamic_intervals=[(367501, 368750)])
+checkpoint_config = dict(interval=1500, by_epoch=False, save_last=True, max_keep_ckpts=3)
 log_config = dict(
     interval=50,
     hooks=[
-        dict(type='TextLoggerHook', by_epoch=False),
-        dict(type='TensorboardLoggerHook', by_epoch=False)
-    ])
-custom_hooks = [dict(type='NumClassCheckHook')]
-dist_params = dict(backend='nccl')
-log_level = 'INFO'
+        dict(type="TextLoggerHook", by_epoch=False),
+        dict(type="TensorboardLoggerHook", by_epoch=False),
+    ],
+)
+custom_hooks = [dict(type="NumClassCheckHook")]
+dist_params = dict(backend="nccl")
+log_level = "INFO"
 load_from = None
 resume_from = None
-workflow = [('train', 1500)]
+workflow = [("train", 1500)]
 opencv_num_threads = 0
-mp_start_method = 'fork'
+mp_start_method = "fork"
 auto_scale_lr = dict(enable=False, base_batch_size=16)
 num_things_classes = 80
 # num_things_classes = 1
@@ -414,176 +412,113 @@ model = dict(
 image_size = (1024, 1024)
 embed_multi = dict(lr_mult=1.0, decay_mult=0.0)
 optimizer = dict(
-    type='AdamW',
+    type="AdamW",
     lr=0.0001,
     weight_decay=0.05,
     eps=1e-08,
     betas=(0.9, 0.999),
     paramwise_cfg=dict(
-        custom_keys=dict({
-            'backbone':
-            dict(lr_mult=0.1, decay_mult=1.0),
-            'query_embed':
-            dict(lr_mult=1.0, decay_mult=0.0),
-            'query_feat':
-            dict(lr_mult=1.0, decay_mult=0.0),
-            'level_embed':
-            dict(lr_mult=1.0, decay_mult=0.0),
-            'backbone.patch_embed.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'absolute_pos_embed':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'relative_position_bias_table':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.0.blocks.0.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.0.blocks.1.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.1.blocks.0.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.1.blocks.1.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.0.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.1.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.2.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.3.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.4.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.5.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.3.blocks.0.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.3.blocks.1.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.0.downsample.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.1.downsample.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.downsample.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.6.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.7.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.8.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.9.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.10.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.11.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.12.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.13.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.14.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.15.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.16.norm':
-            dict(lr_mult=0.1, decay_mult=0.0),
-            'backbone.stages.2.blocks.17.norm':
-            dict(lr_mult=0.1, decay_mult=0.0)
-        }),
-        norm_decay_mult=0.0))
+        custom_keys=dict(
+            {
+                "backbone": dict(lr_mult=0.1, decay_mult=1.0),
+                "query_embed": dict(lr_mult=1.0, decay_mult=0.0),
+                "query_feat": dict(lr_mult=1.0, decay_mult=0.0),
+                "level_embed": dict(lr_mult=1.0, decay_mult=0.0),
+                "backbone.patch_embed.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "absolute_pos_embed": dict(lr_mult=0.1, decay_mult=0.0),
+                "relative_position_bias_table": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.0.blocks.0.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.0.blocks.1.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.1.blocks.0.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.1.blocks.1.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.0.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.1.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.2.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.3.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.4.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.5.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.3.blocks.0.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.3.blocks.1.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.0.downsample.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.1.downsample.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.downsample.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.6.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.7.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.8.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.9.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.10.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.11.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.12.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.13.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.14.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.15.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.16.norm": dict(lr_mult=0.1, decay_mult=0.0),
+                "backbone.stages.2.blocks.17.norm": dict(lr_mult=0.1, decay_mult=0.0),
+            }
+        ),
+        norm_decay_mult=0.0,
+    ),
+)
 optimizer_config = dict(grad_clip=dict(max_norm=0.01, norm_type=2))
 lr_config = dict(
-    policy='step',
+    policy="step",
     gamma=0.1,
     by_epoch=False,
     step=[327778, 355092],
-    warmup='linear',
+    warmup="linear",
     warmup_by_epoch=False,
     warmup_ratio=1.0,
-    warmup_iters=10)
+    warmup_iters=10,
+)
 max_iters = 368750
-runner = dict(type='IterBasedRunner', max_iters=368750)
+runner = dict(type="IterBasedRunner", max_iters=368750)
 interval = 1500
 dynamic_intervals = [(367501, 368750)]
 pad_cfg = dict(img=(128, 128, 128), masks=0, seg=255)
-pretrained = 'https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_small_patch4_window7_224.pth'
+pretrained = "https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_small_patch4_window7_224.pth"
 depths = [2, 2, 18, 2]
 backbone_norm_multi = dict(lr_mult=0.1, decay_mult=0.0)
 backbone_embed_multi = dict(lr_mult=0.1, decay_mult=0.0)
-custom_keys = dict({
-    'backbone':
-    dict(lr_mult=0.1, decay_mult=1.0),
-    'backbone.patch_embed.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'absolute_pos_embed':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'relative_position_bias_table':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'query_embed':
-    dict(lr_mult=1.0, decay_mult=0.0),
-    'query_feat':
-    dict(lr_mult=1.0, decay_mult=0.0),
-    'level_embed':
-    dict(lr_mult=1.0, decay_mult=0.0),
-    'backbone.stages.0.blocks.0.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.0.blocks.1.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.1.blocks.0.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.1.blocks.1.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.0.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.1.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.2.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.3.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.4.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.5.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.3.blocks.0.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.3.blocks.1.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.0.downsample.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.1.downsample.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.downsample.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.6.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.7.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.8.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.9.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.10.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.11.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.12.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.13.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.14.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.15.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.16.norm':
-    dict(lr_mult=0.1, decay_mult=0.0),
-    'backbone.stages.2.blocks.17.norm':
-    dict(lr_mult=0.1, decay_mult=0.0)
-})
-work_dir = './work_dirs/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco'
+custom_keys = dict(
+    {
+        "backbone": dict(lr_mult=0.1, decay_mult=1.0),
+        "backbone.patch_embed.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "absolute_pos_embed": dict(lr_mult=0.1, decay_mult=0.0),
+        "relative_position_bias_table": dict(lr_mult=0.1, decay_mult=0.0),
+        "query_embed": dict(lr_mult=1.0, decay_mult=0.0),
+        "query_feat": dict(lr_mult=1.0, decay_mult=0.0),
+        "level_embed": dict(lr_mult=1.0, decay_mult=0.0),
+        "backbone.stages.0.blocks.0.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.0.blocks.1.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.1.blocks.0.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.1.blocks.1.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.0.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.1.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.2.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.3.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.4.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.5.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.3.blocks.0.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.3.blocks.1.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.0.downsample.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.1.downsample.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.downsample.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.6.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.7.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.8.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.9.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.10.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.11.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.12.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.13.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.14.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.15.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.16.norm": dict(lr_mult=0.1, decay_mult=0.0),
+        "backbone.stages.2.blocks.17.norm": dict(lr_mult=0.1, decay_mult=0.0),
+    }
+)
+work_dir = "./work_dirs/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco"
 auto_resume = False
 gpu_ids = [0]

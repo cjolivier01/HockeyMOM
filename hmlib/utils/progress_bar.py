@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Rich terminal progress bar and table utilities for HockeyMOM CLIs.
 
 Provides ANSI-based and optional curses-based status views used by many
@@ -8,14 +6,14 @@ command-line tools in :mod:`hmlib`.
 @see @ref ProgressBar "ProgressBar" for the main iteration helper.
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
-import os
 import shutil
 import sys
-import threading as _threading
 import time
-from collections import OrderedDict, deque
+from collections import OrderedDict
 from typing import Any, Callable, Iterator, List, Optional
 
 # Optional curses support
@@ -53,9 +51,7 @@ def write_dict_in_columns(data_dict, out_file, table_width: int) -> int:
 
     # Prepare horizontal border and empty row format
     border_top = "\x1b[2K┌" + "─" * column_width + "┬" + "─" * column_width + "┐\n"
-    row_format = (
-        "\x1b[2K│{:<" + str(column_width) + "}│{:<" + str(column_width) + "}│\n"
-    )
+    row_format = "\x1b[2K│{:<" + str(column_width) + "}│{:<" + str(column_width) + "}│\n"
     border_bottom = "\x1b[2K└" + "─" * column_width + "┴" + "─" * column_width + "┘\n"
 
     # Print the top border
@@ -178,7 +174,7 @@ class _CursesUI:
             # Apply purple background to header area if colors available
             try:
                 if self._hdr_attr:
-                    self._header_win.bkgd(' ', self._hdr_attr)
+                    self._header_win.bkgd(" ", self._hdr_attr)
             except Exception:
                 pass
             self._log_win = curses.newwin(log_h, self._width, header_h, 0)
@@ -220,7 +216,7 @@ class _CursesUI:
         # Fill header area with background color, then draw
         try:
             if self._hdr_attr:
-                self._header_win.bkgd(' ', self._hdr_attr)
+                self._header_win.bkgd(" ", self._hdr_attr)
         except Exception:
             pass
         self._header_win.erase()
@@ -251,7 +247,7 @@ class _CursesUI:
         filled_length = 0 if total <= 0 else int(bar_len * current // max(1, total))
         bar = "█" * filled_length + "-" * (bar_len - filled_length)
         content = f"{prefix}|{bar}|{suffix}"
-        content = content[: total_content]
+        content = content[:total_content]
         content = f"{content:<{total_content}}"
         left = content[:colw]
         right = content[colw : colw * 2]
@@ -376,11 +372,9 @@ class ScrollOutput:
                 text = line
                 left = text[:colw]
                 right = text[colw : colw * 2]
-                progress_out.write(
-                    f"\x1b[2K│{left:<{colw}}│{right:<{colw}}│\n"
-                )
+                progress_out.write(f"\x1b[2K│{left:<{colw}}│{right:<{colw}}│\n")
             else:
-                progress_out.write(f"\x1b[2K│" + line + "│\n")
+                progress_out.write("\x1b[2K│" + line + "│\n")
         progress_out.flush()
 
     def register_logger(self, logger) -> ScrollOutput:
@@ -413,8 +407,7 @@ class ScrollOutput:
 
 
 class ProgressBar:
-    """Two-column progress table with optional GPU metrics and curses UI.
-
+    """
     This class wraps an iterator (or manual counter) and renders progress
     alongside arbitrary key-value statistics in a terminal-friendly format.
 
@@ -426,8 +419,6 @@ class ProgressBar:
     @param update_rate: Refresh interval in iterations.
     @param table_callback: Optional callback to mutate ``table_map`` on refresh.
     @param use_curses: Enable curses-based UI when available.
-    @param enable_gpu_metrics: Toggle GPU utilization summary in the table.
-    @param enable_cuda_sync_counter: Toggle CUDA stream sync counter display.
     @see @ref hmlib.utils.profiler.HmProfiler "HmProfiler" for complementary profiling.
     """
 
@@ -441,9 +432,6 @@ class ProgressBar:
         update_rate: int = 1,
         table_callback: Optional[Callable] = None,
         use_curses: bool = True,
-        # Optional instrumentation toggles
-        enable_gpu_metrics: Optional[bool] = None,
-        enable_cuda_sync_counter: Optional[bool] = None,
     ):
         self._total = total
         self._counter: int = 0
@@ -463,40 +451,6 @@ class ProgressBar:
             self.terminal_width = None
         if table_callback is not None:
             self.add_table_callback(table_callback)
-
-        # --- Optional: lightweight GPU metrics and CUDA sync counter ---
-        # Allow env overrides for global control (applies to all CLIs)
-        env_gpu = os.environ.get("HM_PROGRESS_GPU_METRICS")
-        env_sync = os.environ.get("HM_PROGRESS_CUDA_SYNC_COUNTER")
-        self._enable_gpu_metrics: bool = (
-            enable_gpu_metrics
-            if enable_gpu_metrics is not None
-            else (False if env_gpu == "0" else True)
-        )
-        self._enable_cuda_sync_counter: bool = (
-            enable_cuda_sync_counter
-            if enable_cuda_sync_counter is not None
-            else (False if env_sync == "0" else True)
-        )
-        # Internal counters for frame-based averages
-        self._gpu_frame_history: deque[int] = deque(maxlen=1000)
-        self._gpu_all_sum: int = 0
-        self._gpu_all_count: int = 0
-        self._gpu_metrics: Optional[_GPUMetrics] = None
-        self._cuda_sync_counter: Optional[_CudaSyncCounter] = None
-        try:
-            if self._enable_gpu_metrics:
-                self._gpu_metrics = _GPUMetrics.get()
-            if self._enable_cuda_sync_counter:
-                self._cuda_sync_counter = _CudaSyncCounter.get()
-        except Exception:
-            # Never fail construction due to optional metrics
-            self._gpu_metrics = None
-            self._cuda_sync_counter = None
-
-        # Register an internal callback to append metrics to the table
-        if self._enable_gpu_metrics or self._enable_cuda_sync_counter:
-            self.add_table_callback(self._metrics_table_callback)
 
     def add_table_callback(self, callback: Callable):
         self.table_callbacks.append(callback)
@@ -542,17 +496,7 @@ class ProgressBar:
             self._run_callbacks(table_map=self.table_map)
             self.refresh()
             if next_item is None:
-                time.sleep(0.1)  # Simulating work by sleeping
-        # Record GPU metrics per frame without polling to avoid overhead
-        try:
-            if self._enable_gpu_metrics and self._gpu_metrics is not None and self._counter % 250 == 0:
-                last_util = self._gpu_metrics.last_utilization()
-                if last_util is not None:
-                    self._gpu_frame_history.append(int(last_util))
-                    self._gpu_all_sum += int(last_util)
-                    self._gpu_all_count += 1
-        except Exception:
-            pass
+                time.sleep(0.001)  # Simulating work by sleeping
 
         self._counter += 1
         return next_item
@@ -576,9 +520,7 @@ class ProgressBar:
         if self._curses_ui is not None:
             try:
                 # Final drain of logs and render one last time
-                self._curses_ui.render(
-                    self.table_map, self._counter, max(1, self._total), 100.0
-                )
+                self._curses_ui.render(self.table_map, self._counter, max(1, self._total), 100.0)
                 self._curses_ui.drain_logs()
             except Exception:
                 pass
@@ -634,7 +576,6 @@ class ProgressBar:
 
     def print_progress_bar(self):
         # Build a progress line sized to the table's two-column width and close with right border
-        counter = self._counter + 1
         if self._total - self._counter < self.update_rate:
             percent = 100
         else:
@@ -659,7 +600,7 @@ class ProgressBar:
         bar = "█" * filled_length + "-" * (bar_len - filled_length)
         content = f"{prefix}|{bar}|{suffix}"
         # Truncate if still too long and pad to fit
-        content = content[: total_content]
+        content = content[:total_content]
         content = f"{content:<{total_content}}"
 
         # Split across two columns and add borders to match table width
@@ -681,42 +622,8 @@ class ProgressBar:
         with contextlib.redirect_stdout(self.scroll_output):
             yield
 
-    # ----- Internal: metrics integration -----
-    def _metrics_table_callback(self, table_map: OrderedDict[Any, Any]):
-        try:
-            # GPU utilization metrics
-            if self._enable_gpu_metrics and self._gpu_metrics is not None:
-                cur = self._gpu_metrics.last_utilization()
-                # Average over last 1000 frames (or fewer if not enough yet)
-                if self._gpu_frame_history:
-                    avg_1k = sum(self._gpu_frame_history) / len(self._gpu_frame_history)
-                else:
-                    avg_1k = None
-                avg_all = (
-                    (self._gpu_all_sum / self._gpu_all_count)
-                    if self._gpu_all_count > 0
-                    else None
-                )
-                table_map["GPU% now"] = (f"{cur:.0f}" if isinstance(cur, (int, float)) else "-")
-                table_map["GPU% avg(1k)"] = (
-                    f"{avg_1k:.1f}" if isinstance(avg_1k, (int, float)) else "-"
-                )
-                table_map["GPU% avg(all)"] = (
-                    f"{avg_all:.1f}" if isinstance(avg_all, (int, float)) else "-"
-                )
-
-            # CUDA sync counter (if available)
-            if self._enable_cuda_sync_counter and self._cuda_sync_counter is not None:
-                syncs = self._cuda_sync_counter.total_syncs()
-                if syncs is not None:
-                    table_map["CUDA syncs"] = str(syncs)
-        except Exception:
-            # Never let metrics break UI updates
-            pass
-
 
 class ProgressBarWith:
-
     def __init__(self, dataloader):
         self._len = len(dataloader)
         pass
@@ -779,9 +686,7 @@ if __name__ == "__main__":
     table_map = OrderedDict({"Key1": "Value1", "Key2": "Value2", "Key3": "Value3"})
     # Redirect stdout to scroll output handler
     scroll_output = ScrollOutput()
-    progress_bar = ProgressBar(
-        total=20, table_map=table_map, scroll_output=scroll_output
-    )
+    progress_bar = ProgressBar(total=20, table_map=table_map, scroll_output=scroll_output)
 
     # with contextlib.redirect_stdout(scroll_output):
     with contextlib.redirect_stderr(scroll_output):
@@ -789,243 +694,3 @@ if __name__ == "__main__":
         for _ in progress_bar:
             print(f"Simulated stdout message for iteration {counter}", file=sys.stderr)
             counter += 1
-
-
-# -------- Optional, low-overhead GPU metrics sampler --------
-
-class _GPUMetrics:
-    """Singleton that samples GPU utilization at a low frequency.
-
-    Uses NVML via pynvml when available; falls back to nvidia-smi subprocess.
-    Sampling runs in a background daemon thread at ~0.5s to avoid overhead.
-    """
-
-    _instance: Optional["_GPUMetrics"] = None
-    _lock = _threading.Lock()
-
-    def __init__(self, device_index: int = 0, interval_s: float = 1.0):
-        self._device_index = max(0, int(device_index))
-        self._interval_s = max(0.1, float(interval_s))
-        self._last_util: Optional[int] = None
-        self._stop = False
-        self._thread: Optional[_threading.Thread] = None
-        self._use_nvml = False
-        self._nvml = None
-        self._nvml_handle = None
-        self._init_backends()
-        self._start_thread()
-
-    @classmethod
-    def get(cls) -> "_GPUMetrics":
-        with cls._lock:
-            if cls._instance is None:
-                # Heuristic: pick first visible GPU if CUDA_VISIBLE_DEVICES is set
-                idx = 0
-                try:
-                    vis = os.environ.get("CUDA_VISIBLE_DEVICES")
-                    if vis:
-                        parts = [p for p in vis.split(",") if p.strip() != ""]
-                        if len(parts) > 0 and parts[0] not in ("-1", ""):
-                            idx = int(parts[0])
-                except Exception:
-                    idx = 0
-                cls._instance = _GPUMetrics(device_index=idx)
-            return cls._instance
-
-    def last_utilization(self) -> Optional[int]:
-        return self._last_util
-
-    # ----- internals -----
-    def _init_backends(self):
-        try:
-            import pynvml  # type: ignore
-
-            pynvml.nvmlInit()
-            self._nvml = pynvml
-            self._nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(self._device_index)
-            self._use_nvml = True
-        except Exception:
-            self._use_nvml = False
-            self._nvml = None
-            self._nvml_handle = None
-
-    def _start_thread(self):
-        if self._thread is not None:
-            return
-        t = _threading.Thread(target=self._run, name="gpu-metrics", daemon=True)
-        self._thread = t
-        t.start()
-
-    def _run(self):
-        while not self._stop:
-            try:
-                util = self._read_utilization()
-                if util is not None:
-                    self._last_util = int(util)
-            except Exception:
-                pass
-            time.sleep(self._interval_s)
-
-    def _read_utilization(self) -> Optional[int]:
-        if self._use_nvml and self._nvml is not None and self._nvml_handle is not None:
-            try:
-                util = self._nvml.nvmlDeviceGetUtilizationRates(self._nvml_handle)
-                return int(util.gpu)
-            except Exception:
-                return None
-        # Fallback to nvidia-smi with minimal query
-        try:
-            import shlex
-            import subprocess
-
-            cmd = "nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits"
-            proc = subprocess.run(
-                shlex.split(cmd),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                timeout=0.25,
-                text=True,
-            )
-            lines = (proc.stdout or "").strip().splitlines()
-            if lines:
-                # Choose the requested index if present; else first line
-                idx = self._device_index if self._device_index < len(lines) else 0
-                val = lines[idx].strip()
-                if val:
-                    return int(val)
-        except Exception:
-            return None
-        return None
-
-
-class _CudaSyncCounter:
-    """Optional integration to count CUDA stream synchronizations.
-
-    Prefers `cuda_stacktrace` if available (path may be provided via
-    CUDA_STACKTRACE_PATH or defaults to /home/colivier/src/cuda-stacktrace).
-    If unavailable, falls back to light Python-level monkey patches of
-    torch.cuda.synchronize and torch.cuda.Stream.synchronize to count calls.
-    """
-
-    _instance: Optional["_CudaSyncCounter"] = None
-    _lock = _threading.Lock()
-
-    def __init__(self):
-        self._count = 0
-        self._lock_local = _threading.Lock()
-        self._backend = None
-        self._init_backend()
-
-    @classmethod
-    def get(cls) -> "_CudaSyncCounter":
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = _CudaSyncCounter()
-            return cls._instance
-
-    def total_syncs(self) -> Optional[int]:
-        # Backend provides its own counters
-        try:
-            if self._backend is not None:
-                # Try common API variants
-                for name in ("get_sync_count", "get_sync_counts", "sync_count", "get_counter", "total_syncs"):
-                    fn = getattr(self._backend, name, None)
-                    if callable(fn):
-                        val = fn()
-                        # If a dict of counts, sum them
-                        if isinstance(val, dict):
-                            try:
-                                return int(sum(int(v) for v in val.values()))
-                            except Exception:
-                                return None
-                        try:
-                            return int(val)
-                        except Exception:
-                            return None
-        except Exception:
-            pass
-        # Fallback local counter
-        return int(self._count)
-
-    # ----- internals -----
-    def _init_backend(self):
-        # Try to import cuda_stacktrace if installed in the environment
-        try:
-            import importlib
-
-            self._backend = importlib.import_module("cuda_stacktrace")
-            # Hint to backend to avoid heavy stack capture
-            os.environ.setdefault("CUDA_STACKTRACE_NO_STACK", "1")
-            # Some backends may need explicit enablement
-            for name in ("enable", "enable_count_only", "set_count_only"):
-                fn = getattr(self._backend, name, None)
-                if callable(fn):
-                    try:
-                        fn()
-                        break
-                    except Exception:
-                        pass
-            return
-        except Exception:
-            # Optionally, support a user-specified development path
-            try:
-                path = os.environ.get("CUDA_STACKTRACE_PATH")
-                if path and os.path.isdir(path) and path not in sys.path:
-                    sys.path.insert(0, path)
-                    import importlib
-
-                    self._backend = importlib.import_module("cuda_stacktrace")
-                    os.environ.setdefault("CUDA_STACKTRACE_NO_STACK", "1")
-                    for name in ("enable", "enable_count_only", "set_count_only"):
-                        fn = getattr(self._backend, name, None)
-                        if callable(fn):
-                            try:
-                                fn()
-                                break
-                            except Exception:
-                                pass
-                    return
-            except Exception:
-                self._backend = None
-
-        # If backend is not available, install lightweight Python patches
-        if self._backend is None:
-            self._install_python_patches()
-
-    def _install_python_patches(self):
-        # Minimal-overhead wrappers around torch CUDA synchronize calls
-        try:
-            import torch
-
-            # Patch torch.cuda.synchronize
-            if hasattr(torch.cuda, "synchronize"):
-                _orig_sync = torch.cuda.synchronize
-
-                def _wrap_sync(device=None):  # type: ignore
-                    with self._lock_local:
-                        self._count += 1
-                    return _orig_sync(device)
-
-                try:
-                    torch.cuda.synchronize = _wrap_sync  # type: ignore
-                except Exception:
-                    pass
-
-            # Patch Stream.synchronize
-            Stream = getattr(torch.cuda, "Stream", None)
-            if Stream is not None and hasattr(Stream, "synchronize"):
-                _orig_stream_sync = Stream.synchronize
-
-                def _wrap_stream_sync(self_, *args, **kwargs):  # type: ignore
-                    with self._lock_local:
-                        self._count += 1
-                    return _orig_stream_sync(self_, *args, **kwargs)
-
-                try:
-                    Stream.synchronize = _wrap_stream_sync  # type: ignore
-                except Exception:
-                    pass
-        except Exception:
-            # If torch is not available, nothing to patch
-            pass

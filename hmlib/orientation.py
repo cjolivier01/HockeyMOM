@@ -6,12 +6,11 @@ final left/right chapter lists into the game private config.
 """
 
 import argparse
-import gc
 import os
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
@@ -26,7 +25,6 @@ from hmlib.config import (
 from hmlib.hm_opts import hm_opts
 from hmlib.models.loader import get_model_config
 from hmlib.segm.ice_rink import find_ice_rink_masks
-from hmlib.ui.show import show_image
 from hmlib.utils.gpu import GpuAllocator
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.video import load_first_video_frame
@@ -94,9 +92,6 @@ def prune_chapters(videos: VideosDict) -> Tuple[VideosDict, VideosDict]:
 
     @return: Tuple (kept_videos, discarded_videos).
     """
-    matching: VideosDict = {}
-    unmatching: VideosDict = {}
-    all_chapters: Set[int] = set()
     for video, chapters in videos.items():
         # Not pruning anything yet
         pass
@@ -136,7 +131,9 @@ def _pairs_to_linear_chapter_map(pairs: List[Tuple[Tuple[int, int], str]]) -> Vi
     return {i + 1: f for i, ((_, _), f) in enumerate(pairs)}
 
 
-def _collect_lr_chapters(directory: str, side: str, renumber: bool = False) -> Optional[VideoChapter]:
+def _collect_lr_chapters(
+    directory: str, side: str, renumber: bool = False
+) -> Optional[VideoChapter]:
     """Collect left/right single or part files into a chapter map.
 
     If renumber=True, chapters are returned as 1..N in file order; otherwise
@@ -192,6 +189,7 @@ def get_available_videos(dir_name: str, prune: bool = False) -> VideosDict:
                 return int(m.group(1)) if m else 0
             except Exception:
                 return 0
+
         return sorted(names, key=cam_index)
 
     def _collect_chapters_for_dir(d: str) -> VideoChapter:

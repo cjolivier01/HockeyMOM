@@ -60,7 +60,9 @@ class LoadDetectionsTrunk(Trunk):
             return self._detection_dataframe
         path = _ctx_value(context, self._input_path_key)
         if not path:
-            path = find_latest_dataframe_file(_ctx_value(context, self._game_dir_key), self._file_stem)
+            path = find_latest_dataframe_file(
+                _ctx_value(context, self._game_dir_key), self._file_stem
+            )
         if not path or not os.path.exists(path):
             if not self._warned_missing:
                 logger.info("LoadDetectionsTrunk: no %s CSV found; skipping load", self._file_stem)
@@ -116,9 +118,15 @@ class LoadDetectionsTrunk(Trunk):
                         inst.bboxes = torch.empty((0, 4), dtype=torch.float32)
                     else:
                         inst = InstanceData()
-                        inst.scores = torch.as_tensor(rec.get("scores", np.empty((0,), dtype=np.float32)))
-                        inst.labels = torch.as_tensor(rec.get("labels", np.empty((0,), dtype=np.int64)))
-                        inst.bboxes = torch.as_tensor(rec.get("bboxes", np.empty((0, 4), dtype=np.float32)))
+                        inst.scores = torch.as_tensor(
+                            rec.get("scores", np.empty((0,), dtype=np.float32))
+                        )
+                        inst.labels = torch.as_tensor(
+                            rec.get("labels", np.empty((0,), dtype=np.int64))
+                        )
+                        inst.bboxes = torch.as_tensor(
+                            rec.get("bboxes", np.empty((0, 4), dtype=np.float32))
+                        )
                 img_data_sample.pred_instances = inst
             img_data_sample.set_metainfo({"frame_id": int(fid)})
         return {"data": data, "detection_dataframe": df}
@@ -163,7 +171,9 @@ class LoadTrackingTrunk(Trunk):
             return self._tracking_dataframe
         path = _ctx_value(context, self._input_path_key)
         if not path:
-            path = find_latest_dataframe_file(_ctx_value(context, self._game_dir_key), self._file_stem)
+            path = find_latest_dataframe_file(
+                _ctx_value(context, self._game_dir_key), self._file_stem
+            )
         if not path or not os.path.exists(path):
             if not self._warned_missing:
                 logger.info("LoadTrackingTrunk: no %s CSV found; skipping load", self._file_stem)
@@ -185,7 +195,6 @@ class LoadTrackingTrunk(Trunk):
             return {}
 
         data: Dict[str, Any] = context.get("data", {})
-        preserved_original_images = data.get("original_images")
         track_samples = data.get("data_samples")
         if track_samples is None:
             return {}
@@ -219,7 +228,11 @@ class LoadTrackingTrunk(Trunk):
                 except Exception:
                     pass
                 continue
-            inst = getattr(track_ds[0] if hasattr(track_ds, "__getitem__") else track_ds, "pred_track_instances", None)
+            inst = getattr(
+                track_ds[0] if hasattr(track_ds, "__getitem__") else track_ds,
+                "pred_track_instances",
+                None,
+            )
             if inst is None:
                 # Fallback to dict-based reconstruction
                 rec = df.get_data_dict_by_frame(frame_id=fid)
@@ -304,7 +317,9 @@ class LoadPoseTrunk(Trunk):
             return self._pose_dataframe
         path = _ctx_value(context, self._input_path_key)
         if not path:
-            path = find_latest_dataframe_file(_ctx_value(context, self._game_dir_key), self._file_stem)
+            path = find_latest_dataframe_file(
+                _ctx_value(context, self._game_dir_key), self._file_stem
+            )
         if not path or not os.path.exists(path):
             if not self._warned_missing:
                 logger.info("LoadPoseTrunk: no %s CSV found; skipping load", self._file_stem)

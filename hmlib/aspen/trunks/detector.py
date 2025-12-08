@@ -52,7 +52,11 @@ class DetectorInferenceTrunk(Trunk):
         video_len = len(track_data_sample)
 
         with torch.no_grad():
-            det_device = detection_image.device if isinstance(detection_image, torch.Tensor) else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            det_device = (
+                detection_image.device
+                if isinstance(detection_image, torch.Tensor)
+                else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            )
             use_autocast = bool(fp16 and det_device.type == "cuda")
             amp_ctx = (
                 torch.amp.autocast("cuda", dtype=torch.float16, enabled=True)
@@ -66,7 +70,9 @@ class DetectorInferenceTrunk(Trunk):
                 batch_inputs = torch.as_tensor(detection_image)
                 batch_inputs = batch_inputs.squeeze(0)
             if batch_inputs.ndim != 4:
-                raise AssertionError("DetectorInferenceTrunk expects per-frame tensors shaped (T, C, H, W)")
+                raise AssertionError(
+                    "DetectorInferenceTrunk expects per-frame tensors shaped (T, C, H, W)"
+                )
             batch_inputs = batch_inputs.contiguous()
             assert batch_inputs.size(0) == video_len, "Mismatch between frames and detection inputs"
 
@@ -93,7 +99,9 @@ class DetectorInferenceTrunk(Trunk):
             ), "Batch inference must return one result per frame"
             for img_data_sample, det_sample in zip(batch_data_samples, det_results):
                 # Attach detections to the video data sample for downstream tracker
-                img_data_sample.pred_instances = _strip_static_padding(det_sample.pred_instances, strip=False)
+                img_data_sample.pred_instances = _strip_static_padding(
+                    det_sample.pred_instances, strip=False
+                )
 
         if detect_timer is not None:
             detect_timer.toc()

@@ -39,10 +39,18 @@ class BoundariesTrunk(Trunk):
             self.factory_complete = True
             return {}
         game_id: Optional[str] = context.get("game_id") or context.get("shared", {}).get("game_id")
-        original_clip_box = context.get("original_clip_box") or context.get("shared", {}).get("original_clip_box")
-        top_border_lines = context.get("top_border_lines") or context.get("shared", {}).get("top_border_lines")
-        bottom_border_lines = context.get("bottom_border_lines") or context.get("shared", {}).get("bottom_border_lines")
-        plot_ice_mask: bool = bool(context.get("plot_ice_mask") or context.get("shared", {}).get("plot_ice_mask", False))
+        original_clip_box = context.get("original_clip_box") or context.get("shared", {}).get(
+            "original_clip_box"
+        )
+        top_border_lines = context.get("top_border_lines") or context.get("shared", {}).get(
+            "top_border_lines"
+        )
+        bottom_border_lines = context.get("bottom_border_lines") or context.get("shared", {}).get(
+            "bottom_border_lines"
+        )
+        plot_ice_mask: bool = bool(
+            context.get("plot_ice_mask") or context.get("shared", {}).get("plot_ice_mask", False)
+        )
 
         if top_border_lines or bottom_border_lines:
             updated = update_pipeline_item(
@@ -71,7 +79,14 @@ class BoundariesTrunk(Trunk):
         return {}
 
     def input_keys(self):
-        return {"model", "game_id", "original_clip_box", "top_border_lines", "bottom_border_lines", "plot_ice_mask"}
+        return {
+            "model",
+            "game_id",
+            "original_clip_box",
+            "top_border_lines",
+            "bottom_border_lines",
+            "plot_ice_mask",
+        }
 
     def output_keys(self):
         return set()

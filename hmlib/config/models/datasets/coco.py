@@ -7,7 +7,7 @@
 # dataset settings
 data_root = "data/coco/"
 
-#dataset_img_scale = (640, 640)
+# dataset_img_scale = (640, 640)
 dataset_img_scale = (480, 1312)
 
 train_pipeline = [
@@ -17,9 +17,7 @@ train_pipeline = [
         scaling_ratio_range=(0.1, 2),
         border=(-dataset_img_scale[0] // 2, -dataset_img_scale[1] // 2),
     ),
-    dict(
-        type="MixUp", img_scale=dataset_img_scale, ratio_range=(0.8, 1.6), pad_val=114.0
-    ),
+    dict(type="MixUp", img_scale=dataset_img_scale, ratio_range=(0.8, 1.6), pad_val=114.0),
     dict(type="YOLOXHSVRandomAug"),
     dict(type="RandomFlip", flip_ratio=0.5),
     # According to the official implementation, multi-scale

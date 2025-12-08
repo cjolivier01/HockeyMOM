@@ -1,10 +1,10 @@
-from __future__ import absolute_import, division, print_function
-
 """Camera tracking head that bridges detection outputs to post-processing.
 
 This module wires the `HockeyMOM` camera logic and the `CamTrackPostProcessor`
 into an `HM`-registered head that can be used in hm2 configs.
 """
+
+from __future__ import absolute_import, division, print_function
 
 import os
 from typing import Any, Dict, List, Optional
@@ -54,6 +54,7 @@ def get_open_files_count():
 @HM.register_module()
 class CamTrackHead:
     """Entry head that owns `HockeyMOM` and its tracking post-processor."""
+
     # TODO: Get rid of this class entirely, since it's just a
     # bounce to the postprocessor and al the init crap
     # can be a function or somthing in the postprocessor file?
@@ -107,20 +108,26 @@ class CamTrackHead:
     def filter_outputs(self, outputs: torch.Tensor, output_results):
         return outputs, output_results
 
-    def _maybe_init(self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device):
+    def _maybe_init(
+        self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device
+    ):
         if self._postprocessor is None:
             self.on_first_image(
-                frame_id=frame_id, img_width=img_width, img_height=img_height, device=device, arena=arena
+                frame_id=frame_id,
+                img_width=img_width,
+                img_height=img_height,
+                device=device,
+                arena=arena,
             )
 
     def is_initialized(self) -> bool:
-        return not self._hockey_mom is None
+        return self._hockey_mom is not None
 
     @staticmethod
-    def calculate_play_box(results: Dict[str, Any], context: Dict[str, Any], scale: float = 1.3) -> List[int]:
+    def calculate_play_box(
+        results: Dict[str, Any], context: Dict[str, Any], scale: float = 1.3
+    ) -> List[int]:
         # Use the first video_data_sample's rink_profile to seed the play box
-        track_container = results["data_samples"]
-        video_data_sample = track_container.video_data_samples[0]
         play_box = torch.tensor(context["rink_profile"]["combined_bbox"], dtype=torch.int64)
         ww, hh = width(play_box), height(play_box)
         cc = center(play_box)
@@ -172,7 +179,9 @@ class CamTrackHead:
         results = self._postprocessor.send(results)
         return results
 
-    def on_first_image(self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device):
+    def on_first_image(
+        self, frame_id, img_width: int, img_height: int, arena: List[int], device: torch.device
+    ):
         """Initialize `HockeyMOM` and the post-processor on the first frame."""
         assert self._hockey_mom is None
 

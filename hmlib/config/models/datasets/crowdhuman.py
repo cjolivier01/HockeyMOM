@@ -5,7 +5,7 @@ _base_ = [
 ]
 
 ch_img_scale = (640, 640)
-#ch_img_scale = (400, 1300)
+# ch_img_scale = (400, 1300)
 
 train_pipeline = [
     dict(type="LoadImageFromFile"),

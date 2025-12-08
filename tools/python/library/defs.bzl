@@ -20,6 +20,7 @@ def python_library(
     imports=[],
     wheel_deps=[],
     pyproject="//:pyproject.toml",
+    lint_tests=True,
     image_repository=None,
     wheel=None,
     description=None,
@@ -162,27 +163,28 @@ def python_library(
         pyproject=pyproject,
     )
 
-    pylint_test(
-        name=make_name("pylint.lib"),
-        srcs=sources.sources,
-        deps=deps,
-        pylintrc=Label("//tools/python/library/config:sources.pylintrc"),
-        imports=imports,
-    )
+    if lint_tests:
+        pylint_test(
+            name=make_name("pylint.lib"),
+            srcs=sources.sources,
+            deps=deps,
+            pylintrc=Label("//tools/python/library/config:sources.pylintrc"),
+            imports=imports,
+        )
 
-    pycodestyle_test(
-        name=make_name("pycodestyle.lib"),
-        srcs=sources.sources,
-        deps=[],  # We don't other deps for pycodestyle
-        imports=imports,
-    )
+        pycodestyle_test(
+            name=make_name("pycodestyle.lib"),
+            srcs=sources.sources,
+            deps=[],  # We don't other deps for pycodestyle
+            imports=imports,
+        )
 
-    pydocstyle_test(
-        name=make_name("pydocstyle.lib"),
-        srcs=sources.sources,
-        deps=[],  # We don't other deps for pydocstyle
-        imports=imports,
-    )
+        pydocstyle_test(
+            name=make_name("pydocstyle.lib"),
+            srcs=sources.sources,
+            deps=[],  # We don't other deps for pydocstyle
+            imports=imports,
+        )
 
     if not sources.test_sources:
         return
@@ -196,20 +198,21 @@ def python_library(
         pyproject=pyproject,
     )
 
-    pylint_test(
-        name=make_name("pylint.tests"),
-        srcs=sources.test_sources,
-        deps=test_deps,
-        pylintrc=Label("//tools/python/library/config:tests.pylintrc"),
-        imports=imports,
-    )
+    if lint_tests:
+        pylint_test(
+            name=make_name("pylint.tests"),
+            srcs=sources.test_sources,
+            deps=test_deps,
+            pylintrc=Label("//tools/python/library/config:tests.pylintrc"),
+            imports=imports,
+        )
 
-    pycodestyle_test(
-        name=make_name("pycodestyle.tests"),
-        srcs=sources.test_sources,
-        deps=[],  # We don't other deps for pycodestyle
-        imports=imports,
-    )
+        pycodestyle_test(
+            name=make_name("pycodestyle.tests"),
+            srcs=sources.test_sources,
+            deps=[],  # We don't other deps for pycodestyle
+            imports=imports,
+        )
 
     pytest_test(
         name=make_name("pytest"),

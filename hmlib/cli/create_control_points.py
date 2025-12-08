@@ -14,14 +14,12 @@ from typing import Dict, List, Optional, Tuple, Union
 import cv2
 import ffmpegio
 import kornia
-import kornia.feature as KF
 import numpy as np
 import scipy.signal
 import torch
 import yaml
 from lightglue import LightGlue, SuperPoint, viz2d
-from lightglue.utils import load_image, rbd
-from scipy.signal import correlate
+from lightglue.utils import rbd
 
 # Ensure that the lightglue package is available.
 try:
@@ -51,9 +49,7 @@ def load_audio_as_tensor(
         A tuple (waveform, sample_rate) where waveform is a tensor of shape [channels, samples]
         and sample_rate is the number of samples per second.
     """
-    sample_rate, waveform = ffmpegio.audio.read(
-        audio, t=duration_seconds, show_log=True
-    )
+    sample_rate, waveform = ffmpegio.audio.read(audio, t=duration_seconds, show_log=True)
     if verbose:
         # waveform shape: [channels, samples]
         print(f"Waveform shape: {waveform.shape}")
@@ -103,7 +99,7 @@ def synchronize_by_audio(
         A tuple (left_frame_offset, right_frame_offset) representing the number of frames to
         skip in each video so that they are synchronized. The offsets are returned as integers.
     """
-    
+
     if verbose:
         print("Opening videos...")
 
@@ -136,14 +132,8 @@ def synchronize_by_audio(
     if verbose:
         print("Calculating cross-correlation...")
 
-    sum1 = np.sum(audio1[:, 0])
-    sum2 = np.sum(audio2[:, 0])
-
     # Use only the first channel for correlation.
-    correlation: np.ndarray = scipy.signal.correlate(
-        audio1[:, 0], audio2[:, 0], mode="full"
-    )
-    sumc = np.sum(correlation)
+    correlation: np.ndarray = scipy.signal.correlate(audio1[:, 0], audio2[:, 0], mode="full")
     # Compute lag: subtract the length of the signal (using axis 1 length)
     lag: int = np.argmax(correlation) - audio1.shape[0] + 1
 
@@ -249,9 +239,7 @@ def calculate_control_points(
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Initialize the SuperPoint extractor.
-    extractor: SuperPoint = (
-        SuperPoint(max_num_keypoints=max_num_keypoints).eval().to(device)
-    )
+    extractor: SuperPoint = SuperPoint(max_num_keypoints=max_num_keypoints).eval().to(device)
     # Initialize the LightGlue matcher.
     matcher: LightGlue = (
         LightGlue(
@@ -269,12 +257,8 @@ def calculate_control_points(
     img2_rgb: np.ndarray = cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)
 
     # Convert images to torch tensors with shape [C, H, W] and normalize to [0, 1].
-    image0: torch.Tensor = (
-        kornia.image_to_tensor(img1_rgb, keepdim=False).float() / 255.0
-    )
-    image1: torch.Tensor = (
-        kornia.image_to_tensor(img2_rgb, keepdim=False).float() / 255.0
-    )
+    image0: torch.Tensor = kornia.image_to_tensor(img1_rgb, keepdim=False).float() / 255.0
+    image1: torch.Tensor = kornia.image_to_tensor(img2_rgb, keepdim=False).float() / 255.0
 
     # Move tensors to the specified device if necessary.
     if image0.device != device:
@@ -306,7 +290,7 @@ def calculate_control_points(
 
     # Optionally generate and save visualizations.
     if output_directory:
-        axes = viz2d.plot_images([frame0, frame1])
+        viz2d.plot_images([frame0, frame1])
         viz2d.plot_matches(m_kpts0, m_kpts1, color="lime", lw=0.2)
         viz2d.add_text(0, f'Stop after {matches01["stop"]} layers', fs=20)
         viz2d.save_plot(os.path.join(output_directory, "matches.png"))
@@ -416,9 +400,7 @@ def update_pto_file(pto_file: str, control_points: Dict[str, torch.Tensor]) -> N
     """
     pts0: torch.Tensor = control_points["m_kpts0"]
     pts1: torch.Tensor = control_points["m_kpts1"]
-    assert len(pts0) == len(
-        pts1
-    ), "The number of control points in both images must match."
+    assert len(pts0) == len(pts1), "The number of control points in both images must match."
     print(f"Found {len(pts0)} control points")
     assert len(pts0) > 0 and len(pts1) > 0, "No control points found."
 
@@ -497,9 +479,7 @@ def configure_stitching(
     dir_name: str = str(pto_path.parent)
     hm_project: str = project_file_path
     autooptimiser_out: str = os.path.join(dir_name, "autooptimiser_out.pto")
-    assert (
-        autooptimiser_out != hm_project
-    ), "Output project file conflicts with input project file."
+    assert autooptimiser_out != hm_project, "Output project file conflicts with input project file."
 
     # Optionally skip processing if outputs already exist and are up-to-date.
     if skip_if_exists and (
@@ -507,9 +487,7 @@ def configure_stitching(
         and os.path.exists(autooptimiser_out)
         and not is_older_than(project_file_path, autooptimiser_out)
     ):
-        print(
-            f"Project file already exists (skipping project creation): {autooptimiser_out}"
-        )
+        print(f"Project file already exists (skipping project creation): {autooptimiser_out}")
         return True
 
     curr_dir: str = os.getcwd()
@@ -611,7 +589,9 @@ def main() -> None:
     )
     parser.add_argument("--left", default=None, help="Path to left video file")
     parser.add_argument("--right", default=None, help="Path to left video file")
-    parser.add_argument("--max-control-points", type=int, default=500, help="Maximum number of control points")
+    parser.add_argument(
+        "--max-control-points", type=int, default=500, help="Maximum number of control points"
+    )
     parser.add_argument("--lfo", default=None, help="Left frame offset")
     parser.add_argument("--rfo", default=None, help="Right frame offset")
     parser.add_argument(

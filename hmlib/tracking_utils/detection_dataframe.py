@@ -1,11 +1,12 @@
-from typing import Union, Dict, Any, Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 import torch
+from mmengine.structures import InstanceData
 
 from hmlib.datasets.dataframe import HmDataFrameBase
-from mmengine.structures import InstanceData
+
 try:  # Prefer vendored OpenMMLab structures
     from mmdet.structures import DetDataSample
 except Exception:  # pragma: no cover
@@ -166,7 +167,9 @@ class DetectionDataFrame(HmDataFrameBase):
             return ds
         return inst
 
-    def get_samples(self, start_frame: Optional[int] = None, end_frame: Optional[int] = None) -> List[_DetDataSample]:
+    def get_samples(
+        self, start_frame: Optional[int] = None, end_frame: Optional[int] = None
+    ) -> List[_DetDataSample]:
         """Return a list of DetDataSample objects for a frame range (inclusive)."""
         if self.data is None or self.data.empty:
             return []

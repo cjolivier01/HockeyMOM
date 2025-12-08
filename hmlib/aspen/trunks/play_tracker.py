@@ -94,7 +94,9 @@ class PlayTrackerTrunk(Trunk):
         dev = context.get("device")
         if dev is None and isinstance(results.get("original_images"), torch.Tensor):
             dev = results["original_images"].device
-        self._device = dev if isinstance(dev, torch.device) else torch.device(str(dev) if dev else "cuda")
+        self._device = (
+            dev if isinstance(dev, torch.device) else torch.device(str(dev) if dev else "cuda")
+        )
         # Build cam args if not supplied
         cam_args = shared.get("cam_args")
         if cam_args is None:
@@ -178,4 +180,12 @@ class PlayTrackerTrunk(Trunk):
         return {"data", "device", "shared"}
 
     def output_keys(self):
-        return {"img", "current_box", "frame_ids", "player_bottom_points", "player_ids", "rink_profile", "play_box"}
+        return {
+            "img",
+            "current_box",
+            "frame_ids",
+            "player_bottom_points",
+            "player_ids",
+            "rink_profile",
+            "play_box",
+        }

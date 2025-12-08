@@ -22,17 +22,15 @@ Requires: h5py, pillow, mmengine.
 from __future__ import annotations
 
 import argparse
-import os
 import os.path as osp
 import re
-from collections import defaultdict
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import h5py
-import mmengine
 import numpy as np
 from PIL import Image
 
+import mmengine
 
 ROOT = "/mnt/data/datasets/VIP-HARPET"
 IMG_DIRS = {
@@ -157,4 +155,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

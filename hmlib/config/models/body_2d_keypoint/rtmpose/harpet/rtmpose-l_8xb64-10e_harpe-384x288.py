@@ -3,7 +3,7 @@
 from hmlib.visualization import PytorchPoseLocalVisualizer
 
 auto_scale_lr = dict(base_batch_size=256)
-backend_args = dict(backend='local')
+backend_args = dict(backend="local")
 base_lr = 0.004
 codec = dict(
     input_size=(
@@ -16,55 +16,56 @@ codec = dict(
         6.93,
     ),
     simcc_split_ratio=2.0,
-    type='SimCCLabel',
-    use_dark=False)
+    type="SimCCLabel",
+    use_dark=False,
+)
 custom_hooks = [
-    dict(type='SyncBuffersHook'),
+    dict(type="SyncBuffersHook"),
 ]
-data_mode = 'topdown'
-data_root = '/mnt/ripper-data2/datasets/VIP-HARPET/'
-dataset_type = 'HarpeDataset'
+data_mode = "topdown"
+data_root = "/mnt/ripper-data2/datasets/VIP-HARPET/"
+dataset_type = "HarpeDataset"
 default_hooks = dict(
     badcase=dict(
         badcase_thr=5,
         enable=False,
-        metric_type='loss',
-        out_dir='badcase',
-        type='BadCaseAnalysisHook'),
+        metric_type="loss",
+        out_dir="badcase",
+        type="BadCaseAnalysisHook",
+    ),
     checkpoint=dict(
-        interval=10,
-        max_keep_ckpts=1,
-        rule='greater',
-        save_best='PCK',
-        type='CheckpointHook'),
-    logger=dict(interval=50, type='LoggerHook'),
-    param_scheduler=dict(type='ParamSchedulerHook'),
-    sampler_seed=dict(type='DistSamplerSeedHook'),
-    timer=dict(type='IterTimerHook'),
-    visualization=dict(enable=False, type='PoseVisualizationHook'))
-default_scope = 'mmpose'
+        interval=10, max_keep_ckpts=1, rule="greater", save_best="PCK", type="CheckpointHook"
+    ),
+    logger=dict(interval=50, type="LoggerHook"),
+    param_scheduler=dict(type="ParamSchedulerHook"),
+    sampler_seed=dict(type="DistSamplerSeedHook"),
+    timer=dict(type="IterTimerHook"),
+    visualization=dict(enable=False, type="PoseVisualizationHook"),
+)
+default_scope = "mmpose"
 env_cfg = dict(
     cudnn_benchmark=False,
-    dist_cfg=dict(backend='nccl'),
-    mp_cfg=dict(mp_start_method='fork', opencv_num_threads=0))
-launcher = 'none'
+    dist_cfg=dict(backend="nccl"),
+    mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0),
+)
+launcher = "none"
 # load_from = '/home/colivier/src/openmm/work_dirs/rtmpose_l_harpe_384x288/epoch_1000.pth'
-log_level = 'INFO'
-log_processor = dict(
-    by_epoch=True, num_digits=6, type='LogProcessor', window_size=50)
+log_level = "INFO"
+log_processor = dict(by_epoch=True, num_digits=6, type="LogProcessor", window_size=50)
 max_epochs = 10
 model = dict(
     backbone=dict(
-        _scope_='mmdet',
-        act_cfg=dict(type='SiLU'),
-        arch='P5',
+        _scope_="mmdet",
+        act_cfg=dict(type="SiLU"),
+        arch="P5",
         channel_attention=True,
         deepen_factor=1.0,
         expand_ratio=0.5,
-        norm_cfg=dict(type='SyncBN'),
-        out_indices=(4, ),
-        type='CSPNeXt',
-        widen_factor=1.0),
+        norm_cfg=dict(type="SyncBN"),
+        out_indices=(4,),
+        type="CSPNeXt",
+        widen_factor=1.0,
+    ),
     data_preprocessor=dict(
         bgr_to_rgb=True,
         mean=[
@@ -77,7 +78,8 @@ model = dict(
             57.12,
             57.375,
         ],
-        type='PoseDataPreprocessor'),
+        type="PoseDataPreprocessor",
+    ),
     head=dict(
         decoder=dict(
             input_size=(
@@ -90,18 +92,20 @@ model = dict(
                 6.93,
             ),
             simcc_split_ratio=2.0,
-            type='SimCCLabel',
-            use_dark=False),
+            type="SimCCLabel",
+            use_dark=False,
+        ),
         final_layer_kernel_size=7,
         gau_cfg=dict(
-            act_fn='SiLU',
+            act_fn="SiLU",
             drop_path=0.0,
             dropout_rate=0.0,
             expansion_factor=2,
             hidden_dims=256,
             pos_enc=False,
             s=128,
-            use_rel_bias=False),
+            use_rel_bias=False,
+        ),
         in_channels=1024,
         in_featuremap_size=(
             9,
@@ -111,25 +115,21 @@ model = dict(
             288,
             384,
         ),
-        loss=dict(
-            beta=10.0,
-            label_softmax=True,
-            type='KLDiscretLoss',
-            use_target_weight=True),
+        loss=dict(beta=10.0, label_softmax=True, type="KLDiscretLoss", use_target_weight=True),
         out_channels=18,
         simcc_split_ratio=2.0,
-        type='RTMCCHead'),
+        type="RTMCCHead",
+    ),
     test_cfg=dict(flip_test=True),
-    type='TopdownPoseEstimator')
+    type="TopdownPoseEstimator",
+)
 optim_wrapper = dict(
-    optimizer=dict(lr=0.004, type='AdamW', weight_decay=0.05),
-    paramwise_cfg=dict(
-        bias_decay_mult=0, bypass_duplicate=True, norm_decay_mult=0),
-    type='OptimWrapper')
+    optimizer=dict(lr=0.004, type="AdamW", weight_decay=0.05),
+    paramwise_cfg=dict(bias_decay_mult=0, bypass_duplicate=True, norm_decay_mult=0),
+    type="OptimWrapper",
+)
 param_scheduler = [
-    dict(
-        begin=0, by_epoch=False, end=1000, start_factor=1e-05,
-        type='LinearLR'),
+    dict(begin=0, by_epoch=False, end=1000, start_factor=1e-05, type="LinearLR"),
     dict(
         T_max=5,
         begin=5,
@@ -137,14 +137,19 @@ param_scheduler = [
         convert_to_iter_based=True,
         end=10,
         eta_min=0.0002,
-        type='CosineAnnealingLR'),
+        type="CosineAnnealingLR",
+    ),
 ]
 
 
 dataset_info = dict(
     dataset_name="harpe18",
     paper_info=dict(
-        author="VIP-HARPE Team", title="VIP-HARPET Dataset", container="Internal", year="2018", homepage=""
+        author="VIP-HARPE Team",
+        title="VIP-HARPET Dataset",
+        container="Internal",
+        year="2018",
+        homepage="",
     ),
     keypoint_info={
         0: dict(name="j0", id=0, color=[51, 153, 255], type="upper", swap="j5"),
@@ -220,9 +225,9 @@ test_dataloader = dict(
     sampler=dict(round_up=False, shuffle=False, type="DefaultSampler"),
 )
 test_evaluator = [
-    dict(norm_item='bbox', thr=0.2, type='PCKAccuracy'),
-    dict(type='AUC'),
-    dict(type='EPE'),
+    dict(norm_item="bbox", thr=0.2, type="PCKAccuracy"),
+    dict(type="AUC"),
+    dict(type="EPE"),
 ]
 train_cfg = dict(by_epoch=True, max_epochs=10, val_interval=1)
 train_dataloader = dict(
@@ -281,22 +286,26 @@ train_dataloader = dict(
     sampler=dict(shuffle=True, type="DefaultSampler"),
 )
 train_pipeline = [
-    dict(backend_args=dict(backend='local'), type='LoadImage'),
-    dict(type='GetBBoxCenterScale'),
-    dict(direction='horizontal', type='RandomFlip'),
-    dict(type='RandomHalfBody'),
+    dict(backend_args=dict(backend="local"), type="LoadImage"),
+    dict(type="GetBBoxCenterScale"),
+    dict(direction="horizontal", type="RandomFlip"),
+    dict(type="RandomHalfBody"),
     dict(
         rotate_factor=80,
         scale_factor=[
             0.6,
             1.4,
         ],
-        type='RandomBBoxTransform'),
-    dict(input_size=(
-        288,
-        384,
-    ), type='TopdownAffine'),
-    dict(type='mmdet.YOLOXHSVRandomAug'),
+        type="RandomBBoxTransform",
+    ),
+    dict(
+        input_size=(
+            288,
+            384,
+        ),
+        type="TopdownAffine",
+    ),
+    dict(type="mmdet.YOLOXHSVRandomAug"),
     dict(
         encoder=dict(
             input_size=(
@@ -309,10 +318,12 @@ train_pipeline = [
                 6.93,
             ),
             simcc_split_ratio=2.0,
-            type='SimCCLabel',
-            use_dark=False),
-        type='GenerateTarget'),
-    dict(type='PackPoseInputs'),
+            type="SimCCLabel",
+            use_dark=False,
+        ),
+        type="GenerateTarget",
+    ),
+    dict(type="PackPoseInputs"),
 ]
 val_cfg = dict()
 val_dataloader = dict(
@@ -344,21 +355,30 @@ val_dataloader = dict(
     sampler=dict(round_up=False, shuffle=False, type="DefaultSampler"),
 )
 val_evaluator = [
-    dict(norm_item='bbox', thr=0.2, type='PCKAccuracy'),
-    dict(type='AUC'),
-    dict(type='EPE'),
+    dict(norm_item="bbox", thr=0.2, type="PCKAccuracy"),
+    dict(type="AUC"),
+    dict(type="EPE"),
 ]
 val_pipeline = [
-    dict(backend_args=dict(backend='local'), type='LoadImage'),
-    dict(type='GetBBoxCenterScale'),
-    dict(input_size=(
-        288,
-        384,
-    ), type='TopdownAffine'),
-    dict(type='PackPoseInputs'),
+    dict(backend_args=dict(backend="local"), type="LoadImage"),
+    dict(type="GetBBoxCenterScale"),
+    dict(
+        input_size=(
+            288,
+            384,
+        ),
+        type="TopdownAffine",
+    ),
+    dict(type="PackPoseInputs"),
 ]
 vis_backends = [
-    dict(type='LocalVisBackend'),
+    dict(type="LocalVisBackend"),
 ]
-visualizer = dict(type=PytorchPoseLocalVisualizer, vis_backends=vis_backends, name="visualizer", line_width=4, radius=2)
+visualizer = dict(
+    type=PytorchPoseLocalVisualizer,
+    vis_backends=vis_backends,
+    name="visualizer",
+    line_width=4,
+    radius=2,
+)
 # work_dir = '/home/colivier/src/openmm/work_dirs/rtmpose_l_harpe_384x288'

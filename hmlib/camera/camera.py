@@ -57,7 +57,6 @@ class VideoFrame(object):
 
 
 class TlwhHistory(object):
-
     def __init__(self, id: int, max_history_length: int = 25):
         self.id_ = id
         self._max_history_length = max_history_length
@@ -154,6 +153,7 @@ class HockeyMOM:
     """
     The Observer (The Mom)
     """
+
     # Frames per second that normal speeds are calculated for
     BASE_FPS: float = 29.97
 

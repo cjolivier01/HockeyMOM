@@ -1,11 +1,9 @@
-import time
 from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 import torch
 
-from hmlib.ui import show_image
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_channels_last
 
 from .base import Trunk
@@ -26,7 +24,6 @@ class PoseTrunk(Trunk):
 
     def __init__(self, enabled: bool = True):
         # Need to import in order to register
-        from hmlib.visualization import PytorchPoseLocalVisualizer
         super().__init__(enabled=enabled)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -39,7 +36,7 @@ class PoseTrunk(Trunk):
 
         data: Dict[str, Any] = context["data"]
         original_images = data.get("original_images")
-        if isinstance(original_images, StreamTensor):
+        if isinstance(original_images, StreamTensorBase):
             original_images = original_images.wait()
             data["original_images"] = original_images
         if original_images is None:
@@ -61,7 +58,7 @@ class PoseTrunk(Trunk):
         #         per_frame_bboxes[i] = bxs.to(device=original_images.device, non_blocking=True)
 
         det_imgs_tensor = data.get("img")
-        if isinstance(det_imgs_tensor, StreamTensor):
+        if isinstance(det_imgs_tensor, StreamTensorBase):
             det_imgs_tensor = det_imgs_tensor.wait()
             data["img"] = det_imgs_tensor
         det_inputs_tensor = self._normalize_det_images(det_imgs_tensor, frame_count)
@@ -79,7 +76,11 @@ class PoseTrunk(Trunk):
             for idx in range(frame_count):
                 meta = frame_metas[idx]
                 scale_tensor = self._extract_scale_tensor(meta, per_frame_bboxes[0].device)
-                if scale_tensor is None or not torch.isfinite(scale_tensor).all() or (scale_tensor <= 0).any():
+                if (
+                    scale_tensor is None
+                    or not torch.isfinite(scale_tensor).all()
+                    or (scale_tensor <= 0).any()
+                ):
                     use_det_imgs = False
                     break
                 scale_gpu = scale_tensor.detach()
@@ -223,15 +224,12 @@ class PoseTrunk(Trunk):
                         except Exception:
                             preds = None
                 if preds is None:
-                    start_t = time.time()
                     forward_outputs = pose_impl.forward(
                         proc_inputs,
                         merge_results=False,
                         bbox_thr=bbox_thr,
                         pose_based_nms=pose_based_nms,
                     )
-                    duration = time.time() - start_t
-                    # print(f"Pose time: {duration} seconds")
                     if isinstance(forward_outputs, (list, tuple)):
                         preds = list(forward_outputs)
                     elif forward_outputs is not None:
@@ -301,17 +299,17 @@ class PoseTrunk(Trunk):
                                 kpt_thr=kpt_thr if kpt_thr is not None else 0.3,
                             )
                             # show_image("pose", img, wait=False)
-                        except Exception as ex:
+                        except Exception:
                             pass
         else:
             # Fallback: let MMPose handle detection internally
-            start_t = time.time()
             for pose_results in pose_inferencer(
-                inputs=inputs, return_datasamples=True, visualize=show, **pose_inferencer.filter_args
+                inputs=inputs,
+                return_datasamples=True,
+                visualize=show,
+                **pose_inferencer.filter_args,
             ):
                 all_pose_results.append(pose_results)
-            duration = time.time() - start_t
-            # print(f"Pose time: {duration} seconds")
 
             if use_det_imgs and inv_scale_factors:
                 self._restore_pose_outputs(all_pose_results, inv_scale_factors)
@@ -381,16 +379,22 @@ class PoseTrunk(Trunk):
                 box_tensor = box_tensor.reshape(-1, 4)
             score_tensor = getattr(inst, "scores", None)
             if score_tensor is None:
-                score_tensor = torch.ones((box_tensor.shape[0],), dtype=torch.float32, device=box_tensor.device)
+                score_tensor = torch.ones(
+                    (box_tensor.shape[0],), dtype=torch.float32, device=box_tensor.device
+                )
             elif not isinstance(score_tensor, torch.Tensor):
-                score_tensor = torch.as_tensor(score_tensor, dtype=torch.float32, device=box_tensor.device)
+                score_tensor = torch.as_tensor(
+                    score_tensor, dtype=torch.float32, device=box_tensor.device
+                )
             if score_tensor.ndim == 0:
                 score_tensor = score_tensor.unsqueeze(0)
             if score_tensor.shape[0] != box_tensor.shape[0]:
                 if score_tensor.shape[0] == 1 and box_tensor.shape[0] > 1:
                     score_tensor = score_tensor.expand(box_tensor.shape[0]).clone()
                 else:
-                    score_tensor = torch.ones((box_tensor.shape[0],), dtype=torch.float32, device=box_tensor.device)
+                    score_tensor = torch.ones(
+                        (box_tensor.shape[0],), dtype=torch.float32, device=box_tensor.device
+                    )
             combined = torch.cat([box_tensor, score_tensor.reshape(-1, 1)], dim=1)
             bboxes.append(combined.detach())
         if expected_len is not None and sample_len != expected_len:
@@ -451,7 +455,9 @@ class PoseTrunk(Trunk):
         return None
 
     @staticmethod
-    def _scale_bboxes_for_detection(bboxes: List[torch.Tensor], scale_list: List[torch.Tensor]) -> List[torch.Tensor]:
+    def _scale_bboxes_for_detection(
+        bboxes: List[torch.Tensor], scale_list: List[torch.Tensor]
+    ) -> List[torch.Tensor]:
         scaled: List[torch.Tensor] = []
         for boxes, scale in zip(bboxes, scale_list):
             if boxes.numel() == 0:
@@ -466,7 +472,9 @@ class PoseTrunk(Trunk):
             scaled.append(new_boxes)
         return scaled
 
-    def _restore_pose_outputs(self, pose_results: List[Dict[str, Any]], inv_scale_list: List[torch.Tensor]) -> None:
+    def _restore_pose_outputs(
+        self, pose_results: List[Dict[str, Any]], inv_scale_list: List[torch.Tensor]
+    ) -> None:
         if not pose_results or not inv_scale_list:
             return
         count = min(len(pose_results), len(inv_scale_list))
@@ -481,7 +489,9 @@ class PoseTrunk(Trunk):
                 if inst is None:
                     continue
                 if hasattr(inst, "keypoints") and inst.keypoints is not None:
-                    inst.keypoints = self._apply_scale(inst.keypoints, inv_scale[:2], keypoints=True)
+                    inst.keypoints = self._apply_scale(
+                        inst.keypoints, inv_scale[:2], keypoints=True
+                    )
                 if hasattr(inst, "bboxes") and inst.bboxes is not None:
                     inst.bboxes = self._apply_scale(inst.bboxes, inv_scale, keypoints=False)
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
-import os
 import torch
 
 from hmlib.builder import HM
@@ -72,7 +72,9 @@ class VideoOutTrunk(Trunk):
         if cam_args is None:
             # Fallback: construct a minimal args holder
             cfg = shared.get("game_config") or {}
-            cam_args = DefaultArguments(game_config=cfg, basic_debugging=0, output_video_path=self._out_path, opts=None)
+            cam_args = DefaultArguments(
+                game_config=cfg, basic_debugging=0, output_video_path=self._out_path, opts=None
+            )
 
         img = context.get("img")
         if img is None:
@@ -131,7 +133,11 @@ class VideoOutTrunk(Trunk):
             bit_rate=getattr(cam_args, "output_video_bit_rate", int(55e6)),
             save_frame_dir=self._save_dir,
             start=True,
-            device=vo_dev if isinstance(vo_dev, torch.device) else torch.device(vo_dev) if vo_dev else None,
+            device=(
+                vo_dev
+                if isinstance(vo_dev, torch.device)
+                else torch.device(vo_dev) if vo_dev else None
+            ),
             name="TRACKING",
             skip_final_save=self._skip_final_save,
             original_clip_box=shared.get("original_clip_box"),
@@ -160,8 +166,16 @@ class VideoOutTrunk(Trunk):
         return {}
 
     def input_keys(self):
-        return {"img", "current_box", "frame_ids", "player_bottom_points", "player_ids", "rink_profile", "shared", "data"}
+        return {
+            "img",
+            "current_box",
+            "frame_ids",
+            "player_bottom_points",
+            "player_ids",
+            "rink_profile",
+            "shared",
+            "data",
+        }
 
     def output_keys(self):
         return set()
-

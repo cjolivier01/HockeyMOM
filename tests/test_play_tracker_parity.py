@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import copy
@@ -10,12 +12,13 @@ import pytest
 import torch
 from torch.testing import assert_close
 
+from hmlib.camera.camera import HockeyMOM
+from hmlib.camera.play_tracker import PlayTracker
+
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from hmlib.camera.camera import HockeyMOM
-from hmlib.camera.play_tracker import PlayTracker
 
 IMAGE_WIDTH = 1920
 IMAGE_HEIGHT = 1080
@@ -140,7 +143,9 @@ def _build_tracker(args: SimpleNamespace, cpp_playtracker: bool) -> PlayTracker:
         device=DEVICE,
         camera_name="GoPro",
     )
-    play_box = torch.tensor([0.0, 0.0, float(IMAGE_WIDTH), float(IMAGE_HEIGHT)], dtype=torch.float32)
+    play_box = torch.tensor(
+        [0.0, 0.0, float(IMAGE_WIDTH), float(IMAGE_HEIGHT)], dtype=torch.float32
+    )
     return PlayTracker(
         hockey_mom=hockey_mom,
         play_box=play_box,
@@ -228,13 +233,17 @@ def _run_play_trackers(overrides: Dict | None = None) -> Tuple[Dict, Dict]:
 def should_match_camera_boxes_between_cpp_and_python(overrides):
     py_results, cpp_results = _run_play_trackers(overrides)
     assert_close(py_results["current_box"], cpp_results["current_box"], atol=1e-4, rtol=0)
-    assert_close(py_results["current_fast_box_list"], cpp_results["current_fast_box_list"], atol=1e-4, rtol=0)
+    assert_close(
+        py_results["current_fast_box_list"], cpp_results["current_fast_box_list"], atol=1e-4, rtol=0
+    )
 
 
 def should_match_when_cluster_debugging_enabled():
     py_results, cpp_results = _run_play_trackers({"plot_cluster_tracking": True})
     assert_close(py_results["current_box"], cpp_results["current_box"], atol=1e-4, rtol=0)
-    assert_close(py_results["current_fast_box_list"], cpp_results["current_fast_box_list"], atol=1e-4, rtol=0)
+    assert_close(
+        py_results["current_fast_box_list"], cpp_results["current_fast_box_list"], atol=1e-4, rtol=0
+    )
 
 
 def should_match_with_custom_cluster_centroids():
@@ -245,7 +254,9 @@ def should_match_with_custom_cluster_centroids():
     ]
     py_results, cpp_results = _run_play_trackers({"cluster_centroids": custom_centroids})
     assert_close(py_results["current_box"], cpp_results["current_box"], atol=1e-4, rtol=0)
-    assert_close(py_results["current_fast_box_list"], cpp_results["current_fast_box_list"], atol=1e-4, rtol=0)
+    assert_close(
+        py_results["current_fast_box_list"], cpp_results["current_fast_box_list"], atol=1e-4, rtol=0
+    )
 
 
 def should_draw_cluster_boxes_with_external_camera_boxes(monkeypatch):
@@ -265,7 +276,9 @@ def should_draw_cluster_boxes_with_external_camera_boxes(monkeypatch):
         call_counter["count"] += 1
         return image
 
-    monkeypatch.setattr("hmlib.camera.play_tracker.vis.plot_alpha_rectangle", fake_plot_alpha_rectangle)
+    monkeypatch.setattr(
+        "hmlib.camera.play_tracker.vis.plot_alpha_rectangle", fake_plot_alpha_rectangle
+    )
     tracker.forward(copy.deepcopy(results))
     assert call_counter["count"] > 0
 
@@ -303,4 +316,6 @@ def should_match_when_speed_ratios_change():
     }
     py_results, cpp_results = _run_play_trackers(overrides)
     assert_close(py_results["current_box"], cpp_results["current_box"], atol=1e-4, rtol=0)
-    assert_close(py_results["current_fast_box_list"], cpp_results["current_fast_box_list"], atol=1e-4, rtol=0)
+    assert_close(
+        py_results["current_fast_box_list"], cpp_results["current_fast_box_list"], atol=1e-4, rtol=0
+    )

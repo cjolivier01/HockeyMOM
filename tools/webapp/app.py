@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-import os
-import json
-import secrets
-# Lazy import for pymysql to allow importing module without DB installed (e.g., tests)
-try:
-    import pymysql  # type: ignore
-except Exception:  # pragma: no cover
-    pymysql = None  # type: ignore
-import secrets
 import datetime as dt
+import json
+import os
+import secrets
 from pathlib import Path
 from typing import Optional
 
 from flask import (
     Flask,
+    flash,
     g,
     redirect,
     render_template,
     request,
+    send_from_directory,
     session,
     url_for,
-    flash,
-    send_from_directory,
 )
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
+
+# Lazy import for pymysql to allow importing module without DB installed (e.g., tests)
+try:
+    import pymysql  # type: ignore
+except Exception:  # pragma: no cover
+    pymysql = None  # type: ignore
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -75,7 +75,10 @@ def create_app() -> Flask:
                             # Clear invalid selection and clear stored default if matches
                             session.pop("league_id", None)
                             with g.db.cursor() as cur:
-                                cur.execute("UPDATE users SET default_league_id=NULL WHERE id=%s AND default_league_id=%s", (uid, lid))
+                                cur.execute(
+                                    "UPDATE users SET default_league_id=NULL WHERE id=%s AND default_league_id=%s",
+                                    (uid, lid),
+                                )
                             g.db.commit()
                     except Exception:
                         session.pop("league_id", None)
@@ -91,7 +94,10 @@ def create_app() -> Flask:
                                 session["league_id"] = pref
                             else:
                                 with g.db.cursor() as cur:
-                                    cur.execute("UPDATE users SET default_league_id=NULL WHERE id=%s AND default_league_id=%s", (uid, pref))
+                                    cur.execute(
+                                        "UPDATE users SET default_league_id=NULL WHERE id=%s AND default_league_id=%s",
+                                        (uid, pref),
+                                    )
                                 g.db.commit()
                         except Exception:
                             pass
@@ -134,7 +140,13 @@ def create_app() -> Flask:
                         )
                         ORDER BY l.name
                         """,
-                        (session["user_id"], session["user_id"], session["user_id"], session["user_id"], session["user_id"]),
+                        (
+                            session["user_id"],
+                            session["user_id"],
+                            session["user_id"],
+                            session["user_id"],
+                            session["user_id"],
+                        ),
                     )
                     leagues = cur.fetchall()
             except Exception:
@@ -160,13 +172,18 @@ def create_app() -> Flask:
                 session["league_id"] = lid_i
                 # Persist preferred league in users table
                 with g.db.cursor() as cur:
-                    cur.execute("UPDATE users SET default_league_id=%s WHERE id=%s", (lid_i, session["user_id"]))
+                    cur.execute(
+                        "UPDATE users SET default_league_id=%s WHERE id=%s",
+                        (lid_i, session["user_id"]),
+                    )
                 g.db.commit()
         else:
             # Switch back to personal data; clear preferred league
             session.pop("league_id", None)
             with g.db.cursor() as cur:
-                cur.execute("UPDATE users SET default_league_id=NULL WHERE id=%s", (session["user_id"],))
+                cur.execute(
+                    "UPDATE users SET default_league_id=NULL WHERE id=%s", (session["user_id"],)
+                )
             g.db.commit()
         return redirect(request.headers.get("Referer") or url_for("index"))
 
@@ -268,7 +285,11 @@ def create_app() -> Flask:
             return redirect(url_for("login"))
         # Check expiry and used
         now = dt.datetime.now()
-        expires = row["expires_at"] if isinstance(row["expires_at"], dt.datetime) else dt.datetime.fromisoformat(str(row["expires_at"]))
+        expires = (
+            row["expires_at"]
+            if isinstance(row["expires_at"], dt.datetime)
+            else dt.datetime.fromisoformat(str(row["expires_at"]))
+        )
         if row.get("used_at") or now > expires:
             flash("Invalid or expired token", "error")
             return redirect(url_for("login"))
@@ -281,8 +302,13 @@ def create_app() -> Flask:
             # Update password and mark token used
             newhash = generate_password_hash(pw1)
             with g.db.cursor() as cur:
-                cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (newhash, row["user_id"]))
-                cur.execute("UPDATE resets SET used_at=%s WHERE id=%s", (dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), row["id"]))
+                cur.execute(
+                    "UPDATE users SET password_hash=%s WHERE id=%s", (newhash, row["user_id"])
+                )
+                cur.execute(
+                    "UPDATE resets SET used_at=%s WHERE id=%s",
+                    (dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), row["id"]),
+                )
             g.db.commit()
             flash("Password updated. Please log in.", "success")
             return redirect(url_for("login"))
@@ -304,7 +330,10 @@ def create_app() -> Flask:
         if r:
             return r
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute("SELECT * FROM games WHERE user_id=%s ORDER BY created_at DESC", (session["user_id"],))
+            cur.execute(
+                "SELECT * FROM games WHERE user_id=%s ORDER BY created_at DESC",
+                (session["user_id"],),
+            )
             rows = cur.fetchall()
         # Read dirwatcher state if present
         dw_state = read_dirwatch_state()
@@ -336,17 +365,19 @@ def create_app() -> Flask:
         files = []
         try:
             all_files = os.listdir(game["dir_path"]) if os.path.isdir(game["dir_path"]) else []
+
             def _is_user_file(fname: str) -> bool:
                 # Hide control/meta files: dotfiles, sentinels, slurm outputs
                 if not fname:
                     return False
-                if fname.startswith('.'):
+                if fname.startswith("."):
                     return False
-                if fname.startswith('_'):
+                if fname.startswith("_"):
                     return False
-                if fname.startswith('slurm-'):
+                if fname.startswith("slurm-"):
                     return False
                 return True
+
             files = [f for f in sorted(all_files) if _is_user_file(f)]
         except Exception:
             files = []
@@ -359,7 +390,9 @@ def create_app() -> Flask:
                 latest_status = str(row[0]) if row[0] is not None else None
         if not latest_status:
             dw_state = read_dirwatch_state()
-            latest_status = dw_state.get("processed", {}).get(game["dir_path"], {}).get("status") or game.get("status")
+            latest_status = dw_state.get("processed", {}).get(game["dir_path"], {}).get(
+                "status"
+            ) or game.get("status")
         # Lock interactions once a job has been requested (any job row exists) or after completion
         is_locked = False
         if row:
@@ -367,7 +400,9 @@ def create_app() -> Flask:
         final_states = {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"}
         if latest_status and str(latest_status).upper() in final_states:
             is_locked = True
-        return render_template("game_detail.html", game=game, files=files, status=latest_status, is_locked=is_locked)
+        return render_template(
+            "game_detail.html", game=game, files=files, status=latest_status, is_locked=is_locked
+        )
 
     @app.route("/games/<int:gid>/delete", methods=["GET", "POST"])
     def delete_game(gid: int):
@@ -385,7 +420,10 @@ def create_app() -> Flask:
         # Check latest job state for potential cancellation on delete
         latest = None
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute("SELECT id, slurm_job_id, status FROM jobs WHERE game_id=%s ORDER BY id DESC LIMIT 1", (gid,))
+            cur.execute(
+                "SELECT id, slurm_job_id, status FROM jobs WHERE game_id=%s ORDER BY id DESC LIMIT 1",
+                (gid,),
+            )
             latest = cur.fetchone()
 
         if request.method == "POST":
@@ -397,7 +435,9 @@ def create_app() -> Flask:
             try:
                 active_states = ("SUBMITTED", "RUNNING", "PENDING")
                 if latest and str(latest.get("status", "")).upper() in active_states:
-                    import subprocess as _sp, time as _time
+                    import subprocess as _sp
+                    import time as _time
+
                     dir_leaf = Path(game["dir_path"]).name
                     job_name = f"dirwatch-{dir_leaf}"
                     job_ids = []
@@ -407,7 +447,7 @@ def create_app() -> Flask:
                     else:
                         # Fallback: discover job ids by job name prefix
                         try:
-                            out = _sp.check_output(["squeue", "-h", "-o", "%i %j"]) .decode()
+                            out = _sp.check_output(["squeue", "-h", "-o", "%i %j"]).decode()
                             for line in out.splitlines():
                                 parts = line.strip().split(maxsplit=1)
                                 if len(parts) == 2 and parts[1] == job_name:
@@ -426,7 +466,9 @@ def create_app() -> Flask:
                                 parts = line.strip().split(maxsplit=1)
                                 if not parts:
                                     continue
-                                if parts[0] in job_ids or (len(parts) == 2 and parts[1] == job_name):
+                                if parts[0] in job_ids or (
+                                    len(parts) == 2 and parts[1] == job_name
+                                ):
                                     still = True
                                     break
                             if not still:
@@ -440,7 +482,9 @@ def create_app() -> Flask:
             # Delete from DB (jobs first), then remove directory
             with g.db.cursor() as cur:
                 cur.execute("DELETE FROM jobs WHERE game_id=%s", (gid,))
-                cur.execute("DELETE FROM games WHERE id=%s AND user_id=%s", (gid, session["user_id"]))
+                cur.execute(
+                    "DELETE FROM games WHERE id=%s AND user_id=%s", (gid, session["user_id"])
+                )
             g.db.commit()
             # Remove directory if under our watch root
             try:
@@ -450,6 +494,7 @@ def create_app() -> Flask:
                     # Python 3.9-compatible relative check
                     if str(d).startswith(str(wr)):
                         import shutil
+
                         shutil.rmtree(d, ignore_errors=True)
                 except Exception:
                     pass
@@ -505,7 +550,9 @@ def create_app() -> Flask:
             return redirect(url_for("games"))
         # Prevent duplicate submissions
         with g.db.cursor() as cur:
-            cur.execute("SELECT id,status FROM jobs WHERE game_id=%s ORDER BY id DESC LIMIT 1", (gid,))
+            cur.execute(
+                "SELECT id,status FROM jobs WHERE game_id=%s ORDER BY id DESC LIMIT 1", (gid,)
+            )
             row = cur.fetchone()
         if row:
             flash("Job already submitted.", "error")
@@ -540,7 +587,9 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
-        game = g.db.execute("SELECT * FROM games WHERE id=? AND user_id=?", (gid, session["user_id"]))
+        game = g.db.execute(
+            "SELECT * FROM games WHERE id=? AND user_id=?", (gid, session["user_id"])
+        )
         game = game.fetchone()
         if not game:
             return ("Not found", 404)
@@ -602,7 +651,9 @@ def create_app() -> Flask:
                 )
             else:
                 where = "user_id=%s" + ("" if include_external else " AND is_external=0")
-                cur.execute(f"SELECT * FROM teams WHERE {where} ORDER BY name ASC", (session["user_id"],))
+                cur.execute(
+                    f"SELECT * FROM teams WHERE {where} ORDER BY name ASC", (session["user_id"],)
+                )
             rows = cur.fetchall()
         # compute stats per team (wins/losses/ties/gf/ga/points)
         stats = {}
@@ -610,8 +661,10 @@ def create_app() -> Flask:
             if league_id:
                 stats[t["id"]] = compute_team_stats_league(g.db, t["id"], int(league_id))
             else:
-                stats[t["id"]] = compute_team_stats(g.db, t["id"], session["user_id"]) 
-        return render_template("teams.html", teams=rows, stats=stats, include_external=include_external)
+                stats[t["id"]] = compute_team_stats(g.db, t["id"], session["user_id"])
+        return render_template(
+            "teams.html", teams=rows, stats=stats, include_external=include_external
+        )
 
     @app.get("/leagues")
     def leagues_index():
@@ -684,7 +737,9 @@ def create_app() -> Flask:
         try:
             with g.db.cursor() as cur:
                 # Collect games mapped to this league
-                cur.execute("SELECT DISTINCT game_id FROM league_games WHERE league_id=%s", (league_id,))
+                cur.execute(
+                    "SELECT DISTINCT game_id FROM league_games WHERE league_id=%s", (league_id,)
+                )
                 game_ids = [int(r[0]) for r in cur.fetchall() or []]
                 if game_ids:
                     # Delete player stats for these games
@@ -693,14 +748,19 @@ def create_app() -> Flask:
                     # Delete league_games entries for this league
                     cur.execute("DELETE FROM league_games WHERE league_id=%s", (league_id,))
                     # Delete hky_games not used by other leagues
-                    cur.execute(f"SELECT DISTINCT game_id FROM league_games WHERE game_id IN ({qmarks}) AND league_id<>%s", game_ids + [league_id])
+                    cur.execute(
+                        f"SELECT DISTINCT game_id FROM league_games WHERE game_id IN ({qmarks}) AND league_id<>%s",
+                        game_ids + [league_id],
+                    )
                     keep = {int(r[0]) for r in cur.fetchall() or []}
                     to_delete = [gid for gid in game_ids if gid not in keep]
                     if to_delete:
                         q2 = ",".join(["%s"] * len(to_delete))
                         cur.execute(f"DELETE FROM hky_games WHERE id IN ({q2})", to_delete)
                 # Teams mapped to this league
-                cur.execute("SELECT DISTINCT team_id FROM league_teams WHERE league_id=%s", (league_id,))
+                cur.execute(
+                    "SELECT DISTINCT team_id FROM league_teams WHERE league_id=%s", (league_id,)
+                )
                 team_ids = [int(r[0]) for r in cur.fetchall() or []]
                 if team_ids:
                     cur.execute("DELETE FROM league_teams WHERE league_id=%s", (league_id,))
@@ -708,13 +768,19 @@ def create_app() -> Flask:
                     q3 = ",".join(["%s"] * len(team_ids))
                     cur.execute(f"DELETE FROM players WHERE team_id IN ({q3})", team_ids)
                     # Delete teams if no other league maps them and no games reference them
-                    cur.execute(f"SELECT DISTINCT team_id FROM league_teams WHERE team_id IN ({q3})", team_ids)
+                    cur.execute(
+                        f"SELECT DISTINCT team_id FROM league_teams WHERE team_id IN ({q3})",
+                        team_ids,
+                    )
                     still = {int(r[0]) for r in cur.fetchall() or []}
                     deleteable = []
                     for tid in team_ids:
                         if tid in still:
                             continue
-                        cur.execute("SELECT COUNT(*) FROM hky_games WHERE team1_id=%s OR team2_id=%s", (tid, tid))
+                        cur.execute(
+                            "SELECT COUNT(*) FROM hky_games WHERE team1_id=%s OR team2_id=%s",
+                            (tid, tid),
+                        )
                         cnt = int((cur.fetchone() or [0])[0])
                         if cnt == 0:
                             deleteable.append(tid)
@@ -801,7 +867,9 @@ def create_app() -> Flask:
             return redirect(url_for("leagues_index"))
         uid = int(request.form.get("user_id") or 0)
         with g.db.cursor() as cur:
-            cur.execute("DELETE FROM league_members WHERE league_id=%s AND user_id=%s", (league_id, uid))
+            cur.execute(
+                "DELETE FROM league_members WHERE league_id=%s AND user_id=%s", (league_id, uid)
+            )
             g.db.commit()
         flash("Member removed", "success")
         return redirect(url_for("league_members", league_id=league_id))
@@ -823,7 +891,10 @@ def create_app() -> Flask:
                 try:
                     p = save_team_logo(f, tid)
                     with g.db.cursor() as cur:
-                        cur.execute("UPDATE teams SET logo_path=%s WHERE id=%s AND user_id=%s", (str(p), tid, session["user_id"]))
+                        cur.execute(
+                            "UPDATE teams SET logo_path=%s WHERE id=%s AND user_id=%s",
+                            (str(p), tid, session["user_id"]),
+                        )
                     g.db.commit()
                 except Exception:
                     flash("Failed to save team logo", "error")
@@ -841,12 +912,21 @@ def create_app() -> Flask:
             flash("Not found", "error")
             return redirect(url_for("teams"))
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute("SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC", (team_id, session["user_id"]))
+            cur.execute(
+                "SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC",
+                (team_id, session["user_id"]),
+            )
             players = cur.fetchall()
         # Aggregate player career stats
         player_totals = aggregate_players_totals(g.db, team_id, session["user_id"])  # pid -> dict
         tstats = compute_team_stats(g.db, team_id, session["user_id"])  # team totals from games
-        return render_template("team_detail.html", team=team, players=players, player_totals=player_totals, tstats=tstats)
+        return render_template(
+            "team_detail.html",
+            team=team,
+            players=players,
+            player_totals=player_totals,
+            tstats=tstats,
+        )
 
     @app.route("/teams/<int:team_id>/edit", methods=["GET", "POST"])
     def team_edit(team_id: int):
@@ -861,13 +941,19 @@ def create_app() -> Flask:
             name = request.form.get("name", "").strip()
             if name:
                 with g.db.cursor() as cur:
-                    cur.execute("UPDATE teams SET name=%s WHERE id=%s AND user_id=%s", (name, team_id, session["user_id"]))
+                    cur.execute(
+                        "UPDATE teams SET name=%s WHERE id=%s AND user_id=%s",
+                        (name, team_id, session["user_id"]),
+                    )
                 g.db.commit()
             f = request.files.get("logo")
             if f and f.filename:
                 p = save_team_logo(f, team_id)
                 with g.db.cursor() as cur:
-                    cur.execute("UPDATE teams SET logo_path=%s WHERE id=%s AND user_id=%s", (str(p), team_id, session["user_id"]))
+                    cur.execute(
+                        "UPDATE teams SET logo_path=%s WHERE id=%s AND user_id=%s",
+                        (str(p), team_id, session["user_id"]),
+                    )
                 g.db.commit()
             flash("Team updated", "success")
             return redirect(url_for("team_detail", team_id=team_id))
@@ -878,7 +964,7 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
-        team = get_team(team_id, session["user_id"])  
+        team = get_team(team_id, session["user_id"])
         if not team:
             flash("Not found", "error")
             return redirect(url_for("teams"))
@@ -896,7 +982,15 @@ def create_app() -> Flask:
                     INSERT INTO players(user_id, team_id, name, jersey_number, position, shoots, created_at)
                     VALUES(%s,%s,%s,%s,%s,%s,%s)
                     """,
-                    (session["user_id"], team_id, name, jersey or None, position or None, shoots or None, dt.datetime.now().isoformat()),
+                    (
+                        session["user_id"],
+                        team_id,
+                        name,
+                        jersey or None,
+                        position or None,
+                        shoots or None,
+                        dt.datetime.now().isoformat(),
+                    ),
                 )
             g.db.commit()
             flash("Player added", "success")
@@ -908,12 +1002,15 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
-        team = get_team(team_id, session["user_id"])  
+        team = get_team(team_id, session["user_id"])
         if not team:
             flash("Not found", "error")
             return redirect(url_for("teams"))
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute("SELECT * FROM players WHERE id=%s AND team_id=%s AND user_id=%s", (player_id, team_id, session["user_id"]))
+            cur.execute(
+                "SELECT * FROM players WHERE id=%s AND team_id=%s AND user_id=%s",
+                (player_id, team_id, session["user_id"]),
+            )
             pl = cur.fetchone()
         if not pl:
             flash("Not found", "error")
@@ -926,14 +1023,22 @@ def create_app() -> Flask:
             with g.db.cursor() as cur:
                 cur.execute(
                     "UPDATE players SET name=%s, jersey_number=%s, position=%s, shoots=%s WHERE id=%s AND team_id=%s AND user_id=%s",
-                    (name or pl["name"], jersey or None, position or None, shoots or None, player_id, team_id, session["user_id"]),
+                    (
+                        name or pl["name"],
+                        jersey or None,
+                        position or None,
+                        shoots or None,
+                        player_id,
+                        team_id,
+                        session["user_id"],
+                    ),
                 )
             g.db.commit()
             flash("Player updated", "success")
             return redirect(url_for("team_detail", team_id=team_id))
         return render_template("player_edit.html", team=team, player=pl)
 
-    @app.route("/teams/<int:team_id>/players/<int:player_id>/delete", methods=["POST"]) 
+    @app.route("/teams/<int:team_id>/players/<int:player_id>/delete", methods=["POST"])
     def player_delete(team_id: int, player_id: int):
         r = require_login()
         if r:
@@ -991,7 +1096,10 @@ def create_app() -> Flask:
             return r
         # Load user's own teams (not external)
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute("SELECT id, name FROM teams WHERE user_id=%s AND is_external=0 ORDER BY name", (session["user_id"],))
+            cur.execute(
+                "SELECT id, name FROM teams WHERE user_id=%s AND is_external=0 ORDER BY name",
+                (session["user_id"],),
+            )
             my_teams = cur.fetchall()
             cur.execute("SELECT id, name FROM game_types ORDER BY name")
             gt = cur.fetchall()
@@ -1025,9 +1133,18 @@ def create_app() -> Flask:
             if league_id:
                 try:
                     with g.db.cursor() as cur:
-                        cur.execute("INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)", (league_id, team1_id))
-                        cur.execute("INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)", (league_id, team2_id))
-                        cur.execute("INSERT IGNORE INTO league_games(league_id, game_id) VALUES(%s,%s)", (league_id, gid))
+                        cur.execute(
+                            "INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)",
+                            (league_id, team1_id),
+                        )
+                        cur.execute(
+                            "INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)",
+                            (league_id, team2_id),
+                        )
+                        cur.execute(
+                            "INSERT IGNORE INTO league_games(league_id, game_id) VALUES(%s,%s)",
+                            (league_id, gid),
+                        )
                     g.db.commit()
                 except Exception:
                     pass
@@ -1035,7 +1152,7 @@ def create_app() -> Flask:
             return redirect(url_for("hky_game_detail", game_id=gid))
         return render_template("schedule_new.html", my_teams=my_teams, game_types=gt)
 
-    @app.route("/hky/games/<int:game_id>", methods=["GET", "POST"]) 
+    @app.route("/hky/games/<int:game_id>", methods=["GET", "POST"])
     def hky_game_detail(game_id: int):
         r = require_login()
         if r:
@@ -1068,9 +1185,15 @@ def create_app() -> Flask:
             return redirect(url_for("schedule"))
         # Load players from both teams
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute("SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC", (game["team1_id"], session["user_id"]))
+            cur.execute(
+                "SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC",
+                (game["team1_id"], session["user_id"]),
+            )
             team1_players = cur.fetchall()
-            cur.execute("SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC", (game["team2_id"], session["user_id"]))
+            cur.execute(
+                "SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC",
+                (game["team2_id"], session["user_id"]),
+            )
             team2_players = cur.fetchall()
             # Load existing player stats rows for this game
             cur.execute("SELECT * FROM player_stats WHERE game_id=%s", (game_id,))
@@ -1088,7 +1211,9 @@ def create_app() -> Flask:
                 can_edit = int((cur.fetchone() or [0])[0]) == 1
             if not can_edit:
                 editable = False
-                flash("You do not have permission to edit this game in the selected league.", "error")
+                flash(
+                    "You do not have permission to edit this game in the selected league.", "error"
+                )
         if request.method == "POST" and editable:
             # Update game meta and scores
             loc = request.form.get("location", "").strip()
@@ -1102,18 +1227,20 @@ def create_app() -> Flask:
                     (
                         loc or None,
                         parse_dt_or_none(starts_at),
-                        int(t1_score) if (t1_score or '').strip() else None,
-                        int(t2_score) if (t2_score or '').strip() else None,
+                        int(t1_score) if (t1_score or "").strip() else None,
+                        int(t2_score) if (t2_score or "").strip() else None,
                         1 if is_final else 0,
                         game_id,
                         session["user_id"],
                     ),
                 )
+
             # Upsert player stats
             def _collect(prefix: str, pid: int) -> dict:
                 def _ival(name: str) -> Optional[int]:
                     v = request.form.get(f"{prefix}_{name}_{pid}")
                     return int(v) if v and v.strip() else None
+
                 return {
                     "goals": _ival("goals"),
                     "assists": _ival("assists"),
@@ -1129,6 +1256,7 @@ def create_app() -> Flask:
                     "goalie_ga": _ival("ga"),
                     "goalie_sa": _ival("sa"),
                 }
+
             with g.db.cursor() as cur:
                 for p in list(team1_players) + list(team2_players):
                     pid = int(p["id"])
@@ -1136,16 +1264,38 @@ def create_app() -> Flask:
                     # Determine team_id for this player
                     team_id = int(p["team_id"])
                     # Determine if an entry exists
-                    cur.execute("SELECT id FROM player_stats WHERE game_id=%s AND player_id=%s", (game_id, pid))
+                    cur.execute(
+                        "SELECT id FROM player_stats WHERE game_id=%s AND player_id=%s",
+                        (game_id, pid),
+                    )
                     row = cur.fetchone()
-                    cols = ["goals","assists","shots","pim","plus_minus","hits","blocks","toi_seconds","faceoff_wins","faceoff_attempts","goalie_saves","goalie_ga","goalie_sa"]
+                    cols = [
+                        "goals",
+                        "assists",
+                        "shots",
+                        "pim",
+                        "plus_minus",
+                        "hits",
+                        "blocks",
+                        "toi_seconds",
+                        "faceoff_wins",
+                        "faceoff_attempts",
+                        "goalie_saves",
+                        "goalie_ga",
+                        "goalie_sa",
+                    ]
                     if row:
                         set_clause = ", ".join([f"{c}=%s" for c in cols])
                         params = [vals.get(c) for c in cols] + [game_id, pid]
-                        cur.execute(f"UPDATE player_stats SET {set_clause} WHERE game_id=%s AND player_id=%s", params)
+                        cur.execute(
+                            f"UPDATE player_stats SET {set_clause} WHERE game_id=%s AND player_id=%s",
+                            params,
+                        )
                     else:
                         placeholders = ",".join(["%s"] * len(cols))
-                        params = [session["user_id"], team_id, game_id, pid] + [vals.get(c) for c in cols]
+                        params = [session["user_id"], team_id, game_id, pid] + [
+                            vals.get(c) for c in cols
+                        ]
                         cur.execute(
                             f"INSERT INTO player_stats(user_id, team_id, game_id, player_id, {', '.join(cols)}) VALUES(%s,%s,%s,%s,{placeholders})",
                             params,
@@ -1163,7 +1313,7 @@ def create_app() -> Flask:
             editable=editable,
         )
 
-    @app.route("/game_types", methods=["GET", "POST"]) 
+    @app.route("/game_types", methods=["GET", "POST"])
     def game_types():
         r = require_login()
         if r:
@@ -1173,7 +1323,9 @@ def create_app() -> Flask:
             if name:
                 try:
                     with g.db.cursor() as cur:
-                        cur.execute("INSERT INTO game_types(name, is_default) VALUES(%s,%s)", (name, 0))
+                        cur.execute(
+                            "INSERT INTO game_types(name, is_default) VALUES(%s,%s)", (name, 0)
+                        )
                     g.db.commit()
                     flash("Game type added", "success")
                 except Exception:
@@ -1327,7 +1479,9 @@ def init_db():
             exists = cur.fetchone()
             if not exists:
                 cur.execute("ALTER TABLE users ADD COLUMN default_league_id INT NULL")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_default_league ON users(default_league_id)")
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_users_default_league ON users(default_league_id)"
+                )
         except Exception:
             # Fallback for MySQL variants without IF NOT EXISTS
             try:
@@ -1456,7 +1610,9 @@ def create_game(user_id: int, name: str, email: str):
     d.mkdir(parents=True, exist_ok=True)
     # Create meta with user email
     try:
-        (d / ".dirwatch_meta.json").write_text(f'{{"user_email":"{email}","created":"{dt.datetime.now().isoformat()}"}}\n')
+        (d / ".dirwatch_meta.json").write_text(
+            f'{{"user_email":"{email}","created":"{dt.datetime.now().isoformat()}"}}\n'
+        )
     except Exception:
         pass
     db = get_db()
@@ -1511,7 +1667,9 @@ def send_email(to_addr: str, subject: str, body: str, from_addr: Optional[str] =
         f"From: {from_addr}\nTo: {to_addr}\nSubject: {subject}\n"
         f"Content-Type: text/plain; charset=utf-8\n\n{body}\n"
     )
-    import shutil as _sh, subprocess as _sp
+    import shutil as _sh
+    import subprocess as _sp
+
     sendmail = _sh.which("sendmail")
     if sendmail:
         try:
@@ -1527,6 +1685,7 @@ def send_email(to_addr: str, subject: str, body: str, from_addr: Optional[str] =
 # Helpers for Teams/Players/Hockey Games
 # ---------------------------
 
+
 def create_team(user_id: int, name: str, is_external: bool = False) -> int:
     db = get_db()
     with db.cursor() as cur:
@@ -1540,7 +1699,7 @@ def create_team(user_id: int, name: str, is_external: bool = False) -> int:
 
 def get_team(team_id: int, user_id: int) -> Optional[dict]:
     # Prefer request-scoped connection if available
-    db = getattr(g, 'db', None) or get_db()
+    db = getattr(g, "db", None) or get_db()
     with db.cursor(pymysql.cursors.DictCursor) as cur:
         cur.execute("SELECT * FROM teams WHERE id=%s AND user_id=%s", (team_id, user_id))
         return cur.fetchone()
@@ -1574,7 +1733,14 @@ def ensure_external_team(user_id: int, name: str) -> int:
         return int(cur.lastrowid)
 
 
-def create_hky_game(user_id: int, team1_id: int, team2_id: int, game_type_id: Optional[int], starts_at: Optional[dt.datetime], location: Optional[str]) -> int:
+def create_hky_game(
+    user_id: int,
+    team1_id: int,
+    team2_id: int,
+    game_type_id: Optional[int],
+    starts_at: Optional[dt.datetime],
+    location: Optional[str],
+) -> int:
     db = get_db()
     with db.cursor() as cur:
         cur.execute(
@@ -1582,7 +1748,15 @@ def create_hky_game(user_id: int, team1_id: int, team2_id: int, game_type_id: Op
             INSERT INTO hky_games(user_id, team1_id, team2_id, game_type_id, starts_at, location, created_at)
             VALUES(%s,%s,%s,%s,%s,%s,%s)
             """,
-            (user_id, team1_id, team2_id, game_type_id, starts_at, location, dt.datetime.now().isoformat()),
+            (
+                user_id,
+                team1_id,
+                team2_id,
+                game_type_id,
+                starts_at,
+                location,
+                dt.datetime.now().isoformat(),
+            ),
         )
         db.commit()
         return int(cur.lastrowid)
@@ -1604,8 +1778,8 @@ def parse_dt_or_none(s: Optional[str]) -> Optional[str]:
 
 
 def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:
-    curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, 'cursors', None)) else None  # type: ignore
-    with (db_conn.cursor(curtype) if curtype else db_conn.cursor()) as cur:
+    curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, "cursors", None)) else None  # type: ignore
+    with db_conn.cursor(curtype) if curtype else db_conn.cursor() as cur:
         cur.execute(
             """
             SELECT team1_id, team2_id, team1_score, team2_score, is_final
@@ -1617,8 +1791,16 @@ def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:
     wins = losses = ties = gf = ga = 0
     for r in rows:
         t1 = int(r["team1_id"]) == team_id
-        my_score = int(r["team1_score"]) if t1 else int(r["team2_score"]) if r["team2_score"] is not None else 0
-        op_score = int(r["team2_score"]) if t1 else int(r["team1_score"]) if r["team1_score"] is not None else 0
+        my_score = (
+            int(r["team1_score"])
+            if t1
+            else int(r["team2_score"]) if r["team2_score"] is not None else 0
+        )
+        op_score = (
+            int(r["team2_score"])
+            if t1
+            else int(r["team1_score"]) if r["team1_score"] is not None else 0
+        )
         gf += my_score
         ga += op_score
         if my_score > op_score:
@@ -1630,9 +1812,10 @@ def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:
     points = wins * 2 + ties * 1
     return {"wins": wins, "losses": losses, "ties": ties, "gf": gf, "ga": ga, "points": points}
 
+
 def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
-    curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, 'cursors', None)) else None  # type: ignore
-    with (db_conn.cursor(curtype) if curtype else db_conn.cursor()) as cur:
+    curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, "cursors", None)) else None  # type: ignore
+    with db_conn.cursor(curtype) if curtype else db_conn.cursor() as cur:
         cur.execute(
             """
             SELECT g.team1_id, g.team2_id, g.team1_score, g.team2_score, g.is_final
@@ -1646,8 +1829,16 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
     wins = losses = ties = gf = ga = 0
     for r in rows:
         t1 = int(r["team1_id"]) == team_id
-        my_score = int(r["team1_score"]) if t1 else int(r["team2_score"]) if r["team2_score"] is not None else 0
-        op_score = int(r["team2_score"]) if t1 else int(r["team1_score"]) if r["team1_score"] is not None else 0
+        my_score = (
+            int(r["team1_score"])
+            if t1
+            else int(r["team2_score"]) if r["team2_score"] is not None else 0
+        )
+        op_score = (
+            int(r["team2_score"])
+            if t1
+            else int(r["team1_score"]) if r["team1_score"] is not None else 0
+        )
         gf += my_score
         ga += op_score
         if my_score > op_score:
@@ -1661,8 +1852,8 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
 
 
 def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
-    curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, 'cursors', None)) else None  # type: ignore
-    with (db_conn.cursor(curtype) if curtype else db_conn.cursor()) as cur:
+    curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, "cursors", None)) else None  # type: ignore
+    with db_conn.cursor(curtype) if curtype else db_conn.cursor() as cur:
         cur.execute(
             """
             SELECT player_id,

@@ -8,7 +8,9 @@ import torch
 
 
 def load_audio_as_tensor(
-    audio: Union[str, np.ndarray, torch.Tensor], duration_seconds: float, verbose: Optional[bool] = False
+    audio: Union[str, np.ndarray, torch.Tensor],
+    duration_seconds: float,
+    verbose: Optional[bool] = False,
 ) -> Tuple[torch.Tensor, float]:
     """Load audio from a file (or tensor) and return a waveform tensor.
 

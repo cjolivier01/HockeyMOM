@@ -5,13 +5,13 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
+from .base import Trunk
+
 try:
     from mmengine.config import Config, ConfigDict
 except Exception:  # pragma: no cover - optional at runtime
     Config = None  # type: ignore
     ConfigDict = dict  # type: ignore
-
-from .base import Trunk
 
 
 def _import_class(path: str):
@@ -112,6 +112,7 @@ class ModelFactoryTrunk(Trunk):
 
             ModelCls = _import_class(self._model_class)
             kwargs: Dict[str, Any] = {}
+
             def _to_cfg(x):
                 if isinstance(x, dict):
                     return ConfigDict({k: _to_cfg(v) for k, v in x.items()})
@@ -120,9 +121,9 @@ class ModelFactoryTrunk(Trunk):
                 return x
 
             # Strip nested data_preprocessor from detector; ByteTrack supplies its own
-            if isinstance(detector, dict) and 'data_preprocessor' in detector:
+            if isinstance(detector, dict) and "data_preprocessor" in detector:
                 detector = dict(detector)
-                detector.pop('data_preprocessor', None)
+                detector.pop("data_preprocessor", None)
 
             if self._data_preprocessor is not None:
                 kwargs["data_preprocessor"] = _to_cfg(self._data_preprocessor)
@@ -137,7 +138,11 @@ class ModelFactoryTrunk(Trunk):
             if hasattr(model, "init_weights"):
                 model.init_weights()
 
-            if self._to_device and "device" in context and isinstance(context["device"], torch.device):
+            if (
+                self._to_device
+                and "device" in context
+                and isinstance(context["device"], torch.device)
+            ):
                 model = model.to(context["device"])  # type: ignore[assignment]
             model.eval()
             self._model = model

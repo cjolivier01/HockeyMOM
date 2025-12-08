@@ -1,6 +1,5 @@
-import math
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 
 def _torch():
@@ -64,6 +63,7 @@ def make_cpp_config(core, arena_box: Tuple[float, float, float, float], cfg: Dic
 
 def make_py_box(torch, arena_box_t, init_box_t, cfg: Dict):
     from hmlib.camera.moving_box import MovingBox
+
     # Map cpp config into MovingBox params
     return MovingBox(
         label="py",
@@ -88,6 +88,7 @@ def make_py_box(torch, arena_box_t, init_box_t, cfg: Dict):
 def make_dest_sequence_x(torch, init_box_t, step: float, n1: int, n2: int):
     """Move right (n1 steps), then left (n2 steps), return list of TLBR tensors with same size."""
     from hmlib.bbox.box_functions import center, make_box_at_center, width, height
+
     dests = []
     c = center(init_box_t)
     w = width(init_box_t)
@@ -106,6 +107,7 @@ def make_dest_sequence_x(torch, init_box_t, step: float, n1: int, n2: int):
 
 def make_dest_sequence_y(torch, init_box_t, step: float, n1: int, n2: int):
     from hmlib.bbox.box_functions import center, make_box_at_center, width, height
+
     dests = []
     c = center(init_box_t)
     w = width(init_box_t)
@@ -149,7 +151,10 @@ def _run_case(cfg: Dict, axis: str):
 
     # Reasonable constraints to see behavior
     cfg_full = dict(
-        max_speed_x=30.0, max_speed_y=30.0, max_accel_x=10.0, max_accel_y=10.0,
+        max_speed_x=30.0,
+        max_speed_y=30.0,
+        max_accel_x=10.0,
+        max_accel_y=10.0,
         stop_on_change=cfg.get("stop_on_change", False),
         stop_delay=cfg.get("stop_delay", 0),
         cancel=cfg.get("cancel", False),
@@ -179,12 +184,10 @@ def _run_case(cfg: Dict, axis: str):
         if axis == "x":
             # Move to the right again
             base = dests[idx - 1]
-            base_center_x = (float(base[0]) + float(base[2])) / 2.0
             shift = torch.tensor([step, 0.0, step, 0.0], dtype=torch.float)
             dests[idx] = base + shift
         else:
             base = dests[idx - 1]
-            base_center_y = (float(base[1]) + float(base[3])) / 2.0
             shift = torch.tensor([0.0, step, 0.0, step], dtype=torch.float)
             dests[idx] = base + shift
 
@@ -205,7 +208,10 @@ def _run_case(cfg: Dict, axis: str):
         # If cancel path: in the cancel step expect flags set (C++) and flashes (Python)
         if cfg_full["cancel"] and cfg_full["stop_delay"] > 0 and i == pre + 1:
             # During cancel frame, flags should be true on at least the relevant axis
-            assert bool(getattr(tstate, "canceled_stop_x", False) or getattr(tstate, "canceled_stop_y", False))
+            assert bool(
+                getattr(tstate, "canceled_stop_x", False)
+                or getattr(tstate, "canceled_stop_y", False)
+            )
             assert bool(py_box._cancel_stop_x_flash or py_box._cancel_stop_y_flash)
 
 
@@ -239,9 +245,14 @@ def _should_not_brake_when_not_moving():
     arena_t = torch.tensor(arena, dtype=torch.float)
 
     cfg = dict(
-        max_speed_x=60.0, max_speed_y=60.0,
-        max_accel_x=1.0, max_accel_y=1.0,
-        stop_on_change=True, stop_delay=6, cancel=False, pan_smoothing_alpha=0.0,
+        max_speed_x=60.0,
+        max_speed_y=60.0,
+        max_accel_x=1.0,
+        max_accel_y=1.0,
+        stop_on_change=True,
+        stop_delay=6,
+        cancel=False,
+        pan_smoothing_alpha=0.0,
         sticky_translation=False,
     )
     cpp_cfg = make_cpp_config(core, arena, cfg)

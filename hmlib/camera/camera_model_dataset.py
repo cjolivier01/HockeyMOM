@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Dataset for training transformer-based camera pan/zoom models.
 
 Wraps tracking and camera CSVs into sliding windows of frame-level features
@@ -8,8 +6,10 @@ and target camera boxes.
 @see @ref hmlib.camera.camera_transformer "camera_transformer" for model details.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -77,7 +77,9 @@ class CameraPanZoomDataset(Dataset):
             max_y = 1080.0
         self.norm = CameraNorm(scale_x=max_x, scale_y=max_y, max_players=max_players_for_norm)
         # list of frames present in both
-        frames = sorted(set(self.tracks["Frame"].unique()).intersection(set(self.cams["Frame"].unique())))
+        frames = sorted(
+            set(self.tracks["Frame"].unique()).intersection(set(self.cams["Frame"].unique()))
+        )
         self.frames: List[int] = [int(f) for f in frames]
         self.valid_indices: List[int] = [i for i in range(self.window, len(self.frames))]
 

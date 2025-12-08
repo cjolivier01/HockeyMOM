@@ -1,16 +1,10 @@
-import argparse
 import os
 from pathlib import Path
 from typing import List
 
 import cv2
 
-from hmlib.config import (
-    get_game_config,
-    get_nested_value,
-    save_game_config,
-    set_nested_value,
-)
+from hmlib.config import get_game_config, get_nested_value, save_game_config, set_nested_value
 from hmlib.hm_opts import hm_opts
 
 

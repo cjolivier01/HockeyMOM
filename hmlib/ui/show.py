@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from PIL.Image import Image
 
-from hmlib.utils.gpu import StreamTensor
+from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_visible_image
 
 
@@ -61,7 +61,7 @@ def show_image(
         img = cv2.imread(img)
     elif isinstance(img, Image):
         img = np.array(img)
-    elif isinstance(img, StreamTensor):
+    elif isinstance(img, StreamTensorBase):
         img = img.get()
     if img.ndim == 2:
         # grayscale
