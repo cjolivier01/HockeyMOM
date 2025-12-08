@@ -377,9 +377,15 @@ def _main(args, num_gpu):
         except Exception:
             args.game_dir = None
 
-        tracking_data_path = find_latest_dataframe_file(args.game_dir, "tracking")
-        detection_data_path = find_latest_dataframe_file(args.game_dir, "detections")
-        pose_data_path = find_latest_dataframe_file(args.game_dir, "pose")
+        tracking_data_path = getattr(args, "input_tracking_data", None) or find_latest_dataframe_file(
+            args.game_dir, "tracking"
+        )
+        detection_data_path = getattr(
+            args, "input_detection_data", None
+        ) or find_latest_dataframe_file(args.game_dir, "detections")
+        pose_data_path = getattr(args, "input_pose_data", None) or find_latest_dataframe_file(
+            args.game_dir, "pose"
+        )
         action_data_path = find_latest_dataframe_file(args.game_dir, "actions")
         args.tracking_data_path = tracking_data_path
         args.detection_data_path = detection_data_path
@@ -449,13 +455,21 @@ def _main(args, num_gpu):
 
         # If ONNX/TRT detector flags are provided, thread them into Aspen plugins.detector_factory.params
         if args.aspen and isinstance(args.aspen, dict):
+            trunks_cfg = args.aspen.setdefault("plugins", {}) or {}
+            # When loading precomputed tracking or detection CSVs, skip writing
+            # detections to CSV to avoid unnecessary work and potential dtype issues.
+            if getattr(args, "input_tracking_data", None) or getattr(
+                args, "input_detection_data", None
+            ):
+                save_det = trunks_cfg.get("save_detections")
+                if isinstance(save_det, dict):
+                    save_det["enabled"] = False
             try:
                 onnx_enable = bool(
                     args.detector_onnx_enable
                     or args.detector_onnx_path
                     or args.detector_onnx_quantize_int8
                 )
-                trunks_cfg = args.aspen.setdefault("plugins", {}) or {}
                 # Optional static detection outputs (fixed-shape top-k)
                 static_det_enable = bool(getattr(args, "detector_static_detections", False))
                 static_det_max = int(getattr(args, "detector_static_max_detections", 0) or 0)
@@ -860,7 +874,10 @@ def _main(args, num_gpu):
                     ),
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
-                    original_image_only=True,
+                    # When a data_pipeline is provided, we must deliver both
+                    # the preprocessed pano and original_images; disable the
+                    # original_image_only fast path in this mode.
+                    original_image_only=False,
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                     async_mode=not args.no_async_dataset,
@@ -1167,6 +1184,12 @@ def main():
         # resolves to True.
         if getattr(args, "skip_final_video_save", None):
             set_nested_value(game_config, "aspen.video_out.skip_final_save", True)
+        # Video encoder backend: when provided via CLI, override baseline.yaml
+        # aspen.video_out.encoder_backend so Aspen/VideoOutPlugin can configure
+        # PyNvVideoEncoder accordingly.
+        backend = getattr(args, "video_encoder_backend", None)
+        if backend:
+            set_nested_value(game_config, "aspen.video_out.encoder_backend", backend)
         # Enable RGB stats checker when checkerboard-input debugging is active.
         if getattr(args, "checkerboard_input", False):
             set_nested_value(game_config, "debug.rgb_stats_check.enable", True)
@@ -1248,3 +1271,16 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Exception during processing: {e}")
         traceback.print_exc()
+        # Debug: list live threads to help diagnose hangs where an error
+        # has been raised but the process does not exit promptly.
+        try:
+            import threading
+
+            print("Live threads after exception:")
+            for t in threading.enumerate():
+                try:
+                    print(f" - {t.name} (daemon={t.daemon})")
+                except Exception:
+                    print(f" - {t}")
+        except Exception:
+            pass

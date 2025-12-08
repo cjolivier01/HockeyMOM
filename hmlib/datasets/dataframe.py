@@ -71,9 +71,21 @@ class HmDataFrameBase:
         return self._fields
 
     @staticmethod
-    def _make_array(t: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
+    def _make_array(t: Union[np.ndarray, torch.Tensor, List[Any], Tuple[Any, ...]]) -> np.ndarray:
+        """Convert tensors (including sequences of tensors) to CPU numpy arrays."""
         if isinstance(t, torch.Tensor):
-            return t.to("cpu").numpy()
+            return t.detach().cpu().numpy()
+        if isinstance(t, (list, tuple)):
+            # Handle sequences that may contain tensors
+            if not t:
+                return np.empty((0,), dtype=np.float32)
+            converted = []
+            for item in t:
+                if isinstance(item, torch.Tensor):
+                    converted.append(item.detach().cpu().numpy())
+                else:
+                    converted.append(item)
+            return np.asarray(converted)
         return t
 
     def has_input_data(self):

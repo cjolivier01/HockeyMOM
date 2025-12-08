@@ -101,7 +101,7 @@ class AspenNet(torch.nn.Module):
         cuda_streams_flag = pipeline_cfg.get("cuda_streams", True)
         self.thread_cuda_streams: bool = bool(cuda_streams_flag)
 
-        # Accept either {plugins: {...}} or a flat dict
+        # Accept a dict with a required {plugins: {...}} mapping.
         plugins = graph_cfg.get("plugins") if isinstance(graph_cfg, dict) else None
         if plugins is None:
             raise ValueError("AspenNet expects a dict with a 'plugins' mapping.")

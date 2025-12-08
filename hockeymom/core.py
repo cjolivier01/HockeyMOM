@@ -65,6 +65,7 @@ from ._hockeymom import (
     StitchImageInfo,
     WHDims,
     compute_kmeans_clusters,
+    bgr_to_i420_cuda,
     show_cuda_tensor,
 )
 
@@ -107,6 +108,7 @@ __all__ = [
     "WHDims",
     "GrowShrink",
     "compute_kmeans_clusters",
+    "bgr_to_i420_cuda",
     "show_cuda_tensor",
 ]
 
@@ -315,6 +317,16 @@ _doc(
 
     Returns:
         (centers, assignments) – implementation specific; see C++ binding.
+    """,
+)
+
+_doc(
+    bgr_to_i420_cuda,
+    """Convert a CUDA BGR uint8 image [H, W, 3] to planar I420/YUV420 layout.
+
+    The output is a contiguous CUDA tensor of shape [H * 3 / 2, W] laid out as
+    Y plane followed by U and V planes (4:2:0 subsampling).  Intended for use
+    with GPU encoders that consume YUV420 surfaces (for example PyNvVideoCodec).
     """,
 )
 

@@ -262,7 +262,8 @@ class VideoOutput(torch.nn.ModuleDict):
             self._device = None
         self._name = name
         self._simple_save = simple_save
-        self._fps = fps
+        # Normalize to float even if upstream passes a Fraction
+        self._fps = float(fps)
         self._skip_final_save = skip_final_save
         self._progress_bar = progress_bar
         self._output_video_path = output_video_path
@@ -343,6 +344,9 @@ class VideoOutput(torch.nn.ModuleDict):
 
     def stop(self):
         """Close any interactive UI resources (e.g., OpenCV shower)."""
+        for stream in self._output_videos.values():
+            stream.close()
+        self._output_videos.clear()
         if self._shower is not None:
             self._shower.close()
             self._shower = None
@@ -363,6 +367,7 @@ class VideoOutput(torch.nn.ModuleDict):
                     bit_rate=self._bit_rate,
                     device=self._device,
                     batch_size=1,
+                    profiler=self._prof,
                 )
                 assert self._output_videos[self.VIDEO_DEFAULT].isOpened()
 
@@ -376,6 +381,7 @@ class VideoOutput(torch.nn.ModuleDict):
                     bit_rate=self._bit_rate,
                     device=self._device,
                     batch_size=1,
+                    profiler=self._prof,
                 )
                 assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
 
@@ -421,6 +427,8 @@ class VideoOutput(torch.nn.ModuleDict):
         if self._show_image and self._shower is not None:
             for show_img in online_im:
                 self._shower.show(show_img.clone())
+
+        torch.cuda.synchronize()
 
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:

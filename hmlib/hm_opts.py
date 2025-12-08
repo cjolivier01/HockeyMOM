@@ -172,6 +172,33 @@ class hm_opts(object):
             action="store_true",
             help="Save tracking data to camera.csv",
         )
+        io.add_argument(
+            "--input-tracking-data",
+            dest="input_tracking_data",
+            type=str,
+            default=None,
+            help="Path to a precomputed tracking CSV to load instead of running the tracker.",
+        )
+        io.add_argument(
+            "--input-detection-data",
+            dest="input_detection_data",
+            type=str,
+            default=None,
+            help="Path to a precomputed detections CSV to load instead of running the detector.",
+        )
+        io.add_argument(
+            "--input-pose-data",
+            dest="input_pose_data",
+            type=str,
+            default=None,
+            help="Path to a precomputed pose CSV to load instead of running pose inference.",
+        )
+        io.add_argument(
+            "--save-pose-data",
+            dest="save_pose_data",
+            action="store_true",
+            help="Enable saving pose results to pose.csv via Aspen SavePosePlugin (when configured).",
+        )
 
         #
         # Visualization & Plotting
@@ -663,7 +690,7 @@ class hm_opts(object):
             # default="ffmpeg",
             default="cv2",
             type=str,
-            help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
+            help="Video stream decode method [cv2, ffmpeg, torchvision, torchaudio, gstreamer, pynvcodec]",
         )
         parser.add_argument(
             "--decoder-device",
@@ -676,6 +703,17 @@ class hm_opts(object):
             default=None,
             type=str,
             help="Video stream encode device [cpu, cude, cuda:0, etc.]",
+        )
+        parser.add_argument(
+            "--video-encoder-backend",
+            dest="video_encoder_backend",
+            choices=["auto", "pyav", "ffmpeg"],
+            default=None,
+            help=(
+                "Backend for PyNvVideoEncoder when using NVENC writers. "
+                "Values: auto (use baseline.yaml / auto-detect), pyav, ffmpeg. "
+                "When provided, this overrides aspen.video_out.encoder_backend from baseline.yaml."
+            ),
         )
         # parser.add_argument(
         #     "--encoder",

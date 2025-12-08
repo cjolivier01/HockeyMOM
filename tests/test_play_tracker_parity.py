@@ -242,9 +242,9 @@ def should_match_with_custom_cluster_centroids():
 
 
 def should_draw_cluster_boxes_with_external_camera_boxes(monkeypatch):
-    args = _create_args()
-    args.plot_cluster_tracking = True
-    tracker = _build_tracker(args, cpp_playtracker=False)
+    overrides = {"plot_cluster_tracking": True}
+    game_cfg = _base_game_config()
+    tracker = _build_tracker(game_cfg, overrides, cpp_playtracker=False)
     results = _make_results()
     camera_boxes = [
         torch.tensor([150.0, 150.0, 600.0, 450.0], dtype=torch.float32)
@@ -266,9 +266,9 @@ def should_draw_cluster_boxes_with_external_camera_boxes(monkeypatch):
 
 
 def should_apply_no_wide_start_after_initial_empty_frame():
-    args = _create_args(no_wide_start=True)
-    args.no_wide_start = True
-    tracker = _build_tracker(args, cpp_playtracker=False)
+    overrides = {"no_wide_start": True}
+    game_cfg = _base_game_config()
+    tracker = _build_tracker(game_cfg, overrides, cpp_playtracker=False)
     narrow_box = torch.tensor(
         [
             [400.0, 300.0, 600.0, 500.0],

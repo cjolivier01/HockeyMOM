@@ -75,7 +75,7 @@ def should_cli_load_tracking_smoke_runs():
             "-b=1",
             f"--input-video={video}",
             f"--game-id={game_id}",
-            "--config=hmlib/config/aspen/tracking_pose.yaml",
+            "--config=hmlib/config/aspen/tracking_pose_load_tracking.yaml",
             "--no-wide-start",
             "--no-crop",
             "--skip-final-video-save",

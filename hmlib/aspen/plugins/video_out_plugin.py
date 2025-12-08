@@ -93,10 +93,32 @@ class VideoOutPlugin(Plugin):
         assert img is not None, "VideoOutPlugin requires 'img' in context"
 
         device = shared.get("device")
+        cfg = shared.get("game_config") or {}
         vo_dev = self._vo_dev if self._vo_dev is not None else device
-        if not self._out_path:
-            self._out_path = context.get("work_dir")
-        out_path = self._out_path or os.path.join(os.getcwd(), "tracking_output.mkv")
+        # Resolve the output video path:
+        #   1. Explicit path passed via plugin params (_out_path)
+        #   2. CLI/config-derived path on cam_args.output_video_path
+        #   3. Fallback to <work_dir>/tracking_output.mkv
+        out_path = self._out_path
+        if not out_path:
+            candidate = getattr(cam_args, "output_video_path", None)
+            if not candidate:
+                work_dir = context.get("work_dir") or os.path.join(os.getcwd(), "output_workdirs")
+                candidate = os.path.join(str(work_dir), "tracking_output.mkv")
+            out_path = candidate
+        self._out_path = out_path
+
+        # Configure NVENC / muxing backend via env var so PyNvVideoEncoder
+        # can honor baseline.yaml and CLI overrides.
+        backend = get_nested_value(cfg, "aspen.video_out.encoder_backend", default_value=None)
+        if backend == "pyav":
+            os.environ["HM_VIDEO_ENCODER_BACKEND"] = "pyav"
+        elif backend == "ffmpeg":
+            os.environ["HM_VIDEO_ENCODER_BACKEND"] = "ffmpeg"
+        elif backend == "auto":
+            # Defer to library defaults / auto-detect; clear explicit override.
+            os.environ.pop("HM_VIDEO_ENCODER_BACKEND", None)
+
         fps = None
         try:
             fps = float(context.get("data", {}).get("fps"))
@@ -129,6 +151,15 @@ class VideoOutPlugin(Plugin):
         # Call VideoOutput as a regular nn.Module (forward) to write frames.
         self._vo(context)
         return {}
+
+    def finalize(self) -> None:
+        """Release any UI/video resources held by VideoOutput."""
+        if self._vo is not None:
+            try:
+                self._vo.stop()
+            except Exception:
+                # Finalization should be best-effort; ignore errors here.
+                pass
 
     def input_keys(self):
         if not hasattr(self, "_input_keys"):

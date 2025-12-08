@@ -73,3 +73,11 @@ py_test(
     name = "test_sideband_queue",
     srcs = ["test_sideband_queue.py"],
 )
+
+py_test(
+    name = "test_pynvcodec_writer",
+    srcs = ["test_pynvcodec_writer.py"],
+    deps = [
+        requirement("pytest"),
+    ],
+)

@@ -363,18 +363,21 @@ class ScrollOutput:
             cap_count = len(self.capture)
             if i < cap_count:
                 line = self.capture[cap_count - i - 1]
-                line.replace("\n", "\r")
             else:
                 line = ""
-            if self._column_width is not None and self._column_width > 0:
-                colw = self._column_width
-                # Fit content across two columns; include middle divider to match header box width
-                text = line
-                left = text[:colw]
-                right = text[colw : colw * 2]
-                progress_out.write(f"\x1b[2K│{left:<{colw}}│{right:<{colw}}│\n")
-            else:
-                progress_out.write("\x1b[2K│" + line + "│\n")
+            # Use a single full-width log line; avoid a vertical divider in the middle
+            inner_width = self._column_width
+            if inner_width is None or inner_width <= 0:
+                try:
+                    # Fallback to current terminal width minus borders
+                    inner_width = max(1, _get_terminal_width() - 2)
+                except Exception:
+                    inner_width = 78
+            # Normalize and truncate the line to fit
+            text = line.replace("\n", " ")
+            if len(text) > inner_width:
+                text = text[:inner_width]
+            progress_out.write(f"\x1b[2K│{text:<{inner_width}}│\n")
         progress_out.flush()
 
     def register_logger(self, logger) -> ScrollOutput:
@@ -403,6 +406,7 @@ class ScrollOutput:
 
     # Optional: used by fallback ANSI renderer to align right border
     def _set_column_width(self, column_width: int | None):
+        # Treat column_width as the total interior width (without outer borders)
         self._column_width = column_width if column_width and column_width > 0 else None
 
 
@@ -553,11 +557,11 @@ class ProgressBar:
     def _refresh_fallback(self):
         # Compute a column width consistent with the table box
         table_width = self._get_bar_width()
-        column_width = max(1, (table_width - 2) // 2)
         if self.scroll_output is not None:
             # Inform ScrollOutput so it can close the box on the right
             try:
-                self.scroll_output._set_column_width(column_width)
+                inner_width = max(1, table_width - 2)
+                self.scroll_output._set_column_width(inner_width)
             except Exception:
                 pass
 
@@ -572,7 +576,17 @@ class ProgressBar:
             self.scroll_output.refresh()
 
     def _get_bar_width(self):
-        return self.bar_length if self.bar_length else min(self.terminal_width - 10, 80)
+        # When bar_length is not provided, use the full current terminal width.
+        # This keeps the header and progress bar aligned with the real window size.
+        if self.bar_length:
+            return self.bar_length
+        # terminal_width is kept up-to-date in __next__; guard defensively here.
+        if self.terminal_width is None:
+            try:
+                self.terminal_width = _get_terminal_width()
+            except Exception:
+                self.terminal_width = 80
+        return self.terminal_width
 
     def print_progress_bar(self):
         # Build a progress line sized to the table's two-column width and close with right border
