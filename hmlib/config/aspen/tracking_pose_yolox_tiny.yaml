@@ -4,7 +4,6 @@ aspen:
     - type: LoadImageFromFile
     - type: HmCrop
       keys: [img]
-      save_clipped_images: true
     - type: HmImageToTensor
       keys: [img]
       scale_factor: 255.0
@@ -31,7 +30,7 @@ aspen:
     - type: HmImageOverlays
       watermark_config:
         image: images/sports_ai_watermark.png
-  trunks:
+  plugins:
     image_prep:
       class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
       depends: []

@@ -413,7 +413,7 @@ def _main(args, num_gpu):
             is_detecting=not using_precalculated_tracking and not using_precalculated_detections,
             stitch_with_fastest=not args.detect_jersey_numbers,
         )
-        # Expose per-role devices to downstream components (Aspen trunks, postprocessor)
+        # Expose per-role devices to downstream components (Aspen plugins, postprocessor)
         args.camera_device = gpus.get("camera")
         args.encoder_device = gpus.get("encoder")
         if is_single_lowmem_gpu:
@@ -447,7 +447,7 @@ def _main(args, num_gpu):
         # Expose to downstream run_mmtrack() via args dict
         args.aspen = aspen_cfg_for_pipeline
 
-        # If ONNX/TRT detector flags are provided, thread them into Aspen trunks.detector_factory.params
+        # If ONNX/TRT detector flags are provided, thread them into Aspen plugins.detector_factory.params
         if args.aspen and isinstance(args.aspen, dict):
             try:
                 onnx_enable = bool(
@@ -455,7 +455,7 @@ def _main(args, num_gpu):
                     or args.detector_onnx_path
                     or args.detector_onnx_quantize_int8
                 )
-                trunks_cfg = args.aspen.setdefault("trunks", {}) or {}
+                trunks_cfg = args.aspen.setdefault("plugins", {}) or {}
                 # Optional static detection outputs (fixed-shape top-k)
                 static_det_enable = bool(getattr(args, "detector_static_detections", False))
                 static_det_max = int(getattr(args, "detector_static_max_detections", 0) or 0)
@@ -576,7 +576,7 @@ def _main(args, num_gpu):
                     pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf
-                args.aspen["trunks"] = trunks_cfg
+                args.aspen["plugins"] = trunks_cfg
             except Exception:
                 traceback.print_exc()
 
@@ -662,7 +662,7 @@ def _main(args, num_gpu):
             args.initial_args["original_clip_box"] = get_clip_box(
                 game_id=args.game_id, root_dir=args.root_dir
             )
-            # Keep a copy under game_config for Aspen trunks that read from game_config.initial_args
+            # Keep a copy under game_config for Aspen plugins that read from game_config.initial_args
             if hasattr(args, "game_config") and isinstance(args.game_config, dict):
                 args.game_config["initial_args"] = args.initial_args
 
@@ -802,11 +802,13 @@ def _main(args, num_gpu):
                     config_ref=args.game_config,
                     left_color_pipeline=left_stitch_pipeline_cfg,
                     right_color_pipeline=right_stitch_pipeline_cfg,
+                    capture_rgb_stats=bool(getattr(args, "checkerboard_input", False)),
+                    checkerboard_input=args.checkerboard_input,
                 )
-                try:
-                    cam_args.stitch_rotation_controller = stitched_dataset
-                except Exception:
-                    pass
+                # try:
+                #     cam_args.stitch_rotation_controller = stitched_dataset
+                # except Exception:
+                #     pass
                 # Create the MOT video data loader, passing it the
                 # stitching data loader as its image source
                 mot_dataloader = MOTLoadVideoWithOrig(
@@ -819,10 +821,11 @@ def _main(args, num_gpu):
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
-                    original_image_only=True,
+                    original_image_only=False,
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                     async_mode=not args.no_async_dataset,
+                    checkerboard_input=args.checkerboard_input,
                 )
                 try:
                     mot_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -861,6 +864,7 @@ def _main(args, num_gpu):
                     adjust_exposure=args.adjust_exposure,
                     no_cuda_streams=args.no_cuda_streams,
                     async_mode=not args.no_async_dataset,
+                    checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
                 )
                 try:
                     pano_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -886,6 +890,7 @@ def _main(args, num_gpu):
                             original_image_only=True,
                             no_cuda_streams=args.no_cuda_streams,
                             async_mode=args.no_async_dataset,
+                            checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
                         )
                     try:
                         extra_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -987,7 +992,7 @@ def _main(args, num_gpu):
                             device=gpus["encoder"],
                         ),
                     )
-                # Make video_out_pipeline available to Aspen trunks via args
+                # Make video_out_pipeline available to Aspen plugins via args
                 args.video_out_pipeline = video_out_pipeline
             postprocessor = None
 
@@ -1133,6 +1138,55 @@ def main():
         merged_extra = load_yaml_files_ordered(additional_cfg_paths)
         if merged_extra:
             game_config = recursive_update(game_config, merged_extra)
+
+    # Propagate CLI plotting/debug and related flags into the consolidated
+    # config before resolving GLOBAL.* references so Aspen plugins see the
+    # updated values via GLOBAL.*.
+    try:
+        # Helper: set plot.<key> from args.<attr> when truthy / non-None.
+        def _set_plot_from_arg(plot_key: str, arg_name: str, allow_false: bool = False):
+            if not hasattr(args, arg_name):
+                return
+            val = getattr(args, arg_name)
+            if isinstance(val, bool) and not val and not allow_false:
+                return
+            if val is None:
+                return
+            set_nested_value(game_config, f"plot.{plot_key}", val)
+
+        _set_plot_from_arg("debug_play_tracker", "debug_play_tracker")
+        _set_plot_from_arg("plot_moving_boxes", "plot_moving_boxes")
+        _set_plot_from_arg("plot_trajectories", "plot_trajectories")
+        _set_plot_from_arg("plot_jersey_numbers", "plot_jersey_numbers")
+        _set_plot_from_arg("plot_actions", "plot_actions")
+        _set_plot_from_arg("plot_pose", "plot_pose")
+        _set_plot_from_arg("plot_ice_mask", "plot_ice_mask")
+        _set_plot_from_arg("plot_all_detections", "plot_all_detections", allow_false=True)
+        # Skip-final-video-save: when explicitly enabled via CLI, override the
+        # Aspen VideoOutPlugin default so GLOBAL.aspen.video_out.skip_final_save
+        # resolves to True.
+        if getattr(args, "skip_final_video_save", None):
+            set_nested_value(game_config, "aspen.video_out.skip_final_save", True)
+        # Enable RGB stats checker when checkerboard-input debugging is active.
+        if getattr(args, "checkerboard_input", False):
+            set_nested_value(game_config, "debug.rgb_stats_check.enable", True)
+        # Treat --debug>=1 as enabling PlayTracker debug logging, equivalent
+        # to passing --debug-play-tracker.
+        try:
+            dbg_val = getattr(args, "debug", 0)
+            if isinstance(dbg_val, str):
+                dbg_val = int(dbg_val)
+        except Exception:
+            dbg_val = 0
+        if dbg_val and int(dbg_val) >= 1:
+            set_nested_value(game_config, "plot.debug_play_tracker", True)
+        # Convenience flag: --plot-tracking maps to individual tracking + boundaries.
+        if getattr(args, "plot_tracking", False):
+            set_nested_value(game_config, "plot.plot_individual_player_tracking", True)
+            set_nested_value(game_config, "plot.plot_boundaries", True)
+    except Exception:
+        # Plotting overrides are non-fatal; fall back to config defaults on error.
+        pass
 
     game_config = resolve_global_refs(game_config)
 

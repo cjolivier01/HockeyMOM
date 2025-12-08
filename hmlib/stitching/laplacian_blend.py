@@ -6,9 +6,51 @@ blender path of the stitching pipeline.
 
 from typing import List, Optional, Tuple
 
+import math
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+
+def max_laplacian_levels(img1_shape, img2_shape, min_size=1):
+    """
+    Compute the maximum number of Laplacian pyramid levels you can use for
+    blending two images, assuming each level downsamples by a factor of 2.
+
+    Parameters
+    ----------
+    img1_shape : tuple
+        (H, W) or (H, W, C) for the first image.
+    img2_shape : tuple
+        (H, W) or (H, W, C) for the second image.
+    min_size : int, optional
+        Minimum allowed spatial size (in pixels) for the coarsest level
+        along the smallest side. Default is 1.
+
+    Returns
+    -------
+    int
+        Maximum number of downsampling steps (Laplacian levels).
+        This is the number of times you can apply:
+            blur + downsample_by_2
+        before one of the images becomes smaller than `min_size`.
+    """
+    h1, w1 = img1_shape[:2]
+    h2, w2 = img2_shape[:2]
+
+    if min_size <= 0:
+        raise ValueError("min_size must be > 0")
+
+    smallest_dim = min(h1, w1, h2, w2)
+
+    if smallest_dim < min_size:
+        return 0
+
+    # We want the largest L such that:
+    #   smallest_dim / (2 ** L) >= min_size
+    # => L <= log2(smallest_dim / min_size)
+    levels = math.floor(math.log2(smallest_dim / float(min_size)))
+    return int(max(levels, 0))
 
 
 def create_gaussian_kernel(
@@ -39,7 +81,6 @@ def create_gaussian_kernel(
     return kernel_tensor.to(device)
 
 
-@torch.jit.script
 def gaussian_conv2d(x, g_kernel):
     assert x.dtype != torch.uint8
     # Assumes input of x is of shape: (minibatch, depth, height, width)
@@ -55,18 +96,15 @@ def gaussian_conv2d(x, g_kernel):
     return y
 
 
-@torch.jit.script
 def downsample(x: torch.Tensor) -> torch.Tensor:
     downsample = F.avg_pool2d(x, kernel_size=2)
     return downsample
 
 
-@torch.jit.script
 def upsample(image: torch.Tensor, size: List[int]) -> torch.Tensor:
     return F.interpolate(image, size=size, mode="bilinear", align_corners=False)
 
 
-@torch.jit.script
 def create_laplacian_pyramid(
     x: torch.Tensor, kernel: torch.Tensor, levels: int
 ) -> List[torch.Tensor]:
@@ -82,7 +120,6 @@ def create_laplacian_pyramid(
     return pyramids
 
 
-@torch.jit.script
 def one_level_gaussian_pyramid(img: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     # Gaussian blur on img
     gauss_filtered_x = gaussian_conv2d(img, kernel)
@@ -93,7 +130,6 @@ def one_level_gaussian_pyramid(img: torch.Tensor, kernel: torch.Tensor) -> torch
     return down
 
 
-@torch.jit.script
 def to_float(img: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     if img is None:
         return None
@@ -102,7 +138,6 @@ def to_float(img: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     return img
 
 
-@torch.jit.script
 def simple_make_full(
     img_1: torch.Tensor,
     mask_1: Optional[torch.Tensor],
@@ -193,32 +228,6 @@ def simple_make_full(
     return full_1, mask_1, full_2, mask_2
 
 
-# def upsample_ignore_alpha(image, size):
-#     """
-#     Args:
-#         image: torch.Tensor of shape (B, C, H, W) or (C, H, W)
-#         size: tuple of (H_new, W_new) for target size
-#     """
-#     if len(image.shape) == 3:
-#         image = image.unsqueeze(0)
-
-#     rgb = image[:, :3]
-#     alpha = image[:, 3:4]
-#     mask = (alpha > 0).float()
-
-#     rgb_masked = rgb * mask
-#     rgb_upsampled = F.interpolate(rgb_masked, size=size, mode="bilinear", align_corners=False)
-#     alpha_upsampled = F.interpolate(alpha, size=size, mode="nearest")
-#     mask_upsampled = F.interpolate(mask, size=size, mode="bilinear", align_corners=False)
-
-#     mask_upsampled = torch.clamp(mask_upsampled, min=1e-6)
-#     rgb_normalized = rgb_upsampled / mask_upsampled
-
-#     result = torch.cat([rgb_normalized, alpha_upsampled], dim=1)
-#     return result.squeeze(0) if len(image.shape) == 3 else result
-
-
-@torch.jit.script
 def simple_blend_in_place(
     left_small_gaussian_blurred: torch.Tensor,
     right_small_gaussian_blurred: torch.Tensor,
@@ -250,13 +259,6 @@ def _simple_blend_in_place(
 
     assert left_small_gaussian_blurred.shape == right_small_gaussian_blurred.shape
 
-    # if level == 0:
-    #     show_image(
-    #         "left_" + str(level) + str(left_small_gaussian_blurred.shape),
-    #         left_small_gaussian_blurred,
-    #         wait=False,
-    #     )
-
     left_small_gaussian_blurred[:, :3, left_nonblank] *= mask_left[left_nonblank]
     right_small_gaussian_blurred[:, :3, right_nonblank] *= mask_right[right_nonblank]
     left_small_gaussian_blurred[:, :3, right_nonblank] += right_small_gaussian_blurred[
@@ -275,8 +277,7 @@ def get_alpha_mask(img: torch.Tensor) -> torch.Tensor:
     return mask
 
 
-class LaplacianBlend(torch.jit.ScriptModule):
-    # class LaplacianBlend(torch.nn.Module):
+class LaplacianBlend(torch.nn.Module):
     def __init__(
         self,
         max_levels=4,
@@ -344,25 +345,51 @@ class LaplacianBlend(torch.jit.ScriptModule):
             assert input_shape is None
             mask = self.seam_mask.unsqueeze(0).unsqueeze(0).clone()
             unique_values = torch.unique(mask)
-            assert len(unique_values) == 2
-            left_value = self.seam_mask[self.seam_mask.shape[0] // 2][0]
-            right_value = self.seam_mask[self.seam_mask.shape[0] // 2][self.seam_mask.shape[1] - 1]
-            # Can we make assumption that they were discovered left-to-right?
-            assert left_value == unique_values[0]
-            assert right_value == unique_values[1]
-            mask[mask == left_value] = 1
-            mask[mask == right_value] = 0
-            mask = mask.to(self._dtype)
+            if unique_values.numel() < 2:
+                mask = torch.zeros(
+                    self.seam_mask.shape[-2:], dtype=self._dtype, device=device
+                )
+                mask[:, : mask.shape[-1] // 2] = 1.0
+                mask = mask.unsqueeze(0).unsqueeze(0)
+                left_value = torch.tensor(1.0, dtype=self._dtype, device=device)
+                right_value = torch.tensor(0.0, dtype=self._dtype, device=device)
+            else:
+                mid_row = self.seam_mask.shape[0] // 2
+                left_value = self.seam_mask[mid_row][0]
+                right_value = self.seam_mask[mid_row][self.seam_mask.shape[1] - 1]
+                if left_value == right_value:
+                    left_value = unique_values[0]
+                    right_value = unique_values[-1]
+                if unique_values.numel() > 2:
+                    thresh = (float(left_value) + float(right_value)) / 2.0
+                    if float(left_value) < float(right_value):
+                        mask = (mask <= thresh).to(self._dtype)
+                    else:
+                        mask = (mask >= thresh).to(self._dtype)
+                else:
+                    mask[mask == left_value] = 1
+                    mask[mask == right_value] = 0
+                    mask = mask.to(self._dtype)
 
-        self._unique_values = torch.unique(self.seam_mask)
+        self._unique_values = torch.stack(
+            [
+                torch.as_tensor(left_value, dtype=self._dtype, device=device),
+                torch.as_tensor(right_value, dtype=self._dtype, device=device),
+            ]
+        )
         self._left_value = self._unique_values[0]
         self._right_value = self._unique_values[1]
 
         mask_img = mask
         self.mask_small_gaussian_blurred = [mask.squeeze(0).squeeze(0)]
-        for _ in range(self.max_levels + 1):
+        current_levels = 0
+        while current_levels < self.max_levels:
+            if mask_img.shape[-2] < 2 or mask_img.shape[-1] < 2:
+                break
             mask_img = one_level_gaussian_pyramid(mask_img, self.mask_gaussian_kernel)
             self.mask_small_gaussian_blurred.append(mask_img.squeeze(0).squeeze(0))
+            current_levels += 1
+        self.max_levels = current_levels
 
         for i in range(len(self.mask_small_gaussian_blurred)):
             self.mask_small_gaussian_blurred[i] = self.mask_small_gaussian_blurred[i] / torch.max(
@@ -374,7 +401,6 @@ class LaplacianBlend(torch.jit.ScriptModule):
         for i, m in enumerate(self.mask_small_gaussian_blurred):
             self.mask_small_gaussian_blurred[i] = m.to(*args, **kwargs)
 
-    # @torch.jit.script_method
     def forward(
         self,
         left: torch.Tensor,

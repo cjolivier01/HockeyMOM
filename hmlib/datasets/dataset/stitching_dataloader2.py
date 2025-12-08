@@ -13,7 +13,7 @@ import os
 import threading
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -30,7 +30,13 @@ from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope
-from hmlib.utils.image import image_height, image_width, make_channels_last, make_visible_image
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    make_visible_image,
+)
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.utils.tensor import make_const_tensor
@@ -70,7 +76,7 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> torc
         return tensor
     if isinstance(tensor, StreamTensorBase):
         tensor.verbose = True
-        return tensor.get()
+        return tensor.wait()
     elif isinstance(tensor, np.ndarray):
         return torch.from_numpy(tensor)
     else:
@@ -159,6 +165,7 @@ def as_torch_device(device: Any) -> torch.device:
 #
 #
 class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
+
     def __init__(
         self,
         videos: Dict[str, List[Path]],
@@ -188,6 +195,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         config_ref: Optional[Dict[str, Any]] = None,
         left_color_pipeline: Optional[List[Dict[str, Any]]] = None,
         right_color_pipeline: Optional[List[Dict[str, Any]]] = None,
+        max_blend_levels: Optional[int] = None,
+        capture_rgb_stats: bool = False,
+        checkerboard_input: bool = False,
     ):
         super().__init__()
         if not async_mode:
@@ -195,6 +205,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         # max_input_queue_size = max(1, max_input_queue_size)
         self._start_frame_number = start_frame_number
         self._no_cuda_streams = no_cuda_streams or not async_mode
+        self._checkerboard_input = checkerboard_input
         self._dtype = dtype
         self._verbose = verbose
         self._batch_size = batch_size
@@ -228,6 +239,8 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._right_color_pipeline_cfg: Optional[List[Dict[str, Any]]] = right_color_pipeline
         self._left_color_pipeline: Optional[Compose] = None
         self._right_color_pipeline: Optional[Compose] = None
+        self._max_blend_levels: Optional[int] = max_blend_levels
+        self._capture_rgb_stats: bool = bool(capture_rgb_stats)
 
         # Optimize the roi box
         if image_roi is not None:
@@ -444,6 +457,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_left,
                 async_mode=self._async_mode,
+                checkerboard_input=self._checkerboard_input,
             )
         )
         dataloaders.append(
@@ -461,6 +475,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_right,
                 async_mode=self._async_mode,
+                checkerboard_input=self._checkerboard_input,
             )
         )
         stitching_worker = MultiDataLoaderWrapper(
@@ -540,7 +555,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             raise ValueError(
                 f"Expected tensor of shape (C, H, W) or (B, C, H, W), got {tensor.shape}"
             )
-
+        tensor = make_channels_first(tensor)
         B, C, H, W = tensor.shape
         if C == 4:
             return tensor[0] if squeezed else tensor  # Already RGBA
@@ -563,6 +578,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             ids_1 = image_data_1["frame_ids"]
 
             imgs_2 = image_data_2["img"]
+            rgb_stats: Optional[Dict[str, Any]] = None
 
             with torch.no_grad():
 
@@ -573,6 +589,16 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 with cuda_stream_scope(stream), torch.no_grad():
                     imgs_1 = to_tensor(imgs_1)
                     imgs_2 = to_tensor(imgs_2)
+
+                    pre_stats_left: Optional[Dict[str, Tuple[float, float, float]]] = None
+                    pre_stats_right: Optional[Dict[str, Tuple[float, float, float]]] = None
+                    if self._capture_rgb_stats:
+                        try:
+                            pre_stats_left = MOTLoadVideoWithOrig.compute_rgb_stats(imgs_1)
+                            pre_stats_right = MOTLoadVideoWithOrig.compute_rgb_stats(imgs_2)
+                        except Exception:
+                            pre_stats_left = None
+                            pre_stats_right = None
                     # Optional per-camera color pipelines for left/right inputs.
                     if self._left_color_pipeline is not None:
                         try:
@@ -600,21 +626,17 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                             for img1, img2 in zip(imgs_1, imgs_2):
                                 t1 = img1.clamp(min=0, max=255).to(torch.uint8).contiguous()
                                 t2 = img2.clamp(min=0, max=255).to(torch.uint8).contiguous()
-                                torch.cuda.synchronize()
-                                # show_cuda_tensor(
+                                torch.cuda.current_stream(t1.device).synchronize()
                                 show_image(
                                     "img-1",
-                                    make_visible_image(t1),
+                                    make_visible_image(t1.clone()),
                                     wait=False,
-                                    # stream=int(stream.cuda_stream),
                                     enable_resizing=0.2,
                                 )
                                 show_image(
-                                    # show_cuda_tensor(
                                     "img-2",
-                                    make_visible_image(t2),
+                                    make_visible_image(t2.clone()),
                                     wait=False,
-                                    # stream=int(stream.cuda_stream),
                                     enable_resizing=0.2,
                                 )
 
@@ -653,6 +675,19 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                 self._post_stitch_rotate_degrees,
                                 use_cache=True,
                             )
+
+                        if self._capture_rgb_stats:
+                            try:
+                                post_stats = MOTLoadVideoWithOrig.compute_rgb_stats(
+                                    blended_stream_tensor
+                                )
+                            except Exception:
+                                post_stats = None
+                            rgb_stats = {
+                                "left": pre_stats_left,
+                                "right": pre_stats_right,
+                                "stitched": post_stats,
+                            }
                     else:
                         blended_stream_tensor = self._stitcher.forward(inputs=[imgs_1, imgs_2])
                         # Optional rotation (keep same size)
@@ -666,21 +701,34 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                                 use_cache=True,
                             )
 
+                        if self._capture_rgb_stats:
+                            try:
+                                post_stats = MOTLoadVideoWithOrig.compute_rgb_stats(
+                                    blended_stream_tensor
+                                )
+                            except Exception:
+                                post_stats = None
+                            rgb_stats = {
+                                "left": pre_stats_left,
+                                "right": pre_stats_right,
+                                "stitched": post_stats,
+                            }
+
                     if self._show_image_components:
                         for blended_image in blended_stream_tensor:
                             show_image(
                                 "blended",
                                 make_visible_image(blended_image),
                                 wait=False,
-                                # stream=int(stream.cuda_stream),
                                 enable_resizing=0.2,
                             )
-
-                    if stream is not None:
-                        blended_stream_tensor = StreamCheckpoint(tensor=blended_stream_tensor)
+                    blended_stream_tensor = StreamCheckpoint(blended_stream_tensor)
 
             self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)
-            self._ordering_queue.put((ids_1, blended_stream_tensor))
+            if self._capture_rgb_stats and rgb_stats is not None:
+                self._ordering_queue.put((ids_1, blended_stream_tensor, rgb_stats))
+            else:
+                self._ordering_queue.put((ids_1, blended_stream_tensor))
             self._prepare_next_frame_timer.toc()
         except Exception as ex:
             if not isinstance(ex, StopIteration):
@@ -717,6 +765,15 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         assert self._remapping_device.type != "cpu"
         from hmlib.stitching.blender2 import create_stitcher
 
+        if self._blend_mode == "laplacian":
+            levels_arg = (
+                int(self._max_blend_levels)
+                if self._max_blend_levels is not None and self._max_blend_levels > 0
+                else 11
+            )
+        else:
+            levels_arg = 0
+
         self._stitcher = create_stitcher(
             dir_name=self._dir_name,
             batch_size=self._batch_size,
@@ -731,6 +788,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             minimize_blend=self._minimize_blend,
             blend_mode=self._blend_mode,
             add_alpha_channel=False,
+            levels=levels_arg,
             auto_adjust_exposure=self._auto_adjust_exposure,
         )
 
@@ -769,7 +827,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         if not image_roi:
             if image.shape[-1] == 4:
                 if isinstance(image, StreamTensorBase):
-                    image = image.get()
+                    image = image.wait()
                 if len(image.shape) == 4:
                     image = make_channels_last(image)[:, :, :, :3]
                 else:
@@ -824,7 +882,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 else contextlib.nullcontext()
             )
             with rctx:
-                frame_id, stitched_frame = self._ordering_queue.get()
+                payload = self._ordering_queue.get()
         else:
             # Synchronous mode: directly compute the frame on the current thread,
             # reusing the same queue-based contract via a temporary queue.
@@ -839,13 +897,26 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             try:
                 with rctx:
                     self._prepare_next_frame(frame_id)
-                frame_id, stitched_frame = self._ordering_queue.get()
+                payload = self._ordering_queue.get()
             finally:
                 # self._ordering_queue = orig_queue
                 pass
 
-        if isinstance(frame_id, Exception):
-            raise frame_id
+        # Unpack queue payload: (ids, frame) or (ids, frame, rgb_stats)
+        rgb_stats: Optional[Dict[str, Any]] = None
+        if isinstance(payload, Exception):
+            raise payload
+        if isinstance(payload, tuple):
+            if len(payload) == 2:
+                frame_ids, stitched_frame = payload
+            elif len(payload) == 3:
+                frame_ids, stitched_frame, rgb_stats = payload
+            else:
+                raise ValueError(f"Unexpected payload from stitching worker: {payload!r}")
+            frame_id = frame_ids
+        else:
+            raise ValueError(f"Unexpected payload type from stitching worker: {type(payload)}")
+
         if stitched_frame is not None:
             if self._async_mode:
                 # INFO(f"Locally dequeued frame id: {self._current_frame}")
@@ -870,6 +941,8 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         else:
             # No more frames
             pass
+        if self._capture_rgb_stats:
+            return stitched_frame, rgb_stats
         return stitched_frame
 
     def __next__(self):
@@ -904,7 +977,13 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             else contextlib.nullcontext()
         )
         with nctx:
-            stitched_frame = self.get_next_frame(frame_id=frame_id)
+            next_result = self.get_next_frame(frame_id=frame_id)
+
+        if self._capture_rgb_stats:
+            stitched_frame, rgb_stats = next_result
+        else:
+            stitched_frame = next_result
+            rgb_stats = None
 
         # show_image("stitched_frame", stitched_frame.get(), wait=True)
         if stitched_frame is None:
@@ -954,6 +1033,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         # show_image("stitched_frame", stitched_frame.get(), wait=False)
         # for img in stitched_frame:
         #     show_cuda_tensor("stitched_frame", make_channels_last(img), wait=False)
+
+        torch.cuda.synchronize()
+
+        if self._capture_rgb_stats:
+            return stitched_frame, rgb_stats
         return stitched_frame
 
     def __len__(self):

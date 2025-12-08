@@ -409,6 +409,30 @@ class StreamCheckpoint(StreamTensorX):
         )
 
 
+def unwrap_tensor(
+    tensor: Union[torch.Tensor, StreamTensorBase],
+    current_stream: Optional[torch.cuda.Stream] = None,
+    verbose: Optional[bool] = None,
+) -> torch.Tensor:
+    if isinstance(tensor, StreamTensorBase):
+        if verbose is not None:
+            tensor.verbose = verbose
+        return tensor.wait(current_stream)
+    return tensor
+
+
+def wrap_tensor(
+    tensor: Union[torch.Tensor, StreamTensorBase], verbose: bool = True
+) -> Union[torch.Tensor, StreamTensorBase]:
+    if not tensor.is_cuda:
+        return tensor
+    if isinstance(tensor, StreamTensorBase):
+        tensor.checkpoint()
+        tensor.verbose = verbose
+        return tensor
+    return StreamTensorX(tensor)
+
+
 def copy_gpu_to_gpu_async(
     tensor: torch.Tensor,
     dest_device: torch.device,

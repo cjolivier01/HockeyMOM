@@ -18,6 +18,7 @@ import torch.nn.functional as TF
 import torchvision as tv
 from torchvision.transforms import functional as F
 
+from hmlib.log import logger
 from hmlib.utils.gpu import StreamTensorBase
 
 
@@ -534,7 +535,7 @@ def get_best_resize_mode(
             if verbose:
                 # Maybe you have a one-off match error somewhere
                 # causing an expensive resize?
-                print(f"PERF WARNING: Almost trvial resize from {w1}x{h1} -> {w2}x{h2}")
+                logger.warning(f"PERF WARNING: Almost trvial resize from {w1}x{h1} -> {w2}x{h2}")
         # Downsampling
         # return F.InterpolationMode.BOX
         return "area"
@@ -546,7 +547,7 @@ def get_best_resize_mode(
             if verbose:
                 # Maybe you have a one-off match error somewhere
                 # causing an expensive resize?
-                print(f"PERF WARNING: lmost trvial resize from {w1}x{h1} -> {w2}x{h2}")
+                logger.warning(f"PERF WARNING: Almost trivial resize from {w1}x{h1} -> {w2}x{h2}")
         # Upsampling
         return "bilinear"
     elif w1 == w2:
@@ -754,7 +755,7 @@ def to_float_image(
     return tensor
 
 
-def to_uint8_image(tensor: torch.Tensor, apply_scale: bool = False, non_blocking: bool = False):
+def to_uint8_image(tensor: torch.Tensor, apply_scale: bool = False):
     assert not apply_scale
     if isinstance(tensor, np.ndarray):
         assert tensor.dtype == np.uint8
@@ -765,12 +766,12 @@ def to_uint8_image(tensor: torch.Tensor, apply_scale: bool = False, non_blocking
             assert torch.is_floating_point(tensor)
             return (
                 # note, no scale applied here (I removed before adding assert)
-                tensor.clamp(min=0, max=255.0).to(torch.uint8, non_blocking=non_blocking)
+                tensor.clamp(min=0, max=255.0).to(torch.uint8)
             )
         else:
             # There has got to be a more elegant way to do this with reflection
             def _clamp(t, *args, **kwargs):
-                return t.clamp(*args, **kwargs).to(torch.uint8, non_blocking=non_blocking)
+                return t.clamp(*args, **kwargs).to(torch.uint8)
 
             if isinstance(tensor, StreamTensorBase):
                 tensor = tensor.wait()

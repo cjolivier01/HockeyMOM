@@ -23,11 +23,12 @@ def _use_cpp_tracker(dflt: bool = False) -> bool:
 
 @MODELS.register_module()
 class HmEndToEnd(BaseMOTModel, Plugin):
+
     def __init__(
         self,
         *args,
         neck: Optional[Callable] = None,
-        # post-detection pipeline removed; use dedicated trunks instead
+        # post-detection pipeline removed; use dedicated plugins instead
         post_tracking_pipeline: List[Dict[str, Any]] = None,
         pose_model: str = None,
         pose_weights: str = None,
@@ -101,7 +102,7 @@ class HmEndToEnd(BaseMOTModel, Plugin):
             return self._forward_trunk(context)
         # When used as a model in non-trunk mode, we don't implement end-to-end forward anymore.
         raise NotImplementedError(
-            "HmEndToEnd no longer implements ByteTrack forward; use Aspen trunks instead."
+            "HmEndToEnd no longer implements ByteTrack forward; use Aspen plugins instead."
         )
 
     # AspenNet trunk interface: runs tracking + returns context updates
@@ -132,7 +133,7 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         if detect_timer is not None:
             detect_timer.tic()
 
-        # With separated detector/tracker trunks, this trunk should not be invoked.
+        # With separated detector/tracker plugins, this trunk should not be invoked.
         # Keep a minimal no-op to avoid breaking existing graphs if enabled=false.
         if False:
             pass
@@ -205,7 +206,7 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         data_samples: OptTrackSampleList = None,
         **kwargs: Dict[str, Any],
     ):
-        # No longer supports end-to-end predict outside Aspen trunks.
+        # No longer supports end-to-end predict outside Aspen plugins.
         return self.simple_test(inputs=inputs, data_samples=data_samples, **kwargs)
 
     # Satisfy BaseMOTModel abstract method; not used in this container.

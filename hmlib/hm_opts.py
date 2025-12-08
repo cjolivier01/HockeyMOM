@@ -61,6 +61,15 @@ class hm_opts(object):
         )
         parser.add_argument("--debug", default=0, type=int, help="debug level")
         parser.add_argument(
+            "--checkerboard-input",
+            dest="checkerboard_input",
+            action="store_true",
+            help=(
+                "Replace input video frames with a synthetic checkerboard pattern "
+                "and emit per-frame RGB statistics for debugging."
+            ),
+        )
+        parser.add_argument(
             "--crop-play-box",
             default=None,
             type=int,
@@ -571,7 +580,7 @@ class hm_opts(object):
             "--aspen-threaded",
             dest="aspen_threaded",
             action="store_true",
-            help="Run Aspen trunks in threaded pipeline mode",
+            help="Run Aspen plugins in threaded pipeline mode",
         )
         aspen_thread_group.add_argument(
             "--no-aspen-threaded",
@@ -585,7 +594,7 @@ class hm_opts(object):
             dest="aspen_thread_queue_size",
             type=int,
             default=None,
-            help="Queue size between threaded Aspen trunks (defaults to 1)",
+            help="Queue size between threaded Aspen plugins (defaults to 1)",
         )
         aspen_stream_group = parser.add_mutually_exclusive_group()
         aspen_stream_group.add_argument(
@@ -751,6 +760,19 @@ class hm_opts(object):
             help="Use frame at this timestamp for stitching (HH:MM:SS.ssss)",
         )
         parser.add_argument(
+            "--max-levels",
+            "--max_levels",
+            "--max-blend-levels",
+            "--max_blend_levels",
+            dest="max_blend_levels",
+            type=int,
+            default=None,
+            help=(
+                "Maximum Laplacian blend pyramid levels for stitching "
+                "(applies to laplacian / gpu Laplacian modes; hard-seam uses 0)"
+            ),
+        )
+        parser.add_argument(
             "--max-frames",
             type=int,
             default=None,
@@ -787,6 +809,7 @@ class hm_opts(object):
             "--skip_final_video_save",
             "--skip-final-video-save",
             action="store_true",
+            default=None,
             help="Don't save the output video frames",
         )
         parser.add_argument(
@@ -1030,6 +1053,7 @@ class hm_opts(object):
     CONFIG_TO_ARGS = [
         # "model.tracker.pre_hm": "pre_hm",
         "model.tracker",
+        "debug",
     ]
 
     @staticmethod

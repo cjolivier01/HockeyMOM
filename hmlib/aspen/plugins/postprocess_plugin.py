@@ -1,34 +1,112 @@
 import argparse
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
-from hmlib.camera.cam_post_process import CamTrackPostProcessor
+from hmlib.bbox.box_functions import center, clamp_box, height, make_box_at_center, width
+from hmlib.camera.camera import HockeyMOM
 from hmlib.config import get_nested_value
+from hmlib.utils.image import image_height, image_width
+from hmlib.video.video_stream import MAX_VIDEO_WIDTH
 
 from .base import Plugin
 
 
 class CamPostProcessPlugin(Plugin):
     """
-    Feeds results into CamTrackPostProcessor to render/save video and produce outputs.
+    Computes the camera arena/play box and initializes HockeyMOM geometry.
 
     Expects in context:
       - shared.initial_args: original CLI args dict (required)
       - shared.game_config: full game config dict
       - shared.work_dir: output/results directory
       - shared.original_clip_box: optional clip box
-      - data: dict from MMTrackingPlugin/PosePlugin (must include 'fps')
+      - data: dict from MMTracking/Pose plugins (must include 'fps' and 'data_samples')
       - rink_profile: rink profile with combined_bbox (for play box seeding)
+      - data.original_images: original input frames tensor
+
+    Produces in context:
+      - arena: TLBR tensor describing the play/arena region.
     """
 
     def __init__(self, enabled: bool = True):
         super().__init__(enabled=enabled)
-        self._postprocessor: Optional[CamTrackPostProcessor] = None
 
-    def _ensure_postprocessor(self, context: Dict[str, Any]) -> None:
-        if self._postprocessor is not None:
+        # Configuration populated either from Aspen context or from legacy
+        # CamTrackPostProcessor-style arguments via _configure().
+        self._opt: Optional[argparse.Namespace] = None
+        self._args: Optional[argparse.Namespace] = None
+        self._camera_name: str = ""
+        self._data_type: str = "mot"
+        self._postprocess: bool = True
+        self._video_out_pipeline: Dict[str, Any] = {}
+        self._original_clip_box: Any = None
+        self._fps: float = 0.0
+        self._save_dir: str = "."
+        self._output_video_path: Optional[str] = None
+        self._save_frame_dir: Optional[str] = None
+        self._device: Optional[torch.device] = None
+        self._video_out_device: Optional[torch.device] = None
+        self._no_cuda_streams: bool = False
+        self._counter: int = 0
+
+        # Core post-processing state (initialized on first frame)
+        self._hockey_mom: Optional[HockeyMOM] = None
+        self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
+        self._arena_box: Optional[torch.Tensor] = None
+        self.final_frame_width: Optional[int] = None
+        self.final_frame_height: Optional[int] = None
+
+        self._initialized: bool = False
+
+    # ------------------------------------------------------------------
+    # Legacy CamTrackPostProcessor configuration helpers
+    # ------------------------------------------------------------------
+    def _configure(
+        self,
+        opt: argparse.Namespace,
+        args: argparse.Namespace,
+        device: torch.device,
+        fps: float,
+        save_dir: str,
+        output_video_path: Optional[str],
+        camera_name: str,
+        original_clip_box,
+        video_out_pipeline: Dict[str, Any],
+        save_frame_dir: Optional[str] = None,
+        data_type: str = "mot",
+        postprocess: bool = True,
+        video_out_device: Optional[torch.device] = None,
+        no_cuda_streams: bool = False,
+    ) -> None:
+        """Populate configuration previously owned by CamTrackPostProcessor."""
+        self._opt = opt
+        self._args = args
+        self._camera_name = camera_name
+        self._data_type = data_type
+        self._postprocess = postprocess
+        self._video_out_pipeline = video_out_pipeline
+        self._original_clip_box = original_clip_box
+        self._fps = fps
+        self._save_dir = save_dir
+        self._output_video_path = output_video_path
+        self._save_frame_dir = save_frame_dir
+        self._device = device
+        self._video_out_device = video_out_device or device
+        self._no_cuda_streams = no_cuda_streams
+        self._counter = 0
+
+        # Reset per-run state
+        self._hockey_mom = None
+        self._arena_box = None
+        self.final_frame_width = None
+        self.final_frame_height = None
+        self._initialized = True
+
+    def _ensure_initialized(self, context: Dict[str, Any]) -> None:
+        """Lazily configure the plugin from the Aspen shared context."""
+        if self._initialized:
             return
         shared = context.get("shared", {}) if isinstance(context, dict) else {}
         data = context.get("data", {}) or {}
@@ -98,7 +176,7 @@ class CamPostProcessPlugin(Plugin):
         save_frame_dir = getattr(args_ns, "save_frame_dir", None)
         no_cuda_streams = bool(getattr(args_ns, "no_cuda_streams", False))
 
-        self._postprocessor = CamTrackPostProcessor(
+        self._configure(
             opt=args_ns,
             args=args_ns,
             device=device,
@@ -115,21 +193,195 @@ class CamPostProcessPlugin(Plugin):
             camera_name=camera_name or "",
         )
 
+    # ------------------------------------------------------------------
+    # Core CamTrackPostProcessor behavior
+    # ------------------------------------------------------------------
+    @property
+    def data_type(self) -> str:
+        return self._data_type
+
+    def filter_outputs(self, outputs: torch.Tensor, output_results):
+        return outputs, output_results
+
+    def _maybe_init(
+        self,
+        frame_id: int,
+        img_width: int,
+        img_height: int,
+        arena: List[int],
+        device: torch.device,
+    ) -> None:
+        if not self.is_initialized():
+            self.on_first_image(
+                frame_id=frame_id,
+                img_width=img_width,
+                img_height=img_height,
+                device=device,
+                arena=arena,
+            )
+
+    def is_initialized(self) -> bool:
+        return self._hockey_mom is not None
+
+    @staticmethod
+    def calculate_play_box(
+        results: Dict[str, Any], context: Dict[str, Any], scale: float = 1.3
+    ) -> List[int]:
+        play_box = torch.tensor(context["rink_profile"]["combined_bbox"], dtype=torch.int64)
+        ww, hh = width(play_box), height(play_box)
+        cc = center(play_box)
+        play_box = make_box_at_center(cc, ww * scale, hh * scale)
+        # Prefer original_images from the results dict when present; otherwise
+        # fall back to a top-level context entry. Avoid boolean checks on
+        # tensors so we don't hit \"ambiguous\" errors.
+        images = results.get("original_images", None)
+        if images is None:
+            images = context.get("original_images")
+        return clamp_box(
+            play_box,
+            [
+                0,
+                0,
+                image_width(images),
+                image_height(images),
+            ],
+        )
+
+    def process_tracking(
+        self,
+        results: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        self._counter += 1
+        if not self._postprocess:
+            return results
+        if self._hockey_mom is None:
+            data_samples = results.get("data_samples")
+            if data_samples is None or not hasattr(data_samples, "video_data_samples"):
+                return results
+            video_data_sample = data_samples.video_data_samples[0]
+            metainfo = video_data_sample.metainfo
+            original_shape = metainfo["ori_shape"]
+
+            arena = self.calculate_play_box(results, context)
+
+            if not isinstance(original_shape, torch.Size):
+                original_shape = torch.Size(list(original_shape))
+            frame_id = getattr(video_data_sample, "frame_id", None)
+            if frame_id is None:
+                frame_id = metainfo.get("frame_id", 0)
+            assert self._device is not None
+            self._maybe_init(
+                frame_id=int(frame_id),
+                img_height=int(original_shape[0]),
+                img_width=int(original_shape[1]),
+                arena=arena,
+                device=self._device,
+            )
+        # Expose arena/play box for downstream plugins (e.g., PlayTrackerPlugin, VideoOutPlugin)
+        results["arena"] = self.get_arena_box()
+        return results
+
+    def on_first_image(
+        self,
+        frame_id: int,
+        img_width: int,
+        img_height: int,
+        arena: List[int],
+        device: torch.device,
+    ) -> None:
+        assert self._hockey_mom is None
+
+        # Initialize HockeyMOM video geometry and cache arena box
+        self._hockey_mom = HockeyMOM(
+            image_width=img_width,
+            image_height=img_height,
+            fps=self._fps,
+            device=device,
+            camera_name=self._camera_name,
+        )
+        self._arena_box = (
+            self._hockey_mom.video.bounding_box()
+            if not getattr(self._args, "crop_play_box", False)
+            else torch.as_tensor(arena, dtype=torch.float, device=device)
+        )
+        self.secondary_init()
+
+    def secondary_init(self) -> None:
+        assert self._hockey_mom is not None
+        play_box: torch.Tensor = (
+            self._arena_box
+            if self._arena_box is not None
+            else self._hockey_mom.video.bounding_box()
+        )
+        play_width, play_height = width(play_box), height(play_box)
+
+        if getattr(self._args, "crop_play_box", False):
+            if getattr(self._args, "crop_output_image", True):
+                self.final_frame_height = play_height
+                self.final_frame_width = play_height * self._final_aspect_ratio
+                if self.final_frame_width > MAX_VIDEO_WIDTH:
+                    self.final_frame_width = MAX_VIDEO_WIDTH
+                    self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
+
+            else:
+                self.final_frame_height = play_height
+                self.final_frame_width = play_width
+        else:
+            if getattr(self._args, "crop_output_image", True):
+                self.final_frame_height = self._hockey_mom.video.height
+                self.final_frame_width = self._hockey_mom.video.height * self._final_aspect_ratio
+                if self.final_frame_width > MAX_VIDEO_WIDTH:
+                    self.final_frame_width = MAX_VIDEO_WIDTH
+                    self.final_frame_height = self.final_frame_width / self._final_aspect_ratio
+
+            else:
+                self.final_frame_height = self._hockey_mom.video.height
+                self.final_frame_width = self._hockey_mom.video.width
+
+        self.final_frame_width = int(self.final_frame_width + 0.5)  # type: ignore[arg-type]
+        self.final_frame_height = int(self.final_frame_height + 0.5)  # type: ignore[arg-type]
+
+    @property
+    def output_video_path(self) -> Optional[str]:
+        return self._output_video_path
+
+    def start(self) -> None:
+        # CamPostProcessPlugin runs synchronously; kept for API compatibility.
+        return None
+
+    def stop(self) -> None:
+        # Kept for API compatibility; nothing to stop in synchronous mode.
+        return None
+
+    def get_arena_box(self) -> torch.Tensor:
+        assert self._hockey_mom is not None
+        if self._arena_box is not None:
+            return self._arena_box
+        return self._hockey_mom.video.bounding_box()
+
+    # ------------------------------------------------------------------
+    # Aspen Plugin API
+    # ------------------------------------------------------------------
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
-        postprocessor = context.get("postprocessor") or self._postprocessor
-        if postprocessor is None:
-            self._ensure_postprocessor(context)
-            postprocessor = self._postprocessor
-            if postprocessor is None:
-                return {}
-        data: Dict[str, Any] = context.get("data", {})
-        postprocessor.process_tracking(results=data, context=context)
-        return {}
+        self._ensure_initialized(context)
+        data: Dict[str, Any] = context.get("data", {}) or {}
+        # Ensure original_images are available under results for play-box calc.
+        if "original_images" not in data and "original_images" in context:
+            data["original_images"] = context["original_images"]
+        results = self.process_tracking(results=data, context=context)
+        arena = results.get("arena") if isinstance(results, dict) else None
+        if arena is None:
+            return {}
+        return {
+            "arena": arena,
+            "final_frame_size": (self.final_frame_width, self.final_frame_height),
+        }
 
     def input_keys(self):
-        return {"data", "rink_profile", "shared"}
+        return {"data", "rink_profile", "shared", "original_images"}
 
     def output_keys(self):
-        return {"arena"}
+        return {"arena", "final_frame_size"}

@@ -1,6 +1,6 @@
 """Execution engine for Aspen trunk graphs.
 
-Constructs a directed acyclic graph of trunks, then runs them in
+Constructs a directed acyclic graph of plugins, then runs them in
 topological order while sharing a mutable context dictionary.
 """
 
@@ -14,7 +14,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 import networkx as nx
 import torch
@@ -37,7 +37,7 @@ class _Node:
 
 
 class AspenNet(torch.nn.Module):
-    """Configurable directed-acyclic graph runner for Aspen trunks.
+    """Configurable directed-acyclic graph runner for Aspen plugins.
 
     - Loads a YAML-like dict (already parsed) with node definitions.
     - Each node has: name, class (import path), depends (list), and params.
@@ -55,6 +55,7 @@ class AspenNet(torch.nn.Module):
         minimal_context: bool = False,
         max_concurrent: int = 3,
         verbose: bool = False,
+        validate_output_keys_each_time: bool = False,
     ):
         super().__init__()
         self.name: str = self._normalize_name(name)
@@ -66,7 +67,10 @@ class AspenNet(torch.nn.Module):
         self.nodes: List[_Node] = []
         self.max_concurrent: int = max_concurrent
         self.num_concurrent: int = 0
-        # NetworkX DiGraph storing the trunks graph and attributes
+        self._thread_error: Optional[BaseException] = None
+        # Track which plugins have already had their output_keys() contract validated.
+        self._output_keys_validated: Set[str] = set()
+        # NetworkX DiGraph storing the plugins graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
         self.minimal_context = bool(
             minimal_context
@@ -81,6 +85,12 @@ class AspenNet(torch.nn.Module):
         if threaded_flag is None and isinstance(graph_cfg, dict):
             threaded_flag = graph_cfg.get("threaded_trunks", False)
         self.threaded_trunks: bool = bool(threaded_flag)
+        output_check_flag = pipeline_cfg.get("check_output_keys_each_time", None)
+        if output_check_flag is None and isinstance(graph_cfg, dict):
+            output_check_flag = graph_cfg.get("check_output_keys_each_time", None)
+        self.check_output_keys_each_time: bool = bool(
+            validate_output_keys_each_time or output_check_flag
+        )
         queue_size_cfg = pipeline_cfg.get("queue_size", 1)
         try:
             self.thread_queue_size: int = max(1, int(queue_size_cfg))
@@ -91,16 +101,16 @@ class AspenNet(torch.nn.Module):
         cuda_streams_flag = pipeline_cfg.get("cuda_streams", True)
         self.thread_cuda_streams: bool = bool(cuda_streams_flag)
 
-        # Accept either {trunks: {...}} or a flat dict
-        trunks = graph_cfg.get("trunks") if isinstance(graph_cfg, dict) else None
-        if trunks is None:
-            raise ValueError("AspenNet expects a dict with a 'trunks' mapping.")
+        # Accept either {plugins: {...}} or a flat dict
+        plugins = graph_cfg.get("plugins") if isinstance(graph_cfg, dict) else None
+        if plugins is None:
+            raise ValueError("AspenNet expects a dict with a 'plugins' mapping.")
 
         # Profiler wiring (optional and zero-overhead when absent)
         self._profiler = self.shared.get("profiler", None)
 
-        self._build_nodes(trunks)
-        self._build_graph(trunks)
+        self._build_nodes(plugins)
+        self._build_graph(plugins)
         self.exec_order = self._toposort()
         self.training: bool = False
         self._iter_num: int = 0
@@ -141,8 +151,8 @@ class AspenNet(torch.nn.Module):
         return super().eval(mode)
 
     # region build
-    def _build_nodes(self, trunks: Dict[str, Any]):
-        for name, spec in trunks.items():
+    def _build_nodes(self, plugins: Dict[str, Any]):
+        for name, spec in plugins.items():
             if spec is None:
                 raise ValueError(f"Empty spec for trunk '{name}'")
             cls_path = spec.get("class")
@@ -164,7 +174,7 @@ class AspenNet(torch.nn.Module):
             setattr(self, f"trunk_{name}", module)
             self.nodes.append(node)
 
-    def _build_graph(self, trunks: Dict[str, Any]):
+    def _build_graph(self, plugins: Dict[str, Any]):
         # Add all nodes with attributes
         for node in self.nodes:
             self.graph.add_node(
@@ -186,7 +196,7 @@ class AspenNet(torch.nn.Module):
 
         if unknown_deps:
             details = ", ".join(f"{k}: {v}" for k, v in unknown_deps.items())
-            raise ValueError(f"Unknown dependencies referenced in trunks: {details}")
+            raise ValueError(f"Unknown dependencies referenced in plugins: {details}")
 
     @staticmethod
     def _instantiate(cls_path: str, params: Dict[str, Any]) -> torch.nn.Module:
@@ -205,7 +215,7 @@ class AspenNet(torch.nn.Module):
                 cycle_nodes = nx.find_cycle(self.graph)  # type: ignore[arg-type]
             except Exception:
                 cycle_nodes = []
-            raise ValueError(f"Cycle detected in trunks graph: {cycle_nodes}")
+            raise ValueError(f"Cycle detected in plugins graph: {cycle_nodes}")
 
         name2node: Dict[str, _Node] = {n.name: n for n in self.nodes}
         order_names: List[str] = list(nx.topological_sort(self.graph))
@@ -215,15 +225,16 @@ class AspenNet(torch.nn.Module):
 
     def forward(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute all trunks in topological order.
+        Execute all plugins in topological order.
 
-        - 'context' is a mutable dict; trunks can read and write.
+        - 'context' is a mutable dict; plugins can read and write.
         - Returns the final context for convenience.
         """
-        # Ensure trunks can access shared resources
+        # Ensure plugins can access shared resources
         context.setdefault("shared", self.shared)
-        context.setdefault("trunks", {})
+        context.setdefault("plugins", {})
         if self.threaded_trunks:
+            self._maybe_reraise_thread_error()
             return self._forward_threaded(context)
         grad_ctx = torch.enable_grad() if self.training else torch.no_grad()
         with grad_ctx:
@@ -260,12 +271,12 @@ class AspenNet(torch.nn.Module):
         yield "}"
 
     def to_dot(self) -> str:
-        """Return the Graphviz DOT string for the trunks graph."""
+        """Return the Graphviz DOT string for the plugins graph."""
         return "\n".join(self._dot_lines())
 
     def save_graphviz(self, path: str) -> None:
         """
-        Save the trunks graph as a Graphviz DOT file.
+        Save the plugins graph as a Graphviz DOT file.
 
         Args:
             path: Destination file path (e.g., "graph.dot").
@@ -280,7 +291,7 @@ class AspenNet(torch.nn.Module):
 
     def display_graphviz(self) -> None:
         """
-        Display the trunks graph.
+        Display the plugins graph.
 
         Tries, in order:
         - xdot executable (if available) for an interactive popup
@@ -349,7 +360,7 @@ class AspenNet(torch.nn.Module):
             return False
 
     def finalize(self) -> None:
-        """Invoke ``finalize`` on all trunks if they provide it."""
+        """Invoke ``finalize`` on all plugins if they provide it."""
         for node in self.nodes:
             finalize_fn = getattr(node.module, "finalize", None)
             if callable(finalize_fn):
@@ -359,6 +370,17 @@ class AspenNet(torch.nn.Module):
                     logger.exception("Aspen trunk %s finalize failed", node.name)
 
     # endregion
+
+    def _maybe_reraise_thread_error(self) -> None:
+        """Raise any exception captured from threaded trunk workers."""
+        err = self._thread_error
+        if err is None:
+            return
+        # Prefer wrapped exceptions that preserve original traceback.
+        reraise = getattr(err, "reraise", None)
+        if callable(reraise):
+            reraise()
+        raise err
 
     def _execute_node(self, node: _Node, context: Dict[str, Any]) -> None:
         trunk = node.module
@@ -376,7 +398,24 @@ class AspenNet(torch.nn.Module):
             out = trunk(subctx) or {}
 
         declared = set(getattr(trunk, "output_keys", lambda: set())())
-        update_keys = declared if declared else set(out.keys())
+        returned_keys = set(out.keys())
+
+        if declared:
+            should_check = self.check_output_keys_each_time or (
+                node.name not in self._output_keys_validated
+            )
+            if should_check:
+                extra_keys = returned_keys - declared
+                if extra_keys:
+                    raise ValueError(
+                        f"AspenNet trunk '{node.name}' ({node.cls_path}) returned keys "
+                        f"{sorted(extra_keys)} not declared in output_keys(). "
+                        f"Declared keys: {sorted(declared)}"
+                    )
+                if not self.check_output_keys_each_time:
+                    self._output_keys_validated.add(node.name)
+
+        update_keys = declared if declared else returned_keys
 
         from .plugins.base import DeleteKey  # local import avoids cycle
 
@@ -389,7 +428,7 @@ class AspenNet(torch.nn.Module):
                 else:
                     context[key] = value
 
-        context["trunks"][node.name] = {k: out[k] for k in out.keys()}
+        context["plugins"][node.name] = {k: out[k] for k in out.keys()}
 
     def _make_subcontext(self, trunk: torch.nn.Module, context: Dict[str, Any]) -> Dict[str, Any]:
         req_keys = set(getattr(trunk, "input_keys", lambda: set())())
@@ -447,9 +486,15 @@ class AspenNet(torch.nn.Module):
                                 assert self.num_concurrent > 0
                                 self.num_concurrent -= 1
                         except BaseException as exc:
+                            wrapper = _ExceptionWrapper(exc)
+                            self._thread_error = wrapper
                             print(exc)
-                            out_queue.put(_ExceptionWrapper(exc))
-                            self.stop(wait=False)
+                            # Propagate the wrapped exception downstream when possible
+                            if not is_last:
+                                out_queue.put(wrapper)
+                            else:
+                                if self.num_concurrent > 0:
+                                    self.num_concurrent -= 1
                             break
                 finally:
                     print(f"AspenNet: Thread for trunk '{node.name}' exiting.")
@@ -488,7 +533,7 @@ class AspenNet(torch.nn.Module):
         return None
 
     def stop(self, wait: bool = True) -> None:
-        """Stop all threaded trunks and join their threads."""
+        """Stop all threaded plugins and join their threads."""
         if not self.threaded_trunks or not hasattr(self, "queues"):
             return
         stop_token = object()
@@ -511,7 +556,7 @@ class AspenNet(torch.nn.Module):
                 node.stream = torch.cuda.Stream(
                     device=device,
                 )
-            # Ensure trunks that fetch context["cuda_stream"] see the stream actually running them.
+            # Ensure plugins that fetch context["cuda_stream"] see the stream actually running them.
             prev_stream = context.get("cuda_stream")
             has_prev_stream = "cuda_stream" in context
             context["cuda_stream"] = node.stream

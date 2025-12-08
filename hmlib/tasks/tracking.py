@@ -13,6 +13,7 @@ from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import cuda_stream_scope
+from hmlib.utils.image import make_channels_first
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
 
@@ -132,10 +133,10 @@ def run_mmtrack(
             if isinstance(cfg_aspen, dict):
                 aspen_cfg = dict(cfg_aspen)
             if aspen_cfg:
-                trunks_cfg = aspen_cfg.get("trunks", {}) or {}
+                trunks_cfg = aspen_cfg.get("plugins", {}) or {}
                 initial_args = config.get("initial_args", {}) or {}
 
-                aspen_cfg["trunks"] = trunks_cfg
+                aspen_cfg["plugins"] = trunks_cfg
 
                 pipeline_cfg = dict(aspen_cfg.get("pipeline", {}) or {})
                 pipeline_modified = bool(pipeline_cfg)
@@ -239,7 +240,7 @@ def run_mmtrack(
                     plot_pose=bool(config.get("plot_pose", False)),
                     # Propagate CLI flag to BoundariesPlugin -> IceRinkSegmBoundaries(draw)
                     plot_ice_mask=bool(config.get("plot_ice_mask", False)),
-                    # Boundary + identity context for trunks
+                    # Boundary + identity context for plugins
                     game_id=config.get("game_id"),
                     game_dir=game_dir,
                     work_dir=work_dir,
@@ -250,7 +251,7 @@ def run_mmtrack(
                     original_clip_box=config.get("original_clip_box"),
                     top_border_lines=config.get("top_border_lines"),
                     bottom_border_lines=config.get("bottom_border_lines"),
-                    # Full game config and CLI-derived initial args for trunks
+                    # Full game config and CLI-derived initial args for plugins
                     game_config=config.get("game_config"),
                     initial_args=config.get("initial_args"),
                 )
@@ -263,13 +264,17 @@ def run_mmtrack(
             prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
             with prof_ctx:
                 for cur_iter, dataset_results in enumerate(dataloader_iterator):
-                    origin_imgs, data, _, info_imgs, ids = dataset_results.pop("pano")
-                    if fps:
-                        data["fps"] = fps
-                    with torch.no_grad():
-                        frame_id = info_imgs[2][0]
+                    data_item = dataset_results.pop("pano")
+                    original_images = data_item.pop("original_images")
+                    info_imgs = data_item["img_info"]
+                    ids = data_item["ids"]
 
-                    batch_size = origin_imgs.shape[0]
+                    if fps:
+                        data_item["fps"] = fps
+                    with torch.no_grad():
+                        frame_id = info_imgs["frame_id"]
+
+                    batch_size = original_images.shape[0]
 
                     if last_frame_id is None:
                         last_frame_id = int(frame_id)
@@ -277,7 +282,7 @@ def run_mmtrack(
                         assert int(frame_id) == last_frame_id + batch_size
                         last_frame_id = int(frame_id)
 
-                    batch_size = origin_imgs.shape[0]
+                    batch_size = original_images.shape[0]
 
                     if detect_timer is None:
                         detect_timer = Timer()
@@ -286,8 +291,8 @@ def run_mmtrack(
                         # Execute the configured DAG
                         # Prepare per-iteration context
                         iter_context: Dict[str, Any] = dict(
-                            origin_imgs=origin_imgs,
-                            data=data,
+                            original_images=make_channels_first(original_images),
+                            data=data_item,
                             ids=ids,
                             info_imgs=info_imgs,
                             frame_id=int(frame_id),
@@ -296,7 +301,7 @@ def run_mmtrack(
                             detect_timer=detect_timer,
                             mean_tracker=mean_tracker,
                         )
-                        # Merge shared into context for trunks convenience
+                        # Merge shared into context for plugins convenience
                         iter_context.update(aspen_net.shared)
                         if dataset_results:
                             iter_context.setdefault("data", {})["dataset_results"] = dataset_results

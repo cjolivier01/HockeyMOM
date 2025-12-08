@@ -9,6 +9,7 @@ interfaces used across the stitching and tracking CLIs.
 import os
 import platform
 import sys
+from threading import Lock
 from typing import Dict, Literal, Optional, Tuple, Union
 
 import cv2
@@ -556,28 +557,34 @@ class VideoReaderIterator:
             raise StopIteration()
         return next_frame["data"].unsqueeze(0)
 
-
 class TAStreamReaderIterator:
     def __init__(self, sr: StreamingMediaDecoder, batch_size: int = 1):
         self._iter = sr.stream()
-        self._chunk = None
-        self._chunk_position = 0
         self._batch_size = batch_size
+        self._device = None
 
     def __next__(self):
-        next_chunk = next(self._iter)
-        if next_chunk is None:
-            raise StopIteration()
-        frame = next_chunk[0]
-        assert len(frame) == self._batch_size
-        # We have to synchronize with the null stream first (so hopefully nothing else is running on that)
-        current_stream = torch.cuda.current_stream(frame.device)
-        default_stream = torch.cuda.default_stream(frame.device)
-        if current_stream.stream_id != default_stream.stream_id:
-            current_stream.wait_stream(default_stream)
         with torch.no_grad():
-            frame = yuv_to_bgr_float(frame)
-        default_stream.wait_stream(current_stream)
+            if self._device is None:
+                torch.cuda.synchronize()
+            else:
+                torch.cuda.current_stream(self._device).synchronize()
+            next_chunk = next(self._iter)
+            if next_chunk is None:
+                raise StopIteration()
+            assert len(next_chunk) == 1
+            frame = next_chunk[0]
+            assert len(frame) == self._batch_size
+            if self._device is None:
+                self._device = frame.device
+            current_stream = torch.cuda.current_stream(frame.device)
+
+            current_stream.synchronize()
+
+            frame = yuv_to_bgr_float(frame.clone())
+            # current_stream.synchronize()
+            # show_image(f"frame{str(id(self))}", frame, wait=False, enable_resizing=0.25)
+            # show_image(f"frame{str(id(self))}", frame, wait=False)
         return frame
 
 

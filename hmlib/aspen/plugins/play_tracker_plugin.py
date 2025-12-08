@@ -230,7 +230,7 @@ class PlayTrackerPlugin(Plugin):
         # Build results dictionary expected by PlayTracker
         results: Dict[str, Any] = {
             "data_samples": data.get("data_samples"),
-            "original_images": data.get("original_images"),
+            "original_images": context.get("original_images"),
         }
         # Optional per-frame annotations propagated if present
         for k in ("jersey_results", "action_results"):
@@ -246,18 +246,28 @@ class PlayTrackerPlugin(Plugin):
             out["play_box"] = self._play_tracker.play_box
         except Exception:
             pass
-        return out
+        results = {k: v for k, v in out.items() if k in self.output_keys()}
+        return results
 
-    def input_keys(self):
-        return {"data", "device", "shared", "arena"}
-
-    def output_keys(self):
+    def input_keys(self) -> set[str]:
         return {
-            "img",
-            "current_box",
-            "frame_ids",
-            "player_bottom_points",
-            "player_ids",
-            "rink_profile",
-            "play_box",
+            "data",
+            "device",
+            "shared",
+            "arena",
+            "original_images",
         }
+
+    def output_keys(self) -> set[str]:
+        if not hasattr(self, "_output_keys"):
+            self._output_keys: set[str] = {
+                "img",
+                "current_box",
+                "current_fast_box_list",
+                # "frame_ids",
+                "player_bottom_points",
+                "player_ids",
+                "play_box",
+                "rink_profile",
+            }
+        return self._output_keys

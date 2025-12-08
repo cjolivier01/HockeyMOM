@@ -71,7 +71,6 @@ class IceRinkSegmConfig:
             ]
             bs = len(img)
             data[self._image_label] = img
-            data["clipped_image"] = img
             data[self._shape_label] = [self._clipped_shape for _ in range(bs)]
             if "img_shape" in data:
                 data["img_shape"] = [self._clipped_shape for _ in range(bs)]

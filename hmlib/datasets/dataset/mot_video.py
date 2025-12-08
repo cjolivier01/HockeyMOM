@@ -6,7 +6,7 @@ import threading
 import traceback
 from contextlib import contextmanager
 from threading import Lock
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -15,7 +15,13 @@ from torch.utils.data import Dataset
 from hmlib.log import get_root_logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensorBase,
+    cuda_stream_scope,
+    unwrap_tensor,
+    wrap_tensor,
+)
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -59,10 +65,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         dtype: torch.dtype = None,
         data_pipeline: Callable = None,
         frame_step: int = 1,
-        result_as_dict: bool = False,
         adjust_exposure: Optional[float] = None,
         no_cuda_streams: bool = False,
         async_mode: bool = True,
+        checkerboard_input: bool = False,
     ):
         self._instance_id = MOTLoadVideoWithOrig._instance_counter
         MOTLoadVideoWithOrig._instance_counter += 1
@@ -75,6 +81,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
 
         if original_image_only and device_for_original_image is None:
             device_for_original_image = device
+
+        assert (
+            not original_image_only or data_pipeline is None
+        ), "original_image_only cannot be used with a data_pipeline at this time"
 
         self._current_path_index = 0
         self._game_id = game_id
@@ -91,11 +101,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._log_messages = log_messages
         self._device_for_original_image = device_for_original_image
         self._start_frame_number = start_frame_number
-        self._result_as_dict = result_as_dict
         self._adjust_exposure = adjust_exposure
         self._multi_width_img_info = multi_width_img_info
         self._original_image_only = original_image_only
         self._async_mode = bool(async_mode)
+        self._checkerboard_input = bool(checkerboard_input)
         self.width_t = None
         self.height_t = None
         self._scale_color_tensor = None
@@ -137,6 +147,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._frame_read_count = 0
         self._video_info = None
         self._seek_lock = Lock()
+        # Optional per-sample debug metadata propagated from embedded loaders (e.g., StitchDataset).
+        self._embedded_debug: Optional[Dict[str, Any]] = None
         self._to_worker_queue = create_queue(
             mp=False,
             name="mot-video-to-worker" + ("-EDL" if embedded_data_loader is not None else ""),
@@ -212,6 +224,133 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             t = t.to(dtype=orig_dtype)
 
         out = make_channels_last(t) if was_channels_last else t
+        return out
+
+    # ------------------------------------------------------------------
+    # Debug helpers: RGB stats and checkerboard generation
+    # ------------------------------------------------------------------
+    @staticmethod
+    def compute_rgb_stats(
+        img: torch.Tensor, cpu: bool = False
+    ) -> Dict[str, Tuple[float, float, float]]:
+        """Compute per-channel min, max, mean for R/G/B over an image or batch.
+
+        Accepts tensors with layout (B, C, H, W), (B, H, W, C), (C, H, W) or
+        (H, W, C). Only the first three channels are considered.
+        """
+        if img is None:
+            raise ValueError("compute_rgb_stats expected a tensor, got None")
+        if not isinstance(img, torch.Tensor):
+            raise TypeError(f"compute_rgb_stats expects torch.Tensor, got {type(img)}")
+
+        if img.ndim == 3:
+            img = img.unsqueeze(0)
+        if img.ndim != 4:
+            raise ValueError(f"compute_rgb_stats expects 3D/4D tensor, got shape {tuple(img.shape)}")
+
+        # Normalize to channels-last for simpler slicing
+        img_cl = make_channels_last(img)
+        # Work in float for accurate mean; clamp for integer-like tensors.
+        work = img_cl[..., :3].to(torch.float32)
+        flat = work.reshape(-1, 3)
+        min_vals, _ = flat.min(dim=0)
+        max_vals, _ = flat.max(dim=0)
+        mean_vals = flat.mean(dim=0)
+        return {
+            "min": min_vals.cpu() if cpu else min_vals,
+            "max": max_vals.cpu() if cpu else max_vals,
+            "mean": mean_vals.cpu() if cpu else mean_vals,
+        }
+
+    @staticmethod
+    def check_rgb_stats(
+        img: torch.Tensor,
+        reference: Dict[str, Tuple[float, float, float]],
+        *,
+        atol: float = 1e-3,
+        rtol: float = 1e-5,
+    ) -> Tuple[bool, bool]:
+        """Compare current RGB stats against a reference.
+
+        Returns (changed, unchanged) where:
+          - changed: True if any per-channel min/max/mean differs beyond tolerance.
+          - unchanged: the logical negation of 'changed'.
+        """
+        if reference is None:
+            raise ValueError("check_rgb_stats requires a non-None reference stats dict.")
+        current = MOTLoadVideoWithOrig.compute_rgb_stats(img)
+
+        def _to_tensor(vals: Tuple[float, float, float]) -> torch.Tensor:
+            return torch.tensor(vals, dtype=torch.float32)
+
+        changed = False
+        for key in ("min", "max", "mean"):
+            ref_vals = reference.get(key)
+            cur_vals = current.get(key)
+            if ref_vals is None or cur_vals is None:
+                changed = True
+                break
+            ref_t = ref_vals
+            cur_t = cur_vals
+            if not torch.allclose(ref_t, cur_t, atol=atol, rtol=rtol):
+                changed = True
+                break
+        return changed, not changed
+
+    @staticmethod
+    def make_checkerboard_like(
+        img: torch.Tensor,
+        tile_size: int = 32,
+    ) -> torch.Tensor:
+        """Generate a checkerboard pattern with the same shape/device/dtype as ``img``.
+
+        The pattern alternates 0 and 255 across tiles of size ``tile_size``.
+        Only the first three channels are written; any extra channels (e.g., alpha)
+        are left unchanged when present.
+        """
+        if not isinstance(img, torch.Tensor):
+            raise TypeError(f"make_checkerboard_like expects torch.Tensor, got {type(img)}")
+        squeeze_batch = False
+        if img.ndim == 3:
+            img = img.unsqueeze(0)
+            squeeze_batch = True
+        if img.ndim != 4:
+            raise ValueError(
+                f"make_checkerboard_like expects 3D/4D tensor, got shape {tuple(img.shape)}"
+            )
+
+        # Track whether the original layout was channels-last so we can restore it.
+        was_channels_last = img.shape[-1] in (3, 4)
+        # Normalize to channels-last for easier pattern creation
+        cl = make_channels_last(img)
+        h, w = cl.shape[1], cl.shape[2]
+        device = cl.device
+
+        # Build a 0/1 checkerboard over HxW
+        ys = torch.arange(h, device=device) // max(1, tile_size)
+        xs = torch.arange(w, device=device) // max(1, tile_size)
+        pattern = (ys.view(-1, 1) + xs.view(1, -1)) % 2  # HxW in {0,1}
+        pattern = pattern.to(dtype=torch.float32)
+        pattern = pattern * 255.0  # scale to [0,255]
+
+        # Expand to (B, H, W, 3)
+        pattern = pattern.unsqueeze(0).unsqueeze(-1)  # 1xHxWx1
+        pattern = pattern.expand(cl.shape[0], h, w, min(3, cl.shape[-1]))
+
+        out = cl.clone()
+        out[..., : pattern.shape[-1]] = pattern
+
+        # Restore original dtype
+        if torch.is_floating_point(img):
+            out = (out / 255.0).to(dtype=img.dtype)
+        else:
+            out = out.clamp(0.0, 255.0).to(dtype=img.dtype)
+
+        # Restore original layout
+        if not was_channels_last:
+            out = make_channels_first(out)
+        if squeeze_batch:
+            out = out.squeeze(0)
         return out
 
     def load_video_info(self) -> None:
@@ -390,7 +529,16 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 img = next(self._vid_iter)
         else:
             if self._batch_size == 1:
-                img = next(self._embedded_data_loader_iter)
+                item = next(self._embedded_data_loader_iter)
+                # When wrapping a stitching dataset in debug mode, the embedded loader
+                # may return (img, debug_info). Preserve the debug metadata so it can
+                # be attached to the final data dict later.
+                if isinstance(item, tuple) and len(item) == 2:
+                    img, debug = item
+                    self._embedded_debug = debug
+                else:
+                    img = item
+                    self._embedded_debug = None
             else:
                 imgs = []
                 for _ in range(self._batch_size):
@@ -416,7 +564,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         ):
             raise StopIteration
 
-        cuda_stream = self._cuda_stream if self._async_mode else None
+        cuda_stream = self._cuda_stream
 
         with cuda_stream_scope(cuda_stream), torch.no_grad():
 
@@ -431,6 +579,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     )
                     with rctx:
                         res, img0 = self._read_next_image()
+                    embedded_debug = self._embedded_debug
+                    self._embedded_debug = None
                     if not res or img0 is None:
                         print(f"Error loading frame: {self._count + self._start_frame_number}")
                         raise StopIteration()
@@ -441,14 +591,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                         continue
                     raise
             # END READ NEXT IMAGE
-
-            # if self._path_list:
-            #     show_image(
-            #         # show_cuda_tensor(
-            #         self._path_list[0],
-            #         make_visible_image(img0),
-            #         wait=False,
-            #     )
 
             if isinstance(img0, np.ndarray):
                 img0 = torch.from_numpy(img0)
@@ -482,16 +624,31 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     img0 = img0.to(torch.float, non_blocking=True)
                 img0 = img0 * self._adjust_exposure
 
+            data_item: Dict[str, Any] = dict()
+
+            # Optional checkerboard + RGB stats debug mode for MOTLoadVideoWithOrig.
+            checkerboard_image: Optional[torch.Tensor] = None
+            if self._checkerboard_input:
+                checkerboard_image = MOTLoadVideoWithOrig.make_checkerboard_like(img0)
+                # Compute stats on the tensor that will flow downstream.
+                stats = MOTLoadVideoWithOrig.compute_rgb_stats(checkerboard_image)
+                data_item.setdefault("debug_rgb_stats", {})["mot_input"] = stats
+
             # Does this need to be in imgs_info this way as an array?
             ids = torch.tensor(
                 [int(self._next_frame_id + i) for i in range(len(img0))],
                 dtype=torch.int64,
             )
+
+            fps_value = self.fps
+            if fps_value and fps_value > 0:
+                fps_scalar = float(fps_value)
+                data_item["hm_real_time_fps"] = [fps_scalar for _ in range(len(ids))]
+
             self._next_frame_id += len(ids)
 
             if self._data_pipeline is not None:
-                if isinstance(img0, StreamTensorBase):
-                    img0 = img0.get()
+                img0 = unwrap_tensor(img0)
 
                 # Optional per-channel additive offsets for input images
                 if self._image_channel_adders is not None:
@@ -502,40 +659,31 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 if torch.is_floating_point(img0) and img0.dtype != self._dtype:
                     img0 = img0.to(dtype=self._dtype, non_blocking=True)
 
-                data_item = dict(
-                    img=make_channels_last(img0),
-                    img_info=dict(frame_id=ids[0]),
-                    img_prefix=None,
-                    img_id=ids,
+                data_item.update(
+                    dict(
+                        img=make_channels_last(img0),
+                        img_info=dict(frame_id=ids[0]),
+                        img_prefix=None,
+                        img_id=ids,
+                    )
                 )
-                fps_value = self.fps
-                if fps_value and fps_value > 0:
-                    fps_scalar = float(fps_value)
-                    data_item["hm_real_time_fps"] = [fps_scalar for _ in range(len(ids))]
-                data_item = self._data_pipeline(data_item)
-                assert "img" not in data_item
-                data_item["img"] = data_item.pop("inputs")
+                # Propagate any debug metadata coming from an embedded loader (e.g., StitchDataset).
+                if embedded_debug is not None:
+                    data_item.setdefault("debug_rgb_stats", {})["stitch"] = embedded_debug
+                dctx = (
+                    prof.rf("dataloader.data_pipeline")
+                    if getattr(prof, "enabled", False)
+                    else _contextlib.nullcontext()
+                )
+                with dctx:
+                    pipeline_result = self._data_pipeline(data_item.copy())
+                assert "img" not in pipeline_result
+                data_item["img"] = pipeline_result.pop("inputs")
+                data_item.update(pipeline_result)
                 img = data_item["img"]
-
-                # Maybe get back the clipped image as the "original"
-                if "clipped_image" in data_item:
-                    assert False and "No longer supported"
-                    clipped_image = data_item["clipped_image"]
-                    if isinstance(clipped_image, list):
-                        assert len(clipped_image) == 1
-                        clipped_image = clipped_image[0]
-                    if clipped_image is not None:
-                        original_img0 = clipped_image["img"]
-                        del data_item["clipped_image"]
-
-                if isinstance(img, list):
-                    assert False  # if this a valid path anymore?
-                    assert len(img) == 1
-                    img = img[0]
-                data = data_item
             else:
                 if isinstance(img0, StreamTensorBase):
-                    img0 = img0.get()
+                    img0 = img0.wait()
                 # Optional per-channel additive offsets for input images
                 if self._image_channel_adders is not None:
                     img0 = self._apply_channel_adders(img0)
@@ -554,6 +702,10 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     if self._dtype is not None and self._dtype != original_img0.dtype:
                         original_img0 = original_img0.to(self._dtype)
                     img = original_img0
+                data_item.update(dict(
+                    img=make_channels_last(img),
+                    img_id=ids,
+                ))
 
             if self.width_t is None:
                 self.width_t = torch.tensor([image_width(img)], dtype=torch.int64)
@@ -577,66 +729,40 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         def _wrap_original_image(
             orig_img: torch.Tensor,
         ) -> Union[StreamCheckpoint, torch.Tensor]:
-            assert isinstance(orig_img, torch.Tensor)
-            if cuda_stream is not None:
-                if (
-                    not self._original_image_only
-                    and self._device_for_original_image is not None
-                    and self._device_for_original_image != orig_img.device
-                ):
-                    orig_img = orig_img.to(self._device_for_original_image, non_blocking=True)
-                return StreamCheckpoint(
-                    tensor=orig_img,
+            if checkerboard_image is not None:
+                orig_img = checkerboard_image.to(
+                    device=orig_img.device, dtype=orig_img.dtype, non_blocking=True
                 )
-            return orig_img
+            if (
+                not self._original_image_only
+                and self._device_for_original_image is not None
+                and self._device_for_original_image != orig_img.device
+            ):
+                orig_img = orig_img.to(device=self._device_for_original_image, non_blocking=True)
+            return wrap_tensor(orig_img)
 
         # END _wrap_original_image
 
         if self._data_pipeline is not None:
-            if cuda_stream is not None:
-                if isinstance(data["img"], list):
-                    # mmcv1 path
-                    for i, img in enumerate(data["img"]):
-                        img = StreamCheckpoint(
-                            tensor=img,
-                        )
-                else:
-                    # New mmcv2 path
-                    assert isinstance(data["img"], torch.Tensor)
-                    data["img"] = StreamCheckpoint(tensor=data["img"])
+            assert isinstance(data_item["img"], torch.Tensor)
+            data_item["img"] = StreamCheckpoint(tensor=data_item["img"])
             prof = getattr(self, "_profiler", None)
-            dctx = (
-                prof.rf("dataloader.data_pipeline")
-                if getattr(prof, "enabled", False)
-                else _contextlib.nullcontext()
-            )
-            with dctx:
-                if self._result_as_dict:
-                    return dict(
-                        original_imgs=_wrap_original_image(original_img0),
-                        data=data,
-                        imgs_info=imgs_info,
-                        ids=ids,
-                    )
-                return _wrap_original_image(original_img0), data, None, imgs_info, ids
         if self._original_image_only:
             if not isinstance(original_img0, StreamTensorBase):
                 original_img0 = _wrap_original_image(original_img0)
-            return dict(img=original_img0, imgs_info=imgs_info, frame_ids=ids)
+            data_item.update(dict(img=original_img0, imgs_info=imgs_info, frame_ids=ids))
         else:
-            if cuda_stream is not None:
-                img = StreamCheckpoint(
-                    tensor=img,
-                )
-            if self._result_as_dict:
-                return dict(
-                    original_imgs=_wrap_original_image(original_img0),
-                    img=img,
+            data_item.update(
+                dict(
+                    original_images=_wrap_original_image(original_img0),
+                    img=wrap_tensor(img),
                     imgs_info=imgs_info,
                     ids=ids,
                 )
-            return _wrap_original_image(original_img0), img, None, imgs_info, ids
-
+            )
+            # assert False # Don't use this path anymore
+            # return _wrap_original_image(original_img0), img, None, imgs_info, ids
+        return data_item
     def __next__(self):
         with self._seek_lock:
             self._timer.tic()

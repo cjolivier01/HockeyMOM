@@ -23,25 +23,16 @@ from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import (
     StreamCheckpoint,
     StreamTensorBase,
-    cuda_stream_scope,
     get_gpu_capabilities,
+    unwrap_tensor,
+    wrap_tensor,
 )
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_last,
-    to_uint8_image,
-)
+from hmlib.utils.image import image_height, image_width
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
-from hmlib.utils.tensor import make_const_tensor
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
-from .video_stream import (
-    VideoStreamWriterInterface,
-    clamp_max_video_dimensions,
-    create_output_video_stream,
-)
+from .video_stream import VideoStreamWriterInterface, create_output_video_stream
 
 standard_8k_width: int = 7680
 standard_8k_height: int = 4320
@@ -54,18 +45,18 @@ def get_and_pop(map: Dict[str, Any], key: str) -> Any:
     return result
 
 
-def slow_to_tensor(
-    tensor: Union[torch.Tensor, StreamTensorBase], stream_wait: bool = True
-) -> torch.Tensor:
-    """
-    Give up on the stream and get the sync'd tensor
-    """
-    if isinstance(tensor, StreamTensorBase):
-        tensor._verbose = True
-        if stream_wait:
-            return tensor.wait()
-        return tensor.get()
-    return tensor
+# def slow_to_tensor(
+#     tensor: Union[torch.Tensor, StreamTensorBase], stream_wait: bool = True
+# ) -> torch.Tensor:
+#     """
+#     Give up on the stream and get the sync'd tensor
+#     """
+#     if isinstance(tensor, StreamTensorBase):
+#         tensor._verbose = True
+#         if stream_wait:
+#             return tensor.wait()
+#         return tensor.get()
+#     return tensor
 
 
 def get_best_codec(
@@ -194,30 +185,22 @@ class VideoOutput(torch.nn.ModuleDict):
     def __init__(
         self,
         output_video_path: str,
-        output_frame_width: Union[int, float, torch.Tensor],
-        output_frame_height: Union[int, float, torch.Tensor],
         fps: float,
-        video_out_pipeline: Dict[str, Any] | None = None,
         fourcc: str = "auto",
         bit_rate: int = int(55e6),
         save_frame_dir: str | None = None,
         name: str = "",
         simple_save: bool = False,
         skip_final_save: bool = False,
-        image_channel_adjustment: List[float] | None = None,
-        print_interval: int = 50,
-        original_clip_box: torch.Tensor | None = None,
         progress_bar: ProgressBar | None = None,
         cache_size: int = 2,
         clip_to_max_dimensions: bool = True,
         visualization_config: Dict[str, Any] | None = None,
-        no_cuda_streams: bool = False,
         dtype: torch.dtype | None = None,
         device: Union[torch.device, str, None] = None,
         show_image: bool = False,
         show_scaled: Optional[float] = None,
         profiler: Any = None,
-        game_config: Optional[Dict[str, Any]] = None,
         enable_end_zones: bool = False,
     ):
         """Construct a synchronous video writer.
@@ -225,13 +208,7 @@ class VideoOutput(torch.nn.ModuleDict):
         @param output_video_path: Destination filename for the main output video
                                   (e.g., ``tracking_output.mkv``). When
                                   ``skip_final_save`` is True, no file is written.
-        @param output_frame_width: Final output width in pixels. Can be an
-                                   ``int``, ``float`` or scalar ``torch.Tensor``.
-        @param output_frame_height: Final output height in pixels. Same type
-                                    semantics as ``output_frame_width``.
         @param fps: Frames per second to encode the output stream with.
-        @param video_out_pipeline: Deprecated; camera processing/pipelines are
-                                   handled upstream and ignored here.
         @param fourcc: Codec identifier. Use ``"auto"`` to pick a codec based
                        on GPU capabilities (e.g., ``"hevc_nvenc"`` or ``"XVID"``).
         @param bit_rate: Target bitrate in bits per second for the encoder.
@@ -256,9 +233,6 @@ class VideoOutput(torch.nn.ModuleDict):
                                       down to encoder-specific maximums (e.g., 8K).
         @param visualization_config: Reserved for future visualization options
                                      (not currently consumed).
-        @param no_cuda_streams: When True, disables the use of dedicated CUDA
-                                streams for IO; all work happens on the default
-                                stream.
         @param dtype: Preferred floating-point dtype for any internal tensors that
                       may be created (defaults to ``torch.get_default_dtype()``).
         @param device: Torch device or device string (e.g., ``"cuda:0"`` or
@@ -279,54 +253,8 @@ class VideoOutput(torch.nn.ModuleDict):
         self._allow_scaling = False
         self._clip_to_max_dimensions = clip_to_max_dimensions
         self._visualization_config = visualization_config
-        self._no_cuda_streams = no_cuda_streams
         self._dtype = dtype if dtype is not None else torch.get_default_dtype()
         assert self._dtype in _FP_TYPES
-
-        output_frame_width = torch.tensor(output_frame_width, dtype=torch.int64)
-        output_frame_height = torch.tensor(output_frame_height, dtype=torch.int64)
-        self._fourcc = fourcc
-        # if fourcc == "auto" and device.type == "cuda":
-        #     fourcc = "hevc_nvenc"
-        # fourcc = "h264_nvenc"
-
-        if simple_save and self._clip_to_max_dimensions:
-            original_width = int(output_frame_width)
-            output_frame_width, output_frame_height = clamp_max_video_dimensions(
-                output_frame_width,
-                output_frame_height,
-                codec=self._fourcc,
-            )
-            self._allow_scaling = original_width != int(output_frame_width)
-        elif is_nearly_8k(output_frame_width, output_frame_height)[0]:
-            # Check if close to standard 8k dimensions, in which case, make that the output
-            original_width = int(output_frame_width)
-            output_frame_width = torch.tensor(standard_8k_width)
-            output_frame_height = torch.tensor(standard_8k_height)
-            self._allow_scaling = original_width != int(output_frame_width)
-
-        # if device is not None:
-        #     logger.info(
-        #         f"Video output {output_frame_width}x{output_frame_height} "
-        #         f"using device: {device} ({output_video_path})"
-        #     )
-        assert output_frame_width > 4 and output_frame_height > 4
-        self.register_buffer("_output_frame_width", output_frame_width, persistent=False)
-        self.register_buffer("_output_frame_height", output_frame_height, persistent=False)
-        self._output_frame_width_int = int(self._output_frame_width)
-        self._output_frame_height_int = int(self._output_frame_height)
-        self.register_buffer(
-            "_output_aspect_ratio",
-            self._output_frame_width / self._output_frame_height,
-            persistent=False,
-        )
-        self._video_frame_config = {
-            "output_frame_width": int(self._output_frame_width_int),
-            "output_frame_height": int(self._output_frame_height_int),
-            "output_aspect_ratio": self._output_aspect_ratio,
-        }
-
-        # -----------
 
         if device is not None:
             self._device = device if isinstance(device, torch.device) else torch.device(device)
@@ -335,39 +263,16 @@ class VideoOutput(torch.nn.ModuleDict):
         self._name = name
         self._simple_save = simple_save
         self._fps = fps
-        self._cache_size = cache_size
         self._skip_final_save = skip_final_save
         self._progress_bar = progress_bar
-        self._original_clip_box = original_clip_box
         self._output_video_path = output_video_path
         self._save_frame_dir = save_frame_dir
-        self._print_interval = print_interval
         self._output_videos: Dict[str, VideoStreamWriterInterface] = {}
-        self._cuda_stream = None
 
         self._bit_rate = bit_rate
         self._enable_end_zones: bool = bool(enable_end_zones)
 
         self._fourcc = fourcc
-        # if fourcc == "auto":
-        #     if self._device.type == "cuda":
-        #         self._fourcc, is_gpu = get_best_codec(
-        #             device.index,
-        #             width=int(output_frame_width),
-        #             height=int(output_frame_height),
-        #             allow_scaling=self._allow_scaling,
-        #         )
-        #         if not is_gpu:
-        #             logger.info(f"Can't use GPU for output video {output_video_path}")
-        #             self._device = torch.device("cpu")
-        #     else:
-        #         self._fourcc = "XVID"
-        #     logger.info(
-        #         f"Output video {self._name} {int(self._output_frame_width)}x"
-        #         f"{int(self._output_frame_height)} will use codec: {self._fourcc}"
-        #     )
-        # else:
-        #     self._fourcc = fourcc
 
         self._prof = profiler
         self._fctx = (
@@ -376,7 +281,7 @@ class VideoOutput(torch.nn.ModuleDict):
             else contextlib.nullcontext()
         )
         self._sctx = (
-            self._prof.rf("video_out.save_frame")
+            self._prof.rf("video_out._save_frame")
             if getattr(self._prof, "enabled", False)
             else contextlib.nullcontext()
         )
@@ -387,7 +292,7 @@ class VideoOutput(torch.nn.ModuleDict):
         self._show_image = bool(show_image)
         self._show_scaled = show_scaled
         self._shower = (
-            Shower(label="Video Out", show_scaled=self._show_scaled, max_size=self._cache_size)
+            Shower(label="Video Out", show_scaled=self._show_scaled, max_size=cache_size)
             if self._show_image
             else None
         )
@@ -406,11 +311,14 @@ class VideoOutput(torch.nn.ModuleDict):
         if self._device is None:
             self._device = self._output_aspect_ratio.device
         if self._fourcc == "auto":
+            video_frame_cfg = context["video_frame_cfg"]
+            output_frame_width = int(video_frame_cfg["output_frame_width"])
+            output_frame_height = int(video_frame_cfg["output_frame_height"])
             if self._device.type == "cuda":
                 self._fourcc, is_gpu = get_best_codec(
                     self._device.index,
-                    width=self._output_frame_width_int,
-                    height=self._output_frame_height_int,
+                    width=output_frame_width,
+                    height=output_frame_height,
                     allow_scaling=self._allow_scaling,
                 )
                 if not is_gpu:
@@ -421,8 +329,8 @@ class VideoOutput(torch.nn.ModuleDict):
             else:
                 self._fourcc = "XVID"
             logger.info(
-                f"Output video {self._name} {self._output_frame_width_int}x"
-                f"{self._output_frame_height_int} will use codec: {self._fourcc}"
+                f"Output video {self._name} {output_frame_width}x"
+                f"{output_frame_height} will use codec: {self._fourcc}"
             )
 
     def set_progress_bar(self, progress_bar: ProgressBar):
@@ -439,15 +347,18 @@ class VideoOutput(torch.nn.ModuleDict):
             self._shower.close()
             self._shower = None
 
-    def create_output_videos(self):
+    def create_output_videos(self, context: Dict[str, Any]) -> None:
         """Create underlying VideoStreamWriter instances if not already open."""
         if self._output_video_path and not self._skip_final_save:
+            video_frame_cfg = context["video_frame_cfg"]
+            output_frame_width = int(video_frame_cfg["output_frame_width"])
+            output_frame_height = int(video_frame_cfg["output_frame_height"])
             if self.VIDEO_DEFAULT not in self._output_videos:
                 self._output_videos[self.VIDEO_DEFAULT] = create_output_video_stream(
                     filename=self._output_video_path,
                     fps=self._fps,
-                    height=int(self._output_frame_height),
-                    width=int(self._output_frame_width),
+                    height=output_frame_height,
+                    width=output_frame_width,
                     codec=self._fourcc,
                     bit_rate=self._bit_rate,
                     device=self._device,
@@ -459,8 +370,8 @@ class VideoOutput(torch.nn.ModuleDict):
                 self._output_videos[self.VIDEO_END_ZONES] = create_output_video_stream(
                     filename=str(add_suffix_to_filename(self._output_video_path, "-end-zones")),
                     fps=self._fps,
-                    height=int(self._output_frame_height),
-                    width=int(self._output_frame_width),
+                    height=output_frame_height,
+                    width=output_frame_width,
                     codec=self._fourcc,
                     bit_rate=self._bit_rate,
                     device=self._device,
@@ -468,70 +379,74 @@ class VideoOutput(torch.nn.ModuleDict):
                 )
                 assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
 
-    def save_frame(
+    def _save_frame(
         self,
-        results: Dict[str, Any],
+        context: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Write a batch of frames to the configured video streams.
 
-        Expected keys in ``results`` on entry:
+        Expected keys in ``context`` on entry:
           - ``"img"``: tensor[B, H, W, C] or StreamTensorBase
           - ``"frame_ids"``: tensor[B] (used for logging and PNG naming)
           - ``"end_zone_img"``: optional tensor[B, H, W, C] for far-end output
 
         The ``"img"`` key is consumed and reattached in-place.
         """
-        online_im = results.pop("img")
+
+        # Consume the image tensor
+        online_im = context.pop("img")
+
         image_w = image_width(online_im)
         image_h = image_height(online_im)
         assert online_im.ndim == 4  # Should have a batch dimension
 
+        assert online_im.dtype == torch.uint8
+        assert online_im.is_contiguous
+
+        video_frame_cfg = context["video_frame_cfg"]
+        output_frame_width = int(video_frame_cfg["output_frame_width"])
+        output_frame_height = int(video_frame_cfg["output_frame_height"])
+
         # Output (and maybe show) the final image
-        online_im = make_channels_last(online_im)
-        assert int(self._output_frame_width) == image_w
-        assert int(self._output_frame_height) == image_h
+        assert int(output_frame_width) == image_w
+        assert int(output_frame_height) == image_h
+
+        if isinstance(online_im, StreamTensorBase):
+            online_im.verbose = True
+            online_im = online_im.get()
 
         if self._mean_tracker is not None:
-            img = online_im
-            self._mean_tracker(img)
+            self._mean_tracker(online_im)
 
         if self._show_image and self._shower is not None:
-            online_im = slow_to_tensor(online_im)
             for show_img in online_im:
-                self._shower.show(show_img)
+                self._shower.show(show_img.clone())
 
-        with torch.cuda.stream(torch.cuda.default_stream(online_im.device)):
+        if not self._skip_final_save:
+            if self.VIDEO_DEFAULT in self._output_videos:
+                self._output_videos[self.VIDEO_DEFAULT].write(online_im)
 
-            if online_im.is_cuda:
-                # torch.cuda.current_stream(online_im.device).synchronize()
-                torch.cuda.synchronize()
-
-            if not self._skip_final_save:
-                if self.VIDEO_DEFAULT in self._output_videos:
-                    if not isinstance(online_im, StreamTensorBase):
-                        online_im = StreamCheckpoint(tensor=online_im)
-                    self._output_videos[self.VIDEO_DEFAULT].write(online_im)
-
-                if self.VIDEO_END_ZONES in self._output_videos:
-                    ez_img = results.get("end_zone_img")
-                    if ez_img is None:
-                        ez_img = online_im
-                    if not isinstance(ez_img, StreamTensorBase):
-                        ez_img = StreamCheckpoint(tensor=ez_img)
-                    self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
+            if self.VIDEO_END_ZONES in self._output_videos:
+                ez_img = context.get("end_zone_img")
+                if ez_img is None:
+                    ez_img = online_im
+                self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
+        else:
+            # Sync the stream if skipping final save
+            online_im = wrap_tensor(online_im, verbose=True).get()
 
         # Save frames as individual frames
         if self._save_frame_dir:
             # frame_id should start with 1
-            assert results["frame_ids"][0] != 0
+            assert context["frame_ids"][0] != 0
             cv2.imwrite(
                 os.path.join(
                     self._save_frame_dir,
-                    "frame_{:06d}.png".format(int(results["frame_id"]) - 1),
+                    "frame_{:06d}.png".format(int(context["frame_ids"][0]) - 1),
                 ),
                 online_im,
             )
-        return results
+        return context
 
     def forward(self, results: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
         """Normalize input images and synchronously write them to disk.
@@ -539,8 +454,7 @@ class VideoOutput(torch.nn.ModuleDict):
         This is the primary public API. It:
           1. Lazily initializes device/codec/streams.
           2. Opens output video writers on first use.
-          3. Normalizes ``results["img"]`` to a uint8 tensor on the writer device.
-          4. Writes the frames via :meth:`save_frame`.
+          3. Writes the frames via :meth:`_save_frame`.
 
         @param results: Dict containing at least ``"img"`` and ``"frame_ids"``.
         @return: The updated ``results`` dict (for chaining if desired).
@@ -548,33 +462,27 @@ class VideoOutput(torch.nn.ModuleDict):
         # Step 1: Lazy initialization of device + codec
         self._ensure_initialized(results)
 
-        with cuda_stream_scope(self._cuda_stream):
-            # Step 2: Ensure underlying video streams are open
-            if not self._output_videos:
-                self.create_output_videos()
+        # Step 2: Ensure underlying video streams are open
+        if not self._output_videos:
+            self.create_output_videos(results)
 
-            # Step 3: Normalize image tensors onto the writer device
-            online_im = results.get("img")
-            if isinstance(online_im, StreamTensorBase):
-                # Block until the tensor is ready; keep verbose flag for debugging
-                online_im._verbose = True
-                online_im = online_im.wait()
+        # Step 3: Normalize image tensors onto the writer device
+        online_im = unwrap_tensor(results.get("img"))
 
-            if isinstance(online_im, np.ndarray):
-                online_im = torch.from_numpy(online_im)
+        if isinstance(online_im, np.ndarray):
+            online_im = torch.from_numpy(online_im)
 
-            if online_im.ndim == 3:
-                # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
-                online_im = online_im.unsqueeze(0)
+        if online_im.ndim == 3:
+            # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
+            online_im = online_im.unsqueeze(0)
 
+        # online_im = self._make_visible_image(online_im)
+
+        if not self._skip_final_save:
             if self._device is not None:
                 # Move to writer device and ensure channels-last layout
-                online_im = make_channels_last(online_im)
                 if str(online_im.device) != str(self._device):
-                    online_im = online_im.to(self._device, non_blocking=True)
-
-            # Convert to uint8 in-place
-            online_im = to_uint8_image(online_im)
+                    online_im = online_im.to(self._device)
 
             # Optional final move to CPU for CPU-only writers
             if (
@@ -585,22 +493,14 @@ class VideoOutput(torch.nn.ModuleDict):
                 online_im = online_im.to("cpu", non_blocking=True)
                 online_im = StreamCheckpoint(online_im)
 
-            results["img"] = online_im
-
-            # Step 4: Persist frames to disk under profiling scopes
             assert self._device is None or results["img"].device == self._device
-            with self._sctx:
-                results = self.save_frame(results)
+
+        results["img"] = online_im
+
+        # Step 4: Persist frames to disk under profiling scopes
+        with self._sctx:
+            results = self._save_frame(results)
+
+        assert "img" not in results
 
         return results
-
-
-def get_open_files_count():
-    """Return the number of open file descriptors for the current process.
-
-    This is used for lightweight leak/debug checks when writing long videos.
-
-    @return: Integer count of entries under ``/proc/<pid>/fd``.
-    """
-    pid = os.getpid()
-    return len(os.listdir(f"/proc/{pid}/fd"))

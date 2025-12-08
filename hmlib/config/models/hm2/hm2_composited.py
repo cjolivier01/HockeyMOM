@@ -54,7 +54,6 @@ inference_pipeline = [
         keys=[
             "img",
         ],
-        save_clipped_images=True,
         type="HmCrop",
     ),
     dict(

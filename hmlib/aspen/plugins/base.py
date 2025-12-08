@@ -1,4 +1,4 @@
-"""Base interfaces and helpers for Aspen pipeline trunks."""
+"""Base interfaces and helpers for Aspen pipeline plugins."""
 
 from contextlib import nullcontext
 from typing import Any, Dict, Optional, Set
@@ -48,6 +48,10 @@ class Plugin(torch.nn.Module):
         if profiler is None:
             return nullcontext()
         return profiler.rf(label)
+
+    def is_output(self) -> bool:
+        """Return True if this plugin is considered a graph output node."""
+        return False
 
 
 class DeleteKey:
