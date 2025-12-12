@@ -22,6 +22,12 @@
 - Run TensorRT-enabled tracking on a short clip (5s) for `chicago-3`:
   - `PYTHONPATH=$(pwd) python hmlib/cli/hmtrack.py --game-id=chicago-3 --async-post-processing=0 --async-video-out=0 --show-scaled=0.5 --camera-ui=1 --detector-trt-enable --detector-static-detections --detector-static-max-detections=800 --plot-tracking -t=5`
 
+## Webapp Deployment Notes
+- Install via sudo: `python3 tools/webapp/install_webapp.py --watch-root /data/incoming --server-name _ --port 8008` (creates `/opt/hm-webapp/venv`, installs gunicorn/flask/pymysql, sets up `hm-webapp.service` and nginx proxy).
+- DB setup: installer creates `hm_app_db` and user; ensure MariaDB is running/healthy before install. If prior DB state is corrupt, drop `hm_app_db` then rerun the installer.
+- Use the app venv for helpers: `/opt/hm-webapp/venv/bin/python tools/webapp/seed_demo.py --config /opt/hm-webapp/app/config.json --email demo@example.com --name "Demo User"` (same for reset/import scripts).
+- Watch root ownership: installer chowns the watch directory to the app user so uploads work.
+
 ## Coding Style & Naming Conventions
 - Python: Black (line length 120) and isort; run `./format.sh` before committing.
 - Typing: mypy is configured; prefer typed public APIs in `hmlib/`.

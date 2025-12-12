@@ -37,10 +37,11 @@ def main():
     templates_dir = app_dir / "templates"
     static_dir = app_dir / "static"
 
-    print("Installing OS packages (nginx)...")
+    print("Installing OS packages (nginx + python venv tools)...")
     subprocess.check_call(["sudo", "apt-get", "update", "-y"])
-    subprocess.check_call(["sudo", "apt-get", "install", "-y", "nginx"])
+    subprocess.check_call(["sudo", "apt-get", "install", "-y", "nginx", "python3-venv"])
     subprocess.check_call(["sudo", "mkdir", "-p", args.watch_root])
+    subprocess.check_call(["sudo", "chown", f"{args.user}:{args.user}", args.watch_root])
 
     def _do_copy(src, dst):
         subprocess.check_call(["sudo", "cp", "-r", str(src), str(dst)])
@@ -60,7 +61,7 @@ def main():
     # Resolve python binary
     if not args.python_bin:
         try:
-            user_py = subprocess.check_output(
+            base_python = subprocess.check_output(
                 [
                     "sudo",
                     "-H",
@@ -72,13 +73,30 @@ def main():
                 ],
                 text=True,
             ).strip()
-            python_bin = user_py or "/usr/bin/python3"
+            base_python = base_python or "/usr/bin/python3"
         except Exception:
-            python_bin = "/usr/bin/python3"
+            base_python = "/usr/bin/python3"
     else:
-        python_bin = args.python_bin
+        base_python = args.python_bin
 
-    print(f"Using python: {python_bin}")
+    # Ensure the install root is owned by the app user before creating the venv/pip installing
+    subprocess.check_call(["sudo", "chown", "-R", f"{args.user}:{args.user}", str(install_root)])
+
+    venv_dir = install_root / "venv"
+    print(f"Using python: {base_python}")
+    subprocess.check_call(
+        [
+            "sudo",
+            "-H",
+            "-u",
+            args.user,
+            "bash",
+            "-lc",
+            f"{base_python} -m venv {venv_dir}",
+        ]
+    )
+    python_bin = venv_dir / "bin/python"
+    print(f"Using virtualenv: {python_bin}")
     subprocess.check_call(
         [
             "sudo",

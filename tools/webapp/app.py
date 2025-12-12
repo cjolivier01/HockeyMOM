@@ -1386,32 +1386,6 @@ def init_db():
         )
         cur.execute(
             """
-            CREATE TABLE IF NOT EXISTS league_teams (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              league_id INT NOT NULL,
-              team_id INT NOT NULL,
-              UNIQUE KEY uniq_league_team (league_id, team_id),
-              INDEX(league_id), INDEX(team_id),
-              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
-              FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS league_games (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              league_id INT NOT NULL,
-              game_id INT NOT NULL,
-              UNIQUE KEY uniq_league_game (league_id, game_id),
-              INDEX(league_id), INDEX(game_id),
-              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
-              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-            """
-        )
-        cur.execute(
-            """
             CREATE TABLE IF NOT EXISTS games (
               id INT AUTO_INCREMENT PRIMARY KEY,
               user_id INT NOT NULL,
@@ -1568,6 +1542,33 @@ def init_db():
               FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE,
               FOREIGN KEY(player_id) REFERENCES players(id) ON DELETE CASCADE ON UPDATE CASCADE,
               FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # League mappings (created after dependent tables)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_teams (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              team_id INT NOT NULL,
+              UNIQUE KEY uniq_league_team (league_id, team_id),
+              INDEX(league_id), INDEX(team_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_games (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              game_id INT NOT NULL,
+              UNIQUE KEY uniq_league_game (league_id, game_id),
+              INDEX(league_id), INDEX(game_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
