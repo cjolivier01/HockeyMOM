@@ -171,6 +171,13 @@ server {{
     server_name {args.server_name};
     client_max_body_size {args.client_max_body_size};
 
+    # Static assets (CSS, images) served directly by nginx
+    location /static/ {{
+        alias {app_dir}/static/;
+        access_log off;
+        expires 7d;
+    }}
+
     location / {{
         proxy_pass http://127.0.0.1:{args.port};
         proxy_set_header Host $host;
