@@ -4,6 +4,12 @@ HockeyMOM
 - Repository guidelines: see [AGENTS.md](AGENTS.md).
 - How to contribute: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Web App (Flask UI)
+- Install (sudo): `sudo python3 tools/webapp/install_webapp.py --watch-root /data/incoming --server-name _ --port 8008`. This creates `/opt/hm-webapp/app`, a venv at `/opt/hm-webapp/venv`, `hm-webapp.service`, and an nginx proxy on port 80 → 8008.
+- Config: `/opt/hm-webapp/app/config.json`; uploads/watch root: `/data/incoming` (overridable via flag). Uninstall with `sudo python3 tools/webapp/uninstall_webapp.py`.
+- Seed demo data: `/opt/hm-webapp/venv/bin/python tools/webapp/seed_demo.py --config /opt/hm-webapp/app/config.json --email demo@example.com --name "Demo User"`.
+- Access: `http://localhost/`. Logs: `journalctl -u hm-webapp` and nginx error log in `/var/log/nginx/`.
+
 ## System dependencies and native tools
 
 For a fresh Ubuntu/Debian machine you should run, from the repo root:
