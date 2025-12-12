@@ -3,6 +3,7 @@
 <div class="card" style="max-width:520px;">
   <h2>Create New Game</h2>
   <form method="post">
+    {% csrf_token %}
     <div class="form-row">
       <label class="muted">Game name</label>
       <input type="text" name="name" placeholder="e.g. scrimmage-2025-10-22">

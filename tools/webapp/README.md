@@ -3,7 +3,7 @@ HM WebApp (Uploads + Run)
 
 Overview
 --------
-Flask-based web app that lets users:
+Django-based web app that lets users:
 - Create an account and log in
 - Create a new "game" (project) directory for uploads and trigger Slurm jobs via DirWatcher
 - NEW: Manage hockey teams and players, create games, and track stats
@@ -28,7 +28,7 @@ sudo python3 tools/webapp/install_webapp.py \
 
 This will:
 - Copy the app to `/opt/hm-webapp/app`
-- Create a venv + install Flask/Gunicorn
+- Create a venv + install Django/Gunicorn
 - Install a systemd unit `hm-webapp.service`
 - Install an Nginx site proxying `http://127.0.0.1:8008` and restart Nginx
 
@@ -47,6 +47,20 @@ Usage
 - Schedule: create games between one or two of your teams
   - If you select only one of your teams, enter an opponent name to auto-create an external team that is hidden from your team list by default
   - Edit a game to set scores and enter per-player stats (goals, assists, shots, PIM, +/-). Team standings are computed automatically from game results.
+
+Local Development (dev server)
+------------------------------
+
+From the repo checkout you can run the Django dev server directly:
+
+```bash
+cd tools/webapp
+# Optional: point at the system DB/config instead of the default SQLite
+export HM_DB_CONFIG=/opt/hm-webapp/app/config.json
+./run_dev.sh          # runs manage.py migrate (best-effort) then runserver 127.0.0.1:8008
+```
+
+Then visit `http://127.0.0.1:8008/` in a browser. For most development it is fine to use the default SQLite DB; pointing at `/opt/hm-webapp/app/config.json` lets you test against the production-like MySQL schema.
 
 Demo Data
 ---------
@@ -125,12 +139,51 @@ Notes:
 
 Testing
 -------
-- Route/logic smoke tests for the new hockey features are in `tests/test_webapp_hockey.py`.
-- They do not require a database. Tests import the app with `HM_WEBAPP_SKIP_DB_INIT=1` to avoid DB initialization and use fake cursors to validate stat computations.
-- Register a new account and log in
-- Create a game
-- Upload files
-- Click Run to create `_READY` in the game directory. DirWatcher sees it and submits the job.
+- Unit-style tests for the hockey helpers live in `tests/test_webapp_hockey.py`:
+
+  ```bash
+  PYTHONPATH=tools/webapp python -m pytest tests/test_webapp_hockey.py
+  ```
+
+  These tests import the Django URL config and utility functions with `HM_WEBAPP_SKIP_DB_INIT=1` to avoid DB initialization and only exercise date/aggregate helpers and route wiring.
+
+- End-to-end UI smoke test (against a running instance, e.g. via nginx on localhost):
+
+  ```bash
+  # Assumes hm-webapp.service and nginx are running
+  tools/webapp/smoke_ui.sh http://127.0.0.1
+  ```
+
+  The smoke script:
+  - Registers a throwaway user
+  - Creates a team with a logo
+  - Adds a player
+  - Creates a scheduled game and marks it final
+  - Verifies the team record and logo endpoint
+
+Management commands and health checks
+-------------------------------------
+
+From the installed app directory (`/opt/hm-webapp/app`) using the system venv:
+
+```bash
+cd /opt/hm-webapp/app
+source ../venv/bin/activate
+
+# Initialize/upgrade the webapp schema (users/games/teams/etc.)
+HM_DB_CONFIG=/opt/hm-webapp/app/config.json python manage.py init_hm_db
+
+# Check DB connectivity (exit code 0 on success)
+HM_DB_CONFIG=/opt/hm-webapp/app/config.json python manage.py hm_healthcheck
+```
+
+For HTTP health checks, hit the built-in endpoint:
+
+```bash
+curl http://127.0.0.1/healthz
+```
+
+which returns JSON including the DB status (e.g. `{"status": "ok", "db": true}`).
 
 Email Notifications
 -------------------

@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
 import os
 
 from django.core.wsgi import get_wsgi_application
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "hmwebapp.settings")
 
-# WSGI entrypoint for gunicorn (app:app)
-app = get_wsgi_application()
-application = app
+application = get_wsgi_application()
+

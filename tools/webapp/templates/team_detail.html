@@ -1,26 +1,29 @@
 {% extends 'layout.html' %}
 {% block content %}
 <div style="display:flex;align-items:center;gap:1rem;">
-  {% if team['logo_path'] %}
-    <img src="/media/team_logo/{{ team['id'] }}" alt="logo" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--border);" />
+  {% if team.logo_path %}
+    <img src="/media/team_logo/{{ team.id }}" alt="logo" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--border);" />
   {% else %}
     <div style="width:72px;height:72px;border-radius:10px;background:#1c212c;border:1px solid var(--border);"></div>
   {% endif %}
   <div>
-    <h2 style="margin:0">{{ team['name'] }}</h2>
-    {% if team['is_external'] %}<p class="muted" style="margin:.25rem 0 0">External team</p>{% endif %}
+    <h2 style="margin:0">{{ team.name }}</h2>
+    {% if team.is_external %}<p class="muted" style="margin:.25rem 0 0">External team</p>{% endif %}
   </div>
 </div>
 
 <div class="grid" style="margin-top:1rem;">
   <div class="card">
     <h3>Team Stats</h3>
-    {% set s = tstats %}
-    <p class="muted">Record: <strong>{{ s['wins'] }}-{{ s['losses'] }}-{{ s['ties'] }}</strong> | GF: {{ s['gf'] }} | GA: {{ s['ga'] }} | Pts: {{ s['points'] }}</p>
+    <p class="muted">
+      Record:
+      <strong>{{ tstats.wins }}-{{ tstats.losses }}-{{ tstats.ties }}</strong>
+      | GF: {{ tstats.gf }} | GA: {{ tstats.ga }} | Pts: {{ tstats.points }}
+    </p>
   </div>
   <div class="card">
     <h3>Manage</h3>
-    <p><a class="btn" href="/teams/{{ team['id'] }}/edit">Edit team</a> <a class="btn" href="/schedule/new">Add game</a></p>
+    <p><a class="btn" href="/teams/{{ team.id }}/edit">Edit team</a> <a class="btn" href="/schedule/new">Add game</a></p>
   </div>
 </div>
 
@@ -31,30 +34,31 @@
       <tr><th>#</th><th>Name</th><th>Pos</th><th>G</th><th>A</th><th>P</th><th>S</th><th>PIM</th><th></th></tr>
     </thead>
     <tbody>
-      {% for p in players %}
-        {% set agg = player_totals.get(p['id'], {'goals':0,'assists':0,'points':0,'shots':0,'pim':0}) %}
+      {% for row in player_rows %}
+        {% with p=row.player agg=row.stats %}
         <tr>
-          <td>{{ p['jersey_number'] or '' }}</td>
-          <td>{{ p['name'] }}</td>
-          <td>{{ p['position'] or '' }}</td>
-          <td>{{ agg['goals'] }}</td>
-          <td>{{ agg['assists'] }}</td>
-          <td>{{ agg['points'] }}</td>
-          <td>{{ agg['shots'] }}</td>
-          <td>{{ agg['pim'] }}</td>
+          <td>{{ p.jersey_number|default_if_none:'' }}</td>
+          <td>{{ p.name }}</td>
+          <td>{{ p.position|default_if_none:'' }}</td>
+          <td>{{ agg.goals }}</td>
+          <td>{{ agg.assists }}</td>
+          <td>{{ agg.points }}</td>
+          <td>{{ agg.shots }}</td>
+          <td>{{ agg.pim }}</td>
           <td>
-            <a class="btn" href="/teams/{{ team['id'] }}/players/{{ p['id'] }}/edit">Edit</a>
-            <form style="display:inline" method="post" action="/teams/{{ team['id'] }}/players/{{ p['id'] }}/delete" onsubmit="return confirm('Delete player?');">
+            <a class="btn" href="/teams/{{ team.id }}/players/{{ p.id }}/edit">Edit</a>
+            <form style="display:inline" method="post" action="/teams/{{ team.id }}/players/{{ p.id }}/delete" onsubmit="return confirm('Delete player?');">
+              {% csrf_token %}
               <button class="btn danger" type="submit">Delete</button>
             </form>
           </td>
         </tr>
-      {% else %}
+        {% endwith %}
+      {% empty %}
         <tr><td colspan="9" class="muted">No players yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
-  <p><a class="btn primary" href="/teams/{{ team['id'] }}/players/new">Add player</a></p>
+  <p><a class="btn primary" href="/teams/{{ team.id }}/players/new">Add player</a></p>
 </div>
 {% endblock %}
-

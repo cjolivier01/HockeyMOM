@@ -4,11 +4,15 @@ HockeyMOM
 - Repository guidelines: see [AGENTS.md](AGENTS.md).
 - How to contribute: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Web App (Flask UI)
+## Web App (Django UI)
 - Install (sudo): `sudo python3 tools/webapp/install_webapp.py --watch-root /data/incoming --server-name _ --port 8008`. This creates `/opt/hm-webapp/app`, a venv at `/opt/hm-webapp/venv`, `hm-webapp.service`, and an nginx proxy on port 80 → 8008.
 - Config: `/opt/hm-webapp/app/config.json`; uploads/watch root: `/data/incoming` (overridable via flag). Uninstall with `sudo python3 tools/webapp/uninstall_webapp.py`.
 - Seed demo data: `/opt/hm-webapp/venv/bin/python tools/webapp/seed_demo.py --config /opt/hm-webapp/app/config.json --email demo@example.com --name "Demo User"`.
 - Access: `http://localhost/`. Logs: `journalctl -u hm-webapp` and nginx error log in `/var/log/nginx/`.
+- Dev server: from the repo checkout, `cd tools/webapp && ./run_dev.sh` (optionally export `HM_DB_CONFIG=/opt/hm-webapp/app/config.json` to develop against the production DB).
+- Management commands: `python manage.py init_hm_db` and `python manage.py hm_healthcheck` run inside `/opt/hm-webapp/app` with the venv activated (`source ../venv/bin/activate`).
+- Smoke UI test: `bash tools/webapp/smoke_ui.sh http://127.0.0.1` exercises registration, team creation, scheduling, and stats via HTTP.
+- See `tools/webapp/README.md` for full webapp docs (install, dev, import/reset helpers, and troubleshooting).
 
 ## System dependencies and native tools
 

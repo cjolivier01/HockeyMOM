@@ -19,17 +19,16 @@
   <tbody>
     {% for g in games %}
       <tr>
-        <td>{{ g['starts_at'] or '' }}</td>
-        <td>{{ g['team1_name'] }} vs {{ g['team2_name'] }}</td>
-        <td>{{ g['game_type_name'] or '' }}</td>
-        <td>{{ g['location'] or '' }}</td>
-        <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
-        <td><a class="btn" href="/hky/games/{{ g['id'] }}">Edit</a></td>
+        <td>{{ g.starts_at|default_if_none:'' }}</td>
+        <td>{{ g.team1_name }} vs {{ g.team2_name }}</td>
+        <td>{{ g.game_type_name|default_if_none:'' }}</td>
+        <td>{{ g.location|default_if_none:'' }}</td>
+        <td>{% if g.team1_score is not None and g.team2_score is not None %}{{ g.team1_score }} - {{ g.team2_score }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td><a class="btn" href="/hky/games/{{ g.id }}">Edit</a></td>
       </tr>
-    {% else %}
+    {% empty %}
       <tr><td colspan="6" class="muted">No games yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>
 {% endblock %}
-

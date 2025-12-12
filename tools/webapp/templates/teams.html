@@ -3,7 +3,9 @@
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
   <h2>Your Teams</h2>
   <div>
-    <a class="btn" href="/teams?all={{ 0 if include_external else 1 }}">{{ 'Hide' if include_external else 'Show' }} external</a>
+    <a class="btn" href="/teams?all={% if include_external %}0{% else %}1{% endif %}">
+      {% if include_external %}Hide{% else %}Show{% endif %} external
+    </a>
     <a class="btn primary" href="/teams/new" style="margin-left:.5rem">New team</a>
   </div>
 </div>
@@ -21,25 +23,23 @@
   </thead>
   <tbody>
     {% for t in teams %}
-    {% set s = stats.get(t['id'], {}) %}
       <tr>
         <td style="width:56px;">
-          {% if t['logo_path'] %}
-            <img src="/media/team_logo/{{ t['id'] }}" alt="logo" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" />
+          {% if t.logo_path %}
+            <img src="/media/team_logo/{{ t.id }}" alt="logo" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" />
           {% else %}
             <span class="muted">—</span>
           {% endif %}
         </td>
-        <td><a class="btn secondary" href="/teams/{{ t['id'] }}">{{ t['name'] }}</a>{% if t['is_external'] %} <span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}</td>
-        <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
-        <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
-        <td>{{ s.get('points',0) }}</td>
-        <td><a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a></td>
+        <td><a class="btn secondary" href="/teams/{{ t.id }}">{{ t.name }}</a>{% if t.is_external %} <span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}</td>
+        <td>{{ t.stats.wins }}-{{ t.stats.losses }}-{{ t.stats.ties }}</td>
+        <td>{{ t.stats.gf }}/{{ t.stats.ga }}</td>
+        <td>{{ t.stats.points }}</td>
+        <td><a class="btn" href="/teams/{{ t.id }}/edit">Edit</a></td>
       </tr>
-    {% else %}
+    {% empty %}
       <tr><td colspan="6" class="muted">No teams yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>
 {% endblock %}
-

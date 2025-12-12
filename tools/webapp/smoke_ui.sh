@@ -28,6 +28,17 @@ reqf() {
   curl -sS -c "$COOK_FILE" -b "$COOK_FILE" "$@"
 }
 
+csrf_header() {
+  if [ ! -f "$COOK_FILE" ]; then
+    return
+  fi
+  local token
+  token=$(awk '$6=="csrftoken"{token=$7} END{print token}' "$COOK_FILE" || true)
+  if [ -n "${token:-}" ]; then
+    printf 'X-CSRFToken: %s' "$token"
+  fi
+}
+
 assert_contains() {
   local needle="$1"; shift
   if ! grep -q "$needle"; then
@@ -49,7 +60,9 @@ EMAIL="smoke_$(date +%s)@example.com"
 NAME="Smoke User"
 PASS="smokepw123"
 echo "[i] Registering $EMAIL"
+reqf "$BASE/register" >/dev/null
 REG_RESP=$(curl -sS -i -c "$COOK_FILE" -b "$COOK_FILE" -X POST \
+  -H "$(csrf_header)" \
   -d "name=$NAME" -d "email=$EMAIL" -d "password=$PASS" \
   "$BASE/register")
 echo "$REG_RESP" | grep -q "^Location: /games" || true
@@ -73,7 +86,9 @@ base64 -d "$LOGO_B64" > "$LOGO_PNG"
 
 # 4) Create team with logo
 echo "[i] Creating team"
-HTML=$(reqf -L \
+reqf "$BASE/teams/new" >/dev/null
+HTML=$(curl -sS -L -c "$COOK_FILE" -b "$COOK_FILE" \
+  -H "$(csrf_header)" \
   -F "name=Smoke Team" \
   -F "logo=@$LOGO_PNG;type=image/png" \
   "$BASE/teams/new")
@@ -92,19 +107,19 @@ echo "[i] TEAM_ID=$TEAM_ID"
 
 # 6) Add a player
 echo "[i] Adding player"
-HTML=$(req POST -L \
+reqf "$BASE/teams/$TEAM_ID/players/new" >/dev/null
+HTML=$(curl -sS -L -c "$COOK_FILE" -b "$COOK_FILE" -X POST \
+  -H "$(csrf_header)" \
   -d "name=Smoke Skater" -d "jersey_number=77" -d "position=F" -d "shoots=R" \
   "$BASE/teams/$TEAM_ID/players/new")
 echo "$HTML" | assert_contains "Smoke Skater"
 
-# 7) Create a game (use first available game type)
-GT_ID=$(reqf "$BASE/schedule/new" | sed -n 's#.*<option value=\"\([0-9]\+\)\">[^<].*#\1#p' | head -n1)
-if [ -z "$GT_ID" ]; then echo "[!] No game type found" >&2; exit 1; fi
-echo "[i] GAME_TYPE=$GT_ID"
-
+# 7) Create a game (leave game_type unset for simplicity)
+reqf "$BASE/schedule/new" >/dev/null
 RESP=$(curl -sS -i -c "$COOK_FILE" -b "$COOK_FILE" -X POST \
+  -H "$(csrf_header)" \
   -d "team1_id=$TEAM_ID" -d "team2_id=" -d "opponent_name=Opp Smoke" \
-  -d "game_type_id=$GT_ID" -d "starts_at=2025-01-02T12:00" -d "location=Smoke Rink" \
+  -d "game_type_id=" -d "starts_at=2025-01-02T12:00" -d "location=Smoke Rink" \
   "$BASE/schedule/new")
 echo "$RESP" | assert_contains "^Location: /hky/games/"
 GAME_ID=$(echo "$RESP" | sed -n 's#Location: /hky/games/\([0-9]\+\).*#\1#p' | head -n1)
@@ -112,12 +127,14 @@ echo "[i] GAME_ID=$GAME_ID"
 
 # 8) Set final score
 echo "[i] Setting final score"
-req POST -L \
+reqf "$BASE/hky/games/$GAME_ID" >/dev/null
+curl -sS -c "$COOK_FILE" -b "$COOK_FILE" -X POST \
+  -H "$(csrf_header)" \
   -d "team1_score=6" -d "team2_score=3" -d "is_final=on" \
   "$BASE/hky/games/$GAME_ID" >/dev/null
 
 # 9) Verify team record updated
-REC=$(reqf "$BASE/teams" | sed -n 's#.*Smoke Team</a></td><td>\([0-9]\+-[0-9]\+-[0-9]\+\)</td>.*#\1#p' | head -n1)
+REC=$(reqf "$BASE/teams" | tr '\n' ' ' | sed -n 's#.*Smoke Team</a>[^0-9]*\([0-9]\+-[0-9]\+-[0-9]\+\)</td>.*#\1#p' | head -n1)
 echo "[i] Record: ${REC:-unknown}"
 if [ -z "$REC" ]; then
   echo "[!] Could not parse team record" >&2

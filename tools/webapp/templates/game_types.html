@@ -9,6 +9,7 @@
   <div class="card">
     <h3>Add Type</h3>
     <form method="post">
+      {% csrf_token %}
       <div class="form-row">
         <label class="muted">Name</label>
         <input type="text" name="name" placeholder="e.g. Playoffs" required>
@@ -20,12 +21,11 @@
     <h3>Existing</h3>
     <ul>
       {% for gt in game_types %}
-        <li>{{ gt['name'] }}{% if gt['is_default'] %} <span class="muted">(default)</span>{% endif %}</li>
-      {% else %}
+        <li>{{ gt.name }}{% if gt.is_default %} <span class="muted">(default)</span>{% endif %}</li>
+      {% empty %}
         <li class="muted">No types.</li>
       {% endfor %}
     </ul>
   </div>
 </div>
 {% endblock %}
-

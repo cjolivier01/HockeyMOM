@@ -1,29 +1,29 @@
 {% extends 'layout.html' %}
 {% block content %}
 <div class="card" style="max-width:640px;">
-  <h2>{{ 'Edit Player' if player else 'Add Player' }}</h2>
+  <h2>{% if player %}Edit Player{% else %}Add Player{% endif %}</h2>
   <form method="post">
+    {% csrf_token %}
     <div class="form-row">
       <label class="muted">Name</label>
-      <input type="text" name="name" value="{{ player['name'] if player else '' }}" required>
+      <input type="text" name="name" value="{{ player.name|default_if_none:'' }}" required>
     </div>
     <div class="form-row">
       <label class="muted">Jersey #</label>
-      <input type="text" name="jersey_number" value="{{ player['jersey_number'] if player else '' }}">
+      <input type="text" name="jersey_number" value="{{ player.jersey_number|default_if_none:'' }}">
     </div>
     <div class="form-row">
       <label class="muted">Position</label>
-      <input type="text" name="position" value="{{ player['position'] if player else '' }}" placeholder="F/D/G">
+      <input type="text" name="position" value="{{ player.position|default_if_none:'' }}" placeholder="F/D/G">
     </div>
     <div class="form-row">
       <label class="muted">Shoots</label>
-      <input type="text" name="shoots" value="{{ player['shoots'] if player else '' }}" placeholder="L/R">
+      <input type="text" name="shoots" value="{{ player.shoots|default_if_none:'' }}" placeholder="L/R">
     </div>
     <div>
       <button class="btn primary" type="submit">Save</button>
-      <a class="btn" href="/teams/{{ team['id'] }}">Cancel</a>
+      <a class="btn" href="/teams/{{ team.id }}">Cancel</a>
     </div>
   </form>
 </div>
 {% endblock %}
-

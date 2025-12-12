@@ -13,6 +13,7 @@
           <td>{{ m.role }}</td>
           <td>
             <form method="post" action="/leagues/{{ league_id }}/members/remove" style="display:inline">
+              {% csrf_token %}
               <input type="hidden" name="user_id" value="{{ m.id }}" />
               <button type="submit">Remove</button>
             </form>
@@ -28,6 +29,7 @@
 <div class="card">
   <h3>Add Member</h3>
   <form method="post" action="/leagues/{{ league_id }}/members">
+    {% csrf_token %}
     <label>Email</label>
     <input type="email" name="email" required />
     <label>Role</label>
@@ -42,4 +44,3 @@
 </div>
 
 {% endblock %}
-

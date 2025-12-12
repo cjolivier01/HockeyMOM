@@ -3,6 +3,7 @@
 <div class="card" style="max-width:520px;">
   <h2>Create Team</h2>
   <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
     <div class="form-row">
       <label class="muted">Team name</label>
       <input type="text" name="name" placeholder="e.g. Thunderbirds 12U" required>
@@ -18,4 +19,3 @@
   </form>
   </div>
 {% endblock %}
-

@@ -13,6 +13,7 @@
           {% if L.is_admin %} — <a href="/leagues/{{ L.id }}/members">Manage Members</a>{% endif %}
           {% if L.is_owner %}
             — <form method="post" action="/leagues/{{ L.id }}/delete" style="display:inline" onsubmit="return confirm('This will delete the league and its data. Continue?')">
+                {% csrf_token %}
                 <button type="submit">Delete League</button>
               </form>
           {% endif %}
@@ -27,6 +28,7 @@
 <div class="card">
   <h3>Create League</h3>
   <form method="post" action="/leagues/new">
+    {% csrf_token %}
     <label>Name</label>
     <input type="text" name="name" required />
     <label><input type="checkbox" name="is_shared" value="1" /> Shared league</label>
@@ -36,6 +38,7 @@
   <p class="muted">Use the League selector in the header to switch active context.</p>
   <p><a href="/leagues">Refresh</a></p>
   <form method="post" action="/league/select" style="margin-top:8px;">
+    {% csrf_token %}
     <label>Switch Active League</label>
     <select name="league_id">
       <option value="">(My Data)</option>

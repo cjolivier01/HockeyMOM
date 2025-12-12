@@ -4,6 +4,7 @@
   <div class="card" style="max-width:520px;">
     <h2>Create account</h2>
     <form method="post">
+      {% csrf_token %}
       <div class="form-row">
         <label class="muted">Name</label>
         <input type="text" name="name" placeholder="Your name (optional)">

@@ -4,6 +4,7 @@
   <div class="card" style="max-width:520px;">
     <h2>Sign in</h2>
     <form method="post">
+      {% csrf_token %}
       <div class="form-row">
         <label class="muted">Email</label>
         <input type="email" name="email" placeholder="you@example.com" required>

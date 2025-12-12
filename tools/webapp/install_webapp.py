@@ -16,7 +16,7 @@ def sudo_write_text(path: str | Path, content: str):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Install HM WebApp (Flask + Nginx)")
+    ap = argparse.ArgumentParser(description="Install HM WebApp (Django + Nginx)")
     ap.add_argument("--install-root", default="/opt/hm-webapp")
     ap.add_argument("--user", default=os.environ.get("SUDO_USER") or os.environ.get("USER"))
     ap.add_argument("--watch-root", default="/data/incoming")
@@ -49,6 +49,8 @@ def main():
     print("Copying webapp code...")
     subprocess.check_call(["sudo", "mkdir", "-p", str(app_dir)])
     _do_copy(repo_root / "tools/webapp/app.py", app_dir / "app.py")
+    _do_copy(repo_root / "tools/webapp/manage.py", app_dir / "manage.py")
+    _do_copy(repo_root / "tools/webapp/hmwebapp", app_dir / "hmwebapp")
     subprocess.check_call(["sudo", "mkdir", "-p", str(templates_dir)])
     for t in (repo_root / "tools/webapp/templates").glob("*.html"):
         _do_copy(t, templates_dir / t.name)
@@ -105,7 +107,7 @@ def main():
             args.user,
             "bash",
             "-lc",
-            f"{python_bin} -m pip install --upgrade pip wheel flask gunicorn werkzeug pymysql",
+            f"{python_bin} -m pip install --upgrade pip wheel django gunicorn werkzeug pymysql",
         ]
     )
 
@@ -137,7 +139,7 @@ FLUSH PRIVILEGES;
     print("Writing systemd service...")
     unit = f"""
 [Unit]
-Description=HM WebApp (Flask via gunicorn)
+Description=HM WebApp (Django via gunicorn)
 After=network-online.target
 Wants=network-online.target
 
@@ -150,6 +152,7 @@ Environment=HM_WATCH_ROOT={args.watch_root}
 Environment=MSMTP_CONFIG=/etc/msmtprc
 Environment=MSMTPRC=/etc/msmtprc
 Environment=HM_DB_CONFIG={app_dir}/config.json
+Environment=DJANGO_SETTINGS_MODULE=hmwebapp.settings
 WorkingDirectory={app_dir}
 ExecStart={python_bin} -m gunicorn -b 127.0.0.1:{args.port} app:app
 Restart=on-failure

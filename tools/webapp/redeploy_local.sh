@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Re-deploy updated HM WebApp code to system install and restart services.
-# - Copies app.py, templates, static to /opt/hm-webapp/app
+# Re-deploy updated HM WebApp code (Django) to system install and restart services.
+# - Copies app.py, manage.py, hmwebapp/, templates, static to /opt/hm-webapp/app
 # - Restarts hm-webapp and nginx
 # - Optionally runs the smoke UI script when RUN_SMOKE=1
 #
@@ -18,8 +18,11 @@ if [ ! -d "$APP_DIR" ]; then
   exit 1
 fi
 
-echo "[i] Copying app.py, templates, and static to $APP_DIR (sudo required)"
+echo "[i] Copying Django app code, templates, and static to $APP_DIR (sudo required)"
 sudo install -m 0644 -D tools/webapp/app.py "$APP_DIR/app.py"
+sudo install -m 0755 -D tools/webapp/manage.py "$APP_DIR/manage.py"
+sudo mkdir -p "$APP_DIR/hmwebapp"
+sudo rsync -a tools/webapp/hmwebapp/ "$APP_DIR/hmwebapp/"
 sudo mkdir -p "$APP_DIR/templates" "$APP_DIR/static"
 sudo rsync -a tools/webapp/templates/ "$APP_DIR/templates/"
 sudo rsync -a tools/webapp/static/ "$APP_DIR/static/"
@@ -43,4 +46,3 @@ if [ "$SMOKE" = "1" ]; then
 fi
 
 echo "[ok] Redeploy complete"
-

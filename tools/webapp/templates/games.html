@@ -9,12 +9,15 @@
   <thead><tr><th>Name</th><th>Directory</th><th>Status</th><th>Created</th></tr></thead>
   <tbody>
     {% for g in games %}
-      {% set st = state.get('processed', {}).get(g['dir_path'], {}).get('status') or g['status'] %}
       <tr>
-        <td><a class="btn secondary" href="/games/{{ g['id'] }}">{{ g['name'] }}</a></td>
-        <td><code>{{ g['dir_path'] }}</code></td>
-        <td><span class="status-badge status-{{ (st or '')|upper }}">{{ st or '' }}</span></td>
-        <td>{{ g['created_at'] }}</td>
+        <td><a class="btn secondary" href="/games/{{ g.id }}">{{ g.name }}</a></td>
+        <td><code>{{ g.dir_path }}</code></td>
+        <td>
+          {% with st=g.latest_status %}
+            <span class="status-badge status-{{ st|default_if_none:''|upper }}">{{ st|default_if_none:'' }}</span>
+          {% endwith %}
+        </td>
+        <td>{{ g.created_at }}</td>
       </tr>
     {% endfor %}
   </tbody>
