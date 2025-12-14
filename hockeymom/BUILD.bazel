@@ -30,13 +30,12 @@ genrule(
   visibility = ["//visibility:public"],
 )
 
-genrule(
-  name = "link_ext",
-  srcs = [":hockeymom_ext"],
-  tools = ["scripts/link_ext.py"],
-  outs = ["link_ext.stamp"],
-  cmd = "$(location scripts/link_ext.py) %s && echo linked > $@" % SOABI,
-  tags = ["manual"],
+py_binary(
+    name = "link_ext",
+    srcs = ["scripts/link_ext.py"],
+    data = [":hockeymom_ext"],
+    args = [SOABI],
+    tags = ["manual"],
 )
 
 py_wheel(
@@ -59,10 +58,7 @@ py_wheel(
 
 py_library(
   name = "hockeymom",
-  data = [
-    ":hockeymom_ext",
-    ":link_ext",
-  ],
+  data = [":hockeymom_ext"],
   srcs = [
     "__init__.py",
     "core.py",
