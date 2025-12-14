@@ -528,7 +528,7 @@ def get_best_resize_mode(
     w1: int, h1: int, w2: int, h2: int, interpolate: bool = False, verbose: bool = True
 ) -> Union[int, str]:
     if h2 & 1 != 0 and w2 & 1 != 0:
-        print(f"Why are yopu resizing to odd dimensions? {w1}x{h1} -> {w2}x{h2}")
+        print(f"Why are you resizing to odd dimensions? {w1}x{h1} -> {w2}x{h2}")
     if w1 > w2:
         # Just a sanity check assumign we aren't
         # purposely trying to distort
