@@ -535,7 +535,7 @@ def get_best_resize_mode(
             if verbose:
                 # Maybe you have a one-off match error somewhere
                 # causing an expensive resize?
-                logger.warning(f"PERF WARNING: Almost trvial resize from {w1}x{h1} -> {w2}x{h2}")
+                logger.warning(f"PERF WARNING: Almost trival resize from {w1}x{h1} -> {w2}x{h2}")
         # Downsampling
         # return F.InterpolationMode.BOX
         return "area"
