@@ -20,10 +20,11 @@ import networkx as nx
 import torch
 
 from hmlib.aspen.plugins.base import Plugin
+from hmlib.log import get_logger
 from hmlib.utils.containers import SidebandQueue as Queue
 from hmlib.utils.containers import create_queue
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 
 @dataclass
@@ -514,18 +515,6 @@ class AspenNet(torch.nn.Module):
                 )
                 thread.start()
                 self.threads.append(thread)
-
-            # queues[0].put(context)
-            # result = queues[-1].get()
-            # try:
-            #     if isinstance(result, _ExceptionWrapper):
-            #         result.reraise()
-            #     return result
-            # finally:
-            #     if threads:
-            #         queues[0].put(stop_token)
-            #     for thread in threads:
-            #         thread.join()
         while self.num_concurrent >= self.max_concurrent:
             time.sleep(0.01)
         self.queues[0].put(context)
