@@ -553,8 +553,11 @@ def get_best_resize_mode(
     elif w1 == w2:
         # Just a sanity check assumign we aren't
         # purposely trying to distort
-        assert h1 == h2
+        # In order to have even height/width, we may have a 1 pixel difference
+        assert abs(h1 - h2) <= 1
         return None
+    # Make sure we're resizing to even dimensions
+    assert h2 & 1 == 0 and w2 & 1 == 0
     assert False and "Should not get here"
     return "bilinear"
 
