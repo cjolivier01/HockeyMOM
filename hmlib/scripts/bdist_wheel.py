@@ -4,6 +4,11 @@ import glob
 import os
 import shutil
 
+from hmlib.log import get_logger
+
+
+logger = get_logger(__name__)
+
 
 def find_wheel(name: str):
     # Look for wheel in various possible locations
@@ -33,7 +38,7 @@ def find_wheel(name: str):
 def main(name: str):
     wheel_path = find_wheel(name=name)
     if not wheel_path:
-        print("Error: Could not find wheel file")
+        logger.error("Error: Could not find wheel file")
         return 1
 
     # Get workspace root
@@ -49,7 +54,7 @@ def main(name: str):
     shutil.copy2(wheel_path, dest_path)
     os.chmod(dest_path, 0o644)
     # Remove execute flag
-    print(f"Installed {wheel_name} to {dist_dir}/")
+    logger.info("Installed %s to %s/", wheel_name, dist_dir)
     return 0
 
 

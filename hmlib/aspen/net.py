@@ -6,7 +6,6 @@ topological order while sharing a mutable context dictionary.
 
 import contextlib
 import importlib
-import logging
 import os
 import re
 import shutil
@@ -24,7 +23,7 @@ from hmlib.log import get_logger
 from hmlib.utils.containers import SidebandQueue as Queue
 from hmlib.utils.containers import create_queue
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 
 @dataclass

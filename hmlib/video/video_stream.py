@@ -592,7 +592,9 @@ class CVVideoCaptureIterator:
 
     def __del__(self):
         if hasattr(self, "frames_delivered_count") and self.frames_delivered_count:
-            logger.info(f"CVVideoCaptureIterator delivered {self.frames_delivered_count} frames")
+            logger.info(
+                "CVVideoCaptureIterator delivered %d frames", self.frames_delivered_count
+            )
 
 
 class VideoReaderIterator:

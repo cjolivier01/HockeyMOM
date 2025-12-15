@@ -909,7 +909,7 @@ class hm_opts(object):
         parser.add_argument(
             "--progress-bar-lines",
             type=int,
-            default=4,
+            default=11,
             help="Number of logging lines in the progrsss bar",
         )
         parser.add_argument(

@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 import torch
 from mmengine.structures import InstanceData
 
+from hmlib.log import get_logger
 from .base import Plugin
 
 
@@ -297,7 +298,7 @@ class IceRinkSegmConfigPlugin(Plugin):
                     image=frame0,
                 )
             except Exception as ex:
-                print(ex)
+                get_logger(__name__).exception("Failed to configure ice rink mask: %s", ex)
                 self._rink_profile = None
         results = dict(data=data)
         if self._rink_profile is not None:

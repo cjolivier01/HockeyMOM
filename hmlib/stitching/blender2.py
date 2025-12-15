@@ -6,7 +6,6 @@ and optional Laplacian blending via :class:`hmlib.stitching.laplacian_blend.Lapl
 
 import argparse
 import datetime
-import logging
 import os
 import traceback
 from collections import OrderedDict
@@ -43,7 +42,9 @@ except Exception:
 
 ROOT_DIR = os.getcwd()
 
-logger = logging.getLogger(__name__)
+from hmlib.log import get_logger
+
+logger = get_logger(__name__)
 
 
 def make_parser():

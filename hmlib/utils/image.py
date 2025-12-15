@@ -528,7 +528,9 @@ def get_best_resize_mode(
     w1: int, h1: int, w2: int, h2: int, interpolate: bool = False, verbose: bool = True
 ) -> Union[int, str]:
     if h2 & 1 != 0 and w2 & 1 != 0:
-        logger.warning(f"Why are you resizing to odd dimensions? {w1}x{h1} -> {w2}x{h2}")
+        logger.warning(
+            "Why are you resizing to odd dimensions? %dx%d -> %dx%d", w1, h1, w2, h2
+        )
     if w1 > w2:
         # Just a sanity check assumign we aren't
         # purposely trying to distort
@@ -537,7 +539,13 @@ def get_best_resize_mode(
             if verbose:
                 # Maybe you have a one-off match error somewhere
                 # causing an expensive resize?
-                logger.warning(f"PERF WARNING: Almost trival resize from {w1}x{h1} -> {w2}x{h2}")
+                logger.warning(
+                    "PERF WARNING: Almost trival resize from %dx%d -> %dx%d",
+                    w1,
+                    h1,
+                    w2,
+                    h2,
+                )
         # Downsampling
         # return F.InterpolationMode.BOX
         return "area"
@@ -549,7 +557,13 @@ def get_best_resize_mode(
             if verbose:
                 # Maybe you have a one-off match error somewhere
                 # causing an expensive resize?
-                logger.warning(f"PERF WARNING: Almost trivial resize from {w1}x{h1} -> {w2}x{h2}")
+                logger.warning(
+                    "PERF WARNING: Almost trivial resize from %dx%d -> %dx%d",
+                    w1,
+                    h1,
+                    w2,
+                    h2,
+                )
         # Upsampling
         return "bilinear"
     elif w1 == w2:

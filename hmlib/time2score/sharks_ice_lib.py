@@ -9,12 +9,17 @@ import numpy as np
 import pandas as pd
 import util
 
+from hmlib.log import get_logger
+
 TIMETOSCORE_URL = "https://stats.sharksice.timetoscore.com/"
 TEAM_URL = TIMETOSCORE_URL + "display-schedule"
 GAME_URL = TIMETOSCORE_URL + "oss-scoresheet"
 DIVISION_URL = TIMETOSCORE_URL + "display-league-stats"
 MAIN_STATS_URL = TIMETOSCORE_URL + "display-stats.php"
 CALENDAR = "webcal://stats.sharksice.timetoscore.com/team-cal.php?team={team}&tlev=0&tseq=0&season={season}&format=iCal"
+
+logger = get_logger(__name__)
+
 
 td_selectors = dict(
     # Game stats
@@ -429,14 +434,14 @@ def sync_seasons(db: database.Database):
 def sync_divisions(db: database.Database, season: int):
     """Sync divisions from site."""
     divs = scrape_season_divisions(season_id=season)
-    print("Found %d divisions in season %s..." % (len(divs), season))
+    logger.info("Found %d divisions in season %s...", len(divs), season)
     for div in divs:
         db.add_division(
             division_id=div["id"],
             conference_id=div["conferenceId"],
             name=div["name"],
         )
-        print("%s teams in %s" % (len(div["teams"]), div["name"]))
+        logger.info("%s teams in %s", len(div["teams"]), div["name"])
         for team in div["teams"]:
             team_id = team.pop("id")
             team_name = team.pop("name")
@@ -455,7 +460,7 @@ def get_team_or_unknown(db: database.Database, team_name: str, season: int):
     try:
         team_id = get_team_id(db, team_name, season)
     except ValueError as e:
-        print(e)
+        logger.warning("Unknown team '%s' in season %s: %s", team_name, season, e)
         db.add_season(season_id=-1, name="UNKNOWN")
         db.add_division(division_id=-1, conference_id=-1, name="UNKNOWN")
         team_id = -1
@@ -507,7 +512,7 @@ def sync_season_teams(db: database.Database, season: int):
     teams = db.list_teams("season_id = %d" % season)
     game_ids = set()
     for team in teams:
-        print("Syncing %s season %d..." % (team["name"], season))
+        logger.info("Syncing %s season %d...", team["name"], season)
         team_info = get_team(season_id=season, team_id=team["team_id"])
         games = team_info.pop("games", [])
         for game in games:
@@ -524,7 +529,7 @@ def sync_game_stats(db: database.Database):
             try:
                 stats = scrape_game_stats(game["game_id"])
             except Exception as e:
-                print(e)
+                logger.exception("Failed to scrape game stats: %s", e)
                 continue
             db.add_game_stats(game["game_id"], stats)
 

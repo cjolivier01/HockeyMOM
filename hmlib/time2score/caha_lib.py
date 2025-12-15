@@ -13,6 +13,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from hmlib.log import get_logger
+
 from . import util
 from .database import Database
 
@@ -26,6 +28,9 @@ MAIN_STATS_URL = TIMETOSCORE_URL + "display-stats"
 # CAHA youth league id
 CAHA_LEAGUE = 3
 STAT_CLASS = 1  # youth
+
+
+logger = get_logger(__name__)
 
 
 td_selectors = dict(
@@ -515,10 +520,10 @@ def sync_seasons(db: Database):
 def sync_divisions(db: Database, season: int):
     """Sync divisions from CAHA site."""
     divs = scrape_season_divisions(season_id=season)
-    print("Found %d divisions in season %s..." % (len(divs), season))
+    logger.info("Found %d divisions in season %s...", len(divs), season)
     for div in divs:
         db.add_division(division_id=div["id"], conference_id=div["conferenceId"], name=div["name"])
-        print("%s teams in %s" % (len(div["teams"]), div["name"]))
+        logger.info("%s teams in %s", len(div["teams"]), div["name"])
         for team in div["teams"]:
             team_id = team.pop("id")
             team_name = team.pop("name")
@@ -569,7 +574,7 @@ def get_team_or_unknown(
     try:
         team_id = get_team_id(db, team_name, season, division_id, conference_id)
     except ValueError as e:
-        print(e)
+        logger.warning("Unknown team '%s' in season %s: %s", team_name, season, e)
         db.add_season(season_id=-1, name="UNKNOWN")
         db.add_division(division_id=-1, conference_id=-1, name="UNKNOWN")
         team_id = -1
@@ -616,7 +621,7 @@ def sync_season_teams(db: Database, season: int):
     teams = db.list_teams("season_id = %d" % season)
     game_ids: set[int] = set()
     for team in teams:
-        print("Syncing %s season %d..." % (team["name"], season))
+        logger.info("Syncing %s season %d...", team["name"], season)
         team_info = get_team(season_id=season, team_id=team["team_id"])  # type: ignore[arg-type]
         games = team_info.pop("games", [])
         for game in games:
@@ -633,7 +638,7 @@ def sync_game_stats(db: Database):
             try:
                 stats = scrape_game_stats(game["game_id"])  # type: ignore[arg-type]
             except Exception as e:  # Broad skip; remote data may be missing
-                print(e)
+                logger.exception("Failed to scrape game stats: %s", e)
                 continue
             db.add_game_stats(game["game_id"], stats)  # type: ignore[arg-type]
 

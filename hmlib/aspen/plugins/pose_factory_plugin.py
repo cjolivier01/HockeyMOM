@@ -478,7 +478,9 @@ class _TrtPoseRunner:
                 pass
             self._trt_module = trt_mod
         except Exception as ex:
-            print(f"TRT build for pose failed: {ex}")
+            from hmlib.log import get_logger
+
+            get_logger(__name__).warning("TRT build for pose failed: %s", ex)
 
     def _maybe_build_int8(self, sample_shape: torch.Size, sample_dtype: torch.dtype):
         if self._trt_module is not None:
@@ -526,7 +528,11 @@ class _TrtPoseRunner:
             self._trt_module = trt_mod
         except Exception as ex:
             # Fallback: try building non-int8 engine to proceed
-            print(f"Pose INT8 build failed, falling back to non-INT8: {ex}")
+            from hmlib.log import get_logger
+
+            get_logger(__name__).warning(
+                "Pose INT8 build failed, falling back to non-INT8: %s", ex
+            )
             try:
                 with torch.inference_mode():
                     trt_mod = torch2trt.torch2trt(

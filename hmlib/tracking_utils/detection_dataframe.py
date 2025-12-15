@@ -119,7 +119,9 @@ class DetectionDataFrame(HmDataFrameBase):
         if self.data is not None and not self.data.empty:
             return self.data[self.data["Frame"] == frame_number]
         else:
-            print("No data loaded.")
+            from hmlib.log import get_logger
+
+            get_logger(__name__).warning("No data loaded.")
             return None
 
     def _to_outgoing_array(self, array: np.ndarray) -> np.ndarray:

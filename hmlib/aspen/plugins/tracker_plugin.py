@@ -1,4 +1,3 @@
-import logging
 from importlib import import_module
 from typing import Any, Dict, Optional, Tuple
 
@@ -6,11 +5,12 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
+from hmlib.log import get_logger
 from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Plugin
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class TrackerPlugin(Plugin):

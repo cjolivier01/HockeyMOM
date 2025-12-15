@@ -19,6 +19,7 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
+from hmlib.log import get_logger
 from hmlib.utils.utils import classinstancememoize
 
 libc = ctypes.CDLL("libc.so.6")
@@ -102,8 +103,10 @@ class BasicVideoInfo:
                     raise AssertionError(f"Unable to get video stream from file: {video_file}")
                 elif len(probe.video) > 1:
                     # DJI camera has other weird streams, so just warn and use the first one
-                    print(
-                        f"Found too many ({len(probe.video)}) video streams in file: {video_file}, using the first one only"
+                    get_logger(__name__).warning(
+                        "Found too many (%d) video streams in file: %s; using the first one only",
+                        len(probe.video),
+                        video_file,
                     )
                     # raise AssertionError(
                     #     f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
@@ -183,21 +186,26 @@ def duration_to_seconds(duration_str):
 def print_ffmpeg_info():
     from torchio.utils import ffmpeg_utils
 
-    print("Library versions:")
-    print(ffmpeg_utils.get_versions())
-    print("\nBuild config:")
-    print(ffmpeg_utils.get_build_config())
-    print("\nDecoders:")
-    print([k for k in ffmpeg_utils.get_video_decoders().keys() if "cuvid" in k])
-    print("\nEncoders:")
-    print([k for k in ffmpeg_utils.get_video_encoders().keys() if "nvenc" in k])
+    logger = get_logger(__name__)
+    logger.info("Library versions: %s", ffmpeg_utils.get_versions())
+    logger.info("Build config: %s", ffmpeg_utils.get_build_config())
+    logger.info(
+        "Cuvid decoders: %s",
+        [k for k in ffmpeg_utils.get_video_decoders().keys() if "cuvid" in k],
+    )
+    logger.info(
+        "Nvenc encoders: %s",
+        [k for k in ffmpeg_utils.get_video_encoders().keys() if "nvenc" in k],
+    )
 
 
 def copy_audio(original_video: str, soundless_video: str, final_audio_video: str):
     # attach audio to new video
-    cmd_str = f"ffmpeg -i {original_video} -i {soundless_video} -c:v copy -c:a copy "
-    f"-strict experimental -map 1:v:0 -map 0:a:0 -shortest {final_audio_video}"
-    print(cmd_str)
+    cmd_str = (
+        f"ffmpeg -i {original_video} -i {soundless_video} -c:v copy -c:a copy "
+        f"-strict experimental -map 1:v:0 -map 0:a:0 -shortest {final_audio_video}"
+    )
+    get_logger(__name__).info("Running ffmpeg command: %s", cmd_str)
     os.system(cmd_str)
 
 

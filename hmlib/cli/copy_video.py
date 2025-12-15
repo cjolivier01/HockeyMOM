@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from hmlib.config import get_game_dir
+from hmlib.log import get_logger
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.hm_opts import hm_opts
 from hmlib.orientation import configure_game_videos
@@ -26,6 +27,8 @@ from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamWriter
 
 ROOT_DIR = os.getcwd()
+
+logger = get_logger(__name__)
 
 
 def make_parser():
@@ -184,7 +187,7 @@ def copy_video(
 
     video_out = _open_output_video(_output_file_name(split_number))
     if video_out is None:
-        print("No saving the output video.")
+        logger.info("Not saving the output video (no output path configured).")
 
     v_iter = CachedIterator(
         iterator=iter(dataloader),
@@ -264,16 +267,16 @@ def copy_video(
                 if batch_count % 50 == 0:
                     fps = batch_size * 1.0 / max(1e-5, io_timer.average_time)
                     all_fps.append(fps)
-                    print("IO:        {:.2f} fps".format(fps))
+                    logger.info("IO:        %.2f fps", fps)
                     fps = batch_size * 1.0 / max(1e-5, get_timer.average_time)
                     all_fps.append(fps)
-                    print("get():     {:.2f} fps".format(fps))
+                    logger.info("get():     %.2f fps", fps)
                     if True and batch_count % 50 == 0:
                         io_timer = Timer()
                         get_timer = Timer()
-                    print(f"Combined fps: {calc_combined_fps(all_fps):.2f}")
+                    logger.info("Combined fps: %.2f", calc_combined_fps(all_fps))
         except StopIteration:
-            print("Done.")
+            logger.info("Done.")
         finally:
             if video_out is not None:
                 if isinstance(video_out, VideoStreamWriter):
@@ -333,4 +336,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    print("Done.")
+    logger.info("Done.")

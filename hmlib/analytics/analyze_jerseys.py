@@ -19,6 +19,7 @@ from hmlib.analytics.play_breaks import find_low_velocity_ranges
 from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.datasets.dataframe import json_to_dataclass
 from hmlib.jersey.number_classifier import TrackJerseyInfo
+from hmlib.log import get_logger
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.time import format_duration_to_hhmmss
 
@@ -420,7 +421,9 @@ def analyze_data(
         while True:
 
             if max_frame_id > 0 and last_frame_id > max_frame_id:
-                print(f"Early exit at max frame id {last_frame_id}")
+                get_logger(__name__).info(
+                    "Early exit at max frame id %d", last_frame_id
+                )
                 break
 
             # Items are frame_id, tracking_id, ...
@@ -435,7 +438,9 @@ def analyze_data(
                 jersey_item = json_to_dataclass(player_tracking_item.JerseyInfo, TrackJerseyInfo)
                 if jersey_item.tracking_id < 0:
                     # Add bad use-case json string for speedy skipping
-                    print(f"Ignoring jersey record case: {player_tracking_item.JerseyInfo}")
+                    get_logger(__name__).info(
+                        "Ignoring jersey record case: %s", player_tracking_item.JerseyInfo
+                    )
                     empty_json_set.add(player_tracking_item.JerseyInfo)
                     jersey_item = None
                 else:
@@ -482,14 +487,17 @@ def analyze_data(
                     auto_dict(tracking_id_frame_and_numbers, tracking_id)[frame_id] = number
                     if number not in seen_numbers:
                         seen_numbers.add(number)
-                        print(f"First sighting of number {number} at frame {frame_id}")
+                        get_logger(__name__).info(
+                            "First sighting of number %d at frame %d", number, frame_id
+                        )
 
     except StopIteration:
-        print(f"Finished reading {item_count} items")
+        get_logger(__name__).info("Finished reading %d items", item_count)
     except Exception:
         traceback.print_exc()
-    print(f"Unique player numbers seen: {len(seen_numbers)}")
-    print(f"Tracks seen with numbers: {len(tracking_id_to_numbers)}")
+    logger = get_logger(__name__)
+    logger.info("Unique player numbers seen: %d", len(seen_numbers))
+    logger.info("Tracks seen with numbers: %d", len(tracking_id_to_numbers))
 
     crowded_periods = find_crowded_periods(
         frame_tracks=frame_to_tracking_ids,
@@ -498,7 +506,7 @@ def analyze_data(
         min_duration=1.0,
         occupancy_threshold=0.4,
     )
-    print(crowded_periods)
+    logger.info("Crowded periods: %s", crowded_periods)
 
     period_intervals = {
         "min_velocity": 0.2,
@@ -662,20 +670,26 @@ def assign_numbers_to_intervals(
 def show_frame_intervals(intervals: List[Tuple[int, int]], fps: float) -> None:
     time_ranges: List[Tuple[float, float]] = frames_to_seconds(intervals, fps)
 
+    logger = get_logger(__name__)
     for start_s, duration_s in time_ranges:
         start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
-        print(f"{start_hhmmss} for {int(duration_s * 10)/10} seconds")
+        logger.info(
+            "%s for %.1f seconds", start_hhmmss, int(duration_s * 10) / 10
+        )
 
 
 def show_time_intervals(label: str, intervals: List[Tuple[float, float]]) -> None:
+    logger = get_logger(__name__)
     if intervals and label:
-        print("---------------------------------------------")
-        print(f"- {label}")
-        print("---------------------------------------------")
+        logger.info("---------------------------------------------")
+        logger.info("- %s", label)
+        logger.info("---------------------------------------------")
     for start_s, duration_s in intervals:
         start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
-        print(f"{start_hhmmss} for {int(duration_s * 10)/10} seconds")
-    print("---------------------------------------------")
+        logger.info(
+            "%s for %.1f seconds", start_hhmmss, int(duration_s * 10) / 10
+        )
+    logger.info("---------------------------------------------")
 
 
 def frames_to_seconds(
