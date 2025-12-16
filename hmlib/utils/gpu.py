@@ -72,7 +72,7 @@ class GpuAllocator:
 
         self._all_gpu_info = get_gpu_capabilities()
         for i, gpu_info in enumerate(self._all_gpu_info):
-            print(f"GPU {i}: {gpu_info['name']}")
+            logger.info("GPU %d: %s", i, gpu_info["name"])
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
         return self._all_gpu_info[index]
@@ -655,7 +655,7 @@ def select_gpus(
             if device.type != "cuda":
                 continue
             name = gpu_allocator[device.index]["name"]
-            print(f"{k} device: {device} ({name})")
+            logger.info("%s device: %s (%s)", k, device, name)
 
     return gpus, gpu_allocator.is_single_lowmem_gpu(), gpu_allocator
 

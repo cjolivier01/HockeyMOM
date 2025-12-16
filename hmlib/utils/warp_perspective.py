@@ -9,6 +9,8 @@ from typing import Optional, Tuple
 import torch
 import torch.nn.functional as F
 
+from hmlib.log import get_logger
+
 
 def check_is_tensor(obj):
     """Checks whether the supplied object is a tensor."""
@@ -259,10 +261,10 @@ def warp_perspective(
 
     # TODO: remove the statement below in kornia v0.6
     if align_corners is None:
-        print(
-            "The align_corners default value has been changed. By default now is set True "
-            "in order to match cv2.warpPerspective. In case you want to keep your previous "
-            "behaviour set it to False. This warning will disappear in kornia > v0.6."
+        get_logger(__name__).warning(
+            "The align_corners default value has changed; it now defaults to True to "
+            "match cv2.warpPerspective. Set align_corners=False to restore the previous "
+            "behaviour. This warning will disappear in kornia > v0.6."
         )
         # set default value for align corners
         align_corners = True

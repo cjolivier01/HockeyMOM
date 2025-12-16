@@ -1,6 +1,5 @@
 import argparse
 import copy
-import logging
 import os
 import shutil
 
@@ -1119,8 +1118,8 @@ def tensor_to_image(tensor: torch.Tensor):  ##
 
 
 def setup_logging():
-    mm_logger = get_root_logger(level=logging.INFO)
-    mm_logger.setLevel(logging.INFO)
+    root_logger = get_root_logger()
+    root_logger.setLevel(20)
 
 
 def main():

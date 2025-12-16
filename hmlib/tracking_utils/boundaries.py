@@ -252,7 +252,11 @@ class BoundaryLines:
         if self._passes % 50 == 0:
             fps = self._passes / self._duration
             if fps < 50:
-                print(f"Boundary pruning speed: {self._passes/self._duration} fps")
+                from hmlib.log import get_logger
+
+                get_logger(__name__).info(
+                    "Boundary pruning speed: %f fps", self._passes / self._duration
+                )
             self._passes = 0
             self._duration = 0
         return data

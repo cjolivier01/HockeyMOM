@@ -84,12 +84,22 @@ class HmCropToVideoFrame:
             assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
             if y1 > src_image_height or y2 > src_image_height:
                 assert False
-                logger.info(f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}")
+                logger.info(
+                    "y1 (%d) or y2 (%d) is too large, should be < %d",
+                    y1,
+                    y2,
+                    src_image_height,
+                )
                 y1 = min(y1, src_image_height)
                 y2 = min(y2, src_image_height)
             if x1 > src_image_width or x2 > src_image_width:
                 assert False
-                logger.info(f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}")
+                logger.info(
+                    "x1 (%d) or x2 (%d) is too large, should be < %d",
+                    x1,
+                    x2,
+                    src_image_width,
+                )
                 x1 = min(x1, src_image_width)
                 x2 = min(x2, src_image_width)
 

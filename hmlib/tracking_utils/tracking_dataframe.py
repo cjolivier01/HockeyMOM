@@ -80,7 +80,11 @@ class TrackingDataFrame(HmDataFrameBase):
                 # assert j_t_id not in jersey_dict
                 if j_t_id in jersey_dict:
                     # why does this happen?
-                    print(f"Ignoring duplicate jersey tracking id {jersey_dict}")
+                    from hmlib.log import get_logger
+
+                    get_logger(__name__).info(
+                        "Ignoring duplicate jersey tracking id %s", jersey_dict
+                    )
                 jersey_dict[j_t_id] = dataclass_to_json(j_info)
 
         def _jersey_item(id: int) -> str:
@@ -150,7 +154,9 @@ class TrackingDataFrame(HmDataFrameBase):
         if not self.data.empty:
             return self.data[self.data["Frame"] == frame_number]
         else:
-            print("No data loaded.")
+            from hmlib.log import get_logger
+
+            get_logger(__name__).warning("No data loaded.")
             return None
 
     def get_data_dict_by_frame(self, frame_id: int) -> Dict[str, Any]:

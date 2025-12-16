@@ -5,6 +5,11 @@ import json
 import sqlite3
 from typing import Any
 
+from hmlib.log import get_logger
+
+
+_logger = get_logger(__name__)
+
 
 # Connect to the database (or create it if it doesn't exist)
 class Database:
@@ -212,7 +217,7 @@ class Database:
             elif existing["name"] == name:
                 return existing
             else:
-                print("Overwriting season %s with %s" % (existing, (season_id, name)))
+                _logger.info("Overwriting season %s with %s", existing, (season_id, name))
 
         query = "INSERT OR REPLACE INTO SEASONS (season_id, name) VALUES (?, ?)"
 
@@ -233,7 +238,7 @@ class Database:
             if existing["name"] == name:
                 return existing
             else:
-                print("Overwriting div %s with %s" % (existing["name"], name))
+                _logger.info("Overwriting div %s with %s", existing["name"], name)
 
         query = (
             "INSERT OR REPLACE INTO Divisions (division_id, conference_id, name)"
@@ -283,7 +288,7 @@ class Database:
             if existing["name"] == name:
                 return existing
             else:
-                print("Overwriting player %s with %s" % (existing["name"], name))
+                _logger.info("Overwriting player %s with %s", existing["name"], name)
 
         query = "INSERT OR REPLACE INTO Players (player_id, name, info) VALUES (?," " ?, ?)"
 
@@ -309,7 +314,7 @@ class Database:
         if existing:
             if existing["info"] == info:
                 return existing
-            print("Overwriting %s with %s" % (existing, info))
+            _logger.info("Overwriting %s with %s", existing, info)
             return existing
 
         query = """
@@ -404,4 +409,4 @@ class Database:
 if __name__ == "__main__":
     db = Database()
     db.create_tables()
-    print("Database and tables created successfully!")
+    _logger.info("Database and tables created successfully!")

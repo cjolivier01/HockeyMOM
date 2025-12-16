@@ -60,6 +60,8 @@ def find_low_velocity_ranges(
 
 
 if __name__ == "__main__":
+    from hmlib.log import get_logger
+
     # Example usage with hypothetical data
     data = {
         1: {1: 2.5, 2: 2.9},
@@ -71,4 +73,4 @@ if __name__ == "__main__":
     }
 
     ranges = find_low_velocity_ranges(data)
-    print("Low velocity ranges:", ranges)
+    get_logger(__name__).info("Low velocity ranges: %s", ranges)

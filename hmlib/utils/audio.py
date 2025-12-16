@@ -6,6 +6,8 @@ import ffmpegio
 import numpy as np
 import torch
 
+from hmlib.log import get_logger
+
 
 def load_audio_as_tensor(
     audio: Union[str, np.ndarray, torch.Tensor],
@@ -23,7 +25,8 @@ def load_audio_as_tensor(
     smaples_per_second, waveform = ffmpegio.audio.read(audio, t=duration_seconds, show_log=True)
     if verbose:
         # The waveform is now a PyTorch tensor with shape [channels, samples]
-        print(f"Waveform shape: {waveform.shape}")
-        print(f"Sample rate: {smaples_per_second}")
+        logger = get_logger(__name__)
+        logger.info("Waveform shape: %s", waveform.shape)
+        logger.info("Sample rate: %s", smaples_per_second)
 
     return waveform, smaples_per_second

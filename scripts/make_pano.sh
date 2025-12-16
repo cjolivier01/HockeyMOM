@@ -1,5 +1,5 @@
 #!/bin/bash
-
+set -e
 rm -f panorama.tif nona*.tif
 
 PROJECT_FILE="hm_project.pto"

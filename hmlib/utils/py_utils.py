@@ -1,6 +1,11 @@
 import importlib
 import pkgutil
 
+from hmlib.log import get_logger
+
+
+logger = get_logger(__name__)
+
 
 def find_item_in_module(module, item_name):
     """
@@ -30,7 +35,7 @@ def find_item_in_module(module, item_name):
                 if module_path is not None:
                     return module_path
             except Exception as e:
-                print(f"Error importing {full_submodule_name}: {e}")
+                logger.exception("Error importing %s: %s", full_submodule_name, e)
                 continue
 
     # Item not found in this module or its submodules

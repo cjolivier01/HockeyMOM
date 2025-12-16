@@ -64,10 +64,32 @@ class CallbackStreamHandler(logging.StreamHandler):
         self.callback = callback
 
     def emit(self, record):
-        # Use the handler's own formatter to format the record
-        message = self.format(record)
-        # Call the callback with the formatted message
+        try:
+            message = self.format(record)
+        except Exception:
+            message = record.getMessage()
         self.callback(message)
+
+
+class RichProgressFormatter(logging.Formatter):
+    """Format log records with rich markup for the progress log area."""
+
+    def __init__(self, datefmt: str | None = "%H:%M:%S"):
+        super().__init__(datefmt=datefmt)
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = record.getMessage()
+        time_str = self.formatTime(record, self.datefmt)
+        level = record.levelname
+        if record.levelno >= logging.ERROR:
+            style = "bold red"
+        elif record.levelno >= logging.WARNING:
+            style = "bold yellow"
+        elif record.levelno >= logging.INFO:
+            style = "bold cyan"
+        else:
+            style = "dim"
+        return f"[dim]{time_str}[/dim] [{style}]{level:>8}[/] {message}"
 
 
 class ScrollOutput:
@@ -121,11 +143,9 @@ class ScrollOutput:
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
 
-        # Create and add our custom handler
+        # Create and add our custom handler with rich-style formatting
         callback_handler = CallbackStreamHandler(self.write)
-        callback_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        )
+        callback_handler.setFormatter(RichProgressFormatter())
         logger.addHandler(callback_handler)
         return self
 
@@ -283,7 +303,11 @@ class ProgressBar:
         log_table.add_column(justify="left")
         # Take the last N lines for display
         for line in self._log_lines[-self._log_max_lines :]:
-            log_table.add_row(line)
+            try:
+                rendered = Text.from_markup(line)
+            except Exception:
+                rendered = Text(str(line))
+            log_table.add_row(rendered)
         return log_table
 
     def _build_layout(self) -> Group:

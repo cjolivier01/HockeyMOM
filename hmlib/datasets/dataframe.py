@@ -104,7 +104,7 @@ class HmDataFrameBase:
                 mode = "a" if not self.first_write else "w"
                 data.to_csv(output_path, mode=mode, header=header, index=False)
                 self._dataframe_list = []
-                logger.info(f"Data saved successfully to {output_path}.")
+                logger.info("Data saved successfully to %s.", output_path)
             else:
                 logger.info("No data available to save.")
 

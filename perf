@@ -11,4 +11,8 @@ if [ -z "${TARGET}" ]; then
   TARGET="//..."
 fi
 
-bazelisk build ${BAZEL_FLAGS} ${TARGET} //hockeymom:link_ext
+bazelisk build ${BAZEL_FLAGS} ${TARGET}
+
+# Ensure the HockeyMOM extension is linked into the workspace
+# so that `import hockeymom._hockeymom` works outside Bazel.
+# bazelisk run ${BAZEL_FLAGS} //hockeymom:link_ext

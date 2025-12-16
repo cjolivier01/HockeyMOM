@@ -8,6 +8,8 @@ from urllib import parse
 import bs4
 import requests
 
+from hmlib.log import get_logger
+
 HEADERS = {
     "Content-Type": "html",
     "User-Agent": (
@@ -17,6 +19,9 @@ HEADERS = {
 }
 
 CACHE = False
+
+
+logger = get_logger(__name__)
 
 
 def get_value_from_link(url: str, key: str):
@@ -37,7 +42,7 @@ def parse_game_time(date_str, time_str, year=None):
 def get_html(url: str, params: dict[str, str] | None = None, log=False):
     """Read HTML from a given URL."""
     if log:
-        print("Reading HTML from %s (%s)..." % (url, params))
+        logger.info("Reading HTML from %s (%s)...", url, params)
     html = requests.get(url, params=params, headers=HEADERS)
     return bs4.BeautifulSoup(html.text, "html5lib")
 
@@ -65,16 +70,16 @@ def cache_json(
                 age = datetime.datetime.now() - modify_time
                 if max_age is not None and age < max_age:
                     with open(path, "r") as cachehandle:
-                        print("using cached result from '%s'" % path)
+                        logger.info("Using cached result from '%s'", path)
                         return json.load(cachehandle)
                 else:
-                    print("cache is stale. Reloading...")
+                    logger.info("Cache is stale. Reloading...")
 
             # execute the function with all arguments passed
             res = fn(*args, **kwargs)
             # write to cache file
             with open(path, "w") as cachehandle:
-                print("saving result to cache '%s'" % path)
+                logger.info("Saving result to cache '%s'", path)
                 json.dump(res, cachehandle)
             return res
 
