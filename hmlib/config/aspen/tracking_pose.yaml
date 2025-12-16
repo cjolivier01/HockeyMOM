@@ -148,6 +148,7 @@ aspen:
     save_detections:
       class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [detector]
+      enabled: GLOBAL.save_detections
       params: {}
 
     ice_config:
@@ -168,8 +169,8 @@ aspen:
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [tracker]
+      enabled: GLOBAL.save_tracking
       params: {}
-
 
     pose:
       class: hmlib.aspen.plugins.pose_plugin.PosePlugin
@@ -180,6 +181,7 @@ aspen:
     save_pose:
       class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
       depends: [pose]
+      enabled: GLOBAL.save_pose
       params: {}
 
     # Optional camera controller (rule-based by default). Enable transformer by
@@ -211,6 +213,15 @@ aspen:
         plot_speed: GLOBAL.plot.plot_speed
         plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
         plot_actions: GLOBAL.plot.plot_actions
+
+    rgb_stats_check:
+      class: hmlib.aspen.plugins.debug_rgb_stats_plugin.RgbStatsCheckPlugin
+      depends: [play_tracker]
+      enabled: GLOBAL.debug.rgb_stats_check.enable
+      params:
+        source: stitch
+        stats_key: stitched
+        tensor_key: original_images
 
     apply_camera:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
