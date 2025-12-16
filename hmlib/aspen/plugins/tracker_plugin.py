@@ -6,6 +6,7 @@ from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.log import get_logger
+from hmlib.utils.gpu import unwrap_tensor
 from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Plugin
@@ -149,8 +150,6 @@ class TrackerPlugin(Plugin):
             return x
 
         def _to_bboxes_2d(x):
-            if not isinstance(x, torch.Tensor):
-                x = torch.as_tensor(x)
             if x.ndim == 1:
                 # If empty, reshape to (0, 4); if size==4, make (1,4)
                 if x.numel() == 0:
@@ -170,6 +169,10 @@ class TrackerPlugin(Plugin):
             if det_instances is None:
                 # No detections, skip tracking; leave pred_track_instances unset
                 continue
+
+            det_instances.bboxes = unwrap_tensor(det_instances.bboxes)
+            det_instances.labels = unwrap_tensor(det_instances.labels)
+            det_instances.scores = unwrap_tensor(det_instances.scores)
 
             det_bboxes = det_instances.bboxes
             det_labels = det_instances.labels
@@ -235,10 +238,10 @@ class TrackerPlugin(Plugin):
             )
 
             pred_track_instances = InstanceData(
-                instances_id=ids.cpu(),
-                bboxes=results["bboxes"].cpu(),
-                scores=results["scores"].cpu(),
-                labels=results["labels"].cpu(),
+                instances_id=ids,
+                bboxes=results["bboxes"],
+                scores=results["scores"],
+                labels=results["labels"],
             )
             # Propagate source pose indices from detections to per-frame tracks
             try:
