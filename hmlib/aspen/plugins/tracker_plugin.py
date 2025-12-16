@@ -6,7 +6,7 @@ from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.log import get_logger
-from hmlib.utils.gpu import unwrap_tensor
+from hmlib.utils.gpu import StreamCheckpoint, unwrap_tensor
 from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Plugin
@@ -308,11 +308,28 @@ class TrackerPlugin(Plugin):
                 if max_id > max_tracking_id:
                     max_tracking_id = max_id
 
-        return {
+        result: Dict[str, Any] = {
             "data": data,
             "nr_tracks": active_track_count,
             "max_tracking_id": max_tracking_id,
         }
+        # Record a lightweight stream token on the current CUDA stream so
+        # downstream trunks (e.g., PlayTrackerPlugin) can establish proper
+        # stream ordering without forcing a full synchronize here.
+        try:
+            original_images = context.get("original_images")
+            device = None
+            if isinstance(original_images, torch.Tensor):
+                device = original_images.device
+            else:
+                device = getattr(original_images, "device", None)
+            if isinstance(device, torch.device) and device.type == "cuda":
+                token_tensor = torch.empty(0, device=device)
+                result["tracker_stream_token"] = StreamCheckpoint(token_tensor)
+        except Exception:
+            # Best-effort only; fall back silently if anything goes wrong.
+            pass
+        return result
 
     def input_keys(self):
         return {
@@ -325,7 +342,7 @@ class TrackerPlugin(Plugin):
         }
 
     def output_keys(self):
-        return {"data", "nr_tracks", "max_tracking_id"}
+        return {"data", "nr_tracks", "max_tracking_id", "tracker_stream_token"}
 
     def _prepare_tracker_inputs(
         self,

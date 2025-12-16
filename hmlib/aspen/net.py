@@ -551,11 +551,6 @@ class AspenNet(torch.nn.Module):
             try:
                 with torch.cuda.stream(node.stream):
                     self._execute_node(node, context)
-                # Ensure all work enqueued on this trunk's stream has
-                # completed before handing the context to downstream
-                # plugins. This preserves per-frame ordering while still
-                # allowing different trunks to overlap on separate streams.
-                node.stream.synchronize()
             finally:
                 if has_prev_stream:
                     context["cuda_stream"] = prev_stream
