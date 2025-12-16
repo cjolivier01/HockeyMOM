@@ -148,7 +148,7 @@ aspen:
     save_detections:
       class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [detector]
-      enabled: GLOBAL.save_detections
+      enabled: false
       params: {}
 
     ice_config:
@@ -169,7 +169,7 @@ aspen:
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [tracker]
-      enabled: GLOBAL.save_tracking
+      enabled: false
       params: {}
 
     pose:
@@ -181,7 +181,7 @@ aspen:
     save_pose:
       class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
       depends: [pose]
-      enabled: GLOBAL.save_pose
+      enabled: false
       params: {}
 
     # Optional camera controller (rule-based by default). Enable transformer by
