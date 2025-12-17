@@ -15,6 +15,7 @@ import sys
 import tempfile
 from typing import List, Union
 
+from hmlib.log import get_logger
 from hmlib.stitching.synchronize import synchronize_by_audio
 
 
@@ -79,7 +80,9 @@ def extract_audio(filename: str, force: bool = False) -> str:
         process = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=sys.stdout)
         return audio_file
     except subprocess.CalledProcessError as e:
-        print(f"Failed to concatenate audio: {e}\n{process.stdout}")
+        get_logger(__name__).error(
+            "Failed to extract audio: %s\n%s", e, getattr(process, "stdout", b"")
+        )
         return None
 
 
@@ -123,9 +126,11 @@ def concatenate_audio(files) -> tempfile.TemporaryFile:
     # Execute the command
     try:
         subprocess.run(command, check=True)
-        print(f"Audio concatenated successfully, saved to {temp_file.name}")
+        get_logger(__name__).info(
+            "Audio concatenated successfully, saved to %s", temp_file.name
+        )
     except subprocess.CalledProcessError as e:
-        print(f"Failed to concatenate audio: {e}")
+        get_logger(__name__).error("Failed to concatenate audio: %s", e)
         temp_file.close()
         return None
 

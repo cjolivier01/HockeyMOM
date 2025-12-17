@@ -256,6 +256,7 @@ class PlayTrackerPlugin(Plugin):
             "shared",
             "arena",
             "original_images",
+            "tracker_stream_token",
         }
 
     def output_keys(self) -> set[str]:
@@ -264,7 +265,6 @@ class PlayTrackerPlugin(Plugin):
                 "img",
                 "current_box",
                 "current_fast_box_list",
-                # "frame_ids",
                 "player_bottom_points",
                 "player_ids",
                 "play_box",

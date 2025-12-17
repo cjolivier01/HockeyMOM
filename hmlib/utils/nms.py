@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import torch
 from mmengine.structures import InstanceData
 
+from hmlib.log import get_logger
 from hmlib.utils.tensor import make_const_tensor, new_full, new_zeros
 
 _TRT_LOGGER = None
@@ -446,7 +447,7 @@ class TrtBatchedNMS:
                 )
             )
         except Exception as ex:
-            print(ex)
+            get_logger(__name__).exception("Failed to set NMS metainfo: %s", ex)
             import traceback
 
             traceback.print_exc()
@@ -717,9 +718,13 @@ class DetectorNMS:
                 n_p = int(getattr(p.bboxes, "shape", [0])[0])
                 n_o = int(getattr(o.bboxes, "shape", [0])[0])
                 if n_p != n_o:
-                    print(
-                        f"[NMS-COMPARE] img {idx}: backend={backend} kept {n_p} boxes, "
-                        f"{cmp_backend} kept {n_o} boxes"
+                    get_logger(__name__).info(
+                        "[NMS-COMPARE] img %d: backend=%s kept %d boxes, %s kept %d boxes",
+                        idx,
+                        backend,
+                        n_p,
+                        cmp_backend,
+                        n_o,
                     )
 
         return primary

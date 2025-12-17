@@ -1,5 +1,10 @@
 import torch
 
+from hmlib.log import get_logger
+
+
+logger = get_logger(__name__)
+
 
 class MeanTracker:
     """Track per-frame tensor means against values stored on disk.
@@ -52,8 +57,12 @@ class MeanTracker:
             mean_value = self.get_frame_value(tensor).item()
             expected_mean = self.expected_means[self.current_frame]
             if not torch.isclose(torch.tensor(mean_value), torch.tensor(expected_mean), atol=1e-6):
-                print(
-                    f"Mismatch at frame {self.current_frame}: expected {expected_mean}, got {mean_value}, frame {self.current_frame}"
+                logger.error(
+                    "Mismatch at frame %d: expected %f, got %f, frame %d",
+                    self.current_frame,
+                    expected_mean,
+                    mean_value,
+                    self.current_frame,
                 )
                 assert False
             self.current_frame += 1
@@ -64,7 +73,7 @@ class MeanTracker:
         if self.mode == "output" and self.file:
             self.file.close()
         if self.current_frame and self.mode == "input":
-            print(f"Successfully verified {self.current_frame} frames.")
+            logger.info("Successfully verified %d frames.", self.current_frame)
 
     def __delete__(self):
         if hasattr(self, "close"):

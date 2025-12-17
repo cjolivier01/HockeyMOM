@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 import torch
 from mmengine.structures import InstanceData
 
+from hmlib.log import get_logger
 from .base import Plugin
 
 
@@ -146,75 +147,75 @@ class IceRinkSegmBoundariesPlugin(Plugin):
                     # If anything goes wrong, fall back to un-capped outputs.
                     pass
 
-                # Try to propagate source pose indices through post-det filtering
-                new_src_pose_idx: Optional[torch.Tensor] = None
-                try:
-                    if det_src_pose_idx is not None:
-                        ob = det_bboxes
-                        nb = new_bboxes
-                        if not isinstance(ob, torch.Tensor):
-                            ob = torch.as_tensor(ob)
-                        if not isinstance(nb, torch.Tensor):
-                            nb = torch.as_tensor(nb)
-                        if ob.ndim == 1:
-                            ob = ob.reshape(-1, 4)
-                        if nb.ndim == 1:
-                            nb = nb.reshape(-1, 4)
-                        if len(nb) == len(ob):
-                            new_src_pose_idx = det_src_pose_idx
-                        else:
-                            new_src_pose_idx = torch.full(
-                                (len(nb),), -1, dtype=torch.int64, device=nb.device
-                            )
-                            if len(ob) and len(nb):
-                                # First try exact match with tolerance
+            # Try to propagate source pose indices through post-det filtering
+            new_src_pose_idx: Optional[torch.Tensor] = None
+            try:
+                if det_src_pose_idx is not None:
+                    ob = det_bboxes
+                    nb = new_bboxes
+                    if not isinstance(ob, torch.Tensor):
+                        ob = torch.as_tensor(ob)
+                    if not isinstance(nb, torch.Tensor):
+                        nb = torch.as_tensor(nb)
+                    if ob.ndim == 1:
+                        ob = ob.reshape(-1, 4)
+                    if nb.ndim == 1:
+                        nb = nb.reshape(-1, 4)
+                    if len(nb) == len(ob):
+                        new_src_pose_idx = det_src_pose_idx
+                    else:
+                        new_src_pose_idx = torch.full(
+                            (len(nb),), -1, dtype=torch.int64, device=nb.device
+                        )
+                        if len(ob) and len(nb):
+                            # First try exact match with tolerance
+                            for j in range(len(nb)):
+                                eq = (
+                                    torch.isclose(nb[j], ob).all(dim=1)
+                                    if len(ob)
+                                    else torch.zeros((0,), dtype=torch.bool)
+                                )
+                                match_idx = torch.nonzero(eq).reshape(-1)
+                                if len(match_idx) == 1:
+                                    k = int(match_idx[0].item())
+                                    try:
+                                        new_src_pose_idx[j] = det_src_pose_idx[k]
+                                    except Exception:
+                                        pass
+                            # If unmatched remain, map by IoU best
+                            if (new_src_pose_idx < 0).any():
+                                try:
+                                    from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
+                                except Exception:
+                                    from hmlib.utils.utils import bbox_iou as _bbox_iou
+                                iou = _bbox_iou(
+                                    nb.to(dtype=torch.float32),
+                                    ob.to(dtype=torch.float32),
+                                    x1y1x2y2=True,
+                                )
+                                best_iou, best_idx = torch.max(iou, dim=1)
                                 for j in range(len(nb)):
-                                    eq = (
-                                        torch.isclose(nb[j], ob).all(dim=1)
-                                        if len(ob)
-                                        else torch.zeros((0,), dtype=torch.bool)
-                                    )
-                                    match_idx = torch.nonzero(eq).reshape(-1)
-                                    if len(match_idx) == 1:
-                                        k = int(match_idx[0].item())
+                                    if new_src_pose_idx[j] < 0 and best_iou[j] > 0:
                                         try:
-                                            new_src_pose_idx[j] = det_src_pose_idx[k]
+                                            new_src_pose_idx[j] = int(
+                                                det_src_pose_idx[int(best_idx[j].item())]
+                                            )
                                         except Exception:
                                             pass
-                                # If unmatched remain, map by IoU best
-                                if (new_src_pose_idx < 0).any():
-                                    try:
-                                        from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
-                                    except Exception:
-                                        from hmlib.utils.utils import bbox_iou as _bbox_iou
-                                    iou = _bbox_iou(
-                                        nb.to(dtype=torch.float32),
-                                        ob.to(dtype=torch.float32),
-                                        x1y1x2y2=True,
-                                    )
-                                    best_iou, best_idx = torch.max(iou, dim=1)
-                                    for j in range(len(nb)):
-                                        if new_src_pose_idx[j] < 0 and best_iou[j] > 0:
-                                            try:
-                                                new_src_pose_idx[j] = int(
-                                                    det_src_pose_idx[int(best_idx[j].item())]
-                                                )
-                                            except Exception:
-                                                pass
-                except Exception:
-                    new_src_pose_idx = None
+            except Exception:
+                new_src_pose_idx = None
 
-                new_inst = InstanceData(
-                    bboxes=new_bboxes,
-                    labels=new_labels,
-                    scores=new_scores,
-                )
-                if new_src_pose_idx is not None:
-                    try:
-                        new_inst.source_pose_index = new_src_pose_idx.to(dtype=torch.int64)
-                    except Exception:
-                        pass
-                img_data_sample.pred_instances = new_inst
+            new_inst = InstanceData(
+                bboxes=new_bboxes,
+                labels=new_labels,
+                scores=new_scores,
+            )
+            if new_src_pose_idx is not None:
+                try:
+                    new_inst.source_pose_index = new_src_pose_idx.to(dtype=torch.int64)
+                except Exception:
+                    pass
+            img_data_sample.pred_instances = new_inst
 
             # Update original_images if overlay updated
             if "original_images" in out:
@@ -297,7 +298,7 @@ class IceRinkSegmConfigPlugin(Plugin):
                     image=frame0,
                 )
             except Exception as ex:
-                print(ex)
+                get_logger(__name__).exception("Failed to configure ice rink mask: %s", ex)
                 self._rink_profile = None
         results = dict(data=data)
         if self._rink_profile is not None:

@@ -896,7 +896,9 @@ class HmResize:
                 )
             results[key] = img
             batch_size = img.shape[0]
-            scale_factor = np.array([w_scale, h_scale], dtype=np.float32)
+            scale_factor = torch.tensor([w_scale, h_scale], dtype=torch.float32).to(
+                img.device, non_blocking=False
+            )
             iw, ih = image_width(img), image_height(img)
             results["img_shape"] = [(ih, iw) for _ in range(batch_size)]
             # in case that there is no padding

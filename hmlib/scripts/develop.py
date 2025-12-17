@@ -13,6 +13,8 @@ import sysconfig
 from pathlib import Path
 from textwrap import dedent
 
+from hmlib.log import get_logger
+
 ENTRY_POINTS = {
     "hmtrack": "hmlib.cli.hmtrack:main",
     "hmstitch": "hmlib.cli.stitch:main",
@@ -29,6 +31,9 @@ ENTRY_POINTS = {
     "hmcaha_game": "hmlib.cli.caha_game:main",
     "hmcamera_annotate": "hmlib.cli.camera_annotate:main",
 }
+
+
+logger = get_logger(__name__)
 
 
 def _find_workspace_root() -> Path:
@@ -95,8 +100,10 @@ def main() -> int:
         _write_script(scripts_dir, name, target) for name, target in ENTRY_POINTS.items()
     ]
 
-    print(f"Added {pth_file} pointing to {workspace_root}")
-    print(f"Installed {len(scripts_written)} console entry points into {scripts_dir}")
+    logger.info("Added %s pointing to %s", pth_file, workspace_root)
+    logger.info(
+        "Installed %d console entry points into %s", len(scripts_written), scripts_dir
+    )
     return 0
 
 

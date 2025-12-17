@@ -54,9 +54,6 @@ class PosePlugin(Plugin):
             frame_count = len(original_images)
 
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
-        # for i, bxs in enumerate(per_frame_bboxes):
-        #     if bxs.device != original_images.device:
-        #         per_frame_bboxes[i] = bxs.to(device=original_images.device, non_blocking=True)
 
         det_imgs_tensor = data.get("img")
         if isinstance(det_imgs_tensor, StreamTensorBase):
@@ -432,15 +429,12 @@ class PosePlugin(Plugin):
                 break
         if scale_val is None:
             return None
-        scale_tensor = torch.as_tensor(scale_val, dtype=torch.float32, device=device).flatten()
+        assert isinstance(scale_val, torch.Tensor)
+        scale_tensor = scale_val
         if scale_tensor.numel() == 1:
             scale_tensor = scale_tensor.repeat(4)
         elif scale_tensor.numel() == 2:
-            scale_tensor = torch.tensor(
-                [scale_tensor[0], scale_tensor[1], scale_tensor[0], scale_tensor[1]],
-                dtype=torch.float32,
-                device=device,
-            )
+            scale_tensor = scale_tensor.repeat(2)
         elif scale_tensor.numel() != 4:
             return None
         return scale_tensor

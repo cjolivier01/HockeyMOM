@@ -17,6 +17,7 @@ from hmlib.camera.camera_transformer import (
     unpack_checkpoint,
 )
 from hmlib.camera.clusters import ClusterMan
+from hmlib.utils.gpu import wrap_tensor
 
 from .base import Plugin
 
@@ -177,13 +178,17 @@ class CameraControllerPlugin(Plugin):
                 h_px = torch.clamp((bottom - top) * 1.4, min=H * 0.35, max=H * 0.95)
                 w_px = h_px * self._ar
                 box_out = make_box_at_center(c, w=w_px, h=h_px)
-                box_out = clamp_box(box_out, torch.tensor([0, 0, W, H], dtype=box_out.dtype))
+                if not hasattr(self, "_wh_box"):
+                    self._wh_box = torch.tensor([0, 0, W, H], dtype=box_out.dtype).to(
+                        device=box_out.device, non_blocking=True
+                    )
+                box_out = clamp_box(box_out, self._wh_box)
 
             cam_boxes.append(box_out)
             setattr(img_data_sample, "pred_cam_box", box_out)
 
         # Attach into the shared data dict so downstream postprocess can access
-        data["camera_boxes"] = cam_boxes
+        data["camera_boxes"] = wrap_tensor(torch.cat(cam_boxes))
         return {"data": data}
 
     def input_keys(self):

@@ -1,4 +1,3 @@
-import logging
 from importlib import import_module
 from typing import Any, Dict, Optional, Tuple
 
@@ -6,11 +5,13 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
+from hmlib.log import get_logger
+from hmlib.utils.gpu import StreamCheckpoint, unwrap_tensor
 from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Plugin
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class TrackerPlugin(Plugin):
@@ -149,8 +150,6 @@ class TrackerPlugin(Plugin):
             return x
 
         def _to_bboxes_2d(x):
-            if not isinstance(x, torch.Tensor):
-                x = torch.as_tensor(x)
             if x.ndim == 1:
                 # If empty, reshape to (0, 4); if size==4, make (1,4)
                 if x.numel() == 0:
@@ -170,6 +169,10 @@ class TrackerPlugin(Plugin):
             if det_instances is None:
                 # No detections, skip tracking; leave pred_track_instances unset
                 continue
+
+            det_instances.bboxes = unwrap_tensor(det_instances.bboxes)
+            det_instances.labels = unwrap_tensor(det_instances.labels)
+            det_instances.scores = unwrap_tensor(det_instances.scores)
 
             det_bboxes = det_instances.bboxes
             det_labels = det_instances.labels
@@ -235,10 +238,10 @@ class TrackerPlugin(Plugin):
             )
 
             pred_track_instances = InstanceData(
-                instances_id=ids.cpu(),
-                bboxes=results["bboxes"].cpu(),
-                scores=results["scores"].cpu(),
-                labels=results["labels"].cpu(),
+                instances_id=ids,
+                bboxes=results["bboxes"],
+                scores=results["scores"],
+                labels=results["labels"],
             )
             # Propagate source pose indices from detections to per-frame tracks
             try:
@@ -305,11 +308,28 @@ class TrackerPlugin(Plugin):
                 if max_id > max_tracking_id:
                     max_tracking_id = max_id
 
-        return {
+        result: Dict[str, Any] = {
             "data": data,
             "nr_tracks": active_track_count,
             "max_tracking_id": max_tracking_id,
         }
+        # Record a lightweight stream token on the current CUDA stream so
+        # downstream trunks (e.g., PlayTrackerPlugin) can establish proper
+        # stream ordering without forcing a full synchronize here.
+        try:
+            original_images = context.get("original_images")
+            device = None
+            if isinstance(original_images, torch.Tensor):
+                device = original_images.device
+            else:
+                device = getattr(original_images, "device", None)
+            if isinstance(device, torch.device) and device.type == "cuda":
+                token_tensor = torch.empty(0, device=device)
+                result["tracker_stream_token"] = StreamCheckpoint(token_tensor)
+        except Exception:
+            # Best-effort only; fall back silently if anything goes wrong.
+            pass
+        return result
 
     def input_keys(self):
         return {
@@ -322,7 +342,7 @@ class TrackerPlugin(Plugin):
         }
 
     def output_keys(self):
-        return {"data", "nr_tracks", "max_tracking_id"}
+        return {"data", "nr_tracks", "max_tracking_id", "tracker_stream_token"}
 
     def _prepare_tracker_inputs(
         self,

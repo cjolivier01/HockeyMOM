@@ -10,19 +10,58 @@ aspen:
       keys: [img]
       # scale_factor: 255.0
     - type: HmResize
-      img_scale: [1312, 480]
+      # We will scale downm the image to fit within img_scale
+      # before HmPad maybe pads it to be this size
+      # vimg_scale: [1312, 480]
+      img_scale: [1632, 608]
+      # img_scale: [1952, 704]
+      # img_scale: [1984, 736]
       keep_ratio: true
       interpolation: area
+    - type: HmImageColorAdjust
+      # No-op by default; CLI/UI can set white_balance/brightness/contrast/gamma
+      # Example:
+      # white_balance: [1.05, 1.0, 0.95]
+      # or temperature in Kelvin (e.g., 3500k):
+      # white_balance_temp: 3500k
+      white_balance: GLOBAL.rink.camera.color.white_balance
+      brightness: GLOBAL.rink.camera.color.brightness
+      contrast: GLOBAL.rink.camera.color.contrast
+      gamma: GLOBAL.rink.camera.color.gamma
     - type: HmPad
       pad_val: 114.0
-      size_divisor: 32
+      # size_divisor: 32
+      # size: [736, 1984]  # Actual size of tensor, which is H-W ordering
+      # size: [480, 1312]  # Actual size of tensor, which is H-W ordering
+      size: [608, 1632]  # Actual size of tensor, which is H-W ordering
+      # size: [480, 1312]
     - type: mmdet.PackTrackInputs
       meta_keys: [img_metas, hm_real_time_fps]
     - type: HmRealTime
       enabled: false
       scale: 1.0
 
-  # Default camera post-processing pipeline (was in hm_end_to_end.py)
+  # Optional per-camera color pipelines for stitching inputs.
+  # These operate on the raw left/right camera frames *before* stitching and
+  # can be driven at runtime via the game.stitching.left/right.color blocks.
+  left_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      # Runtime values are pulled from args.game_config using these paths.
+      # If missing, the transform is a no-op.
+      config_paths:
+        - [game, stitching, left, color]
+        - [game, stitching, left]
+      refresh_from_config: true
+
+  right_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      config_paths:
+        - [game, stitching, right, color]
+        - [game, stitching, right]
+      refresh_from_config: true
+
   # Default camera post-processing pipeline (was in hm_end_to_end.py)
   video_out_pipeline:
     - type: HmImageColorAdjust
@@ -109,6 +148,7 @@ aspen:
     save_detections:
       class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [detector]
+      enabled: false
       params: {}
 
     ice_config:
@@ -119,7 +159,12 @@ aspen:
     ice_boundaries:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
       depends: [detector, ice_config]
-      params: {}
+      params:
+        enabled: true
+        # Optional cap on detections that survive the rink mask.
+        # If set, only the top-K scores inside the mask are kept.
+        max_detections_in_mask: 50
+        plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
@@ -129,8 +174,8 @@ aspen:
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [tracker]
+      enabled: false
       params: {}
-
 
     pose:
       class: hmlib.aspen.plugins.pose_plugin.PosePlugin
@@ -141,9 +186,61 @@ aspen:
     save_pose:
       class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
       depends: [pose]
+      enabled: false
       params: {}
 
-    postprocess:
-      class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
-      depends: [pose]
-      params: {}
+    # Optional camera controller (rule-based by default). Enable transformer by
+    # setting controller: transformer and model_path to your checkpoint.
+    camera_controller:
+      class: hmlib.aspen.plugins.camera_controller_plugin.CameraControllerPlugin
+      depends: [tracker]
+      params:
+        controller: rule
+        model_path: null
+        window: 8
+
+    play_tracker:
+      class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
+      # Does this really need postprocess?
+      depends: [
+        tracker, 
+        camera_controller, 
+        # postprocess,
+      ]
+      enabled: true
+      params:
+        debug_play_tracker: GLOBAL.plot.debug_play_tracker
+        plot_moving_boxes: GLOBAL.plot.plot_moving_boxes
+        plot_individual_player_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_boundaries: GLOBAL.plot.plot_boundaries
+        plot_all_detections: GLOBAL.plot.plot_all_detections
+        plot_trajectories: GLOBAL.plot.plot_trajectories
+        plot_speed: GLOBAL.plot.plot_speed
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_actions: GLOBAL.plot.plot_actions
+
+    rgb_stats_check:
+      class: hmlib.aspen.plugins.debug_rgb_stats_plugin.RgbStatsCheckPlugin
+      depends: [play_tracker]
+      enabled: GLOBAL.debug.rgb_stats_check.enable
+      params:
+        source: stitch
+        stats_key: stitched
+        tensor_key: original_images
+
+    apply_camera:
+      class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
+      depends: [play_tracker]
+      enabled: true
+      params: {
+        video_out_pipeline: GLOBAL.aspen.video_out_pipeline
+      }
+
+    video_out:
+      class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
+      depends: [apply_camera, rgb_stats_check, pose]
+      enabled: true
+      params:
+        # Allow GLOBAL.aspen.video_out.skip_final_save (default from baseline.yaml)
+        # to be overridden by CLI --skip-final-video-save before GLOBAL resolution.
+        skip_final_save: GLOBAL.aspen.video_out.skip_final_save
