@@ -42,7 +42,7 @@ class HmPerspectiveRotation:
 
     def __init__(
         self,
-        fixed_edge_rotation: bool = False,
+        fixed_edge_rotation: bool = True,
         fixed_edge_rotation_angle: Union[float, Tuple[float, float]] = 0.0,
         dtype: torch.dtype = torch.float,
         pre_clip: bool = False,
