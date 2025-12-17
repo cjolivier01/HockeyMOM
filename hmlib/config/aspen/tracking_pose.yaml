@@ -159,7 +159,12 @@ aspen:
     ice_boundaries:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
       depends: [detector, ice_config]
-      params: {}
+      params:
+        enabled: true
+        # Optional cap on detections that survive the rink mask.
+        # If set, only the top-K scores inside the mask are kept.
+        max_detections_in_mask: 50
+        plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
