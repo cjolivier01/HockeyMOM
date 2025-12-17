@@ -110,7 +110,7 @@ rink:
     # Rink-related tracking config
     #
     fixed_edge_scaling_factor: 0.8
-    fixed_edge_rotation_angle: 10
+    fixed_edge_rotation_angle: 20
     follower_box_scale_width: 1.25
     follower_box_scale_height: 1.25
     max_speed_ratio_x: 1.0

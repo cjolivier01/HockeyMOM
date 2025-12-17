@@ -32,7 +32,7 @@ from hmlib.config import get_game_config_private, get_nested_value, save_private
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, unwrap_tensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
 from hockeymom.core import AllLivingBoxConfig, BBox, PlayTrackerConfig
@@ -674,6 +674,14 @@ class PlayTracker(torch.nn.Module):
         del original_images
 
         debug = self._debug_play_tracker
+        # If the tracker trunk recorded a stream token, wait on it using
+        # the current stream before consuming any of its GPU outputs.
+        try:
+            token = context.get("tracker_stream_token")
+            if isinstance(token, StreamTensorBase):
+                unwrap_tensor(token)
+        except Exception:
+            pass
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             scalar_frame_id = video_data_sample.frame_id
             frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
@@ -683,8 +691,17 @@ class PlayTracker(torch.nn.Module):
             #     and hasattr(video_data_sample.pred_instances, "bboxes")
             #     else -1
             # )
-            online_tlwhs = batch_tlbrs_to_tlwhs(video_data_sample.pred_track_instances.bboxes)
-            online_ids = video_data_sample.pred_track_instances.instances_id
+            # Ensure any tracker outputs that may have been produced on a
+            # different CUDA stream are synchronized with the current stream.
+            track_inst = video_data_sample.pred_track_instances
+            bboxes = getattr(track_inst, "bboxes", None)
+            ids = getattr(track_inst, "instances_id", None)
+            if isinstance(bboxes, StreamTensorBase):
+                bboxes = unwrap_tensor(bboxes)
+            if isinstance(ids, StreamTensorBase):
+                ids = unwrap_tensor(ids)
+            online_tlwhs = batch_tlbrs_to_tlwhs(bboxes)
+            online_ids = ids
 
             if True:
                 # goes a few fps faster when async if this is on CPU

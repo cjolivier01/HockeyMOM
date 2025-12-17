@@ -100,18 +100,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="Don't do any postprocessing (i.e. play tracking) after basic player tracking.",
     )
-    # parser.add_argument(
-    #     "--infer",
-    #     default=False,
-    #     action="store_true",
-    #     help="Run inference instead of validation",
-    # )
-    # parser.add_argument(
-    #     "--tracker",
-    #     default="mmtrack",
-    #     type=str,
-    #     help="Use tracker type [hm|fair|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
-    # )
     # Output video flag moved to hm_opts.parser
     parser.add_argument(
         "--speed",
@@ -147,12 +135,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         type=str,
         help="rink name",
     )
-    # parser.add_argument(
-    #     "--camera",
-    #     default=None,
-    #     type=str,
-    #     help="Camera name",
-    # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
@@ -599,6 +581,37 @@ def _main(args, num_gpu):
                     pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf
+                # Tracker backend selection (HmTracker vs static CUDA ByteTrack)
+                tracker_backend = getattr(args, "tracker_backend", None)
+                if tracker_backend is not None and "tracker" in trunks_cfg:
+                    tracker_cfg = trunks_cfg.setdefault(
+                        "tracker",
+                        {
+                            "class": "hmlib.aspen.plugins.tracker_plugin.TrackerPlugin",
+                            "depends": ["detector", "ice_boundaries", "model_factory", "boundaries"],
+                            "params": {},
+                        },
+                    )
+                    tracker_params = tracker_cfg.setdefault("params", {}) or {}
+                    if tracker_backend == "hm":
+                        # Default HmTracker backend; clear any explicit overrides.
+                        tracker_params.pop("tracker_class", None)
+                        tracker_params.pop("tracker_kwargs", None)
+                    elif tracker_backend == "static_bytetrack":
+                        tracker_params["tracker_class"] = "hockeymom.core.HmByteTrackerCudaStatic"
+                        tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
+                        max_det = getattr(args, "tracker_max_detections", 256)
+                        max_tracks = getattr(args, "tracker_max_tracks", 256)
+                        if max_det is not None:
+                            tracker_kwargs["max_detections"] = int(max_det)
+                        if max_tracks is not None:
+                            tracker_kwargs["max_tracks"] = int(max_tracks)
+                        tracker_device = getattr(args, "tracker_device", None)
+                        if tracker_device:
+                            tracker_kwargs["device"] = tracker_device
+                        tracker_params["tracker_kwargs"] = tracker_kwargs
+                    tracker_cfg["params"] = tracker_params
+                    trunks_cfg["tracker"] = tracker_cfg
                 args.aspen["plugins"] = trunks_cfg
             except Exception:
                 traceback.print_exc()

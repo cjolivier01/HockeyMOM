@@ -551,7 +551,6 @@ class AspenNet(torch.nn.Module):
             try:
                 with torch.cuda.stream(node.stream):
                     self._execute_node(node, context)
-                # node.stream.synchronize()
             finally:
                 if has_prev_stream:
                     context["cuda_stream"] = prev_stream

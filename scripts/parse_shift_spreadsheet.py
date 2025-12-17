@@ -1655,17 +1655,23 @@ def _build_stats_dataframe(
     periods = sorted(all_periods_seen)
     summary_cols = [
         "player",
+        "gp",
         "goals",
         "assists",
         "points",
+        "ppg",
         "gt_goals",
         "gw_goals",
         "shifts",
+        "shifts_per_game",
         "plus_minus",
+        "plus_minus_per_game",
         "gf_counted",
+        "gf_per_game",
         "ga_counted",
+        "ga_per_game",
     ]
-    sb_cols = ["sb_toi_total", "sb_avg", "sb_median", "sb_longest", "sb_shortest"]
+    sb_cols = ["sb_toi_total", "sb_toi_per_game", "sb_avg", "sb_median", "sb_longest", "sb_shortest"]
     video_cols = ["video_toi_total"]
     period_toi_cols = [f"P{p}_toi" for p in periods]
     period_shift_cols = [f"P{p}_shifts" for p in periods]
@@ -1718,16 +1724,23 @@ def _display_col_name(key: str) -> str:
     # Explicit overrides for common fields
     overrides = {
         "player": "Player",
+        "gp": "GP",
         "goals": "Goals",
         "assists": "Assists",
         "points": "Points",
+        "ppg": "PPG",
         "gt_goals": "GT Goals",
         "gw_goals": "GW Goals",
         "shifts": "Shifts",
+        "shifts_per_game": "Shifts per Game",
         "plus_minus": "Plus Minus",
+        "plus_minus_per_game": "Plus Minus per Game",
         "gf_counted": "GF Counted",
+        "gf_per_game": "GF per Game",
         "ga_counted": "GA Counted",
+        "ga_per_game": "GA per Game",
         "sb_toi_total": "TOI Total",
+        "sb_toi_per_game": "TOI per Game",
         "sb_avg": "Average Shift",
         "sb_median": "Median Shift",
         "sb_longest": "Longest Shift",
@@ -1853,6 +1866,7 @@ def _aggregate_stats_rows(
                 "player": player,
                 "goals": 0,
                 "assists": 0,
+                "gp": 0,
                 "shifts": 0,
                 "plus_minus": 0,
                 "gf_counted": 0,
@@ -1874,6 +1888,9 @@ def _aggregate_stats_rows(
             dest = _ensure(player)
             dest["goals"] += int(str(row.get("goals", 0) or 0))
             dest["assists"] += int(str(row.get("assists", 0) or 0))
+            # Each per-game stats row corresponds to one game played (GP),
+            # including cases where the player only appears on the T2S roster.
+            dest["gp"] += 1
             dest["shifts"] += int(str(row.get("shifts", 0) or 0))
             dest["plus_minus"] += int(str(row.get("plus_minus", 0) or 0))
             dest["gf_counted"] += int(str(row.get("gf_counted", 0) or 0))
@@ -1902,6 +1919,7 @@ def _aggregate_stats_rows(
 
     aggregated_rows: List[Dict[str, str]] = []
     for player, data in sorted(agg.items(), key=lambda x: x[0]):
+        gp = data.get("gp", 0) or 0
         shifts = data["shifts"] or 0
         total_sec = data["sb_toi_total_sec"]
         avg_sec = int(total_sec / shifts) if shifts else 0
@@ -1910,14 +1928,25 @@ def _aggregate_stats_rows(
         total_points = total_goals + total_assists
         row: Dict[str, str] = {
             "player": player,
+            "gp": str(gp),
             "goals": str(total_goals),
             "assists": str(total_assists),
             "points": str(total_points),
+            "ppg": f"{(total_points / gp):.1f}" if gp > 0 else "0.0",
             "shifts": str(shifts),
+            "shifts_per_game": f"{(shifts / gp):.1f}" if gp > 0 else "",
             "plus_minus": str(data["plus_minus"]),
+            "plus_minus_per_game": (
+                f"{(data['plus_minus'] / gp):.1f}" if gp > 0 else ""
+            ),
             "gf_counted": str(data["gf_counted"]),
+            "gf_per_game": f"{(data['gf_counted'] / gp):.1f}" if gp > 0 else "",
             "ga_counted": str(data["ga_counted"]),
+            "ga_per_game": f"{(data['ga_counted'] / gp):.1f}" if gp > 0 else "",
             "sb_toi_total": _format_duration(total_sec),
+            "sb_toi_per_game": (
+                _format_duration(int(total_sec / gp)) if gp > 0 and total_sec > 0 else ""
+            ),
             "sb_avg": _format_duration(avg_sec) if shifts else "",
             "sb_median": "",
             "sb_longest": _format_duration(data["sb_longest_sec"]),
@@ -2050,15 +2079,36 @@ def _write_cumulative_player_detail_files(
         lines.append(f"Player: {_display_player_name(player)}")
         lines.append("")
         lines.append("Overall stats (all games):")
-        lines.append(f"  Goals: {row.get('goals', '0')} (GT: {row.get('gt_goals', '0')}, GW: {row.get('gw_goals', '0')})")
+        gp_str = row.get("gp", "0")
+        points_str = row.get("points", "0")
+        ppg_str = row.get("ppg", "0.0")
+        lines.append(f"  Games Played (GP): {gp_str}")
+        lines.append(f"  Points (G+A): {points_str} (PPG: {ppg_str})")
+        lines.append(
+            f"  Goals: {row.get('goals', '0')} "
+            f"(GT: {row.get('gt_goals', '0')}, GW: {row.get('gw_goals', '0')})"
+        )
         lines.append(f"  Assists: {row.get('assists', '0')}")
         lines.append(f"  Plus/Minus: {row.get('plus_minus', '0')}")
+        if row.get("shifts_per_game"):
+            lines.append(f"  Shifts per game: {row.get('shifts_per_game')}")
+        if row.get("plus_minus_per_game"):
+            lines.append(f"  Plus/Minus per game: {row.get('plus_minus_per_game')}")
         lines.append(
             f"  Goals For while on ice: {row.get('gf_counted', '0')}, "
             f"Goals Against while on ice: {row.get('ga_counted', '0')}"
         )
+        if row.get("gf_per_game") or row.get("ga_per_game"):
+            lines.append(
+                f"  GF per game: {row.get('gf_per_game', '') or '0.0'}, "
+                f"GA per game: {row.get('ga_per_game', '') or '0.0'}"
+            )
         if row.get("sb_toi_total"):
             lines.append(f"  TOI total (scoreboard): {row.get('sb_toi_total')}")
+            if row.get("sb_toi_per_game"):
+                lines.append(
+                    f"  TOI per game (scoreboard): {row.get('sb_toi_per_game')}"
+                )
         if row.get("video_toi_total"):
             lines.append(f"  TOI total (video): {row.get('video_toi_total')}")
         # Longest/shortest shift games
@@ -2174,6 +2224,52 @@ def _infer_side_from_rosters(
         )
         return None
     return "home" if home_overlap > away_overlap else "away"
+
+
+def _get_t2s_team_roster(
+    t2s_id: int,
+    side: str,
+    hockey_db_dir: Path,
+) -> Dict[str, str]:
+    """
+    Return a mapping of normalized jersey number -> player name for the given
+    TimeToScore game id and team side ('home' or 'away').
+
+    This is used to credit Games Played (GP) for players who appear on the
+    official game roster even if they have no recorded shifts in the sheet.
+    """
+    if t2s_api is None:
+        return {}
+    try:
+        with _working_directory(hockey_db_dir):
+            info = t2s_api.get_game_details(int(t2s_id))
+    except Exception as e:
+        print(f"[t2s] Failed to load game {t2s_id} for roster: {e}", file=sys.stderr)
+        return {}
+
+    stats = (info or {}).get("stats") or {}
+    players_key = "homePlayers" if side == "home" else "awayPlayers"
+    rows = stats.get(players_key) or []
+
+    roster: Dict[str, str] = {}
+
+    for r in rows:
+        try:
+            raw_num = str((r or {}).get("number")).strip()
+        except Exception:
+            continue
+        if not raw_num:
+            continue
+        num_norm = _normalize_jersey_number(raw_num)
+        if not num_norm:
+            continue
+        name = str((r or {}).get("name") or "").strip()
+        if not name:
+            continue
+        # One name per jersey; later entries with the same jersey overwrite.
+        roster[num_norm] = name
+
+    return roster
 
 
 def _write_event_summaries_and_clips(
@@ -2478,6 +2574,7 @@ def process_sheet(
     outdir: Path,
     keep_goalies: bool,
     goals: List[GoalEvent],
+    roster_map: Optional[Dict[str, str]] = None,
     skip_validation: bool = False,
     create_scripts: bool = True,
 ) -> Tuple[
@@ -2539,6 +2636,33 @@ def process_sheet(
             candidates.add(norm)
         for cand in candidates:
             jersey_to_players.setdefault(cand, []).append(pk)
+
+    # Optionally add TimeToScore roster-only players (no shifts in this sheet)
+    roster_only_players: List[str] = []
+    if roster_map:
+        # Jersey numbers already present in this sheet (normalized).
+        seen_normals: set[str] = set()
+        for pk in sb_pairs_by_player.keys():
+            jersey_part = pk.split("_", 1)[0]
+            norm = _normalize_jersey_number(jersey_part)
+            if norm:
+                seen_normals.add(norm)
+
+        for jersey_norm, name in roster_map.items():
+            if not jersey_norm:
+                continue
+            if jersey_norm in seen_normals:
+                # Already have at least one player with this jersey from shifts.
+                continue
+            jersey_label = jersey_norm
+            player_key = f"{sanitize_name(jersey_label)}_{sanitize_name(name)}"
+            if player_key in sb_pairs_by_player:
+                continue
+            # No recorded shifts; keep an explicit empty list.
+            sb_pairs_by_player[player_key] = []
+            roster_only_players.append(player_key)
+            # Map normalized jersey to this player for scoring lookups.
+            jersey_to_players.setdefault(jersey_norm, []).append(player_key)
 
     # Per-player event details for this game (for multi-game summaries).
     per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]] = {
@@ -2623,9 +2747,12 @@ def process_sheet(
 
         scoring_counts = goal_assist_counts.get(player_key, {"goals": 0, "assists": 0})
         points_val = scoring_counts.get("goals", 0) + scoring_counts.get("assists", 0)
+        # Per-game points-per-game (PPG) for this single game.
+        ppg_val = float(points_val)
 
         stats_lines = []
         stats_lines.append(f"Player: {_display_player_name(player_key)}")
+        stats_lines.append("Games Played (GP): 1")
         stats_lines.append(f"Shifts (scoreboard): {shift_summary['num_shifts']}")
         stats_lines.append(f"TOI total (scoreboard): {shift_summary['toi_total']}")
         stats_lines.append(f"Avg shift: {shift_summary['toi_avg']}")
@@ -2635,6 +2762,7 @@ def process_sheet(
         stats_lines.append(f"Goals (T2S): {scoring_counts.get('goals', 0)}")
         stats_lines.append(f"Assists (T2S): {scoring_counts.get('assists', 0)}")
         stats_lines.append(f"Points (G+A): {points_val}")
+        stats_lines.append(f"PPG (points per game): {ppg_val:.1f}")
         if per_period_toi_map:
             stats_lines.append("Per-period TOI (scoreboard):")
             for period in sorted(per_period_toi_map.keys()):
@@ -2679,16 +2807,23 @@ def process_sheet(
             "goals": str(scoring_counts.get("goals", 0)),
             "assists": str(scoring_counts.get("assists", 0)),
             "points": str(points_val),
+            "gp": "1",
+            "ppg": f"{ppg_val:.1f}",
             "shifts": shift_summary["num_shifts"],
+            "shifts_per_game": shift_summary["num_shifts"],
             "plus_minus": str(plus_minus),
+            "plus_minus_per_game": str(plus_minus),
             "sb_toi_total": shift_summary["toi_total"],
+            "sb_toi_per_game": shift_summary["toi_total"],
             "sb_avg": shift_summary["toi_avg"],
             "sb_median": shift_summary["toi_median"],
             "sb_longest": shift_summary["toi_longest"],
             "sb_shortest": shift_summary["toi_shortest"],
         }
         row_map["gf_counted"] = str(len(counted_gf))
+        row_map["gf_per_game"] = str(len(counted_gf))
         row_map["ga_counted"] = str(len(counted_ga))
+        row_map["ga_per_game"] = str(len(counted_ga))
         v_pairs = video_pairs_by_player.get(player_key, [])
         if v_pairs:
             v_sum = 0
@@ -2938,12 +3073,21 @@ def main() -> None:
                 side_to_use = None
 
         goals = _resolve_goals_for_file(in_path, t2s_id, side_to_use)
+
+        # Build a TimeToScore roster map (normalized jersey -> name) for GP
+        # accounting, so that players listed on the official roster are
+        # credited with a game played even if they have no recorded shifts.
+        roster_map: Optional[Dict[str, str]] = None
+        if t2s_id is not None and side_to_use is not None:
+            roster_map = _get_t2s_team_roster(int(t2s_id), side_to_use, hockey_db_dir)
+
         final_outdir, stats_rows, periods, per_player_events = process_sheet(
             xls_path=in_path,
             sheet_name=args.sheet,
             outdir=outdir,
             keep_goalies=args.keep_goalies,
             goals=goals,
+            roster_map=roster_map,
             skip_validation=args.skip_validation,
             create_scripts=create_scripts,
         )

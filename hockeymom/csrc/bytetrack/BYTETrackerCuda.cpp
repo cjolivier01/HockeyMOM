@@ -691,11 +691,11 @@ std::pair<at::Tensor, at::Tensor> BYTETrackerCuda::kalman_update(
   auto B = at::matmul(covariance, update_mat_T_);
   auto BT = B.transpose(1, 2);
 
-  auto projected_cov_cpu = projected_cov.to(at::kCPU);
-  auto BT_cpu = BT.to(at::kCPU);
-  auto chol = at::linalg_cholesky(projected_cov_cpu);
-  auto sol_cpu = at::cholesky_solve(BT_cpu, chol);
-  auto kalman_gain = sol_cpu.transpose(1, 2).to(mean.device());
+  // Keep the full Kalman update on the tracker device to avoid
+  // host round-trips and implicit stream synchronizations.
+  auto chol = at::linalg_cholesky(projected_cov);
+  auto sol = at::cholesky_solve(BT, chol);
+  auto kalman_gain = sol.transpose(1, 2);
 
   auto innovation = measurement_cxcyah - projected_mean;
   auto delta = at::matmul(

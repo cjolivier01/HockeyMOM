@@ -33,7 +33,10 @@ class ImagePrepPlugin(Plugin):
             return {}
 
         data: Dict[str, Any] = context["data"]
-        # original_images: torch.Tensor = context["original_images"]
+        # Ensure original_images are available in data for downstream trunks
+        original_images = context.get("original_images")
+        if original_images is not None and "original_images" not in data:
+            data["original_images"] = original_images
         device: torch.device = context["device"]
         # cuda_stream: Optional[torch.cuda.Stream] = context.get("cuda_stream")
         mean_tracker: Optional[MeanTracker] = context.get("mean_tracker")
@@ -65,7 +68,7 @@ class ImagePrepPlugin(Plugin):
         return {"detection_image": data["img"], "data": data}
 
     def input_keys(self):
-        return {"data", "device", "mean_tracker"}
+        return {"data", "device", "mean_tracker", "original_images"}
 
     def output_keys(self):
         return {"data", "detection_image"}
