@@ -100,18 +100,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="Don't do any postprocessing (i.e. play tracking) after basic player tracking.",
     )
-    # parser.add_argument(
-    #     "--infer",
-    #     default=False,
-    #     action="store_true",
-    #     help="Run inference instead of validation",
-    # )
-    # parser.add_argument(
-    #     "--tracker",
-    #     default="mmtrack",
-    #     type=str,
-    #     help="Use tracker type [hm|fair|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
-    # )
     # Output video flag moved to hm_opts.parser
     parser.add_argument(
         "--speed",
@@ -147,12 +135,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         type=str,
         help="rink name",
     )
-    # parser.add_argument(
-    #     "--camera",
-    #     default=None,
-    #     type=str,
-    #     help="Camera name",
-    # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
