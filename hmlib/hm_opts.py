@@ -552,6 +552,51 @@ class hm_opts(object):
             action="store_true",
             help="Force re-exporting ONNX for pose even if the file already exists",
         )
+        #
+        # Tracker options
+        #
+        tracker = parser.add_argument_group("Tracker")
+        tracker.add_argument(
+            "--tracker-backend",
+            dest="tracker_backend",
+            type=str,
+            choices=["hm", "static_bytetrack"],
+            default=None,
+            help=(
+                "Select tracking backend: 'hm' (default, HmTracker) or "
+                "'static_bytetrack' (CUDA static ByteTrack with fixed max_detections/max_tracks)."
+            ),
+        )
+        tracker.add_argument(
+            "--tracker-max-detections",
+            dest="tracker_max_detections",
+            type=int,
+            default=256,
+            help=(
+                "Maximum detections per frame passed to the static ByteTrack tracker "
+                "when --tracker-backend=static_bytetrack is used."
+            ),
+        )
+        tracker.add_argument(
+            "--tracker-max-tracks",
+            dest="tracker_max_tracks",
+            type=int,
+            default=256,
+            help=(
+                "Maximum active tracks maintained by the static ByteTrack tracker "
+                "when --tracker-backend=static_bytetrack is used."
+            ),
+        )
+        tracker.add_argument(
+            "--tracker-device",
+            dest="tracker_device",
+            type=str,
+            default=None,
+            help=(
+                "Optional device string for the static ByteTrack tracker "
+                "(e.g., 'cuda:0'); defaults to the main detection device."
+            ),
+        )
         parser.add_argument(
             "--deterministic",
             default=0,

@@ -78,6 +78,7 @@ aspen:
     - type: HmCaptureScoreboard
     - type: HmPerspectiveRotation
       pre_clip: true
+      fixed_edge_rotation_angle: GLOBAL.rink.camera.fixed_edge_rotation_angle
     - type: HmCropToVideoFrame
     - type: HmRenderScoreboard
       image_labels: [img, end_zone_img]

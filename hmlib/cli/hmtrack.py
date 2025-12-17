@@ -581,6 +581,37 @@ def _main(args, num_gpu):
                     pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf
+                # Tracker backend selection (HmTracker vs static CUDA ByteTrack)
+                tracker_backend = getattr(args, "tracker_backend", None)
+                if tracker_backend is not None and "tracker" in trunks_cfg:
+                    tracker_cfg = trunks_cfg.setdefault(
+                        "tracker",
+                        {
+                            "class": "hmlib.aspen.plugins.tracker_plugin.TrackerPlugin",
+                            "depends": ["detector", "ice_boundaries", "model_factory", "boundaries"],
+                            "params": {},
+                        },
+                    )
+                    tracker_params = tracker_cfg.setdefault("params", {}) or {}
+                    if tracker_backend == "hm":
+                        # Default HmTracker backend; clear any explicit overrides.
+                        tracker_params.pop("tracker_class", None)
+                        tracker_params.pop("tracker_kwargs", None)
+                    elif tracker_backend == "static_bytetrack":
+                        tracker_params["tracker_class"] = "hockeymom.core.HmByteTrackerCudaStatic"
+                        tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
+                        max_det = getattr(args, "tracker_max_detections", 256)
+                        max_tracks = getattr(args, "tracker_max_tracks", 256)
+                        if max_det is not None:
+                            tracker_kwargs["max_detections"] = int(max_det)
+                        if max_tracks is not None:
+                            tracker_kwargs["max_tracks"] = int(max_tracks)
+                        tracker_device = getattr(args, "tracker_device", None)
+                        if tracker_device:
+                            tracker_kwargs["device"] = tracker_device
+                        tracker_params["tracker_kwargs"] = tracker_kwargs
+                    tracker_cfg["params"] = tracker_params
+                    trunks_cfg["tracker"] = tracker_cfg
                 args.aspen["plugins"] = trunks_cfg
             except Exception:
                 traceback.print_exc()
