@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, Set
 
-import numpy as np
 import torch
 
 from hmlib.utils.gpu import StreamTensorBase
@@ -134,10 +133,6 @@ class PosePlugin(Plugin):
             pipeline = pose_impl.pipeline
             collate_fn = pose_impl.collate_fn
             dataset_meta = getattr(model, "dataset_meta", {}) or {}
-            try:
-                from mmpose.structures import merge_data_samples
-            except Exception:
-                merge_data_samples = None
 
             def _build_empty_predictions() -> List[Any]:
                 try:
@@ -158,10 +153,10 @@ class PosePlugin(Plugin):
                     empty_frame_indices.add(i)
                     continue
 
-                b_cpu = bxs.detach().cpu()
-                b_np = np.ascontiguousarray(b_cpu.numpy())
-
-                for bbox in b_np:
+                # Keep bboxes on GPU and feed them directly to the MMPose
+                # pipeline as torch tensors to avoid host synchronization.
+                for j in range(bxs.shape[0]):
+                    bbox = bxs[j]
                     inst: Dict[str, Any] = {
                         "img": img,
                         # "img_path": str(i).rjust(10, "0") + ".jpg",
@@ -169,29 +164,10 @@ class PosePlugin(Plugin):
                         "hm_frame_index": i,
                     }
                     inst.update(dataset_meta)
-                    inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
-                    inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
-                    # inst["bbox"] = bbox[None, :4].to(torch.float32)
-                    # inst["bbox_score"] = bbox[4:5].to(torch.float32)
+                    inst["bbox"] = bbox[None, :4].to(dtype=torch.float32)
+                    inst["bbox_score"] = bbox[4:5].to(dtype=torch.float32)
                     batched_data_infos.append(pipeline(inst))
                     frame_batch_indices.append(i)
-
-                # img_cpu = img.detach().cpu()
-                # img_np = np.ascontiguousarray(img_cpu.numpy())
-                # b_cpu = bxs.detach().cpu()
-                # b_np = np.ascontiguousarray(b_cpu.numpy())
-
-                # for bbox in b_np:
-                #     inst: Dict[str, Any] = {
-                #         "img": img_np,
-                #         "img_path": str(i).rjust(10, "0") + ".jpg",
-                #         "hm_frame_index": i,
-                #     }
-                #     inst.update(dataset_meta)
-                #     inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
-                #     inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
-                #     batched_data_infos.append(pipeline(inst))
-                #     frame_batch_indices.append(i)
 
             frame_predictions: List[Optional[List[Any]]] = [None] * len(inputs)
 
@@ -248,13 +224,12 @@ class PosePlugin(Plugin):
                                 frame_idx = meta.get("hm_frame_index")  # type: ignore[attr-defined]
                             except Exception:
                                 frame_idx = None
-                        if isinstance(frame_idx, np.ndarray):
-                            if frame_idx.size == 1:
-                                frame_idx = int(frame_idx.reshape(-1)[0])
-                            else:
-                                frame_idx = None
-                        elif frame_idx is not None:
-                            frame_idx = int(frame_idx)
+
+                        # Prefer plain Python integers for frame indices to
+                        # avoid synchronizing CUDA tensors with the host.
+                        if not isinstance(frame_idx, int):
+                            frame_idx = None
+
                         if frame_idx is None:
                             frame_idx = next(batch_index_iter, None)
                         if frame_idx is None or frame_idx < 0 or frame_idx >= len(inputs):
@@ -270,10 +245,27 @@ class PosePlugin(Plugin):
                 predictions = frame_predictions[idx]
                 if predictions is None:
                     predictions = []
-                elif predictions and merge_data_samples is not None:
+                elif predictions:
+                    # Merge per-bbox PoseDataSample objects into a single
+                    # frame-level sample without touching heatmaps to keep
+                    # everything on the GPU and avoid NumPy round-trips.
                     try:
-                        predictions = [merge_data_samples(predictions)]
+                        from mmengine.structures import InstanceData
+                        from mmpose.structures import PoseDataSample
+
+                        first = predictions[0]
+                        merged = PoseDataSample(metainfo=getattr(first, "metainfo", {}))
+                        if hasattr(first, "gt_instances"):
+                            merged.gt_instances = InstanceData.cat(
+                                [p.gt_instances for p in predictions if hasattr(p, "gt_instances")]
+                            )
+                        if hasattr(first, "pred_instances"):
+                            merged.pred_instances = InstanceData.cat(
+                                [p.pred_instances for p in predictions if hasattr(p, "pred_instances")]
+                            )
+                        predictions = [merged]
                     except Exception:
+                        # Fall back to unmerged list if anything goes wrong.
                         pass
                 all_pose_results.append({"predictions": predictions})
 
