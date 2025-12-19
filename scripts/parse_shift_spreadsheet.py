@@ -2601,6 +2601,132 @@ def _write_player_stats_text_and_csv(
         pass
 
 
+def _write_game_stats_files(
+    stats_dir: Path,
+    *,
+    xls_path: Path,
+    periods: List[int],
+    goals: List[GoalEvent],
+    event_log_context: Optional[EventLogContext],
+    focus_team: Optional[str],
+) -> None:
+    """
+    Write per-game stats in a compact 1-row table as CSV + XLSX.
+
+    This intentionally excludes any shift/TOI information.
+    """
+    label = _base_label_from_path(xls_path)
+    t2s_id = _infer_t2s_from_filename(xls_path)
+
+    gf = sum(1 for g in goals if getattr(g, "kind", None) == "GF")
+    ga = sum(1 for g in goals if getattr(g, "kind", None) == "GA")
+    goal_diff = gf - ga
+
+    row: Dict[str, Any] = {
+        "Game": label,
+        "T2S ID": str(t2s_id) if t2s_id is not None else "",
+        "Our Team Color": str(focus_team) if focus_team else "",
+        "Opponent Color": ("White" if focus_team == "Blue" else ("Blue" if focus_team == "White" else "")),
+        "Score (For-Against)": f"{gf}-{ga}",
+        "Goals For": gf,
+        "Goals Against": ga,
+        "Goal Diff": goal_diff,
+    }
+
+    # Per-period goal totals (from goal list)
+    for p in sorted({int(x) for x in (periods or []) if isinstance(x, int)}):
+        row[f"Period {p} Goals For"] = sum(1 for g in goals if g.kind == "GF" and g.period == p)
+        row[f"Period {p} Goals Against"] = sum(1 for g in goals if g.kind == "GA" and g.period == p)
+
+    # Event-based team stats (from event log context; usually from '*-long*' sheets)
+    counts = (event_log_context.event_counts_by_type_team if event_log_context else None) or {}
+    has_event_counts = bool(counts)
+
+    def _cnt(event_type: str, team: str) -> Any:
+        if not has_event_counts:
+            return ""
+        return int(counts.get((event_type, team), 0) or 0)
+
+    # Always include Blue/White columns when event stats exist (helps debugging team mapping).
+    for etype, label_prefix in [
+        ("Shot", "Shots"),
+        ("SOG", "SOG"),
+        ("ExpectedGoal", "Expected Goals"),
+        ("ControlledEntry", "Controlled Entry"),
+        ("ControlledExit", "Controlled Exit"),
+        ("Rush", "Rush"),
+    ]:
+        row[f"Blue {label_prefix}"] = _cnt(etype, "Blue")
+        row[f"White {label_prefix}"] = _cnt(etype, "White")
+
+    if focus_team in {"Blue", "White"} and has_event_counts:
+        opp = "White" if focus_team == "Blue" else "Blue"
+        shots_for = int(counts.get(("Shot", focus_team), 0) or 0)
+        shots_against = int(counts.get(("Shot", opp), 0) or 0)
+        sog_for = int(counts.get(("SOG", focus_team), 0) or 0)
+        sog_against = int(counts.get(("SOG", opp), 0) or 0)
+        xg_for = int(counts.get(("ExpectedGoal", focus_team), 0) or 0)
+        xg_against = int(counts.get(("ExpectedGoal", opp), 0) or 0)
+        ce_for = int(counts.get(("ControlledEntry", focus_team), 0) or 0)
+        ce_against = int(counts.get(("ControlledEntry", opp), 0) or 0)
+        cx_for = int(counts.get(("ControlledExit", focus_team), 0) or 0)
+        cx_against = int(counts.get(("ControlledExit", opp), 0) or 0)
+        rush_for = int(counts.get(("Rush", focus_team), 0) or 0)
+        rush_against = int(counts.get(("Rush", opp), 0) or 0)
+
+        row.update(
+            {
+                "Shots For": shots_for,
+                "Shots Against": shots_against,
+                "SOG For": sog_for,
+                "SOG Against": sog_against,
+                "Expected Goals For": xg_for,
+                "Expected Goals Against": xg_against,
+                "Expected Goals per SOG (For)": (f"{(xg_for / sog_for):.2f}" if sog_for > 0 else ""),
+                "Controlled Entry For": ce_for,
+                "Controlled Entry Against": ce_against,
+                "Controlled Exit For": cx_for,
+                "Controlled Exit Against": cx_against,
+                "Rush For": rush_for,
+                "Rush Against": rush_against,
+            }
+        )
+    else:
+        # Keep columns stable; leave blank when mapping isn't available.
+        row.update(
+            {
+                "Shots For": "",
+                "Shots Against": "",
+                "SOG For": "",
+                "SOG Against": "",
+                "Expected Goals For": "",
+                "Expected Goals Against": "",
+                "Expected Goals per SOG (For)": "",
+                "Controlled Entry For": "",
+                "Controlled Entry Against": "",
+                "Controlled Exit For": "",
+                "Controlled Exit Against": "",
+                "Rush For": "",
+                "Rush Against": "",
+            }
+        )
+
+    df = pd.DataFrame([row])
+    df.to_csv(stats_dir / "game_stats.csv", index=False)
+
+    try:
+        with pd.ExcelWriter(stats_dir / "game_stats.xlsx", engine="openpyxl") as writer:
+            df_excel = df.copy()
+            df_excel.columns = [
+                _wrap_header_after_words(str(c), words_per_line=2) for c in df_excel.columns
+            ]
+            df_excel.to_excel(writer, sheet_name="game_stats", index=False, startrow=1)
+            _apply_excel_table_style(writer, "game_stats", title="Game Stats", df=df_excel)
+            _autosize_columns(writer, "game_stats", df_excel)
+    except Exception:
+        pass
+
+
 def _aggregate_stats_rows(
     stats_sets: List[Tuple[List[Dict[str, str]], List[int]]],
 ) -> Tuple[List[Dict[str, str]], List[int]]:
@@ -3934,15 +4060,25 @@ def process_sheet(
     if include_shifts_in_stats:
         _write_global_summary_csv(stats_dir, sb_pairs_by_player)
 
-
+    period_list = sorted(all_periods_seen)
     # Consolidated player stats
     if stats_table_rows:
         _write_player_stats_text_and_csv(
             stats_dir,
             stats_table_rows,
-            sorted(all_periods_seen),
+            period_list,
             include_shifts_in_stats=include_shifts_in_stats,
         )
+
+    # Per-game team stats (no TOI)
+    _write_game_stats_files(
+        stats_dir,
+        xls_path=xls_path,
+        periods=period_list,
+        goals=goals,
+        event_log_context=event_log_context,
+        focus_team=focus_team,
+    )
 
     # Goals windows
     _write_goal_window_files(outdir, goals, conv_segments_by_period)

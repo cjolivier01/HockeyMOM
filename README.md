@@ -146,6 +146,7 @@ aspen:
 - Outputs (per game):
   - Writes under `<outdir>/(per_player|event_log)/` for single-game runs, or `<outdir>/<label>/(per_player|event_log)/` for multi-game runs.
   - Stats: `stats/player_stats.txt`, `stats/player_stats.csv`, `stats/player_stats.xlsx`, plus per-player `stats/*_stats.txt`.
+  - Game stats: `stats/game_stats.csv` and `stats/game_stats.xlsx` (team-level, no TOI).
   - Clip helpers (unless `--no-scripts`): `clip_<player>.sh`, `clip_events_<Event>_<Team>.sh`, `clip_goal_<player>.sh`, `clip_sog_<player>.sh`, and `clip_all.sh`.
   - Timestamp windows: `*_video_times.txt`, `*_scoreboard_times.txt`, `events_*_video_times.txt`, and `goals_for.txt` / `goals_against.txt` (goal windows are 30s before and 10s after).
 - Outputs (multi-game):
