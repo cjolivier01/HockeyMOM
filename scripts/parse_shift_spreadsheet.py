@@ -577,6 +577,86 @@ def _parse_input_token(token: str, base_dir: Optional[Path] = None) -> Tuple[Pat
     return p, side
 
 
+def _is_spreadsheet_input_path(path: Path) -> bool:
+    try:
+        return path.is_file() and path.suffix.lower() in {".xls", ".xlsx"}
+    except Exception:
+        return False
+
+
+def _should_ignore_spreadsheet_input(path: Path) -> bool:
+    name = path.name
+    if not name:
+        return True
+    if name.startswith(".") or name.startswith("~$"):
+        return True
+    stem = path.stem.lower()
+    if stem == "goals":
+        return True
+    if stem.startswith("player_stats"):
+        return True
+    return False
+
+
+def _discover_spreadsheet_inputs_in_dir(dir_path: Path) -> List[Path]:
+    try:
+        paths = [p for p in dir_path.iterdir() if _is_spreadsheet_input_path(p)]
+    except Exception:
+        return []
+    out: List[Path] = []
+    for p in paths:
+        if _should_ignore_spreadsheet_input(p):
+            continue
+        out.append(p)
+    out.sort(key=lambda p: p.name.lower())
+    return out
+
+
+def _expand_dir_input_to_game_sheets(dir_path: Path) -> List[Path]:
+    """
+    Expand a directory passed to --input into the game sheet(s) inside:
+      - exactly one non-'-long' shift sheet (primary)
+      - zero or more companion '*-long*' sheets
+
+    Also supports passing a game directory by checking `<dir>/stats/` as a fallback.
+    """
+    candidates = _discover_spreadsheet_inputs_in_dir(dir_path)
+    stats_dir = dir_path / "stats"
+    if not candidates and stats_dir.is_dir():
+        candidates = _discover_spreadsheet_inputs_in_dir(stats_dir)
+        dir_path = stats_dir
+
+    if not candidates:
+        raise ValueError(f"No input .xls/.xlsx sheets found in {dir_path}")
+
+    # Directory inputs are expected to correspond to a single game label.
+    by_label: Dict[str, List[Path]] = {}
+    for p in candidates:
+        by_label.setdefault(_base_label_from_path(p), []).append(p)
+    if len(by_label) != 1:
+        labels = ", ".join(sorted(by_label.keys()))
+        raise ValueError(
+            f"Directory {dir_path} contains multiple game labels ({labels}); "
+            "pass a specific file path or use --file-list."
+        )
+
+    only_label = next(iter(by_label.keys()))
+    paths = by_label[only_label]
+    primaries = [p for p in paths if not _is_long_sheet_path(p)]
+    long_paths = [p for p in paths if _is_long_sheet_path(p)]
+    if not primaries and long_paths:
+        raise ValueError(
+            f"Directory {dir_path} has only '*-long*' sheets for {only_label}; "
+            "add the primary shift sheet or pass it explicitly."
+        )
+    if len(primaries) != 1:
+        raise ValueError(
+            f"Directory {dir_path} has {len(primaries)} primary sheets for {only_label}; "
+            f"expected exactly 1: {[p.name for p in primaries]}"
+        )
+    return [primaries[0]] + long_paths
+
+
 def load_goals(goals_inline: Iterable[str], goals_file: Optional[Path]) -> List[GoalEvent]:
     events: List[GoalEvent] = []
     # Inline
@@ -3827,7 +3907,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="append",
         type=str,
         default=[],
-        help="Path to input .xls/.xlsx file. Can repeat for multiple games. "
+        help="Path to input .xls/.xlsx file, or a directory containing one primary sheet plus optional '*-long*' companion sheets. "
+        "Can repeat for multiple games. "
         "Append ':HOME' or ':AWAY' to override side for that file.",
     )
     p.add_argument(
@@ -3953,6 +4034,24 @@ def main() -> None:
     if not input_entries:
         print("Error: at least one --input or --file-list entry is required.", file=sys.stderr)
         sys.exit(2)
+
+    # Support passing a directory to --input for single-game runs: discover the
+    # primary shift sheet plus optional '*-long*' companion sheet(s) from that
+    # directory (or `<dir>/stats`).
+    expanded_entries: List[Tuple[Path, Optional[str]]] = []
+    for p, side in input_entries:
+        pp = Path(p).expanduser()
+        if pp.is_dir():
+            try:
+                discovered = _expand_dir_input_to_game_sheets(pp)
+            except Exception as e:  # noqa: BLE001
+                print(f"Error expanding directory input {pp}: {e}", file=sys.stderr)
+                sys.exit(2)
+            for fp in discovered:
+                expanded_entries.append((fp, side))
+        else:
+            expanded_entries.append((pp, side))
+    input_entries = expanded_entries
 
     base_outdir = args.outdir.expanduser()
     # Group '-long' companion sheets with their non-long counterpart so a game is processed once.
