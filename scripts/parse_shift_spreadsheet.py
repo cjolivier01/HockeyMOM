@@ -297,9 +297,9 @@ def _wrap_header_after_words(header: str, *, words_per_line: int = 3) -> str:
     return "\n".join(lines)
 
 
-def _apply_excel_header_wrap(writer: pd.ExcelWriter, sheet_name: str) -> None:
+def _apply_excel_header_wrap(writer: pd.ExcelWriter, sheet_name: str, *, header_row: int = 1) -> None:
     """
-    Enable wrap-text for the first row (header) when using openpyxl.
+    Enable wrap-text for a header row when using openpyxl.
     """
     try:
         if writer.engine != "openpyxl":
@@ -310,11 +310,97 @@ def _apply_excel_header_wrap(writer: pd.ExcelWriter, sheet_name: str) -> None:
         from openpyxl.styles import Alignment
 
         max_lines = 1
-        for cell in ws[1]:
+        for cell in ws[header_row]:
             if cell.value:
                 max_lines = max(max_lines, len(str(cell.value).splitlines()))
-            cell.alignment = Alignment(wrap_text=True, vertical="top")
-        ws.row_dimensions[1].height = max(15.0, 15.0 * max_lines)
+            cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
+        ws.row_dimensions[header_row].height = max(15.0, 15.0 * max_lines)
+    except Exception:
+        return
+
+
+def _apply_excel_table_style(
+    writer: pd.ExcelWriter,
+    sheet_name: str,
+    *,
+    title: str,
+    df: pd.DataFrame,
+) -> None:
+    """
+    Apply a simple "teal header + banded gray rows" theme to a sheet written
+    with pandas. Assumes the DataFrame was written with `startrow=1` so that:
+      - Row 1 is available for the title
+      - Row 2 is the header row
+      - Row 3.. are data rows
+    """
+    try:
+        if writer.engine != "openpyxl":
+            return
+        ws = writer.sheets.get(sheet_name)
+        if ws is None:
+            return
+
+        ncols = int(getattr(df, "shape", (0, 0))[1] or 0)
+        nrows = int(getattr(df, "shape", (0, 0))[0] or 0)
+        if ncols <= 0:
+            return
+
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        teal_fill = PatternFill(fill_type="solid", start_color="FF009688", end_color="FF009688")
+        header_font = Font(color="FF000000", bold=True)
+        title_font = Font(color="FF000000", bold=True, size=14)
+        band_a = PatternFill(fill_type="solid", start_color="FFE6E6E6", end_color="FFE6E6E6")
+        band_b = PatternFill(fill_type="solid", start_color="FFF2F2F2", end_color="FFF2F2F2")
+        from openpyxl.styles import Border, Side
+
+        white_side = Side(style="thin", color="FFFFFFFF")
+        white_border = Border(
+            left=white_side,
+            right=white_side,
+            top=white_side,
+            bottom=white_side,
+        )
+
+        title_row = 1
+        header_row = 2
+        data_start_row = 3
+
+        # Title row (merged across all columns)
+        ws.merge_cells(start_row=title_row, start_column=1, end_row=title_row, end_column=ncols)
+        title_cell = ws.cell(row=title_row, column=1)
+        title_cell.value = title
+        title_cell.fill = teal_fill
+        title_cell.font = title_font
+        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[title_row].height = 24.0
+
+        # Ensure the merged region is fully teal in Excel viewers that don't
+        # propagate styles from the top-left cell.
+        for c in range(1, ncols + 1):
+            cell = ws.cell(row=title_row, column=c)
+            cell.fill = teal_fill
+
+        # Header styling
+        for c in range(1, ncols + 1):
+            cell = ws.cell(row=header_row, column=c)
+            cell.fill = teal_fill
+            cell.font = header_font
+
+        _apply_excel_header_wrap(writer, sheet_name, header_row=header_row)
+
+        # Banded rows (data)
+        for i in range(nrows):
+            r = data_start_row + i
+            fill = band_a if (i % 2 == 0) else band_b
+            for c in range(1, ncols + 1):
+                ws.cell(row=r, column=c).fill = fill
+
+        # White grid borders (title + header + data)
+        last_row = data_start_row + max(nrows, 1) - 1 if nrows > 0 else header_row
+        for r in range(title_row, last_row + 1):
+            for c in range(1, ncols + 1):
+                ws.cell(row=r, column=c).border = white_border
     except Exception:
         return
 
@@ -2507,11 +2593,11 @@ def _write_player_stats_text_and_csv(
             for r in csv_rows:
                 w.writerow(r)
     try:
-        with pd.ExcelWriter(stats_dir / "player_stats.xlsx") as writer:
+        with pd.ExcelWriter(stats_dir / "player_stats.xlsx", engine="openpyxl") as writer:
             df_excel = df_display.copy()
-            df_excel.columns = [_wrap_header_after_words(c, words_per_line=3) for c in disp_cols]
-            df_excel.to_excel(writer, sheet_name="player_stats", index=False)
-            _apply_excel_header_wrap(writer, "player_stats")
+            df_excel.columns = [_wrap_header_after_words(c, words_per_line=2) for c in disp_cols]
+            df_excel.to_excel(writer, sheet_name="player_stats", index=False, startrow=1)
+            _apply_excel_table_style(writer, "player_stats", title="Player Stats", df=df_excel)
             _autosize_columns(writer, "player_stats", df_excel)
     except Exception:
         pass
@@ -2714,7 +2800,7 @@ def _augment_aggregate_with_goal_details(
 
 def _write_consolidated_workbook(out_path: Path, sheets: List[Tuple[str, pd.DataFrame]]) -> None:
     try:
-        with pd.ExcelWriter(out_path) as writer:
+        with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
             for name, df in sheets:
                 safe_name = re.sub(r"[:\\\\/?*\\[\\]]", "_", name or "Sheet")[:31]
                 df_display = df.copy()
@@ -2722,12 +2808,12 @@ def _write_consolidated_workbook(out_path: Path, sheets: List[Tuple[str, pd.Data
                 if "player" in df_display.columns:
                     df_display["player"] = df_display["player"].apply(_display_player_name)
                 disp_cols = [
-                    _wrap_header_after_words(_display_col_name(c), words_per_line=3)
+                    _wrap_header_after_words(_display_col_name(c), words_per_line=2)
                     for c in df_display.columns
                 ]
                 df_display.columns = disp_cols
-                df_display.to_excel(writer, sheet_name=safe_name, index=False)
-                _apply_excel_header_wrap(writer, safe_name)
+                df_display.to_excel(writer, sheet_name=safe_name, index=False, startrow=1)
+                _apply_excel_table_style(writer, safe_name, title=(name or safe_name), df=df_display)
                 _autosize_columns(writer, safe_name, df_display)
     except Exception:
         pass
