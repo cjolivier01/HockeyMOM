@@ -60,6 +60,12 @@ LABEL_END_SB = "Shift End (Scoreboard Time)"
 LABEL_START_V = "Shift Start (Video Time)"
 LABEL_END_V = "Shift End (Video Time)"
 
+# Clip window durations (seconds)
+EVENT_CLIP_PRE_S = 10
+EVENT_CLIP_POST_S = 5
+GOAL_CLIP_PRE_S = 20
+GOAL_CLIP_POST_S = 10
+
 
 # ----------------------------- utilities -----------------------------
 
@@ -150,6 +156,13 @@ def seconds_to_hhmmss(t: int) -> str:
     m = r // 60
     s = r % 60
     return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _clip_pre_post_s_for_event_type(event_type: str) -> Tuple[int, int]:
+    et = str(event_type or "").strip().lower()
+    if et == "goal":
+        return GOAL_CLIP_PRE_S, GOAL_CLIP_POST_S
+    return EVENT_CLIP_PRE_S, EVENT_CLIP_POST_S
 
 
 def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
@@ -1058,8 +1071,22 @@ def _parse_long_mmss_time_to_seconds(cell: Any) -> Optional[int]:
     parts = s.split(":")
     try:
         if len(parts) == 3:
-            mm, ss, _ = parts
-            return int(mm) * 60 + int(ss)
+            a_s, b_s, c_s = parts
+            a = int(a_s)
+            b = int(b_s)
+            c = int(c_s)
+            # Some sheets emit long video times as H:MM:SS (e.g., 1:09:19, 1:00:00).
+            # Others emit MM:SS as a time-of-day-like string HH:MM:SS (e.g., 23:56:00 meaning 23:56).
+            #
+            # Heuristic:
+            #   - If seconds are non-zero, it's almost certainly H:MM:SS.
+            #   - If seconds are zero, treat small unpadded leading fields (e.g., "1:00:00") as H:MM:SS,
+            #     otherwise treat as MM:SS encoded as HH:MM:SS.
+            if c != 0:
+                return a * 3600 + b * 60 + c
+            if 0 < a < 4 and len(a_s) == 1:
+                return a * 3600 + b * 60 + c
+            return a * 60 + b
         if len(parts) == 2:
             mm, ss = parts
             return int(mm) * 60 + int(ss)
@@ -3360,6 +3387,7 @@ def _write_event_summaries_and_clips(
     for (etype, team), lst in sorted(instances.items()):
         v_windows: List[Tuple[int, int]] = []
         sb_windows_by_period: Dict[int, List[Tuple[int, int]]] = {}
+        pre_s, post_s = _clip_pre_post_s_for_event_type(str(etype))
         for it in lst:
             p = it.get("period")
             v = it.get("video_s")
@@ -3370,16 +3398,16 @@ def _write_event_summaries_and_clips(
             elif isinstance(g, (int, float)) and isinstance(p, int):
                 vsec = map_sb_to_video(int(p), int(g))
             if vsec is not None:
-                start = max(0, vsec - 15)
-                end = vsec + 15
+                start = max(0, vsec - int(pre_s))
+                end = vsec + int(post_s)
                 v_windows.append((start, end))
             if isinstance(g, (int, float)) and isinstance(p, int):
                 gsec = int(g)
                 sb_max = max_sb_by_period.get(int(p), None)
-                sb_start = gsec + 15
+                sb_start = gsec + int(pre_s)
                 if sb_max is not None:
                     sb_start = min(sb_max, sb_start)
-                sb_end = max(0, gsec - 15)
+                sb_end = max(0, gsec - int(post_s))
                 lo, hi = (sb_end, sb_start) if sb_end <= sb_start else (sb_start, sb_end)
                 sb_windows_by_period.setdefault(int(p), []).append((lo, hi))
 
@@ -3530,13 +3558,14 @@ def _write_player_event_highlights(
 
     for (pk, etype), rows in sorted(by_player_type.items(), key=lambda x: (x[0][0], x[0][1])):
         v_windows: List[Tuple[int, int]] = []
+        pre_s, post_s = _clip_pre_post_s_for_event_type(str(etype))
         for period, vsec, gsec in rows:
             vv = vsec
             if vv is None and gsec is not None:
                 vv = map_sb_to_video(period, gsec)
             if vv is None:
                 continue
-            v_windows.append((max(0, int(vv) - 15), int(vv) + 15))
+            v_windows.append((max(0, int(vv) - int(pre_s)), int(vv) + int(post_s)))
 
         v_windows = merge_windows(v_windows)
         if not v_windows:
@@ -3603,26 +3632,28 @@ def _write_goal_window_files(
     ga_lines: List[str] = []
     for ev in goals:
         sb_max = max_sb_by_period.get(ev.period, None)
-        start_sb = ev.t_sec - 30
-        end_sb = ev.t_sec + 10
+        start_sb = ev.t_sec + GOAL_CLIP_PRE_S
+        end_sb = ev.t_sec - GOAL_CLIP_POST_S
         if sb_max is not None:
-            start_sb = max(0, start_sb)
-            end_sb = min(sb_max, end_sb)
+            start_sb = max(0, min(sb_max, start_sb))
+            end_sb = max(0, min(sb_max, end_sb))
         else:
             start_sb = max(0, start_sb)
+            end_sb = max(0, end_sb)
 
         v_center = map_sb_to_video(ev.period, ev.t_sec)
         if v_center is not None:
-            v_start = max(0, v_center - 30)
-            v_end = v_center + 10
+            v_start = max(0, v_center - GOAL_CLIP_PRE_S)
+            v_end = v_center + GOAL_CLIP_POST_S
             start_str = seconds_to_hhmmss(v_start)
             end_str = seconds_to_hhmmss(v_end)
         else:
             v_start = map_sb_to_video(ev.period, start_sb)
             v_end = map_sb_to_video(ev.period, end_sb)
             if v_start is not None and v_end is not None:
-                start_str = seconds_to_hhmmss(max(0, v_start))
-                end_str = seconds_to_hhmmss(max(0, v_end))
+                lo, hi = (int(v_start), int(v_end)) if v_start <= v_end else (int(v_end), int(v_start))
+                start_str = seconds_to_hhmmss(max(0, lo))
+                end_str = seconds_to_hhmmss(max(0, hi))
             else:
                 start_str = seconds_to_hhmmss(max(0, start_sb))
                 end_str = seconds_to_hhmmss(max(0, end_sb))
