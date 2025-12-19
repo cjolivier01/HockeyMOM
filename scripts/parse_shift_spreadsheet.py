@@ -42,6 +42,12 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 import pandas as pd
 
+# Ensure repo root is on sys.path so optional `hmlib.*` imports work when running
+# this script directly from `scripts/`.
+_repo_root = Path(__file__).resolve().parents[1]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 # Optional import of TimeToScore API (available in this repo)
 try:  # pragma: no cover - optional at runtime
     from hmlib.time2score import api as t2s_api
@@ -262,7 +268,8 @@ def _autosize_columns(writer: pd.ExcelWriter, sheet_name: str, df: pd.DataFrame)
     try:
         col_widths = []
         for col in df.columns:
-            max_len = max([len(str(col))] + [len(str(x)) for x in df[col].astype(str).fillna("")])
+            header_len = max([len(x) for x in str(col).splitlines()] or [len(str(col))])
+            max_len = max([header_len] + [len(str(x)) for x in df[col].astype(str).fillna("")])
             col_widths.append(min(max_len + 2, 80))
         if writer.engine == "openpyxl":
             from openpyxl.utils import get_column_letter
@@ -278,6 +285,38 @@ def _autosize_columns(writer: pd.ExcelWriter, sheet_name: str, df: pd.DataFrame)
                     ws.set_column(i, i, width)
     except Exception:
         pass
+
+
+def _wrap_header_after_words(header: str, *, words_per_line: int = 3) -> str:
+    if not header:
+        return header
+    parts = str(header).strip().split()
+    if len(parts) <= words_per_line:
+        return str(header)
+    lines = [" ".join(parts[i : i + words_per_line]) for i in range(0, len(parts), words_per_line)]
+    return "\n".join(lines)
+
+
+def _apply_excel_header_wrap(writer: pd.ExcelWriter, sheet_name: str) -> None:
+    """
+    Enable wrap-text for the first row (header) when using openpyxl.
+    """
+    try:
+        if writer.engine != "openpyxl":
+            return
+        ws = writer.sheets.get(sheet_name)
+        if ws is None:
+            return
+        from openpyxl.styles import Alignment
+
+        max_lines = 1
+        for cell in ws[1]:
+            if cell.value:
+                max_lines = max(max_lines, len(str(cell.value).splitlines()))
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.row_dimensions[1].height = max(15.0, 15.0 * max_lines)
+    except Exception:
+        return
 
 
 def _collect_sheet_jerseys(
@@ -301,8 +340,7 @@ def _collect_sheet_jerseys(
 
     jerseys: set[str] = set()
     for pk in sb_pairs_by_player.keys():
-        jersey_part = pk.split("_", 1)[0]
-        norm = _normalize_jersey_number(jersey_part)
+        norm = _normalize_jersey_number(pk)
         if norm:
             jerseys.add(norm)
 
@@ -503,9 +541,24 @@ def _base_label_from_path(path: Any) -> str:
         except Exception:
             suffix_num = None
         if suffix_num is not None and suffix_num >= 10000:
-            base = m.group(1)
+            base = m.group(1) or stem
+            # Treat companion long sheets (e.g., 'game-long-54111.xlsx') as belonging
+            # to the same game label as their non-long counterpart.
+            if base.endswith("-long"):
+                base = base[: -len("-long")]
             return base or stem
-    return stem or p.name
+    label = stem or p.name
+    if label.endswith("-long"):
+        label = label[: -len("-long")]
+    return label
+
+
+def _is_long_sheet_path(path: Path) -> bool:
+    try:
+        stem = Path(path).stem
+    except Exception:
+        return False
+    return re.search(r"(?i)(?:^|-)long(?:-|$)", stem) is not None
 
 
 def _parse_input_token(token: str, base_dir: Optional[Path] = None) -> Tuple[Path, Optional[str]]:
@@ -800,6 +853,486 @@ class EventLogContext:
     event_player_rows: List[Dict[str, Any]]
     team_roster: Dict[str, List[int]]
     team_excluded: Dict[str, List[int]]
+
+
+@dataclass(frozen=True)
+class LongEvent:
+    event_type: str
+    team: str
+    period: int
+    video_s: Optional[int]
+    game_s: Optional[int]
+    jerseys: Tuple[int, ...] = ()
+
+
+def _parse_long_mmss_time_to_seconds(cell: Any) -> Optional[int]:
+    """
+    Parse times as they appear in the '-long' sheets.
+
+    These sheets commonly store MM:SS values as Excel time-of-day cells, so
+    pandas yields datetime.time like 23:56:00 (meaning 23:56, not 23 hours).
+
+    Accepts:
+      - datetime.time / pd.Timestamp: interpret hour as minutes, minute as seconds
+      - strings like '24:50' or '00:56:00': interpret as MM:SS (ignore 3rd component)
+    """
+    if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+        return None
+    if isinstance(cell, datetime.time):
+        return int(cell.hour) * 60 + int(cell.minute)
+    if isinstance(cell, pd.Timestamp):
+        return int(cell.hour) * 60 + int(cell.minute)
+    try:
+        s = str(cell).strip()
+    except Exception:
+        return None
+    if not s:
+        return None
+    # Skip header labels like 'Video Time'
+    if s.lower() in {"video time", "scoreboard", "team"}:
+        return None
+    parts = s.split(":")
+    try:
+        if len(parts) == 3:
+            mm, ss, _ = parts
+            return int(mm) * 60 + int(ss)
+        if len(parts) == 2:
+            mm, ss = parts
+            return int(mm) * 60 + int(ss)
+        if len(parts) == 1:
+            return int(float(parts[0]))
+    except Exception:
+        return None
+    return None
+
+
+def _parse_long_team(cell: Any) -> Optional[str]:
+    if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+        return None
+    try:
+        s = str(cell).strip()
+    except Exception:
+        return None
+    if not s:
+        return None
+    sl = s.lower()
+    if "blue" in sl or sl.startswith("blu"):
+        return "Blue"
+    if "white" in sl or sl.startswith("whi"):
+        return "White"
+    return None
+
+
+def _extract_jerseys_from_cell(cell: Any) -> List[int]:
+    if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+        return []
+    if isinstance(cell, (int, float)) and not pd.isna(cell):
+        try:
+            n = int(cell)
+        except Exception:
+            return []
+        return [n] if 1 <= n <= 98 else []
+    try:
+        s = str(cell).strip()
+    except Exception:
+        return []
+    if not s:
+        return []
+    # Don't treat times as jersey numbers.
+    if re.match(r"^\d{1,3}:\d{2}(:\d{2})?$", s):
+        return []
+    nums: List[int] = []
+    for m in re.finditer(r"#?(\d{1,2})(?!\d)", s):
+        try:
+            n = int(m.group(1))
+        except Exception:
+            continue
+        if 1 <= n <= 98:
+            nums.append(n)
+    # Dedupe while preserving order.
+    seen: set[int] = set()
+    out: List[int] = []
+    for n in nums:
+        if n in seen:
+            continue
+        seen.add(n)
+        out.append(n)
+    return out
+
+
+def _parse_long_left_event_table(
+    df: pd.DataFrame,
+) -> Tuple[List[LongEvent], List[Dict[str, Any]], Dict[str, set[int]]]:
+    """
+    Parse the leftmost per-period event table found in '*-long*.xlsx' sheets.
+
+    Returns:
+      - list of LongEvent entries (for event summaries/clips)
+      - list of goal rows with scorer/assists for optional goal inference
+      - observed jerseys by team color (Blue/White) for team inference
+    """
+    if df.empty or df.shape[1] < 6:
+        return [], [], {}
+
+    # Identify period header rows in column 0 (e.g., '1st Period', '2nd Period', '3rd period').
+    col0 = df.iloc[:, 0]
+    period_rows: List[Tuple[int, int]] = []
+    for r, v in col0.items():
+        p = parse_period_label(v)
+        if p is not None:
+            period_rows.append((int(r), int(p)))
+
+    if not period_rows:
+        return [], [], {}
+
+    # Append sentinel end row.
+    period_rows_sorted = sorted(period_rows, key=lambda x: x[0])
+    period_rows_sorted.append((int(df.shape[0]), -1))
+
+    events: List[LongEvent] = []
+    goal_rows: List[Dict[str, Any]] = []
+    jerseys_by_team: Dict[str, set[int]] = {"Blue": set(), "White": set()}
+
+    def _col_for(header_row: int, *candidates: str) -> Optional[int]:
+        # Map normalized header names to column indices.
+        label_to_col: Dict[str, int] = {}
+        for c in range(df.shape[1]):
+            v = df.iat[header_row, c]
+            if pd.isna(v):
+                continue
+            if not isinstance(v, str):
+                continue
+            s = v.strip()
+            if not s:
+                continue
+            label_to_col[_normalize_header_label(s)] = c
+        for cand in candidates:
+            key = _normalize_header_label(cand)
+            if key in label_to_col:
+                return label_to_col[key]
+        # Fallback: substring match
+        for cand in candidates:
+            key = _normalize_header_label(cand)
+            for hdr, c in label_to_col.items():
+                if key and key in hdr:
+                    return c
+        return None
+
+    for idx in range(len(period_rows_sorted) - 1):
+        header_r, period = period_rows_sorted[idx]
+        end_r = period_rows_sorted[idx + 1][0]
+
+        # The header row itself contains column names (Video Time, Scoreboard, Team, etc.).
+        video_col = _col_for(header_r, "Video Time")
+        sb_col = _col_for(header_r, "Scoreboard", "Game Time")
+        team_col = _col_for(header_r, "Team")
+        shots_col = _col_for(header_r, "Shots", "Shot")
+        sog_col = _col_for(header_r, "Shots on Goal", "Shot on Goal", "SOG")
+        assist_col = _col_for(header_r, "Assist", "Assists")
+
+        for r in range(header_r + 1, end_r):
+            team = _parse_long_team(df.iat[r, team_col] if team_col is not None else None)
+            if not team:
+                continue
+            vsec = _parse_long_mmss_time_to_seconds(df.iat[r, video_col]) if video_col is not None else None
+            gsec = _parse_long_mmss_time_to_seconds(df.iat[r, sb_col]) if sb_col is not None else None
+
+            label = df.iat[r, 0]
+            label_s = str(label).strip() if isinstance(label, str) else ""
+            label_l = label_s.lower()
+
+            shooter = (
+                _extract_jerseys_from_cell(df.iat[r, shots_col]) if shots_col is not None else []
+            )
+            assists = (
+                _extract_jerseys_from_cell(df.iat[r, assist_col]) if assist_col is not None else []
+            )
+            marker = df.iat[r, sog_col] if sog_col is not None else None
+            marker_s = str(marker).strip() if isinstance(marker, str) else ""
+            marker_l = marker_s.lower()
+
+            is_expected_goal = "expected goal" in label_l
+            is_controlled_entry = ("controlled" in label_l) and ("entr" in label_l)
+            is_controlled_exit = ("controlled" in label_l) and ("exit" in label_l)
+            is_rush = "rush" in label_l
+            is_goal = (label_l == "goal") or (marker_l == "goal")
+            is_sog = marker_l in {"sog", "goal"}
+
+            if shooter:
+                events.append(
+                    LongEvent(
+                        event_type="Shot",
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                        jerseys=tuple(shooter),
+                    )
+                )
+            if shooter and is_sog:
+                events.append(
+                    LongEvent(
+                        event_type="SOG",
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                        jerseys=tuple(shooter),
+                    )
+                )
+            if shooter and is_goal:
+                events.append(
+                    LongEvent(
+                        event_type="Goal",
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                        jerseys=tuple(shooter),
+                    )
+                )
+                scorer = shooter[0] if shooter else None
+                goal_rows.append(
+                    {
+                        "team": team,
+                        "period": period,
+                        "game_s": gsec,
+                        "scorer": scorer,
+                        "assists": assists,
+                    }
+                )
+            if assists:
+                events.append(
+                    LongEvent(
+                        event_type="Assist",
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                        jerseys=tuple(assists),
+                    )
+                )
+            if is_expected_goal:
+                events.append(
+                    LongEvent(
+                        event_type="ExpectedGoal",
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                        jerseys=tuple(shooter),
+                    )
+                )
+            if is_controlled_entry:
+                events.append(
+                    LongEvent(
+                        event_type="ControlledEntry",
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                    )
+                )
+            if is_controlled_exit:
+                events.append(
+                    LongEvent(
+                        event_type="ControlledExit",
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                    )
+                )
+            if is_rush:
+                events.append(
+                    LongEvent(
+                        event_type="Rush",
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                    )
+                )
+
+            for j in shooter + assists:
+                jerseys_by_team.setdefault(team, set()).add(int(j))
+
+    # Remove empty defaults if nothing was seen.
+    jerseys_by_team = {k: v for k, v in jerseys_by_team.items() if v}
+    return events, goal_rows, jerseys_by_team
+
+
+def _infer_focus_team_from_long_sheet(
+    our_jerseys: set[str],
+    jerseys_by_team: Dict[str, set[int]],
+) -> Optional[str]:
+    if not our_jerseys or not jerseys_by_team:
+        return None
+    blue = {str(x) for x in jerseys_by_team.get("Blue", set())}
+    white = {str(x) for x in jerseys_by_team.get("White", set())}
+    blue_ov = len(our_jerseys & blue)
+    white_ov = len(our_jerseys & white)
+    if blue_ov == 0 and white_ov == 0:
+        return None
+    if blue_ov == white_ov:
+        return None
+    return "Blue" if blue_ov > white_ov else "White"
+
+
+def _event_log_context_from_long_events(
+    long_events: List[LongEvent],
+    *,
+    jersey_to_players: Dict[str, List[str]],
+    focus_team: Optional[str],
+    jerseys_by_team: Dict[str, set[int]],
+) -> EventLogContext:
+    event_counts_by_player: Dict[str, Dict[str, int]] = {}
+    event_counts_by_type_team: Dict[Tuple[str, str], int] = {}
+    event_instances: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    event_player_rows: List[Dict[str, Any]] = []
+
+    MAX_TEAM_PLAYERS = 20
+    team_roster: Dict[str, List[int]] = {}
+    team_excluded: Dict[str, List[int]] = {}
+
+    def _register_and_flag(team: str, jerseys: Iterable[int]) -> None:
+        seen_local: set[int] = set()
+        ordered: List[int] = []
+        for j in jerseys:
+            jj = int(j)
+            if jj in seen_local:
+                continue
+            seen_local.add(jj)
+            ordered.append(jj)
+        roster = team_roster.setdefault(team, [])
+        excluded = team_excluded.setdefault(team, [])
+        for j in ordered:
+            if j in roster:
+                continue
+            if len(roster) < MAX_TEAM_PLAYERS:
+                roster.append(j)
+            else:
+                if j not in excluded:
+                    excluded.append(j)
+
+    # Seed rosters from the observed jerseys for better inference/debugging.
+    for team, nums in (jerseys_by_team or {}).items():
+        if not team or not nums:
+            continue
+        _register_and_flag(team, sorted(nums))
+
+    for ev in long_events:
+        team = ev.team
+        etype = ev.event_type
+        key = (etype, team)
+        event_counts_by_type_team[key] = event_counts_by_type_team.get(key, 0) + 1
+        event_instances.setdefault(key, []).append(
+            {"period": ev.period, "video_s": ev.video_s, "game_s": ev.game_s}
+        )
+
+        if not ev.jerseys:
+            continue
+
+        _register_and_flag(team, ev.jerseys)
+        for jersey in ev.jerseys:
+            jersey_norm = _normalize_jersey_number(jersey)
+            player_keys: List[str] = []
+            if focus_team is not None and team == focus_team and jersey_norm:
+                player_keys = jersey_to_players.get(jersey_norm, [])
+            if not player_keys:
+                player_keys = [f"{team}_{int(jersey)}"]
+            for pk in player_keys:
+                d = event_counts_by_player.setdefault(pk, {})
+                d[etype] = d.get(etype, 0) + 1
+                event_player_rows.append(
+                    {
+                        "event_type": etype,
+                        "team": team,
+                        "player": pk,
+                        "jersey": int(jersey),
+                        "period": ev.period,
+                        "video_s": ev.video_s,
+                        "game_s": ev.game_s,
+                    }
+                )
+
+    return EventLogContext(
+        event_counts_by_player=event_counts_by_player,
+        event_counts_by_type_team=event_counts_by_type_team,
+        event_instances=event_instances,
+        event_player_rows=event_player_rows,
+        team_roster=team_roster,
+        team_excluded=team_excluded,
+    )
+
+
+def _merge_event_log_contexts(
+    a: Optional[EventLogContext],
+    b: Optional[EventLogContext],
+) -> Optional[EventLogContext]:
+    if a is None:
+        return b
+    if b is None:
+        return a
+
+    merged_counts_by_player: Dict[str, Dict[str, int]] = {}
+    for src in (a.event_counts_by_player or {}, b.event_counts_by_player or {}):
+        for pk, kinds in src.items():
+            dest = merged_counts_by_player.setdefault(pk, {})
+            for kind, cnt in (kinds or {}).items():
+                try:
+                    inc = int(cnt)
+                except Exception:
+                    inc = 0
+                dest[kind] = dest.get(kind, 0) + inc
+
+    merged_counts_by_type_team: Dict[Tuple[str, str], int] = {}
+    for src in (a.event_counts_by_type_team or {}, b.event_counts_by_type_team or {}):
+        for k, cnt in src.items():
+            try:
+                inc = int(cnt)
+            except Exception:
+                inc = 0
+            merged_counts_by_type_team[k] = merged_counts_by_type_team.get(k, 0) + inc
+
+    merged_instances: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for src in (a.event_instances or {}, b.event_instances or {}):
+        for k, rows in src.items():
+            merged_instances.setdefault(k, []).extend(list(rows or []))
+
+    merged_player_rows: List[Dict[str, Any]] = []
+    merged_player_rows.extend(list(a.event_player_rows or []))
+    merged_player_rows.extend(list(b.event_player_rows or []))
+
+    def _merge_rosters(
+        r1: Dict[str, List[int]], r2: Dict[str, List[int]]
+    ) -> Dict[str, List[int]]:
+        out: Dict[str, List[int]] = {}
+        for src in (r1 or {}, r2 or {}):
+            for team, nums in src.items():
+                if not team:
+                    continue
+                cur = out.setdefault(team, [])
+                for n in nums or []:
+                    try:
+                        nn = int(n)
+                    except Exception:
+                        continue
+                    if nn not in cur:
+                        cur.append(nn)
+        return out
+
+    merged_roster = _merge_rosters(a.team_roster or {}, b.team_roster or {})
+    merged_excluded = _merge_rosters(a.team_excluded or {}, b.team_excluded or {})
+
+    return EventLogContext(
+        event_counts_by_player=merged_counts_by_player,
+        event_counts_by_type_team=merged_counts_by_type_team,
+        event_instances=merged_instances,
+        event_player_rows=merged_player_rows,
+        team_roster=merged_roster,
+        team_excluded=merged_excluded,
+    )
 
 
 def _detect_event_log_headers(
@@ -1660,6 +2193,21 @@ def _build_stats_dataframe(
         "assists",
         "points",
         "ppg",
+        "shots",
+        "shots_per_game",
+        "sog",
+        "expected_goals",
+        "sog_per_game",
+        "expected_goals_per_game",
+        "expected_goals_per_sog",
+        "controlled_entry_for",
+        "controlled_entry_for_per_game",
+        "controlled_entry_against",
+        "controlled_entry_against_per_game",
+        "controlled_exit_for",
+        "controlled_exit_for_per_game",
+        "controlled_exit_against",
+        "controlled_exit_against_per_game",
         "gt_goals",
         "gw_goals",
         "shifts",
@@ -1729,6 +2277,21 @@ def _display_col_name(key: str) -> str:
         "assists": "Assists",
         "points": "Points",
         "ppg": "PPG",
+        "shots": "Shots",
+        "shots_per_game": "Shots per Game",
+        "sog": "SOG",
+        "sog_per_game": "SOG per Game",
+        "expected_goals": "Expected Goals",
+        "expected_goals_per_game": "Expected Goals per Game",
+        "expected_goals_per_sog": "Expected Goals per SOG",
+        "controlled_entry_for": "Controlled Entry For (On-Ice)",
+        "controlled_entry_for_per_game": "Controlled Entry For per Game (On-Ice)",
+        "controlled_entry_against": "Controlled Entry Against (On-Ice)",
+        "controlled_entry_against_per_game": "Controlled Entry Against per Game (On-Ice)",
+        "controlled_exit_for": "Controlled Exit For (On-Ice)",
+        "controlled_exit_for_per_game": "Controlled Exit For per Game (On-Ice)",
+        "controlled_exit_against": "Controlled Exit Against (On-Ice)",
+        "controlled_exit_against_per_game": "Controlled Exit Against per Game (On-Ice)",
         "gt_goals": "GT Goals",
         "gw_goals": "GW Goals",
         "shifts": "Shifts",
@@ -1848,8 +2411,11 @@ def _write_player_stats_text_and_csv(
                 w.writerow(r)
     try:
         with pd.ExcelWriter(stats_dir / "player_stats.xlsx") as writer:
-            df_display.to_excel(writer, sheet_name="player_stats", index=False)
-            _autosize_columns(writer, "player_stats", df_display)
+            df_excel = df_display.copy()
+            df_excel.columns = [_wrap_header_after_words(c, words_per_line=3) for c in disp_cols]
+            df_excel.to_excel(writer, sheet_name="player_stats", index=False)
+            _apply_excel_header_wrap(writer, "player_stats")
+            _autosize_columns(writer, "player_stats", df_excel)
     except Exception:
         pass
 
@@ -1866,6 +2432,13 @@ def _aggregate_stats_rows(
                 "player": player,
                 "goals": 0,
                 "assists": 0,
+                "shots": 0,
+                "sog": 0,
+                "expected_goals": 0,
+                "controlled_entry_for": 0,
+                "controlled_entry_against": 0,
+                "controlled_exit_for": 0,
+                "controlled_exit_against": 0,
                 "gp": 0,
                 "shifts": 0,
                 "plus_minus": 0,
@@ -1888,6 +2461,17 @@ def _aggregate_stats_rows(
             dest = _ensure(player)
             dest["goals"] += int(str(row.get("goals", 0) or 0))
             dest["assists"] += int(str(row.get("assists", 0) or 0))
+            dest["shots"] += int(str(row.get("shots", 0) or 0))
+            dest["sog"] += int(str(row.get("sog", 0) or 0))
+            dest["expected_goals"] += int(str(row.get("expected_goals", 0) or 0))
+            dest["controlled_entry_for"] += int(str(row.get("controlled_entry_for", 0) or 0))
+            dest["controlled_entry_against"] += int(
+                str(row.get("controlled_entry_against", 0) or 0)
+            )
+            dest["controlled_exit_for"] += int(str(row.get("controlled_exit_for", 0) or 0))
+            dest["controlled_exit_against"] += int(
+                str(row.get("controlled_exit_against", 0) or 0)
+            )
             # Each per-game stats row corresponds to one game played (GP),
             # including cases where the player only appears on the T2S roster.
             dest["gp"] += 1
@@ -1926,6 +2510,13 @@ def _aggregate_stats_rows(
         total_goals = data["goals"]
         total_assists = data["assists"]
         total_points = total_goals + total_assists
+        total_shots = data.get("shots", 0) or 0
+        total_sog = data.get("sog", 0) or 0
+        total_expected_goals = data.get("expected_goals", 0) or 0
+        total_ce_for = data.get("controlled_entry_for", 0) or 0
+        total_ce_against = data.get("controlled_entry_against", 0) or 0
+        total_cx_for = data.get("controlled_exit_for", 0) or 0
+        total_cx_against = data.get("controlled_exit_against", 0) or 0
         row: Dict[str, str] = {
             "player": player,
             "gp": str(gp),
@@ -1933,6 +2524,27 @@ def _aggregate_stats_rows(
             "assists": str(total_assists),
             "points": str(total_points),
             "ppg": f"{(total_points / gp):.1f}" if gp > 0 else "0.0",
+            "shots": str(total_shots),
+            "shots_per_game": f"{(total_shots / gp):.1f}" if gp > 0 else "",
+            "sog": str(total_sog),
+            "sog_per_game": f"{(total_sog / gp):.1f}" if gp > 0 else "",
+            "expected_goals": str(total_expected_goals),
+            "expected_goals_per_game": f"{(total_expected_goals / gp):.1f}" if gp > 0 else "",
+            "expected_goals_per_sog": (
+                f"{(total_expected_goals / total_sog):.2f}" if total_sog > 0 else ""
+            ),
+            "controlled_entry_for": str(total_ce_for),
+            "controlled_entry_for_per_game": f"{(total_ce_for / gp):.1f}" if gp > 0 else "",
+            "controlled_entry_against": str(total_ce_against),
+            "controlled_entry_against_per_game": (
+                f"{(total_ce_against / gp):.1f}" if gp > 0 else ""
+            ),
+            "controlled_exit_for": str(total_cx_for),
+            "controlled_exit_for_per_game": f"{(total_cx_for / gp):.1f}" if gp > 0 else "",
+            "controlled_exit_against": str(total_cx_against),
+            "controlled_exit_against_per_game": (
+                f"{(total_cx_against / gp):.1f}" if gp > 0 else ""
+            ),
             "shifts": str(shifts),
             "shifts_per_game": f"{(shifts / gp):.1f}" if gp > 0 else "",
             "plus_minus": str(data["plus_minus"]),
@@ -2012,9 +2624,13 @@ def _write_consolidated_workbook(out_path: Path, sheets: List[Tuple[str, pd.Data
                 # Pretty player names if present
                 if "player" in df_display.columns:
                     df_display["player"] = df_display["player"].apply(_display_player_name)
-                disp_cols = [_display_col_name(c) for c in df_display.columns]
+                disp_cols = [
+                    _wrap_header_after_words(_display_col_name(c), words_per_line=3)
+                    for c in df_display.columns
+                ]
                 df_display.columns = disp_cols
                 df_display.to_excel(writer, sheet_name=safe_name, index=False)
+                _apply_excel_header_wrap(writer, safe_name)
                 _autosize_columns(writer, safe_name, df_display)
     except Exception:
         pass
@@ -2469,6 +3085,114 @@ done
             )
 
 
+def _write_player_event_highlights(
+    outdir: Path,
+    event_log_context: EventLogContext,
+    conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
+    player_keys: Iterable[str],
+    create_scripts: bool,
+    *,
+    highlight_types: Tuple[str, ...] = ("Goal", "SOG"),
+) -> None:
+    """
+    Generate per-player highlight timestamp files + helper scripts for selected event types.
+
+    Intended for '-long' sheets where events include video time. Falls back to
+    mapping scoreboard->video using conv_segments when needed.
+    """
+    if not event_log_context or not (event_log_context.event_player_rows or []):
+        return
+
+    player_set = set(player_keys or [])
+    if not player_set:
+        return
+
+    def map_sb_to_video(period: int, t_sb: int) -> Optional[int]:
+        segs = conv_segments_by_period.get(period)
+        if not segs:
+            return None
+        for s1, s2, v1, v2 in segs:
+            lo, hi = (s1, s2) if s1 <= s2 else (s2, s1)
+            if lo <= t_sb <= hi and s1 != s2:
+                return int(round(v1 + (t_sb - s1) * (v2 - v1) / (s2 - s1)))
+        return None
+
+    def merge_windows(win: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        if not win:
+            return []
+        win_sorted = sorted(win)
+        out: List[Tuple[int, int]] = [win_sorted[0]]
+        for a, b in win_sorted[1:]:
+            la, lb = out[-1]
+            if a <= lb:
+                out[-1] = (la, max(lb, b))
+            else:
+                out.append((a, b))
+        return out
+
+    by_player_type: Dict[Tuple[str, str], List[Tuple[int, Optional[int], Optional[int]]]] = {}
+    for row in event_log_context.event_player_rows or []:
+        et = row.get("event_type")
+        pk = row.get("player")
+        if not isinstance(et, str) or et not in highlight_types:
+            continue
+        if not isinstance(pk, str) or pk not in player_set:
+            continue
+        p = row.get("period")
+        if not isinstance(p, int):
+            continue
+        v = row.get("video_s")
+        g = row.get("game_s")
+        vsec = int(v) if isinstance(v, (int, float)) else None
+        gsec = int(g) if isinstance(g, (int, float)) else None
+        by_player_type.setdefault((pk, et), []).append((p, vsec, gsec))
+
+    for (pk, etype), rows in sorted(by_player_type.items(), key=lambda x: (x[0][0], x[0][1])):
+        v_windows: List[Tuple[int, int]] = []
+        for period, vsec, gsec in rows:
+            vv = vsec
+            if vv is None and gsec is not None:
+                vv = map_sb_to_video(period, gsec)
+            if vv is None:
+                continue
+            v_windows.append((max(0, int(vv) - 15), int(vv) + 15))
+
+        v_windows = merge_windows(v_windows)
+        if not v_windows:
+            continue
+
+        vfile = outdir / f"events_{etype}_{pk}_video_times.txt"
+        v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
+        vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
+
+        if not create_scripts:
+            continue
+
+        label = f"{etype} - {_display_player_name(pk)}"
+        script_name = f"clip_{etype.lower()}_{pk}.sh"
+        script = outdir / script_name
+        body = f"""#!/usr/bin/env bash
+set -euo pipefail
+if [ $# -lt 2 ]; then
+  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
+  exit 1
+fi
+INPUT=\"$1\"
+OPP=\"$2\"
+THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
+TS_FILE=\"$THIS_DIR/{vfile.name}\"
+shift 2 || true
+python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{pk}\" \"{label} vs $OPP\" \"$@\"
+"""
+        script.write_text(body, encoding="utf-8")
+        try:
+            import os as _os
+
+            _os.chmod(script, 0o755)
+        except Exception:
+            pass
+
+
 def _write_goal_window_files(
     outdir: Path,
     goals: List[GoalEvent],
@@ -2575,6 +3299,8 @@ def process_sheet(
     keep_goalies: bool,
     goals: List[GoalEvent],
     roster_map: Optional[Dict[str, str]] = None,
+    long_xls_paths: Optional[List[Path]] = None,
+    focus_team_override: Optional[str] = None,
     skip_validation: bool = False,
     create_scripts: bool = True,
 ) -> Tuple[
@@ -2616,26 +3342,14 @@ def process_sheet(
     _write_video_times_and_scripts(outdir, video_pairs_by_player, create_scripts=create_scripts)
     _write_scoreboard_times(outdir, sb_pairs_by_player)
 
-    # Stats and plus/minus
-    goals_by_period: Dict[int, List[GoalEvent]] = {}
-    for ev in goals:
-        goals_by_period.setdefault(ev.period, []).append(ev)
-
-    # Annotate game-tying / game-winning roles for goals in this game.
-    _annotate_goal_roles(goals)
-
     stats_table_rows: List[Dict[str, str]] = []
     all_periods_seen: set[int] = set()
 
     jersey_to_players: Dict[str, List[str]] = {}
     for pk in sb_pairs_by_player.keys():
-        jersey_part = pk.split("_", 1)[0]
-        candidates = {jersey_part}
-        norm = _normalize_jersey_number(jersey_part)
+        norm = _normalize_jersey_number(pk)
         if norm:
-            candidates.add(norm)
-        for cand in candidates:
-            jersey_to_players.setdefault(cand, []).append(pk)
+            jersey_to_players.setdefault(norm, []).append(pk)
 
     # Optionally add TimeToScore roster-only players (no shifts in this sheet)
     roster_only_players: List[str] = []
@@ -2663,6 +3377,97 @@ def process_sheet(
             roster_only_players.append(player_key)
             # Map normalized jersey to this player for scoring lookups.
             jersey_to_players.setdefault(jersey_norm, []).append(player_key)
+
+    # Optional '-long' event sheet: merge event context and optionally infer goals.
+    focus_team: Optional[str] = focus_team_override
+    merged_event_context: Optional[EventLogContext] = event_log_context
+    inferred_long_goals: List[GoalEvent] = []
+
+    long_goal_rows_all: List[Dict[str, Any]] = []
+    jerseys_by_team_all: Dict[str, set[int]] = {}
+
+    if long_xls_paths:
+        for long_path in long_xls_paths:
+            if long_path is None:
+                continue
+            lp = Path(long_path).expanduser()
+            if not lp.exists():
+                continue
+            try:
+                long_df = pd.read_excel(lp, sheet_name=0, header=None)
+            except Exception as e:  # noqa: BLE001
+                print(f"[long] Failed to read {lp}: {e}", file=sys.stderr)
+                continue
+
+            long_events, long_goal_rows, jerseys_by_team = _parse_long_left_event_table(long_df)
+            if not long_events and not long_goal_rows:
+                continue
+
+            for team, nums in (jerseys_by_team or {}).items():
+                jerseys_by_team_all.setdefault(team, set()).update(nums or set())
+            long_goal_rows_all.extend(long_goal_rows or [])
+
+            if focus_team is None:
+                our_jerseys: set[str] = set(jersey_to_players.keys())
+                if roster_map:
+                    our_jerseys |= set(roster_map.keys())
+                focus_team = _infer_focus_team_from_long_sheet(our_jerseys, jerseys_by_team_all)
+
+            long_ctx = _event_log_context_from_long_events(
+                long_events,
+                jersey_to_players=jersey_to_players,
+                focus_team=focus_team,
+                jerseys_by_team=jerseys_by_team,
+            )
+            merged_event_context = _merge_event_log_contexts(merged_event_context, long_ctx)
+
+        if focus_team is None and (long_goal_rows_all or jerseys_by_team_all):
+            print(
+                "[long] Could not infer whether your team is Blue or White; "
+                "use --dark/--light to enable team-relative stats and goal inference.",
+                file=sys.stderr,
+            )
+
+        if (not goals) and focus_team is not None and long_goal_rows_all:
+            for row in long_goal_rows_all:
+                team = row.get("team")
+                period = row.get("period")
+                gsec = row.get("game_s")
+                scorer = row.get("scorer")
+                assists = row.get("assists") or []
+                if team not in {"Blue", "White"}:
+                    continue
+                if not isinstance(period, int):
+                    continue
+                if not isinstance(gsec, (int, float)):
+                    continue
+                kind = "GF" if team == focus_team else "GA"
+                t_str = seconds_to_mmss_or_hhmmss(int(gsec))
+                scorer_str = str(int(scorer)) if scorer is not None else None
+                assists_str: List[str] = []
+                for a in assists:
+                    if a is None:
+                        continue
+                    try:
+                        assists_str.append(str(int(a)))
+                    except Exception:
+                        continue
+                inferred_long_goals.append(
+                    GoalEvent(kind, int(period), t_str, scorer=scorer_str, assists=assists_str)
+                )
+            inferred_long_goals.sort(key=lambda e: (e.period, e.t_sec))
+
+    # Use inferred long-sheet goals only as a fallback when no goals were provided.
+    if not goals and inferred_long_goals:
+        goals = inferred_long_goals
+
+    # Stats and plus/minus
+    goals_by_period: Dict[int, List[GoalEvent]] = {}
+    for ev in goals:
+        goals_by_period.setdefault(ev.period, []).append(ev)
+
+    # Annotate game-tying / game-winning roles for goals in this game.
+    _annotate_goal_roles(goals)
 
     # Per-player event details for this game (for multi-game summaries).
     per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]] = {
@@ -2702,6 +3507,22 @@ def process_sheet(
             for pk in _match_player_keys(ast):
                 goal_assist_counts[pk]["assists"] += 1
                 per_player_goal_events[pk]["assists"].append(ev)
+
+    event_log_context = merged_event_context
+
+    # Pre-group team-level events by period for on-ice for/against counts.
+    on_ice_event_types = {"ControlledEntry", "ControlledExit"}
+    team_events_by_period: Dict[int, List[Tuple[str, str, int]]] = {}
+    if focus_team is not None and event_log_context is not None:
+        for (etype, team), inst_list in (event_log_context.event_instances or {}).items():
+            if etype not in on_ice_event_types:
+                continue
+            for it in inst_list or []:
+                p = it.get("period")
+                gs = it.get("game_s")
+                if not isinstance(p, int) or not isinstance(gs, (int, float)):
+                    continue
+                team_events_by_period.setdefault(int(p), []).append((etype, str(team), int(gs)))
 
     for player_key, sb_list in sb_pairs_by_player.items():
         sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
@@ -2750,6 +3571,35 @@ def process_sheet(
         # Per-game points-per-game (PPG) for this single game.
         ppg_val = float(points_val)
 
+        # On-ice for/against metrics for team-level events (e.g., controlled exits)
+        on_ice: Dict[str, int] = {
+            "controlled_entry_for": 0,
+            "controlled_entry_against": 0,
+            "controlled_exit_for": 0,
+            "controlled_exit_against": 0,
+        }
+        if focus_team is not None and team_events_by_period and sb_by_period:
+            for period, pairs in sb_by_period.items():
+                period_events = team_events_by_period.get(period, [])
+                if not period_events or not pairs:
+                    continue
+                intervals = [compute_interval_seconds(a, b) for a, b in pairs]
+                for etype, team, gsec in period_events:
+                    in_any = False
+                    for lo, hi in intervals:
+                        if lo <= gsec <= hi:
+                            in_any = True
+                            break
+                    if not in_any:
+                        continue
+                    is_for = team == focus_team
+                    if etype == "ControlledEntry":
+                        key = "controlled_entry_for" if is_for else "controlled_entry_against"
+                        on_ice[key] += 1
+                    elif etype == "ControlledExit":
+                        key = "controlled_exit_for" if is_for else "controlled_exit_against"
+                        on_ice[key] += 1
+
         stats_lines = []
         stats_lines.append(f"Player: {_display_player_name(player_key)}")
         stats_lines.append("Games Played (GP): 1")
@@ -2759,8 +3609,8 @@ def process_sheet(
         stats_lines.append(f"Median shift: {shift_summary['toi_median']}")
         stats_lines.append(f"Longest shift: {shift_summary['toi_longest']}")
         stats_lines.append(f"Shortest shift: {shift_summary['toi_shortest']}")
-        stats_lines.append(f"Goals (T2S): {scoring_counts.get('goals', 0)}")
-        stats_lines.append(f"Assists (T2S): {scoring_counts.get('assists', 0)}")
+        stats_lines.append(f"Goals: {scoring_counts.get('goals', 0)}")
+        stats_lines.append(f"Assists: {scoring_counts.get('assists', 0)}")
         stats_lines.append(f"Points (G+A): {points_val}")
         stats_lines.append(f"PPG (points per game): {ppg_val:.1f}")
         if per_period_toi_map:
@@ -2781,6 +3631,7 @@ def process_sheet(
                 stats_lines.append("Event Counts:")
                 order = [
                     "Shot",
+                    "SOG",
                     "Goal",
                     "Assist",
                     "ControlledEntry",
@@ -2794,6 +3645,16 @@ def process_sheet(
                     if kind in order:
                         continue
                     stats_lines.append(f"  {kind}: {cnt}")
+
+        if focus_team is not None and any(v > 0 for v in on_ice.values()):
+            stats_lines.append("")
+            stats_lines.append(f"On-ice team events (for/against; your team is {focus_team}):")
+            stats_lines.append(
+                f"  ControlledEntry: {on_ice['controlled_entry_for']} for, {on_ice['controlled_entry_against']} against"
+            )
+            stats_lines.append(
+                f"  ControlledExit: {on_ice['controlled_exit_for']} for, {on_ice['controlled_exit_against']} against"
+            )
 
         for period, pairs in sorted(sb_by_period.items()):
             stats_lines.append(f"Shifts in Period {period}: {len(pairs)}")
@@ -2820,6 +3681,32 @@ def process_sheet(
             "sb_longest": shift_summary["toi_longest"],
             "sb_shortest": shift_summary["toi_shortest"],
         }
+        # Event counts (from event logs / long sheets), per game.
+        if event_log_context is not None:
+            ev_counts = (event_log_context.event_counts_by_player or {}).get(player_key, {})
+        else:
+            ev_counts = {}
+        shots_cnt = int(ev_counts.get("Shot", 0) or 0)
+        sog_cnt = int(ev_counts.get("SOG", 0) or 0)
+        expected_goals_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
+        row_map["shots"] = str(shots_cnt)
+        row_map["shots_per_game"] = str(shots_cnt)
+        row_map["sog"] = str(sog_cnt)
+        row_map["sog_per_game"] = str(sog_cnt)
+        row_map["expected_goals"] = str(expected_goals_cnt)
+        row_map["expected_goals_per_game"] = str(expected_goals_cnt)
+        row_map["expected_goals_per_sog"] = (
+            f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
+        )
+        row_map["controlled_entry_for"] = str(on_ice["controlled_entry_for"])
+        row_map["controlled_entry_for_per_game"] = str(on_ice["controlled_entry_for"])
+        row_map["controlled_entry_against"] = str(on_ice["controlled_entry_against"])
+        row_map["controlled_entry_against_per_game"] = str(on_ice["controlled_entry_against"])
+        row_map["controlled_exit_for"] = str(on_ice["controlled_exit_for"])
+        row_map["controlled_exit_for_per_game"] = str(on_ice["controlled_exit_for"])
+        row_map["controlled_exit_against"] = str(on_ice["controlled_exit_against"])
+        row_map["controlled_exit_against_per_game"] = str(on_ice["controlled_exit_against"])
+
         row_map["gf_counted"] = str(len(counted_gf))
         row_map["gf_per_game"] = str(len(counted_gf))
         row_map["ga_counted"] = str(len(counted_ga))
@@ -2865,6 +3752,13 @@ def process_sheet(
             stats_dir,
             event_log_context,
             conv_segments_by_period,
+            create_scripts=create_scripts,
+        )
+        _write_player_event_highlights(
+            outdir,
+            event_log_context,
+            conv_segments_by_period,
+            sb_pairs_by_player.keys(),
             create_scripts=create_scripts,
         )
 
@@ -2956,6 +3850,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Your team is the away team (with --t2s).",
     )
+    team_color_group = p.add_mutually_exclusive_group()
+    team_color_group.add_argument(
+        "--light",
+        action="store_true",
+        help="For '*-long*' sheets: treat the White team as your team when mapping events to players.",
+    )
+    team_color_group.add_argument(
+        "--dark",
+        action="store_true",
+        help="For '*-long*' sheets: treat the Blue team as your team when mapping events to players.",
+    )
     p.add_argument(
         "--no-scripts",
         action="store_true",
@@ -2973,6 +3878,12 @@ def main() -> None:
     args = build_arg_parser().parse_args()
     hockey_db_dir = args.hockey_db_dir.expanduser()
     create_scripts = not args.no_scripts
+    focus_team_override: Optional[str] = None
+    if getattr(args, "light", False):
+        focus_team_override = "White"
+    elif getattr(args, "dark", False):
+        focus_team_override = "Blue"
+
     input_entries: List[Tuple[Path, Optional[str]]] = []
     if args.file_list:
         try:
@@ -2996,7 +3907,34 @@ def main() -> None:
         sys.exit(2)
 
     base_outdir = args.outdir.expanduser()
-    multiple_inputs = len(input_entries) > 1
+    # Group '-long' companion sheets with their non-long counterpart so a game is processed once.
+    groups_by_label: Dict[str, Dict[str, Any]] = {}
+    for order_idx, (p, side) in enumerate(input_entries):
+        label = _base_label_from_path(p)
+        g = groups_by_label.setdefault(
+            label,
+            {"label": label, "primary": None, "long_paths": [], "side": None, "order": order_idx},
+        )
+        if g.get("side") is None:
+            g["side"] = side
+        elif side and g.get("side") != side:
+            print(
+                f"Error: conflicting side overrides for {label}: {g.get('side')} vs {side}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        if _is_long_sheet_path(p):
+            g["long_paths"].append(p)
+        else:
+            if g.get("primary") is None:
+                g["primary"] = p
+            else:
+                # Prefer the first primary; keep extras as additional long inputs.
+                g["long_paths"].append(p)
+
+    groups = sorted(groups_by_label.values(), key=lambda x: int(x.get("order", 0)))
+    multiple_inputs = len(groups) > 1
     results: List[Dict[str, Any]] = []
 
     def _resolve_goals_for_file(
@@ -3040,7 +3978,18 @@ def main() -> None:
             print(f"[t2s] Failed to fetch goals for game {t2s_id}: {e}", file=sys.stderr)
         return g
 
-    for idx, (in_path, path_side) in enumerate(input_entries):
+    for idx, g in enumerate(groups):
+        in_path = g.get("primary")
+        if in_path is None:
+            long_paths = g.get("long_paths") or []
+            if long_paths:
+                in_path = long_paths[0]
+            else:
+                continue
+        in_path = Path(in_path)
+        path_side = g.get("side")
+        long_paths: List[Path] = [Path(p) for p in (g.get("long_paths") or []) if Path(p) != in_path]
+
         # Prefer an explicit --t2s value; otherwise, infer a T2S id from the
         # filename only when the trailing numeric suffix is large enough
         # (>= 10000). Smaller suffixes (e.g., 'chicago-1') remain part of the
@@ -3088,6 +4037,8 @@ def main() -> None:
             keep_goalies=args.keep_goalies,
             goals=goals,
             roster_map=roster_map,
+            long_xls_paths=long_paths,
+            focus_team_override=focus_team_override,
             skip_validation=args.skip_validation,
             create_scripts=create_scripts,
         )
