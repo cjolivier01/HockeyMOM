@@ -2184,6 +2184,8 @@ def _build_stats_dataframe(
     stats_table_rows: List[Dict[str, str]],
     all_periods_seen: List[int],
     sort_for_cumulative: bool = False,
+    *,
+    include_shifts_in_stats: bool,
 ) -> Tuple[pd.DataFrame, List[str]]:
     periods = sorted(all_periods_seen)
     summary_cols = [
@@ -2210,8 +2212,13 @@ def _build_stats_dataframe(
         "controlled_exit_against_per_game",
         "gt_goals",
         "gw_goals",
-        "shifts",
-        "shifts_per_game",
+    ]
+    if include_shifts_in_stats:
+        summary_cols += [
+            "shifts",
+            "shifts_per_game",
+        ]
+    summary_cols += [
         "plus_minus",
         "plus_minus_per_game",
         "gf_counted",
@@ -2219,10 +2226,15 @@ def _build_stats_dataframe(
         "ga_counted",
         "ga_per_game",
     ]
-    sb_cols = ["sb_toi_total", "sb_toi_per_game", "sb_avg", "sb_median", "sb_longest", "sb_shortest"]
-    video_cols = ["video_toi_total"]
-    period_toi_cols = [f"P{p}_toi" for p in periods]
-    period_shift_cols = [f"P{p}_shifts" for p in periods]
+
+    sb_cols = (
+        ["sb_toi_total", "sb_toi_per_game", "sb_avg", "sb_median", "sb_longest", "sb_shortest"]
+        if include_shifts_in_stats
+        else []
+    )
+    video_cols = ["video_toi_total"] if include_shifts_in_stats else []
+    period_toi_cols = [f"P{p}_toi" for p in periods] if include_shifts_in_stats else []
+    period_shift_cols = [f"P{p}_shifts" for p in periods] if include_shifts_in_stats else []
     period_gf_cols = [f"P{p}_GF" for p in periods]
     period_ga_cols = [f"P{p}_GA" for p in periods]
     # Place video TOI as the last column in the table so that
@@ -2367,9 +2379,14 @@ def _write_player_stats_text_and_csv(
     stats_dir: Path,
     stats_table_rows: List[Dict[str, str]],
     all_periods_seen: List[int],
+    *,
+    include_shifts_in_stats: bool,
 ) -> None:
     df, cols = _build_stats_dataframe(
-        stats_table_rows, all_periods_seen, sort_for_cumulative=False
+        stats_table_rows,
+        all_periods_seen,
+        sort_for_cumulative=False,
+        include_shifts_in_stats=include_shifts_in_stats,
     )
     # Pretty-print player names for display tables
     if "player" in df.columns:
@@ -2641,6 +2658,8 @@ def _write_cumulative_player_detail_files(
     aggregated_rows: List[Dict[str, str]],
     per_player_events: Dict[str, Dict[str, List[Tuple[str, GoalEvent]]]],
     per_game_stats_by_label: Dict[str, List[Dict[str, str]]],
+    *,
+    include_shifts_in_stats: bool,
 ) -> None:
     """
     Write one cumulative per-player stats file summarizing all games,
@@ -2657,24 +2676,25 @@ def _write_cumulative_player_detail_files(
         r.get("player", ""): r for r in aggregated_rows if r.get("player")
     }
 
-    # Determine which game each player's longest / shortest shift came from.
+    # Determine which game each player's longest / shortest shift came from (optional).
     longest_by_player: Dict[str, Tuple[int, str, str]] = {}
     shortest_by_player: Dict[str, Tuple[int, str, str]] = {}
-    for game_label, rows in per_game_stats_by_label.items():
-        for row in rows:
-            player = row.get("player", "")
-            if not player:
-                continue
-            sb_long = _duration_to_seconds(row.get("sb_longest", ""))
-            if sb_long > 0:
-                cur = longest_by_player.get(player)
-                if cur is None or sb_long > cur[0]:
-                    longest_by_player[player] = (sb_long, row.get("sb_longest", ""), game_label)
-            sb_short = _duration_to_seconds(row.get("sb_shortest", ""))
-            if sb_short > 0:
-                cur_s = shortest_by_player.get(player)
-                if cur_s is None or sb_short < cur_s[0]:
-                    shortest_by_player[player] = (sb_short, row.get("sb_shortest", ""), game_label)
+    if include_shifts_in_stats:
+        for game_label, rows in per_game_stats_by_label.items():
+            for row in rows:
+                player = row.get("player", "")
+                if not player:
+                    continue
+                sb_long = _duration_to_seconds(row.get("sb_longest", ""))
+                if sb_long > 0:
+                    cur = longest_by_player.get(player)
+                    if cur is None or sb_long > cur[0]:
+                        longest_by_player[player] = (sb_long, row.get("sb_longest", ""), game_label)
+                sb_short = _duration_to_seconds(row.get("sb_shortest", ""))
+                if sb_short > 0:
+                    cur_s = shortest_by_player.get(player)
+                    if cur_s is None or sb_short < cur_s[0]:
+                        shortest_by_player[player] = (sb_short, row.get("sb_shortest", ""), game_label)
 
     def _fmt_tags(ev: GoalEvent) -> str:
         tags: List[str] = []
@@ -2706,7 +2726,7 @@ def _write_cumulative_player_detail_files(
         )
         lines.append(f"  Assists: {row.get('assists', '0')}")
         lines.append(f"  Plus/Minus: {row.get('plus_minus', '0')}")
-        if row.get("shifts_per_game"):
+        if include_shifts_in_stats and row.get("shifts_per_game"):
             lines.append(f"  Shifts per game: {row.get('shifts_per_game')}")
         if row.get("plus_minus_per_game"):
             lines.append(f"  Plus/Minus per game: {row.get('plus_minus_per_game')}")
@@ -2719,23 +2739,24 @@ def _write_cumulative_player_detail_files(
                 f"  GF per game: {row.get('gf_per_game', '') or '0.0'}, "
                 f"GA per game: {row.get('ga_per_game', '') or '0.0'}"
             )
-        if row.get("sb_toi_total"):
-            lines.append(f"  TOI total (scoreboard): {row.get('sb_toi_total')}")
-            if row.get("sb_toi_per_game"):
-                lines.append(
-                    f"  TOI per game (scoreboard): {row.get('sb_toi_per_game')}"
-                )
-        if row.get("video_toi_total"):
-            lines.append(f"  TOI total (video): {row.get('video_toi_total')}")
-        # Longest/shortest shift games
-        long_info = longest_by_player.get(player)
-        if long_info is not None:
-            _, dur, game_label = long_info
-            lines.append(f"  Longest shift (scoreboard): {dur} ({game_label})")
-        short_info = shortest_by_player.get(player)
-        if short_info is not None:
-            _, dur_s, game_s = short_info
-            lines.append(f"  Shortest shift (scoreboard): {dur_s} ({game_s})")
+        if include_shifts_in_stats:
+            if row.get("sb_toi_total"):
+                lines.append(f"  TOI total (scoreboard): {row.get('sb_toi_total')}")
+                if row.get("sb_toi_per_game"):
+                    lines.append(
+                        f"  TOI per game (scoreboard): {row.get('sb_toi_per_game')}"
+                    )
+            if row.get("video_toi_total"):
+                lines.append(f"  TOI total (video): {row.get('video_toi_total')}")
+            # Longest/shortest shift games
+            long_info = longest_by_player.get(player)
+            if long_info is not None:
+                _, dur, game_label = long_info
+                lines.append(f"  Longest shift (scoreboard): {dur} ({game_label})")
+            short_info = shortest_by_player.get(player)
+            if short_info is not None:
+                _, dur_s, game_s = short_info
+                lines.append(f"  Shortest shift (scoreboard): {dur_s} ({game_s})")
 
         # Goals
         lines.append("")
@@ -3301,6 +3322,7 @@ def process_sheet(
     roster_map: Optional[Dict[str, str]] = None,
     long_xls_paths: Optional[List[Path]] = None,
     focus_team_override: Optional[str] = None,
+    include_shifts_in_stats: bool = False,
     skip_validation: bool = False,
     create_scripts: bool = True,
 ) -> Tuple[
@@ -3528,9 +3550,15 @@ def process_sheet(
         sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
         for period, a, b in sb_list:
             sb_by_period.setdefault(period, []).append((a, b))
+        for period in sb_by_period.keys():
+            all_periods_seen.add(period)
         all_pairs = [(a, b) for (_, a, b) in sb_list]
-        shift_summary = summarize_shift_lengths_sec(all_pairs)
-        per_period_toi_map = per_period_toi(sb_by_period)
+        if include_shifts_in_stats:
+            shift_summary = summarize_shift_lengths_sec(all_pairs)
+            per_period_toi_map = per_period_toi(sb_by_period)
+        else:
+            shift_summary = {}
+            per_period_toi_map = {}
 
         plus_minus = 0
         counted_gf: List[str] = []
@@ -3603,20 +3631,21 @@ def process_sheet(
         stats_lines = []
         stats_lines.append(f"Player: {_display_player_name(player_key)}")
         stats_lines.append("Games Played (GP): 1")
-        stats_lines.append(f"Shifts (scoreboard): {shift_summary['num_shifts']}")
-        stats_lines.append(f"TOI total (scoreboard): {shift_summary['toi_total']}")
-        stats_lines.append(f"Avg shift: {shift_summary['toi_avg']}")
-        stats_lines.append(f"Median shift: {shift_summary['toi_median']}")
-        stats_lines.append(f"Longest shift: {shift_summary['toi_longest']}")
-        stats_lines.append(f"Shortest shift: {shift_summary['toi_shortest']}")
         stats_lines.append(f"Goals: {scoring_counts.get('goals', 0)}")
         stats_lines.append(f"Assists: {scoring_counts.get('assists', 0)}")
         stats_lines.append(f"Points (G+A): {points_val}")
         stats_lines.append(f"PPG (points per game): {ppg_val:.1f}")
-        if per_period_toi_map:
-            stats_lines.append("Per-period TOI (scoreboard):")
-            for period in sorted(per_period_toi_map.keys()):
-                stats_lines.append(f"  Period {period}: {per_period_toi_map[period]}")
+        if include_shifts_in_stats:
+            stats_lines.append(f"Shifts (scoreboard): {shift_summary.get('num_shifts', '0')}")
+            stats_lines.append(f"TOI total (scoreboard): {shift_summary.get('toi_total', '0:00')}")
+            stats_lines.append(f"Avg shift: {shift_summary.get('toi_avg', '0:00')}")
+            stats_lines.append(f"Median shift: {shift_summary.get('toi_median', '0:00')}")
+            stats_lines.append(f"Longest shift: {shift_summary.get('toi_longest', '0:00')}")
+            stats_lines.append(f"Shortest shift: {shift_summary.get('toi_shortest', '0:00')}")
+            if per_period_toi_map:
+                stats_lines.append("Per-period TOI (scoreboard):")
+                for period in sorted(per_period_toi_map.keys()):
+                    stats_lines.append(f"  Period {period}: {per_period_toi_map[period]}")
         stats_lines.append(f"Plus/Minus: {plus_minus}")
         if counted_gf:
             stats_lines.append("  GF counted at: " + ", ".join(sorted(counted_gf)))
@@ -3656,8 +3685,9 @@ def process_sheet(
                 f"  ControlledExit: {on_ice['controlled_exit_for']} for, {on_ice['controlled_exit_against']} against"
             )
 
-        for period, pairs in sorted(sb_by_period.items()):
-            stats_lines.append(f"Shifts in Period {period}: {len(pairs)}")
+        if include_shifts_in_stats:
+            for period, pairs in sorted(sb_by_period.items()):
+                stats_lines.append(f"Shifts in Period {period}: {len(pairs)}")
 
         (stats_dir / f"{player_key}_stats.txt").write_text(
             "\n".join(stats_lines) + "\n", encoding="utf-8"
@@ -3670,17 +3700,18 @@ def process_sheet(
             "points": str(points_val),
             "gp": "1",
             "ppg": f"{ppg_val:.1f}",
-            "shifts": shift_summary["num_shifts"],
-            "shifts_per_game": shift_summary["num_shifts"],
             "plus_minus": str(plus_minus),
             "plus_minus_per_game": str(plus_minus),
-            "sb_toi_total": shift_summary["toi_total"],
-            "sb_toi_per_game": shift_summary["toi_total"],
-            "sb_avg": shift_summary["toi_avg"],
-            "sb_median": shift_summary["toi_median"],
-            "sb_longest": shift_summary["toi_longest"],
-            "sb_shortest": shift_summary["toi_shortest"],
         }
+        if include_shifts_in_stats:
+            row_map["shifts"] = str(shift_summary.get("num_shifts", "0"))
+            row_map["shifts_per_game"] = str(shift_summary.get("num_shifts", "0"))
+            row_map["sb_toi_total"] = str(shift_summary.get("toi_total", "0:00"))
+            row_map["sb_toi_per_game"] = str(shift_summary.get("toi_total", "0:00"))
+            row_map["sb_avg"] = str(shift_summary.get("toi_avg", "0:00"))
+            row_map["sb_median"] = str(shift_summary.get("toi_median", "0:00"))
+            row_map["sb_longest"] = str(shift_summary.get("toi_longest", "0:00"))
+            row_map["sb_shortest"] = str(shift_summary.get("toi_shortest", "0:00"))
         # Event counts (from event logs / long sheets), per game.
         if event_log_context is not None:
             ev_counts = (event_log_context.event_counts_by_player or {}).get(player_key, {})
@@ -3711,20 +3742,21 @@ def process_sheet(
         row_map["gf_per_game"] = str(len(counted_gf))
         row_map["ga_counted"] = str(len(counted_ga))
         row_map["ga_per_game"] = str(len(counted_ga))
-        v_pairs = video_pairs_by_player.get(player_key, [])
-        if v_pairs:
-            v_sum = 0
-            for a, b in v_pairs:
-                lo, hi = compute_interval_seconds(a, b)
-                v_sum += hi - lo
-            row_map["video_toi_total"] = seconds_to_mmss_or_hhmmss(v_sum)
-        else:
-            row_map["video_toi_total"] = ""
-        for period, toi in per_period_toi_map.items():
-            row_map[f"P{period}_toi"] = toi
-            all_periods_seen.add(period)
-        for period, pairs in sb_by_period.items():
-            row_map[f"P{period}_shifts"] = str(len(pairs))
+        if include_shifts_in_stats:
+            v_pairs = video_pairs_by_player.get(player_key, [])
+            if v_pairs:
+                v_sum = 0
+                for a, b in v_pairs:
+                    lo, hi = compute_interval_seconds(a, b)
+                    v_sum += hi - lo
+                row_map["video_toi_total"] = seconds_to_mmss_or_hhmmss(v_sum)
+            else:
+                row_map["video_toi_total"] = ""
+            for period, toi in per_period_toi_map.items():
+                row_map[f"P{period}_toi"] = toi
+                all_periods_seen.add(period)
+            for period, pairs in sb_by_period.items():
+                row_map[f"P{period}_shifts"] = str(len(pairs))
         for period, cnt in counted_gf_by_period.items():
             row_map[f"P{period}_GF"] = str(cnt)
             all_periods_seen.add(period)
@@ -3734,13 +3766,19 @@ def process_sheet(
 
         stats_table_rows.append(row_map)
 
-    # Global CSV
-    _write_global_summary_csv(stats_dir, sb_pairs_by_player)
+    # Global CSV (contains TOI); only write when explicitly enabled.
+    if include_shifts_in_stats:
+        _write_global_summary_csv(stats_dir, sb_pairs_by_player)
 
 
     # Consolidated player stats
     if stats_table_rows:
-        _write_player_stats_text_and_csv(stats_dir, stats_table_rows, sorted(all_periods_seen))
+        _write_player_stats_text_and_csv(
+            stats_dir,
+            stats_table_rows,
+            sorted(all_periods_seen),
+            include_shifts_in_stats=include_shifts_in_stats,
+        )
 
     # Goals windows
     _write_goal_window_files(outdir, goals, conv_segments_by_period)
@@ -3862,6 +3900,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="For '*-long*' sheets: treat the Blue team as your team when mapping events to players.",
     )
     p.add_argument(
+        "--shifts",
+        action="store_true",
+        help=(
+            "Include shift/TOI metrics in parent-facing stats outputs "
+            "(stats/*.txt, stats/player_stats.* and consolidated workbook). "
+            "By default these are omitted."
+        ),
+    )
+    p.add_argument(
         "--no-scripts",
         action="store_true",
         help="Do not generate helper bash scripts (clip_*.sh, clip_events_*.sh, clip_all.sh).",
@@ -3878,6 +3925,7 @@ def main() -> None:
     args = build_arg_parser().parse_args()
     hockey_db_dir = args.hockey_db_dir.expanduser()
     create_scripts = not args.no_scripts
+    include_shifts_in_stats = bool(getattr(args, "shifts", False))
     focus_team_override: Optional[str] = None
     if getattr(args, "light", False):
         focus_team_override = "White"
@@ -4039,6 +4087,7 @@ def main() -> None:
             roster_map=roster_map,
             long_xls_paths=long_paths,
             focus_team_override=focus_team_override,
+            include_shifts_in_stats=include_shifts_in_stats,
             skip_validation=args.skip_validation,
             create_scripts=create_scripts,
         )
@@ -4085,7 +4134,12 @@ def main() -> None:
         _augment_aggregate_with_goal_details(agg_rows, per_player_events)
 
         # Cumulative sheet: points-based ordering.
-        agg_df, _ = _build_stats_dataframe(agg_rows, agg_periods, sort_for_cumulative=True)
+        agg_df, _ = _build_stats_dataframe(
+            agg_rows,
+            agg_periods,
+            sort_for_cumulative=True,
+            include_shifts_in_stats=include_shifts_in_stats,
+        )
         sheets: List[Tuple[str, pd.DataFrame]] = [("Cumulative", agg_df)]
         has_t2s = any(r.get("t2s_id") is not None for r in results)
         ordered_results = (
@@ -4102,7 +4156,12 @@ def main() -> None:
         )
         for r in ordered_results:
             # Per-game sheets: keep simple alphabetical ordering by player.
-            df, _ = _build_stats_dataframe(r["stats"], r["periods"], sort_for_cumulative=False)
+            df, _ = _build_stats_dataframe(
+                r["stats"],
+                r["periods"],
+                sort_for_cumulative=False,
+                include_shifts_in_stats=include_shifts_in_stats,
+            )
             sheets.append((r["label"], df))
         consolidated_path = base_outdir / "player_stats_consolidated.xlsx"
         _write_consolidated_workbook(consolidated_path, sheets)
@@ -4113,7 +4172,11 @@ def main() -> None:
 
         # Per-player cumulative detail files across all games.
         _write_cumulative_player_detail_files(
-            base_outdir, agg_rows, per_player_events, per_game_stats_by_label
+            base_outdir,
+            agg_rows,
+            per_player_events,
+            per_game_stats_by_label,
+            include_shifts_in_stats=include_shifts_in_stats,
         )
 
 
