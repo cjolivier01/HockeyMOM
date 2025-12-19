@@ -655,11 +655,9 @@ def _parse_input_token(token: str, base_dir: Optional[Path] = None) -> Tuple[Pat
         if suffix.upper() in {"HOME", "AWAY"}:
             side = suffix.lower()
             raw = raw_path
-    p = Path(raw)
+    p = Path(raw).expanduser()
     if base_dir and not p.is_absolute():
         p = (base_dir / p).resolve()
-    else:
-        p = p.expanduser()
     return p, side
 
 
@@ -4001,8 +3999,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--file-list",
         type=Path,
         default=None,
-        help="Path to a text file containing one .xls/.xlsx path per line (comments/# allowed). "
-        "Useful for ordering multiple inputs.",
+        help="Path to a text file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
+        "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
+        "You can append ':HOME' or ':AWAY' per line.",
     )
     p.add_argument(
         "--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet)."
