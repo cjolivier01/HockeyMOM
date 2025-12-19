@@ -139,7 +139,7 @@ aspen:
   - TimeToScore via `--t2s` (or inferred from filenames like `game-54111.xlsx` where the trailing number is `>= 10000`), using `--home/--away` or `:HOME/:AWAY` if needed.
   - `goals.xlsx` in the same directory as the input sheet (fallback when no TimeToScore id is in use).
 - Optional `*-long*` sheet support:
-  - Parses the leftmost per-period event table to add Shots/SOG/Expected Goals and controlled entries/exits, plus generates event clip scripts and per-player SOG/goal highlight scripts.
+  - Parses the leftmost per-period event table to add Shots/SOG/Expected Goals, Giveaways/Takeaways, and controlled entries/exits, plus generates event clip scripts and per-player SOG/goal highlight scripts.
   - If the script can’t infer whether your team is Blue or White, provide `--dark` (Blue) or `--light` (White).
 - Privacy default:
   - Shift counts and TOI are omitted from parent-facing stats outputs by default. Use `--shifts` to include them.

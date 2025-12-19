@@ -1215,12 +1215,50 @@ def _parse_long_left_event_table(
             marker_s = str(marker).strip() if isinstance(marker, str) else ""
             marker_l = marker_s.lower()
 
+            is_turnover = "turnover" in label_l
             is_expected_goal = "expected goal" in label_l
             is_controlled_entry = ("controlled" in label_l) and ("entr" in label_l)
             is_controlled_exit = ("controlled" in label_l) and ("exit" in label_l)
             is_rush = "rush" in label_l
             is_goal = (label_l == "goal") or (marker_l == "goal")
             is_sog = marker_l in {"sog", "goal"}
+
+            if is_turnover:
+                # Turnover rows use the "Shots" column for the giving player (Giveaway)
+                # and the "Shots on Goal" column for the forcing player (Takeaway),
+                # formatted like "Caused by #91".
+                giveaway = shooter
+                takeaway = (
+                    _extract_jerseys_from_cell(marker) if sog_col is not None else []
+                )
+                other_team = "White" if team == "Blue" else "Blue"
+                if giveaway:
+                    events.append(
+                        LongEvent(
+                            event_type="Giveaway",
+                            team=team,
+                            period=period,
+                            video_s=vsec,
+                            game_s=gsec,
+                            jerseys=tuple(giveaway),
+                        )
+                    )
+                if takeaway:
+                    events.append(
+                        LongEvent(
+                            event_type="Takeaway",
+                            team=other_team,
+                            period=period,
+                            video_s=vsec,
+                            game_s=gsec,
+                            jerseys=tuple(takeaway),
+                        )
+                    )
+                for j in giveaway:
+                    jerseys_by_team.setdefault(team, set()).add(int(j))
+                for j in takeaway:
+                    jerseys_by_team.setdefault(other_team, set()).add(int(j))
+                continue
 
             if shooter:
                 events.append(
@@ -2366,6 +2404,10 @@ def _build_stats_dataframe(
         "sog_per_game",
         "expected_goals_per_game",
         "expected_goals_per_sog",
+        "giveaways",
+        "giveaways_per_game",
+        "takeaways",
+        "takeaways_per_game",
         "controlled_entry_for",
         "controlled_entry_for_per_game",
         "controlled_entry_against",
@@ -2460,6 +2502,10 @@ def _display_col_name(key: str) -> str:
         "expected_goals": "Expected Goals",
         "expected_goals_per_game": "Expected Goals per Game",
         "expected_goals_per_sog": "Expected Goals per SOG",
+        "giveaways": "Giveaways",
+        "giveaways_per_game": "Giveaways per Game",
+        "takeaways": "Takeaways",
+        "takeaways_per_game": "Takeaways per Game",
         "controlled_entry_for": "Controlled Entry For (On-Ice)",
         "controlled_entry_for_per_game": "Controlled Entry For per Game (On-Ice)",
         "controlled_entry_against": "Controlled Entry Against (On-Ice)",
@@ -2652,6 +2698,8 @@ def _write_game_stats_files(
         ("Shot", "Shots"),
         ("SOG", "SOG"),
         ("ExpectedGoal", "Expected Goals"),
+        ("Giveaway", "Giveaways"),
+        ("Takeaway", "Takeaways"),
         ("ControlledEntry", "Controlled Entry"),
         ("ControlledExit", "Controlled Exit"),
         ("Rush", "Rush"),
@@ -2673,6 +2721,10 @@ def _write_game_stats_files(
         cx_against = int(counts.get(("ControlledExit", opp), 0) or 0)
         rush_for = int(counts.get(("Rush", focus_team), 0) or 0)
         rush_against = int(counts.get(("Rush", opp), 0) or 0)
+        giveaways_for = int(counts.get(("Giveaway", focus_team), 0) or 0)
+        giveaways_against = int(counts.get(("Giveaway", opp), 0) or 0)
+        takeaways_for = int(counts.get(("Takeaway", focus_team), 0) or 0)
+        takeaways_against = int(counts.get(("Takeaway", opp), 0) or 0)
 
         row.update(
             {
@@ -2683,6 +2735,10 @@ def _write_game_stats_files(
                 "Expected Goals For": xg_for,
                 "Expected Goals Against": xg_against,
                 "Expected Goals per SOG (For)": (f"{(xg_for / sog_for):.2f}" if sog_for > 0 else ""),
+                "Giveaways For": giveaways_for,
+                "Giveaways Against": giveaways_against,
+                "Takeaways For": takeaways_for,
+                "Takeaways Against": takeaways_against,
                 "Controlled Entry For": ce_for,
                 "Controlled Entry Against": ce_against,
                 "Controlled Exit For": cx_for,
@@ -2702,6 +2758,10 @@ def _write_game_stats_files(
                 "Expected Goals For": "",
                 "Expected Goals Against": "",
                 "Expected Goals per SOG (For)": "",
+                "Giveaways For": "",
+                "Giveaways Against": "",
+                "Takeaways For": "",
+                "Takeaways Against": "",
                 "Controlled Entry For": "",
                 "Controlled Entry Against": "",
                 "Controlled Exit For": "",
@@ -2742,6 +2802,8 @@ def _aggregate_stats_rows(
                 "shots": 0,
                 "sog": 0,
                 "expected_goals": 0,
+                "giveaways": 0,
+                "takeaways": 0,
                 "controlled_entry_for": 0,
                 "controlled_entry_against": 0,
                 "controlled_exit_for": 0,
@@ -2771,6 +2833,8 @@ def _aggregate_stats_rows(
             dest["shots"] += int(str(row.get("shots", 0) or 0))
             dest["sog"] += int(str(row.get("sog", 0) or 0))
             dest["expected_goals"] += int(str(row.get("expected_goals", 0) or 0))
+            dest["giveaways"] += int(str(row.get("giveaways", 0) or 0))
+            dest["takeaways"] += int(str(row.get("takeaways", 0) or 0))
             dest["controlled_entry_for"] += int(str(row.get("controlled_entry_for", 0) or 0))
             dest["controlled_entry_against"] += int(
                 str(row.get("controlled_entry_against", 0) or 0)
@@ -2820,6 +2884,8 @@ def _aggregate_stats_rows(
         total_shots = data.get("shots", 0) or 0
         total_sog = data.get("sog", 0) or 0
         total_expected_goals = data.get("expected_goals", 0) or 0
+        total_giveaways = data.get("giveaways", 0) or 0
+        total_takeaways = data.get("takeaways", 0) or 0
         total_ce_for = data.get("controlled_entry_for", 0) or 0
         total_ce_against = data.get("controlled_entry_against", 0) or 0
         total_cx_for = data.get("controlled_exit_for", 0) or 0
@@ -2840,6 +2906,10 @@ def _aggregate_stats_rows(
             "expected_goals_per_sog": (
                 f"{(total_expected_goals / total_sog):.2f}" if total_sog > 0 else ""
             ),
+            "giveaways": str(total_giveaways),
+            "giveaways_per_game": f"{(total_giveaways / gp):.1f}" if gp > 0 else "",
+            "takeaways": str(total_takeaways),
+            "takeaways_per_game": f"{(total_takeaways / gp):.1f}" if gp > 0 else "",
             "controlled_entry_for": str(total_ce_for),
             "controlled_entry_for_per_game": f"{(total_ce_for / gp):.1f}" if gp > 0 else "",
             "controlled_entry_against": str(total_ce_against),
@@ -3953,9 +4023,11 @@ def process_sheet(
                     "SOG",
                     "Goal",
                     "Assist",
+                    "ExpectedGoal",
+                    "Giveaway",
+                    "Takeaway",
                     "ControlledEntry",
                     "ControlledExit",
-                    "ExpectedGoal",
                 ]
                 for kind in order:
                     if kind in ev_counts and ev_counts[kind] > 0:
@@ -4010,6 +4082,8 @@ def process_sheet(
         shots_cnt = int(ev_counts.get("Shot", 0) or 0)
         sog_cnt = int(ev_counts.get("SOG", 0) or 0)
         expected_goals_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
+        giveaways_cnt = int(ev_counts.get("Giveaway", 0) or 0)
+        takeaways_cnt = int(ev_counts.get("Takeaway", 0) or 0)
         row_map["shots"] = str(shots_cnt)
         row_map["shots_per_game"] = str(shots_cnt)
         row_map["sog"] = str(sog_cnt)
@@ -4019,6 +4093,10 @@ def process_sheet(
         row_map["expected_goals_per_sog"] = (
             f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
         )
+        row_map["giveaways"] = str(giveaways_cnt)
+        row_map["giveaways_per_game"] = str(giveaways_cnt)
+        row_map["takeaways"] = str(takeaways_cnt)
+        row_map["takeaways_per_game"] = str(takeaways_cnt)
         row_map["controlled_entry_for"] = str(on_ice["controlled_entry_for"])
         row_map["controlled_entry_for_per_game"] = str(on_ice["controlled_entry_for"])
         row_map["controlled_entry_against"] = str(on_ice["controlled_entry_against"])
