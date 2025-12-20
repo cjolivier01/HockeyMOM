@@ -2537,13 +2537,13 @@ def _display_col_name(key: str) -> str:
         "takeaways": "Takeaways",
         "takeaways_per_game": "Takeaways per Game",
         "controlled_entry_for": "Controlled Entry For (On-Ice)",
-        "controlled_entry_for_per_game": "Controlled Entry For per Game (On-Ice)",
+        "controlled_entry_for_per_game": "Controlled Entry For (On-Ice) per Game",
         "controlled_entry_against": "Controlled Entry Against (On-Ice)",
-        "controlled_entry_against_per_game": "Controlled Entry Against per Game (On-Ice)",
+        "controlled_entry_against_per_game": "Controlled Entry Against (On-Ice) per Game",
         "controlled_exit_for": "Controlled Exit For (On-Ice)",
-        "controlled_exit_for_per_game": "Controlled Exit For per Game (On-Ice)",
+        "controlled_exit_for_per_game": "Controlled Exit For (On-Ice) per Game",
         "controlled_exit_against": "Controlled Exit Against (On-Ice)",
-        "controlled_exit_against_per_game": "Controlled Exit Against per Game (On-Ice)",
+        "controlled_exit_against_per_game": "Controlled Exit Against (On-Ice) per Game",
         "gt_goals": "GT Goals",
         "gw_goals": "GW Goals",
         "shifts": "Shifts",
@@ -2707,8 +2707,6 @@ def _write_game_stats_files(
 
     row: Dict[str, Any] = {
         "T2S ID": str(t2s_id) if t2s_id is not None else "",
-        "Our Team Color": str(focus_team) if focus_team else "",
-        "Opponent Color": ("White" if focus_team == "Blue" else ("Blue" if focus_team == "White" else "")),
         "Score (For-Against)": f"{gf}-{ga}",
         "Goals For": gf,
         "Goals Against": ga,
@@ -2724,88 +2722,54 @@ def _write_game_stats_files(
     counts = (event_log_context.event_counts_by_type_team if event_log_context else None) or {}
     has_event_counts = bool(counts)
 
-    def _cnt(event_type: str, team: str) -> Any:
-        if not has_event_counts:
-            return ""
-        return int(counts.get((event_type, team), 0) or 0)
-
-    # Always include Blue/White columns when event stats exist (helps debugging team mapping).
-    for etype, label_prefix in [
-        ("Shot", "Shots"),
-        ("SOG", "SOG"),
-        ("ExpectedGoal", "xG"),
-        ("Giveaway", "Giveaways"),
-        ("Takeaway", "Takeaways"),
-        ("ControlledEntry", "Controlled Entry"),
-        ("ControlledExit", "Controlled Exit"),
-        ("Rush", "Rush"),
-    ]:
-        row[f"Blue {label_prefix}"] = _cnt(etype, "Blue")
-        row[f"White {label_prefix}"] = _cnt(etype, "White")
-
-    if focus_team in {"Blue", "White"} and has_event_counts:
+    def _for_against(event_type: str) -> Tuple[Any, Any]:
+        if not has_event_counts or focus_team not in {"Blue", "White"}:
+            return "", ""
         opp = "White" if focus_team == "Blue" else "Blue"
-        shots_for = int(counts.get(("Shot", focus_team), 0) or 0)
-        shots_against = int(counts.get(("Shot", opp), 0) or 0)
-        sog_for = int(counts.get(("SOG", focus_team), 0) or 0)
-        sog_against = int(counts.get(("SOG", opp), 0) or 0)
-        xg_for = int(counts.get(("ExpectedGoal", focus_team), 0) or 0)
-        xg_against = int(counts.get(("ExpectedGoal", opp), 0) or 0)
-        ce_for = int(counts.get(("ControlledEntry", focus_team), 0) or 0)
-        ce_against = int(counts.get(("ControlledEntry", opp), 0) or 0)
-        cx_for = int(counts.get(("ControlledExit", focus_team), 0) or 0)
-        cx_against = int(counts.get(("ControlledExit", opp), 0) or 0)
-        rush_for = int(counts.get(("Rush", focus_team), 0) or 0)
-        rush_against = int(counts.get(("Rush", opp), 0) or 0)
-        giveaways_for = int(counts.get(("Giveaway", focus_team), 0) or 0)
-        giveaways_against = int(counts.get(("Giveaway", opp), 0) or 0)
-        takeaways_for = int(counts.get(("Takeaway", focus_team), 0) or 0)
-        takeaways_against = int(counts.get(("Takeaway", opp), 0) or 0)
+        k_for = (event_type, focus_team)
+        k_against = (event_type, opp)
+        # If this stat type wasn't collected for this game, leave blank (not 0).
+        if k_for not in counts and k_against not in counts:
+            return "", ""
+        return int(counts.get(k_for, 0) or 0), int(counts.get(k_against, 0) or 0)
 
-        row.update(
-            {
-                "Shots For": shots_for,
-                "Shots Against": shots_against,
-                "SOG For": sog_for,
-                "SOG Against": sog_against,
-                "xG For": xg_for,
-                "xG Against": xg_against,
-                "xG per SOG (For)": (f"{(xg_for / sog_for):.2f}" if sog_for > 0 else ""),
-                "Giveaways For": giveaways_for,
-                "Giveaways Against": giveaways_against,
-                "Takeaways For": takeaways_for,
-                "Takeaways Against": takeaways_against,
-                "Controlled Entry For": ce_for,
-                "Controlled Entry Against": ce_against,
-                "Controlled Exit For": cx_for,
-                "Controlled Exit Against": cx_against,
-                "Rush For": rush_for,
-                "Rush Against": rush_against,
-            }
-        )
-    else:
-        # Keep columns stable; leave blank when mapping isn't available.
-        row.update(
-            {
-                "Shots For": "",
-                "Shots Against": "",
-                "SOG For": "",
-                "SOG Against": "",
-                "xG For": "",
-                "xG Against": "",
-                "xG per SOG (For)": "",
-                "Giveaways For": "",
-                "Giveaways Against": "",
-                "Takeaways For": "",
-                "Takeaways Against": "",
-                "Controlled Entry For": "",
-                "Controlled Entry Against": "",
-                "Controlled Exit For": "",
-                "Controlled Exit Against": "",
-                "Rush For": "",
-                "Rush Against": "",
-            }
-        )
+    shots_for, shots_against = _for_against("Shot")
+    sog_for, sog_against = _for_against("SOG")
+    xg_for, xg_against = _for_against("ExpectedGoal")
+    giveaways_for, giveaways_against = _for_against("Giveaway")
+    takeaways_for, takeaways_against = _for_against("Takeaway")
+    ce_for, ce_against = _for_against("ControlledEntry")
+    cx_for, cx_against = _for_against("ControlledExit")
+    rush_for, rush_against = _for_against("Rush")
+
+    # Keep columns stable; leave blank when mapping isn't available.
+    row.update(
+        {
+            "Shots For": shots_for,
+            "Shots Against": shots_against,
+            "SOG For": sog_for,
+            "SOG Against": sog_against,
+            "xG For": xg_for,
+            "xG Against": xg_against,
+            "xG per SOG (For)": (
+                f"{(int(xg_for) / int(sog_for)):.2f}"
+                if isinstance(xg_for, (int, float))
+                and isinstance(sog_for, (int, float))
+                and int(sog_for) > 0
+                else ""
+            ),
+            "Giveaways For": giveaways_for,
+            "Giveaways Against": giveaways_against,
+            "Takeaways For": takeaways_for,
+            "Takeaways Against": takeaways_against,
+            "Controlled Entry For": ce_for,
+            "Controlled Entry Against": ce_against,
+            "Controlled Exit For": cx_for,
+            "Controlled Exit Against": cx_against,
+            "Rush For": rush_for,
+            "Rush Against": rush_against,
+        }
+    )
 
     # Transpose: stats are rows, and the game label is the column header.
     df = pd.DataFrame({"Stat": list(row.keys()), label: list(row.values())})
@@ -2903,7 +2867,41 @@ def _write_game_stats_consolidated_files(
 
 def _aggregate_stats_rows(
     stats_sets: List[Tuple[List[Dict[str, str]], List[int]]],
-) -> Tuple[List[Dict[str, str]], List[int]]:
+) -> Tuple[List[Dict[str, str]], List[int], Dict[str, int]]:
+    def _game_has_any_value(rows: List[Dict[str, str]], key: str) -> bool:
+        for r in rows:
+            if not r:
+                continue
+            v = r.get(key, "")
+            if v is None:
+                continue
+            if str(v).strip() != "":
+                return True
+        return False
+
+    # Count how many games have player-attributed stats available for each
+    # long-sheet-derived stat key. This is used as the denominator for per-game
+    # averages so that games without a `*-long*` sheet (or without a newer stat
+    # type) don't dilute the per-game numbers.
+    long_stat_keys = [
+        "shots",
+        "sog",
+        "expected_goals",
+        "giveaways",
+        "takeaways",
+        "controlled_entry_for",
+        "controlled_entry_against",
+        "controlled_exit_for",
+        "controlled_exit_against",
+    ]
+    games_with_long_stat: Dict[str, int] = {k: 0 for k in long_stat_keys}
+    for rows, _periods in stats_sets:
+        for k in long_stat_keys:
+            if _game_has_any_value(rows, k):
+                games_with_long_stat[k] += 1
+
+    per_game_denoms: Dict[str, int] = {f"{k}_per_game": v for k, v in games_with_long_stat.items()}
+
     agg: Dict[str, Dict[str, Any]] = {}
     all_periods: set[int] = set()
 
@@ -3004,6 +3002,15 @@ def _aggregate_stats_rows(
         total_ce_against = data.get("controlled_entry_against", 0) or 0
         total_cx_for = data.get("controlled_exit_for", 0) or 0
         total_cx_against = data.get("controlled_exit_against", 0) or 0
+        shots_games = per_game_denoms.get("shots_per_game", 0) or 0
+        sog_games = per_game_denoms.get("sog_per_game", 0) or 0
+        xg_games = per_game_denoms.get("expected_goals_per_game", 0) or 0
+        giveaway_games = per_game_denoms.get("giveaways_per_game", 0) or 0
+        takeaway_games = per_game_denoms.get("takeaways_per_game", 0) or 0
+        ce_for_games = per_game_denoms.get("controlled_entry_for_per_game", 0) or 0
+        ce_against_games = per_game_denoms.get("controlled_entry_against_per_game", 0) or 0
+        cx_for_games = per_game_denoms.get("controlled_exit_for_per_game", 0) or 0
+        cx_against_games = per_game_denoms.get("controlled_exit_against_per_game", 0) or 0
         row: Dict[str, str] = {
             "player": player,
             "gp": str(gp),
@@ -3011,30 +3018,42 @@ def _aggregate_stats_rows(
             "assists": str(total_assists),
             "points": str(total_points),
             "ppg": f"{(total_points / gp):.1f}" if gp > 0 else "0.0",
-            "shots": str(total_shots),
-            "shots_per_game": f"{(total_shots / gp):.1f}" if gp > 0 else "",
-            "sog": str(total_sog),
-            "sog_per_game": f"{(total_sog / gp):.1f}" if gp > 0 else "",
-            "expected_goals": str(total_expected_goals),
-            "expected_goals_per_game": f"{(total_expected_goals / gp):.1f}" if gp > 0 else "",
+            "shots": str(total_shots) if shots_games > 0 else "",
+            "shots_per_game": f"{(total_shots / shots_games):.1f}" if shots_games > 0 else "",
+            "sog": str(total_sog) if sog_games > 0 else "",
+            "sog_per_game": f"{(total_sog / sog_games):.1f}" if sog_games > 0 else "",
+            "expected_goals": str(total_expected_goals) if xg_games > 0 else "",
+            "expected_goals_per_game": (
+                f"{(total_expected_goals / xg_games):.1f}" if xg_games > 0 else ""
+            ),
             "expected_goals_per_sog": (
-                f"{(total_expected_goals / total_sog):.2f}" if total_sog > 0 else ""
+                f"{(total_expected_goals / total_sog):.2f}"
+                if xg_games > 0 and sog_games > 0 and total_sog > 0
+                else ""
             ),
-            "giveaways": str(total_giveaways),
-            "giveaways_per_game": f"{(total_giveaways / gp):.1f}" if gp > 0 else "",
-            "takeaways": str(total_takeaways),
-            "takeaways_per_game": f"{(total_takeaways / gp):.1f}" if gp > 0 else "",
-            "controlled_entry_for": str(total_ce_for),
-            "controlled_entry_for_per_game": f"{(total_ce_for / gp):.1f}" if gp > 0 else "",
-            "controlled_entry_against": str(total_ce_against),
+            "giveaways": str(total_giveaways) if giveaway_games > 0 else "",
+            "giveaways_per_game": (
+                f"{(total_giveaways / giveaway_games):.1f}" if giveaway_games > 0 else ""
+            ),
+            "takeaways": str(total_takeaways) if takeaway_games > 0 else "",
+            "takeaways_per_game": (
+                f"{(total_takeaways / takeaway_games):.1f}" if takeaway_games > 0 else ""
+            ),
+            "controlled_entry_for": str(total_ce_for) if ce_for_games > 0 else "",
+            "controlled_entry_for_per_game": (
+                f"{(total_ce_for / ce_for_games):.1f}" if ce_for_games > 0 else ""
+            ),
+            "controlled_entry_against": str(total_ce_against) if ce_against_games > 0 else "",
             "controlled_entry_against_per_game": (
-                f"{(total_ce_against / gp):.1f}" if gp > 0 else ""
+                f"{(total_ce_against / ce_against_games):.1f}" if ce_against_games > 0 else ""
             ),
-            "controlled_exit_for": str(total_cx_for),
-            "controlled_exit_for_per_game": f"{(total_cx_for / gp):.1f}" if gp > 0 else "",
-            "controlled_exit_against": str(total_cx_against),
+            "controlled_exit_for": str(total_cx_for) if cx_for_games > 0 else "",
+            "controlled_exit_for_per_game": (
+                f"{(total_cx_for / cx_for_games):.1f}" if cx_for_games > 0 else ""
+            ),
+            "controlled_exit_against": str(total_cx_against) if cx_against_games > 0 else "",
             "controlled_exit_against_per_game": (
-                f"{(total_cx_against / gp):.1f}" if gp > 0 else ""
+                f"{(total_cx_against / cx_against_games):.1f}" if cx_against_games > 0 else ""
             ),
             "shifts": str(shifts),
             "shifts_per_game": f"{(shifts / gp):.1f}" if gp > 0 else "",
@@ -3073,7 +3092,7 @@ def _aggregate_stats_rows(
                 row[ga_key] = str(data[ga_key])
         aggregated_rows.append(row)
 
-    return aggregated_rows, sorted(all_periods)
+    return aggregated_rows, sorted(all_periods), per_game_denoms
 
 
 def _augment_aggregate_with_goal_details(
@@ -3106,7 +3125,18 @@ def _augment_aggregate_with_goal_details(
         row["gw_goals"] = str(t.get("gw_goals", 0))
 
 
-def _write_consolidated_workbook(out_path: Path, sheets: List[Tuple[str, pd.DataFrame]]) -> None:
+def _write_consolidated_workbook(
+    out_path: Path,
+    sheets: List[Tuple[str, pd.DataFrame]],
+    *,
+    per_game_denoms: Optional[Dict[str, int]] = None,
+) -> None:
+    def _disp_col(key: str, *, is_cumulative: bool) -> str:
+        base = _display_col_name(key)
+        if is_cumulative and per_game_denoms and key in per_game_denoms:
+            return f"{base} ({per_game_denoms[key]})"
+        return base
+
     try:
         with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
             for name, df in sheets:
@@ -3115,8 +3145,9 @@ def _write_consolidated_workbook(out_path: Path, sheets: List[Tuple[str, pd.Data
                 # Pretty player names if present
                 if "player" in df_display.columns:
                     df_display["player"] = df_display["player"].apply(_display_player_name)
+                is_cumulative = str(name or "").strip().lower() == "cumulative"
                 disp_cols = [
-                    _wrap_header_after_words(_display_col_name(c), words_per_line=2)
+                    _wrap_header_after_words(_disp_col(c, is_cumulative=is_cumulative), words_per_line=2)
                     for c in df_display.columns
                 ]
                 df_display.columns = disp_cols
@@ -4011,6 +4042,32 @@ def process_sheet(
 
     event_log_context = merged_event_context
 
+    # Determine which long-sheet/player-attributed event types exist in this game.
+    # This is used to avoid treating missing stats as 0 when a game lacks a `*-long*` sheet
+    # or when a newer stat type wasn't collected for older games.
+    player_event_types_present: set[str] = set()
+    if event_log_context is not None:
+        for counts in (event_log_context.event_counts_by_player or {}).values():
+            for et in (counts or {}).keys():
+                if et:
+                    player_event_types_present.add(str(et))
+
+    has_player_shots = "Shot" in player_event_types_present
+    has_player_sog = "SOG" in player_event_types_present
+    has_player_expected_goals = "ExpectedGoal" in player_event_types_present
+    has_player_giveaways = "Giveaway" in player_event_types_present
+    has_player_takeaways = "Takeaway" in player_event_types_present
+
+    # Team-level event availability for on-ice for/against metrics.
+    has_controlled_entry_events = False
+    has_controlled_exit_events = False
+    if focus_team in {"Blue", "White"} and event_log_context is not None:
+        for (etype, _team) in (event_log_context.event_instances or {}).keys():
+            if etype == "ControlledEntry":
+                has_controlled_entry_events = True
+            elif etype == "ControlledExit":
+                has_controlled_exit_events = True
+
     # Pre-group team-level events by period for on-ice for/against counts.
     on_ice_event_types = {"ControlledEntry", "ControlledExit"}
     team_events_by_period: Dict[int, List[Tuple[str, str, int]]] = {}
@@ -4166,7 +4223,7 @@ def process_sheet(
 
         if focus_team is not None and any(v > 0 for v in on_ice.values()):
             stats_lines.append("")
-            stats_lines.append(f"On-ice team events (for/against; your team is {focus_team}):")
+            stats_lines.append("On-ice team events (for/against):")
             stats_lines.append(
                 f"  ControlledEntry: {on_ice['controlled_entry_for']} for, {on_ice['controlled_entry_against']} against"
             )
@@ -4211,27 +4268,70 @@ def process_sheet(
         expected_goals_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
         giveaways_cnt = int(ev_counts.get("Giveaway", 0) or 0)
         takeaways_cnt = int(ev_counts.get("Takeaway", 0) or 0)
-        row_map["shots"] = str(shots_cnt)
-        row_map["shots_per_game"] = str(shots_cnt)
-        row_map["sog"] = str(sog_cnt)
-        row_map["sog_per_game"] = str(sog_cnt)
-        row_map["expected_goals"] = str(expected_goals_cnt)
-        row_map["expected_goals_per_game"] = str(expected_goals_cnt)
-        row_map["expected_goals_per_sog"] = (
-            f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
-        )
-        row_map["giveaways"] = str(giveaways_cnt)
-        row_map["giveaways_per_game"] = str(giveaways_cnt)
-        row_map["takeaways"] = str(takeaways_cnt)
-        row_map["takeaways_per_game"] = str(takeaways_cnt)
-        row_map["controlled_entry_for"] = str(on_ice["controlled_entry_for"])
-        row_map["controlled_entry_for_per_game"] = str(on_ice["controlled_entry_for"])
-        row_map["controlled_entry_against"] = str(on_ice["controlled_entry_against"])
-        row_map["controlled_entry_against_per_game"] = str(on_ice["controlled_entry_against"])
-        row_map["controlled_exit_for"] = str(on_ice["controlled_exit_for"])
-        row_map["controlled_exit_for_per_game"] = str(on_ice["controlled_exit_for"])
-        row_map["controlled_exit_against"] = str(on_ice["controlled_exit_against"])
-        row_map["controlled_exit_against_per_game"] = str(on_ice["controlled_exit_against"])
+
+        if has_player_shots:
+            row_map["shots"] = str(shots_cnt)
+            row_map["shots_per_game"] = str(shots_cnt)
+        else:
+            row_map["shots"] = ""
+            row_map["shots_per_game"] = ""
+
+        if has_player_sog:
+            row_map["sog"] = str(sog_cnt)
+            row_map["sog_per_game"] = str(sog_cnt)
+        else:
+            row_map["sog"] = ""
+            row_map["sog_per_game"] = ""
+
+        if has_player_expected_goals:
+            row_map["expected_goals"] = str(expected_goals_cnt)
+            row_map["expected_goals_per_game"] = str(expected_goals_cnt)
+        else:
+            row_map["expected_goals"] = ""
+            row_map["expected_goals_per_game"] = ""
+
+        if has_player_expected_goals and has_player_sog:
+            row_map["expected_goals_per_sog"] = (
+                f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
+            )
+        else:
+            row_map["expected_goals_per_sog"] = ""
+
+        if has_player_giveaways:
+            row_map["giveaways"] = str(giveaways_cnt)
+            row_map["giveaways_per_game"] = str(giveaways_cnt)
+        else:
+            row_map["giveaways"] = ""
+            row_map["giveaways_per_game"] = ""
+
+        if has_player_takeaways:
+            row_map["takeaways"] = str(takeaways_cnt)
+            row_map["takeaways_per_game"] = str(takeaways_cnt)
+        else:
+            row_map["takeaways"] = ""
+            row_map["takeaways_per_game"] = ""
+
+        if has_controlled_entry_events:
+            row_map["controlled_entry_for"] = str(on_ice["controlled_entry_for"])
+            row_map["controlled_entry_for_per_game"] = str(on_ice["controlled_entry_for"])
+            row_map["controlled_entry_against"] = str(on_ice["controlled_entry_against"])
+            row_map["controlled_entry_against_per_game"] = str(on_ice["controlled_entry_against"])
+        else:
+            row_map["controlled_entry_for"] = ""
+            row_map["controlled_entry_for_per_game"] = ""
+            row_map["controlled_entry_against"] = ""
+            row_map["controlled_entry_against_per_game"] = ""
+
+        if has_controlled_exit_events:
+            row_map["controlled_exit_for"] = str(on_ice["controlled_exit_for"])
+            row_map["controlled_exit_for_per_game"] = str(on_ice["controlled_exit_for"])
+            row_map["controlled_exit_against"] = str(on_ice["controlled_exit_against"])
+            row_map["controlled_exit_against_per_game"] = str(on_ice["controlled_exit_against"])
+        else:
+            row_map["controlled_exit_for"] = ""
+            row_map["controlled_exit_for_per_game"] = ""
+            row_map["controlled_exit_against"] = ""
+            row_map["controlled_exit_against_per_game"] = ""
 
         row_map["gf_counted"] = str(len(counted_gf))
         row_map["gf_per_game"] = str(len(counted_gf))
@@ -4633,7 +4733,9 @@ def main() -> None:
             print("✅ Done.")
 
     if multiple_inputs:
-        agg_rows, agg_periods = _aggregate_stats_rows([(r["stats"], r["periods"]) for r in results])
+        agg_rows, agg_periods, per_game_denoms = _aggregate_stats_rows(
+            [(r["stats"], r["periods"]) for r in results]
+        )
 
         # Build per-player event lists across all games (with game labels).
         per_player_events: Dict[str, Dict[str, List[Tuple[str, GoalEvent]]]] = {}
@@ -4689,7 +4791,7 @@ def main() -> None:
             )
             sheets.append((r["label"], df))
         consolidated_path = base_outdir / "player_stats_consolidated.xlsx"
-        _write_consolidated_workbook(consolidated_path, sheets)
+        _write_consolidated_workbook(consolidated_path, sheets, per_game_denoms=per_game_denoms)
         try:
             print(f"📊 Consolidated workbook: {consolidated_path.resolve()}")
         except Exception:
@@ -4700,7 +4802,12 @@ def main() -> None:
             df_csv = agg_df.copy()
             if "player" in df_csv.columns:
                 df_csv["player"] = df_csv["player"].apply(_display_player_name)
-            df_csv.columns = [_display_col_name(c) for c in df_csv.columns]
+            df_csv.columns = [
+                f"{_display_col_name(c)} ({per_game_denoms[c]})"
+                if c in per_game_denoms
+                else _display_col_name(c)
+                for c in df_csv.columns
+            ]
             player_csv_path = base_outdir / "player_stats_consolidated.csv"
             df_csv.to_csv(player_csv_path, index=False)
         except Exception:

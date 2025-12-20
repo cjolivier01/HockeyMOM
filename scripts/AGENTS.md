@@ -72,6 +72,7 @@ For multi-game runs, writes under `<outdir>/<game label>/per_player/` plus conso
 - `<outdir>/player_stats_consolidated.xlsx` (multi-sheet workbook with `Cumulative` + per-game sheets)
 - `<outdir>/player_stats_consolidated.csv` (the `Cumulative` sheet)
 - `<outdir>/game_stats_consolidated.xlsx` / `<outdir>/game_stats_consolidated.csv` (stats as rows, games as columns)
+  - Note: per-game averages for long-sheet-derived stats only count games where that stat exists; the `... per Game` columns in `Cumulative` include `(N)` to show the denominator.
 
 Key outputs (per game):
 - `per_player/stats/player_stats.txt`, `per_player/stats/player_stats.csv`, `per_player/stats/player_stats.xlsx`

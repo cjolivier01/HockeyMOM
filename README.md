@@ -153,6 +153,7 @@ aspen:
   - Consolidated workbook: `<outdir>/player_stats_consolidated.xlsx` with a `Cumulative` sheet and per-game sheets.
   - Consolidated CSV: `<outdir>/player_stats_consolidated.csv` (the `Cumulative` sheet).
   - Consolidated game stats: `<outdir>/game_stats_consolidated.xlsx` and `<outdir>/game_stats_consolidated.csv` (stats as rows, games as columns).
+  - Long-sheet stats caveat: per-game averages for long-sheet-derived stats (Shots/SOG/xG/Giveaways/Takeaways, etc.) only count games where that stat exists, and the `... per Game` column headers include `(N)` to show the number of games in the denominator.
   - Per-player season summaries in `<outdir>/cumulative_per_player/`.
 - Examples:
   - Single game by stats directory:
