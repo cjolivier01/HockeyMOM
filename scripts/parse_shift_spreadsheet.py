@@ -1341,7 +1341,8 @@ def _parse_long_left_event_table(
                         jerseys=tuple(assists),
                     )
                 )
-            if is_expected_goal:
+            # Expected goals (xG): count both explicit "Expected Goal" rows and all goals.
+            if is_expected_goal or is_goal:
                 events.append(
                     LongEvent(
                         event_type="ExpectedGoal",
@@ -1987,6 +1988,8 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                     t = team_val or _parse_team_from_text(gv)
                     jerseys = _extract_nums(gv)
                     _record_event("Goal", t, jerseys, current_period, row_vsec, row_gsec)
+                    # Goals also count as expected goals (xG).
+                    _record_event("ExpectedGoal", t, jerseys, current_period, row_vsec, row_gsec)
             if assists_col is not None:
                 av = df.iat[r, assists_col]
                 if isinstance(av, str) and av.strip():
@@ -2526,9 +2529,9 @@ def _display_col_name(key: str) -> str:
         "shots_per_game": "Shots per Game",
         "sog": "SOG",
         "sog_per_game": "SOG per Game",
-        "expected_goals": "Expected Goals",
-        "expected_goals_per_game": "Expected Goals per Game",
-        "expected_goals_per_sog": "Expected Goals per SOG",
+        "expected_goals": "xG",
+        "expected_goals_per_game": "xG per Game",
+        "expected_goals_per_sog": "xG per SOG",
         "giveaways": "Giveaways",
         "giveaways_per_game": "Giveaways per Game",
         "takeaways": "Takeaways",
@@ -2612,6 +2615,13 @@ def _display_player_name(raw: str) -> str:
     return text.replace("_", " ")
 
 
+def _display_event_type(event_type: str) -> str:
+    et = str(event_type or "").strip()
+    if et == "ExpectedGoal":
+        return "xG"
+    return et
+
+
 def _write_player_stats_text_and_csv(
     stats_dir: Path,
     stats_table_rows: List[Dict[str, str]],
@@ -2684,7 +2694,7 @@ def _write_game_stats_files(
     focus_team: Optional[str],
 ) -> None:
     """
-    Write per-game stats in a compact 1-row table as CSV + XLSX.
+    Write per-game stats as a compact 2-column table (Stat x Value) as CSV + XLSX.
 
     This intentionally excludes any shift/TOI information.
     """
@@ -2696,7 +2706,6 @@ def _write_game_stats_files(
     goal_diff = gf - ga
 
     row: Dict[str, Any] = {
-        "Game": label,
         "T2S ID": str(t2s_id) if t2s_id is not None else "",
         "Our Team Color": str(focus_team) if focus_team else "",
         "Opponent Color": ("White" if focus_team == "Blue" else ("Blue" if focus_team == "White" else "")),
@@ -2724,7 +2733,7 @@ def _write_game_stats_files(
     for etype, label_prefix in [
         ("Shot", "Shots"),
         ("SOG", "SOG"),
-        ("ExpectedGoal", "Expected Goals"),
+        ("ExpectedGoal", "xG"),
         ("Giveaway", "Giveaways"),
         ("Takeaway", "Takeaways"),
         ("ControlledEntry", "Controlled Entry"),
@@ -2759,9 +2768,9 @@ def _write_game_stats_files(
                 "Shots Against": shots_against,
                 "SOG For": sog_for,
                 "SOG Against": sog_against,
-                "Expected Goals For": xg_for,
-                "Expected Goals Against": xg_against,
-                "Expected Goals per SOG (For)": (f"{(xg_for / sog_for):.2f}" if sog_for > 0 else ""),
+                "xG For": xg_for,
+                "xG Against": xg_against,
+                "xG per SOG (For)": (f"{(xg_for / sog_for):.2f}" if sog_for > 0 else ""),
                 "Giveaways For": giveaways_for,
                 "Giveaways Against": giveaways_against,
                 "Takeaways For": takeaways_for,
@@ -2782,9 +2791,9 @@ def _write_game_stats_files(
                 "Shots Against": "",
                 "SOG For": "",
                 "SOG Against": "",
-                "Expected Goals For": "",
-                "Expected Goals Against": "",
-                "Expected Goals per SOG (For)": "",
+                "xG For": "",
+                "xG Against": "",
+                "xG per SOG (For)": "",
                 "Giveaways For": "",
                 "Giveaways Against": "",
                 "Takeaways For": "",
@@ -2798,7 +2807,8 @@ def _write_game_stats_files(
             }
         )
 
-    df = pd.DataFrame([row])
+    # Transpose: stats are rows, and the game label is the column header.
+    df = pd.DataFrame({"Stat": list(row.keys()), label: list(row.values())})
     df.to_csv(stats_dir / "game_stats.csv", index=False)
 
     try:
@@ -3305,7 +3315,7 @@ def _write_event_summaries_and_clips(
 ) -> None:
     evt_by_team = event_log_context.event_counts_by_type_team
     rows_evt = [
-        {"event_type": et, "team": tm, "count": cnt}
+        {"event_type": _display_event_type(et), "team": tm, "count": cnt}
         for (et, tm), cnt in sorted(evt_by_team.items())
     ]
     if rows_evt:
@@ -3332,7 +3342,7 @@ def _write_event_summaries_and_clips(
         for r in player_event_rows:
             rows.append(
                 {
-                    "event_type": r.get("event_type"),
+                    "event_type": _display_event_type(str(r.get("event_type") or "")),
                     "team": r.get("team"),
                     "player": r.get("player"),
                     "jersey": r.get("jersey"),
@@ -3418,7 +3428,7 @@ def _write_event_summaries_and_clips(
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
             if create_scripts:
                 script = outdir / f"clip_events_{etype}_{team}.sh"
-                label = f"{etype} ({team})"
+                label = f"{_display_event_type(etype)} ({team})"
                 body = f"""#!/usr/bin/env bash
 set -euo pipefail
 if [ $# -lt 2 ]; then
@@ -3578,7 +3588,7 @@ def _write_player_event_highlights(
         if not create_scripts:
             continue
 
-        label = f"{etype} - {_display_player_name(pk)}"
+        label = f"{_display_event_type(etype)} - {_display_player_name(pk)}"
         script_name = f"clip_{etype.lower()}_{pk}.sh"
         script = outdir / script_name
         body = f"""#!/usr/bin/env bash
@@ -4062,11 +4072,11 @@ def process_sheet(
                 ]
                 for kind in order:
                     if kind in ev_counts and ev_counts[kind] > 0:
-                        stats_lines.append(f"  {kind}: {ev_counts[kind]}")
+                        stats_lines.append(f"  {_display_event_type(kind)}: {ev_counts[kind]}")
                 for kind, cnt in sorted(ev_counts.items()):
                     if kind in order:
                         continue
-                    stats_lines.append(f"  {kind}: {cnt}")
+                    stats_lines.append(f"  {_display_event_type(kind)}: {cnt}")
 
         if focus_team is not None and any(v > 0 for v in on_ice.values()):
             stats_lines.append("")

@@ -139,14 +139,14 @@ aspen:
   - TimeToScore via `--t2s` (or inferred from filenames like `game-54111.xlsx` where the trailing number is `>= 10000`), using `--home/--away` or `:HOME/:AWAY` if needed.
   - `goals.xlsx` in the same directory as the input sheet (fallback when no TimeToScore id is in use).
 - Optional `*-long*` sheet support:
-  - Parses the leftmost per-period event table to add Shots/SOG/Expected Goals, Giveaways/Takeaways, and controlled entries/exits, plus generates event clip scripts and per-player SOG/goal highlight scripts.
+  - Parses the leftmost per-period event table to add Shots/SOG/xG, Giveaways/Takeaways, and controlled entries/exits, plus generates event clip scripts and per-player SOG/goal highlight scripts.
   - If the script can’t infer whether your team is Blue or White, provide `--dark` (Blue) or `--light` (White).
 - Privacy default:
   - Shift counts and TOI are omitted from parent-facing stats outputs by default. Use `--shifts` to include them.
 - Outputs (per game):
   - Writes under `<outdir>/(per_player|event_log)/` for single-game runs, or `<outdir>/<label>/(per_player|event_log)/` for multi-game runs.
   - Stats: `stats/player_stats.txt`, `stats/player_stats.csv`, `stats/player_stats.xlsx`, plus per-player `stats/*_stats.txt`.
-  - Game stats: `stats/game_stats.csv` and `stats/game_stats.xlsx` (team-level, no TOI).
+  - Game stats: `stats/game_stats.csv` and `stats/game_stats.xlsx` (team-level, no TOI; stats are rows with the game as the column header).
   - Clip helpers (unless `--no-scripts`): `clip_<player>.sh`, `clip_events_<Event>_<Team>.sh`, `clip_goal_<player>.sh`, `clip_sog_<player>.sh`, and `clip_all.sh`.
   - Timestamp windows: `*_video_times.txt`, `*_scoreboard_times.txt`, `events_*_video_times.txt`, and `goals_for.txt` / `goals_against.txt` (events: 10s before / 5s after; goals: 20s before / 10s after).
 - Outputs (multi-game):
