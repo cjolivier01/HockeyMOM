@@ -68,7 +68,10 @@ Only the leftmost per-period event table is used. It is identified by period hea
 ### Outputs
 
 For a single game, writes under `<outdir>/per_player/` (and possibly `<outdir>/event_log/` depending on sheet layout).
-For multi-game runs, writes under `<outdir>/<game label>/per_player/` plus a consolidated workbook at `<outdir>/player_stats_consolidated.xlsx`.
+For multi-game runs, writes under `<outdir>/<game label>/per_player/` plus consolidated season outputs at:
+- `<outdir>/player_stats_consolidated.xlsx` (multi-sheet workbook with `Cumulative` + per-game sheets)
+- `<outdir>/player_stats_consolidated.csv` (the `Cumulative` sheet)
+- `<outdir>/game_stats_consolidated.xlsx` / `<outdir>/game_stats_consolidated.csv` (stats as rows, games as columns)
 
 Key outputs (per game):
 - `per_player/stats/player_stats.txt`, `per_player/stats/player_stats.csv`, `per_player/stats/player_stats.xlsx`
@@ -124,6 +127,7 @@ High-level flow (CLI):
   - writes per-player timestamps + scripts,
   - writes stats files (`player_stats.*`, per-player `*_stats.txt`, and `game_stats.*`).
 - Multi-game runs aggregate per-game rows into `player_stats_consolidated.xlsx`.
+- Multi-game runs also join per-game `game_stats.csv` into `game_stats_consolidated.xlsx` / `game_stats_consolidated.csv`.
 
 Primary sheet parsing:
 - `_parse_per_player_layout()` handles the standard “Period N / Jersey No” shift layout.

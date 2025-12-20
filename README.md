@@ -151,6 +151,8 @@ aspen:
   - Timestamp windows: `*_video_times.txt`, `*_scoreboard_times.txt`, `events_*_video_times.txt`, and `goals_for.txt` / `goals_against.txt` (events: 10s before / 5s after; goals: 20s before / 10s after).
 - Outputs (multi-game):
   - Consolidated workbook: `<outdir>/player_stats_consolidated.xlsx` with a `Cumulative` sheet and per-game sheets.
+  - Consolidated CSV: `<outdir>/player_stats_consolidated.csv` (the `Cumulative` sheet).
+  - Consolidated game stats: `<outdir>/game_stats_consolidated.xlsx` and `<outdir>/game_stats_consolidated.csv` (stats as rows, games as columns).
   - Per-player season summaries in `<outdir>/cumulative_per_player/`.
 - Examples:
   - Single game by stats directory:

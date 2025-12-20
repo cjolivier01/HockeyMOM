@@ -2824,6 +2824,83 @@ def _write_game_stats_files(
         pass
 
 
+def _load_game_stats_csv_as_series(path: Path) -> Tuple[str, pd.Series]:
+    """
+    Load stats/game_stats.csv (2-column "Stat", "<game_label>") into a Series indexed by Stat.
+    Returns (value_column_label, series).
+    """
+    df = pd.read_csv(path)
+    if "Stat" not in df.columns:
+        raise ValueError("missing Stat column")
+    value_cols = [c for c in df.columns if c != "Stat"]
+    if len(value_cols) != 1:
+        raise ValueError("expected exactly one value column")
+    value_col = str(value_cols[0])
+    series = df.set_index("Stat")[value_col]
+    # Preserve row order from the CSV.
+    return value_col, series
+
+
+def _write_game_stats_consolidated_files(
+    base_outdir: Path,
+    ordered_results: List[Dict[str, Any]],
+) -> bool:
+    """
+    Join per-game stats/game_stats.csv tables into a single consolidated CSV/XLSX:
+      - rows: Stat
+      - columns: each game's label (value column header from game_stats.csv)
+    """
+    series_list: List[pd.Series] = []
+    for r in ordered_results:
+        outdir_val = r.get("outdir")
+        if not outdir_val:
+            continue
+        outdir = Path(outdir_val)
+        stats_csv = outdir / "stats" / "game_stats.csv"
+        if not stats_csv.exists():
+            continue
+        try:
+            value_col, series = _load_game_stats_csv_as_series(stats_csv)
+        except Exception as e:  # noqa: BLE001
+            print(f"[game_stats_consolidated] Failed to read {stats_csv}: {e}", file=sys.stderr)
+            continue
+        # Prefer the label from the CSV (matches per-game output); fall back to the group's label.
+        label = str(value_col or r.get("label") or outdir.name)
+        series_list.append(series.rename(label))
+
+    if not series_list:
+        return False
+
+    df = pd.concat(series_list, axis=1, sort=False)
+    df.index.name = "Stat"
+    df_out = df.reset_index()
+
+    csv_path = base_outdir / "game_stats_consolidated.csv"
+    xlsx_path = base_outdir / "game_stats_consolidated.xlsx"
+    try:
+        df_out.to_csv(csv_path, index=False)
+    except Exception as e:  # noqa: BLE001
+        print(f"[game_stats_consolidated] Failed to write {csv_path}: {e}", file=sys.stderr)
+        return False
+
+    try:
+        with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+            df_excel = df_out.copy()
+            df_excel.columns = [
+                _wrap_header_after_words(str(c), words_per_line=2) for c in df_excel.columns
+            ]
+            df_excel.to_excel(writer, sheet_name="game_stats", index=False, startrow=1)
+            _apply_excel_table_style(
+                writer, "game_stats", title="Game Stats (All Games)", df=df_excel
+            )
+            _autosize_columns(writer, "game_stats", df_excel)
+    except Exception as e:  # noqa: BLE001
+        print(f"[game_stats_consolidated] Failed to write {xlsx_path}: {e}", file=sys.stderr)
+        return False
+
+    return True
+
+
 def _aggregate_stats_rows(
     stats_sets: List[Tuple[List[Dict[str, str]], List[int]]],
 ) -> Tuple[List[Dict[str, str]], List[int]]:
@@ -4617,6 +4694,26 @@ def main() -> None:
             print(f"📊 Consolidated workbook: {consolidated_path.resolve()}")
         except Exception:
             print("📊 Consolidated workbook written.")
+
+        # Also write a one-sheet CSV summary for the cumulative sheet.
+        try:
+            df_csv = agg_df.copy()
+            if "player" in df_csv.columns:
+                df_csv["player"] = df_csv["player"].apply(_display_player_name)
+            df_csv.columns = [_display_col_name(c) for c in df_csv.columns]
+            player_csv_path = base_outdir / "player_stats_consolidated.csv"
+            df_csv.to_csv(player_csv_path, index=False)
+        except Exception:
+            pass
+
+        # Team-level (game) stats consolidated across all games.
+        if _write_game_stats_consolidated_files(base_outdir, ordered_results):
+            try:
+                print(
+                    f"📊 Game stats consolidated: {(base_outdir / 'game_stats_consolidated.xlsx').resolve()}"
+                )
+            except Exception:
+                print("📊 Game stats consolidated workbook written.")
 
         # Per-player cumulative detail files across all games.
         _write_cumulative_player_detail_files(
