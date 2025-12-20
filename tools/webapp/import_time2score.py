@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import teams and games from hmlib.time2score into the HM WebApp database.
+"""Import teams and games from hmlib.time2score into the HockeyMOM WebApp database.
 
 This script bridges the sqlite-backed time2score scraper output to the
 MySQL/MariaDB schema used by tools/webapp (tables: teams, hky_games, game_types).
@@ -589,7 +589,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     base_dir = Path(__file__).resolve().parent
     default_cfg = os.environ.get("HM_DB_CONFIG") or str(base_dir / "config.json")
-    ap = argparse.ArgumentParser(description="Import time2score data into HM WebApp DB")
+    ap = argparse.ArgumentParser(description="Import time2score data into HockeyMOM WebApp DB")
     ap.add_argument("--config", default=default_cfg, help="Path to webapp DB config.json")
     ap.add_argument("--season", type=int, default=0, help="Season id to import (0=Current)")
     ap.add_argument(

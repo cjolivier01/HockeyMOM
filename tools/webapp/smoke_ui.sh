@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# HM WebApp UI smoke test
+# HockeyMOM WebApp UI smoke test
 # - Registers a user
 # - Creates a team with a logo
 # - Adds a player
@@ -109,6 +109,19 @@ RESP=$(curl -sS -i -c "$COOK_FILE" -b "$COOK_FILE" -X POST \
 echo "$RESP" | assert_contains "^Location: /hky/games/"
 GAME_ID=$(echo "$RESP" | sed -n 's#Location: /hky/games/\([0-9]\+\).*#\1#p' | head -n1)
 echo "[i] GAME_ID=$GAME_ID"
+
+# 7b) Import shift spreadsheet stats for the player
+echo "[i] Importing sample shift stats"
+PS_CSV="$TMP_DIR/hm_player_stats_smoke.csv"
+cat > "$PS_CSV" << 'CSV'
+Player,Goals,Assists,Shots,SOG,xG,Plus Minus,Shifts,TOI Total,TOI Total (Video),Period 1 TOI,Period 1 Shifts,Period 1 GF,Period 1 GA
+77 Smoke Skater,1,0,2,1,0,1,5,5:00,5:00,5:00,5,1,0
+CSV
+
+HTML=$(reqf -L \
+  -F "player_stats_csv=@$PS_CSV;type=text/csv" \
+  "$BASE/hky/games/$GAME_ID/import_shift_stats")
+echo "$HTML" | assert_contains "Imported stats for"
 
 # 8) Set final score
 echo "[i] Setting final score"

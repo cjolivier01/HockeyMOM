@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Re-deploy updated HM WebApp code to system install and restart services.
+# Re-deploy updated HockeyMOM WebApp code to system install and restart services.
 # - Copies app.py, templates, static to /opt/hm-webapp/app
 # - Restarts hm-webapp and nginx
 # - Optionally runs the smoke UI script when RUN_SMOKE=1
@@ -43,4 +43,3 @@ if [ "$SMOKE" = "1" ]; then
 fi
 
 echo "[ok] Redeploy complete"
-

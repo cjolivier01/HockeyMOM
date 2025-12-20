@@ -1,6 +1,59 @@
 {% extends 'layout.html' %}
 {% block content %}
 <h2>Edit Game</h2>
+
+<div class="card">
+  <h3 style="margin-top:0">Import Shift Spreadsheet Stats</h3>
+  <p class="muted" style="margin-top:0">
+    Upload <code>stats/player_stats.csv</code> and optionally <code>stats/game_stats.csv</code> from
+    <code>scripts/parse_shift_spreadsheet.py</code>.
+  </p>
+  {% if editable %}
+    <form method="post" action="/hky/games/{{ game['id'] }}/import_shift_stats" enctype="multipart/form-data">
+      <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-row">
+          <label class="muted">player_stats.csv</label>
+          <input type="file" name="player_stats_csv" accept=".csv" required>
+        </div>
+        <div class="form-row">
+          <label class="muted">game_stats.csv (optional)</label>
+          <input type="file" name="game_stats_csv" accept=".csv">
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:1rem;">
+        <button class="btn primary" type="submit">Import stats</button>
+        {% if game.get('stats_imported_at') %}
+          <span class="muted">Last import: {{ game['stats_imported_at'] }}</span>
+        {% endif %}
+      </div>
+    </form>
+  {% else %}
+    <p class="muted">You do not have permission to import stats for this game.</p>
+  {% endif %}
+</div>
+
+{% if game_stats %}
+  <div class="card" style="margin-top:1rem;">
+    <h3 style="margin-top:0">Imported Game Stats</h3>
+    <p class="muted" style="margin-top:0">
+      Source: {{ game_stats.get('_label','') }}
+      {% if game_stats_updated_at %} | Updated: {{ game_stats_updated_at }}{% endif %}
+    </p>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Stat</th><th>Value</th></tr></thead>
+        <tbody>
+          {% for k, v in game_stats.items() %}
+            {% if k != '_label' %}
+              <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+
 <div class="card">
   <form method="post">
     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -87,6 +140,97 @@
       </div>
     </div>
 
+    <h3>Imported Shift/Video Stats (Read-only)</h3>
+    <p class="muted" style="margin-top:0">Shows values imported into <code>player_stats</code> (TOI, shifts, SOG, xG, entries/exits, etc.).</p>
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+      <div>
+        <h4>{{ game['team1_name'] }}</h4>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Name</th><th>TOI</th><th>V-TOI</th><th>Sh</th><th>SOG</th><th>xG</th><th>+/-</th><th>CE (F/A)</th><th>CX (F/A)</th><th>G/T</th><th>GF/GA</th><th>Periods</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in team1_players %}
+                {% set s = stats_by_pid.get(p['id'], {}) %}
+                {% set per = period_stats_by_pid.get(p['id'], {}) %}
+                <tr>
+                  <td>{{ p['jersey_number'] or '' }}</td>
+                  <td>{{ p['name'] }}</td>
+                  <td title="Avg {{ s.get('sb_avg_shift_seconds')|fmt_toi }}, Median {{ s.get('sb_median_shift_seconds')|fmt_toi }}, Longest {{ s.get('sb_longest_shift_seconds')|fmt_toi }}, Shortest {{ s.get('sb_shortest_shift_seconds')|fmt_toi }}">{{ s.get('toi_seconds')|fmt_toi }}</td>
+                  <td>{{ s.get('video_toi_seconds')|fmt_toi }}</td>
+                  <td>{{ s.get('shifts') or '' }}</td>
+                  <td>{{ s.get('sog') or '' }}</td>
+                  <td>{{ s.get('expected_goals') or '' }}</td>
+                  <td>{{ s.get('plus_minus') if s.get('plus_minus') is not none else '' }}</td>
+                  <td>{{ (s.get('controlled_entry_for') or 0) }} / {{ (s.get('controlled_entry_against') or 0) }}</td>
+                  <td>{{ (s.get('controlled_exit_for') or 0) }} / {{ (s.get('controlled_exit_against') or 0) }}</td>
+                  <td>{{ (s.get('giveaways') or 0) }} / {{ (s.get('takeaways') or 0) }}</td>
+                  <td>{{ (s.get('gf_counted') or 0) }} / {{ (s.get('ga_counted') or 0) }}</td>
+                  <td class="muted" style="font-size:.85rem;">
+                    {% if per %}
+                      {% for per_num, ps in per|dictsort %}
+                        P{{ per_num }} {{ ps.get('toi_seconds')|fmt_toi }} ({{ ps.get('shifts') or 0 }}; {{ ps.get('gf') or 0 }}-{{ ps.get('ga') or 0 }}){% if not loop.last %}<br>{% endif %}
+                      {% endfor %}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="13" class="muted">No players</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h4>{{ game['team2_name'] }}</h4>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>Name</th><th>TOI</th><th>V-TOI</th><th>Sh</th><th>SOG</th><th>xG</th><th>+/-</th><th>CE (F/A)</th><th>CX (F/A)</th><th>G/T</th><th>GF/GA</th><th>Periods</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in team2_players %}
+                {% set s = stats_by_pid.get(p['id'], {}) %}
+                {% set per = period_stats_by_pid.get(p['id'], {}) %}
+                <tr>
+                  <td>{{ p['jersey_number'] or '' }}</td>
+                  <td>{{ p['name'] }}</td>
+                  <td title="Avg {{ s.get('sb_avg_shift_seconds')|fmt_toi }}, Median {{ s.get('sb_median_shift_seconds')|fmt_toi }}, Longest {{ s.get('sb_longest_shift_seconds')|fmt_toi }}, Shortest {{ s.get('sb_shortest_shift_seconds')|fmt_toi }}">{{ s.get('toi_seconds')|fmt_toi }}</td>
+                  <td>{{ s.get('video_toi_seconds')|fmt_toi }}</td>
+                  <td>{{ s.get('shifts') or '' }}</td>
+                  <td>{{ s.get('sog') or '' }}</td>
+                  <td>{{ s.get('expected_goals') or '' }}</td>
+                  <td>{{ s.get('plus_minus') if s.get('plus_minus') is not none else '' }}</td>
+                  <td>{{ (s.get('controlled_entry_for') or 0) }} / {{ (s.get('controlled_entry_against') or 0) }}</td>
+                  <td>{{ (s.get('controlled_exit_for') or 0) }} / {{ (s.get('controlled_exit_against') or 0) }}</td>
+                  <td>{{ (s.get('giveaways') or 0) }} / {{ (s.get('takeaways') or 0) }}</td>
+                  <td>{{ (s.get('gf_counted') or 0) }} / {{ (s.get('ga_counted') or 0) }}</td>
+                  <td class="muted" style="font-size:.85rem;">
+                    {% if per %}
+                      {% for per_num, ps in per|dictsort %}
+                        P{{ per_num }} {{ ps.get('toi_seconds')|fmt_toi }} ({{ ps.get('shifts') or 0 }}; {{ ps.get('gf') or 0 }}-{{ ps.get('ga') or 0 }}){% if not loop.last %}<br>{% endif %}
+                      {% endfor %}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                </tr>
+              {% else %}
+                <tr><td colspan="13" class="muted">No players</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <div style="margin-top:1rem;">
       <button class="btn primary" type="submit">Save</button>
       <a class="btn" href="/schedule">Back</a>
@@ -94,4 +238,3 @@
   </form>
 </div>
 {% endblock %}
-

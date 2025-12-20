@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
+import csv
 import datetime as dt
+import io
 import json
 import os
+import re
 import secrets
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from flask import (
     Flask,
@@ -44,6 +47,10 @@ def create_app() -> Flask:
 
     INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
+
+    @app.template_filter("fmt_toi")
+    def _fmt_toi(seconds: Any) -> str:
+        return format_seconds_to_mmss_or_hhmmss(seconds)
 
     @app.before_request
     def open_db():
@@ -206,12 +213,12 @@ def create_app() -> Flask:
                 try:
                     send_email(
                         to_addr=email,
-                        subject="Welcome to HM WebApp",
+                        subject="Welcome to HockeyMOM",
                         body=(
                             f"Hello {name or email},\n\n"
                             "Your account has been created successfully.\n"
                             "You can now create a game, upload files, and run jobs.\n\n"
-                            "Regards,\nHM"
+                            "Regards,\nHockeyMOM"
                         ),
                     )
                 except Exception:
@@ -1152,6 +1159,251 @@ def create_app() -> Flask:
             return redirect(url_for("hky_game_detail", game_id=gid))
         return render_template("schedule_new.html", my_teams=my_teams, game_types=gt)
 
+    @app.post("/hky/games/<int:game_id>/import_shift_stats")
+    def hky_game_import_shift_stats(game_id: int):
+        r = require_login()
+        if r:
+            return r
+        league_id = session.get("league_id")
+
+        # Load game (owner or via league mapping)
+        game = None
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, t1.is_external AS team1_ext, t2.is_external AS team2_ext
+                FROM hky_games g JOIN teams t1 ON g.team1_id=t1.id JOIN teams t2 ON g.team2_id=t2.id
+                WHERE g.id=%s AND g.user_id=%s
+                """,
+                (game_id, session["user_id"]),
+            )
+            game = cur.fetchone()
+            if not game and league_id:
+                cur.execute(
+                    """
+                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, t1.is_external AS team1_ext, t2.is_external AS team2_ext
+                    FROM league_games lg JOIN hky_games g ON lg.game_id=g.id
+                      JOIN teams t1 ON g.team1_id=t1.id JOIN teams t2 ON g.team2_id=t2.id
+                    WHERE g.id=%s AND lg.league_id=%s
+                    """,
+                    (game_id, league_id),
+                )
+                game = cur.fetchone()
+        if not game:
+            flash("Not found", "error")
+            return redirect(url_for("schedule"))
+
+        # Authorization: only allow edits if owner or league editor/admin
+        editable = True
+        if league_id:
+            with g.db.cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(MAX(CASE WHEN role IN ('admin','owner','editor') THEN 1 ELSE 0 END),0) FROM league_members WHERE league_id=%s AND user_id=%s",
+                    (league_id, session["user_id"]),
+                )
+                can_edit = int((cur.fetchone() or [0])[0]) == 1
+            if not can_edit:
+                editable = False
+        if not editable:
+            flash("You do not have permission to import stats for this game.", "error")
+            return redirect(url_for("hky_game_detail", game_id=game_id))
+
+        ps_file = request.files.get("player_stats_csv")
+        if not ps_file or not ps_file.filename:
+            flash("Select a player_stats.csv file to import.", "error")
+            return redirect(url_for("hky_game_detail", game_id=game_id))
+
+        try:
+            ps_text = ps_file.stream.read().decode("utf-8", errors="replace")
+        except Exception:
+            flash("Failed to read uploaded player_stats.csv", "error")
+            return redirect(url_for("hky_game_detail", game_id=game_id))
+
+        try:
+            parsed_rows = parse_shift_stats_player_stats_csv(ps_text)
+        except Exception as e:
+            flash(f"Failed to parse player_stats.csv: {e}", "error")
+            return redirect(url_for("hky_game_detail", game_id=game_id))
+
+        # Optional game_stats.csv
+        game_stats = None
+        gs_file = request.files.get("game_stats_csv")
+        if gs_file and gs_file.filename:
+            try:
+                gs_text = gs_file.stream.read().decode("utf-8", errors="replace")
+                game_stats = parse_shift_stats_game_stats_csv(gs_text)
+            except Exception:
+                game_stats = None
+
+        # Load players for both teams so we can map by jersey/name.
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                "SELECT id, team_id, name, jersey_number FROM players WHERE user_id=%s AND team_id IN (%s,%s)",
+                (session["user_id"], game["team1_id"], game["team2_id"]),
+            )
+            players = cur.fetchall()
+
+        players_by_team: dict[int, list[dict]] = {}
+        jersey_to_player_ids: dict[tuple[int, str], list[int]] = {}
+        name_to_player_ids: dict[tuple[int, str], list[int]] = {}
+
+        for p in players:
+            team_id = int(p["team_id"])
+            players_by_team.setdefault(team_id, []).append(p)
+            j = normalize_jersey_number(p.get("jersey_number"))
+            if j:
+                jersey_to_player_ids.setdefault((team_id, j), []).append(int(p["id"]))
+            nm = normalize_player_name(p.get("name") or "")
+            if nm:
+                name_to_player_ids.setdefault((team_id, nm), []).append(int(p["id"]))
+
+        def _resolve_player_id(jersey_norm: Optional[str], name_norm: str) -> Optional[int]:
+            candidates: list[tuple[int, int]] = []  # (team_id, player_id)
+            for team_id in (int(game["team1_id"]), int(game["team2_id"])):
+                if jersey_norm:
+                    for pid in jersey_to_player_ids.get((team_id, jersey_norm), []):
+                        candidates.append((team_id, pid))
+            if len(candidates) == 1:
+                return candidates[0][1]
+
+            # Fall back to name match within teams (exact normalized)
+            candidates = []
+            for team_id in (int(game["team1_id"]), int(game["team2_id"])):
+                for pid in name_to_player_ids.get((team_id, name_norm), []):
+                    candidates.append((team_id, pid))
+            if len(candidates) == 1:
+                return candidates[0][1]
+
+            # Jersey match + fuzzy name tie-breaker
+            if jersey_norm:
+                fuzzy: list[int] = []
+                for team_id in (int(game["team1_id"]), int(game["team2_id"])):
+                    for pid in jersey_to_player_ids.get((team_id, jersey_norm), []):
+                        pl = next((x for x in players_by_team.get(team_id, []) if int(x["id"]) == pid), None)
+                        if not pl:
+                            continue
+                        n2 = normalize_player_name(pl.get("name") or "")
+                        if n2 and (n2 in name_norm or name_norm in n2):
+                            fuzzy.append(pid)
+                if len(fuzzy) == 1:
+                    return fuzzy[0]
+
+            return None
+
+        imported = 0
+        unmatched: list[str] = []
+
+        with g.db.cursor() as cur:
+            for row in parsed_rows:
+                jersey_norm = row.get("jersey_number")
+                name_norm = row.get("name_norm") or ""
+                pid = _resolve_player_id(jersey_norm, name_norm)
+                if pid is None:
+                    unmatched.append(row.get("player_label") or "")
+                    continue
+
+                # Resolve team_id for this player_id (for FK consistency)
+                team_id = None
+                for team_players in players_by_team.values():
+                    for p in team_players:
+                        if int(p["id"]) == int(pid):
+                            team_id = int(p["team_id"])
+                            break
+                    if team_id is not None:
+                        break
+                if team_id is None:
+                    unmatched.append(row.get("player_label") or "")
+                    continue
+
+                stats = row.get("stats") or {}
+                cols = [
+                    "goals",
+                    "assists",
+                    "shots",
+                    "plus_minus",
+                    "toi_seconds",
+                    "sog",
+                    "expected_goals",
+                    "giveaways",
+                    "takeaways",
+                    "controlled_entry_for",
+                    "controlled_entry_against",
+                    "controlled_exit_for",
+                    "controlled_exit_against",
+                    "gt_goals",
+                    "gw_goals",
+                    "shifts",
+                    "gf_counted",
+                    "ga_counted",
+                    "video_toi_seconds",
+                    "sb_avg_shift_seconds",
+                    "sb_median_shift_seconds",
+                    "sb_longest_shift_seconds",
+                    "sb_shortest_shift_seconds",
+                ]
+                placeholders = ",".join(["%s"] * len(cols))
+                update_clause = ", ".join([f"{c}=COALESCE(VALUES({c}), {c})" for c in cols])
+                params = [session["user_id"], team_id, game_id, pid] + [stats.get(c) for c in cols]
+                cur.execute(
+                    f"""
+                    INSERT INTO player_stats(user_id, team_id, game_id, player_id, {', '.join(cols)})
+                    VALUES(%s,%s,%s,%s,{placeholders})
+                    ON DUPLICATE KEY UPDATE {update_clause}
+                    """,
+                    params,
+                )
+
+                # Upsert per-period stats (optional)
+                for per, per_stats in (row.get("period_stats") or {}).items():
+                    cur.execute(
+                        """
+                        INSERT INTO player_period_stats(game_id, player_id, period, toi_seconds, shifts, gf, ga)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s)
+                        ON DUPLICATE KEY UPDATE
+                          toi_seconds=COALESCE(VALUES(toi_seconds), toi_seconds),
+                          shifts=COALESCE(VALUES(shifts), shifts),
+                          gf=COALESCE(VALUES(gf), gf),
+                          ga=COALESCE(VALUES(ga), ga)
+                        """,
+                        (
+                            game_id,
+                            pid,
+                            int(per),
+                            per_stats.get("toi_seconds"),
+                            per_stats.get("shifts"),
+                            per_stats.get("gf"),
+                            per_stats.get("ga"),
+                        ),
+                    )
+
+                imported += 1
+
+            if game_stats is not None:
+                cur.execute(
+                    """
+                    INSERT INTO hky_game_stats(game_id, stats_json, updated_at)
+                    VALUES(%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE stats_json=VALUES(stats_json), updated_at=VALUES(updated_at)
+                    """,
+                    (game_id, json.dumps(game_stats, ensure_ascii=False), dt.datetime.now().isoformat()),
+                )
+
+            # Track import time
+            cur.execute(
+                "UPDATE hky_games SET stats_imported_at=%s WHERE id=%s",
+                (dt.datetime.now().isoformat(), game_id),
+            )
+        g.db.commit()
+
+        if unmatched:
+            flash(
+                f"Imported stats for {imported} player(s). Unmatched: {', '.join([u for u in unmatched if u])}",
+                "error",
+            )
+        else:
+            flash(f"Imported stats for {imported} player(s).", "success")
+        return redirect(url_for("hky_game_detail", game_id=game_id))
+
     @app.route("/hky/games/<int:game_id>", methods=["GET", "POST"])
     def hky_game_detail(game_id: int):
         r = require_login()
@@ -1198,7 +1450,34 @@ def create_app() -> Flask:
             # Load existing player stats rows for this game
             cur.execute("SELECT * FROM player_stats WHERE game_id=%s", (game_id,))
             stats_rows = cur.fetchall()
+            cur.execute("SELECT stats_json, updated_at FROM hky_game_stats WHERE game_id=%s", (game_id,))
+            game_stats_row = cur.fetchone()
         stats_by_pid = {r["player_id"]: r for r in stats_rows}
+
+        game_stats = None
+        game_stats_updated_at = None
+        try:
+            if game_stats_row and game_stats_row.get("stats_json"):
+                game_stats = json.loads(game_stats_row["stats_json"])
+                game_stats_updated_at = game_stats_row.get("updated_at")
+        except Exception:
+            game_stats = None
+
+        period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                "SELECT player_id, period, toi_seconds, shifts, gf, ga FROM player_period_stats WHERE game_id=%s",
+                (game_id,),
+            )
+            for r in cur.fetchall():
+                pid = int(r["player_id"])
+                period = int(r["period"])
+                period_stats_by_pid.setdefault(pid, {})[period] = {
+                    "toi_seconds": r.get("toi_seconds"),
+                    "shifts": r.get("shifts"),
+                    "gf": r.get("gf"),
+                    "ga": r.get("ga"),
+                }
 
         # Authorization: only allow edits if owner or league editor/admin
         editable = True
@@ -1310,6 +1589,9 @@ def create_app() -> Flask:
             team1_players=team1_players,
             team2_players=team2_players,
             stats_by_pid=stats_by_pid,
+            period_stats_by_pid=period_stats_by_pid,
+            game_stats=game_stats,
+            game_stats_updated_at=game_stats_updated_at,
             editable=editable,
         )
 
@@ -1506,6 +1788,7 @@ def init_db():
               team1_score INT NULL,
               team2_score INT NULL,
               is_final TINYINT(1) NOT NULL DEFAULT 0,
+              stats_imported_at DATETIME NULL,
               created_at DATETIME NOT NULL,
               updated_at DATETIME NULL,
               INDEX(user_id), INDEX(team1_id), INDEX(team2_id), INDEX(game_type_id), INDEX(starts_at),
@@ -1515,6 +1798,17 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
+        # Add hky_games.stats_imported_at if missing (older installs)
+        try:
+            cur.execute("SHOW COLUMNS FROM hky_games LIKE 'stats_imported_at'")
+            exists = cur.fetchone()
+            if not exists:
+                cur.execute("ALTER TABLE hky_games ADD COLUMN stats_imported_at DATETIME NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE hky_games ADD COLUMN stats_imported_at DATETIME NULL")
+            except Exception:
+                pass
         # Player stats per game
         cur.execute(
             """
@@ -1537,11 +1831,94 @@ def init_db():
               goalie_saves INT NULL,
               goalie_ga INT NULL,
               goalie_sa INT NULL,
+              sog INT NULL,
+              expected_goals INT NULL,
+              giveaways INT NULL,
+              takeaways INT NULL,
+              controlled_entry_for INT NULL,
+              controlled_entry_against INT NULL,
+              controlled_exit_for INT NULL,
+              controlled_exit_against INT NULL,
+              gt_goals INT NULL,
+              gw_goals INT NULL,
+              shifts INT NULL,
+              gf_counted INT NULL,
+              ga_counted INT NULL,
+              video_toi_seconds INT NULL,
+              sb_avg_shift_seconds INT NULL,
+              sb_median_shift_seconds INT NULL,
+              sb_longest_shift_seconds INT NULL,
+              sb_shortest_shift_seconds INT NULL,
               UNIQUE KEY uniq_game_player (game_id, player_id),
               INDEX(user_id), INDEX(team_id), INDEX(game_id), INDEX(player_id),
               FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE,
               FOREIGN KEY(player_id) REFERENCES players(id) ON DELETE CASCADE ON UPDATE CASCADE,
               FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Extend player_stats for shift spreadsheet stats (older installs)
+        for col_ddl in [
+            "sog INT NULL",
+            "expected_goals INT NULL",
+            "giveaways INT NULL",
+            "takeaways INT NULL",
+            "controlled_entry_for INT NULL",
+            "controlled_entry_against INT NULL",
+            "controlled_exit_for INT NULL",
+            "controlled_exit_against INT NULL",
+            "gt_goals INT NULL",
+            "gw_goals INT NULL",
+            "shifts INT NULL",
+            "gf_counted INT NULL",
+            "ga_counted INT NULL",
+            "video_toi_seconds INT NULL",
+            "sb_avg_shift_seconds INT NULL",
+            "sb_median_shift_seconds INT NULL",
+            "sb_longest_shift_seconds INT NULL",
+            "sb_shortest_shift_seconds INT NULL",
+        ]:
+            name = col_ddl.split(" ", 1)[0]
+            try:
+                cur.execute("SHOW COLUMNS FROM player_stats LIKE %s", (name,))
+                exists = cur.fetchone()
+                if not exists:
+                    cur.execute(f"ALTER TABLE player_stats ADD COLUMN {col_ddl}")
+            except Exception:
+                # best-effort for mysql variants
+                try:
+                    cur.execute(f"ALTER TABLE player_stats ADD COLUMN {col_ddl}")
+                except Exception:
+                    pass
+
+        # Per-player per-period stats (from shift spreadsheet outputs)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS player_period_stats (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              game_id INT NOT NULL,
+              player_id INT NOT NULL,
+              period INT NOT NULL,
+              toi_seconds INT NULL,
+              shifts INT NULL,
+              gf INT NULL,
+              ga INT NULL,
+              UNIQUE KEY uniq_period (game_id, player_id, period),
+              INDEX(game_id), INDEX(player_id), INDEX(period),
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(player_id) REFERENCES players(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+
+        # Per-game stats key/value from shift spreadsheet outputs
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hky_game_stats (
+              game_id INT PRIMARY KEY,
+              stats_json LONGTEXT NULL,
+              updated_at DATETIME NULL,
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
@@ -1861,7 +2238,21 @@ def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
                    COALESCE(SUM(goals),0) AS goals,
                    COALESCE(SUM(assists),0) AS assists,
                    COALESCE(SUM(pim),0) AS pim,
-                   COALESCE(SUM(shots),0) AS shots
+                   COALESCE(SUM(shots),0) AS shots,
+                   COALESCE(SUM(sog),0) AS sog,
+                   COALESCE(SUM(expected_goals),0) AS expected_goals,
+                   COALESCE(SUM(giveaways),0) AS giveaways,
+                   COALESCE(SUM(takeaways),0) AS takeaways,
+                   COALESCE(SUM(controlled_entry_for),0) AS controlled_entry_for,
+                   COALESCE(SUM(controlled_entry_against),0) AS controlled_entry_against,
+                   COALESCE(SUM(controlled_exit_for),0) AS controlled_exit_for,
+                   COALESCE(SUM(controlled_exit_against),0) AS controlled_exit_against,
+                   COALESCE(SUM(plus_minus),0) AS plus_minus,
+                   COALESCE(SUM(toi_seconds),0) AS toi_seconds,
+                   COALESCE(SUM(video_toi_seconds),0) AS video_toi_seconds,
+                   COALESCE(SUM(shifts),0) AS shifts,
+                   COALESCE(SUM(gf_counted),0) AS gf_counted,
+                   COALESCE(SUM(ga_counted),0) AS ga_counted
             FROM player_stats WHERE team_id=%s AND user_id=%s
             GROUP BY player_id
             """,
@@ -1875,9 +2266,204 @@ def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
             "assists": int(r["assists"] or 0),
             "points": int(r["goals"] or 0) + int(r["assists"] or 0),
             "shots": int(r["shots"] or 0),
+            "sog": int(r.get("sog") or 0),
+            "expected_goals": int(r.get("expected_goals") or 0),
+            "giveaways": int(r.get("giveaways") or 0),
+            "takeaways": int(r.get("takeaways") or 0),
+            "controlled_entry_for": int(r.get("controlled_entry_for") or 0),
+            "controlled_entry_against": int(r.get("controlled_entry_against") or 0),
+            "controlled_exit_for": int(r.get("controlled_exit_for") or 0),
+            "controlled_exit_against": int(r.get("controlled_exit_against") or 0),
+            "plus_minus": int(r.get("plus_minus") or 0),
+            "toi_seconds": int(r.get("toi_seconds") or 0),
+            "video_toi_seconds": int(r.get("video_toi_seconds") or 0),
+            "shifts": int(r.get("shifts") or 0),
+            "gf_counted": int(r.get("gf_counted") or 0),
+            "ga_counted": int(r.get("ga_counted") or 0),
             "pim": int(r["pim"] or 0),
         }
     return out
+
+
+def normalize_jersey_number(raw: Any) -> Optional[str]:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    m = re.search(r"(\d+)", s)
+    if not m:
+        return None
+    try:
+        return str(int(m.group(1)))
+    except Exception:
+        return m.group(1)
+
+
+def normalize_player_name(raw: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(raw or "").strip().lower())
+
+
+def parse_duration_seconds(raw: Any) -> Optional[int]:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    parts = s.split(":")
+    try:
+        if len(parts) == 3:
+            h, m, sec = parts
+            return int(h) * 3600 + int(m) * 60 + int(float(sec))
+        if len(parts) == 2:
+            m, sec = parts
+            return int(m) * 60 + int(float(sec))
+        return int(float(s))
+    except Exception:
+        return None
+
+
+def format_seconds_to_mmss_or_hhmmss(raw: Any) -> str:
+    try:
+        t = int(raw)  # type: ignore[arg-type]
+    except Exception:
+        return ""
+    if t < 0:
+        t = 0
+    h = t // 3600
+    r = t % 3600
+    m = r // 60
+    s = r % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
+    """
+    Parse stats/player_stats.csv written by scripts/parse_shift_spreadsheet.py.
+
+    Returns rows with:
+      - player_label: original display label (e.g. "59 Ryan S Donahue")
+      - jersey_number: normalized jersey number ("59") when present
+      - name_norm: normalized player name for matching
+      - stats: dict of DB column -> value
+      - period_stats: dict[period:int] -> dict of period metrics
+    """
+    f = io.StringIO(csv_text)
+    reader = csv.DictReader(f)
+    if not reader.fieldnames:
+        raise ValueError("missing CSV headers")
+
+    out: list[dict[str, Any]] = []
+    for raw_row in reader:
+        row = {k.strip(): v for k, v in (raw_row or {}).items() if k}
+        player_label = (row.get("Player") or "").strip()
+        jersey_norm = None
+        name_part = player_label
+        m = re.match(r"^\s*(\d+)\s+(.*)$", player_label)
+        if m:
+            jersey_norm = normalize_jersey_number(m.group(1))
+            name_part = m.group(2).strip()
+        name_norm = normalize_player_name(name_part)
+
+        stats: dict[str, Any] = {
+            "goals": _int_or_none(row.get("Goals")),
+            "assists": _int_or_none(row.get("Assists")),
+            "shots": _int_or_none(row.get("Shots")),
+            "sog": _int_or_none(row.get("SOG")),
+            "expected_goals": _int_or_none(row.get("xG")),
+            "giveaways": _int_or_none(row.get("Giveaways")),
+            "takeaways": _int_or_none(row.get("Takeaways")),
+            "controlled_entry_for": _int_or_none(row.get("Controlled Entry For (On-Ice)")),
+            "controlled_entry_against": _int_or_none(row.get("Controlled Entry Against (On-Ice)")),
+            "controlled_exit_for": _int_or_none(row.get("Controlled Exit For (On-Ice)")),
+            "controlled_exit_against": _int_or_none(row.get("Controlled Exit Against (On-Ice)")),
+            "gt_goals": _int_or_none(row.get("GT Goals")),
+            "gw_goals": _int_or_none(row.get("GW Goals")),
+            "plus_minus": _int_or_none(row.get("Plus Minus")),
+            "gf_counted": _int_or_none(row.get("GF Counted")),
+            "ga_counted": _int_or_none(row.get("GA Counted")),
+            "shifts": _int_or_none(row.get("Shifts")),
+            "toi_seconds": parse_duration_seconds(row.get("TOI Total")),
+            "video_toi_seconds": parse_duration_seconds(row.get("TOI Total (Video)")),
+            "sb_avg_shift_seconds": parse_duration_seconds(row.get("Average Shift")),
+            "sb_median_shift_seconds": parse_duration_seconds(row.get("Median Shift")),
+            "sb_longest_shift_seconds": parse_duration_seconds(row.get("Longest Shift")),
+            "sb_shortest_shift_seconds": parse_duration_seconds(row.get("Shortest Shift")),
+        }
+
+        # Period stats: Period {n} TOI/Shifts/GF/GA
+        period_stats: dict[int, dict[str, Any]] = {}
+        for k, v in row.items():
+            if not k:
+                continue
+            m = re.match(r"^Period\s+(\d+)\s+TOI$", k)
+            if m:
+                per = int(m.group(1))
+                period_stats.setdefault(per, {})["toi_seconds"] = parse_duration_seconds(v)
+                continue
+            m = re.match(r"^Period\s+(\d+)\s+Shifts$", k)
+            if m:
+                per = int(m.group(1))
+                period_stats.setdefault(per, {})["shifts"] = _int_or_none(v)
+                continue
+            m = re.match(r"^Period\s+(\d+)\s+GF$", k)
+            if m:
+                per = int(m.group(1))
+                period_stats.setdefault(per, {})["gf"] = _int_or_none(v)
+                continue
+            m = re.match(r"^Period\s+(\d+)\s+GA$", k)
+            if m:
+                per = int(m.group(1))
+                period_stats.setdefault(per, {})["ga"] = _int_or_none(v)
+                continue
+
+        out.append(
+            {
+                "player_label": player_label,
+                "jersey_number": jersey_norm,
+                "name_norm": name_norm,
+                "stats": stats,
+                "period_stats": period_stats,
+            }
+        )
+    return out
+
+
+def parse_shift_stats_game_stats_csv(csv_text: str) -> dict[str, Any]:
+    """
+    Parse stats/game_stats.csv written by scripts/parse_shift_spreadsheet.py.
+    Format is a 2-column table: "Stat", "<game_label>".
+    """
+    f = io.StringIO(csv_text)
+    reader = csv.DictReader(f)
+    if not reader.fieldnames or "Stat" not in reader.fieldnames:
+        raise ValueError("missing Stat column")
+    value_col = next((c for c in reader.fieldnames if c != "Stat"), None)
+    if not value_col:
+        raise ValueError("missing value column")
+    out: dict[str, Any] = {"_label": value_col}
+    for row in reader:
+        if not row:
+            continue
+        key = (row.get("Stat") or "").strip()
+        if not key:
+            continue
+        out[key] = (row.get(value_col) or "").strip()
+    return out
+
+
+def _int_or_none(raw: Any) -> Optional[int]:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    try:
+        return int(float(s))
+    except Exception:
+        return None
 
 
 app = create_app()

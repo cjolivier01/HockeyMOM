@@ -1,4 +1,4 @@
-HM WebApp (Uploads + Run)
+HockeyMOM WebApp (Uploads + Run)
 =========================
 
 Overview
@@ -47,6 +47,12 @@ Usage
 - Schedule: create games between one or two of your teams
   - If you select only one of your teams, enter an opponent name to auto-create an external team that is hidden from your team list by default
   - Edit a game to set scores and enter per-player stats (goals, assists, shots, PIM, +/-). Team standings are computed automatically from game results.
+
+Import Shift Spreadsheet Stats
+------------------------------
+To import the `stats/player_stats.csv` + `stats/game_stats.csv` outputs written by `scripts/parse_shift_spreadsheet.py` and view them per game/player/team:
+
+- See `tools/webapp/TUTORIAL_SHIFT_STATS.md`.
 
 Demo Data
 ---------

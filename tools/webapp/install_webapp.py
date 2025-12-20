@@ -16,7 +16,7 @@ def sudo_write_text(path: str | Path, content: str):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Install HM WebApp (Flask + Nginx)")
+    ap = argparse.ArgumentParser(description="Install HockeyMOM WebApp (Flask + Nginx)")
     ap.add_argument("--install-root", default="/opt/hm-webapp")
     ap.add_argument("--user", default=os.environ.get("SUDO_USER") or os.environ.get("USER"))
     ap.add_argument("--watch-root", default="/data/incoming")
@@ -37,9 +37,23 @@ def main():
     templates_dir = app_dir / "templates"
     static_dir = app_dir / "static"
 
-    print("Installing OS packages (nginx + python venv tools)...")
+    print("Installing OS packages (nginx + mariadb + python venv tools)...")
     subprocess.check_call(["sudo", "apt-get", "update", "-y"])
-    subprocess.check_call(["sudo", "apt-get", "install", "-y", "nginx", "python3-venv"])
+    subprocess.check_call(
+        [
+            "sudo",
+            "apt-get",
+            "install",
+            "-y",
+            "nginx",
+            "python3-venv",
+            "mariadb-server",
+            "mariadb-client",
+        ]
+    )
+    # Ensure DB service is running (service name varies by distro).
+    subprocess.run(["sudo", "systemctl", "enable", "--now", "mariadb"], check=False)
+    subprocess.run(["sudo", "systemctl", "enable", "--now", "mysql"], check=False)
     subprocess.check_call(["sudo", "mkdir", "-p", args.watch_root])
     subprocess.check_call(["sudo", "chown", f"{args.user}:{args.user}", args.watch_root])
 
@@ -113,7 +127,9 @@ def main():
     sql = f"""
 CREATE DATABASE IF NOT EXISTS `{args.db_name}` CHARACTER SET utf8mb4;
 CREATE USER IF NOT EXISTS '{args.db_user}'@'localhost' IDENTIFIED BY '{args.db_pass}';
+CREATE USER IF NOT EXISTS '{args.db_user}'@'127.0.0.1' IDENTIFIED BY '{args.db_pass}';
 GRANT ALL PRIVILEGES ON `{args.db_name}`.* TO '{args.db_user}'@'localhost';
+GRANT ALL PRIVILEGES ON `{args.db_name}`.* TO '{args.db_user}'@'127.0.0.1';
 FLUSH PRIVILEGES;
 """
     subprocess.check_call(["sudo", "bash", "-lc", f"cat <<'SQL' | mysql -u root\n{sql}\nSQL\n"])
@@ -137,7 +153,7 @@ FLUSH PRIVILEGES;
     print("Writing systemd service...")
     unit = f"""
 [Unit]
-Description=HM WebApp (Flask via gunicorn)
+Description=HockeyMOM WebApp (Flask via gunicorn)
 After=network-online.target
 Wants=network-online.target
 

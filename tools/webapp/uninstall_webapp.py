@@ -7,7 +7,7 @@ NGINX_SITE = "/etc/nginx/sites-available/hm-webapp"
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Uninstall HM WebApp")
+    ap = argparse.ArgumentParser(description="Uninstall HockeyMOM WebApp")
     ap.add_argument("--install-root", default="/opt/hm-webapp")
     args = ap.parse_args()
 
