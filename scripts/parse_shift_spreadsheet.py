@@ -3398,6 +3398,7 @@ def _write_event_summaries_and_clips(
         v_windows: List[Tuple[int, int]] = []
         sb_windows_by_period: Dict[int, List[Tuple[int, int]]] = {}
         pre_s, post_s = _clip_pre_post_s_for_event_type(str(etype))
+        etype_disp = _display_event_type(str(etype))
         for it in lst:
             p = it.get("period")
             v = it.get("video_s")
@@ -3423,25 +3424,25 @@ def _write_event_summaries_and_clips(
 
         v_windows = merge_windows(v_windows)
         if v_windows:
-            vfile = outdir / f"events_{etype}_{team}_video_times.txt"
+            vfile = outdir / f"events_{etype_disp}_{team}_video_times.txt"
             v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
             if create_scripts:
-                script = outdir / f"clip_events_{etype}_{team}.sh"
-                label = f"{_display_event_type(etype)} ({team})"
+                script = outdir / f"clip_events_{etype_disp}_{team}.sh"
+                label = f"{etype_disp} ({team})"
                 body = f"""#!/usr/bin/env bash
-set -euo pipefail
-if [ $# -lt 2 ]; then
-  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
+	set -euo pipefail
+	if [ $# -lt 2 ]; then
+	  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
   exit 1
 fi
 INPUT=\"$1\"
 OPP=\"$2\"
-THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-TS_FILE=\"$THIS_DIR/{vfile.name}\"
-shift 2 || true
-python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{team}\" \"{label} vs $OPP\" \"$@\"
-"""
+	THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
+	TS_FILE=\"$THIS_DIR/{vfile.name}\"
+	shift 2 || true
+	python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype_disp}_{team}\" \"{label} vs $OPP\" \"$@\"
+	"""
                 script.write_text(body, encoding="utf-8")
                 try:
                     import os as _os
@@ -3452,7 +3453,7 @@ python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FIL
                 clip_scripts.append(script.name)
 
         if sb_windows_by_period:
-            sfile = outdir / f"events_{etype}_{team}_scoreboard_times.txt"
+            sfile = outdir / f"events_{etype_disp}_{team}_scoreboard_times.txt"
             s_lines = []
             for p, wins in sorted(sb_windows_by_period.items()):
                 wins = merge_windows(wins)
