@@ -4071,7 +4071,15 @@ def process_sheet(
                     "ControlledEntry",
                     "ControlledExit",
                 ]
+                sog_cnt = int(ev_counts.get("SOG", 0) or 0)
+                xg_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
                 for kind in order:
+                    if kind == "ExpectedGoal":
+                        # If the player has at least one SOG, always show xG even when it's 0
+                        # (so parents can see the full SOG/xG line without missing fields).
+                        if sog_cnt > 0 or xg_cnt > 0:
+                            stats_lines.append(f"  {_display_event_type(kind)}: {xg_cnt}")
+                        continue
                     if kind in ev_counts and ev_counts[kind] > 0:
                         stats_lines.append(f"  {_display_event_type(kind)}: {ev_counts[kind]}")
                 for kind, cnt in sorted(ev_counts.items()):
