@@ -246,6 +246,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         streaming_drop_frame_interval: int = 3,
         stream_fps: int = 15,
     ):
+        assert False, "Stop using VideoStreamWriter; use PyNvVideoEncoderWriter instead"
         self._filename = filename
         self._container_type = container_type
         # Always keep a float internally even if callers pass a Fraction
