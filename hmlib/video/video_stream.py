@@ -16,7 +16,6 @@ from typing import Any, Dict, Literal, Optional, Tuple, Union
 import cv2
 import numpy as np
 import torch
-import torchaudio
 import torchvision
 from torchaudio.io import StreamReader as StreamingMediaDecoder
 from torchaudio.io import StreamWriter as StreamingMediaEncoder
@@ -293,6 +292,8 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         self._batch_items = []
         self._in_flush = False
         self._bit_rate = bit_rate
+        import torchaudio
+
         self._codec_config = torchaudio.io.CodecConfig(
             bit_rate=bit_rate,
         )
