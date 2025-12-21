@@ -28,6 +28,10 @@ def image_wh(image: torch.Tensor):
     return torch.tensor([image.shape[-1], image.shape[-2]], dtype=torch.float, device=image.device)
 
 
+def soft_new_zeros(t: torch.Tensor, shape: Tuple[int, ...]) -> torch.Tensor:
+    return torch.zeros(shape, dtype=t.dtype, device=t.device)
+
+
 @TRANSFORMS.register_module()
 class HmPerspectiveRotation:
     """Optional pre-rotation crop around a camera box.
@@ -58,8 +62,8 @@ class HmPerspectiveRotation:
         self._image_label = image_label
         self._bbox_label = bbox_label
         self._horizontal_image_gaussian_distribution = None
-        self._zero_uint8 = None
         self._crop_half_width: Optional[torch.Tensor] = None
+        self._working_crop_width: Optional[int] = None
         self._image_width: Optional[int] = None
         self._image_height: Optional[int] = None
         self._fixed_crop_half_width = fixed_crop_half_width
@@ -125,10 +129,10 @@ class HmPerspectiveRotation:
             #
             # END PERFORMANCE HACK
             #
-
+            assert angle.device.type == "cpu"
             img = rotate_image(
                 img=img,
-                angle=angle,
+                angle=angle.item(),
                 rotation_point=rotation_point,
             )
             rotated_images.append(img)
@@ -148,9 +152,6 @@ class HmPerspectiveRotation:
         and offset that bounding box to be relative to the new (hopefully smaller)
         image
         """
-        if self._zero_uint8 is None:
-            self._zero_uint8 = torch.tensor(0, dtype=torch.uint8, device=image.device)
-
         bbox_w = width(current_box)
         bbox_h = height(current_box)
         bbox_c = center(current_box)
@@ -159,6 +160,7 @@ class HmPerspectiveRotation:
         # make sure we're the expected (albeit arbitrary) channels-last
         assert image.shape[-1] in [3, 4]
         img_wh = image_wh(image)
+        img_width = img_wh[0]
 
         # Base half-width per side: radius of the rectangle's circumscribed circle,
         # optionally scaled to retain additional margin.
@@ -174,22 +176,39 @@ class HmPerspectiveRotation:
         else:
             min_width_per_side = base_half_width
 
-        clip_left = torch.max(self._zero_uint8, bbox_c[0] - min_width_per_side).to(
-            torch.int64, non_blocking=True
+        crop_width = self._resolve_working_crop_width(
+            min_width_per_side=min_width_per_side, img_width=img_width
         )
-        clip_right = torch.min(img_wh[0] - 1, bbox_c[0] + min_width_per_side).to(
-            torch.int64, non_blocking=True
-        )
+        half_width = crop_width * 0.5
+        clip_left = torch.floor(bbox_c[0] - half_width)
+        clip_right = clip_left + crop_width
+
+        pad_left = torch.clamp(-clip_left, min=0)
+        slice_left = torch.clamp(clip_left, min=0)
+        slice_right = torch.clamp(clip_right, max=img_width)
+
+        slice_left_int = int(slice_left.item())
+        slice_right_int = int(slice_right.item())
+        pad_left_int = int(pad_left.item())
+        assert self._working_crop_width is not None
+        target_width_int = self._working_crop_width
+
         if image.ndim == 3:
             # no batch dimension
-            image = image[:, clip_left:clip_right, :]
+            sliced = image[:, slice_left_int:slice_right_int, :]
+            image = soft_new_zeros(image, (image.shape[0], target_width_int, image.shape[2]))
+            image[:, pad_left_int : pad_left_int + sliced.shape[1], :] = sliced
         else:
             # with batch dimension
-            image = image[:, :, clip_left:clip_right, :]
-        if clip_left.device != current_box.device:
-            clip_left = clip_left.to(current_box.device)
-        current_box[0] -= clip_left
-        current_box[2] -= clip_left
+            sliced = image[:, :, slice_left_int:slice_right_int, :]
+            image = soft_new_zeros(
+                image, (image.shape[0], image.shape[1], target_width_int, image.shape[3])
+            )
+            image[:, :, pad_left_int : pad_left_int + sliced.shape[2], :] = sliced
+
+        offset = (slice_left - pad_left).to(device=current_box.device, dtype=current_box.dtype)
+        current_box[0] -= offset
+        current_box[2] -= offset
 
         return image, current_box
 
@@ -201,3 +220,17 @@ class HmPerspectiveRotation:
         else:
             assert image_width == self._horizontal_image_gaussian_distribution.width
         return self._horizontal_image_gaussian_distribution
+
+    def _resolve_working_crop_width(
+        self, min_width_per_side: torch.Tensor, img_width: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Pick a fixed working width for the pre-clip crop so every frame shares the
+        same shape. We cap it at the source width to avoid expanding the work area.
+        """
+        if self._working_crop_width is None:
+            width = torch.ceil(min_width_per_side * 2.0)
+            width = torch.clamp(width, min=2.0, max=img_width)
+            self._working_crop_width = int(width.item())
+        assert self._working_crop_width is not None
+        return min_width_per_side.new_tensor(float(self._working_crop_width))
