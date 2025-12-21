@@ -74,6 +74,7 @@ For multi-game runs, writes under `<outdir>/<game label>/per_player/` plus conso
 - `<outdir>/player_stats_consolidated.xlsx` (multi-sheet workbook with `Cumulative` + per-game sheets)
 - `<outdir>/player_stats_consolidated.csv` (the `Cumulative` sheet)
 - `<outdir>/game_stats_consolidated.xlsx` / `<outdir>/game_stats_consolidated.csv` (stats as rows, games as columns)
+  - Games/columns preserve the `--file-list` order (when used).
   - Note: per-game averages for long-sheet-derived stats only count games where that stat exists; the `... per Game` columns in `Cumulative` include `(N)` to show the denominator.
 
 Key outputs (per game):
@@ -110,7 +111,10 @@ Internal event type names:
 
 Turnovers (`*-long*`):
 - A row labeled `Turnover` produces:
-  - `Giveaway` credited to the row’s `Team` from the “Shots” column jersey.
+  - `TurnoverForced` (displayed as **`Turnovers (forced)`**) credited to the row’s `Team` from the “Shots” column jersey.
+  - `Takeaway` credited to the **other** team from the “Shots on Goal” column (often formatted like `Caused by #91`).
+- A row labeled `Giveaway` produces:
+  - `Giveaway` (displayed as **`Giveaways`**) credited to the row’s `Team` from the “Shots” column jersey.
   - `Takeaway` credited to the **other** team from the “Shots on Goal” column (often formatted like `Caused by #91`).
 
 ### Clip window durations

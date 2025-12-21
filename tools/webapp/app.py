@@ -2373,13 +2373,21 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             name_part = m.group(2).strip()
         name_norm = normalize_player_name(name_part)
 
+        giveaways_unforced = _int_or_none(row.get("Giveaways"))
+        turnovers_forced = _int_or_none(row.get("Turnovers (forced)"))
+        giveaways_total = None
+        if giveaways_unforced is not None or turnovers_forced is not None:
+            giveaways_total = int(giveaways_unforced or 0) + int(turnovers_forced or 0)
+
         stats: dict[str, Any] = {
             "goals": _int_or_none(row.get("Goals")),
             "assists": _int_or_none(row.get("Assists")),
             "shots": _int_or_none(row.get("Shots")),
             "sog": _int_or_none(row.get("SOG")),
             "expected_goals": _int_or_none(row.get("xG")),
-            "giveaways": _int_or_none(row.get("Giveaways")),
+            # DB only stores one "giveaways" integer; treat it as total turnovers
+            # (forced turnovers + unforced giveaways) from the spreadsheet outputs.
+            "giveaways": giveaways_total,
             "takeaways": _int_or_none(row.get("Takeaways")),
             "controlled_entry_for": _int_or_none(row.get("Controlled Entry For (On-Ice)")),
             "controlled_entry_against": _int_or_none(row.get("Controlled Entry Against (On-Ice)")),

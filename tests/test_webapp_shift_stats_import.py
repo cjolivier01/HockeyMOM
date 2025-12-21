@@ -83,6 +83,19 @@ def should_parse_shift_spreadsheet_otg_ota_columns():
     assert r["stats"]["ot_assists"] == 2
 
 
+def should_parse_shift_spreadsheet_turnovers_forced_sums_into_giveaways():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    csv_text = 'Player,Turnovers (forced),Giveaways,Takeaways\n" 8 Adam Ro",3,2,1\n'
+    rows = mod.parse_shift_stats_player_stats_csv(csv_text)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["stats"]["giveaways"] == 5
+    assert r["stats"]["takeaways"] == 1
+
+
 def should_not_include_empty_period_columns_in_consolidated_stats():
     import importlib.util
 
@@ -248,6 +261,72 @@ def should_parse_t2s_only_token_with_side_and_label():
         "away",
         "stockton-r2",
     )
+
+
+def should_parse_long_sheet_turnover_and_giveaway_distinct_events():
+    import importlib.util
+
+    import pandas as pd
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_long", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    df = pd.DataFrame(
+        [
+            ["1st Period", "Video Time", "Scoreboard", "Team", "Shots", "Shots on Goal"],
+            ["Turnover", "0:10", "0:20", "Blue", "#5", "Caused by #7"],
+            ["Giveaway", "0:11", "0:21", "Blue", "#9", "Caused by #11"],
+        ]
+    )
+
+    events, goal_rows, jerseys_by_team = mod._parse_long_left_event_table(df)  # type: ignore[attr-defined]
+    assert goal_rows == []
+    got = [(e.event_type, e.team, list(e.jerseys)) for e in events]
+    assert got == [
+        ("TurnoverForced", "Blue", [5]),
+        ("Takeaway", "White", [7]),
+        ("Giveaway", "Blue", [9]),
+        ("Takeaway", "White", [11]),
+    ]
+    assert jerseys_by_team == {"Blue": {5, 9}, "White": {7, 11}}
+
+
+def should_write_game_stats_consolidated_preserves_result_order():
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    import pandas as pd
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_game_stats_order", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        outdir_a = base / "A" / "stats"
+        outdir_b = base / "B" / "stats"
+        outdir_a.mkdir(parents=True, exist_ok=True)
+        outdir_b.mkdir(parents=True, exist_ok=True)
+
+        pd.DataFrame({"Stat": ["Goals For"], "game-a": [1]}).to_csv(outdir_a / "game_stats.csv", index=False)
+        pd.DataFrame({"Stat": ["Goals For"], "game-b": [2]}).to_csv(outdir_b / "game_stats.csv", index=False)
+
+        results = [
+            {"label": "B", "outdir": outdir_b.parent},
+            {"label": "A", "outdir": outdir_a.parent},
+        ]
+        assert mod._write_game_stats_consolidated_files(base, results) is True  # type: ignore[attr-defined]
+
+        df = pd.read_csv(base / "game_stats_consolidated.csv")
+        assert list(df.columns) == ["Stat", "game-b", "game-a"]
 
 
 def should_select_tracking_output_video_prefers_highest_number():
