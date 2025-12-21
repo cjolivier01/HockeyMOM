@@ -1,6 +1,7 @@
 cython
 rich
 PyNvVideoCodec
+html5lib
 typeguard
 flask
 terminaltables

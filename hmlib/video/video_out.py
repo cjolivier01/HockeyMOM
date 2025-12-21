@@ -45,20 +45,6 @@ def get_and_pop(map: Dict[str, Any], key: str) -> Any:
     return result
 
 
-# def slow_to_tensor(
-#     tensor: Union[torch.Tensor, StreamTensorBase], stream_wait: bool = True
-# ) -> torch.Tensor:
-#     """
-#     Give up on the stream and get the sync'd tensor
-#     """
-#     if isinstance(tensor, StreamTensorBase):
-#         tensor._verbose = True
-#         if stream_wait:
-#             return tensor.wait()
-#         return tensor.get()
-#     return tensor
-
-
 def get_best_codec(
     gpu_number: int, width: int, height: int, allow_scaling: bool = False
 ) -> Tuple[Literal["hevc_nvenc"] | Literal[True]] | Tuple[Literal["XVID"] | Literal[False]]:
