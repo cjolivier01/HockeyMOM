@@ -1,2 +1,2 @@
 #!/bin/bash
-PYTHONPATH="$(pwd)/src:${PYTHONPATH}" python $@
+PYTHONPATH="$(pwd):${PYTHONPATH}" python $@
