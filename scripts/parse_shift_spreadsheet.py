@@ -3801,25 +3801,19 @@ def _write_season_highlight_scripts(
 
         list_file = "$OUT_DIR/season_clips.txt"
         season_label_safe = sanitize_name(f"{player_key}__season_highlights")
-        join_temp_dir = f"$THIS_DIR/temp_clips/{player_key}/season_join"
 
         script_lines.extend(
             [
                 f"LIST_FILE=\"{list_file}\"",
                 ": > \"$LIST_FILE\"",
                 "for f in \"${GAME_CLIPS[@]}\"; do",
-                "  echo \"$f\" >> \"$LIST_FILE\"",
+                "  echo \"file '$f'\" >> \"$LIST_FILE\"",
                 "done",
                 "",
-                f"JOIN_TEMP_DIR=\"{join_temp_dir}\"",
-                "mkdir -p \"$JOIN_TEMP_DIR\"",
-                "(",
-                "  cd \"$OUT_DIR\"",
-                "  python -m hmlib.cli.video_clipper -j 4 --video-file-list \"$LIST_FILE\" --temp-dir \"$JOIN_TEMP_DIR\" "
-                f"\"{season_label_safe}\" \"${{EXTRA_FLAGS[@]}}\"",
-                ")",
+                f"OUT_FILE=\"$OUT_DIR/clips-{season_label_safe}.mp4\"",
+                "ffmpeg -f concat -safe 0 -i \"$LIST_FILE\" -c copy \"$OUT_FILE\"",
                 "",
-                f"echo \"Wrote: $OUT_DIR/clips-{season_label_safe}.mp4\"",
+                "echo \"Wrote: $OUT_FILE\"",
                 "",
             ]
         )

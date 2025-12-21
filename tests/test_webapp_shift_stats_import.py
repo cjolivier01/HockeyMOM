@@ -571,3 +571,45 @@ def should_write_season_highlight_script_uses_absolute_timestamp_paths_for_relat
             assert f'VIDEO="{video.resolve()}"' in content
         finally:
             os.chdir(old_cwd)
+
+
+def should_write_season_highlight_script_uses_ffmpeg_concat_for_season_join():
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_season_scripts_ffmpeg", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        base_outdir = base / "out"
+        base_outdir.mkdir(parents=True, exist_ok=True)
+
+        game = base / "game1"
+        (game / "stats").mkdir(parents=True, exist_ok=True)
+        sheet = game / "stats" / "game_stats.xlsx"
+        sheet.write_text("dummy", encoding="utf-8")
+        video = game / "tracking_output-with-audio.mp4"
+        video.write_text("", encoding="utf-8")
+
+        out = base_outdir / "game1" / "per_player"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "events_Highlights_1_Ethan_video_times.txt").write_text(
+            "00:00:10 00:00:20\n", encoding="utf-8"
+        )
+
+        results = [{"label": "game1", "outdir": out, "sheet_path": sheet, "video_path": None}]
+        mod._write_season_highlight_scripts(base_outdir, results, create_scripts=True)  # type: ignore[attr-defined]
+
+        script = base_outdir / "season_highlights" / "clip_season_highlights_1_Ethan.sh"
+        assert script.exists()
+        content = script.read_text(encoding="utf-8")
+
+        assert 'echo "file \'$f\'" >> "$LIST_FILE"' in content
+        assert "ffmpeg -f concat -safe 0 -i \"$LIST_FILE\" -c copy \"$OUT_FILE\"" in content
+        assert "--video-file-list" not in content
