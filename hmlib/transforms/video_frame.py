@@ -43,10 +43,12 @@ class HmCropToVideoFrame:
         self._crop_image = crop_image
         self._unsharp_mask = unsharp_mask
         self._enabled = enabled
+        self._pass: int = 0
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if not self._enabled:
             return results
+        self._pass += 1
         video_frame_cfg = results["video_frame_cfg"]
         images = results.pop("img")
         if not self._crop_image:

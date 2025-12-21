@@ -531,7 +531,7 @@ def get_best_resize_mode(
         logger.warning(
             "Why are you resizing to odd dimensions? %dx%d -> %dx%d", w1, h1, w2, h2
         )
-    if w1 > w2:
+    if w1 > w2 or h1 > h2:
         # Just a sanity check assumign we aren't
         # purposely trying to distort
         assert h1 > h2 or abs(h2 - h1) < 1.1
@@ -549,7 +549,7 @@ def get_best_resize_mode(
         # Downsampling
         # return F.InterpolationMode.BOX
         return "area"
-    elif w2 > w1:
+    elif w2 > w1 or h2 > h1:
         # Just a sanity check assumign we aren't
         # purposely trying to distort
         assert h2 > h1 or abs(h2 - h1) < 1.1
