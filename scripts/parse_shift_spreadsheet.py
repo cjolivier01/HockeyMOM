@@ -15,9 +15,10 @@ or as a file with lines like:
   GA:2/09:15
   # comments and blank lines allowed
 
-Alternatively, provide a TimeToScore game id to auto-fill goals:
-  --t2s 51602 --home   # Your team is home (home scoring = GF)
-  --t2s 51602 --away   # Your team is away (away scoring = GF)
+Alternatively, provide a TimeToScore spec to auto-fill goals (or run a game with no spreadsheets):
+  --t2s 51602 --home                 # Your team is home (home scoring = GF)
+  --t2s 51602 --away                 # Your team is away (away scoring = GF)
+  --t2s 51602:HOME:stockton-r2       # Also sets the game label for T2S-only games
 
 Install deps (for .xls):
   pip install pandas xlrd
@@ -732,33 +733,62 @@ class InputEntry:
     path: Optional[Path]
     side: Optional[str]
     t2s_id: Optional[int] = None
+    label: Optional[str] = None
 
 
-def _parse_t2s_only_token(token: str) -> Optional[Tuple[int, Optional[str]]]:
+def _parse_t2s_spec(token: Any) -> Optional[Tuple[int, Optional[str], Optional[str]]]:
     """
-    Parse a special `--file-list` token representing a TimeToScore-only game
-    (no spreadsheets present), formatted like:
-      - t2s=51602
-      - t2s=51602:HOME
+    Parse a TimeToScore spec token, formatted like:
+      - 51602
+      - 51602:HOME
+      - 51602:HOME:stockton-r2
+      - t2s=51602:HOME:stockton-r2
+
+    Returns (t2s_id, side, label).
     """
     raw = str(token or "").strip()
     if not raw:
         return None
 
-    side: Optional[str] = None
-    if ":" in raw:
-        raw_path, suffix = raw.rsplit(":", 1)
-        if suffix.upper() in {"HOME", "AWAY"}:
-            side = suffix.lower()
-            raw = raw_path.strip()
-
-    m = re.fullmatch(r"(?i)\s*t2s\s*=\s*(\d+)\s*", raw)
+    m = re.match(r"(?i)^\s*(?:t2s\s*=\s*)?(\d+)(.*)$", raw)
     if not m:
         return None
     try:
-        return int(m.group(1)), side
+        t2s_id = int(m.group(1))
     except Exception:
         return None
+
+    rest = (m.group(2) or "").strip()
+    if rest.startswith(":"):
+        rest = rest[1:]
+    rest_parts = [p.strip() for p in rest.split(":")] if rest else []
+
+    side: Optional[str] = None
+    label: Optional[str] = None
+    if rest_parts:
+        first = rest_parts[0].upper()
+        if first in {"HOME", "AWAY"}:
+            side = first.lower()
+            label = ":".join(rest_parts[1:]).strip() if len(rest_parts) > 1 else None
+        else:
+            label = ":".join(rest_parts).strip()
+    if label == "":
+        label = None
+    return t2s_id, side, label
+
+
+def _parse_t2s_only_token(token: str) -> Optional[Tuple[int, Optional[str], Optional[str]]]:
+    """
+    Parse a special `--file-list` token representing a TimeToScore-only game
+    (no spreadsheets present), formatted like:
+      - t2s=51602
+      - t2s=51602:HOME
+      - t2s=51602:HOME:stockton-r2
+    """
+    raw = str(token or "").strip()
+    if not re.match(r"(?i)^\s*t2s\s*=", raw):
+        return None
+    return _parse_t2s_spec(raw)
 
 
 def _parse_input_token(token: str, base_dir: Optional[Path] = None) -> Tuple[Path, Optional[str]]:
@@ -4906,7 +4936,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Path to a text file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
         "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
         "You can append ':HOME' or ':AWAY' per line. "
-        "Lines may also be 't2s=<game_id>' (optionally with ':HOME'/'AWAY') to process a TimeToScore-only game with no spreadsheets.",
+        "Lines may also be 't2s=<game_id>[:HOME|AWAY][:game_label]' to process a TimeToScore-only game with no spreadsheets.",
     )
     p.add_argument(
         "--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet)."
@@ -4936,10 +4966,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # TimeToScore integration
     p.add_argument(
         "--t2s",
-        type=int,
+        type=str,
         default=None,
         help=(
-            "TimeToScore game id. If set and no --goal/--goals-file provided, fetch goals from T2S. "
+            "TimeToScore spec: '<game_id>[:HOME|AWAY][:game_label]'. "
+            "If set and no --goal/--goals-file provided, fetch goals from T2S. "
             "If provided without --input/--file-list, runs a TimeToScore-only game (no spreadsheets)."
         ),
     )
@@ -5004,6 +5035,19 @@ def main() -> None:
     elif getattr(args, "dark", False):
         focus_team_override = "Blue"
 
+    t2s_arg_id: Optional[int] = None
+    t2s_arg_side: Optional[str] = None
+    t2s_arg_label: Optional[str] = None
+    if args.t2s is not None:
+        parsed = _parse_t2s_spec(args.t2s)
+        if parsed is None:
+            print(
+                f"Error: invalid --t2s spec '{args.t2s}' (expected '<id>[:HOME|AWAY][:label]').",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        t2s_arg_id, t2s_arg_side, t2s_arg_label = parsed
+
     input_entries: List[InputEntry] = []
     if args.file_list:
         try:
@@ -5015,8 +5059,10 @@ def main() -> None:
                         continue
                     t2s_only = _parse_t2s_only_token(line)
                     if t2s_only is not None:
-                        t2s_id, side = t2s_only
-                        input_entries.append(InputEntry(path=None, side=side, t2s_id=t2s_id))
+                        t2s_id, side, label = t2s_only
+                        input_entries.append(
+                            InputEntry(path=None, side=side, t2s_id=t2s_id, label=label)
+                        )
                         continue
                     p, side = _parse_input_token(line, base_dir=base_dir)
                     input_entries.append(InputEntry(path=p, side=side))
@@ -5024,13 +5070,20 @@ def main() -> None:
             print(f"Error reading --file-list: {e}", file=sys.stderr)
             sys.exit(2)
     for tok in args.inputs or []:
+        t2s_only = _parse_t2s_only_token(tok)
+        if t2s_only is not None:
+            t2s_id, side, label = t2s_only
+            input_entries.append(InputEntry(path=None, side=side, t2s_id=t2s_id, label=label))
+            continue
         p, side = _parse_input_token(tok)
         input_entries.append(InputEntry(path=p, side=side))
 
     if not input_entries:
         # Allow a TimeToScore-only run by specifying just `--t2s`.
-        if args.t2s is not None:
-            input_entries.append(InputEntry(path=None, side=None, t2s_id=int(args.t2s)))
+        if t2s_arg_id is not None:
+            input_entries.append(
+                InputEntry(path=None, side=t2s_arg_side, t2s_id=int(t2s_arg_id), label=t2s_arg_label)
+            )
         else:
             print("Error: at least one --input/--file-list entry or --t2s is required.", file=sys.stderr)
             sys.exit(2)
@@ -5059,14 +5112,24 @@ def main() -> None:
     base_outdir = args.outdir.expanduser()
     # Group '-long' companion sheets with their non-long counterpart so a game is processed once.
     groups_by_label: Dict[str, Dict[str, Any]] = {}
+    display_label_to_key: Dict[str, str] = {}
     for order_idx, entry in enumerate(input_entries):
         side = entry.side
         if entry.t2s_id is not None and entry.path is None:
-            label = f"t2s-{int(entry.t2s_id)}"
+            group_key = f"t2s-{int(entry.t2s_id)}"
+            display_label = str(entry.label or group_key)
+            existing_key = display_label_to_key.get(display_label)
+            if existing_key is not None and existing_key != group_key:
+                print(
+                    f"Error: duplicate game label '{display_label}' (conflicts between {existing_key} and {group_key}).",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            display_label_to_key.setdefault(display_label, group_key)
             g = groups_by_label.setdefault(
-                label,
+                group_key,
                 {
-                    "label": label,
+                    "label": display_label,
                     "primary": None,
                     "long_paths": [],
                     "side": None,
@@ -5079,6 +5142,14 @@ def main() -> None:
                 continue
             p = Path(entry.path)
             label = _base_label_from_path(p)
+            existing_key = display_label_to_key.get(label)
+            if existing_key is not None and existing_key != label:
+                print(
+                    f"Error: duplicate game label '{label}' (conflicts between {existing_key} and {label}).",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            display_label_to_key.setdefault(label, label)
             g = groups_by_label.setdefault(
                 label,
                 {"label": label, "primary": None, "long_paths": [], "side": None, "order": order_idx},
@@ -5087,7 +5158,7 @@ def main() -> None:
             g["side"] = side
         elif side and g.get("side") != side:
             print(
-                f"Error: conflicting side overrides for {label}: {g.get('side')} vs {side}",
+                f"Error: conflicting side overrides for {g.get('label')}: {g.get('side')} vs {side}",
                 file=sys.stderr,
             )
             sys.exit(2)
@@ -5106,6 +5177,15 @@ def main() -> None:
     groups = sorted(groups_by_label.values(), key=lambda x: int(x.get("order", 0)))
     multiple_inputs = len(groups) > 1
     results: List[Dict[str, Any]] = []
+
+    if t2s_arg_id is not None and len(groups) > 1:
+        print(
+            "Error: --t2s can only be used with a single game. "
+            "For multi-game runs, use filename suffixes (e.g. 'game-51602.xlsx') "
+            "or `t2s=<id>[:HOME|AWAY][:label]` lines in --file-list.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     def _resolve_goals_for_file(
         in_path: Path, t2s_id: Optional[int], side: Optional[str]
@@ -5202,7 +5282,7 @@ def main() -> None:
         # filename only when the trailing numeric suffix is large enough
         # (>= 10000). Smaller suffixes (e.g., 'chicago-1') remain part of the
         # game name and do not trigger T2S usage.
-        t2s_id = args.t2s if args.t2s is not None else _infer_t2s_from_filename(in_path)
+        t2s_id = t2s_arg_id if t2s_arg_id is not None else _infer_t2s_from_filename(in_path)
         label = str(g.get("label") or _base_label_from_path(in_path))
         outdir = base_outdir if not multiple_inputs else base_outdir / label
         manual_goals = load_goals(args.goal, args.goals_file)
@@ -5214,7 +5294,7 @@ def main() -> None:
             except Exception as e:
                 print(f"Error parsing sheet for jersey numbers ({in_path}): {e}", file=sys.stderr)
 
-        side_override: Optional[str] = path_side or (
+        side_override: Optional[str] = path_side or t2s_arg_side or (
             "home" if args.home else ("away" if args.away else None)
         )
         inferred_side: Optional[str] = None

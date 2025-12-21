@@ -133,10 +133,10 @@ aspen:
 - Script: `scripts/parse_shift_spreadsheet.py`
 - Inputs:
   - `--input` can be a single `.xls/.xlsx` file or a directory (it will auto-discover the primary shift sheet plus optional `*-long*` companion sheets).
-  - `--file-list` accepts one file/dir per line or `t2s=<game_id>` for a TimeToScore-only game; lines can append `:HOME` / `:AWAY` (comments starting with `#` are ignored).
+  - `--file-list` accepts one file/dir per line or `t2s=<game_id>[:HOME|AWAY][:game_label]` for a TimeToScore-only game (comments starting with `#` are ignored).
 - Goals (highest priority wins):
   - `--goal` / `--goals-file`
-  - TimeToScore via `--t2s` (or inferred from filenames like `game-54111.xlsx` where the trailing number is `>= 10000`), using `--home/--away` or `:HOME/:AWAY` if needed.
+  - TimeToScore via `--t2s <game_id>[:HOME|AWAY][:game_label]` (or inferred from filenames like `game-54111.xlsx` where the trailing number is `>= 10000`), using `--home/--away` or `:HOME/:AWAY` if needed.
   - `goals.xlsx` in the same directory as the input sheet (fallback when no TimeToScore id is in use).
 - Optional `*-long*` sheet support:
   - Parses the leftmost per-period event table to add Shots/SOG/xG, Giveaways/Takeaways, and controlled entries/exits, plus generates event clip scripts and per-player SOG/goal highlight scripts.

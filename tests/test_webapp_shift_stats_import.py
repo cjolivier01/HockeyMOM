@@ -226,3 +226,25 @@ def should_process_t2s_only_game_without_spreadsheets():
         assert 4 in periods  # OT -> period 4
 
         assert len(per_player_events["1_Ethan_Olivier"]["goals"]) == 1
+
+
+def should_parse_t2s_only_token_with_side_and_label():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_parse", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    assert mod._parse_t2s_only_token("t2s=53445:HOME:stockton-r2") == (  # type: ignore[attr-defined]
+        53445,
+        "home",
+        "stockton-r2",
+    )
+    assert mod._parse_t2s_spec("53445:AWAY:stockton-r2") == (  # type: ignore[attr-defined]
+        53445,
+        "away",
+        "stockton-r2",
+    )
