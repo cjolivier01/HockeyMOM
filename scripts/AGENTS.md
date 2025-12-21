@@ -82,10 +82,10 @@ Key outputs (per game):
   - Team/game-level stats only (no TOI).
   - Layout is transposed: **stats as rows**, and the game name as the value column header.
 - Timestamp files for video clipping:
-  - Per-player shifts: `*_video_times.txt`, `*_scoreboard_times.txt` (always written; used only for clip generation).
+  - Per-player shifts: `*_video_times.txt`, `*_scoreboard_times.txt` (skipped with `--no-scripts`; used only for clip generation).
   - Goals: `goals_for.txt`, `goals_against.txt` (video windows).
-  - Long-sheet events: `events_<Event>_<Team>_video_times.txt` and `events_<Event>_<Team>_scoreboard_times.txt`.
-  - Per-player highlights (when long sheet present): `events_Goal_<player>_video_times.txt`, `events_SOG_<player>_video_times.txt`, etc.
+  - Long-sheet events: `events_<Event>_<Team>_video_times.txt` and `events_<Event>_<Team>_scoreboard_times.txt` (skipped with `--no-scripts`).
+  - Per-player highlights (when long sheet present): `events_Goal_<player>_video_times.txt`, `events_SOG_<player>_video_times.txt`, etc. (skipped with `--no-scripts`).
 - Clip helper scripts (unless `--no-scripts`):
   - `clip_<player>.sh` (per-player shifts)
   - `clip_events_<Event>_<Team>.sh` (per event type)

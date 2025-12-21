@@ -100,3 +100,67 @@ def should_not_include_empty_period_columns_in_consolidated_stats():
     df, cols = mod._build_stats_dataframe(rows, [1, 2, 3, 4], include_shifts_in_stats=False)  # type: ignore[attr-defined]
     assert "P4_GA" not in cols
     assert "P4_GF" in cols
+
+
+def should_not_write_times_files_when_no_scripts():
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    with tempfile.TemporaryDirectory() as td:
+        outdir = Path(td)
+
+        mod._write_video_times_and_scripts(  # type: ignore[attr-defined]
+            outdir, {"1_Ethan": [("0:00", "0:10")]}, create_scripts=False
+        )
+        mod._write_scoreboard_times(  # type: ignore[attr-defined]
+            outdir, {"1_Ethan": [(1, "0:00", "0:10")]}, create_scripts=False
+        )
+
+        stats_dir = outdir / "stats"
+        stats_dir.mkdir(parents=True, exist_ok=True)
+
+        ctx = mod.EventLogContext(  # type: ignore[attr-defined]
+            event_counts_by_player={},
+            event_counts_by_type_team={("Goal", "For"): 1},
+            event_instances={},
+            event_player_rows=[
+                {
+                    "event_type": "Goal",
+                    "team": "For",
+                    "player": "1_Ethan",
+                    "jersey": "1",
+                    "period": 1,
+                    "video_s": 100,
+                    "game_s": 200,
+                }
+            ],
+            team_roster={},
+            team_excluded={},
+        )
+
+        mod._write_event_summaries_and_clips(  # type: ignore[attr-defined]
+            outdir,
+            stats_dir,
+            ctx,
+            conv_segments_by_period={},
+            create_scripts=False,
+        )
+        mod._write_player_event_highlights(  # type: ignore[attr-defined]
+            outdir,
+            ctx,
+            conv_segments_by_period={},
+            player_keys=["1_Ethan"],
+            create_scripts=False,
+        )
+
+        assert (stats_dir / "event_summary.csv").exists()
+        assert not list(outdir.glob("*_times.txt"))
+        assert not list(outdir.glob("clip_*.sh"))

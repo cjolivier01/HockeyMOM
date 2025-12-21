@@ -2273,6 +2273,8 @@ def _write_video_times_and_scripts(
     video_pairs_by_player: Dict[str, List[Tuple[str, str]]],
     create_scripts: bool,
 ) -> None:
+    if not create_scripts:
+        return
     for player_key, v_pairs in video_pairs_by_player.items():
         norm_pairs = []
         for a, b in v_pairs:
@@ -2288,14 +2290,11 @@ def _write_video_times_and_scripts(
             encoding="utf-8",
         )
 
-        if not create_scripts:
-            continue
-
         script_path = outdir / f"clip_{player_key}.sh"
         player_label = player_key.replace("_", " ")
         script_body = """#!/usr/bin/env bash
-set -euo pipefail
-if [ $# -lt 2 ]; then
+	set -euo pipefail
+	if [ $# -lt 2 ]; then
   echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
   exit 1
 fi
@@ -2337,8 +2336,13 @@ python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \
 
 
 def _write_scoreboard_times(
-    outdir: Path, sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]]
+    outdir: Path,
+    sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]],
+    *,
+    create_scripts: bool,
 ) -> None:
+    if not create_scripts:
+        return
     for player_key, sb_list in sb_pairs_by_player.items():
         p = outdir / f"{player_key}_scoreboard_times.txt"
         lines = [f"{period} {a} {b}" for (period, a, b) in sb_list]
@@ -3565,6 +3569,11 @@ def _write_event_summaries_and_clips(
             )
         pd.DataFrame(rows).to_csv(stats_dir / "event_players.csv", index=False)
 
+    # When --no-scripts is set, we still keep event summary CSVs but skip all
+    # clip-related timestamp files and helper scripts.
+    if not create_scripts:
+        return
+
     instances = event_log_context.event_instances or {}
 
     def map_sb_to_video(period: int, t_sb: int) -> Optional[int]:
@@ -3732,6 +3741,8 @@ def _write_player_event_highlights(
     Intended for '-long' sheets where events include video time. Falls back to
     mapping scoreboard->video using conv_segments when needed.
     """
+    if not create_scripts:
+        return
     if not event_log_context or not (event_log_context.event_player_rows or []):
         return
 
@@ -3976,7 +3987,7 @@ def process_sheet(
 
     # Per-player time files and clip scripts
     _write_video_times_and_scripts(outdir, video_pairs_by_player, create_scripts=create_scripts)
-    _write_scoreboard_times(outdir, sb_pairs_by_player)
+    _write_scoreboard_times(outdir, sb_pairs_by_player, create_scripts=create_scripts)
 
     stats_table_rows: List[Dict[str, str]] = []
     all_periods_seen: set[int] = set()
@@ -4640,7 +4651,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-scripts",
         action="store_true",
-        help="Do not generate helper bash scripts (clip_*.sh, clip_events_*.sh, clip_all.sh).",
+        help="Do not generate clip helper scripts or any '*_times.txt' timestamp files used for clipping.",
     )
     p.add_argument(
         "--skip-validation",

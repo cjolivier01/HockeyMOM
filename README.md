@@ -143,12 +143,12 @@ aspen:
   - If the script can’t infer whether your team is Blue or White, provide `--dark` (Blue) or `--light` (White).
 - Privacy default:
   - Shift counts and TOI are omitted from parent-facing stats outputs by default. Use `--shifts` to include them.
-- Outputs (per game):
+  - Outputs (per game):
   - Writes under `<outdir>/(per_player|event_log)/` for single-game runs, or `<outdir>/<label>/(per_player|event_log)/` for multi-game runs.
   - Stats: `stats/player_stats.txt`, `stats/player_stats.csv`, `stats/player_stats.xlsx`, plus per-player `stats/*_stats.txt`.
   - Game stats: `stats/game_stats.csv` and `stats/game_stats.xlsx` (team-level, no TOI; stats are rows with the game as the column header).
   - Clip helpers (unless `--no-scripts`): `clip_<player>.sh`, `clip_events_<Event>_<Team>.sh`, `clip_goal_<player>.sh`, `clip_sog_<player>.sh`, and `clip_all.sh`.
-  - Timestamp windows: `*_video_times.txt`, `*_scoreboard_times.txt`, `events_*_video_times.txt`, and `goals_for.txt` / `goals_against.txt` (events: 10s before / 5s after; goals: 20s before / 10s after).
+  - Timestamp windows: `*_video_times.txt`, `*_scoreboard_times.txt`, `events_*_video_times.txt`, `events_*_scoreboard_times.txt`, and `goals_for.txt` / `goals_against.txt` (events: 10s before / 5s after; goals: 20s before / 10s after). `*_times.txt` files are not written with `--no-scripts`.
 - Outputs (multi-game):
   - Consolidated workbook: `<outdir>/player_stats_consolidated.xlsx` with a `Cumulative` sheet and per-game sheets.
   - Consolidated CSV: `<outdir>/player_stats_consolidated.csv` (the `Cumulative` sheet).
