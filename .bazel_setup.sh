@@ -6,7 +6,7 @@ if [ ! -e "$(which bazelisk)" ]; then
   ./scripts/install_bazelisk.sh
 fi
 
-CPU="$(uname -p)"
+CPU="$(uname -m)"
 if [ "$CPU" == "x86_64" ]; then
   CPU="k8"
 fi

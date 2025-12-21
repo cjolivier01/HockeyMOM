@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
+import os
 import argparse
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -943,6 +944,7 @@ class hm_opts(object):
         parser.add_argument(
             "--no-progress-bar",
             action="store_true",
+            default=bool(os.environ.get("SLURM_JOB_ID")),
             help="Don't use the progress bar",
         )
         parser.add_argument(
