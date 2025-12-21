@@ -9,6 +9,7 @@ Outputs per-player:
 
 Goals can be specified via:
   --goal GF:2/13:45 --goal GA:1/05:12 ...
+  --goal GF:OT/0:45  # OT goals use period 'OT' (treated as period 4)
 or as a file with lines like:
   GF:1/13:47
   GA:2/09:15
@@ -48,11 +49,24 @@ _repo_root = Path(__file__).resolve().parents[1]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-# Optional import of TimeToScore API (available in this repo)
-try:  # pragma: no cover - optional at runtime
-    from hmlib.time2score import api as t2s_api
-except Exception:  # noqa: BLE001
-    t2s_api = None  # type: ignore[assignment]
+# Optional import of TimeToScore API (available in this repo). We lazily import it
+# to avoid pulling in heavy `hmlib` dependencies when users run this script without T2S.
+_t2s_api: Any = None
+_t2s_api_loaded = False
+
+
+def _get_t2s_api() -> Any:
+    global _t2s_api, _t2s_api_loaded
+    if _t2s_api_loaded:
+        return _t2s_api
+    _t2s_api_loaded = True
+    try:  # pragma: no cover - optional at runtime
+        from hmlib.time2score import api as t2s_api  # type: ignore
+
+        _t2s_api = t2s_api
+    except Exception:  # noqa: BLE001
+        _t2s_api = None
+    return _t2s_api
 
 # Header labels as they appear in the sheet
 LABEL_START_SB = "Shift Start (Scoreboard Time)"
@@ -82,7 +96,7 @@ def is_period_label(x: object) -> bool:
 def parse_period_label(x: object) -> Optional[int]:
     """
     Extract the period number from a label.
-    Handles variants like 'Period 1', '1st Period', '1st Period (Blue team)'.
+    Handles variants like 'Period 1', '1st Period', '1st Period (Blue team)', and 'OT'.
     """
     try:
         s = str(x).strip()
@@ -90,6 +104,10 @@ def parse_period_label(x: object) -> Optional[int]:
         return None
     if not s:
         return None
+    # Overtime. Some sheets label this like "OT", "Overtime", or "OT 3 on 3".
+    # Treat any OT label as period 4 (OT), ignoring any following digits (e.g., "3 on 3").
+    if re.search(r"(?i)\b(?:ot|overtime)(?:\b|\d)", s):
+        return 4
     m = re.search(r"(?i)(\d+)(?:st|nd|rd|th)?\s*period", s)
     if m:
         try:
@@ -517,16 +535,61 @@ class GoalEvent:
 
 def parse_goal_token(token: str) -> GoalEvent:
     """
-    Token: GF:2/13:45 or GA:1/05:12 (case-insensitive on GF/GA).
+    Token: GF:2/13:45, GA:1/05:12, or GF:OT/0:45 (case-insensitive on GF/GA and OT).
     """
     token = token.strip()
-    m = re.fullmatch(r"(?i)(GF|GA)\s*:\s*([1-9]\d*)\s*/\s*([0-9:]+)", token)
+    m = re.fullmatch(r"(?i)(GF|GA)\s*:\s*([^/]+)\s*/\s*([0-9:]+)", token)
     if not m:
         raise ValueError(f"Bad goal token '{token}'. Expected GF:period/time or GA:period/time")
     kind = m.group(1).upper()
-    period = int(m.group(2))
+    period = parse_period_token(m.group(2))
+    if period is None:
+        raise ValueError(
+            f"Bad goal token '{token}': invalid period '{m.group(2)}' (use 1/2/3/4 or OT)."
+        )
     t_str = m.group(3)
     return GoalEvent(kind, period, t_str)
+
+
+def parse_period_token(x: object) -> Optional[int]:
+    """
+    Parse a period token from various sources:
+      - ints ("1", 1)
+      - labels ("Period 1", "1st Period")
+      - overtime ("OT", "Overtime")
+
+    Convention: OT == period 4.
+    """
+    if x is None:
+        return None
+    if isinstance(x, bool):
+        return None
+    if isinstance(x, int):
+        return x
+    try:
+        s = str(x).strip()
+    except Exception:
+        return None
+    if not s:
+        return None
+    # Labels like "1st Period" / "OT"
+    p = parse_period_label(s)
+    if p is not None:
+        return p
+    # Plain number like "1"
+    if re.fullmatch(r"\d+", s):
+        try:
+            return int(s)
+        except Exception:
+            return None
+    # Fallback: any number embedded in the token
+    m = re.search(r"(\d+)", s)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
+    return None
 
 
 def _annotate_goal_roles(goals: List[GoalEvent]) -> None:
@@ -874,9 +937,8 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
             goal_val = df.iat[r, goal_col]
             if all(pd.isna(x) for x in (period_val, time_val, goal_val)):
                 continue
-            try:
-                period = int(str(period_val).strip())
-            except Exception:
+            period = parse_period_token(period_val)
+            if period is None:
                 continue
             t_str = _format_goal_time_cell(time_val)
             if not t_str:
@@ -909,6 +971,7 @@ def goals_from_t2s(game_id: int, *, side: str) -> List[GoalEvent]:
     Retrieve goals from TimeToScore for a game id and map them to GF/GA based on
     the selected side (home/away).
     """
+    t2s_api = _get_t2s_api()
     if t2s_api is None:
         raise RuntimeError("TimeToScore API not available in this environment")
 
@@ -933,9 +996,8 @@ def goals_from_t2s(game_id: int, *, side: str) -> List[GoalEvent]:
         time_val = row.get("time")
         if period_val is None or time_val is None:
             return None
-        try:
-            per = int(str(period_val).strip())
-        except Exception:
+        per = parse_period_token(period_val)
+        if per is None:
             return None
         t_str = str(time_val).strip()
         # Normalize fractional seconds by flooring
@@ -1648,12 +1710,8 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
             return None
         return None
 
-    def _period_num_from_label(lbl: Optional[str]) -> Optional[int]:
-        if not lbl:
-            return None
-        s = str(lbl).strip().lower()
-        m = re.search(r"(\d+)", s)
-        return int(m.group(1)) if m else None
+    def _period_num_from_label(lbl: Any) -> Optional[int]:
+        return parse_period_token(lbl)
 
     def _parse_event_block(header_rc: Tuple[int, int], team_prefix: str) -> None:
         base_r, base_c = header_rc
@@ -2419,6 +2477,17 @@ def _build_stats_dataframe(
     *,
     include_shifts_in_stats: bool,
 ) -> Tuple[pd.DataFrame, List[str]]:
+    def _has_any_value(key: str) -> bool:
+        for r in stats_table_rows:
+            if not r:
+                continue
+            v = r.get(key, "")
+            if v is None:
+                continue
+            if str(v).strip() != "":
+                return True
+        return False
+
     periods = sorted(all_periods_seen)
     summary_cols = [
         "player",
@@ -2448,6 +2517,8 @@ def _build_stats_dataframe(
         "controlled_exit_against_per_game",
         "gt_goals",
         "gw_goals",
+        "ot_goals",
+        "ot_assists",
     ]
     if include_shifts_in_stats:
         summary_cols += [
@@ -2469,10 +2540,17 @@ def _build_stats_dataframe(
         else []
     )
     video_cols = ["video_toi_total"] if include_shifts_in_stats else []
-    period_toi_cols = [f"P{p}_toi" for p in periods] if include_shifts_in_stats else []
-    period_shift_cols = [f"P{p}_shifts" for p in periods] if include_shifts_in_stats else []
-    period_gf_cols = [f"P{p}_GF" for p in periods]
-    period_ga_cols = [f"P{p}_GA" for p in periods]
+    period_toi_cols = (
+        [f"P{p}_toi" for p in periods if _has_any_value(f"P{p}_toi")] if include_shifts_in_stats else []
+    )
+    period_shift_cols = (
+        [f"P{p}_shifts" for p in periods if _has_any_value(f"P{p}_shifts")]
+        if include_shifts_in_stats
+        else []
+    )
+    # Only include per-period goal columns when they have at least one entry.
+    period_gf_cols = [f"P{p}_GF" for p in periods if _has_any_value(f"P{p}_GF")]
+    period_ga_cols = [f"P{p}_GA" for p in periods if _has_any_value(f"P{p}_GA")]
     # Place video TOI as the last column in the table so that
     # scoreboard-based stats and per-period splits appear first.
     cols = (
@@ -2546,6 +2624,8 @@ def _display_col_name(key: str) -> str:
         "controlled_exit_against_per_game": "Controlled Exit Against (On-Ice) per Game",
         "gt_goals": "GT Goals",
         "gw_goals": "GW Goals",
+        "ot_goals": "OT Goals",
+        "ot_assists": "OT Assists",
         "shifts": "Shifts",
         "shifts_per_game": "Shifts per Game",
         "plus_minus": "Plus Minus",
@@ -2713,8 +2793,18 @@ def _write_game_stats_files(
         "Goal Diff": goal_diff,
     }
 
-    # Per-period goal totals (from goal list)
-    for p in sorted({int(x) for x in (periods or []) if isinstance(x, int)}):
+    # Per-period goal totals (from goal list). Include OT if present even when the shift
+    # sheet doesn't have an OT section.
+    period_set: set[int] = set()
+    for x in periods or []:
+        if isinstance(x, int):
+            period_set.add(int(x))
+    for g in goals or []:
+        try:
+            period_set.add(int(getattr(g, "period", 0) or 0))
+        except Exception:
+            continue
+    for p in sorted({pp for pp in period_set if isinstance(pp, int) and pp > 0}):
         row[f"Period {p} Goals For"] = sum(1 for g in goals if g.kind == "GF" and g.period == p)
         row[f"Period {p} Goals Against"] = sum(1 for g in goals if g.kind == "GA" and g.period == p)
 
@@ -2911,6 +3001,8 @@ def _aggregate_stats_rows(
                 "player": player,
                 "goals": 0,
                 "assists": 0,
+                "ot_goals": 0,
+                "ot_assists": 0,
                 "shots": 0,
                 "sog": 0,
                 "expected_goals": 0,
@@ -2942,6 +3034,8 @@ def _aggregate_stats_rows(
             dest = _ensure(player)
             dest["goals"] += int(str(row.get("goals", 0) or 0))
             dest["assists"] += int(str(row.get("assists", 0) or 0))
+            dest["ot_goals"] += int(str(row.get("ot_goals", 0) or 0))
+            dest["ot_assists"] += int(str(row.get("ot_assists", 0) or 0))
             dest["shots"] += int(str(row.get("shots", 0) or 0))
             dest["sog"] += int(str(row.get("sog", 0) or 0))
             dest["expected_goals"] += int(str(row.get("expected_goals", 0) or 0))
@@ -2992,6 +3086,8 @@ def _aggregate_stats_rows(
         avg_sec = int(total_sec / shifts) if shifts else 0
         total_goals = data["goals"]
         total_assists = data["assists"]
+        total_ot_goals = data.get("ot_goals", 0) or 0
+        total_ot_assists = data.get("ot_assists", 0) or 0
         total_points = total_goals + total_assists
         total_shots = data.get("shots", 0) or 0
         total_sog = data.get("sog", 0) or 0
@@ -3016,6 +3112,8 @@ def _aggregate_stats_rows(
             "gp": str(gp),
             "goals": str(total_goals),
             "assists": str(total_assists),
+            "ot_goals": str(total_ot_goals),
+            "ot_assists": str(total_ot_assists),
             "points": str(total_points),
             "ppg": f"{(total_points / gp):.1f}" if gp > 0 else "0.0",
             "shots": str(total_shots) if shots_games > 0 else "",
@@ -3227,9 +3325,9 @@ def _write_cumulative_player_detail_files(
         lines.append(f"  Points (G+A): {points_str} (PPG: {ppg_str})")
         lines.append(
             f"  Goals: {row.get('goals', '0')} "
-            f"(GT: {row.get('gt_goals', '0')}, GW: {row.get('gw_goals', '0')})"
+            f"(GT: {row.get('gt_goals', '0')}, GW: {row.get('gw_goals', '0')}, OT: {row.get('ot_goals', '0')})"
         )
-        lines.append(f"  Assists: {row.get('assists', '0')}")
+        lines.append(f"  Assists: {row.get('assists', '0')} (OT: {row.get('ot_assists', '0')})")
         lines.append(f"  Plus/Minus: {row.get('plus_minus', '0')}")
         if include_shifts_in_stats and row.get("shifts_per_game"):
             lines.append(f"  Shifts per game: {row.get('shifts_per_game')}")
@@ -3320,6 +3418,7 @@ def _write_cumulative_player_detail_files(
 def _infer_side_from_rosters(
     t2s_id: int, jersey_numbers: set[str], hockey_db_dir: Path
 ) -> Optional[str]:
+    t2s_api = _get_t2s_api()
     if t2s_api is None:
         return None
     try:
@@ -3380,6 +3479,7 @@ def _get_t2s_team_roster(
     This is used to credit Games Played (GP) for players who appear on the
     official game roster even if they have no recorded shifts in the sheet.
     """
+    t2s_api = _get_t2s_api()
     if t2s_api is None:
         return {}
     try:
@@ -4134,6 +4234,22 @@ def process_sheet(
         points_val = scoring_counts.get("goals", 0) + scoring_counts.get("assists", 0)
         # Per-game points-per-game (PPG) for this single game.
         ppg_val = float(points_val)
+        # Overtime scoring (OT period is period 4; OT2 -> 5, etc.).
+        ot_goals_cnt = 0
+        ot_assists_cnt = 0
+        try:
+            ev_map = per_player_goal_events.get(player_key, {}) or {}
+            ot_goals_cnt = sum(
+                1 for ev in (ev_map.get("goals") or []) if int(getattr(ev, "period", 0) or 0) >= 4
+            )
+            ot_assists_cnt = sum(
+                1
+                for ev in (ev_map.get("assists") or [])
+                if int(getattr(ev, "period", 0) or 0) >= 4
+            )
+        except Exception:
+            ot_goals_cnt = 0
+            ot_assists_cnt = 0
 
         # On-ice for/against metrics for team-level events (e.g., controlled exits)
         on_ice: Dict[str, int] = {
@@ -4243,6 +4359,8 @@ def process_sheet(
             "player": player_key,
             "goals": str(scoring_counts.get("goals", 0)),
             "assists": str(scoring_counts.get("assists", 0)),
+            "ot_goals": str(ot_goals_cnt),
+            "ot_assists": str(ot_assists_cnt),
             "points": str(points_val),
             "gp": "1",
             "ppg": f"{ppg_val:.1f}",

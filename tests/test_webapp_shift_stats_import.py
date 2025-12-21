@@ -69,3 +69,34 @@ def should_format_seconds_to_toi_strings():
     assert mod.format_seconds_to_mmss_or_hhmmss(12 * 60 + 34) == "12:34"
     assert mod.format_seconds_to_mmss_or_hhmmss(1 * 3600 + 2 * 60 + 3) == "1:02:03"
 
+
+def should_parse_shift_spreadsheet_otg_ota_columns():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    csv_text = 'Player,OT Goals,OT Assists\n" 8 Adam Ro",1,2\n'
+    rows = mod.parse_shift_stats_player_stats_csv(csv_text)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["stats"]["ot_goals"] == 1
+    assert r["stats"]["ot_assists"] == 2
+
+
+def should_not_include_empty_period_columns_in_consolidated_stats():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    rows = [
+        {"player": "1_Ethan", "gp": "1", "goals": "1", "assists": "0", "P4_GF": "1"},
+        {"player": "2_Other", "gp": "1", "goals": "0", "assists": "0"},
+    ]
+    df, cols = mod._build_stats_dataframe(rows, [1, 2, 3, 4], include_shifts_in_stats=False)  # type: ignore[attr-defined]
+    assert "P4_GA" not in cols
+    assert "P4_GF" in cols
