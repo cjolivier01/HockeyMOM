@@ -248,3 +248,199 @@ def should_parse_t2s_only_token_with_side_and_label():
         "away",
         "stockton-r2",
     )
+
+
+def should_select_tracking_output_video_prefers_highest_number():
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_video", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    with tempfile.TemporaryDirectory() as td:
+        game_dir = Path(td) / "chicago-4"
+        stats_dir = game_dir / "stats"
+        stats_dir.mkdir(parents=True, exist_ok=True)
+        sheet_path = stats_dir / "game_stats.xlsx"
+        sheet_path.write_text("dummy", encoding="utf-8")
+
+        (game_dir / "tracking_output-with-audio.mp4").write_text("", encoding="utf-8")
+        (game_dir / "tracking_output-with-audio-2.mp4").write_text("", encoding="utf-8")
+        best = game_dir / "tracking_output-with-audio-10.mp4"
+        best.write_text("", encoding="utf-8")
+
+        picked = mod._find_tracking_output_video_for_sheet_path(sheet_path)  # type: ignore[attr-defined]
+        assert picked == best
+
+
+def should_write_combined_highlight_times_with_deduped_xg_goal():
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_highlights", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    with tempfile.TemporaryDirectory() as td:
+        outdir = Path(td) / "out"
+        outdir.mkdir(parents=True, exist_ok=True)
+
+        # Identity scoreboard->video mapping for period 1.
+        conv = {1: [(0, 500, 0, 500)]}
+
+        goal = mod.GoalEvent("GF", 1, "1:40")  # 100s
+        assist = mod.GoalEvent("GF", 1, "3:20")  # 200s
+        per_player_events = {
+            "1_Ethan": {"goals": [goal], "assists": [assist], "gf_on_ice": [], "ga_on_ice": []}
+        }
+
+        # ExpectedGoal at the goal time should be skipped (goals count as xG internally).
+        ctx = mod.EventLogContext(
+            event_counts_by_player={},
+            event_counts_by_type_team={},
+            event_instances={},
+            event_player_rows=[
+                {"event_type": "ExpectedGoal", "team": "For", "player": "1_Ethan", "jersey": 1, "period": 1, "video_s": None, "game_s": 100},
+                {"event_type": "ExpectedGoal", "team": "For", "player": "1_Ethan", "jersey": 1, "period": 1, "video_s": None, "game_s": 300},
+                {"event_type": "Takeaway", "team": "For", "player": "1_Ethan", "jersey": 1, "period": 1, "video_s": 400, "game_s": None},
+            ],
+            team_roster={},
+            team_excluded={},
+        )
+
+        mod._write_player_combined_highlights(  # type: ignore[attr-defined]
+            outdir,
+            event_log_context=ctx,
+            conv_segments_by_period=conv,
+            per_player_goal_events=per_player_events,
+            player_keys=["1_Ethan"],
+            create_scripts=True,
+        )
+
+        ts_file = outdir / "events_Highlights_1_Ethan_video_times.txt"
+        assert ts_file.exists()
+        assert ts_file.read_text(encoding="utf-8").strip().splitlines() == [
+            "00:01:20 00:01:50",  # Goal (20s pre, 10s post)
+            "00:03:00 00:03:30",  # Assist (uses goal window)
+            "00:04:50 00:05:05",  # xG (10s pre, 5s post)
+            "00:06:30 00:06:45",  # Takeaway (10s pre, 5s post)
+        ]
+
+
+def should_write_season_highlight_script_with_embedded_video_paths():
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_season_scripts", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        base_outdir = base / "out"
+        base_outdir.mkdir(parents=True, exist_ok=True)
+
+        # Two games with stats dirs and tracking videos.
+        g1 = base / "game1"
+        g2 = base / "game2"
+        (g1 / "stats").mkdir(parents=True, exist_ok=True)
+        (g2 / "stats").mkdir(parents=True, exist_ok=True)
+        sheet1 = g1 / "stats" / "game_stats.xlsx"
+        sheet2 = g2 / "stats" / "game_stats.xlsx"
+        sheet1.write_text("dummy", encoding="utf-8")
+        sheet2.write_text("dummy", encoding="utf-8")
+
+        # Game1: prefer highest numbered video.
+        (g1 / "tracking_output-with-audio.mp4").write_text("", encoding="utf-8")
+        (g1 / "tracking_output-with-audio-3.mp4").write_text("", encoding="utf-8")
+        best1 = g1 / "tracking_output-with-audio-12.mp4"
+        best1.write_text("", encoding="utf-8")
+        # Game2: only plain.
+        best2 = g2 / "tracking_output-with-audio.mp4"
+        best2.write_text("", encoding="utf-8")
+
+        # Per-game output dirs with per-player highlight timestamps.
+        out1 = base_outdir / "game1" / "per_player"
+        out2 = base_outdir / "game2" / "per_player"
+        out1.mkdir(parents=True, exist_ok=True)
+        out2.mkdir(parents=True, exist_ok=True)
+        (out1 / "events_Highlights_1_Ethan_video_times.txt").write_text(
+            "00:00:10 00:00:20\n", encoding="utf-8"
+        )
+        (out2 / "events_Highlights_1_Ethan_video_times.txt").write_text(
+            "00:00:30 00:00:40\n", encoding="utf-8"
+        )
+
+        results = [
+            {"label": "game1", "outdir": out1, "sheet_path": sheet1, "video_path": None},
+            {"label": "game2", "outdir": out2, "sheet_path": sheet2, "video_path": None},
+        ]
+
+        mod._write_season_highlight_scripts(  # type: ignore[attr-defined]
+            base_outdir, results, create_scripts=True
+        )
+
+        script = base_outdir / "season_highlights" / "clip_season_highlights_1_Ethan.sh"
+        assert script.exists()
+        content = script.read_text(encoding="utf-8")
+        assert str(best1) in content
+        assert str(best2) in content
+
+
+def should_write_season_highlight_script_uses_absolute_timestamp_paths_for_relative_outdir():
+    import importlib.util
+    import os
+    import tempfile
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_season_scripts_rel", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    with tempfile.TemporaryDirectory() as td:
+        old_cwd = os.getcwd()
+        os.chdir(td)
+        try:
+            base_outdir = Path("player_shifts")
+            base_outdir.mkdir(parents=True, exist_ok=True)
+
+            game_label = "chicago-1"
+            game_dir = Path(game_label)
+            (game_dir / "stats").mkdir(parents=True, exist_ok=True)
+            sheet = game_dir / "stats" / "game_stats.xlsx"
+            sheet.write_text("dummy", encoding="utf-8")
+            video = game_dir / "tracking_output-with-audio.mp4"
+            video.write_text("", encoding="utf-8")
+
+            out = base_outdir / game_label / "per_player"
+            out.mkdir(parents=True, exist_ok=True)
+            ts = out / "events_Highlights_1_Ethan_video_times.txt"
+            ts.write_text("00:00:10 00:00:20\n", encoding="utf-8")
+
+            results = [{"label": game_label, "outdir": out, "sheet_path": sheet, "video_path": None}]
+            mod._write_season_highlight_scripts(base_outdir, results, create_scripts=True)  # type: ignore[attr-defined]
+
+            script = base_outdir / "season_highlights" / "clip_season_highlights_1_Ethan.sh"
+            assert script.exists()
+            content = script.read_text(encoding="utf-8")
+
+            assert f'TS_FILE="{ts.resolve()}"' in content
+            assert f'VIDEO="{video.resolve()}"' in content
+        finally:
+            os.chdir(old_cwd)

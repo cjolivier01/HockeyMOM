@@ -179,7 +179,7 @@ def seconds_to_hhmmss(t: int) -> str:
 
 def _clip_pre_post_s_for_event_type(event_type: str) -> Tuple[int, int]:
     et = str(event_type or "").strip().lower()
-    if et == "goal":
+    if et in {"goal", "assist"}:
         return GOAL_CLIP_PRE_S, GOAL_CLIP_POST_S
     return EVENT_CLIP_PRE_S, EVENT_CLIP_POST_S
 
@@ -728,6 +728,55 @@ def _is_long_sheet_path(path: Path) -> bool:
     return re.search(r"(?i)(?:^|-)long(?:-|$)", stem) is not None
 
 
+def _select_tracking_output_video(video_dir: Path) -> Optional[Path]:
+    """
+    Choose a `tracking_output-with-audio*.mp4` file in `video_dir`.
+
+    If any numbered `tracking_output-with-audio-<N>.mp4` files exist, return the one
+    with the largest N. Otherwise fall back to `tracking_output-with-audio.mp4`.
+    """
+    try:
+        video_dir = Path(video_dir)
+    except Exception:
+        return None
+
+    best_num: Optional[int] = None
+    best_path: Optional[Path] = None
+    try:
+        for p in video_dir.glob("tracking_output-with-audio-*.mp4"):
+            m = re.match(r"^tracking_output-with-audio-(\d+)\.mp4$", p.name)
+            if not m:
+                continue
+            try:
+                n = int(m.group(1))
+            except Exception:
+                continue
+            if best_num is None or n > best_num:
+                best_num = n
+                best_path = p
+    except Exception:
+        best_path = None
+
+    if best_path is not None and best_path.exists():
+        return best_path
+
+    plain = video_dir / "tracking_output-with-audio.mp4"
+    return plain if plain.exists() else None
+
+
+def _find_tracking_output_video_for_sheet_path(sheet_path: Path) -> Optional[Path]:
+    """
+    Locate the tracking video for a sheet assumed to live under `<game_dir>/stats/`.
+    """
+    try:
+        sheet_path = Path(sheet_path)
+    except Exception:
+        return None
+    stats_dir = sheet_path.parent
+    video_dir = stats_dir.parent if stats_dir.name.lower() == "stats" else stats_dir
+    return _select_tracking_output_video(video_dir)
+
+
 @dataclass(frozen=True)
 class InputEntry:
     path: Optional[Path]
@@ -897,6 +946,8 @@ def load_goals(goals_inline: Iterable[str], goals_file: Optional[Path]) -> List[
         with goals_file.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
+                # Strip UTF-8 BOM if present (common when files are created on Windows).
+                line = line.lstrip("\ufeff")
                 if not line or line.startswith("#"):
                     continue
                 events.append(parse_goal_token(line))
@@ -3566,6 +3617,213 @@ def _write_cumulative_player_detail_files(
         )
 
 
+def _write_season_highlight_scripts(
+    base_outdir: Path,
+    results: List[Dict[str, Any]],
+    *,
+    create_scripts: bool,
+) -> None:
+    """
+    For multi-game runs, write no-arg per-player season highlight scripts that:
+      - clip per-game highlights from `events_Highlights_<player>_video_times.txt`
+      - use each game's `tracking_output-with-audio*.mp4` automatically
+      - join per-game highlight clips in game order
+    """
+    if not create_scripts:
+        return
+    if not results:
+        return
+
+    season_dir = base_outdir / "season_highlights"
+    season_dir.mkdir(parents=True, exist_ok=True)
+
+    prefix = "events_Highlights_"
+    suffix = "_video_times.txt"
+
+    def _has_timestamps(path: Path) -> bool:
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    s = line.strip()
+                    if not s or s.startswith("#"):
+                        continue
+                    return True
+        except Exception:
+            return False
+        return False
+
+    players: set[str] = set()
+    for r in results:
+        outdir = r.get("outdir")
+        if not outdir:
+            continue
+        try:
+            for p in Path(outdir).glob(f"{prefix}*{suffix}"):
+                name = p.name
+                if not name.startswith(prefix) or not name.endswith(suffix):
+                    continue
+                pk = name[len(prefix) : -len(suffix)]
+                if pk:
+                    players.add(pk)
+        except Exception:
+            continue
+
+    if not players:
+        return
+
+    written_scripts: List[str] = []
+    for player_key in sorted(players):
+        # Determine which games this player has highlight events for, in game order.
+        game_entries: List[Tuple[str, Path, Path, str]] = []
+        missing_videos: List[Tuple[str, str]] = []
+        for r in results:
+            sheet_path = r.get("sheet_path")
+            if sheet_path is None:
+                # T2S-only games don't have a reliable scoreboard->video mapping.
+                continue
+            game_label = str(r.get("label") or "")
+            outdir = Path(r.get("outdir"))
+            ts_file = outdir / f"{prefix}{player_key}{suffix}"
+            if not ts_file.exists() or not _has_timestamps(ts_file):
+                continue
+
+            video_path = r.get("video_path")
+            video = Path(video_path) if video_path is not None else _find_tracking_output_video_for_sheet_path(Path(sheet_path))
+            if video is None or not video.exists():
+                missing_videos.append((game_label, str(video) if video is not None else "<missing>"))
+                continue
+
+            game_entries.append((game_label, video, ts_file, sanitize_name(game_label)))
+
+        if missing_videos:
+            miss_str = ", ".join(f"{g} -> {vp}" for g, vp in missing_videos)
+            print(
+                f"[season-highlights] WARNING: Missing video(s) for {_display_player_name(player_key)}: {miss_str}",
+                file=sys.stderr,
+            )
+
+        if not game_entries:
+            continue
+
+        player_out_dir = season_dir / player_key
+        script_path = season_dir / f"clip_season_highlights_{player_key}.sh"
+
+        script_lines: List[str] = [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            "",
+            "# Optional flags:",
+            "#   --quick / -q   lower quality, faster",
+            "#   --hq           lossless intermediates (requires NVENC)",
+            "",
+            "QUICK=0",
+            "HQ=0",
+            "for ARG in \"$@\"; do",
+            "  if [ \"$ARG\" = \"--quick\" ] || [ \"$ARG\" = \"-q\" ]; then",
+            "    QUICK=1",
+            "  elif [ \"$ARG\" = \"--hq\" ]; then",
+            "    HQ=1",
+            "  fi",
+            "done",
+            "",
+            "EXTRA_FLAGS=()",
+            "if [ \"$QUICK\" -gt 0 ]; then",
+            "  EXTRA_FLAGS+=(\"--quick\" \"1\")",
+            "fi",
+            "if [ \"$HQ\" -gt 0 ]; then",
+            "  export VIDEO_CLIPPER_HQ=1",
+            "fi",
+            "",
+            "THIS_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"",
+            f"OUT_DIR=\"$THIS_DIR/{player_key}\"",
+            "mkdir -p \"$OUT_DIR\"",
+            "",
+            "GAME_CLIPS=()",
+            "",
+        ]
+
+        for game_label, video, ts_file, game_safe in game_entries:
+            try:
+                video_abs = str(Path(video).resolve())
+            except Exception:
+                video_abs = str(video)
+            try:
+                ts_abs = str(Path(ts_file).resolve())
+            except Exception:
+                ts_abs = str(ts_file)
+            label_safe = sanitize_name(f"{player_key}__{game_label}__highlights")
+            temp_dir = f"$THIS_DIR/temp_clips/{player_key}/{game_safe}"
+            script_lines.extend(
+                [
+                    f"echo \"[{_display_player_name(player_key)}] {game_label}\"",
+                    f"VIDEO=\"{video_abs}\"",
+                    f"TS_FILE=\"{ts_abs}\"",
+                    f"TEMP_DIR=\"{temp_dir}\"",
+                    "mkdir -p \"$TEMP_DIR\"",
+                    "(",
+                    "  cd \"$OUT_DIR\"",
+                    "  python -m hmlib.cli.video_clipper -j 4 --input \"$VIDEO\" --timestamps \"$TS_FILE\" --temp-dir \"$TEMP_DIR\" "
+                    f"\"{label_safe}\" \"${{EXTRA_FLAGS[@]}}\"",
+                    ")",
+                    f"GAME_CLIPS+=(\"$OUT_DIR/clips-{label_safe}.mp4\")",
+                    "",
+                ]
+            )
+
+        list_file = "$OUT_DIR/season_clips.txt"
+        season_label_safe = sanitize_name(f"{player_key}__season_highlights")
+        join_temp_dir = f"$THIS_DIR/temp_clips/{player_key}/season_join"
+
+        script_lines.extend(
+            [
+                f"LIST_FILE=\"{list_file}\"",
+                ": > \"$LIST_FILE\"",
+                "for f in \"${GAME_CLIPS[@]}\"; do",
+                "  echo \"$f\" >> \"$LIST_FILE\"",
+                "done",
+                "",
+                f"JOIN_TEMP_DIR=\"{join_temp_dir}\"",
+                "mkdir -p \"$JOIN_TEMP_DIR\"",
+                "(",
+                "  cd \"$OUT_DIR\"",
+                "  python -m hmlib.cli.video_clipper -j 4 --video-file-list \"$LIST_FILE\" --temp-dir \"$JOIN_TEMP_DIR\" "
+                f"\"{season_label_safe}\" \"${{EXTRA_FLAGS[@]}}\"",
+                ")",
+                "",
+                f"echo \"Wrote: $OUT_DIR/clips-{season_label_safe}.mp4\"",
+                "",
+            ]
+        )
+
+        script_path.write_text("\n".join(script_lines) + "\n", encoding="utf-8")
+        try:
+            os.chmod(script_path, 0o755)
+        except Exception:
+            pass
+
+        written_scripts.append(script_path.name)
+
+    if written_scripts:
+        runner = season_dir / "clip_season_highlights_all.sh"
+        runner_body = """#!/usr/bin/env bash
+set -euo pipefail
+THIS_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"
+for s in \"$THIS_DIR\"/clip_season_highlights_*.sh; do
+  [ -x \"$s\" ] || continue
+  if [ \"$s\" = \"$THIS_DIR/clip_season_highlights_all.sh\" ]; then
+    continue
+  fi
+  echo \"Running $s...\"
+  \"$s\" \"$@\"
+done
+"""
+        runner.write_text(runner_body, encoding="utf-8")
+        try:
+            os.chmod(runner, 0o755)
+        except Exception:
+            pass
+
+
 def _infer_side_from_rosters(
     t2s_id: int, jersey_numbers: set[str], hockey_db_dir: Path
 ) -> Optional[str]:
@@ -3978,6 +4236,172 @@ python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FIL
             _os.chmod(script, 0o755)
         except Exception:
             pass
+
+
+def _write_player_combined_highlights(
+    outdir: Path,
+    *,
+    event_log_context: Optional[EventLogContext],
+    conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
+    per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]],
+    player_keys: Iterable[str],
+    create_scripts: bool,
+    highlight_types: Tuple[str, ...] = ("Goal", "Assist", "ExpectedGoal", "Takeaway"),
+) -> None:
+    """
+    Generate a per-player "Highlights" timestamp file that mixes multiple event types
+    in chronological order (within the game).
+
+    This is used for season (multi-game) highlight reels so a player's events are not
+    grouped by type (e.g., all goals then all assists).
+    """
+    if not create_scripts:
+        return
+    player_set = set(player_keys or [])
+    if not player_set:
+        return
+
+    def map_sb_to_video(period: int, t_sb: int) -> Optional[int]:
+        segs = conv_segments_by_period.get(period)
+        if not segs:
+            return None
+        for s1, s2, v1, v2 in segs:
+            lo, hi = (s1, s2) if s1 <= s2 else (s2, s1)
+            if lo <= t_sb <= hi and s1 != s2:
+                return int(round(v1 + (t_sb - s1) * (v2 - v1) / (s2 - s1)))
+        return None
+
+    def merge_windows(win: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        if not win:
+            return []
+        win_sorted = sorted(win)
+        out: List[Tuple[int, int]] = [win_sorted[0]]
+        for a, b in win_sorted[1:]:
+            la, lb = out[-1]
+            if a <= lb:
+                out[-1] = (la, max(lb, b))
+            else:
+                out.append((a, b))
+        return out
+
+    highlight_types_set = set(highlight_types or ())
+
+    # First, seed goal timestamps (period, game_s) from the scoring source so we can
+    # dedupe xG rows that are just goals (goals count as xG internally).
+    goal_keys_by_player: Dict[str, set[Tuple[int, int]]] = {}
+    for pk, info in (per_player_goal_events or {}).items():
+        if pk not in player_set:
+            continue
+        for ev in (info or {}).get("goals", []) or []:
+            try:
+                goal_keys_by_player.setdefault(pk, set()).add((int(ev.period), int(ev.t_sec)))
+            except Exception:
+                continue
+
+    # Collect raw event centers (video seconds) per player.
+    # We dedupe by (event_type, period, game_s) when possible.
+    events_by_player: Dict[str, List[Tuple[int, str, int, Optional[int]]]] = {}
+    seen_by_player: Dict[str, set[Tuple[str, int, int]]] = {}
+
+    def _register_event(
+        *,
+        player: str,
+        event_type: str,
+        period: int,
+        video_s: Optional[int],
+        game_s: Optional[int],
+    ) -> None:
+        if player not in player_set:
+            return
+        et = str(event_type or "")
+        if et not in highlight_types_set:
+            return
+        try:
+            p = int(period)
+        except Exception:
+            return
+
+        # Dedupe ExpectedGoal rows that correspond to goals for the same player/time.
+        if et == "ExpectedGoal":
+            if game_s is not None and (p, int(game_s)) in goal_keys_by_player.get(player, set()):
+                return
+
+        vsec = int(video_s) if isinstance(video_s, int) else (int(video_s) if isinstance(video_s, float) else None)
+        gsec = int(game_s) if isinstance(game_s, int) else (int(game_s) if isinstance(game_s, float) else None)
+
+        if vsec is None and gsec is not None:
+            vsec = map_sb_to_video(p, int(gsec))
+        if vsec is None:
+            return
+
+        # Use game time for dedupe when we have it; otherwise fall back to video time.
+        key_time = gsec if gsec is not None else int(vsec)
+        seen = seen_by_player.setdefault(player, set())
+        if (et, p, int(key_time)) in seen:
+            return
+        seen.add((et, p, int(key_time)))
+        events_by_player.setdefault(player, []).append((int(vsec), et, p, gsec))
+
+        if et == "Goal" and gsec is not None:
+            goal_keys_by_player.setdefault(player, set()).add((p, int(gsec)))
+
+    # Prefer long-sheet / event-log times when available.
+    if event_log_context is not None:
+        for row in event_log_context.event_player_rows or []:
+            try:
+                pk = row.get("player")
+                etype = row.get("event_type")
+                period = row.get("period")
+                if not isinstance(pk, str) or not isinstance(etype, str) or not isinstance(period, int):
+                    continue
+                _register_event(
+                    player=pk,
+                    event_type=etype,
+                    period=period,
+                    video_s=row.get("video_s"),
+                    game_s=row.get("game_s"),
+                )
+            except Exception:
+                continue
+
+    # Fallback for goals/assists when a game has no long sheet.
+    for pk, info in (per_player_goal_events or {}).items():
+        if pk not in player_set:
+            continue
+        for ev in (info or {}).get("goals", []) or []:
+            _register_event(
+                player=pk,
+                event_type="Goal",
+                period=int(getattr(ev, "period", 0) or 0),
+                video_s=None,
+                game_s=int(getattr(ev, "t_sec", 0) or 0),
+            )
+        for ev in (info or {}).get("assists", []) or []:
+            _register_event(
+                player=pk,
+                event_type="Assist",
+                period=int(getattr(ev, "period", 0) or 0),
+                video_s=None,
+                game_s=int(getattr(ev, "t_sec", 0) or 0),
+            )
+
+    for pk, evs in sorted(events_by_player.items(), key=lambda x: x[0]):
+        if not evs:
+            continue
+        # Chronological within this game.
+        evs_sorted = sorted(evs, key=lambda x: x[0])
+        windows: List[Tuple[int, int]] = []
+        for vsec, etype, _period, _gsec in evs_sorted:
+            pre_s, post_s = _clip_pre_post_s_for_event_type(str(etype))
+            windows.append((max(0, int(vsec) - int(pre_s)), int(vsec) + int(post_s)))
+
+        windows = merge_windows(windows)
+        if not windows:
+            continue
+
+        vfile = outdir / f"events_Highlights_{pk}_video_times.txt"
+        v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in windows]
+        vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
 
 
 def _write_goal_window_files(
@@ -4680,6 +5104,24 @@ def process_sheet(
             sb_pairs_by_player.keys(),
             create_scripts=create_scripts,
         )
+        _write_player_combined_highlights(
+            outdir,
+            event_log_context=event_log_context,
+            conv_segments_by_period=conv_segments_by_period,
+            per_player_goal_events=per_player_goal_events,
+            player_keys=sb_pairs_by_player.keys(),
+            create_scripts=create_scripts,
+        )
+    else:
+        # Still write combined per-player highlights for goals/assists when available.
+        _write_player_combined_highlights(
+            outdir,
+            event_log_context=None,
+            conv_segments_by_period=conv_segments_by_period,
+            per_player_goal_events=per_player_goal_events,
+            player_keys=sb_pairs_by_player.keys(),
+            create_scripts=create_scripts,
+        )
 
     # Aggregate clip runner (optional scripts)
     _write_clip_all_runner(outdir, create_scripts=create_scripts)
@@ -5055,6 +5497,8 @@ def main() -> None:
             with args.file_list.open("r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
+                    # Strip UTF-8 BOM if present (common when files are created on Windows).
+                    line = line.lstrip("\ufeff")
                     if not line or line.startswith("#"):
                         continue
                     t2s_only = _parse_t2s_only_token(line)
@@ -5259,6 +5703,8 @@ def main() -> None:
                     "stats": stats_rows,
                     "periods": periods,
                     "events": per_player_events,
+                    "sheet_path": None,
+                    "video_path": None,
                 }
             )
             try:
@@ -5331,6 +5777,7 @@ def main() -> None:
             skip_validation=args.skip_validation,
             create_scripts=create_scripts,
         )
+        video_path = _find_tracking_output_video_for_sheet_path(in_path) if create_scripts else None
         results.append(
             {
                 "label": label,
@@ -5340,6 +5787,8 @@ def main() -> None:
                 "stats": stats_rows,
                 "periods": periods,
                 "events": per_player_events,
+                "sheet_path": in_path,
+                "video_path": video_path,
             }
         )
         try:
@@ -5445,6 +5894,9 @@ def main() -> None:
             per_game_stats_by_label,
             include_shifts_in_stats=include_shifts_in_stats,
         )
+
+        # Season (multi-game) highlight reel scripts (skipped with --no-scripts).
+        _write_season_highlight_scripts(base_outdir, results, create_scripts=create_scripts)
 
 
 if __name__ == "__main__":

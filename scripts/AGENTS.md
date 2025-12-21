@@ -88,11 +88,13 @@ Key outputs (per game):
   - Goals: `goals_for.txt`, `goals_against.txt` (video windows).
   - Long-sheet events: `events_<Event>_<Team>_video_times.txt` and `events_<Event>_<Team>_scoreboard_times.txt` (skipped with `--no-scripts`).
   - Per-player highlights (when long sheet present): `events_Goal_<player>_video_times.txt`, `events_SOG_<player>_video_times.txt`, etc. (skipped with `--no-scripts`).
+  - Per-player combined highlights (goals/assists/xG/takeaways): `events_Highlights_<player>_video_times.txt` (skipped with `--no-scripts`).
 - Clip helper scripts (unless `--no-scripts`):
   - `clip_<player>.sh` (per-player shifts)
   - `clip_events_<Event>_<Team>.sh` (per event type)
   - `clip_goal_<player>.sh`, `clip_sog_<player>.sh` (per-player highlight reels)
   - `clip_all.sh` / `clip_events_all.sh` (batch runners)
+  - Season highlight scripts (multi-game runs): `<outdir>/season_highlights/clip_season_highlights_<player>.sh` and `clip_season_highlights_all.sh` (no required args; embeds per-game video paths)
 
 ### Event model and stat semantics
 
@@ -156,3 +158,4 @@ Excel styling:
 - Long-sheet time parsing is intentionally heuristic (`_parse_long_mmss_time_to_seconds()`); if you encounter a new time encoding variant, adjust it carefully.
 - Internal event names still use `ExpectedGoal`; display uses `xG` (via `_display_col_name()` / `_display_event_type()`).
 - Per-player highlight scripts are currently generated for `Goal` and `SOG` only; extend `_write_player_event_highlights(..., highlight_types=...)` if needed.
+- Season highlight scripts use `events_Highlights_<player>_video_times.txt` to keep events ordered by time within each game and joined by game order across the season.
