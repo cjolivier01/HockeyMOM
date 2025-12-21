@@ -263,6 +263,54 @@ def should_parse_t2s_only_token_with_side_and_label():
     )
 
 
+def should_fail_goals_from_t2s_when_api_missing():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_t2s_missing", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    mod._t2s_api = None  # type: ignore[attr-defined]
+    mod._t2s_api_loaded = True  # type: ignore[attr-defined]
+    mod._t2s_api_import_error = "ModuleNotFoundError: dummy"  # type: ignore[attr-defined]
+
+    try:
+        mod.goals_from_t2s(51602, side="home")  # type: ignore[attr-defined]
+        assert False, "expected goals_from_t2s to raise when T2S API is unavailable"
+    except RuntimeError as e:
+        msg = str(e)
+        assert "failed to import" in msg
+        assert "ModuleNotFoundError: dummy" in msg
+
+
+def should_fail_goals_from_t2s_when_api_call_fails():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_t2s_call_fail", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    class DummyT2SApi:
+        def get_game_details(self, game_id, **kwargs):
+            raise RuntimeError("boom")
+
+    mod._t2s_api = DummyT2SApi()  # type: ignore[attr-defined]
+    mod._t2s_api_loaded = True  # type: ignore[attr-defined]
+    mod._t2s_api_import_error = None  # type: ignore[attr-defined]
+
+    try:
+        mod.goals_from_t2s(51602, side="home")  # type: ignore[attr-defined]
+        assert False, "expected goals_from_t2s to raise when T2S API call fails"
+    except RuntimeError as e:
+        assert "boom" in str(e)
+
+
 def should_parse_long_sheet_turnover_and_giveaway_distinct_events():
     import importlib.util
 

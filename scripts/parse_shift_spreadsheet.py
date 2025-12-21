@@ -54,10 +54,11 @@ if str(_repo_root) not in sys.path:
 # to avoid pulling in heavy `hmlib` dependencies when users run this script without T2S.
 _t2s_api: Any = None
 _t2s_api_loaded = False
+_t2s_api_import_error: Optional[str] = None
 
 
 def _get_t2s_api() -> Any:
-    global _t2s_api, _t2s_api_loaded
+    global _t2s_api, _t2s_api_loaded, _t2s_api_import_error
     if _t2s_api_loaded:
         return _t2s_api
     _t2s_api_loaded = True
@@ -65,8 +66,10 @@ def _get_t2s_api() -> Any:
         from hmlib.time2score import api as t2s_api  # type: ignore
 
         _t2s_api = t2s_api
-    except Exception:  # noqa: BLE001
+        _t2s_api_import_error = None
+    except Exception as e:  # noqa: BLE001
         _t2s_api = None
+        _t2s_api_import_error = f"{type(e).__name__}: {e}"
     return _t2s_api
 
 # Header labels as they appear in the sheet
@@ -1092,16 +1095,18 @@ def goals_from_t2s(game_id: int, *, side: str) -> List[GoalEvent]:
     """
     t2s_api = _get_t2s_api()
     if t2s_api is None:
-        raise RuntimeError("TimeToScore API not available in this environment")
+        details = f": {_t2s_api_import_error}" if _t2s_api_import_error else ""
+        raise RuntimeError(f"TimeToScore API not available (failed to import hmlib.time2score.api){details}")
 
     info = t2s_api.get_game_details(game_id)
-    stats = info.get("stats") or {}
-    if not stats:
-        print(
-            f"Warning: no stats available for game {game_id}; proceeding without T2S goals.",
-            file=sys.stderr,
+    if not isinstance(info, dict):
+        raise RuntimeError(f"TimeToScore API returned invalid game details type for game {game_id}: {type(info)}")
+    stats = info.get("stats")
+    if not isinstance(stats, dict) or not stats:
+        keys = ", ".join(sorted(list(info.keys()))) if isinstance(info, dict) else ""
+        raise RuntimeError(
+            f"TimeToScore returned no usable stats for game {game_id} (keys=[{keys}]); cannot compute goals."
         )
-        return []
 
     home_sc = stats.get("homeScoring") or []
     away_sc = stats.get("awayScoring") or []
@@ -3857,20 +3862,23 @@ def _infer_side_from_rosters(
 ) -> Optional[str]:
     t2s_api = _get_t2s_api()
     if t2s_api is None:
+        import_err = _t2s_api_import_error
         if debug is not None:
             debug.clear()
             debug.update(
                 {
                     "t2s_id": int(t2s_id),
                     "t2s_api_available": False,
+                    "t2s_api_import_error": import_err,
                     "jerseys_in_sheet_count": len(jersey_numbers or set()),
                     "jerseys_in_sheet": sorted(list(jersey_numbers or set()), key=lambda x: int(x)),
                     "failure": "t2s_api_not_available",
                 }
             )
+        details = f": {import_err}" if import_err else ""
         print(
             f"[t2s] Cannot infer side for game {t2s_id}: TimeToScore API not available "
-            f"(failed to import hmlib.time2score.api).",
+            f"(failed to import hmlib.time2score.api){details}.",
             file=sys.stderr,
         )
         return None
@@ -4007,15 +4015,17 @@ def _get_t2s_team_roster(
     """
     t2s_api = _get_t2s_api()
     if t2s_api is None:
-        return {}
+        details = f": {_t2s_api_import_error}" if _t2s_api_import_error else ""
+        raise RuntimeError(f"TimeToScore API not available (failed to import hmlib.time2score.api){details}")
     try:
         with _working_directory(hockey_db_dir):
             info = t2s_api.get_game_details(int(t2s_id))
     except Exception as e:
-        print(f"[t2s] Failed to load game {t2s_id} for roster: {e}", file=sys.stderr)
-        return {}
+        raise RuntimeError(f"TimeToScore API failed to load game {t2s_id} for roster: {e}") from e
 
-    stats = (info or {}).get("stats") or {}
+    stats = (info or {}).get("stats")
+    if not isinstance(stats, dict) or not stats:
+        raise RuntimeError(f"TimeToScore returned no usable stats for game {t2s_id}; cannot load roster.")
     players_key = "homePlayers" if side == "home" else "awayPlayers"
     rows = stats.get(players_key) or []
 
@@ -5790,16 +5800,20 @@ def main() -> None:
         try:
             with _working_directory(hockey_db_dir):
                 g = goals_from_t2s(int(t2s_id), side=side)
-            if not g:
-                print(
-                    f"[t2s] No goals found for game {t2s_id}; continuing without GF/GA.",
-                    file=sys.stderr,
-                )
-            else:
-                for gg in reversed(sorted([str(x) for x in g])):
-                    print(f"[t2s:{t2s_id}] {gg}")
         except Exception as e:  # noqa: BLE001
-            print(f"[t2s] Failed to fetch goals for game {t2s_id}: {e}", file=sys.stderr)
+            print(
+                f"Error: failed to fetch goals from TimeToScore for game {t2s_id} while processing "
+                f"'{_base_label_from_path(in_path)}' ({in_path}).",
+                file=sys.stderr,
+            )
+            if args.file_list:
+                print(f"  File list: {args.file_list}", file=sys.stderr)
+            print(f"  Side: {side}", file=sys.stderr)
+            print(f"  Cause: {e}", file=sys.stderr)
+            sys.exit(2)
+
+        for gg in reversed(sorted([str(x) for x in g])):
+            print(f"[t2s:{t2s_id}] {gg}")
         return g
 
     for idx, g in enumerate(groups):
@@ -5816,14 +5830,25 @@ def main() -> None:
                     file=sys.stderr,
                 )
                 sys.exit(2)
-            final_outdir, stats_rows, periods, per_player_events = process_t2s_only_game(
-                t2s_id=int(t2s_only_id),
-                side=str(side_override),
-                outdir=outdir,
-                label=label,
-                hockey_db_dir=hockey_db_dir,
-                include_shifts_in_stats=include_shifts_in_stats,
-            )
+            try:
+                final_outdir, stats_rows, periods, per_player_events = process_t2s_only_game(
+                    t2s_id=int(t2s_only_id),
+                    side=str(side_override),
+                    outdir=outdir,
+                    label=label,
+                    hockey_db_dir=hockey_db_dir,
+                    include_shifts_in_stats=include_shifts_in_stats,
+                )
+            except Exception as e:  # noqa: BLE001
+                print(
+                    f"Error: failed to process TimeToScore-only game {t2s_only_id} ('{label}').",
+                    file=sys.stderr,
+                )
+                if args.file_list:
+                    print(f"  File list: {args.file_list}", file=sys.stderr)
+                print(f"  Side: {side_override}", file=sys.stderr)
+                print(f"  Cause: {e}", file=sys.stderr)
+                sys.exit(2)
             results.append(
                 {
                     "label": label,
@@ -5931,8 +5956,10 @@ def main() -> None:
                 if failure:
                     print(f"  Side inference result: {failure}", file=sys.stderr)
                 if side_infer_debug.get("t2s_api_available") is False:
+                    import_err = side_infer_debug.get("t2s_api_import_error")
+                    details = f": {import_err}" if import_err else ""
                     print(
-                        "  TimeToScore API: not available (failed to import hmlib.time2score.api).",
+                        f"  TimeToScore API: not available (failed to import hmlib.time2score.api){details}.",
                         file=sys.stderr,
                     )
                 exc = side_infer_debug.get("exception")
@@ -5979,7 +6006,19 @@ def main() -> None:
         # credited with a game played even if they have no recorded shifts.
         roster_map: Optional[Dict[str, str]] = None
         if t2s_id is not None and side_to_use is not None:
-            roster_map = _get_t2s_team_roster(int(t2s_id), side_to_use, hockey_db_dir)
+            try:
+                roster_map = _get_t2s_team_roster(int(t2s_id), side_to_use, hockey_db_dir)
+            except Exception as e:  # noqa: BLE001
+                print(
+                    f"Error: failed to fetch roster from TimeToScore for game {t2s_id} while processing '{label}'.",
+                    file=sys.stderr,
+                )
+                print(f"  Input sheet: {in_path}", file=sys.stderr)
+                if args.file_list:
+                    print(f"  File list: {args.file_list}", file=sys.stderr)
+                print(f"  Side: {side_to_use}", file=sys.stderr)
+                print(f"  Cause: {e}", file=sys.stderr)
+                sys.exit(2)
 
         final_outdir, stats_rows, periods, per_player_events = process_sheet(
             xls_path=in_path,
