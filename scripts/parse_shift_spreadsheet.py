@@ -3849,15 +3849,47 @@ done
 
 
 def _infer_side_from_rosters(
-    t2s_id: int, jersey_numbers: set[str], hockey_db_dir: Path
+    t2s_id: int,
+    jersey_numbers: set[str],
+    hockey_db_dir: Path,
+    *,
+    debug: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     t2s_api = _get_t2s_api()
     if t2s_api is None:
+        if debug is not None:
+            debug.clear()
+            debug.update(
+                {
+                    "t2s_id": int(t2s_id),
+                    "t2s_api_available": False,
+                    "jerseys_in_sheet_count": len(jersey_numbers or set()),
+                    "jerseys_in_sheet": sorted(list(jersey_numbers or set()), key=lambda x: int(x)),
+                    "failure": "t2s_api_not_available",
+                }
+            )
+        print(
+            f"[t2s] Cannot infer side for game {t2s_id}: TimeToScore API not available "
+            f"(failed to import hmlib.time2score.api).",
+            file=sys.stderr,
+        )
         return None
     try:
         with _working_directory(hockey_db_dir):
             info = t2s_api.get_game_details(int(t2s_id))
     except Exception as e:
+        if debug is not None:
+            debug.clear()
+            debug.update(
+                {
+                    "t2s_id": int(t2s_id),
+                    "t2s_api_available": True,
+                    "jerseys_in_sheet_count": len(jersey_numbers or set()),
+                    "jerseys_in_sheet": sorted(list(jersey_numbers or set()), key=lambda x: int(x)),
+                    "failure": "t2s_fetch_failed",
+                    "exception": str(e),
+                }
+            )
         print(f"[t2s] Failed to load game {t2s_id} for side inference: {e}", file=sys.stderr)
         return None
     stats = (info or {}).get("stats") or {}
@@ -3876,12 +3908,36 @@ def _infer_side_from_rosters(
     away_set = _nums(away_players)
 
     if not jersey_numbers:
+        if debug is not None:
+            debug.clear()
+            debug.update(
+                {
+                    "t2s_id": int(t2s_id),
+                    "t2s_api_available": True,
+                    "home_roster_count": len(home_set),
+                    "away_roster_count": len(away_set),
+                    "failure": "no_jersey_numbers_in_sheet",
+                }
+            )
         print(
             f"[t2s] Cannot infer side for game {t2s_id}: no jersey numbers found in sheet.",
             file=sys.stderr,
         )
         return None
     if not home_set and not away_set:
+        if debug is not None:
+            debug.clear()
+            debug.update(
+                {
+                    "t2s_id": int(t2s_id),
+                    "t2s_api_available": True,
+                    "jerseys_in_sheet_count": len(jersey_numbers),
+                    "jerseys_in_sheet": sorted(list(jersey_numbers), key=lambda x: int(x)),
+                    "home_roster_count": 0,
+                    "away_roster_count": 0,
+                    "failure": "no_roster_numbers_in_t2s",
+                }
+            )
         print(
             f"[t2s] Cannot infer side for game {t2s_id}: no roster numbers in TimeToScore stats.",
             file=sys.stderr,
@@ -3892,12 +3948,49 @@ def _infer_side_from_rosters(
     away_overlap = len(jersey_numbers & away_set)
 
     if home_overlap == away_overlap:
+        if debug is not None:
+            debug.clear()
+            debug.update(
+                {
+                    "t2s_id": int(t2s_id),
+                    "t2s_api_available": True,
+                    "jerseys_in_sheet_count": len(jersey_numbers),
+                    "jerseys_in_sheet": sorted(list(jersey_numbers), key=lambda x: int(x)),
+                    "home_roster_count": len(home_set),
+                    "away_roster_count": len(away_set),
+                    "home_overlap": home_overlap,
+                    "away_overlap": away_overlap,
+                    "home_overlap_jerseys": sorted(
+                        list(jersey_numbers & home_set), key=lambda x: int(x)
+                    ),
+                    "away_overlap_jerseys": sorted(
+                        list(jersey_numbers & away_set), key=lambda x: int(x)
+                    ),
+                    "failure": "overlap_tie",
+                }
+            )
         print(
             f"[t2s] Cannot infer side for game {t2s_id}: overlap tie (home={home_overlap}, away={away_overlap}).",
             file=sys.stderr,
         )
         return None
-    return "home" if home_overlap > away_overlap else "away"
+    side = "home" if home_overlap > away_overlap else "away"
+    if debug is not None:
+        debug.clear()
+        debug.update(
+            {
+                "t2s_id": int(t2s_id),
+                "t2s_api_available": True,
+                "jerseys_in_sheet_count": len(jersey_numbers),
+                "jerseys_in_sheet": sorted(list(jersey_numbers), key=lambda x: int(x)),
+                "home_roster_count": len(home_set),
+                "away_roster_count": len(away_set),
+                "home_overlap": home_overlap,
+                "away_overlap": away_overlap,
+                "chosen_side": side,
+            }
+        )
+    return side
 
 
 def _get_t2s_team_roster(
@@ -5687,7 +5780,10 @@ def main() -> None:
         # With a t2s id, require a side and use TimeToScore data.
         if side is None:
             print(
-                f"Error: T2S game id {t2s_id} provided but side could not be determined (provide --home/--away or :HOME/:AWAY).",
+                "Error: T2S game id "
+                f"{t2s_id} provided but side could not be determined while processing "
+                f"'{_base_label_from_path(in_path)}' ({in_path}). "
+                "Provide --home/--away (single game) or ':HOME' / ':AWAY' in --file-list.",
                 file=sys.stderr,
             )
             sys.exit(2)
@@ -5778,16 +5874,103 @@ def main() -> None:
             "home" if args.home else ("away" if args.away else None)
         )
         inferred_side: Optional[str] = None
+        side_infer_debug: Dict[str, Any] = {}
         if manual_goals:
             side_to_use = side_override
         else:
             if side_override:
                 side_to_use = side_override
             elif t2s_id is not None:
-                inferred_side = _infer_side_from_rosters(int(t2s_id), jersey_numbers, hockey_db_dir)
+                inferred_side = _infer_side_from_rosters(
+                    int(t2s_id), jersey_numbers, hockey_db_dir, debug=side_infer_debug
+                )
                 side_to_use = inferred_side
             else:
                 side_to_use = None
+
+        # If a TimeToScore id is in use and we don't have a side override, we
+        # must determine whether our team is Home or Away to map GF/GA.
+        if t2s_id is not None and (not manual_goals) and side_to_use is None:
+            t2s_source = (
+                f"--t2s {args.t2s}"
+                if t2s_arg_id is not None
+                else f"inferred from filename suffix: {in_path.name}"
+            )
+            cli_side = "--home" if args.home else ("--away" if args.away else "<none>")
+            def _safe_int(token: Any) -> int:
+                try:
+                    return int(str(token))
+                except Exception:
+                    return 0
+
+            jerseys_sorted = (
+                sorted(list(jersey_numbers or set()), key=_safe_int) if jersey_numbers else []
+            )
+            sample = ", ".join(jerseys_sorted[:20])
+            extra = f", ... (+{len(jerseys_sorted) - 20} more)" if len(jerseys_sorted) > 20 else ""
+
+            print(
+                f"Error: cannot determine HOME/AWAY side for TimeToScore game {t2s_id} while processing '{label}'.",
+                file=sys.stderr,
+            )
+            print(f"  Input sheet: {in_path}", file=sys.stderr)
+            if args.file_list:
+                print(f"  File list: {args.file_list}", file=sys.stderr)
+            print(f"  T2S id source: {t2s_source}", file=sys.stderr)
+            print("  Side overrides checked:", file=sys.stderr)
+            print(f"    - from --file-list ':HOME' / ':AWAY': {path_side or '<none>'}", file=sys.stderr)
+            print(f"    - from --t2s spec side: {t2s_arg_side or '<none>'}", file=sys.stderr)
+            print(f"    - from CLI flags: {cli_side}", file=sys.stderr)
+            print(
+                f"  Jerseys found in sheet: {len(jerseys_sorted)}"
+                + (f" ({sample}{extra})" if jerseys_sorted else ""),
+                file=sys.stderr,
+            )
+            if side_infer_debug:
+                failure = side_infer_debug.get("failure")
+                if failure:
+                    print(f"  Side inference result: {failure}", file=sys.stderr)
+                if side_infer_debug.get("t2s_api_available") is False:
+                    print(
+                        "  TimeToScore API: not available (failed to import hmlib.time2score.api).",
+                        file=sys.stderr,
+                    )
+                exc = side_infer_debug.get("exception")
+                if exc:
+                    print(f"  TimeToScore fetch error: {exc}", file=sys.stderr)
+                hr = side_infer_debug.get("home_roster_count")
+                ar = side_infer_debug.get("away_roster_count")
+                if isinstance(hr, int) or isinstance(ar, int):
+                    print(
+                        f"  TimeToScore roster sizes: home={hr or 0}, away={ar or 0}",
+                        file=sys.stderr,
+                    )
+                ho = side_infer_debug.get("home_overlap")
+                ao = side_infer_debug.get("away_overlap")
+                if isinstance(ho, int) or isinstance(ao, int):
+                    print(
+                        f"  Overlap with sheet jerseys: home={ho or 0}, away={ao or 0}",
+                        file=sys.stderr,
+                    )
+                hoj = side_infer_debug.get("home_overlap_jerseys")
+                aoj = side_infer_debug.get("away_overlap_jerseys")
+                if isinstance(hoj, list) or isinstance(aoj, list):
+                    try:
+                        h_txt = ", ".join(str(x) for x in (hoj or [])[:20])
+                        a_txt = ", ".join(str(x) for x in (aoj or [])[:20])
+                    except Exception:
+                        h_txt = ""
+                        a_txt = ""
+                    if h_txt or a_txt:
+                        print(
+                            f"  Overlap jersey numbers: home=[{h_txt}], away=[{a_txt}]",
+                            file=sys.stderr,
+                        )
+            print(
+                "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
         goals = _resolve_goals_for_file(in_path, t2s_id, side_to_use)
 
