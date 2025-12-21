@@ -432,6 +432,10 @@ def _apply_excel_table_style(
         for r in range(title_row, last_row + 1):
             for c in range(1, ncols + 1):
                 ws.cell(row=r, column=c).border = white_border
+
+        # Freeze the first column (Player/Stat) and the title+header rows so player
+        # names stay visible while scrolling in Excel/LibreOffice.
+        ws.freeze_panes = "B3"
     except Exception:
         return
 
