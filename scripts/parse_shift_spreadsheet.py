@@ -727,6 +727,40 @@ def _is_long_sheet_path(path: Path) -> bool:
     return re.search(r"(?i)(?:^|-)long(?:-|$)", stem) is not None
 
 
+@dataclass(frozen=True)
+class InputEntry:
+    path: Optional[Path]
+    side: Optional[str]
+    t2s_id: Optional[int] = None
+
+
+def _parse_t2s_only_token(token: str) -> Optional[Tuple[int, Optional[str]]]:
+    """
+    Parse a special `--file-list` token representing a TimeToScore-only game
+    (no spreadsheets present), formatted like:
+      - t2s=51602
+      - t2s=51602:HOME
+    """
+    raw = str(token or "").strip()
+    if not raw:
+        return None
+
+    side: Optional[str] = None
+    if ":" in raw:
+        raw_path, suffix = raw.rsplit(":", 1)
+        if suffix.upper() in {"HOME", "AWAY"}:
+            side = suffix.lower()
+            raw = raw_path.strip()
+
+    m = re.fullmatch(r"(?i)\s*t2s\s*=\s*(\d+)\s*", raw)
+    if not m:
+        return None
+    try:
+        return int(m.group(1)), side
+    except Exception:
+        return None
+
+
 def _parse_input_token(token: str, base_dir: Optional[Path] = None) -> Tuple[Path, Optional[str]]:
     raw = token.strip()
     side: Optional[str] = None
@@ -2772,6 +2806,85 @@ def _write_player_stats_text_and_csv(
         pass
 
 
+def _write_game_stats_files_t2s_only(
+    stats_dir: Path,
+    *,
+    label: str,
+    t2s_id: int,
+    goals: List[GoalEvent],
+    periods: Optional[List[int]] = None,
+) -> None:
+    """
+    Write per-game stats for a TimeToScore-only game (no spreadsheets).
+
+    This mirrors `_write_game_stats_files(...)` but doesn't require an input XLSX path.
+    """
+    gf = sum(1 for g in goals if getattr(g, "kind", None) == "GF")
+    ga = sum(1 for g in goals if getattr(g, "kind", None) == "GA")
+    goal_diff = gf - ga
+
+    row: Dict[str, Any] = {
+        "T2S ID": str(int(t2s_id)),
+        "Score (For-Against)": f"{gf}-{ga}",
+        "Goals For": gf,
+        "Goals Against": ga,
+        "Goal Diff": goal_diff,
+    }
+
+    # Per-period goal totals (from goal list).
+    period_set: set[int] = set()
+    for x in periods or []:
+        if isinstance(x, int):
+            period_set.add(int(x))
+    for g in goals or []:
+        try:
+            period_set.add(int(getattr(g, "period", 0) or 0))
+        except Exception:
+            continue
+    for p in sorted({pp for pp in period_set if isinstance(pp, int) and pp > 0}):
+        row[f"Period {p} Goals For"] = sum(1 for g in goals if g.kind == "GF" and g.period == p)
+        row[f"Period {p} Goals Against"] = sum(1 for g in goals if g.kind == "GA" and g.period == p)
+
+    # No event-log/long-sheet stats available for T2S-only games; keep keys stable with blanks.
+    row.update(
+        {
+            "Shots For": "",
+            "Shots Against": "",
+            "SOG For": "",
+            "SOG Against": "",
+            "xG For": "",
+            "xG Against": "",
+            "xG per SOG (For)": "",
+            "Giveaways For": "",
+            "Giveaways Against": "",
+            "Takeaways For": "",
+            "Takeaways Against": "",
+            "Controlled Entry For": "",
+            "Controlled Entry Against": "",
+            "Controlled Exit For": "",
+            "Controlled Exit Against": "",
+            "Rush For": "",
+            "Rush Against": "",
+        }
+    )
+
+    # Transpose: stats are rows, and the game label is the column header.
+    df = pd.DataFrame({"Stat": list(row.keys()), label: list(row.values())})
+    df.to_csv(stats_dir / "game_stats.csv", index=False)
+
+    try:
+        with pd.ExcelWriter(stats_dir / "game_stats.xlsx", engine="openpyxl") as writer:
+            df_excel = df.copy()
+            df_excel.columns = [
+                _wrap_header_after_words(str(c), words_per_line=2) for c in df_excel.columns
+            ]
+            df_excel.to_excel(writer, sheet_name="game_stats", index=False, startrow=1)
+            _apply_excel_table_style(writer, "game_stats", title="Game Stats", df=df_excel)
+            _autosize_columns(writer, "game_stats", df_excel)
+    except Exception:
+        pass
+
+
 def _write_game_stats_files(
     stats_dir: Path,
     *,
@@ -4551,6 +4664,223 @@ def process_sheet(
     return outdir, stats_table_rows, sorted(all_periods_seen), per_player_goal_events
 
 
+def process_t2s_only_game(
+    *,
+    t2s_id: int,
+    side: str,
+    outdir: Path,
+    label: str,
+    hockey_db_dir: Path,
+    include_shifts_in_stats: bool,
+) -> Tuple[
+    Path,
+    List[Dict[str, str]],
+    List[int],
+    Dict[str, Dict[str, List[GoalEvent]]],
+]:
+    """
+    Process a game using only TimeToScore data (no shift spreadsheets).
+
+    Writes the same `per_player/stats/*` outputs as `process_sheet`, but leaves
+    shift/TOI and on-ice (+/-) fields blank since they cannot be derived without
+    shift timing data.
+    """
+    outdir.mkdir(parents=True, exist_ok=True)
+    outdir = outdir / "per_player"
+    outdir.mkdir(parents=True, exist_ok=True)
+    stats_dir = outdir / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load roster + scoring from TimeToScore.
+    with _working_directory(hockey_db_dir):
+        goals = goals_from_t2s(int(t2s_id), side=side)
+    roster_map = _get_t2s_team_roster(int(t2s_id), side, hockey_db_dir)
+
+    # Annotate game-tying / game-winning roles.
+    _annotate_goal_roles(goals)
+
+    periods_seen = sorted(
+        {
+            int(getattr(ev, "period", 0) or 0)
+            for ev in goals
+            if isinstance(getattr(ev, "period", None), int) and int(getattr(ev, "period", 0) or 0) > 0
+        }
+    )
+
+    # Build internal player keys from T2S roster (normalized jersey -> name).
+    player_keys: List[str] = []
+    jersey_to_player: Dict[str, str] = {}
+    for jersey_norm, name in sorted((roster_map or {}).items(), key=lambda x: x[0]):
+        if not jersey_norm or not name:
+            continue
+        player_key = f"{sanitize_name(jersey_norm)}_{sanitize_name(name)}"
+        player_keys.append(player_key)
+        jersey_to_player[jersey_norm] = player_key
+
+    def _sort_player_key(pk: str) -> Tuple[int, str]:
+        try:
+            jersey_part = pk.split("_", 1)[0]
+            norm = _normalize_jersey_number(jersey_part) or ""
+            return int(norm), pk
+        except Exception:
+            return 9999, pk
+
+    player_keys.sort(key=_sort_player_key)
+
+    # Per-player event details for this game (for multi-game summaries).
+    per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]] = {
+        pk: {"goals": [], "assists": [], "gf_on_ice": [], "ga_on_ice": []} for pk in player_keys
+    }
+    goal_assist_counts: Dict[str, Dict[str, int]] = {pk: {"goals": 0, "assists": 0} for pk in player_keys}
+
+    def _match_player_keys(num_token: Any) -> List[str]:
+        norm = _normalize_jersey_number(num_token)
+        if not norm:
+            return []
+        pk = jersey_to_player.get(norm)
+        return [pk] if pk else []
+
+    for ev in goals:
+        if ev.kind != "GF":
+            continue
+        if ev.scorer:
+            for pk in _match_player_keys(ev.scorer):
+                goal_assist_counts[pk]["goals"] += 1
+                per_player_goal_events[pk]["goals"].append(ev)
+        for ast in ev.assists:
+            for pk in _match_player_keys(ast):
+                goal_assist_counts[pk]["assists"] += 1
+                per_player_goal_events[pk]["assists"].append(ev)
+
+    stats_table_rows: List[Dict[str, str]] = []
+    for player_key in player_keys:
+        scoring_counts = goal_assist_counts.get(player_key, {"goals": 0, "assists": 0})
+        goals_cnt = int(scoring_counts.get("goals", 0) or 0)
+        assists_cnt = int(scoring_counts.get("assists", 0) or 0)
+        points_val = goals_cnt + assists_cnt
+        ppg_val = float(points_val)
+
+        ev_map = per_player_goal_events.get(player_key, {}) or {}
+        ot_goals_cnt = sum(
+            1 for ev in (ev_map.get("goals") or []) if int(getattr(ev, "period", 0) or 0) >= 4
+        )
+        ot_assists_cnt = sum(
+            1 for ev in (ev_map.get("assists") or []) if int(getattr(ev, "period", 0) or 0) >= 4
+        )
+
+        # Individual per-player stats file (best-effort, without shift-derived fields).
+        try:
+            lines: List[str] = []
+            lines.append(f"Player: {_display_player_name(player_key)}")
+            lines.append("")
+            lines.append("TimeToScore-only game (no shift spreadsheet)")
+            lines.append("")
+            lines.append(f"Goals: {goals_cnt}")
+            lines.append(f"Assists: {assists_cnt}")
+            lines.append(f"OT Goals: {ot_goals_cnt}")
+            lines.append(f"OT Assists: {ot_assists_cnt}")
+            lines.append(f"Points (G+A): {points_val}")
+            lines.append(f"PPG (points per game): {ppg_val:.1f}")
+            goals_list = ev_map.get("goals") or []
+            assists_list = ev_map.get("assists") or []
+            if goals_list:
+                lines.append("")
+                lines.append("Goals:")
+                for ev in sorted(goals_list, key=lambda e: (e.period, e.t_sec)):
+                    tags: List[str] = []
+                    if getattr(ev, "is_game_tying", False):
+                        tags.append("GT")
+                    if getattr(ev, "is_game_winning", False):
+                        tags.append("GW")
+                    tag_str = f" [{' '.join(tags)}]" if tags else ""
+                    lines.append(f"  Period {ev.period}, {ev.t_str}{tag_str}")
+            if assists_list:
+                lines.append("")
+                lines.append("Assists:")
+                for ev in sorted(assists_list, key=lambda e: (e.period, e.t_sec)):
+                    tags2: List[str] = []
+                    if getattr(ev, "is_game_tying", False):
+                        tags2.append("GT")
+                    if getattr(ev, "is_game_winning", False):
+                        tags2.append("GW")
+                    tag_str2 = f" [{' '.join(tags2)}]" if tags2 else ""
+                    lines.append(f"  Period {ev.period}, {ev.t_str}{tag_str2}")
+            (stats_dir / f"{player_key}_stats.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except Exception:
+            pass
+
+        row_map: Dict[str, str] = {
+            "player": player_key,
+            "goals": str(goals_cnt),
+            "assists": str(assists_cnt),
+            "ot_goals": str(ot_goals_cnt),
+            "ot_assists": str(ot_assists_cnt),
+            "points": str(points_val),
+            "gp": "1",
+            "ppg": f"{ppg_val:.1f}",
+            # Long-sheet-derived stats are not available via T2S; leave blank.
+            "shots": "",
+            "shots_per_game": "",
+            "sog": "",
+            "sog_per_game": "",
+            "expected_goals": "",
+            "expected_goals_per_game": "",
+            "expected_goals_per_sog": "",
+            "giveaways": "",
+            "giveaways_per_game": "",
+            "takeaways": "",
+            "takeaways_per_game": "",
+            "controlled_entry_for": "",
+            "controlled_entry_for_per_game": "",
+            "controlled_entry_against": "",
+            "controlled_entry_against_per_game": "",
+            "controlled_exit_for": "",
+            "controlled_exit_for_per_game": "",
+            "controlled_exit_against": "",
+            "controlled_exit_against_per_game": "",
+            # Shift-derived metrics are not available; leave blank.
+            "plus_minus": "",
+            "plus_minus_per_game": "",
+            "gf_counted": "",
+            "gf_per_game": "",
+            "ga_counted": "",
+            "ga_per_game": "",
+        }
+        if include_shifts_in_stats:
+            row_map.update(
+                {
+                    "shifts": "",
+                    "shifts_per_game": "",
+                    "sb_toi_total": "",
+                    "sb_toi_per_game": "",
+                    "sb_avg": "",
+                    "sb_median": "",
+                    "sb_longest": "",
+                    "sb_shortest": "",
+                    "video_toi_total": "",
+                }
+            )
+        stats_table_rows.append(row_map)
+
+    if stats_table_rows:
+        _write_player_stats_text_and_csv(
+            stats_dir,
+            stats_table_rows,
+            periods_seen,
+            include_shifts_in_stats=include_shifts_in_stats,
+        )
+
+    _write_game_stats_files_t2s_only(
+        stats_dir,
+        label=label,
+        t2s_id=int(t2s_id),
+        goals=goals,
+        periods=periods_seen,
+    )
+
+    return outdir, stats_table_rows, periods_seen, per_player_goal_events
+
+
 # ----------------------------- CLI -----------------------------
 
 
@@ -4575,7 +4905,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to a text file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
         "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
-        "You can append ':HOME' or ':AWAY' per line.",
+        "You can append ':HOME' or ':AWAY' per line. "
+        "Lines may also be 't2s=<game_id>' (optionally with ':HOME'/'AWAY') to process a TimeToScore-only game with no spreadsheets.",
     )
     p.add_argument(
         "--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet)."
@@ -4608,7 +4939,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=(
-            "TimeToScore game id. If set and no --goal/--goals-file provided, fetch goals from T2S."
+            "TimeToScore game id. If set and no --goal/--goals-file provided, fetch goals from T2S. "
+            "If provided without --input/--file-list, runs a TimeToScore-only game (no spreadsheets)."
         ),
     )
     p.add_argument(
@@ -4672,7 +5004,7 @@ def main() -> None:
     elif getattr(args, "dark", False):
         focus_team_override = "Blue"
 
-    input_entries: List[Tuple[Path, Optional[str]]] = []
+    input_entries: List[InputEntry] = []
     if args.file_list:
         try:
             base_dir = args.file_list.expanduser().resolve().parent
@@ -4681,25 +5013,37 @@ def main() -> None:
                     line = line.strip()
                     if not line or line.startswith("#"):
                         continue
+                    t2s_only = _parse_t2s_only_token(line)
+                    if t2s_only is not None:
+                        t2s_id, side = t2s_only
+                        input_entries.append(InputEntry(path=None, side=side, t2s_id=t2s_id))
+                        continue
                     p, side = _parse_input_token(line, base_dir=base_dir)
-                    input_entries.append((p, side))
+                    input_entries.append(InputEntry(path=p, side=side))
         except Exception as e:
             print(f"Error reading --file-list: {e}", file=sys.stderr)
             sys.exit(2)
     for tok in args.inputs or []:
         p, side = _parse_input_token(tok)
-        input_entries.append((p, side))
+        input_entries.append(InputEntry(path=p, side=side))
 
     if not input_entries:
-        print("Error: at least one --input or --file-list entry is required.", file=sys.stderr)
-        sys.exit(2)
+        # Allow a TimeToScore-only run by specifying just `--t2s`.
+        if args.t2s is not None:
+            input_entries.append(InputEntry(path=None, side=None, t2s_id=int(args.t2s)))
+        else:
+            print("Error: at least one --input/--file-list entry or --t2s is required.", file=sys.stderr)
+            sys.exit(2)
 
     # Support passing a directory to --input for single-game runs: discover the
     # primary shift sheet plus optional '*-long*' companion sheet(s) from that
     # directory (or `<dir>/stats`).
-    expanded_entries: List[Tuple[Path, Optional[str]]] = []
-    for p, side in input_entries:
-        pp = Path(p).expanduser()
+    expanded_entries: List[InputEntry] = []
+    for entry in input_entries:
+        if entry.path is None:
+            expanded_entries.append(entry)
+            continue
+        pp = Path(entry.path).expanduser()
         if pp.is_dir():
             try:
                 discovered = _expand_dir_input_to_game_sheets(pp)
@@ -4707,20 +5051,38 @@ def main() -> None:
                 print(f"Error expanding directory input {pp}: {e}", file=sys.stderr)
                 sys.exit(2)
             for fp in discovered:
-                expanded_entries.append((fp, side))
+                expanded_entries.append(InputEntry(path=fp, side=entry.side))
         else:
-            expanded_entries.append((pp, side))
+            expanded_entries.append(InputEntry(path=pp, side=entry.side))
     input_entries = expanded_entries
 
     base_outdir = args.outdir.expanduser()
     # Group '-long' companion sheets with their non-long counterpart so a game is processed once.
     groups_by_label: Dict[str, Dict[str, Any]] = {}
-    for order_idx, (p, side) in enumerate(input_entries):
-        label = _base_label_from_path(p)
-        g = groups_by_label.setdefault(
-            label,
-            {"label": label, "primary": None, "long_paths": [], "side": None, "order": order_idx},
-        )
+    for order_idx, entry in enumerate(input_entries):
+        side = entry.side
+        if entry.t2s_id is not None and entry.path is None:
+            label = f"t2s-{int(entry.t2s_id)}"
+            g = groups_by_label.setdefault(
+                label,
+                {
+                    "label": label,
+                    "primary": None,
+                    "long_paths": [],
+                    "side": None,
+                    "order": order_idx,
+                    "t2s_id_only": int(entry.t2s_id),
+                },
+            )
+        else:
+            if entry.path is None:
+                continue
+            p = Path(entry.path)
+            label = _base_label_from_path(p)
+            g = groups_by_label.setdefault(
+                label,
+                {"label": label, "primary": None, "long_paths": [], "side": None, "order": order_idx},
+            )
         if g.get("side") is None:
             g["side"] = side
         elif side and g.get("side") != side:
@@ -4730,6 +5092,8 @@ def main() -> None:
             )
             sys.exit(2)
 
+        if entry.path is None:
+            continue
         if _is_long_sheet_path(p):
             g["long_paths"].append(p)
         else:
@@ -4785,6 +5149,44 @@ def main() -> None:
         return g
 
     for idx, g in enumerate(groups):
+        t2s_only_id = g.get("t2s_id_only")
+        if t2s_only_id is not None:
+            label = str(g.get("label") or f"t2s-{int(t2s_only_id)}")
+            outdir = base_outdir if not multiple_inputs else base_outdir / label
+            side_override: Optional[str] = g.get("side") or (
+                "home" if args.home else ("away" if args.away else None)
+            )
+            if side_override is None:
+                print(
+                    f"Error: T2S-only game {t2s_only_id} requires a side (provide --home/--away or ':HOME'/'AWAY' on the t2s=... line).",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            final_outdir, stats_rows, periods, per_player_events = process_t2s_only_game(
+                t2s_id=int(t2s_only_id),
+                side=str(side_override),
+                outdir=outdir,
+                label=label,
+                hockey_db_dir=hockey_db_dir,
+                include_shifts_in_stats=include_shifts_in_stats,
+            )
+            results.append(
+                {
+                    "label": label,
+                    "t2s_id": int(t2s_only_id),
+                    "order": idx,
+                    "outdir": final_outdir,
+                    "stats": stats_rows,
+                    "periods": periods,
+                    "events": per_player_events,
+                }
+            )
+            try:
+                print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
+            except Exception:
+                print("✅ Done.")
+            continue
+
         in_path = g.get("primary")
         if in_path is None:
             long_paths = g.get("long_paths") or []
@@ -4801,7 +5203,7 @@ def main() -> None:
         # (>= 10000). Smaller suffixes (e.g., 'chicago-1') remain part of the
         # game name and do not trigger T2S usage.
         t2s_id = args.t2s if args.t2s is not None else _infer_t2s_from_filename(in_path)
-        label = _base_label_from_path(in_path)
+        label = str(g.get("label") or _base_label_from_path(in_path))
         outdir = base_outdir if not multiple_inputs else base_outdir / label
         manual_goals = load_goals(args.goal, args.goals_file)
 

@@ -53,6 +53,7 @@ python scripts/parse_shift_spreadsheet.py --input <game stats dir> --outdir <out
 #### `--file-list`
 - One file/dir per line; `#` comments and blank lines are ignored.
 - Each line may end with `:HOME` or `:AWAY` (used for TimeToScore GF/GA mapping).
+- Lines may also be `t2s=<game_id>` (optionally with `:HOME`/`:AWAY`) to process a TimeToScore-only game with no spreadsheets.
 - Relative paths are resolved relative to the file-list’s directory.
 
 #### Goals (GF/GA) sources and priority

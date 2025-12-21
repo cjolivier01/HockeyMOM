@@ -164,3 +164,65 @@ def should_not_write_times_files_when_no_scripts():
         assert (stats_dir / "event_summary.csv").exists()
         assert not list(outdir.glob("*_times.txt"))
         assert not list(outdir.glob("clip_*.sh"))
+
+
+def should_process_t2s_only_game_without_spreadsheets():
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_t2s", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    class DummyT2SApi:
+        def get_game_details(self, game_id: int):  # noqa: ARG002
+            return {
+                "stats": {
+                    "homePlayers": [{"number": "1", "position": "F", "name": "Ethan Olivier"}],
+                    "awayPlayers": [{"number": "99", "position": "F", "name": "Opponent Player"}],
+                    "homeScoring": [
+                        {
+                            "period": "OT",
+                            "time": "0:45",
+                            "extra": "",
+                            "goal": {"text": "#1 Ethan Olivier"},
+                            "assist1": "",
+                            "assist2": "",
+                        }
+                    ],
+                    "awayScoring": [],
+                }
+            }
+
+    # Install dummy T2S API to avoid network/DB.
+    mod._t2s_api = DummyT2SApi()  # type: ignore[attr-defined]
+    mod._t2s_api_loaded = True  # type: ignore[attr-defined]
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        outdir = base / "out"
+        hockey_db_dir = base / "db"
+        final_outdir, stats_rows, periods, per_player_events = mod.process_t2s_only_game(  # type: ignore[attr-defined]
+            t2s_id=51602,
+            side="home",
+            outdir=outdir,
+            label="t2s-51602",
+            hockey_db_dir=hockey_db_dir,
+            include_shifts_in_stats=False,
+        )
+
+        assert (final_outdir / "stats" / "player_stats.csv").exists()
+        assert (final_outdir / "stats" / "game_stats.csv").exists()
+
+        rows_by_player = {r["player"]: r for r in stats_rows}
+        assert rows_by_player["1_Ethan_Olivier"]["goals"] == "1"
+        assert rows_by_player["1_Ethan_Olivier"]["assists"] == "0"
+        assert rows_by_player["1_Ethan_Olivier"]["ot_goals"] == "1"
+        assert rows_by_player["1_Ethan_Olivier"]["ot_assists"] == "0"
+        assert 4 in periods  # OT -> period 4
+
+        assert len(per_player_events["1_Ethan_Olivier"]["goals"]) == 1
