@@ -534,6 +534,8 @@ def get_best_resize_mode(
     if w1 > w2 or h1 > h2:
         # Just a sanity check assumign we aren't
         # purposely trying to distort
+        if not (h1 > h2 or abs(h2 - h1) < 1.1):
+            logger.warning("Resizing with distortion from %dx%d -> %dx%d", w1, h1, w2, h2)
         assert h1 > h2 or abs(h2 - h1) < 1.1
         if h1 == h2 and abs(w2 - w1) < 1.1:
             if verbose:
@@ -552,6 +554,8 @@ def get_best_resize_mode(
     elif w2 > w1 or h2 > h1:
         # Just a sanity check assumign we aren't
         # purposely trying to distort
+        if not (h2 > h1 or abs(h2 - h1) < 1.1):
+            logger.warning("Resizing with distortion from %dx%d -> %dx%d", w1, h1, w2, h2)
         assert h2 > h1 or abs(h2 - h1) < 1.1
         if h1 == h2 and abs(w2 - w1) == 1.1:
             if verbose:
