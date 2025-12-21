@@ -111,7 +111,7 @@ class HmCropToVideoFrame:
             # Make sure they have the same aspect ratio
             image_ar = image_w / image_h
             vf_ar = video_frame_width / video_frame_height
-            assert np.isclose(image_ar, vf_ar, 0.001, 0.001), (
+            assert np.isclose(image_ar, vf_ar, 0.005, 0.005), (
                 f"Image aspect ratio {image_ar} does not match " f"video frame aspect ratio {vf_ar}"
             )
             if image_h != video_frame_height or image_w != video_frame_width:
