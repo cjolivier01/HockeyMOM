@@ -36,6 +36,7 @@ from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, unwrap_tensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
 from hockeymom.core import AllLivingBoxConfig, BBox, PlayTrackerConfig
+from hockeymom.core import HmLogLevel
 from hockeymom.core import PlayTracker as CppPlayTracker
 
 from .camera_transformer import (
@@ -759,6 +760,22 @@ class PlayTracker(torch.nn.Module):
                 playtracker_results = self._playtracker.forward(
                     online_ids.cpu().tolist(), online_bboxes
                 )
+                for msg in getattr(playtracker_results, "log_messages", []):
+                    try:
+                        text = msg.message
+                        level = msg.level
+                    except Exception:
+                        continue
+                    if level == HmLogLevel.DEBUG:
+                        logger.debug(text)
+                    elif level == HmLogLevel.INFO:
+                        logger.info(text)
+                    elif level == HmLogLevel.WARNING:
+                        logger.warning(text)
+                    elif level == HmLogLevel.ERROR:
+                        logger.error(text)
+                    else:
+                        logger.info(text)
 
                 if playtracker_results.largest_tracking_bbox is not None:
                     largest_bbox = from_bbox(playtracker_results.largest_tracking_bbox.bbox)

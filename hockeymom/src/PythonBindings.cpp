@@ -1339,6 +1339,18 @@ void init_play_tracker(::pybind11::module_& m) {
       .def_readwrite("tracking_id", &Track::tracking_id)
       .def_readwrite("bbox", &Track::bbox);
 
+  py::enum_<HmLogLevel>(m, "HmLogLevel")
+      .value("DEBUG", HmLogLevel::kDebug)
+      .value("INFO", HmLogLevel::kInfo)
+      .value("WARNING", HmLogLevel::kWarning)
+      .value("ERROR", HmLogLevel::kError)
+      .export_values();
+
+  py::class_<HmLogMessage>(m, "HmLogMessage")
+      .def(py::init<>())
+      .def_readwrite("level", &HmLogMessage::level)
+      .def_readwrite("message", &HmLogMessage::message);
+
   py::class_<PlayDetectorConfig>(m, "PlayDetectorConfig")
       .def(py::init<>())
       .def_readwrite("fps_speed_scale", &PlayDetectorConfig::fps_speed_scale)
@@ -1402,7 +1414,8 @@ void init_play_tracker(::pybind11::module_& m) {
           "leftmost_tracking_bbox", &PlayTrackerResults::leftmost_tracking_bbox)
       .def_readonly(
           "rightmost_tracking_bbox",
-          &PlayTrackerResults::rightmost_tracking_bbox);
+          &PlayTrackerResults::rightmost_tracking_bbox)
+      .def_readonly("log_messages", &PlayTrackerResults::log_messages);
 
   py::class_<PlayTracker, std::shared_ptr<PlayTracker>>(m, "PlayTracker")
       .def(
@@ -1415,6 +1428,7 @@ void init_play_tracker(::pybind11::module_& m) {
           &PlayTracker::forward,
           py::arg("tracking_ids"),
           py::arg("tracking_boxes"),
+          py::arg("debug_to_stdout") = false,
           py::call_guard<py::gil_scoped_release>())
       .def("get_live_box", &PlayTracker::get_live_box, py::arg("index"))
       .def("set_bboxes", &PlayTracker::set_bboxes, py::arg("bboxes"))

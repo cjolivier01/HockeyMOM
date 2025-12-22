@@ -8,6 +8,7 @@ This file is kept in sync with `core.py` which adds runtime docstrings.
 
 from __future__ import annotations
 
+import enum
 from typing import Any, Optional, Sequence, Tuple
 
 import torch
@@ -84,6 +85,16 @@ class CudaStitchPano3U8:
 class CudaStitchPano3F32(CudaStitchPano3U8): ...
 class HmTrackerPredictionMode: ...  # enum-like
 
+class HmLogLevel(enum.Enum):
+    DEBUG: "HmLogLevel"
+    INFO: "HmLogLevel"
+    WARNING: "HmLogLevel"
+    ERROR: "HmLogLevel"
+
+class HmLogMessage:
+    level: HmLogLevel
+    message: str
+
 class HmTracker:
     def update(self, detections: torch.Tensor) -> Any: ...
 
@@ -130,6 +141,8 @@ __all__ = [
     "HmByteTrackConfig",
     "RemapperConfig",
     "HmTrackerPredictionMode",
+    "HmLogLevel",
+    "HmLogMessage",
     "StitchImageInfo",
     "EnBlender",
     "PlayTracker",

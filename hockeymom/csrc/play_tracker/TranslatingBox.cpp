@@ -1,4 +1,5 @@
 #include "hockeymom/csrc/play_tracker/TranslatingBox.h"
+#include "hockeymom/csrc/play_tracker/LogCapture.h"
 
 #include <cassert>
 #include <csignal>
@@ -77,8 +78,10 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
                    get_arena_edge_center_position_scale());
     } else {
       static size_t wayoff_count = 0;
-      std::cout << ++wayoff_count
-                << ": We are way off, ignoring any position scale\n";
+      ++wayoff_count;
+      hm_log_warning(
+          std::to_string(wayoff_count) +
+          ": We are way off, ignoring any position scale");
       constexpr FloatValue kEmergencyPanFixScaleConstraintRatio = 4.0;
       x_gaussian = kEmergencyPanFixScaleConstraintRatio;
     }

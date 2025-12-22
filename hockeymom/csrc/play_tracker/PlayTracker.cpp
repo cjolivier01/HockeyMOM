@@ -407,10 +407,12 @@ BBox PlayTracker::get_play_box() const {
 
 PlayTrackerResults PlayTracker::forward(
     std::vector<size_t>& tracking_ids,
-    std::vector<BBox>& tracking_boxes) {
+    std::vector<BBox>& tracking_boxes,
+    bool debug_to_stdout) {
   assert(tracking_ids.size() == tracking_boxes.size());
 
   PlayTrackerResults results;
+  ScopedLogCapture log_capture(&results.log_messages, debug_to_stdout);
 
   std::set<size_t> ignore_tracking_ids;
   PruneResults prune_results;
@@ -530,8 +532,8 @@ PlayTrackerResults PlayTracker::forward(
     current_box = living_box->forward(current_box);
     auto new_center = living_box->bounding_box().center();
     if (norm(new_center - last_center) > kMaxJumpAssertionValue) {
-      std::cout << "Detected large jump at tick count " << state_.tick_count_
-                << std::endl;
+      hm_log_warning(
+          "Detected large jump at tick count " + std::to_string(state_.tick_count_));
     }
     results.tracking_boxes.emplace_back(current_box);
   }
