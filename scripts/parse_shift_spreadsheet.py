@@ -4050,8 +4050,25 @@ def _write_event_summaries_and_clips(
     event_log_context: EventLogContext,
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
     create_scripts: bool,
+    *,
+    focus_team: Optional[str] = None,
 ) -> None:
-    evt_by_team = event_log_context.event_counts_by_type_team
+    def _team_label(team: Any) -> str:
+        team_str = str(team) if team is not None else ""
+        if focus_team in {"Blue", "White"} and team_str in {"Blue", "White"}:
+            return "For" if team_str == focus_team else "Against"
+        return team_str or "Unknown"
+
+    raw_evt_by_team = event_log_context.event_counts_by_type_team or {}
+    evt_by_team: Dict[Tuple[str, str], int] = {}
+    for (et, tm), cnt in sorted(raw_evt_by_team.items()):
+        label = _team_label(tm)
+        try:
+            inc = int(cnt)
+        except Exception:
+            inc = 0
+        evt_by_team[(et, label)] = evt_by_team.get((et, label), 0) + inc
+
     rows_evt = [
         {"event_type": _display_event_type(et), "team": tm, "count": cnt}
         for (et, tm), cnt in sorted(evt_by_team.items())
@@ -4081,12 +4098,12 @@ def _write_event_summaries_and_clips(
             rows.append(
                 {
                     "event_type": _display_event_type(str(r.get("event_type") or "")),
-                    "team": r.get("team"),
                     "player": r.get("player"),
                     "jersey": r.get("jersey"),
                     "period": r.get("period"),
                     "video_time": _fmt_v(r.get("video_s")),
                     "game_time": _fmt_g(r.get("game_s")),
+                    "team": _team_label(r.get("team")),
                 }
             )
         pd.DataFrame(rows).to_csv(stats_dir / "event_players.csv", index=False)
@@ -4096,7 +4113,11 @@ def _write_event_summaries_and_clips(
     if not create_scripts:
         return
 
-    instances = event_log_context.event_instances or {}
+    raw_instances = event_log_context.event_instances or {}
+    instances: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for (etype, team), lst in raw_instances.items():
+        label = _team_label(team)
+        instances.setdefault((etype, label), []).extend(list(lst or []))
 
     def map_sb_to_video(period: int, t_sb: int) -> Optional[int]:
         segs = conv_segments_by_period.get(period)
@@ -4610,7 +4631,8 @@ shift 2 || true
 THIS_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"
 for s in \"$THIS_DIR\"/clip_*.sh; do
   [ -x \"$s\" ] || continue
-  if [ \"$s\" = \"$THIS_DIR/clip_all.sh\" ]; then
+  base=\"$(basename \"$s\")\"
+  if [ \"$base\" = \"clip_all.sh\" ] || [ \"$base\" = \"clip_events_all.sh\" ]; then
     continue
   fi
   echo \"Running $s...\"
@@ -5227,6 +5249,7 @@ def process_sheet(
             event_log_context,
             conv_segments_by_period,
             create_scripts=create_scripts,
+            focus_team=focus_team,
         )
         _write_player_event_highlights(
             outdir,
