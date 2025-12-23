@@ -26,7 +26,7 @@ Install deps (for .xls):
 Example:
   python scripts/parse_shift_spreadsheet.py \
       --input dh-tv-12-1.xls \
-      --outdir player_shifts \
+      --outdir player_focus \
       --t2s 51602 --away \
       --keep-goalies
 """
@@ -5653,7 +5653,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet)."
     )
     p.add_argument(
-        "--outdir", "-o", type=Path, default=Path("player_shifts"), help="Output directory."
+        "--outdir", "-o", type=Path, default=Path("player_focus"), help="Output directory."
     )
     p.add_argument(
         "--keep-goalies",
