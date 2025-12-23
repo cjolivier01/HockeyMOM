@@ -109,8 +109,9 @@ def parse_period_label(x: object) -> Optional[int]:
     if not s:
         return None
     # Overtime. Some sheets label this like "OT", "Overtime", or "OT 3 on 3".
-    # Treat any OT label as period 4 (OT), ignoring any following digits (e.g., "3 on 3").
-    if re.search(r"(?i)\b(?:ot|overtime)(?:\b|\d)", s):
+    # Treat OT labels as period 4, but only when the cell itself is an OT header
+    # (avoid matching event labels like "Unforced OT").
+    if re.match(r"(?i)^(?:ot|overtime)(?:\b|\d)", s):
         return 4
     m = re.search(r"(?i)(\d+)(?:st|nd|rd|th)?\s*period", s)
     if m:
@@ -1428,8 +1429,13 @@ def _parse_long_left_event_table(
             marker_s = str(marker).strip() if isinstance(marker, str) else ""
             marker_l = marker_s.lower()
 
-            is_turnover = "turnover" in label_l
-            is_giveaway = ("giveaway" in label_l) and (not is_turnover)
+            # Long sheets encode turnovers in a few different row labels over time:
+            #  - "Turnover" / "Turnover (forced)"  -> forced turnover (lost puck)
+            #  - "Unforced TO" (and occasional typos like "Unforced OT") -> unforced turnover (giveaway)
+            #  - legacy: "Giveaway"
+            is_unforced_to = label_l.startswith("unforced")
+            is_turnover = ("turnover" in label_l) and (not is_unforced_to)
+            is_giveaway = ("giveaway" in label_l) and (not is_turnover) and (not is_unforced_to)
             is_expected_goal = "expected goal" in label_l
             is_controlled_entry = ("controlled" in label_l) and ("entr" in label_l)
             is_controlled_exit = ("controlled" in label_l) and ("exit" in label_l)
@@ -1437,25 +1443,104 @@ def _parse_long_left_event_table(
             is_goal = (label_l == "goal") or (marker_l == "goal")
             is_sog = marker_l in {"sog", "goal"}
 
-            if is_turnover or is_giveaway:
-                # Turnover/Giveaway rows use the "Shots" column for the giving player
-                # (Turnover (forced) or Giveaway), and the "Shots on Goal" column for
-                # the forcing player (Takeaway), formatted like "Caused by #91".
-                giveaway = shooter
-                takeaway = (
-                    _extract_jerseys_from_cell(marker) if sog_col is not None else []
-                )
-                giveaway_event_type = "TurnoverForced" if is_turnover else "Giveaway"
+            if is_turnover or is_giveaway or is_unforced_to:
+                # Turnover rows use:
+                #  - "Shots" for the player who lost possession
+                #  - then 1-2 jersey numbers describing the opponent roles:
+                #      * forced turnover: optional "Caused by" and always "Takeaway"
+                #      * unforced turnover: always just "Takeaway"
+                giving = shooter
+                detail_a = marker if sog_col is not None else None
+                detail_b = df.iat[r, assist_col] if assist_col is not None else None
+                detail_a_nums = _extract_jerseys_from_cell(detail_a)
+                detail_b_nums = _extract_jerseys_from_cell(detail_b)
+
                 other_team = "White" if team == "Blue" else "Blue"
+
+                giving_event_type = "TurnoverForced" if is_turnover else "Giveaway"
+                giveaway = giving[:1]
+
+                caused_by: List[int] = []
+                takeaway: List[int] = []
+
+                if is_turnover:
+                    # Forced turnover:
+                    #  - If "Assist" has a jersey, treat it as the Takeaway player and
+                    #    interpret "Shots on Goal" as the Caused By player (if present).
+                    #  - Otherwise, use ordering across the detail cells:
+                    #      1 jersey  -> Takeaway
+                    #      2 jerseys -> Caused By, Takeaway
+                    if detail_b_nums:
+                        if len(detail_b_nums) > 1:
+                            raise ValueError(
+                                f"forced turnover row has multiple takeaway jerseys: row={r} value={detail_b!r}"
+                            )
+                        takeaway = detail_b_nums[:1]
+                        if detail_a_nums:
+                            if len(detail_a_nums) > 1:
+                                raise ValueError(
+                                    f"forced turnover row has multiple caused-by jerseys: row={r} value={detail_a!r}"
+                                )
+                            caused_by = detail_a_nums[:1]
+                    else:
+                        combined: List[int] = []
+                        for n in detail_a_nums + detail_b_nums:
+                            if n not in combined:
+                                combined.append(n)
+                        if len(combined) > 2:
+                            raise ValueError(
+                                f"forced turnover row has too many opponent jerseys: row={r} values={[detail_a, detail_b]!r}"
+                            )
+                        if len(combined) == 2:
+                            caused_by = combined[:1]
+                            takeaway = combined[1:2]
+                        elif len(combined) == 1:
+                            takeaway = combined[:1]
+                            # If the only detail is explicitly a "Caused by" entry,
+                            # count it as both CreatedTurnover + Takeaway (fallback for incomplete rows).
+                            try:
+                                a_txt = str(detail_a).lower() if detail_a is not None else ""
+                            except Exception:
+                                a_txt = ""
+                            if "caused" in a_txt:
+                                caused_by = combined[:1]
+                                takeaway = combined[:1]
+                else:
+                    # Giveaway / Unforced TO: first jersey is the giveaway; second (opponent) is the takeaway.
+                    if len(giving) > 1:
+                        raise ValueError(
+                            f"unforced turnover row has multiple giveaway jerseys: row={r} value={df.iat[r, shots_col] if shots_col is not None else None!r}"
+                        )
+                    combined: List[int] = []
+                    for n in detail_a_nums + detail_b_nums:
+                        if n not in combined:
+                            combined.append(n)
+                    if len(combined) > 1:
+                        raise ValueError(
+                            f"unforced turnover row has multiple opponent jerseys: row={r} values={[detail_a, detail_b]!r}"
+                        )
+                    takeaway = combined[:1]
+
                 if giveaway:
                     events.append(
                         LongEvent(
-                            event_type=giveaway_event_type,
+                            event_type=giving_event_type,
                             team=team,
                             period=period,
                             video_s=vsec,
                             game_s=gsec,
                             jerseys=tuple(giveaway),
+                        )
+                    )
+                if caused_by:
+                    events.append(
+                        LongEvent(
+                            event_type="CreatedTurnover",
+                            team=other_team,
+                            period=period,
+                            video_s=vsec,
+                            game_s=gsec,
+                            jerseys=tuple(caused_by),
                         )
                     )
                 if takeaway:
@@ -1471,7 +1556,7 @@ def _parse_long_left_event_table(
                     )
                 for j in giveaway:
                     jerseys_by_team.setdefault(team, set()).add(int(j))
-                for j in takeaway:
+                for j in caused_by + takeaway:
                     jerseys_by_team.setdefault(other_team, set()).add(int(j))
                 continue
 
@@ -2635,6 +2720,8 @@ def _build_stats_dataframe(
         "expected_goals_per_sog",
         "turnovers_forced",
         "turnovers_forced_per_game",
+        "created_turnovers",
+        "created_turnovers_per_game",
         "giveaways",
         "giveaways_per_game",
         "takeaways",
@@ -2744,6 +2831,8 @@ def _display_col_name(key: str) -> str:
         "expected_goals_per_sog": "xG per SOG",
         "turnovers_forced": "Turnovers (forced)",
         "turnovers_forced_per_game": "Turnovers (forced) per Game",
+        "created_turnovers": "Created Turnovers",
+        "created_turnovers_per_game": "Created Turnovers per Game",
         "giveaways": "Giveaways",
         "giveaways_per_game": "Giveaways per Game",
         "takeaways": "Takeaways",
@@ -2835,6 +2924,8 @@ def _display_event_type(event_type: str) -> str:
         return "xG"
     if et == "TurnoverForced":
         return "Turnovers (forced)"
+    if et == "CreatedTurnover":
+        return "Created Turnovers"
     return et
 
 
@@ -2951,6 +3042,8 @@ def _write_game_stats_files_t2s_only(
             "xG per SOG (For)": "",
             "Turnovers (forced) For": "",
             "Turnovers (forced) Against": "",
+            "Created Turnovers For": "",
+            "Created Turnovers Against": "",
             "Giveaways For": "",
             "Giveaways Against": "",
             "Takeaways For": "",
@@ -3044,6 +3137,7 @@ def _write_game_stats_files(
     sog_for, sog_against = _for_against("SOG")
     xg_for, xg_against = _for_against("ExpectedGoal")
     turnovers_forced_for, turnovers_forced_against = _for_against("TurnoverForced")
+    created_turnovers_for, created_turnovers_against = _for_against("CreatedTurnover")
     giveaways_for, giveaways_against = _for_against("Giveaway")
     takeaways_for, takeaways_against = _for_against("Takeaway")
     ce_for, ce_against = _for_against("ControlledEntry")
@@ -3068,6 +3162,8 @@ def _write_game_stats_files(
             ),
             "Turnovers (forced) For": turnovers_forced_for,
             "Turnovers (forced) Against": turnovers_forced_against,
+            "Created Turnovers For": created_turnovers_for,
+            "Created Turnovers Against": created_turnovers_against,
             "Giveaways For": giveaways_for,
             "Giveaways Against": giveaways_against,
             "Takeaways For": takeaways_for,
@@ -4053,6 +4149,9 @@ def _write_event_summaries_and_clips(
     *,
     focus_team: Optional[str] = None,
 ) -> None:
+    def _no_parens_label(s: str) -> str:
+        return re.sub(r"[()]", "", str(s or "")).strip()
+
     def _team_label(team: Any) -> str:
         team_str = str(team) if team is not None else ""
         if focus_team in {"Blue", "White"} and team_str in {"Blue", "White"}:
@@ -4159,10 +4258,16 @@ def _write_event_summaries_and_clips(
 
     clip_scripts: List[str] = []
     for (etype, team), lst in sorted(instances.items()):
+        # Skip team-level assist clip scripts; assists are handled in per-player highlights.
+        if str(etype) == "Assist":
+            continue
+
         v_windows: List[Tuple[int, int]] = []
         sb_windows_by_period: Dict[int, List[Tuple[int, int]]] = {}
         pre_s, post_s = _clip_pre_post_s_for_event_type(str(etype))
         etype_disp = _display_event_type(str(etype))
+        etype_safe = sanitize_name(etype_disp) or "Event"
+        team_safe = sanitize_name(team) or "Team"
         for it in lst:
             p = it.get("period")
             v = it.get("video_s")
@@ -4188,12 +4293,12 @@ def _write_event_summaries_and_clips(
 
         v_windows = merge_windows(v_windows)
         if v_windows:
-            vfile = outdir / f"events_{etype_disp}_{team}_video_times.txt"
+            vfile = outdir / f"events_{etype_safe}_{team_safe}_video_times.txt"
             v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
             if create_scripts:
-                script = outdir / f"clip_events_{etype_disp}_{team}.sh"
-                label = f"{etype_disp} ({team})"
+                script = outdir / f"clip_events_{etype_safe}_{team_safe}.sh"
+                label = f"{_no_parens_label(etype_disp)} {_no_parens_label(team)}"
                 body = f"""#!/usr/bin/env bash
 	set -euo pipefail
 	if [ $# -lt 2 ]; then
@@ -4205,7 +4310,7 @@ OPP=\"$2\"
 	THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
 	TS_FILE=\"$THIS_DIR/{vfile.name}\"
 	shift 2 || true
-	python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype_disp}_{team}\" \"{label} vs $OPP\" \"$@\"
+	python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype_safe}_{team_safe}\" \"{label} vs $OPP\" \"$@\"
 	"""
                 script.write_text(body, encoding="utf-8")
                 try:
@@ -4217,7 +4322,7 @@ OPP=\"$2\"
                 clip_scripts.append(script.name)
 
         if sb_windows_by_period:
-            sfile = outdir / f"events_{etype_disp}_{team}_scoreboard_times.txt"
+            sfile = outdir / f"events_{etype_safe}_{team_safe}_scoreboard_times.txt"
             s_lines = []
             for p, wins in sorted(sb_windows_by_period.items()):
                 wins = merge_windows(wins)
@@ -4881,6 +4986,7 @@ def process_sheet(
     has_player_sog = "SOG" in player_event_types_present
     has_player_expected_goals = "ExpectedGoal" in player_event_types_present
     has_player_turnovers_forced = "TurnoverForced" in player_event_types_present
+    has_player_created_turnovers = "CreatedTurnover" in player_event_types_present
     has_player_giveaways = "Giveaway" in player_event_types_present
     has_player_takeaways = "Takeaway" in player_event_types_present
 
@@ -5043,6 +5149,7 @@ def process_sheet(
                     "Assist",
                     "ExpectedGoal",
                     "TurnoverForced",
+                    "CreatedTurnover",
                     "Giveaway",
                     "Takeaway",
                     "ControlledEntry",
@@ -5112,6 +5219,7 @@ def process_sheet(
         sog_cnt = int(ev_counts.get("SOG", 0) or 0)
         expected_goals_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
         turnovers_forced_cnt = int(ev_counts.get("TurnoverForced", 0) or 0)
+        created_turnovers_cnt = int(ev_counts.get("CreatedTurnover", 0) or 0)
         giveaways_cnt = int(ev_counts.get("Giveaway", 0) or 0)
         takeaways_cnt = int(ev_counts.get("Takeaway", 0) or 0)
 
@@ -5149,6 +5257,13 @@ def process_sheet(
         else:
             row_map["turnovers_forced"] = ""
             row_map["turnovers_forced_per_game"] = ""
+
+        if has_player_created_turnovers:
+            row_map["created_turnovers"] = str(created_turnovers_cnt)
+            row_map["created_turnovers_per_game"] = str(created_turnovers_cnt)
+        else:
+            row_map["created_turnovers"] = ""
+            row_map["created_turnovers_per_game"] = ""
 
         if has_player_giveaways:
             row_map["giveaways"] = str(giveaways_cnt)

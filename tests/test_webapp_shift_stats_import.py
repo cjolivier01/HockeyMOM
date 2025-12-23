@@ -179,6 +179,56 @@ def should_not_write_times_files_when_no_scripts():
         assert not list(outdir.glob("clip_*.sh"))
 
 
+def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_team_clips", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    with tempfile.TemporaryDirectory() as td:
+        outdir = Path(td)
+        stats_dir = outdir / "stats"
+        stats_dir.mkdir(parents=True, exist_ok=True)
+
+        ctx = mod.EventLogContext(  # type: ignore[attr-defined]
+            event_counts_by_player={},
+            event_counts_by_type_team={("Assist", "Blue"): 1, ("TurnoverForced", "Blue"): 1},
+            event_instances={
+                ("Assist", "Blue"): [{"period": 1, "video_s": 100, "game_s": 200}],
+                ("TurnoverForced", "Blue"): [{"period": 1, "video_s": 110, "game_s": 210}],
+            },
+            event_player_rows=[],
+            team_roster={},
+            team_excluded={},
+        )
+
+        mod._write_event_summaries_and_clips(  # type: ignore[attr-defined]
+            outdir,
+            stats_dir,
+            ctx,
+            conv_segments_by_period={},
+            create_scripts=True,
+            focus_team="Blue",
+        )
+
+        # Assist should not generate team-level event clip scripts or timestamp files.
+        assert not list(outdir.glob("*Assist*"))
+
+        # Event script/timestamp names should be sanitized (no parentheses).
+        all_paths = list(outdir.rglob("*"))
+        assert all_paths, "expected some files to be generated"
+        assert not any("(" in p.name or ")" in p.name for p in all_paths)
+
+        # Turnovers (forced) should use the sanitized filename form.
+        assert (outdir / "clip_events_Turnovers_forced_For.sh").exists()
+
+
 def should_process_t2s_only_game_without_spreadsheets():
     import importlib.util
     import tempfile
@@ -325,9 +375,10 @@ def should_parse_long_sheet_turnover_and_giveaway_distinct_events():
 
     df = pd.DataFrame(
         [
-            ["1st Period", "Video Time", "Scoreboard", "Team", "Shots", "Shots on Goal"],
-            ["Turnover", "0:10", "0:20", "Blue", "#5", "Caused by #7"],
-            ["Giveaway", "0:11", "0:21", "Blue", "#9", "Caused by #11"],
+            ["1st Period", "Video Time", "Scoreboard", "Team", "Shots", "Shots on Goal", "Assist"],
+            ["Turnover", "0:10", "0:20", "Blue", "#5", "Caused by #7", "Takeaway by #8"],
+            ["Unforced TO", "0:11", "0:21", "Blue", "#9", "Takeaway by #11", ""],
+            ["Giveaway", "0:12", "0:22", "Blue", "#10", "Takeaway by #12", ""],
         ]
     )
 
@@ -336,11 +387,92 @@ def should_parse_long_sheet_turnover_and_giveaway_distinct_events():
     got = [(e.event_type, e.team, list(e.jerseys)) for e in events]
     assert got == [
         ("TurnoverForced", "Blue", [5]),
-        ("Takeaway", "White", [7]),
+        ("CreatedTurnover", "White", [7]),
+        ("Takeaway", "White", [8]),
         ("Giveaway", "Blue", [9]),
         ("Takeaway", "White", [11]),
+        ("Giveaway", "Blue", [10]),
+        ("Takeaway", "White", [12]),
     ]
-    assert jerseys_by_team == {"Blue": {5, 9}, "White": {7, 11}}
+    assert jerseys_by_team == {"Blue": {5, 9, 10}, "White": {7, 8, 11, 12}}
+
+
+def should_error_on_unforced_turnover_with_multiple_opponent_jerseys():
+    import importlib.util
+
+    import pandas as pd
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_long_err", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    df = pd.DataFrame(
+        [
+            ["1st Period", "Video Time", "Scoreboard", "Team", "Shots", "Shots on Goal", "Assist"],
+            ["Unforced TO", "0:10", "0:20", "Blue", "#5", "Takeaway by #7 #8", ""],
+        ]
+    )
+
+    try:
+        mod._parse_long_left_event_table(df)  # type: ignore[attr-defined]
+        assert False, "expected unforced turnover row to raise on multiple opponent jerseys"
+    except ValueError as e:
+        assert "unforced turnover row" in str(e).lower()
+
+
+def should_parse_long_sheet_sharks_12_1_r3_turnover_roles():
+    import importlib.util
+    from collections import Counter
+    from pathlib import Path
+
+    import pandas as pd
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_long_fixture", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    xls_path = Path(__file__).resolve().parent / "testdata" / "sharks-12-1-r3-long-54153.xlsx"
+    df = pd.read_excel(xls_path, sheet_name=0, header=None)
+
+    events, goal_rows, jerseys_by_team = mod._parse_long_left_event_table(df)  # type: ignore[attr-defined]
+    assert goal_rows, "expected fixture to contain goal rows"
+    assert jerseys_by_team.get("Blue") and jerseys_by_team.get("White")
+
+    counts = Counter(e.event_type for e in events)
+    assert counts["TurnoverForced"] == 51
+    assert counts["Giveaway"] == 10
+    assert counts["CreatedTurnover"] == 20
+    assert counts["Takeaway"] == 53
+
+    def _has(event_type: str, team: str, period: int, game_s: int, jersey: int) -> bool:
+        return any(
+            e.event_type == event_type
+            and e.team == team
+            and e.period == period
+            and e.game_s == game_s
+            and jersey in (e.jerseys or ())
+            for e in events
+        )
+
+    # Forced turnover with both Caused By and Takeaway players.
+    assert _has("TurnoverForced", "White", 1, 11 * 60 + 55, 13)
+    assert _has("CreatedTurnover", "Blue", 1, 11 * 60 + 55, 29)
+    assert _has("Takeaway", "Blue", 1, 11 * 60 + 55, 81)
+
+    # Unforced turnover: giveaway + takeaway.
+    assert _has("Giveaway", "White", 1, 12 * 60 + 13, 14)
+    assert _has("Takeaway", "Blue", 1, 12 * 60 + 13, 57)
+
+    # Regression: typo "Unforced OT" must not be mis-parsed as an OT period header.
+    assert _has("TurnoverForced", "White", 3, 29, 59)
+    assert _has("CreatedTurnover", "Blue", 3, 29, 16)
+    assert _has("Takeaway", "Blue", 3, 29, 16)
 
 
 def should_write_game_stats_consolidated_preserves_result_order():
