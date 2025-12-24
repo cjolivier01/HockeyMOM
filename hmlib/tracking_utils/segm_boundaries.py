@@ -1,3 +1,4 @@
+import contextlib
 import time
 from typing import List, Optional, Union
 
@@ -197,9 +198,10 @@ class SegmBoundaries:
         do_trace = self._iter_num == 4
         if do_trace:
             pass
-        from cuda_stacktrace import CudaStackTracer
+        # from cuda_stacktrace import CudaStackTracer
 
-        with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+        # with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+        with contextlib.nullcontext():
             results = self.forward(*args, **kwargs)
         if do_trace:
             pass
