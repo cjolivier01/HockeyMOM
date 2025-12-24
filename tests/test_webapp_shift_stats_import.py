@@ -179,6 +179,80 @@ def should_not_write_times_files_when_no_scripts():
         assert not list(outdir.glob("clip_*.sh"))
 
 
+def should_not_write_player_shift_clip_files_without_shifts_flag():
+    import importlib.util
+    import tempfile
+    from pathlib import Path
+
+    import pandas as pd
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_shift_files", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        xls_path = base / "shift_sheet.xlsx"
+        df = pd.DataFrame(
+            [
+                ["1st Period", "", "", "", "", ""],
+                [
+                    "Jersey No",
+                    "Name",
+                    mod.LABEL_START_SB,  # type: ignore[attr-defined]
+                    mod.LABEL_END_SB,  # type: ignore[attr-defined]
+                    mod.LABEL_START_V,  # type: ignore[attr-defined]
+                    mod.LABEL_END_V,  # type: ignore[attr-defined]
+                ],
+                ["8", "Adam Ro", "0:10", "0:20", "0:10", "0:20"],
+            ]
+        )
+        df.to_excel(xls_path, index=False, header=False)
+
+        out_base = base / "out"
+        outdir, stats_rows, _periods, _per_player_events = mod.process_sheet(  # type: ignore[attr-defined]
+            xls_path=xls_path,
+            sheet_name=None,
+            outdir=out_base,
+            keep_goalies=True,
+            goals=[],
+            include_shifts_in_stats=False,
+            skip_validation=True,
+            create_scripts=True,
+        )
+        assert (outdir / "clip_all.sh").exists()
+        assert (outdir / "stats" / "player_stats.csv").exists()
+        assert stats_rows
+
+        for row in stats_rows:
+            pk = row["player"]
+            assert not (outdir / f"{pk}_video_times.txt").exists()
+            assert not (outdir / f"{pk}_scoreboard_times.txt").exists()
+            assert not (outdir / f"clip_{pk}.sh").exists()
+
+        out_base2 = base / "out2"
+        outdir2, stats_rows2, _periods2, _per_player_events2 = mod.process_sheet(  # type: ignore[attr-defined]
+            xls_path=xls_path,
+            sheet_name=None,
+            outdir=out_base2,
+            keep_goalies=True,
+            goals=[],
+            include_shifts_in_stats=True,
+            skip_validation=True,
+            create_scripts=True,
+        )
+        assert (outdir2 / "clip_all.sh").exists()
+        assert stats_rows2
+        for row in stats_rows2:
+            pk = row["player"]
+            assert (outdir2 / f"{pk}_video_times.txt").exists()
+            assert (outdir2 / f"{pk}_scoreboard_times.txt").exists()
+            assert (outdir2 / f"clip_{pk}.sh").exists()
+
+
 def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
     import importlib.util
     import tempfile

@@ -3,9 +3,11 @@
 Extract shifts and stats from the 'dh-tv-12-1.xls' style sheet.
 
 Outputs per-player:
+  - {Jersey}_{Name}_stats.txt                -> scoreboard-time-based stats (plus/minus, goals for/against counted, etc.)
+
+When `--shifts` is set (and `--no-scripts` is not), also writes per-player shift clip helpers:
   - {Jersey}_{Name}_video_times.txt          -> "videoStart videoEnd"
   - {Jersey}_{Name}_scoreboard_times.txt     -> "period scoreboardStart scoreboardEnd"
-  - {Jersey}_{Name}_stats.txt                -> scoreboard-time-based stats (TOI, #shifts, avg, etc., + plus/minus)
 
 Goals can be specified via:
   --goal GF:2/13:45 --goal GA:1/05:12 ...
@@ -4905,8 +4907,9 @@ def process_sheet(
     stats_dir.mkdir(parents=True, exist_ok=True)
 
     # Per-player time files and clip scripts
-    _write_video_times_and_scripts(outdir, video_pairs_by_player, create_scripts=create_scripts)
-    _write_scoreboard_times(outdir, sb_pairs_by_player, create_scripts=create_scripts)
+    if include_shifts_in_stats:
+        _write_video_times_and_scripts(outdir, video_pairs_by_player, create_scripts=create_scripts)
+        _write_scoreboard_times(outdir, sb_pairs_by_player, create_scripts=create_scripts)
 
     stats_table_rows: List[Dict[str, str]] = []
     all_periods_seen: set[int] = set()
@@ -5823,6 +5826,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Include shift/TOI metrics in parent-facing stats outputs "
             "(stats/*.txt, stats/player_stats.* and consolidated workbook). "
+            "Also enables writing per-player shift clip scripts and `*_video_times.txt` / `*_scoreboard_times.txt` files. "
             "By default these are omitted."
         ),
     )
