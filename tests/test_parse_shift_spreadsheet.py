@@ -253,6 +253,57 @@ def should_map_long_events_to_player_keys_for_focus_team():
     assert ctx.event_counts_by_player["White_91"]["Goal"] == 1
 
 
+def should_invert_for_against_labels_for_turnovers_in_event_clips(tmp_path: Path):
+    outdir = tmp_path / "out"
+    stats_dir = outdir / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+
+    ctx = pss.EventLogContext(
+        event_counts_by_player={},
+        event_counts_by_type_team={
+            ("TurnoverForced", "Blue"): 1,
+            ("TurnoverForced", "White"): 1,
+            ("Shot", "Blue"): 1,
+            ("Shot", "White"): 1,
+        },
+        event_instances={
+            ("TurnoverForced", "Blue"): [{"period": 1, "video_s": 100, "game_s": None}],
+            ("TurnoverForced", "White"): [{"period": 1, "video_s": 200, "game_s": None}],
+            ("Shot", "Blue"): [{"period": 1, "video_s": 300, "game_s": None}],
+            ("Shot", "White"): [{"period": 1, "video_s": 400, "game_s": None}],
+        },
+        event_player_rows=[],
+        team_roster={},
+        team_excluded={},
+    )
+
+    pss._write_event_summaries_and_clips(
+        outdir,
+        stats_dir,
+        ctx,
+        conv_segments_by_period={},
+        create_scripts=True,
+        focus_team="Blue",
+    )
+
+    # Turnovers are recorded for the team that loses possession, but clips are labeled
+    # relative to the focus team (opponent turnovers are "For").
+    assert (outdir / "events_Turnovers_forced_For_video_times.txt").read_text(encoding="utf-8") == (
+        "00:03:10 00:03:25 00:03:20\n"
+    )
+    assert (
+        outdir / "events_Turnovers_forced_Against_video_times.txt"
+    ).read_text(encoding="utf-8") == ("00:01:30 00:01:45 00:01:40\n")
+
+    # Non-turnover events keep the normal labeling (our team == "For").
+    assert (outdir / "events_Shot_For_video_times.txt").read_text(encoding="utf-8") == (
+        "00:04:50 00:05:05 00:05:00\n"
+    )
+    assert (outdir / "events_Shot_Against_video_times.txt").read_text(encoding="utf-8") == (
+        "00:06:30 00:06:45 00:06:40\n"
+    )
+
+
 def should_expand_dir_input_to_game_sheets_and_ignore_goals_xlsx(tmp_path: Path):
     # Primary + companion long sheet.
     (tmp_path / "game-54111.xlsx").write_text("", encoding="utf-8")

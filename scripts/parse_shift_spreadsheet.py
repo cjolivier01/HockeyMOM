@@ -4203,16 +4203,23 @@ def _write_event_summaries_and_clips(
     def _no_parens_label(s: str) -> str:
         return re.sub(r"[()]", "", str(s or "")).strip()
 
-    def _team_label(team: Any) -> str:
+    def _team_label(team: Any, *, event_type: Optional[str] = None) -> str:
         team_str = str(team) if team is not None else ""
         if focus_team in {"Blue", "White"} and team_str in {"Blue", "White"}:
+            # Turnovers are recorded for the team that loses possession, but "For/Against"
+            # in outputs is intended to be relative to the focus team (beneficial vs harmful).
+            # Invert the label so opponent turnovers are labeled "For".
+            et = str(event_type or "")
+            invert = et in {"TurnoverForced", "Giveaway"}
+            if invert:
+                return "Against" if team_str == focus_team else "For"
             return "For" if team_str == focus_team else "Against"
         return team_str or "Unknown"
 
     raw_evt_by_team = event_log_context.event_counts_by_type_team or {}
     evt_by_team: Dict[Tuple[str, str], int] = {}
     for (et, tm), cnt in sorted(raw_evt_by_team.items()):
-        label = _team_label(tm)
+        label = _team_label(tm, event_type=str(et))
         try:
             inc = int(cnt)
         except Exception:
@@ -4253,7 +4260,7 @@ def _write_event_summaries_and_clips(
                     "period": r.get("period"),
                     "video_time": _fmt_v(r.get("video_s")),
                     "game_time": _fmt_g(r.get("game_s")),
-                    "team": _team_label(r.get("team")),
+                    "team": _team_label(r.get("team"), event_type=str(r.get("event_type") or "")),
                 }
             )
         pd.DataFrame(rows).to_csv(stats_dir / "event_players.csv", index=False)
@@ -4266,7 +4273,7 @@ def _write_event_summaries_and_clips(
     raw_instances = event_log_context.event_instances or {}
     instances: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for (etype, team), lst in raw_instances.items():
-        label = _team_label(team)
+        label = _team_label(team, event_type=str(etype))
         instances.setdefault((etype, label), []).extend(list(lst or []))
 
     def map_sb_to_video(period: int, t_sb: int) -> Optional[int]:
