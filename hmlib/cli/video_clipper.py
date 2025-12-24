@@ -399,6 +399,16 @@ def extract_clip_with_overlay(
         centers = list(blink_event_centers_s or [])
         if not centers and clip_duration_s is not None and clip_duration_s > 0:
             centers = [clip_duration_s / 2.0]
+        # Special case: don't spoil goals. When blinking "GOAL", delay the first
+        # possible appearance until 1s after the event moment, regardless of the
+        # configured span.
+        blink_text = str(blink_event_text_value or "").strip()
+        if blink_text.upper() == "GOAL":
+            try:
+                half = max(0.0, float(blink_event_span_s)) / 2.0
+            except Exception:
+                half = 1.0
+            centers = [float(c) + half + 1.0 for c in centers]
         blink_text_enable = _blink_enable_expr(
             centers, span_s=blink_event_span_s, clip_duration_s=clip_duration_s
         )
