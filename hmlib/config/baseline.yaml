@@ -137,7 +137,7 @@ rink:
     stop_delay_cooldown_frames: 2
     # When increasing speed toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
-    time_to_dest_speed_limit_frames: 20
+    time_to_dest_speed_limit_frames: 10
 
     # Sticky translation
     sticky_size_ratio_to_frame_width: 10.0
