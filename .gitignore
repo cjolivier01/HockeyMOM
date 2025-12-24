@@ -26,7 +26,7 @@ hockeymom.egg-info
 /my_venv
 /output_image.png
 output_workdirs
-/player_shifts
+/player_focus
 /profile
 /*.pth.tar
 pybind11_project_example.egg-info
@@ -42,3 +42,4 @@ trace.json
 YOLOX_outputs
 player_shifts_fiverr
 /*.dot
+
