@@ -3,10 +3,11 @@ from typing import Any, Dict
 
 import torch
 
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
+from hmlib.utils.image import make_channels_first
+
 from .base import Plugin
 from .detector_factory_plugin import _strip_static_padding
-from hmlib.utils.gpu import wrap_tensor, unwrap_tensor
-from hmlib.utils.image import make_channels_first
 
 
 class DetectorInferencePlugin(Plugin):
@@ -25,6 +26,11 @@ class DetectorInferencePlugin(Plugin):
 
     def __init__(self, enabled: bool = True):
         super().__init__(enabled=enabled)
+        self._iter_num: int = 0
+
+    def __call__(self, *args, **kwargs) -> Any:
+        self._iter_num += 1
+        return super().__call__(*args, **kwargs)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
