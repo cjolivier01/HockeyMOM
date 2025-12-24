@@ -78,7 +78,7 @@ Optionally, if you still use a game directory layout under `$HOME/Videos/<game-i
 
 ## Unified Configuration
 - HM configs (`hmlib/config/` camera/rink/game/model) and Aspen graph configs (`hmlib/config/aspen/`) can be combined.
-- Aspen YAMLs are nested under a top-level `aspen:` key (e.g., `aspen.trunks`, `aspen.inference_pipeline`, `aspen.video_out_pipeline`).
+- Aspen YAMLs are nested under a top-level `aspen:` key (e.g., `aspen.plugins`, `aspen.inference_pipeline`, `aspen.video_out_pipeline`).
 - The CLI merges multiple YAML files in order using `--config` (repeatable). Later files override earlier values and add new fields.
 - Backward-compat `--aspen-config` has been removed. Use `--config` exclusively.
 
@@ -99,17 +99,17 @@ game:
 aspen:
   inference_pipeline: [...]
   video_out_pipeline: [...]
-  trunks:
+  plugins:
     detector_factory: {...}
     tracker: {...}
 ```
 
 **AspenNet Execution Modes**
-- Normal (sequential): single thread runs trunks in topological order.
+- Normal (sequential): single thread runs plugins in topological order.
   
   ![AspenNet Normal](docs/images/aspennet-normal.svg)
 
-- Threaded + CUDA streams: each trunk executes in its own thread and CUDA stream; queues connect stages.
+- Threaded + CUDA streams: each plugin executes in its own thread and CUDA stream; queues connect stages.
   
   ![AspenNet Threaded (CUDA streams)](docs/images/aspennet-threaded-streams.svg)
 
