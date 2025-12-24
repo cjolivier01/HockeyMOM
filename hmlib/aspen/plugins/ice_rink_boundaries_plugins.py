@@ -4,6 +4,7 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.log import get_logger
+
 from .base import Plugin
 
 
@@ -109,7 +110,7 @@ class IceRinkSegmBoundariesPlugin(Plugin):
                 pd_input["original_images"] = original_images
 
             # Reuse the pipeline module's forward for pruning and optional drawing
-            out = self._segm.forward(pd_input)
+            out = self._segm(pd_input)
 
             new_bboxes = out["det_bboxes"]
             new_labels = out["labels"]

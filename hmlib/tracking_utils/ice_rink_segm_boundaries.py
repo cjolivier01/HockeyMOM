@@ -10,7 +10,7 @@ from .segm_boundaries import SegmBoundaries
 
 
 @PIPELINES.register_module()
-class IceRinkSegmConfig:
+class IceRinkSegmConfig(torch.nn.Module):
     def __init__(
         self,
         *args,
@@ -57,7 +57,7 @@ class IceRinkSegmConfig:
         return data
 
     def __call__(self, *args, **kwargs) -> Dict[str, Any]:
-        return self.forward(*args, **kwargs)
+        return super().__call__(*args, **kwargs)
 
     def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         if "rink_profile" not in data:

@@ -30,7 +30,7 @@ class SegmBoundaries:
             original_clip_box = torch.tensor(original_clip_box, dtype=torch.int64)
         self._original_clip_box = original_clip_box
         self.det_thresh = det_thresh
-        self._passes = 0
+        self._iter_num = 0
         self._duration = 0
         self._raise_bbox_center_by_height_ratio = raise_bbox_center_by_height_ratio
         self._lower_bbox_bottom_by_height_ratio = lower_bbox_bottom_by_height_ratio
@@ -193,7 +193,17 @@ class SegmBoundaries:
         return keep_mask
 
     def __call__(self, *args, **kwargs):
-        return self.forward(*args, **kwargs)
+        self._iter_num += 1
+        do_trace = self._iter_num == 4
+        if do_trace:
+            pass
+        from cuda_stacktrace import CudaStackTracer
+
+        with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+            results = self.forward(*args, **kwargs)
+        if do_trace:
+            pass
+        return results
 
     def forward(self, data, **kwargs):
         if self._segment_mask is None:
@@ -236,17 +246,16 @@ class SegmBoundaries:
             data[name] = data[name][keep_indexes]
 
         self._duration += time.time() - start
-        self._passes += 1
-        if self._passes % 50 == 0:
-            fps = self._passes / self._duration
+        if self._iter_num % 50 == 0:
+            fps = self._iter_num / self._duration
             if fps < 50:
                 from hmlib.log import get_logger
 
                 get_logger(__name__).info(
                     "Segment Boundary pruning speed: %f fps",
-                    self._passes / self._duration,
+                    self._iter_num / self._duration,
                 )
-            self._passes = 0
+            self._iter_num = 0
             self._duration = 0
         return data
 
