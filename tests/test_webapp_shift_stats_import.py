@@ -614,6 +614,73 @@ def should_write_game_stats_consolidated_preserves_result_order():
         assert list(df.columns) == ["Stat", "game-b", "game-a"]
 
 
+def should_order_player_stats_consolidated_sheets_reverse_file_list():
+    import importlib.util
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    import pandas as pd
+    from openpyxl import load_workbook
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_sheet_order", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    # In --file-list runs, newer games tend to be appended at the bottom. The consolidated
+    # workbook should list per-game sheets in reverse file-list order (newest first).
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        outdir = base / "out"
+        file_list = base / "games.txt"
+
+        def _write_minimal_sheet(path: Path) -> None:
+            df = pd.DataFrame(
+                [
+                    ["1st Period", "", "", "", "", ""],
+                    [
+                        "Jersey No",
+                        "Name",
+                        mod.LABEL_START_SB,  # type: ignore[attr-defined]
+                        mod.LABEL_END_SB,  # type: ignore[attr-defined]
+                        mod.LABEL_START_V,  # type: ignore[attr-defined]
+                        mod.LABEL_END_V,  # type: ignore[attr-defined]
+                    ],
+                    ["8", "Adam Ro", "0:10", "0:20", "0:10", "0:20"],
+                ]
+            )
+            df.to_excel(path, index=False, header=False)
+
+        old_game = base / "old.xlsx"
+        new_game = base / "new.xlsx"
+        _write_minimal_sheet(old_game)
+        _write_minimal_sheet(new_game)
+
+        file_list.write_text(f"{old_game}\n{new_game}\n", encoding="utf-8")
+
+        argv_prev = sys.argv[:]
+        try:
+            sys.argv = [
+                "parse_shift_spreadsheet.py",
+                "--file-list",
+                str(file_list),
+                "--outdir",
+                str(outdir),
+                "--no-scripts",
+                "--skip-validation",
+            ]
+            mod.main()  # type: ignore[attr-defined]
+        finally:
+            sys.argv = argv_prev
+
+        wb = load_workbook(outdir / "player_stats_consolidated.xlsx")
+        assert wb.sheetnames[0] == "Cumulative"
+        assert wb.sheetnames[1:] == ["new", "old"]
+
+
 def should_aggregate_all_turnover_types_in_consolidated_player_stats():
     import importlib.util
 

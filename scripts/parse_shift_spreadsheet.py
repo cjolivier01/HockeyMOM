@@ -6352,7 +6352,11 @@ def main() -> None:
             if has_t2s
             else results
         )
-        for r in ordered_results:
+
+        # Workbook tab order: keep Cumulative first, then list games in reverse
+        # `--file-list` order so the most recent games (often listed last) appear first.
+        per_game_sheet_results = list(reversed(results)) if args.file_list else ordered_results
+        for r in per_game_sheet_results:
             # Per-game sheets: keep simple alphabetical ordering by player.
             df, _ = _build_stats_dataframe(
                 r["stats"],
