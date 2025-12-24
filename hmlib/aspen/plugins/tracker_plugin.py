@@ -217,6 +217,19 @@ class TrackerPlugin(Plugin):
                 else:
                     det_scores = torch.ones((N,), dtype=torch.float32, device=det_bboxes.device)
 
+            det_reid = getattr(det_instances, "reid_features", None)
+            if det_reid is not None:
+                det_reid = unwrap_tensor(det_reid)
+                if not isinstance(det_reid, torch.Tensor):
+                    det_reid = torch.as_tensor(det_reid)
+                if det_reid.ndim == 1:
+                    det_reid = det_reid.unsqueeze(0)
+                if det_reid.shape[0] != N:
+                    if det_reid.shape[0] == 1 and N > 1:
+                        det_reid = det_reid.expand(N, -1).clone()
+                    else:
+                        det_reid = None
+
             ll1 = len(det_bboxes)
             assert len(det_labels) == ll1 and len(det_scores) == ll1
             # Ensure tracker receives torch tensors
@@ -226,6 +239,7 @@ class TrackerPlugin(Plugin):
                 det_bboxes=det_bboxes,
                 det_labels=det_labels,
                 det_scores=det_scores,
+                det_reid=det_reid,
             )
             results = self._hm_tracker.track(tracker_payload)
             results, frame_track_count = self._trim_tracker_outputs(results)
@@ -243,6 +257,11 @@ class TrackerPlugin(Plugin):
                 scores=results["scores"],
                 labels=results["labels"],
             )
+            if "reid_features" in results:
+                try:
+                    pred_track_instances.reid_features = results["reid_features"]
+                except Exception:
+                    pass
             # Propagate source pose indices from detections to per-frame tracks
             try:
                 src_idx = getattr(img_data_sample.pred_instances, "source_pose_index", None)
@@ -350,15 +369,19 @@ class TrackerPlugin(Plugin):
         det_bboxes: torch.Tensor,
         det_labels: torch.Tensor,
         det_scores: torch.Tensor,
+        det_reid: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         if not self._using_static_tracker():
-            return dict(
+            payload = dict(
                 frame_id=torch.tensor([frame_id], dtype=torch.int64),
                 bboxes=det_bboxes,
                 labels=det_labels,
                 scores=det_scores,
             )
-        return self._build_static_tracker_inputs(frame_id, det_bboxes, det_labels, det_scores)
+            if det_reid is not None:
+                payload["reid_features"] = det_reid.to(dtype=torch.float32)
+            return payload
+        return self._build_static_tracker_inputs(frame_id, det_bboxes, det_labels, det_scores, det_reid)
 
     def _build_static_tracker_inputs(
         self,
@@ -366,12 +389,16 @@ class TrackerPlugin(Plugin):
         det_bboxes: torch.Tensor,
         det_labels: torch.Tensor,
         det_scores: torch.Tensor,
+        det_reid: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         assert self._static_tracker_max_detections is not None
         max_det = self._static_tracker_max_detections
         bboxes = det_bboxes.to(dtype=torch.float32)
         labels = det_labels.to(dtype=torch.long)
         scores = det_scores.to(dtype=torch.float32)
+        reid = None
+        if det_reid is not None:
+            reid = det_reid.to(dtype=torch.float32, device=bboxes.device)
         total = int(bboxes.shape[0])
         kept = min(total, max_det)
         if total > max_det:
@@ -380,6 +407,8 @@ class TrackerPlugin(Plugin):
             bboxes = bboxes.index_select(0, keep_idx)
             labels = labels.index_select(0, keep_idx)
             scores = scores.index_select(0, keep_idx)
+            if reid is not None:
+                reid = reid.index_select(0, keep_idx)
             if not self._static_tracker_overflow_warned:
                 logger.warning(
                     "Tracker detections (%d) exceed max_detections (%d); discarding lowest scores.",
@@ -391,18 +420,31 @@ class TrackerPlugin(Plugin):
         padded_bboxes = bboxes.new_zeros((max_det, 4))
         padded_labels = labels.new_zeros((max_det,))
         padded_scores = scores.new_zeros((max_det,))
+        padded_reid = None
+        if reid is not None:
+            if reid.ndim == 1:
+                reid = reid.unsqueeze(0)
+            if reid.ndim != 2 or reid.shape[0] != kept:
+                reid = None
+            else:
+                padded_reid = reid.new_zeros((max_det, reid.shape[1]))
         if kept:
             padded_bboxes[:kept].copy_(bboxes[:kept])
             padded_labels[:kept].copy_(labels[:kept])
             padded_scores[:kept].copy_(scores[:kept])
+            if padded_reid is not None:
+                padded_reid[:kept].copy_(reid[:kept])
 
-        return {
+        payload = {
             "frame_id": torch.tensor([frame_id], dtype=torch.int64),
             "bboxes": padded_bboxes,
             "labels": padded_labels,
             "scores": padded_scores,
             "num_detections": torch.tensor([kept], dtype=torch.long),
         }
+        if padded_reid is not None:
+            payload["reid_features"] = padded_reid
+        return payload
 
     def _trim_tracker_outputs(
         self, results: Dict[str, torch.Tensor]
@@ -418,7 +460,7 @@ class TrackerPlugin(Plugin):
         except Exception:
             num_tracks = 0
         trimmed = dict(results)
-        for key in ("user_ids", "ids", "bboxes", "labels", "scores"):
+        for key in ("user_ids", "ids", "bboxes", "labels", "scores", "reid_features"):
             tensor = trimmed.get(key)
             if tensor is not None:
                 trimmed[key] = tensor[:num_tracks]

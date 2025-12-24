@@ -10,6 +10,7 @@ pybind_extension(
   ],
   deps = [
     "//hockeymom/csrc/bytetrack:bytetrack",
+    "//hockeymom/csrc/df:df_tracker",
     "//hockeymom/csrc/pytorch:pytorch_stitch",
     "//hockeymom/csrc/kmeans:kmeans",
     "//hockeymom/csrc/play_tracker:play_tracker",

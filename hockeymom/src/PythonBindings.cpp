@@ -12,6 +12,7 @@
 #include "hockeymom/csrc/bytetrack/BYTETrackerCuda.h"
 #include "hockeymom/csrc/bytetrack/BYTETrackerCudaStatic.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
+#include "hockeymom/csrc/df/DfTrackerCudaStatic.h"
 #include "hockeymom/csrc/kmeans/kmeans.h"
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
@@ -953,6 +954,61 @@ void init_tracking(::pybind11::module_& m) {
       .def_property_readonly(
           "max_tracks",
           &hm::tracker::BYTETrackerCudaStatic::max_tracks);
+
+  py::class_<
+      hm::tracker::DfTrackerCudaStatic,
+      std::shared_ptr<hm::tracker::DfTrackerCudaStatic>>(m, "HmDcfTrackerCudaStatic")
+      .def(
+          py::init([](hm::tracker::ByteTrackConfig config,
+                      int64_t max_detections,
+                      int64_t max_tracks,
+                      int64_t reid_feature_dim,
+                      float iou_weight,
+                      float reid_weight,
+                      float box_momentum,
+                      float reid_momentum,
+                      float min_similarity,
+                      float lost_track_cost,
+                      const std::string& device) {
+            return std::make_shared<hm::tracker::DfTrackerCudaStatic>(
+                std::move(config),
+                max_detections,
+                max_tracks,
+                reid_feature_dim,
+                iou_weight,
+                reid_weight,
+                box_momentum,
+                reid_momentum,
+                min_similarity,
+                lost_track_cost,
+                c10::Device(device));
+          }),
+          py::arg("config") = hm::tracker::ByteTrackConfig(),
+          py::arg("max_detections") = 256,
+          py::arg("max_tracks") = 256,
+          py::arg("reid_feature_dim") = 256,
+          py::arg("iou_weight") = 0.5f,
+          py::arg("reid_weight") = 0.5f,
+          py::arg("box_momentum") = 0.6f,
+          py::arg("reid_momentum") = 0.2f,
+          py::arg("min_similarity") = -1.0f,
+          py::arg("lost_track_cost") = 0.05f,
+          py::arg("device") = std::string("cuda:0"))
+      .def("num_tracks", &hm::tracker::DfTrackerCudaStatic::num_tracks)
+      .def(
+          "track",
+          &hm::tracker::DfTrackerCudaStatic::track,
+          py::arg("data"),
+          py::call_guard<py::gil_scoped_release>())
+      .def_property_readonly(
+          "max_detections",
+          &hm::tracker::DfTrackerCudaStatic::max_detections)
+      .def_property_readonly(
+          "max_tracks",
+          &hm::tracker::DfTrackerCudaStatic::max_tracks)
+      .def_property_readonly(
+          "reid_feature_dim",
+          &hm::tracker::DfTrackerCudaStatic::reid_feature_dim);
 
   /**
    *  _    _        _______              _

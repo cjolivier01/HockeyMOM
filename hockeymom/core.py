@@ -47,6 +47,7 @@ from ._hockeymom import (
     CudaStitchPanoF32,
     CudaStitchPanoU8,
     GrowShrink,
+    HmDcfTrackerCudaStatic,
     HmByteTrackConfig,
     HmByteTracker,
     HmByteTrackerCuda,
@@ -97,6 +98,7 @@ __all__ = [
     "HmByteTracker",
     "HmByteTrackerCuda",
     "HmByteTrackerCudaStatic",
+    "HmDcfTrackerCudaStatic",
     "HmByteTrackConfig",
     "RemapperConfig",
     "HmTrackerPredictionMode",
@@ -285,6 +287,15 @@ _doc(
         max_detections: Maximum number of detections accepted per frame.
         max_tracks: Maximum number of active tracks returned.
         device: Torch device string (default ``"cuda:0"``).
+    """,
+)
+_doc(
+    HmDcfTrackerCudaStatic,
+    """Static-shape CUDA DCF tracker with optional ReID features.
+
+    Uses fixed-size buffers to avoid dynamic shapes and combines IoU with
+    per-track appearance templates (when provided) for matching. The interface
+    mirrors BYTETracker static mode (`track(data)` with padded inputs/outputs).
     """,
 )
 
