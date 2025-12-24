@@ -198,10 +198,17 @@ def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
 
         ctx = mod.EventLogContext(  # type: ignore[attr-defined]
             event_counts_by_player={},
-            event_counts_by_type_team={("Assist", "Blue"): 1, ("TurnoverForced", "Blue"): 1},
+            event_counts_by_type_team={
+                ("Assist", "Blue"): 1,
+                ("TurnoverForced", "Blue"): 1,
+                ("Giveaway", "Blue"): 1,
+                ("Giveaway", "White"): 1,
+            },
             event_instances={
                 ("Assist", "Blue"): [{"period": 1, "video_s": 100, "game_s": 200}],
                 ("TurnoverForced", "Blue"): [{"period": 1, "video_s": 110, "game_s": 210}],
+                ("Giveaway", "Blue"): [{"period": 1, "video_s": 120, "game_s": 220}],
+                ("Giveaway", "White"): [{"period": 1, "video_s": 130, "game_s": 230}],
             },
             event_player_rows=[],
             team_roster={},
@@ -227,6 +234,10 @@ def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
 
         # Turnovers (forced) should use the sanitized filename form.
         assert (outdir / "clip_events_Turnovers_forced_For.sh").exists()
+
+        # Giveaways should have For/Against team-level clip scripts.
+        assert (outdir / "clip_events_Giveaway_For.sh").exists()
+        assert (outdir / "clip_events_Giveaway_Against.sh").exists()
 
 
 def should_process_t2s_only_game_without_spreadsheets():

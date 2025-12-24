@@ -3040,6 +3040,7 @@ def _write_game_stats_files_t2s_only(
             "xG For": "",
             "xG Against": "",
             "xG per SOG (For)": "",
+            "xG per SOG (Against)": "",
             "Turnovers (forced) For": "",
             "Turnovers (forced) Against": "",
             "Created Turnovers For": "",
@@ -3158,6 +3159,13 @@ def _write_game_stats_files(
                 if isinstance(xg_for, (int, float))
                 and isinstance(sog_for, (int, float))
                 and int(sog_for) > 0
+                else ""
+            ),
+            "xG per SOG (Against)": (
+                f"{(int(xg_against) / int(sog_against)):.2f}"
+                if isinstance(xg_against, (int, float))
+                and isinstance(sog_against, (int, float))
+                and int(sog_against) > 0
                 else ""
             ),
             "Turnovers (forced) For": turnovers_forced_for,
