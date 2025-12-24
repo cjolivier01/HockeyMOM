@@ -110,6 +110,43 @@ def escape_drawtext(text: str) -> str:
     return t
 
 
+def _blink_enable_expr(
+    centers_s: List[float],
+    *,
+    span_s: float,
+    clip_duration_s: Optional[float],
+) -> Optional[str]:
+    if not centers_s:
+        return None
+    try:
+        half = max(0.0, float(span_s)) / 2.0
+    except Exception:
+        half = 1.0
+    if half <= 0:
+        half = 1.0
+
+    window_terms: List[str] = []
+    for c in centers_s:
+        try:
+            center = float(c)
+        except Exception:
+            continue
+        start = max(0.0, center - half)
+        end = center + half
+        if clip_duration_s is not None:
+            end = min(float(clip_duration_s), end)
+        if end <= start:
+            continue
+        window_terms.append(f"between(t,{start:.3f},{end:.3f})")
+
+    if not window_terms:
+        return None
+
+    # Blink on/off with a 0.2s cadence (0.2 on, 0.2 off), within any of the time windows.
+    window_expr = "+".join(window_terms) if len(window_terms) > 1 else window_terms[0]
+    return f"({window_expr})*lte(mod(t,0.4),0.2)"
+
+
 def hhmmss_to_duration_seconds(time_str: str) -> float:
     h = 0
     m = 0
@@ -330,6 +367,11 @@ def extract_clip_with_overlay(
     blink_circle: bool = False,
     blink_pre: float = 2.0,
     blink_post: float = 2.0,
+    # Blinking event text options (disabled by default)
+    blink_event_text: bool = False,
+    blink_event_text_value: str = "",
+    blink_event_span_s: float = 2.0,
+    blink_event_centers_s: Optional[List[float]] = None,
     dry_run: bool,
     cont: bool,
     expected_duration: Optional[float],  # caller computes/guesses
@@ -343,6 +385,24 @@ def extract_clip_with_overlay(
 
     overlay_text = f"{friendly_label(label)} {clip_number}"
     etext = escape_drawtext(overlay_text)
+
+    clip_duration_s: Optional[float] = None
+    if start_time and end_time:
+        clip_duration_s = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(
+            start_time
+        )
+    elif expected_duration is not None:
+        clip_duration_s = float(expected_duration)
+
+    blink_text_enable = None
+    if blink_event_text:
+        centers = list(blink_event_centers_s or [])
+        if not centers and clip_duration_s is not None and clip_duration_s > 0:
+            centers = [clip_duration_s / 2.0]
+        blink_text_enable = _blink_enable_expr(
+            centers, span_s=blink_event_span_s, clip_duration_s=clip_duration_s
+        )
+
     # Ensure we draw text at final resolution when scaling; otherwise preserve source size.
     vf_parts = []
     if apply_scale:
@@ -355,14 +415,8 @@ def extract_clip_with_overlay(
     circle_enable = None
     if blink_circle:
         # Determine the working duration of this output segment
-        seg_duration: Optional[float] = None
-        if start_time and end_time:
-            seg_duration = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(
-                start_time
-            )
-        elif expected_duration is not None:
-            seg_duration = expected_duration
-        else:
+        seg_duration: Optional[float] = clip_duration_s
+        if seg_duration is None:
             # Probe full input when we have no better info (filelist mode without expected)
             seg_duration = get_media_duration_seconds(input_video, dry_run=dry_run)
 
@@ -380,6 +434,23 @@ def extract_clip_with_overlay(
                 circle_enable = f"between(t,{start_blink:.3f},{end_blink:.3f})*lte(mod(t,0.4),0.2)"
 
     # Note: if blinking circle is enabled, an RGBA image mask is overlaid via filter_complex below.
+
+    # Optionally add a blinking large yellow event label centered on screen.
+    if blink_text_enable:
+        blink_text = blink_event_text_value or label
+        blink_etext = escape_drawtext(str(blink_text))
+        # Use 1/8 of frame height as requested.
+        blink_fontsize = max(1, int(height / 8))
+        vf_parts.append(
+            "drawtext="
+            f"text='{blink_etext}':"
+            f"fontsize={blink_fontsize}:"
+            "fontcolor=yellow:"
+            "borderw=6:bordercolor=black:"
+            "box=1:boxcolor=black@0.35:boxborderw=18:"
+            "x=10:y=10:"
+            f"enable='{blink_text_enable}'"
+        )
 
     # Always add the top-right label text
     vf_parts.append(
@@ -424,7 +495,26 @@ def extract_clip_with_overlay(
         )
 
         # Compose overlay with enable blink expression, then draw the top-right label and convert to nv12
-        label_chain = f"drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin},format=nv12"
+        label_parts: List[str] = []
+        if blink_text_enable:
+            blink_text = blink_event_text_value or label
+            blink_etext = escape_drawtext(str(blink_text))
+            blink_fontsize = max(1, int(height / 8))
+            label_parts.append(
+                "drawtext="
+                f"text='{blink_etext}':"
+                f"fontsize={blink_fontsize}:"
+                "fontcolor=yellow:"
+                "borderw=6:bordercolor=black:"
+                "box=1:boxcolor=black@0.35:boxborderw=18:"
+                "x=10:y=10:"
+                f"enable='{blink_text_enable}'"
+            )
+        label_parts.append(
+            f"drawtext=text='{etext}':fontsize=52:fontcolor=white:x=w-tw-{top_right_margin}:y={top_right_margin}"
+        )
+        label_parts.append("format=nv12")
+        label_chain = ",".join(label_parts)
 
         fc = (
             f"[0:v]{base_chain_s}[base];"
@@ -468,6 +558,10 @@ def _process_clip_from_timestamps(
     blink_circle: bool,
     blink_pre: float,
     blink_post: float,
+    blink_event_text: bool,
+    blink_event_label: str,
+    blink_event_span_s: float,
+    event_times: List[str],
 ) -> list[str]:
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
@@ -488,6 +582,15 @@ def _process_clip_from_timestamps(
     if end_time:
         exp_dur = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(start_time)
 
+    blink_centers_s: List[float] = []
+    if blink_event_text:
+        start_s = hhmmss_to_duration_seconds(start_time)
+        for t in event_times or []:
+            try:
+                blink_centers_s.append(hhmmss_to_duration_seconds(t) - start_s)
+            except Exception:
+                continue
+
     # Fused extract + overlay
     numbered_clip = f"{temp_dir}/clip_{idx}_numbered.mp4"
     n_path, n_dur = extract_clip_with_overlay(
@@ -504,6 +607,10 @@ def _process_clip_from_timestamps(
         blink_circle=blink_circle,
         blink_pre=blink_pre,
         blink_post=blink_post,
+        blink_event_text=blink_event_text,
+        blink_event_text_value=blink_event_label,
+        blink_event_span_s=blink_event_span_s,
+        blink_event_centers_s=blink_centers_s,
         dry_run=dry_run,
         cont=cont,
         expected_duration=exp_dur,
@@ -528,6 +635,9 @@ def _process_clip_from_filelist(
     blink_circle: bool,
     blink_pre: float,
     blink_post: float,
+    blink_event_text: bool,
+    blink_event_label: str,
+    blink_event_span_s: float,
 ) -> list[str]:
     # Transition screen
     transition = f"{temp_dir}/transition_{idx}.mp4"
@@ -562,6 +672,9 @@ def _process_clip_from_filelist(
         blink_circle=blink_circle,
         blink_pre=blink_pre,
         blink_post=blink_post,
+        blink_event_text=blink_event_text,
+        blink_event_text_value=blink_event_label,
+        blink_event_span_s=blink_event_span_s,
         dry_run=dry_run,
         cont=cont,
         expected_duration=src_dur,
@@ -622,6 +735,27 @@ def main():
         type=float,
         default=2.0,
         help="Seconds after midpoint to blink the circle (default: 2.0)",
+    )
+    parser.add_argument(
+        "--blink-event-text",
+        action="store_true",
+        help=(
+            "Blink a large yellow event label around the event moment. "
+            "In --timestamps mode, add one or more extra HH:MM:SS tokens per line "
+            "(after start/end) to specify the event moment(s)."
+        ),
+    )
+    parser.add_argument(
+        "--blink-event-label",
+        type=str,
+        default="",
+        help="Text to blink when --blink-event-text is enabled (default: use --label).",
+    )
+    parser.add_argument(
+        "--blink-event-span",
+        type=float,
+        default=2.0,
+        help="Total seconds to blink around each event moment (default: 2.0).",
     )
     parser.add_argument("label", help="Text label for transitions")
     args = parser.parse_args()
@@ -734,6 +868,9 @@ def main():
                     blink_circle=args.blink_circle,
                     blink_pre=float(args.blink_pre),
                     blink_post=float(args.blink_post),
+                    blink_event_text=bool(args.blink_event_text),
+                    blink_event_label=str(args.blink_event_label or ""),
+                    blink_event_span_s=float(args.blink_event_span),
                 ): i
                 for i, clip_file in jobs
             }
@@ -753,7 +890,7 @@ def main():
             raw_lines = f.readlines()
 
         # Build timestamp jobs in order, skipping comments/blank lines
-        ts_jobs: list[tuple[int, str, str]] = []
+        ts_jobs: list[tuple[int, str, str, list[str]]] = []
         for i, line in enumerate(raw_lines):
             line = re.sub(r"\s+", " ", line)
             line = line.strip()
@@ -766,11 +903,12 @@ def main():
             start_time = time_tokens[0]
             if len(time_tokens) > 1:
                 end_time = time_tokens[1]
+            event_times = time_tokens[2:] if len(time_tokens) > 2 else []
 
             if not all(validate_timestamp(t) for t in time_tokens):
                 raise ValueError(f"Invalid timestamp format in line {i+1}: {time_tokens}")
 
-            ts_jobs.append((i, start_time, end_time))
+            ts_jobs.append((i, start_time, end_time, event_times))
 
         results: dict[int, Tuple[list[str], list[Optional[float]]]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -793,8 +931,12 @@ def main():
                     blink_circle=args.blink_circle,
                     blink_pre=float(args.blink_pre),
                     blink_post=float(args.blink_post),
+                    blink_event_text=bool(args.blink_event_text),
+                    blink_event_label=str(args.blink_event_label or ""),
+                    blink_event_span_s=float(args.blink_event_span),
+                    event_times=event_times,
                 ): i
-                for (i, start_time, end_time) in ts_jobs
+                for (i, start_time, end_time, event_times) in ts_jobs
             }
             for fut in concurrent.futures.as_completed(future_map):
                 idx = future_map[fut]

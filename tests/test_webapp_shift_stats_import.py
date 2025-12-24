@@ -234,6 +234,18 @@ def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
 
         # Turnovers (forced) should use the sanitized filename form.
         assert (outdir / "clip_events_Turnovers_forced_For.sh").exists()
+        script_text = (outdir / "clip_events_Turnovers_forced_For.sh").read_text(encoding="utf-8")
+        assert "--blink-event-text" in script_text
+        assert "--blink-event-label" in script_text
+
+        # Timestamp lines may include event-moment time(s) after start/end.
+        ts_line = (
+            (outdir / "events_Turnovers_forced_For_video_times.txt")
+            .read_text(encoding="utf-8")
+            .strip()
+            .splitlines()[0]
+        )
+        assert len(ts_line.split()) >= 3
 
         # Giveaways should have For/Against team-level clip scripts.
         assert (outdir / "clip_events_Giveaway_For.sh").exists()

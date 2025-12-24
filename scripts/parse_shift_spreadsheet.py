@@ -4264,13 +4264,43 @@ def _write_event_summaries_and_clips(
                 out.append([a, b])
         return [(a, b) for a, b in out]
 
+    def merge_windows_with_centers(
+        win: List[Tuple[int, int, int]],
+    ) -> List[Tuple[int, int, List[int]]]:
+        """
+        Merge overlapping/nearby (<=10s gap) video windows, preserving the set of
+        event-center timestamps inside each merged window.
+        """
+        if not win:
+            return []
+        win_sorted = sorted(win, key=lambda x: (x[0], x[1], x[2]))
+        out: List[Tuple[int, int, List[int]]] = [(win_sorted[0][0], win_sorted[0][1], [win_sorted[0][2]])]
+        for a, b, c in win_sorted[1:]:
+            la, lb, centers = out[-1]
+            if a <= lb + 10:
+                out[-1] = (la, max(lb, b), centers + [c])
+            else:
+                out.append((a, b, [c]))
+
+        merged: List[Tuple[int, int, List[int]]] = []
+        for a, b, centers in out:
+            seen: set[int] = set()
+            centers_sorted: List[int] = []
+            for x in sorted(int(v) for v in centers):
+                if x in seen:
+                    continue
+                seen.add(x)
+                centers_sorted.append(x)
+            merged.append((int(a), int(b), centers_sorted))
+        return merged
+
     clip_scripts: List[str] = []
     for (etype, team), lst in sorted(instances.items()):
         # Skip team-level assist clip scripts; assists are handled in per-player highlights.
         if str(etype) == "Assist":
             continue
 
-        v_windows: List[Tuple[int, int]] = []
+        v_windows: List[Tuple[int, int, int]] = []
         sb_windows_by_period: Dict[int, List[Tuple[int, int]]] = {}
         pre_s, post_s = _clip_pre_post_s_for_event_type(str(etype))
         etype_disp = _display_event_type(str(etype))
@@ -4288,7 +4318,7 @@ def _write_event_summaries_and_clips(
             if vsec is not None:
                 start = max(0, vsec - int(pre_s))
                 end = vsec + int(post_s)
-                v_windows.append((start, end))
+                v_windows.append((start, end, int(vsec)))
             if isinstance(g, (int, float)) and isinstance(p, int):
                 gsec = int(g)
                 sb_max = max_sb_by_period.get(int(p), None)
@@ -4299,14 +4329,21 @@ def _write_event_summaries_and_clips(
                 lo, hi = (sb_end, sb_start) if sb_end <= sb_start else (sb_start, sb_end)
                 sb_windows_by_period.setdefault(int(p), []).append((lo, hi))
 
-        v_windows = merge_windows(v_windows)
-        if v_windows:
+        v_windows_merged = merge_windows_with_centers(v_windows)
+        if v_windows_merged:
             vfile = outdir / f"events_{etype_safe}_{team_safe}_video_times.txt"
-            v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
+            v_lines = []
+            for a, b, centers in v_windows_merged:
+                tokens = [seconds_to_hhmmss(a), seconds_to_hhmmss(b)]
+                tokens.extend(seconds_to_hhmmss(int(c)) for c in (centers or []))
+                v_lines.append(" ".join(tokens))
             vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
             if create_scripts:
                 script = outdir / f"clip_events_{etype_safe}_{team_safe}.sh"
                 label = f"{_no_parens_label(etype_disp)} {_no_parens_label(team)}"
+                blink_label = _no_parens_label(etype_disp)
+                if blink_label and blink_label != "xG":
+                    blink_label = blink_label.upper()
                 body = f"""#!/usr/bin/env bash
 	set -euo pipefail
 	if [ $# -lt 2 ]; then
@@ -4318,7 +4355,7 @@ OPP=\"$2\"
 	THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
 	TS_FILE=\"$THIS_DIR/{vfile.name}\"
 	shift 2 || true
-	python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype_safe}_{team_safe}\" \"{label} vs $OPP\" \"$@\"
+	python -m hmlib.cli.video_clipper -j 4 --blink-event-text --blink-event-label \"{blink_label}\" --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype_safe}_{team_safe}\" \"{label} vs $OPP\" \"$@\"
 	"""
                 script.write_text(body, encoding="utf-8")
                 try:
@@ -4429,6 +4466,32 @@ def _write_player_event_highlights(
                 out.append((a, b))
         return out
 
+    def merge_windows_with_centers(
+        win: List[Tuple[int, int, int]],
+    ) -> List[Tuple[int, int, List[int]]]:
+        if not win:
+            return []
+        win_sorted = sorted(win, key=lambda x: (x[0], x[1], x[2]))
+        out: List[Tuple[int, int, List[int]]] = [(win_sorted[0][0], win_sorted[0][1], [win_sorted[0][2]])]
+        for a, b, c in win_sorted[1:]:
+            la, lb, centers = out[-1]
+            if a <= lb:
+                out[-1] = (la, max(lb, b), centers + [c])
+            else:
+                out.append((a, b, [c]))
+
+        merged: List[Tuple[int, int, List[int]]] = []
+        for a, b, centers in out:
+            seen: set[int] = set()
+            centers_sorted: List[int] = []
+            for x in sorted(int(v) for v in centers):
+                if x in seen:
+                    continue
+                seen.add(x)
+                centers_sorted.append(x)
+            merged.append((int(a), int(b), centers_sorted))
+        return merged
+
     by_player_type: Dict[Tuple[str, str], List[Tuple[int, Optional[int], Optional[int]]]] = {}
     for row in event_log_context.event_player_rows or []:
         et = row.get("event_type")
@@ -4447,7 +4510,7 @@ def _write_player_event_highlights(
         by_player_type.setdefault((pk, et), []).append((p, vsec, gsec))
 
     for (pk, etype), rows in sorted(by_player_type.items(), key=lambda x: (x[0][0], x[0][1])):
-        v_windows: List[Tuple[int, int]] = []
+        v_windows: List[Tuple[int, int, int]] = []
         pre_s, post_s = _clip_pre_post_s_for_event_type(str(etype))
         for period, vsec, gsec in rows:
             vv = vsec
@@ -4455,20 +4518,28 @@ def _write_player_event_highlights(
                 vv = map_sb_to_video(period, gsec)
             if vv is None:
                 continue
-            v_windows.append((max(0, int(vv) - int(pre_s)), int(vv) + int(post_s)))
+            v_windows.append((max(0, int(vv) - int(pre_s)), int(vv) + int(post_s), int(vv)))
 
-        v_windows = merge_windows(v_windows)
-        if not v_windows:
+        v_windows_merged = merge_windows_with_centers(v_windows)
+        if not v_windows_merged:
             continue
 
         vfile = outdir / f"events_{etype}_{pk}_video_times.txt"
-        v_lines = [f"{seconds_to_hhmmss(a)} {seconds_to_hhmmss(b)}" for a, b in v_windows]
+        v_lines = []
+        for a, b, centers in v_windows_merged:
+            tokens = [seconds_to_hhmmss(a), seconds_to_hhmmss(b)]
+            tokens.extend(seconds_to_hhmmss(int(c)) for c in (centers or []))
+            v_lines.append(" ".join(tokens))
         vfile.write_text("\n".join(v_lines) + "\n", encoding="utf-8")
 
         if not create_scripts:
             continue
 
         label = f"{_display_event_type(etype)} - {_display_player_name(pk)}"
+        blink_label = str(_display_event_type(etype) or "").strip()
+        if blink_label and blink_label != "xG":
+            blink_label = blink_label.upper()
+        blink_label = re.sub(r"[()]", "", blink_label).strip()
         script_name = f"clip_{etype.lower()}_{pk}.sh"
         script = outdir / script_name
         body = f"""#!/usr/bin/env bash
@@ -4482,7 +4553,7 @@ OPP=\"$2\"
 THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
 TS_FILE=\"$THIS_DIR/{vfile.name}\"
 shift 2 || true
-python -m hmlib.cli.video_clipper -j 4 --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{pk}\" \"{label} vs $OPP\" \"$@\"
+python -m hmlib.cli.video_clipper -j 4 --blink-event-text --blink-event-label \"{blink_label}\" --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{pk}\" \"{label} vs $OPP\" \"$@\"
 """
         script.write_text(body, encoding="utf-8")
         try:
