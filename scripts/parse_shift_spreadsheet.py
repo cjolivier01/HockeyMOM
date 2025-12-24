@@ -3334,6 +3334,7 @@ def _aggregate_stats_rows(
         "sog",
         "expected_goals",
         "turnovers_forced",
+        "created_turnovers",
         "giveaways",
         "takeaways",
         "controlled_entry_for",
@@ -3364,6 +3365,7 @@ def _aggregate_stats_rows(
                 "sog": 0,
                 "expected_goals": 0,
                 "turnovers_forced": 0,
+                "created_turnovers": 0,
                 "giveaways": 0,
                 "takeaways": 0,
                 "controlled_entry_for": 0,
@@ -3398,6 +3400,7 @@ def _aggregate_stats_rows(
             dest["sog"] += int(str(row.get("sog", 0) or 0))
             dest["expected_goals"] += int(str(row.get("expected_goals", 0) or 0))
             dest["turnovers_forced"] += int(str(row.get("turnovers_forced", 0) or 0))
+            dest["created_turnovers"] += int(str(row.get("created_turnovers", 0) or 0))
             dest["giveaways"] += int(str(row.get("giveaways", 0) or 0))
             dest["takeaways"] += int(str(row.get("takeaways", 0) or 0))
             dest["controlled_entry_for"] += int(str(row.get("controlled_entry_for", 0) or 0))
@@ -3452,6 +3455,7 @@ def _aggregate_stats_rows(
         total_sog = data.get("sog", 0) or 0
         total_expected_goals = data.get("expected_goals", 0) or 0
         total_turnovers_forced = data.get("turnovers_forced", 0) or 0
+        total_created_turnovers = data.get("created_turnovers", 0) or 0
         total_giveaways = data.get("giveaways", 0) or 0
         total_takeaways = data.get("takeaways", 0) or 0
         total_ce_for = data.get("controlled_entry_for", 0) or 0
@@ -3462,6 +3466,7 @@ def _aggregate_stats_rows(
         sog_games = per_game_denoms.get("sog_per_game", 0) or 0
         xg_games = per_game_denoms.get("expected_goals_per_game", 0) or 0
         turnovers_forced_games = per_game_denoms.get("turnovers_forced_per_game", 0) or 0
+        created_turnovers_games = per_game_denoms.get("created_turnovers_per_game", 0) or 0
         giveaway_games = per_game_denoms.get("giveaways_per_game", 0) or 0
         takeaway_games = per_game_denoms.get("takeaways_per_game", 0) or 0
         ce_for_games = per_game_denoms.get("controlled_entry_for_per_game", 0) or 0
@@ -3494,6 +3499,12 @@ def _aggregate_stats_rows(
             "turnovers_forced_per_game": (
                 f"{(total_turnovers_forced / turnovers_forced_games):.1f}"
                 if turnovers_forced_games > 0
+                else ""
+            ),
+            "created_turnovers": str(total_created_turnovers) if created_turnovers_games > 0 else "",
+            "created_turnovers_per_game": (
+                f"{(total_created_turnovers / created_turnovers_games):.1f}"
+                if created_turnovers_games > 0
                 else ""
             ),
             "giveaways": str(total_giveaways) if giveaway_games > 0 else "",

@@ -614,6 +614,77 @@ def should_write_game_stats_consolidated_preserves_result_order():
         assert list(df.columns) == ["Stat", "game-b", "game-a"]
 
 
+def should_aggregate_all_turnover_types_in_consolidated_player_stats():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_agg", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    game1_rows = [
+        {
+            "player": "1_Ethan",
+            "goals": "0",
+            "assists": "0",
+            "turnovers_forced": "1",
+            "created_turnovers": "2",
+            "giveaways": "3",
+            "takeaways": "4",
+        },
+        {
+            "player": "2_Other",
+            "goals": "0",
+            "assists": "0",
+            "turnovers_forced": "0",
+            "created_turnovers": "0",
+            "giveaways": "1",
+            "takeaways": "0",
+        },
+    ]
+    game2_rows = [
+        {
+            "player": "1_Ethan",
+            "goals": "0",
+            "assists": "0",
+            "turnovers_forced": "2",
+            "created_turnovers": "",
+            "giveaways": "0",
+            "takeaways": "1",
+        },
+        {
+            "player": "2_Other",
+            "goals": "0",
+            "assists": "0",
+            "turnovers_forced": "1",
+            "created_turnovers": "",
+            "giveaways": "0",
+            "takeaways": "0",
+        },
+    ]
+
+    aggregated_rows, _periods, per_game_denoms = mod._aggregate_stats_rows(  # type: ignore[attr-defined]
+        [(game1_rows, [1]), (game2_rows, [1])]
+    )
+    assert per_game_denoms["turnovers_forced_per_game"] == 2
+    assert per_game_denoms["giveaways_per_game"] == 2
+    assert per_game_denoms["takeaways_per_game"] == 2
+    assert per_game_denoms["created_turnovers_per_game"] == 1
+
+    by_player = {r["player"]: r for r in aggregated_rows}
+    ethan = by_player["1_Ethan"]
+    assert ethan["turnovers_forced"] == "3"
+    assert ethan["turnovers_forced_per_game"] == "1.5"
+    assert ethan["giveaways"] == "3"
+    assert ethan["giveaways_per_game"] == "1.5"
+    assert ethan["takeaways"] == "5"
+    assert ethan["takeaways_per_game"] == "2.5"
+    assert ethan["created_turnovers"] == "2"
+    assert ethan["created_turnovers_per_game"] == "2.0"
+
+
 def should_select_tracking_output_video_prefers_highest_number():
     import importlib.util
     import tempfile
