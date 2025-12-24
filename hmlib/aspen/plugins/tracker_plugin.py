@@ -1,3 +1,4 @@
+import contextlib
 from importlib import import_module
 from typing import Any, Dict, Optional, Tuple
 
@@ -55,6 +56,7 @@ class TrackerPlugin(Plugin):
         self._static_tracker_max_detections: Optional[int] = None
         self._static_tracker_max_tracks: Optional[int] = None
         self._static_tracker_overflow_warned = False
+        self._iter_num: int = 0
 
     @property
     def tracker_class(self) -> str:
@@ -114,6 +116,20 @@ class TrackerPlugin(Plugin):
         self._update_static_tracker_limits()
 
     # post-detection pipeline deprecated; pruning handled by a dedicated trunk
+
+    def __call__(self, *args, **kwds):
+        # self._iter_num += 1
+        # do_trace = self._iter_num == 4
+        # if do_trace:
+        #     pass
+        # from cuda_stacktrace import CudaStackTracer
+
+        # with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+        with contextlib.nullcontext():
+            results = super().__call__(*args, **kwds)
+        # if do_trace:
+        #     pass
+        return results
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -189,7 +205,7 @@ class TrackerPlugin(Plugin):
             # Provide frame id for tracker aging
             frame_id = img_data_sample.metainfo.get("img_id")
             if isinstance(frame_id, torch.Tensor):
-                frame_id = frame_id.reshape([1])[0].item()
+                frame_id = frame_id.reshape([1])[0]
             if frame_id is None:
                 frame_id = frame_id0 + frame_index
 
@@ -436,11 +452,15 @@ class TrackerPlugin(Plugin):
                 padded_reid[:kept].copy_(reid[:kept])
 
         payload = {
-            "frame_id": torch.tensor([frame_id], dtype=torch.int64),
+            "frame_id": torch.tensor([frame_id], dtype=torch.int64).to(
+                device=bboxes.device, non_blocking=True
+            ),
             "bboxes": padded_bboxes,
             "labels": padded_labels,
             "scores": padded_scores,
-            "num_detections": torch.tensor([kept], dtype=torch.long),
+            "num_detections": torch.tensor([kept], dtype=torch.long).to(
+                device=bboxes.device, non_blocking=True
+            ),
         }
         if padded_reid is not None:
             payload["reid_features"] = padded_reid
