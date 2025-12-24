@@ -2929,6 +2929,36 @@ def _display_event_type(event_type: str) -> str:
     return et
 
 
+def _blink_event_label(event_type: str) -> str:
+    """
+    Label used for the flashing (blink) overlay in event clip scripts.
+
+    Keep this short, uppercase, and singular (even when the displayed stat is plural).
+    """
+    et = str(event_type or "").strip()
+    if not et:
+        return ""
+
+    # Prefer explicit mappings for cases where the displayed stat is plural or includes annotations.
+    mapping: Dict[str, str] = {
+        "ExpectedGoal": "xG",
+        "SOG": "SOG",
+        "Goal": "GOAL",
+        "Assist": "ASSIST",
+        "TurnoverForced": "FORCED TURNOVER",
+        "CreatedTurnover": "CREATED TURNOVER",
+        "Giveaway": "GIVEAWAY",
+        "Takeaway": "TAKEAWAY",
+    }
+    if et in mapping:
+        return mapping[et]
+
+    label = re.sub(r"[()]", "", _display_event_type(et)).strip()
+    if label and label != "xG":
+        label = label.upper()
+    return label
+
+
 def _write_player_stats_text_and_csv(
     stats_dir: Path,
     stats_table_rows: List[Dict[str, str]],
@@ -4341,13 +4371,11 @@ def _write_event_summaries_and_clips(
             if create_scripts:
                 script = outdir / f"clip_events_{etype_safe}_{team_safe}.sh"
                 label = f"{_no_parens_label(etype_disp)} {_no_parens_label(team)}"
-                blink_label = _no_parens_label(etype_disp)
-                if blink_label and blink_label != "xG":
-                    blink_label = blink_label.upper()
+                blink_label = _blink_event_label(str(etype))
                 body = f"""#!/usr/bin/env bash
-	set -euo pipefail
-	if [ $# -lt 2 ]; then
-	  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
+		set -euo pipefail
+		if [ $# -lt 2 ]; then
+		  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
   exit 1
 fi
 INPUT=\"$1\"
@@ -4536,14 +4564,11 @@ def _write_player_event_highlights(
             continue
 
         label = f"{_display_event_type(etype)} - {_display_player_name(pk)}"
-        blink_label = str(_display_event_type(etype) or "").strip()
-        if blink_label and blink_label != "xG":
-            blink_label = blink_label.upper()
-        blink_label = re.sub(r"[()]", "", blink_label).strip()
+        blink_label = _blink_event_label(str(etype))
         script_name = f"clip_{etype.lower()}_{pk}.sh"
         script = outdir / script_name
         body = f"""#!/usr/bin/env bash
-set -euo pipefail
+	set -euo pipefail
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
   exit 1

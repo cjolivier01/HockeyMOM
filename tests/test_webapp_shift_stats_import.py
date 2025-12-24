@@ -201,12 +201,14 @@ def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
             event_counts_by_type_team={
                 ("Assist", "Blue"): 1,
                 ("TurnoverForced", "Blue"): 1,
+                ("CreatedTurnover", "Blue"): 1,
                 ("Giveaway", "Blue"): 1,
                 ("Giveaway", "White"): 1,
             },
             event_instances={
                 ("Assist", "Blue"): [{"period": 1, "video_s": 100, "game_s": 200}],
                 ("TurnoverForced", "Blue"): [{"period": 1, "video_s": 110, "game_s": 210}],
+                ("CreatedTurnover", "Blue"): [{"period": 1, "video_s": 115, "game_s": 215}],
                 ("Giveaway", "Blue"): [{"period": 1, "video_s": 120, "game_s": 220}],
                 ("Giveaway", "White"): [{"period": 1, "video_s": 130, "game_s": 230}],
             },
@@ -237,6 +239,7 @@ def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
         script_text = (outdir / "clip_events_Turnovers_forced_For.sh").read_text(encoding="utf-8")
         assert "--blink-event-text" in script_text
         assert "--blink-event-label" in script_text
+        assert '--blink-event-label "FORCED TURNOVER"' in script_text
 
         # Timestamp lines may include event-moment time(s) after start/end.
         ts_line = (
@@ -250,6 +253,11 @@ def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
         # Giveaways should have For/Against team-level clip scripts.
         assert (outdir / "clip_events_Giveaway_For.sh").exists()
         assert (outdir / "clip_events_Giveaway_Against.sh").exists()
+
+        # Created Turnovers should blink as singular.
+        assert (outdir / "clip_events_Created_Turnovers_For.sh").exists()
+        created_script = (outdir / "clip_events_Created_Turnovers_For.sh").read_text(encoding="utf-8")
+        assert '--blink-event-label "CREATED TURNOVER"' in created_script
 
 
 def should_process_t2s_only_game_without_spreadsheets():
