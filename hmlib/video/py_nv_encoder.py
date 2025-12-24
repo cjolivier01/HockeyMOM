@@ -120,9 +120,6 @@ class PyNvVideoEncoder:
             backend = "raw"
 
         self._backend: str = backend
-        # Legacy flag preserved for existing call sites that only distinguish
-        # between PyAV and non-PyAV backends.
-        self._use_pyav: bool = self._backend == "pyav"
 
         if self.width % 2 or self.height % 2:
             raise ValueError("Width and height must be even for YUV420 encoding.")
@@ -148,8 +145,8 @@ class PyNvVideoEncoder:
             return
 
         self._encoder = self._create_encoder()
-        if self._use_pyav:
-            self._open_pyav_container()
+        if self._backend == "pyav":
+            self._open_bitstream_file()
         elif self._backend == "ffmpeg":
             self._ffmpeg_proc = self._spawn_ffmpeg()
         elif self._backend == "raw":
@@ -197,13 +194,10 @@ class PyNvVideoEncoder:
                     bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
                     self._frames_in_current_bitstream += 1
                     if bitstream:
-                        if self._use_pyav:
-                            self._mux_packet_pyav(bitstream)
-                            self._frames_in_current_bitstream = 0
-                        elif self._backend == "raw":
+                        if self._backend in {"pyav", "raw"}:
                             if self._bitstream_file is None:
                                 raise RuntimeError(
-                                    "Raw bitstream backend is selected but bitstream file is not open."
+                                    "Bitstream backend is selected but bitstream file is not open."
                                 )
                             self._bitstream_file.write(bytearray(bitstream))
                         else:
@@ -239,26 +233,24 @@ class PyNvVideoEncoder:
             # Flush encoder
             bitstream = self._encoder.EndEncode()  # type: ignore[union-attr]
             if bitstream:
-                if self._use_pyav:
-                    self._mux_packet_pyav(bitstream)
-                elif self._backend == "raw":
+                if self._backend in {"pyav", "raw"}:
                     if self._bitstream_file is None:
                         raise RuntimeError(
-                            "Raw bitstream backend is selected but bitstream file is not open."
+                            "Bitstream backend is selected but bitstream file is not open."
                         )
                     self._bitstream_file.write(bytearray(bitstream))
                 elif self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
                     self._ffmpeg_proc.stdin.write(bytearray(bitstream))
 
-        if self._use_pyav:
-            if self._av_container is not None:
-                self._av_container.close()
-        elif self._backend == "raw":
+        if self._backend in {"pyav", "raw"}:
             if self._bitstream_file is not None:
                 self._bitstream_file.close()
                 self._bitstream_file = None
             if self._bitstream_path is not None:
-                self._mux_bitstream_file_with_ffmpeg(self._bitstream_path)
+                if self._backend == "pyav":
+                    self._mux_bitstream_file_with_pyav(self._bitstream_path)
+                else:
+                    self._mux_bitstream_file_with_ffmpeg(self._bitstream_path)
         else:
             if self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
                 # Close ffmpeg stdin and wait for it to finish writing the container
@@ -409,6 +401,68 @@ class PyNvVideoEncoder:
             # Ensure any child process resources are reaped even on success.
             if "proc" in locals() and isinstance(proc, subprocess.CompletedProcess):
                 pass
+
+    def _mux_bitstream_file_with_pyav(self, bitstream_path: Path) -> None:
+        """
+        Remux the raw elementary bitstream into a container using PyAV.
+
+        This avoids depending on an external ffmpeg binary while still using
+        FFmpeg's demuxer/muxer logic via libavformat.
+        """
+        import av
+        from fractions import Fraction
+
+        stream_format = self._bitstream_format()
+        input_options = {"framerate": str(self.fps)}
+
+        try:
+            input_container = av.open(
+                str(bitstream_path),
+                mode="r",
+                format=stream_format,
+                options=input_options,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"PyAV failed to open bitstream file for remuxing: {bitstream_path}"
+            ) from exc
+
+        try:
+            if not input_container.streams.video:
+                raise RuntimeError(f"No video stream found while remuxing {bitstream_path}")
+            input_stream = input_container.streams.video[0]
+
+            output_container = av.open(str(self.output_path), mode="w")
+            try:
+                fps = Fraction(int(round(self.fps * 1001)), 1001)
+                codec_name = input_stream.codec_context.name
+                output_stream = output_container.add_stream(codec_name, rate=fps)
+                output_stream.width = self.width
+                output_stream.height = self.height
+                output_stream.pix_fmt = "yuv420p"
+                output_stream.time_base = Fraction(1, 90000)
+                if input_stream.codec_context.extradata:
+                    output_stream.codec_context.extradata = input_stream.codec_context.extradata
+
+                output_container.start_encoding()
+                tb = output_stream.time_base
+                ticks_per_frame = int(round((Fraction(1, 1) / fps) / tb))
+                ticks_per_frame = max(ticks_per_frame, 1)
+                next_pts = 0
+                for packet in input_container.demux(input_stream):
+                    if packet is None or packet.size == 0:
+                        continue
+                    packet.stream = output_stream
+                    packet.time_base = tb
+                    packet.pts = next_pts
+                    packet.dts = next_pts
+                    packet.duration = ticks_per_frame
+                    next_pts += ticks_per_frame
+                    output_container.mux(packet)
+            finally:
+                output_container.close()
+        finally:
+            input_container.close()
 
     def _spawn_ffmpeg(self) -> subprocess.Popen[bytes]:
         """

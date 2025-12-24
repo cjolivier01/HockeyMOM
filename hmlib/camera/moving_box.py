@@ -420,8 +420,14 @@ class MovingBox(ResizingBox):
         self._stop_trigger_dir_y = self._zero.clone()
 
         if self._arena_box is not None:
+            arena_width = width(self._arena_box)
+            arena_width_int = (
+                int(arena_width.detach().cpu().item())
+                if isinstance(arena_width, torch.Tensor)
+                else int(arena_width)
+            )
             self._horizontal_image_gaussian_distribution = ImageHorizontalGaussianDistribution(
-                width(self._arena_box), invert=True
+                arena_width_int, invert=True, device=self.device
             )
         else:
             self._horizontal_image_gaussian_distribution = None
@@ -435,7 +441,7 @@ class MovingBox(ResizingBox):
         self._max_accel_y = max_accel_y
 
         if self._arena_box is not None:
-            self._gaussian_x_clamp = torch.tensor([self._arena_box[0], self._arena_box[2]])
+            self._gaussian_x_clamp = self._arena_box[[0, 2]].to(dtype=torch.float32).clone()
         else:
             self._gaussian_x_clamp = None
 

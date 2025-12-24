@@ -422,7 +422,7 @@ class PosePlugin(Plugin):
         if scale_val is None:
             return None
         assert isinstance(scale_val, torch.Tensor)
-        scale_tensor = scale_val
+        scale_tensor = scale_val.to(device=device, dtype=torch.float32)
         if scale_tensor.numel() == 1:
             scale_tensor = scale_tensor.repeat(4)
         elif scale_tensor.numel() == 2:
@@ -453,7 +453,7 @@ class PosePlugin(Plugin):
             if boxes.numel() == 0:
                 scaled.append(boxes)
                 continue
-            s = scale.to(dtype=boxes.dtype)
+            s = scale.to(device=boxes.device, dtype=boxes.dtype)
             new_boxes = boxes.clone()
             new_boxes[:, 0] *= s[0]
             new_boxes[:, 1] *= s[1]
