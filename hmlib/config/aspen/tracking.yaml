@@ -77,9 +77,10 @@ aspen:
     - type: HmConfigureScoreboard
     - type: HmCaptureScoreboard
     - type: HmPerspectiveRotation
-      pre_clip: true
+      pre_clip: GLOBAL.rink.camera.pre_clip
       fixed_edge_rotation_angle: GLOBAL.rink.camera.fixed_edge_rotation_angle
     - type: HmCropToVideoFrame
+      crop_image: GLOBAL.rink.camera.crop_image
     - type: HmRenderScoreboard
       image_labels: [img, end_zone_img]
     - type: HmImageOverlays
@@ -198,7 +199,7 @@ aspen:
       depends: [play_tracker]
       enabled: true
       params: {
-        video_out_pipeline: GLOBAL.aspen.video_out_pipeline
+        video_out_pipeline: GLOBAL.aspen.video_out_pipeline,
       }
 
     rgb_stats_check:

@@ -1234,7 +1234,11 @@ def main():
         # Plotting overrides are non-fatal; fall back to config defaults on error.
         pass
 
-    game_config = resolve_global_refs(game_config)
+    # Let hm_opts apply --config-override before resolving GLOBAL.* refs.
+    args.game_config = game_config
+    args = hm_opts.init(args, parser)
+    game_config = resolve_global_refs(args.game_config)
+    args.game_config = game_config
 
     # Set up the task flags
     args.tracking = False
@@ -1244,7 +1248,6 @@ def main():
 
     game_config["initial_args"] = vars(args)
     args.game_config = game_config
-    args = hm_opts.init(args, parser)
 
     args = configure_model(config=args.game_config, args=args)
 
