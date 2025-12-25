@@ -8,6 +8,7 @@ from mmengine.structures import InstanceData
 from hmlib.bbox.box_functions import convert_tlbr_to_tlwh, tlwh_to_tlbr_multiple
 from hmlib.datasets.dataframe import HmDataFrameBase, dataclass_to_json, json_to_dataclass
 from hmlib.jersey.number_classifier import TrackJerseyInfo
+from hmlib.tracking_utils.utils import get_track_mask
 
 try:
     from mmdet.structures import DetDataSample, TrackDataSample
@@ -223,6 +224,33 @@ class TrackingDataFrame(HmDataFrameBase):
         labels = getattr(inst, "labels", np.empty((0,), dtype=np.int64))
         if pose_indices is None:
             pose_indices = getattr(inst, "source_pose_index", None)
+        mask = get_track_mask(inst)
+        if isinstance(mask, torch.Tensor):
+            if isinstance(tids, torch.Tensor):
+                tids = tids[mask]
+            else:
+                mask_np = mask.detach().cpu().numpy()
+                tids = np.asarray(tids)[mask_np]
+            if isinstance(tlbr, torch.Tensor):
+                tlbr = tlbr[mask]
+            else:
+                mask_np = mask.detach().cpu().numpy()
+                tlbr = np.asarray(tlbr)[mask_np]
+            if isinstance(scores, torch.Tensor):
+                scores = scores[mask]
+            else:
+                mask_np = mask.detach().cpu().numpy()
+                scores = np.asarray(scores)[mask_np]
+            if isinstance(labels, torch.Tensor):
+                labels = labels[mask]
+            else:
+                mask_np = mask.detach().cpu().numpy()
+                labels = np.asarray(labels)[mask_np]
+            if isinstance(pose_indices, torch.Tensor):
+                pose_indices = pose_indices[mask]
+            elif pose_indices is not None:
+                mask_np = mask.detach().cpu().numpy()
+                pose_indices = np.asarray(pose_indices)[mask_np]
         self.add_frame_records(
             frame_id=int(frame_id),
             tracking_ids=tids,

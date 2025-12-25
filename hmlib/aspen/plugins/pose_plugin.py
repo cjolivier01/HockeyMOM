@@ -4,6 +4,7 @@ import torch
 
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_channels_last
+from hmlib.tracking_utils.utils import get_track_mask
 
 from .base import Plugin
 
@@ -379,6 +380,10 @@ class PosePlugin(Plugin):
                 score_tensor = torch.as_tensor(
                     score_tensor, dtype=torch.float32, device=box_tensor.device
                 )
+            track_mask = get_track_mask(inst)
+            if isinstance(track_mask, torch.Tensor):
+                box_tensor = box_tensor[track_mask]
+                score_tensor = score_tensor[track_mask]
             if score_tensor.ndim == 0:
                 score_tensor = score_tensor.unsqueeze(0)
             if score_tensor.shape[0] != box_tensor.shape[0]:

@@ -9,6 +9,7 @@ import torch
 from mmengine.structures import InstanceData
 
 from .base import Plugin
+from hmlib.tracking_utils.utils import get_track_mask
 
 
 class ActionFromPosePlugin(Plugin):
@@ -132,6 +133,9 @@ class ActionFromPosePlugin(Plugin):
     ) -> Optional[torch.Tensor]:
         # Prefer direct mapping if present
         pose_indices = getattr(inst, "source_pose_index", None)
+        track_mask = get_track_mask(inst)
+        if isinstance(track_mask, torch.Tensor) and isinstance(pose_indices, torch.Tensor):
+            pose_indices = pose_indices[track_mask]
         if pose_indices is not None:
             return pose_indices
         # Fallback: map by IoU between track bboxes and pose bbox (derived from keypoints)
@@ -143,6 +147,8 @@ class ActionFromPosePlugin(Plugin):
                 tb = torch.as_tensor(tb)
             if tb.ndim == 1:
                 tb = tb.reshape(-1, 4)
+            if isinstance(track_mask, torch.Tensor):
+                tb = tb[track_mask]
             x = torch.as_tensor(pose_kpts[..., 0])
             y = torch.as_tensor(pose_kpts[..., 1])
             x1 = torch.min(x, dim=1).values
@@ -219,6 +225,9 @@ class ActionFromPosePlugin(Plugin):
             tids = getattr(inst, "instances_id", None)
             if tids is None:
                 continue
+            track_mask = get_track_mask(inst)
+            if isinstance(track_mask, torch.Tensor) and isinstance(tids, torch.Tensor):
+                tids = tids[track_mask]
             ids_np = (
                 tids.detach().cpu().numpy() if isinstance(tids, torch.Tensor) else np.asarray(tids)
             )
@@ -256,6 +265,9 @@ class ActionFromPosePlugin(Plugin):
                     if inst_ids is not None:
                         if not isinstance(inst_ids, torch.Tensor):
                             inst_ids = torch.as_tensor(inst_ids)
+                        track_mask = get_track_mask(inst)
+                        if isinstance(track_mask, torch.Tensor):
+                            inst_ids = inst_ids[track_mask]
                         match = torch.nonzero(inst_ids == int(tid)).reshape(-1)
                         if len(match) == 1:
                             pi = int(mapped_idx[int(match[0])].item())
@@ -314,6 +326,9 @@ class ActionFromPosePlugin(Plugin):
                 inst_ids = getattr(inst, "instances_id", None)
                 if inst_ids is None:
                     continue
+                track_mask = get_track_mask(inst)
+                if isinstance(track_mask, torch.Tensor) and isinstance(inst_ids, torch.Tensor):
+                    inst_ids = inst_ids[track_mask]
                 ids_np = (
                     inst_ids.detach().cpu().numpy()
                     if isinstance(inst_ids, torch.Tensor)

@@ -131,7 +131,12 @@ class IceRinkSegmBoundariesPlugin(Plugin):
                         ob = ob.reshape(-1, 4)
                     if nb.ndim == 1:
                         nb = nb.reshape(-1, 4)
-                    if len(nb) == len(ob):
+                    if ob.device.type == "cuda" or nb.device.type == "cuda":
+                        if len(nb) == len(ob):
+                            new_src_pose_idx = det_src_pose_idx
+                        else:
+                            new_src_pose_idx = None
+                    elif len(nb) == len(ob):
                         new_src_pose_idx = det_src_pose_idx
                     else:
                         new_src_pose_idx = torch.full(

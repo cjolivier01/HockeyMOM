@@ -18,6 +18,7 @@ from hmlib.camera.camera_transformer import (
 )
 from hmlib.camera.clusters import ClusterMan
 from hmlib.utils.gpu import wrap_tensor
+from hmlib.tracking_utils.utils import get_track_mask
 
 from .base import Plugin
 
@@ -115,6 +116,20 @@ class CameraControllerPlugin(Plugin):
             det_tlbr = inst.bboxes
             if not isinstance(det_tlbr, torch.Tensor):
                 det_tlbr = torch.as_tensor(det_tlbr)
+            track_mask = get_track_mask(inst)
+            if isinstance(track_mask, torch.Tensor):
+                det_tlbr = det_tlbr[track_mask]
+            if det_tlbr.numel() == 0:
+                h_px = H * 0.8
+                w_px = h_px * self._ar
+                cx, cy = W / 2.0, H / 2.0
+                box = torch.tensor(
+                    [cx - w_px / 2, cy - h_px / 2, cx + w_px / 2, cy + h_px / 2],
+                    dtype=torch.float32,
+                )
+                cam_boxes.append(box)
+                setattr(img_data_sample, "pred_cam_box", box)
+                continue
             # Convert to TLWH for features
             tlwh = det_tlbr.clone()
             tlwh[:, 2] = tlwh[:, 2] - tlwh[:, 0]

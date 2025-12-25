@@ -20,6 +20,23 @@ np.set_printoptions(
 )  # format short g, %precision=5
 
 
+def get_track_mask(inst) -> Union[torch.Tensor, None]:
+    """Return a boolean mask for valid tracks if provided by the tracker."""
+    mask = getattr(inst, "track_mask", None)
+    if isinstance(mask, torch.Tensor):
+        return mask
+    num_tracks = getattr(inst, "num_tracks", None)
+    if num_tracks is None:
+        meta = getattr(inst, "metainfo", None)
+        if isinstance(meta, dict):
+            num_tracks = meta.get("num_tracks")
+    ids = getattr(inst, "instances_id", None)
+    if isinstance(num_tracks, torch.Tensor) and isinstance(ids, torch.Tensor):
+        count = num_tracks.reshape(-1)[:1][0].to(device=ids.device)
+        return torch.arange(ids.shape[0], device=ids.device) < count
+    return None
+
+
 def mkdir_if_missing(d):
     if not osp.exists(d):
         os.makedirs(d)

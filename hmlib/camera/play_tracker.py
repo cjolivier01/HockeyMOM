@@ -28,6 +28,7 @@ from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
+from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.config import get_game_config_private, get_nested_value, save_private_config
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
@@ -703,12 +704,17 @@ class PlayTracker(torch.nn.Module):
                 ids = unwrap_tensor(ids)
             online_tlwhs = batch_tlbrs_to_tlwhs(bboxes)
             online_ids = ids
+            track_mask = get_track_mask(track_inst)
 
             if True:
                 # goes a few fps faster when async if this is on CPU
                 frame_id = frame_id.cpu()
                 online_tlwhs = online_tlwhs.cpu()
                 online_ids = online_ids.cpu()
+                if isinstance(track_mask, torch.Tensor):
+                    track_mask = track_mask.cpu()
+                    online_tlwhs = online_tlwhs[track_mask]
+                    online_ids = online_ids[track_mask]
 
             # if debug:
             #     try:

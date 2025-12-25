@@ -119,16 +119,16 @@ class TrackerPlugin(Plugin):
 
     def __call__(self, *args, **kwargs):
         self._iter_num += 1
-        # do_trace = self._iter_num == 4
-        # if do_trace:
-        #     pass
-        # from cuda_stacktrace import CudaStackTracer
+        do_trace = self._iter_num == 4
+        if do_trace:
+            pass
+        from cuda_stacktrace import CudaStackTracer
 
-        # with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
-        with contextlib.nullcontext():
+        with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+            # with contextlib.nullcontext():
             results = super().__call__(*args, **kwargs)
-        # if do_trace:
-        #     pass
+        if do_trace:
+            pass
         return results
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -154,8 +154,8 @@ class TrackerPlugin(Plugin):
             track_data_sample = track_samples
         video_len = len(track_data_sample)
 
-        max_tracking_id = 0
-        active_track_count = 0
+        max_tracking_id: Optional[torch.Tensor] = None
+        active_track_count: Optional[torch.Tensor] = None
         # all_frame_jersey_info: List[List[Any]] = []
 
         def _to_tensor_1d(x):
@@ -205,7 +205,10 @@ class TrackerPlugin(Plugin):
             # Provide frame id for tracker aging
             frame_id = img_data_sample.metainfo.get("img_id")
             if isinstance(frame_id, torch.Tensor):
-                frame_id = frame_id.reshape([1])[0]
+                if frame_id.device.type == "cuda":
+                    frame_id = frame_id0 + frame_index
+                else:
+                    frame_id = int(frame_id.reshape(-1)[:1][0])
             if frame_id is None:
                 frame_id = frame_id0 + frame_index
 
@@ -221,12 +224,11 @@ class TrackerPlugin(Plugin):
                 if len(det_labels) == 1 and N > 1:
                     det_labels = det_labels.expand(N).clone()
                 else:
-                    det_labels = torch.full(
-                        (N,),
-                        int(det_labels[0].item()) if len(det_labels) else 0,
-                        dtype=torch.long,
-                        device=det_bboxes.device,
-                    )
+                    if det_labels.numel() > 0:
+                        fill_val = det_labels.reshape(-1)[:1]
+                    else:
+                        fill_val = det_labels.new_zeros((1,))
+                    det_labels = fill_val.expand(N).clone()
             if len(det_scores) != N:
                 if len(det_scores) == 1 and N > 1:
                     det_scores = det_scores.expand(N).clone()
@@ -250,28 +252,32 @@ class TrackerPlugin(Plugin):
             assert len(det_labels) == ll1 and len(det_scores) == ll1
             # Ensure tracker receives torch tensors
             # (already tensors above)
-            assert hasattr(det_instances, "num_detections")
+            num_detections = getattr(det_instances, "num_detections", None)
+            if num_detections is None:
+                meta = getattr(det_instances, "metainfo", None)
+                if isinstance(meta, dict):
+                    num_detections = meta.get("num_detections")
             tracker_payload = self._prepare_tracker_inputs(
                 frame_id=frame_id,
                 det_bboxes=det_bboxes,
                 det_labels=det_labels,
                 det_scores=det_scores,
                 det_reid=det_reid,
-                num_detections=(
-                    det_instances.num_detections
-                    if hasattr(det_instances, "num_detections")
-                    else None
-                ),
+                num_detections=num_detections,
             )
             results = self._hm_tracker.track(tracker_payload)
             results, frame_track_count = self._trim_tracker_outputs(results)
             ids = results.get("user_ids", results.get("ids"))
-            ll2 = frame_track_count
-            assert (
-                len(results["bboxes"]) == ll2
-                and len(results["scores"]) == ll2
-                and len(results["labels"]) == ll2
-            )
+            num_tracks = frame_track_count
+            if not isinstance(num_tracks, torch.Tensor):
+                if isinstance(ids, torch.Tensor):
+                    num_tracks = ids.new_tensor([int(num_tracks)])
+                else:
+                    num_tracks = torch.tensor([int(num_tracks)], dtype=torch.long)
+            num_tracks = num_tracks.reshape(-1)[:1]
+            track_mask = None
+            if isinstance(ids, torch.Tensor):
+                track_mask = torch.arange(ids.shape[0], device=ids.device) < num_tracks[0]
 
             pred_track_instances = InstanceData(
                 instances_id=ids,
@@ -279,6 +285,10 @@ class TrackerPlugin(Plugin):
                 scores=results["scores"],
                 labels=results["labels"],
             )
+            if isinstance(num_tracks, torch.Tensor):
+                pred_track_instances.set_metainfo({"num_tracks": num_tracks})
+            if track_mask is not None:
+                pred_track_instances.track_mask = track_mask
             if "reid_features" in results:
                 try:
                     pred_track_instances.reid_features = results["reid_features"]
@@ -294,44 +304,51 @@ class TrackerPlugin(Plugin):
                         tb = torch.as_tensor(tb)
                     if not isinstance(db, torch.Tensor):
                         db = torch.as_tensor(db)
-                    if tb.ndim == 1:
-                        tb = tb.reshape(-1, 4)
-                    if db.ndim == 1:
-                        db = db.reshape(-1, 4)
-                    mapped = torch.full((len(tb),), -1, dtype=torch.int64)
-                    # Try exact match first
-                    for j in range(len(tb)):
-                        eq = (
-                            torch.isclose(tb[j], db).all(dim=1)
-                            if len(db)
-                            else torch.zeros((0,), dtype=torch.bool)
-                        )
-                        match_idx = torch.nonzero(eq).reshape(-1)
-                        if len(match_idx) == 1:
-                            k = int(match_idx[0].item())
-                            try:
-                                mapped[j] = int(src_idx[k])
-                            except Exception:
-                                pass
-                    if (mapped < 0).any() and len(tb) and len(db):
-                        try:
-                            from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
-                        except Exception:
-                            from hmlib.utils.utils import bbox_iou as _bbox_iou
-                        iou = _bbox_iou(
-                            tb.to(dtype=torch.float32), db.to(dtype=torch.float32), x1y1x2y2=True
-                        )
-                        best_iou, best_idx = torch.max(iou, dim=1)
+                    if tb.device.type != "cuda" and db.device.type != "cuda":
+                        if tb.ndim == 1:
+                            tb = tb.reshape(-1, 4)
+                        if db.ndim == 1:
+                            db = db.reshape(-1, 4)
+                        mapped = torch.full((len(tb),), -1, dtype=torch.int64)
+                        # Try exact match first
                         for j in range(len(tb)):
-                            if mapped[j] < 0 and best_iou[j] > 0:
+                            eq = (
+                                torch.isclose(tb[j], db).all(dim=1)
+                                if len(db)
+                                else torch.zeros((0,), dtype=torch.bool)
+                            )
+                            match_idx = torch.nonzero(eq).reshape(-1)
+                            if len(match_idx) == 1:
+                                k = int(match_idx[0].item())
                                 try:
-                                    mapped[j] = int(src_idx[int(best_idx[j].item())])
+                                    mapped[j] = int(src_idx[k])
                                 except Exception:
                                     pass
-                    pred_track_instances.source_pose_index = mapped
+                        if (mapped < 0).any() and len(tb) and len(db):
+                            try:
+                                from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
+                            except Exception:
+                                from hmlib.utils.utils import bbox_iou as _bbox_iou
+                            iou = _bbox_iou(
+                                tb.to(dtype=torch.float32), db.to(dtype=torch.float32), x1y1x2y2=True
+                            )
+                            best_iou, best_idx = torch.max(iou, dim=1)
+                            for j in range(len(tb)):
+                                if mapped[j] < 0 and best_iou[j] > 0:
+                                    try:
+                                        mapped[j] = int(src_idx[int(best_idx[j].item())])
+                                    except Exception:
+                                        pass
+                        pred_track_instances.source_pose_index = mapped
             except Exception:
                 pass
-            active_track_count = max(active_track_count, len(pred_track_instances.instances_id))
+            if isinstance(num_tracks, torch.Tensor):
+                if active_track_count is None:
+                    active_track_count = num_tracks
+                else:
+                    active_track_count = torch.maximum(active_track_count, num_tracks)
+            else:
+                active_track_count = max(active_track_count or 0, int(num_tracks))
             img_data_sample.pred_track_instances = pred_track_instances
             # Provide a simple attribute for downstream postprocessors that expect it
             # setattr(img_data_sample, "frame_id", frame_id)
@@ -339,17 +356,27 @@ class TrackerPlugin(Plugin):
             # Saving to dataframes is now handled by dedicated Save* plugins.
 
             # For performance: record current active tracks
-            img_data_sample.set_metainfo({"nr_tracks": active_track_count})
+            img_data_sample.set_metainfo({"nr_tracks": active_track_count if active_track_count is not None else 0})
 
-            if len(pred_track_instances.instances_id):
-                max_id = int(torch.max(pred_track_instances.instances_id))
-                if max_id > max_tracking_id:
-                    max_tracking_id = max_id
+            max_id_tensor = results.get("max_id")
+            if max_id_tensor is None and isinstance(ids, torch.Tensor):
+                if track_mask is None:
+                    max_id_tensor = ids.new_zeros((1,))
+                else:
+                    masked_ids = torch.where(track_mask, ids, ids.new_full(ids.shape, -1))
+                    max_id_tensor = torch.max(masked_ids)
+                    max_id_tensor = torch.where(num_tracks[0] > 0, max_id_tensor, max_id_tensor.new_zeros(()))
+                    max_id_tensor = max_id_tensor.reshape(1)
+            if isinstance(max_id_tensor, torch.Tensor):
+                if max_tracking_id is None:
+                    max_tracking_id = max_id_tensor.reshape(-1)[:1]
+                else:
+                    max_tracking_id = torch.maximum(max_tracking_id, max_id_tensor.reshape(-1)[:1])
 
         result: Dict[str, Any] = {
             "data": data,
-            "nr_tracks": active_track_count,
-            "max_tracking_id": max_tracking_id,
+            "nr_tracks": active_track_count if active_track_count is not None else 0,
+            "max_tracking_id": max_tracking_id if max_tracking_id is not None else 0,
         }
         # Record a lightweight stream token on the current CUDA stream so
         # downstream trunks (e.g., PlayTrackerPlugin) can establish proper
@@ -477,23 +504,17 @@ class TrackerPlugin(Plugin):
 
     def _trim_tracker_outputs(
         self, results: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, torch.Tensor], int]:
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
         num_tracks_tensor = results.get("num_tracks")
         if num_tracks_tensor is None:
             ids = results.get("user_ids", results.get("ids"))
-            count = len(ids) if ids is not None else 0
+            if isinstance(ids, torch.Tensor):
+                count = ids.new_tensor([ids.shape[0]])
+            else:
+                count = torch.tensor([len(ids) if ids is not None else 0], dtype=torch.long)
             return results, count
 
-        try:
-            num_tracks = int(num_tracks_tensor.reshape(-1)[0].item())
-        except Exception:
-            num_tracks = 0
-        trimmed = dict(results)
-        for key in ("user_ids", "ids", "bboxes", "labels", "scores", "reid_features"):
-            tensor = trimmed.get(key)
-            if tensor is not None:
-                trimmed[key] = tensor[:num_tracks]
-        return trimmed, num_tracks
+        return results, num_tracks_tensor.reshape(-1)[:1]
 
     def _update_static_tracker_limits(self) -> None:
         self._static_tracker_max_detections = None

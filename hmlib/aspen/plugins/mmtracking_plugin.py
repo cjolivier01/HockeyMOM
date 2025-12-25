@@ -1,6 +1,9 @@
 from typing import Any, Dict
 
+import numpy as np
 import torch
+
+from hmlib.tracking_utils.utils import get_track_mask
 
 from .base import Plugin
 
@@ -63,9 +66,21 @@ class MMTrackingPlugin(Plugin):
             detect_timer.toc()
 
         track_data_sample = data["data_samples"]
-        nr_tracks = int(track_data_sample.video_data_samples[0].metainfo["nr_tracks"])
-        tracking_ids = track_data_sample.video_data_samples[-1].pred_track_instances.instances_id
-        max_tracking_id = int(torch.max(tracking_ids)) if len(tracking_ids) else 0
+        nr_tracks_meta = track_data_sample.video_data_samples[0].metainfo.get("nr_tracks", 0)
+        nr_tracks = nr_tracks_meta
+        if not isinstance(nr_tracks, torch.Tensor):
+            nr_tracks = int(nr_tracks)
+        pred_tracks = track_data_sample.video_data_samples[-1].pred_track_instances
+        tracking_ids = pred_tracks.instances_id
+        track_mask = get_track_mask(pred_tracks)
+        if isinstance(track_mask, torch.Tensor) and isinstance(tracking_ids, torch.Tensor):
+            tracking_ids = tracking_ids[track_mask]
+        if isinstance(tracking_ids, torch.Tensor):
+            max_tracking_id = (
+                torch.max(tracking_ids) if tracking_ids.numel() else tracking_ids.new_zeros(())
+            )
+        else:
+            max_tracking_id = int(np.max(np.asarray(tracking_ids))) if len(tracking_ids) else 0
 
         jersey_results = data.get("jersey_results")
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):

@@ -324,9 +324,21 @@ def run_mmtrack(
                         # Async AspenNet returns None from forward()
                         if out_context is not None:
                             # Update stats for progress bar
-                            nr_tracks = int(out_context.get("nr_tracks", 0))
+                            nr_tracks = out_context.get("nr_tracks", 0)
+                            if isinstance(nr_tracks, torch.Tensor):
+                                try:
+                                    nr_tracks = int(nr_tracks.reshape(-1)[0].item())
+                                except Exception:
+                                    nr_tracks = 0
+                            else:
+                                nr_tracks = int(nr_tracks)
                             max_tracking_id = out_context.get("max_tracking_id", 0)
-                            if not isinstance(max_tracking_id, (int, float)):
+                            if isinstance(max_tracking_id, torch.Tensor):
+                                try:
+                                    max_tracking_id = int(max_tracking_id.reshape(-1)[0].item())
+                                except Exception:
+                                    max_tracking_id = 0
+                            elif not isinstance(max_tracking_id, (int, float)):
                                 try:
                                     max_tracking_id = int(max_tracking_id)
                                 except Exception:

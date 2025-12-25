@@ -12,6 +12,7 @@ from hmlib.tracking_utils.action_dataframe import ActionDataFrame
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
+from hmlib.tracking_utils.utils import get_track_mask
 
 from .base import Plugin
 
@@ -25,6 +26,34 @@ def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
     if isinstance(shared, dict):
         return shared.get(key)
     return None
+
+
+def _apply_track_mask(inst, tids, tlbr, scores, labels, pose_indices=None):
+    mask = get_track_mask(inst)
+    if isinstance(mask, torch.Tensor):
+        mask_np = mask.detach().cpu().numpy()
+        if isinstance(tids, torch.Tensor):
+            tids = tids[mask]
+        else:
+            tids = np.asarray(tids)[mask_np]
+        if isinstance(tlbr, torch.Tensor):
+            tlbr = tlbr[mask]
+        else:
+            tlbr = np.asarray(tlbr)[mask_np]
+        if isinstance(scores, torch.Tensor):
+            scores = scores[mask]
+        else:
+            scores = np.asarray(scores)[mask_np]
+        if isinstance(labels, torch.Tensor):
+            labels = labels[mask]
+        else:
+            labels = np.asarray(labels)[mask_np]
+        if pose_indices is not None:
+            if isinstance(pose_indices, torch.Tensor):
+                pose_indices = pose_indices[mask]
+            else:
+                pose_indices = np.asarray(pose_indices)[mask_np]
+    return tids, tlbr, scores, labels, pose_indices
 
 
 class SavePluginBase(Plugin):
@@ -335,12 +364,19 @@ class SaveTrackingPlugin(SavePluginBase):
                     action_info=action_results,
                 )
             except Exception:
+                tids = getattr(inst, "instances_id", np.empty((0,), dtype=np.int64))
+                tlbr = getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32))
+                scores = getattr(inst, "scores", np.empty((0,), dtype=np.float32))
+                labels = getattr(inst, "labels", np.empty((0,), dtype=np.int64))
+                tids, tlbr, scores, labels, pose_indices = _apply_track_mask(
+                    inst, tids, tlbr, scores, labels, pose_indices
+                )
                 df.add_frame_records(
                     frame_id=frame_id0 + i,
-                    tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
-                    tlbr=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
-                    scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
-                    labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
+                    tracking_ids=tids,
+                    tlbr=tlbr,
+                    scores=scores,
+                    labels=labels,
                     jersey_info=jersey_results,
                     pose_indices=pose_indices,
                     action_info=action_results,
@@ -550,14 +586,22 @@ class SaveActionsPlugin(SavePluginBase):
             actions = action_results_all[i] if i < len(action_results_all) else None
             # Update tracking with action columns if tracking df present
             if df is not None:
+                tids = getattr(inst, "instances_id", np.empty((0,), dtype=np.int64))
+                tlbr = getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32))
+                scores = getattr(inst, "scores", np.empty((0,), dtype=np.float32))
+                labels = getattr(inst, "labels", np.empty((0,), dtype=np.int64))
+                pose_indices = getattr(inst, "source_pose_index", None)
+                tids, tlbr, scores, labels, pose_indices = _apply_track_mask(
+                    inst, tids, tlbr, scores, labels, pose_indices
+                )
                 df.add_frame_records(
                     frame_id=frame_id0 + i,
-                    tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
-                    tlbr=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
-                    scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
-                    labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
+                    tracking_ids=tids,
+                    tlbr=tlbr,
+                    scores=scores,
+                    labels=labels,
                     jersey_info=None,
-                    pose_indices=getattr(inst, "source_pose_index", None),
+                    pose_indices=pose_indices,
                     action_info=actions,
                 )
             # Optionally write dedicated action dataframe

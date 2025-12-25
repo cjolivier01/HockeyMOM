@@ -15,6 +15,7 @@ from hmlib.bbox.tiling import (
 )
 from hmlib.builder import PIPELINES as TRANSFORMS
 from hmlib.tracking_utils.timer import Timer
+from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
@@ -122,6 +123,10 @@ class HmNumberClassifier:
             bboxes_xyxy = data_sample.pred_track_instances.bboxes
             bboxes_xyxy_clamped = clamp_boxes_to_image(boxes=bboxes_xyxy, image_size=(w, h))
             tracking_ids = data_sample.pred_track_instances.instances_id
+            track_mask = get_track_mask(data_sample.pred_track_instances)
+            if isinstance(track_mask, torch.Tensor):
+                bboxes_xyxy_clamped = bboxes_xyxy_clamped[track_mask]
+                tracking_ids = tracking_ids[track_mask]
             non_overlapping_bbox_indices = get_non_overlapping_bbox_indices(bboxes_xyxy_clamped)
             non_obvelapping_bboxes_xyxy = bboxes_xyxy_clamped[non_overlapping_bbox_indices]
             tracking_ids = tracking_ids[non_overlapping_bbox_indices]

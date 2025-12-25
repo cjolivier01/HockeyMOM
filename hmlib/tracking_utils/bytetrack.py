@@ -69,6 +69,18 @@ def _copy_prefix(dst: torch.Tensor, src: torch.Tensor, count: int) -> None:
     dst[:count].copy_(src)
 
 
+def _stable_mask_order(mask: torch.Tensor) -> torch.Tensor:
+    """Return indices that move True entries to the front, preserving order."""
+    if not isinstance(mask, torch.Tensor) or mask.numel() == 0:
+        return torch.empty((0,), dtype=torch.long)
+    mask_bool = mask.to(dtype=torch.bool)
+    n = int(mask_bool.shape[0])
+    idx = torch.arange(n, device=mask_bool.device, dtype=torch.long)
+    # Key ensures stable ordering: True -> 0..n-1, False -> (n+1)+idx.
+    key = (~mask_bool).to(dtype=idx.dtype) * (n + 1) + idx
+    return torch.argsort(key)
+
+
 def _bbox_xyxy_to_cxcyah(bboxes: torch.Tensor) -> torch.Tensor:
     if bboxes.numel() == 0:
         return bboxes.reshape(0, 4)
@@ -124,7 +136,12 @@ def _bbox_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
 
 
 def _hungarian_assign(
-    cost: torch.Tensor, *, cost_limit: float
+    cost: torch.Tensor,
+    *,
+    cost_limit: float,
+    row_mask: Optional[torch.Tensor] = None,
+    col_mask: Optional[torch.Tensor] = None,
+    big: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Return (track_to_det, det_to_track) with `-1` meaning unmatched.
@@ -145,13 +162,20 @@ def _hungarian_assign(
             cost.new_empty((0,), dtype=torch.long),
         )
 
-    big = cost.new_tensor(1e9)
+    if big is None:
+        big = cost.new_full((), 1e9)
+    elif big.device != cost.device or big.dtype != cost.dtype:
+        big = big.to(device=cost.device, dtype=cost.dtype)
     cost_work = torch.where(cost <= float(cost_limit), cost, big)
 
     track_to_det = cost.new_full((n_tracks,), -1, dtype=torch.long)
     det_to_track = cost.new_full((n_dets,), -1, dtype=torch.long)
     row_used = cost.new_zeros((n_tracks,), dtype=torch.bool)
     col_used = cost.new_zeros((n_dets,), dtype=torch.bool)
+    if row_mask is not None:
+        row_used |= ~row_mask.to(device=cost.device, dtype=torch.bool)
+    if col_mask is not None:
+        col_used |= ~col_mask.to(device=cost.device, dtype=torch.bool)
 
     for _ in range(min(n_tracks, n_dets)):
         row_pen = row_used.to(dtype=cost.dtype).unsqueeze(1) * big
@@ -193,12 +217,32 @@ class HmByteTrackerCuda:
         self,
         config: Optional[HmByteTrackConfig] = None,
         *,
+        max_detections: int | None = None,
+        max_tracks: int | None = None,
         device: str | torch.device = "cuda:0",
     ) -> None:
         if config is None:
             config = HmByteTrackConfig() if HmByteTrackConfig is not None else object()  # type: ignore[call-arg]
         self._config = _ByteTrackConfig.from_obj(config)
         self._device = torch.device(device)
+        def _maybe_int_attr(name: str, default: int) -> int:
+            try:
+                return int(getattr(config, name))
+            except Exception:
+                return int(default)
+
+        self._max_detections = (
+            int(max_detections)
+            if max_detections is not None
+            else _maybe_int_attr("max_detections", 256)
+        )
+        self._max_tracks = (
+            int(max_tracks)
+            if max_tracks is not None
+            else _maybe_int_attr("max_tracks", min(self._max_detections, 256))
+        )
+        if self._max_tracks > self._max_detections:
+            self._max_tracks = self._max_detections
 
         self._motion_mat = torch.eye(8, device=self._device, dtype=torch.float32)
         for i in range(4):
@@ -212,7 +256,15 @@ class HmByteTrackerCuda:
         self._std_weight_position = 1.0 / 20.0
         self._std_weight_velocity = 1.0 / 160.0
 
+        self._static_tracker: Optional[HmByteTrackerCudaStatic] = None
         self.reset()
+        if self._device.type == "cuda":
+            self._static_tracker = HmByteTrackerCudaStatic(
+                config,
+                max_detections=self._max_detections,
+                max_tracks=self._max_tracks,
+                device=self._device,
+            )
 
     def reset(self) -> None:
         self._track_ids = torch.empty((0,), dtype=torch.long, device=self._device)
@@ -225,9 +277,86 @@ class HmByteTrackerCuda:
         self._track_covariance = torch.empty((0, 8, 8), dtype=torch.float32, device=self._device)
         self._next_track_id = 0
         self._track_calls_since_last_empty = 0
+        if self._static_tracker is not None:
+            self._static_tracker.reset()
+
+    @property
+    def max_detections(self) -> int:
+        return self._max_detections
+
+    @property
+    def max_tracks(self) -> int:
+        return self._max_tracks
 
     def num_tracks(self) -> int:
+        if self._static_tracker is not None:
+            return int(self._static_tracker.num_tracks())
         return int(self._track_ids.numel())
+
+    def _track_static(self, data: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        if self._static_tracker is None:
+            raise RuntimeError("static tracker is not initialized")
+        frame_id_tensor = data[kFrameIdKey]
+
+        bboxes = self._ensure_bboxes(data[kBBoxesKey])
+        labels = self._ensure_vector(data[kLabelsKey], dtype=torch.long)
+        scores = self._ensure_vector(data[kScoresKey], dtype=torch.float32)
+
+        if bboxes.shape[0] != labels.shape[0] or labels.shape[0] != scores.shape[0]:
+            raise RuntimeError("bboxes/labels/scores must have matching length")
+
+        if (
+            kNumDetectionsKey in data
+            and bboxes.shape[0] == self._max_detections
+            and labels.shape[0] == self._max_detections
+            and scores.shape[0] == self._max_detections
+        ):
+            num_detections = (
+                data[kNumDetectionsKey].to(device=self._device, dtype=torch.long).reshape(-1)[:1]
+            )
+            payload = {
+                kFrameIdKey: frame_id_tensor,
+                kBBoxesKey: bboxes,
+                kLabelsKey: labels,
+                kScoresKey: scores,
+                kNumDetectionsKey: num_detections,
+            }
+            return self._static_tracker.track(payload)
+
+        total = int(bboxes.shape[0])
+        kept = min(total, self._max_detections)
+        if total > self._max_detections:
+            keep_idx = torch.topk(scores, k=self._max_detections).indices
+            keep_idx, _ = torch.sort(keep_idx)
+            bboxes = bboxes.index_select(0, keep_idx)
+            labels = labels.index_select(0, keep_idx)
+            scores = scores.index_select(0, keep_idx)
+
+        padded_bboxes = bboxes.new_zeros((self._max_detections, 4))
+        padded_labels = labels.new_zeros((self._max_detections,))
+        padded_scores = scores.new_zeros((self._max_detections,))
+        if kept:
+            padded_bboxes[:kept].copy_(bboxes[:kept])
+            padded_labels[:kept].copy_(labels[:kept])
+            padded_scores[:kept].copy_(scores[:kept])
+
+        kept_t = bboxes.new_tensor([kept], dtype=torch.long)
+        if kNumDetectionsKey in data:
+            num_detections = (
+                data[kNumDetectionsKey].to(device=self._device, dtype=torch.long).reshape(-1)[:1]
+            )
+            num_detections = torch.min(num_detections, kept_t)
+        else:
+            num_detections = kept_t
+
+        payload = {
+            kFrameIdKey: frame_id_tensor,
+            kBBoxesKey: padded_bboxes,
+            kLabelsKey: padded_labels,
+            kScoresKey: padded_scores,
+            kNumDetectionsKey: num_detections,
+        }
+        return self._static_tracker.track(payload)
 
     def _ensure_bboxes(self, tensor: torch.Tensor) -> torch.Tensor:
         if tensor.numel() == 0:
@@ -336,7 +465,7 @@ class HmByteTrackerCuda:
 
         B = covariance @ self._update_mat_T
         BT = B.transpose(1, 2)
-        chol = torch.linalg.cholesky(projected_cov)
+        chol, _ = torch.linalg.cholesky_ex(projected_cov, check_errors=False)
         sol = torch.cholesky_solve(BT, chol)
         kalman_gain = sol.transpose(1, 2)
 
@@ -499,6 +628,8 @@ class HmByteTrackerCuda:
         return _hungarian_assign(cost, cost_limit=cost_limit)
 
     def track(self, data: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        if self._device.type == "cuda" and self._static_tracker is not None:
+            return self._track_static(data)
         frame_id_tensor = data[kFrameIdKey]
         if frame_id_tensor.numel() < 1:
             raise RuntimeError("frame_id tensor must contain a value")
@@ -766,25 +897,45 @@ class HmByteTrackerCuda:
 
 
 class HmByteTrackerCudaStatic:
-    """Static-shape CUDA BYTETracker wrapper implemented in Python."""
+    """Static-shape CUDA BYTETracker implemented in Python (no dynamic indexing)."""
+
+    _STATE_TENTATIVE = 0
+    _STATE_TRACKING = 1
+    _STATE_LOST = 2
 
     def __init__(
-        self, 
+        self,
         config: HmByteTrackConfig | None = None,
         max_detections: int = 256,
         max_tracks: int = 256,
         device: str | torch.device = "cuda:0",
     ) -> None:
         if config is None:
-            config = HmByteTrackConfig() if HmByteTrackConfig is not None else None  # type: ignore[call-arg]
+            config = HmByteTrackConfig() if HmByteTrackConfig is not None else object()  # type: ignore[call-arg]
+        self._config = _ByteTrackConfig.from_obj(config)
         self._max_detections = int(max_detections)
         self._max_tracks = int(max_tracks)
         if self._max_detections <= 0:
             raise ValueError("max_detections must be positive")
         if self._max_tracks <= 0:
             raise ValueError("max_tracks must be positive")
+        if self._max_tracks > self._max_detections:
+            raise ValueError("max_tracks must be <= max_detections for static tracker")
         self._device = torch.device(device)
-        self._tracker = HmByteTrackerCuda(config, device=self._device)
+
+        self._motion_mat = torch.eye(8, device=self._device, dtype=torch.float32)
+        for i in range(4):
+            self._motion_mat[i, 4 + i] = 1.0
+        self._motion_mat_T = self._motion_mat.transpose(0, 1).contiguous()
+
+        self._update_mat = torch.zeros((4, 8), device=self._device, dtype=torch.float32)
+        self._update_mat[:, :4] = torch.eye(4, device=self._device, dtype=torch.float32)
+        self._update_mat_T = self._update_mat.transpose(0, 1).contiguous()
+
+        self._std_weight_position = 1.0 / 20.0
+        self._std_weight_velocity = 1.0 / 160.0
+
+        self.reset()
 
     @property
     def max_detections(self) -> int:
@@ -795,10 +946,389 @@ class HmByteTrackerCudaStatic:
         return self._max_tracks
 
     def num_tracks(self) -> int:
-        return int(self._tracker.num_tracks())
+        return int(self._track_active.sum().item())
+
+    def reset(self) -> None:
+        self._track_ids = torch.full(
+            (self._max_tracks,),
+            -1,
+            dtype=torch.long,
+            device=self._device,
+        )
+        self._track_active = torch.zeros((self._max_tracks,), dtype=torch.bool, device=self._device)
+        self._track_states = torch.full(
+            (self._max_tracks,),
+            int(self._STATE_LOST),
+            dtype=torch.long,
+            device=self._device,
+        )
+        self._track_labels = torch.zeros(
+            (self._max_tracks,),
+            dtype=torch.long,
+            device=self._device,
+        )
+        self._track_scores = torch.zeros(
+            (self._max_tracks,),
+            dtype=torch.float32,
+            device=self._device,
+        )
+        self._track_last_frame = torch.zeros(
+            (self._max_tracks,),
+            dtype=torch.long,
+            device=self._device,
+        )
+        self._track_hits = torch.zeros(
+            (self._max_tracks,),
+            dtype=torch.long,
+            device=self._device,
+        )
+        self._track_mean = torch.zeros(
+            (self._max_tracks, 8), dtype=torch.float32, device=self._device
+        )
+        self._track_covariance = torch.zeros(
+            (self._max_tracks, 8, 8), dtype=torch.float32, device=self._device
+        )
+        self._next_track_id = torch.zeros((1,), dtype=torch.long, device=self._device)
+        self._track_index = torch.arange(self._max_tracks, device=self._device, dtype=torch.long)
+        self._det_index = torch.arange(self._max_detections, device=self._device, dtype=torch.long)
+        self._big_cost = torch.full((), 1e9, device=self._device, dtype=torch.float32)
+        self._state_tracking_t = torch.full(
+            (), int(self._STATE_TRACKING), device=self._device, dtype=self._track_states.dtype
+        )
+        self._state_tentative_t = torch.full(
+            (), int(self._STATE_TENTATIVE), device=self._device, dtype=self._track_states.dtype
+        )
+        self._state_lost_t = torch.full(
+            (), int(self._STATE_LOST), device=self._device, dtype=self._track_states.dtype
+        )
+        self._neg_one_long = torch.full((), -1, device=self._device, dtype=torch.long)
+        self._zero_long = torch.zeros((), device=self._device, dtype=torch.long)
+        self._zero_float = torch.zeros((), device=self._device, dtype=torch.float32)
+
+    def _kalman_initiate(
+        self, measurements_cxcyah: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        count = int(measurements_cxcyah.shape[0])
+        mean = measurements_cxcyah.new_zeros((count, 8))
+        mean[:, 0:4] = measurements_cxcyah
+        h = measurements_cxcyah[:, 3]
+        std_pos = torch.stack(
+            (
+                2 * self._std_weight_position * h,
+                2 * self._std_weight_position * h,
+                torch.full_like(h, 1e-2),
+                2 * self._std_weight_position * h,
+            ),
+            dim=1,
+        )
+        std_vel = torch.stack(
+            (
+                10 * self._std_weight_velocity * h,
+                10 * self._std_weight_velocity * h,
+                torch.full_like(h, 1e-5),
+                10 * self._std_weight_velocity * h,
+            ),
+            dim=1,
+        )
+        std = torch.cat((std_pos, std_vel), dim=1)
+        cov = torch.diag_embed(std.pow(2))
+        return mean, cov
+
+    def _kalman_predict(
+        self, mean: torch.Tensor, covariance: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if mean.numel() == 0:
+            return mean, covariance
+        h = mean[:, 3]
+        std_pos = torch.stack(
+            (
+                self._std_weight_position * h,
+                self._std_weight_position * h,
+                torch.full_like(h, 1e-2),
+                self._std_weight_position * h,
+            ),
+            dim=1,
+        )
+        std_vel = torch.stack(
+            (
+                self._std_weight_velocity * h,
+                self._std_weight_velocity * h,
+                torch.full_like(h, 1e-5),
+                self._std_weight_velocity * h,
+            ),
+            dim=1,
+        )
+        std = torch.cat((std_pos, std_vel), dim=1)
+        motion_cov = torch.diag_embed(std.pow(2))
+
+        mean = mean @ self._motion_mat_T
+        motion = self._motion_mat.unsqueeze(0).expand_as(covariance)
+        motion_T = self._motion_mat_T.unsqueeze(0).expand_as(covariance)
+        covariance = motion @ (covariance @ motion_T) + motion_cov
+        return mean, covariance
+
+    def _kalman_project(
+        self, mean: torch.Tensor, covariance: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        measurement_mean = mean[:, 0:4]
+        h = mean[:, 3]
+        std = torch.stack(
+            (
+                self._std_weight_position * h,
+                self._std_weight_position * h,
+                torch.full_like(h, 1e-1),
+                self._std_weight_position * h,
+            ),
+            dim=1,
+        )
+        projected_cov = covariance[:, 0:4, 0:4] + torch.diag_embed(std.pow(2))
+        return measurement_mean, projected_cov
+
+    def _kalman_update(
+        self, mean: torch.Tensor, covariance: torch.Tensor, measurement_cxcyah: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        projected_mean, projected_cov = self._kalman_project(mean, covariance)
+
+        B = covariance @ self._update_mat_T
+        BT = B.transpose(1, 2)
+        chol, _ = torch.linalg.cholesky_ex(projected_cov, check_errors=False)
+        sol = torch.cholesky_solve(BT, chol)
+        kalman_gain = sol.transpose(1, 2)
+
+        innovation = measurement_cxcyah - projected_mean
+        delta = (innovation.unsqueeze(1) @ kalman_gain.transpose(1, 2)).squeeze(1)
+        new_mean = mean + delta
+
+        temp = projected_cov @ kalman_gain.transpose(1, 2)
+        new_covariance = covariance - (kalman_gain @ temp)
+        return new_mean, new_covariance
+
+    def _predict_tracks(self, frame_id: torch.Tensor) -> None:
+        confirmed = self._track_active & self._track_states.ne(self._STATE_TENTATIVE)
+        not_prev_frame = self._track_last_frame.ne(frame_id - 1)
+        degrade = confirmed & not_prev_frame
+        self._track_mean[:, 7] = torch.where(
+            degrade, self._track_mean[:, 7] / 2.0, self._track_mean[:, 7]
+        )
+        self._track_mean, self._track_covariance = self._kalman_predict(
+            self._track_mean, self._track_covariance
+        )
+
+    def _remove_stale_tracks(self, frame_id: torch.Tensor) -> None:
+        active_mask = self._track_active
+        lost_mask = active_mask & self._track_states.eq(self._STATE_LOST)
+        frame_delta = frame_id - self._track_last_frame
+        too_long = lost_mask & frame_delta.ge(int(self._config.num_frames_to_keep_lost_tracks))
+        stale_tent = (
+            active_mask
+            & self._track_states.eq(self._STATE_TENTATIVE)
+            & self._track_last_frame.ne(frame_id)
+        )
+        remove_mask = too_long | stale_tent
+        keep_mask = ~remove_mask
+
+        self._track_active = active_mask & keep_mask
+        self._track_ids = torch.where(
+            keep_mask, self._track_ids, self._track_ids.new_full(self._track_ids.shape, -1)
+        )
+        self._track_states = torch.where(
+            keep_mask,
+            self._track_states,
+            self._track_states.new_full(self._track_states.shape, int(self._STATE_LOST)),
+        )
+        self._track_labels = torch.where(
+            keep_mask, self._track_labels, self._track_labels.new_zeros(self._track_labels.shape)
+        )
+        self._track_scores = torch.where(
+            keep_mask, self._track_scores, self._track_scores.new_zeros(self._track_scores.shape)
+        )
+        self._track_last_frame = torch.where(
+            keep_mask,
+            self._track_last_frame,
+            self._track_last_frame.new_zeros(self._track_last_frame.shape),
+        )
+        self._track_hits = torch.where(
+            keep_mask, self._track_hits, self._track_hits.new_zeros(self._track_hits.shape)
+        )
+        self._track_mean = torch.where(
+            keep_mask.unsqueeze(1),
+            self._track_mean,
+            self._track_mean.new_zeros(self._track_mean.shape),
+        )
+        self._track_covariance = torch.where(
+            keep_mask.unsqueeze(1).unsqueeze(2),
+            self._track_covariance,
+            self._track_covariance.new_zeros(self._track_covariance.shape),
+        )
+
+    def _mark_unmatched_tracking(self, matched_mask: torch.Tensor) -> None:
+        tracking_mask = self._track_active & self._track_states.eq(self._STATE_TRACKING)
+        to_lose = tracking_mask & (~matched_mask)
+        self._track_states = torch.where(to_lose, self._state_lost_t, self._track_states)
+
+    def _assign_tracks_masked(
+        self,
+        track_mask: torch.Tensor,
+        det_mask: torch.Tensor,
+        det_bboxes: torch.Tensor,
+        det_labels: torch.Tensor,
+        det_scores: torch.Tensor,
+        *,
+        weight_with_scores: bool,
+        iou_thr: float,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        track_boxes = _bbox_cxcyah_to_xyxy(self._track_mean[:, 0:4])
+        ious = _bbox_iou(track_boxes, det_bboxes)
+        if weight_with_scores and det_scores.numel() > 0:
+            ious = ious * det_scores.unsqueeze(0)
+
+        track_labels = self._track_labels
+        label_ok = (track_labels.unsqueeze(1) == det_labels.unsqueeze(0)).to(dtype=ious.dtype)
+        cate_cost = (1.0 - label_ok) * 1e6
+        cost = (1.0 - ious) + cate_cost
+        cost_limit = 1.0 - float(iou_thr)
+
+        row_mask = track_mask.to(dtype=torch.bool)
+        col_mask = det_mask.to(dtype=torch.bool)
+        big = self._big_cost
+        cost = torch.where(row_mask.unsqueeze(1) & col_mask.unsqueeze(0), cost, big)
+        return _hungarian_assign(
+            cost,
+            cost_limit=cost_limit,
+            row_mask=row_mask,
+            col_mask=col_mask,
+            big=big,
+        )
+
+    def _update_tracks(
+        self,
+        track_to_det: torch.Tensor,
+        det_bboxes: torch.Tensor,
+        det_labels: torch.Tensor,
+        det_scores: torch.Tensor,
+        frame_id: torch.Tensor,
+    ) -> None:
+        matched_mask = track_to_det.ge(0)
+        safe_det_idx = torch.where(matched_mask, track_to_det, torch.zeros_like(track_to_det))
+
+        det_bboxes_sel = det_bboxes.index_select(0, safe_det_idx)
+        det_labels_sel = det_labels.index_select(0, safe_det_idx)
+        det_scores_sel = det_scores.index_select(0, safe_det_idx)
+
+        measurements = _bbox_xyxy_to_cxcyah(det_bboxes_sel)
+        new_mean, new_cov = self._kalman_update(
+            self._track_mean, self._track_covariance, measurements
+        )
+
+        mask_mean = matched_mask.unsqueeze(1)
+        mask_cov = matched_mask.unsqueeze(1).unsqueeze(2)
+        self._track_mean = torch.where(mask_mean, new_mean, self._track_mean)
+        self._track_covariance = torch.where(mask_cov, new_cov, self._track_covariance)
+        self._track_scores = torch.where(matched_mask, det_scores_sel, self._track_scores)
+        self._track_labels = torch.where(matched_mask, det_labels_sel, self._track_labels)
+        self._track_last_frame = torch.where(matched_mask, frame_id, self._track_last_frame)
+
+        new_hits = torch.where(matched_mask, self._track_hits + 1, self._track_hits)
+        self._track_hits = new_hits
+
+        tent_mask = matched_mask & self._track_states.eq(self._STATE_TENTATIVE)
+        tent_mask &= new_hits.ge(int(self._config.num_tentatives))
+        lost_mask = matched_mask & self._track_states.eq(self._STATE_LOST)
+
+        to_track = tent_mask | lost_mask
+        self._track_states = torch.where(to_track, self._state_tracking_t, self._track_states)
+
+    def _init_new_tracks(
+        self,
+        new_det_mask: torch.Tensor,
+        det_bboxes: torch.Tensor,
+        det_labels: torch.Tensor,
+        det_scores: torch.Tensor,
+        ids: torch.Tensor,
+        frame_id: torch.Tensor,
+    ) -> torch.Tensor:
+        active_count = self._track_active.sum()
+        state_val = torch.where(active_count.eq(0), self._state_tracking_t, self._state_tentative_t)
+
+        num_new = new_det_mask.sum()
+        free_mask = ~self._track_active
+        free_count = free_mask.sum()
+        assign_count = torch.minimum(num_new, free_count)
+
+        assign_mask = self._track_index < assign_count
+        new_order = _stable_mask_order(new_det_mask)[: self._max_tracks]
+        free_order = _stable_mask_order(free_mask)
+
+        new_prefix_mask = self._track_index < num_new
+        free_prefix_mask = self._track_index < free_count
+        pair_mask = assign_mask & new_prefix_mask & free_prefix_mask
+
+        new_bboxes = det_bboxes.index_select(0, new_order)
+        new_labels = det_labels.index_select(0, new_order)
+        new_scores = det_scores.index_select(0, new_order)
+
+        new_ids_base = self._next_track_id + torch.arange(
+            self._max_tracks, device=self._device, dtype=torch.long
+        )
+
+        det_existing = ids.index_select(0, new_order)
+        det_updated = torch.where(pair_mask, new_ids_base, det_existing)
+        ids.index_put_((new_order,), det_updated)
+
+        track_idx = free_order
+        track_ids_existing = self._track_ids.index_select(0, track_idx)
+        track_ids_updated = torch.where(pair_mask, new_ids_base, track_ids_existing)
+        self._track_ids.index_put_((track_idx,), track_ids_updated)
+
+        active_existing = self._track_active.index_select(0, track_idx)
+        active_updated = torch.where(pair_mask, torch.ones_like(active_existing), active_existing)
+        self._track_active.index_put_((track_idx,), active_updated)
+
+        states_existing = self._track_states.index_select(0, track_idx)
+        states_updated = torch.where(
+            pair_mask, state_val.expand_as(states_existing), states_existing
+        )
+        self._track_states.index_put_((track_idx,), states_updated)
+
+        labels_existing = self._track_labels.index_select(0, track_idx)
+        labels_updated = torch.where(pair_mask, new_labels, labels_existing)
+        self._track_labels.index_put_((track_idx,), labels_updated)
+
+        scores_existing = self._track_scores.index_select(0, track_idx)
+        scores_updated = torch.where(pair_mask, new_scores, scores_existing)
+        self._track_scores.index_put_((track_idx,), scores_updated)
+
+        last_existing = self._track_last_frame.index_select(0, track_idx)
+        last_updated = torch.where(pair_mask, frame_id, last_existing)
+        self._track_last_frame.index_put_((track_idx,), last_updated)
+
+        hits_existing = self._track_hits.index_select(0, track_idx)
+        hits_updated = torch.where(pair_mask, torch.ones_like(hits_existing), hits_existing)
+        self._track_hits.index_put_((track_idx,), hits_updated)
+
+        measurements = _bbox_xyxy_to_cxcyah(new_bboxes)
+        mean_new, cov_new = self._kalman_initiate(measurements)
+
+        mean_existing = self._track_mean.index_select(0, track_idx)
+        mean_updated = torch.where(pair_mask.unsqueeze(1), mean_new, mean_existing)
+        self._track_mean.index_put_((track_idx,), mean_updated)
+
+        cov_existing = self._track_covariance.index_select(0, track_idx)
+        cov_updated = torch.where(pair_mask.unsqueeze(1).unsqueeze(2), cov_new, cov_existing)
+        self._track_covariance.index_put_((track_idx,), cov_updated)
+
+        self._next_track_id = self._next_track_id + assign_count
+        return ids
 
     def track(self, data: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         frame_id_tensor = data[kFrameIdKey]
+        if frame_id_tensor.numel() < 1:
+            raise RuntimeError("frame_id tensor must contain a value")
+        frame_id = frame_id_tensor.to(device=self._device, dtype=torch.long).reshape(-1)[:1]
+        if frame_id.numel() < 1:
+            raise RuntimeError("frame_id tensor must contain a value")
+        frame_id = frame_id[0]
+
         if kNumDetectionsKey not in data:
             raise RuntimeError("data must contain 'num_detections' entry")
         num_detections = data[kNumDetectionsKey].to(device=self._device, dtype=torch.long).reshape(-1)[:1]
@@ -816,6 +1346,8 @@ class HmByteTrackerCudaStatic:
             raise RuntimeError("labels tensor must be 1-D")
         if det_scores.ndim != 1:
             raise RuntimeError("scores tensor must be 1-D")
+        if det_bboxes.shape[0] != self._max_detections:
+            raise RuntimeError("bboxes tensor first dimension must equal max_detections")
         if det_labels.shape[0] != self._max_detections:
             raise RuntimeError("labels tensor first dimension must equal max_detections")
         if det_scores.shape[0] != self._max_detections:
@@ -825,73 +1357,125 @@ class HmByteTrackerCudaStatic:
         det_labels = det_labels.to(device=self._device, dtype=torch.long)
         det_scores = det_scores.to(device=self._device, dtype=torch.float32)
 
-        idx = torch.arange(self._max_detections, dtype=torch.long, device=self._device)
-        valid_mask = idx < num_detections[0]
-        valid_f = valid_mask.to(dtype=det_bboxes.dtype)
-        bboxes_masked = det_bboxes * valid_f.unsqueeze(1)
-        labels_masked = det_labels * valid_mask.to(dtype=det_labels.dtype)
-        scores_masked = det_scores * valid_f
+        det_valid_mask = self._det_index < num_detections[0]
+        valid_f = det_valid_mask.to(dtype=det_bboxes.dtype)
+        det_bboxes = det_bboxes * valid_f.unsqueeze(1)
+        det_labels = det_labels * det_valid_mask.to(dtype=det_labels.dtype)
+        det_scores = det_scores * valid_f
 
-        tracker_input = {
-            kFrameIdKey: frame_id_tensor,
-            kBBoxesKey: bboxes_masked,
-            kLabelsKey: labels_masked,
-            kScoresKey: scores_masked,
-        }
+        ids = det_labels.new_full((self._max_detections,), -1, dtype=torch.long)
 
-        tracker_output = self._tracker.track(tracker_input)
-        ids = tracker_output[kIdsKey]
-        labels = tracker_output[kLabelsKey]
-        scores = tracker_output[kScoresKey]
-        bboxes = tracker_output[kBBoxesKey]
-
-        ids_1d = ids.reshape(-1)
-        num_tracks = int(ids_1d.numel())
-        if num_tracks > self._max_tracks:
-            raise RuntimeError(
-                "Active track count ({}) exceeds configured max_tracks ({})".format(
-                    num_tracks, self._max_tracks
-                )
-            )
-
-        padded_ids = torch.full(
-            (self._max_tracks,),
-            -1,
-            dtype=torch.long,
-            device=self._device,
-        )
-        padded_labels = torch.zeros(
-            (self._max_tracks,),
-            dtype=labels.dtype,
-            device=self._device,
-        )
-        padded_scores = torch.zeros(
-            (self._max_tracks,),
-            dtype=scores.dtype,
-            device=self._device,
-        )
-        padded_bboxes = torch.zeros(
-            (self._max_tracks, 4),
-            dtype=bboxes.dtype,
-            device=self._device,
+        first_mask = det_valid_mask & det_scores.gt(float(self._config.obj_score_thrs_high))
+        second_mask = (
+            det_valid_mask & (~first_mask) & det_scores.gt(float(self._config.obj_score_thrs_low))
         )
 
-        _copy_prefix(padded_ids, ids_1d, num_tracks)
-        _copy_prefix(padded_labels, labels.reshape(-1), num_tracks)
-        _copy_prefix(padded_scores, scores.reshape(-1), num_tracks)
-        _copy_prefix(padded_bboxes, bboxes.reshape(-1, 4), num_tracks)
+        self._predict_tracks(frame_id)
 
-        data[kIdsKey] = padded_ids
-        data[kLabelsKey] = padded_labels
-        data[kScoresKey] = padded_scores
-        data[kBBoxesKey] = padded_bboxes
-        data[kNumTracksKey] = torch.full(
-            (1,),
-            num_tracks,
-            dtype=torch.long,
-            device=self._device,
+        confirmed_mask = self._track_active & self._track_states.ne(self._STATE_TENTATIVE)
+        unconfirmed_mask = self._track_active & self._track_states.eq(self._STATE_TENTATIVE)
+
+        first_track_to_det, first_det_to_track = self._assign_tracks_masked(
+            confirmed_mask,
+            first_mask,
+            det_bboxes,
+            det_labels,
+            det_scores,
+            weight_with_scores=bool(self._config.weight_iou_with_det_scores),
+            iou_thr=float(self._config.match_iou_thrs_high),
         )
+
+        first_match_mask = first_mask & first_det_to_track.ge(0)
+        safe_track_idx = torch.where(
+            first_match_mask, first_det_to_track, torch.zeros_like(first_det_to_track)
+        )
+        matched_track_ids = self._track_ids.index_select(0, safe_track_idx)
+        ids = torch.where(first_match_mask, matched_track_ids, ids)
+
+        unmatched_first_mask = first_mask & first_det_to_track.lt(0)
+        tent_track_to_det, tent_det_to_track = self._assign_tracks_masked(
+            unconfirmed_mask,
+            unmatched_first_mask,
+            det_bboxes,
+            det_labels,
+            det_scores,
+            weight_with_scores=bool(self._config.weight_iou_with_det_scores),
+            iou_thr=float(self._config.match_iou_thrs_tentative),
+        )
+        tent_match_mask = unmatched_first_mask & tent_det_to_track.ge(0)
+        safe_track_idx = torch.where(
+            tent_match_mask, tent_det_to_track, torch.zeros_like(tent_det_to_track)
+        )
+        matched_track_ids = self._track_ids.index_select(0, safe_track_idx)
+        ids = torch.where(tent_match_mask, matched_track_ids, ids)
+
+        track_unmatched_mask = confirmed_mask & first_track_to_det.lt(0)
+        recent_mask = self._track_last_frame.eq(frame_id - 1)
+        selectable_mask = track_unmatched_mask & recent_mask
+        second_track_to_det, second_det_to_track = self._assign_tracks_masked(
+            selectable_mask,
+            second_mask,
+            det_bboxes,
+            det_labels,
+            det_scores,
+            weight_with_scores=False,
+            iou_thr=float(self._config.match_iou_thrs_low),
+        )
+        second_match_mask = second_mask & second_det_to_track.ge(0)
+        safe_track_idx = torch.where(
+            second_match_mask, second_det_to_track, torch.zeros_like(second_det_to_track)
+        )
+        matched_track_ids = self._track_ids.index_select(0, safe_track_idx)
+        ids = torch.where(second_match_mask, matched_track_ids, ids)
+
+        matched_tracks_mask = first_track_to_det.ge(0) | second_track_to_det.ge(0)
+        self._mark_unmatched_tracking(matched_tracks_mask)
+
+        self._update_tracks(first_track_to_det, det_bboxes, det_labels, det_scores, frame_id)
+        self._update_tracks(tent_track_to_det, det_bboxes, det_labels, det_scores, frame_id)
+        self._update_tracks(second_track_to_det, det_bboxes, det_labels, det_scores, frame_id)
+
+        new_track_mask = first_mask & ids.lt(0)
+        ids = self._init_new_tracks(
+            new_track_mask, det_bboxes, det_labels, det_scores, ids, frame_id
+        )
+
+        self._remove_stale_tracks(frame_id)
+
+        output_mask = ids.ge(0)
+        order = _stable_mask_order(output_mask)
+        ordered_ids = ids.index_select(0, order)
+        ordered_bboxes = det_bboxes.index_select(0, order)
+        ordered_labels = det_labels.index_select(0, order)
+        ordered_scores = det_scores.index_select(0, order)
+
+        num_tracks = torch.clamp(output_mask.sum(), max=int(self._max_tracks))
+        prefix_ids = ordered_ids[: self._max_tracks]
+        prefix_bboxes = ordered_bboxes[: self._max_tracks]
+        prefix_labels = ordered_labels[: self._max_tracks]
+        prefix_scores = ordered_scores[: self._max_tracks]
+
+        assign_mask = self._track_index < num_tracks
+        out_ids = torch.where(assign_mask, prefix_ids, prefix_ids.new_full((self._max_tracks,), -1))
+        out_labels = torch.where(
+            assign_mask, prefix_labels, prefix_labels.new_zeros((self._max_tracks,))
+        )
+        out_scores = torch.where(
+            assign_mask, prefix_scores, prefix_scores.new_zeros((self._max_tracks,))
+        )
+        out_bboxes = torch.where(
+            assign_mask.unsqueeze(1),
+            prefix_bboxes,
+            prefix_bboxes.new_zeros((self._max_tracks, 4)),
+        )
+
+        data[kIdsKey] = out_ids
+        data[kBBoxesKey] = out_bboxes
+        data[kLabelsKey] = out_labels
+        data[kScoresKey] = out_scores
+        data[kNumTracksKey] = num_tracks.reshape(1)
         data[kNumDetectionsKey] = num_detections.to(device=self._device, dtype=torch.long)
+        data["max_id"] = torch.clamp(self._next_track_id - 1, min=0).reshape(1)
 
         return data
 

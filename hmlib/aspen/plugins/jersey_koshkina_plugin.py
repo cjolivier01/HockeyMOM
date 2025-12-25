@@ -18,6 +18,7 @@ from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first
+from hmlib.tracking_utils.utils import get_track_mask
 
 # Jersey-number-pipeline inspired torso crop parameters
 _PADDING = 5
@@ -463,9 +464,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
             pred_tracks: Optional[InstanceData] = getattr(
                 img_data_sample, "pred_track_instances", None
             )
-            if pred_tracks is None or (
-                hasattr(pred_tracks, "bboxes") and len(pred_tracks.bboxes) == 0
-            ):
+            if pred_tracks is None:
                 all_jersey_results.append([])
                 continue
 
@@ -474,6 +473,13 @@ class KoshkinaJerseyNumberPlugin(Plugin):
             if not isinstance(bboxes_xyxy, torch.Tensor):
                 bboxes_xyxy = torch.as_tensor(bboxes_xyxy, device=device)
             tracking_ids = pred_tracks.instances_id
+            track_mask = get_track_mask(pred_tracks)
+            if isinstance(track_mask, torch.Tensor):
+                bboxes_xyxy = bboxes_xyxy[track_mask]
+                tracking_ids = tracking_ids[track_mask]
+            if bboxes_xyxy.numel() == 0:
+                all_jersey_results.append([])
+                continue
 
             # Pose matching if requested
             pose_inst = None
