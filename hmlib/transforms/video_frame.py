@@ -53,11 +53,14 @@ class HmCropToVideoFrame:
         images = results.pop("img")
         if not self._crop_image:
             if isinstance(images, list):
-                # since no creopping, they should be the same size
+                # since no cropping, they should be the same size
                 results["img"] = torch.stack(images)
             else:
                 # Just put it back
                 results["img"] = images
+            # Not cropping, so set output size to input size
+            video_frame_cfg["output_frame_width"] = image_width(images)
+            video_frame_cfg["output_frame_height"] = image_height(images)
             return results
         current_boxes = results["camera_box"]
         cropped_images: List[torch.Tensor] = []
