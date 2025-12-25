@@ -98,8 +98,8 @@ aspen:
       depends: []
       enabled: true
       params:
-        detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
-        # detector_yaml: hmlib/config/aspen/models/hm_crowdhuman_yolov8_m_1984_736.detector.yaml
+        # detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
+        detector_yaml: hmlib/config/aspen/models/hm_crowdhuman_yolov8_m_1984_736.detector.yaml
         data_preprocessor:
           type: TrackDataPreprocessor
           pad_size_divisor: 32
