@@ -118,17 +118,17 @@ class TrackerPlugin(Plugin):
     # post-detection pipeline deprecated; pruning handled by a dedicated trunk
 
     def __call__(self, *args, **kwds):
-        # self._iter_num += 1
-        # do_trace = self._iter_num == 4
-        # if do_trace:
-        #     pass
-        # from cuda_stacktrace import CudaStackTracer
+        self._iter_num += 1
+        do_trace = self._iter_num == 4
+        if do_trace:
+            pass
+        from cuda_stacktrace import CudaStackTracer
 
-        # with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
-        with contextlib.nullcontext():
+        with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+            # with contextlib.nullcontext():
             results = super().__call__(*args, **kwds)
-        # if do_trace:
-        #     pass
+        if do_trace:
+            pass
         return results
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -250,12 +250,18 @@ class TrackerPlugin(Plugin):
             assert len(det_labels) == ll1 and len(det_scores) == ll1
             # Ensure tracker receives torch tensors
             # (already tensors above)
+            assert hasattr(det_instances, "num_detections")
             tracker_payload = self._prepare_tracker_inputs(
                 frame_id=frame_id,
                 det_bboxes=det_bboxes,
                 det_labels=det_labels,
                 det_scores=det_scores,
                 det_reid=det_reid,
+                num_detections=(
+                    det_instances.num_detections
+                    if hasattr(det_instances, "num_detections")
+                    else None
+                ),
             )
             results = self._hm_tracker.track(tracker_payload)
             results, frame_track_count = self._trim_tracker_outputs(results)
@@ -328,10 +334,7 @@ class TrackerPlugin(Plugin):
             active_track_count = max(active_track_count, len(pred_track_instances.instances_id))
             img_data_sample.pred_track_instances = pred_track_instances
             # Provide a simple attribute for downstream postprocessors that expect it
-            try:
-                setattr(img_data_sample, "frame_id", int(frame_id))
-            except Exception:
-                pass
+            # setattr(img_data_sample, "frame_id", frame_id)
 
             # Saving to dataframes is now handled by dedicated Save* plugins.
 
@@ -386,6 +389,7 @@ class TrackerPlugin(Plugin):
         det_labels: torch.Tensor,
         det_scores: torch.Tensor,
         det_reid: Optional[torch.Tensor] = None,
+        num_detections: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         if not self._using_static_tracker():
             payload = dict(
@@ -397,7 +401,9 @@ class TrackerPlugin(Plugin):
             if det_reid is not None:
                 payload["reid_features"] = det_reid.to(dtype=torch.float32)
             return payload
-        return self._build_static_tracker_inputs(frame_id, det_bboxes, det_labels, det_scores, det_reid)
+        return self._build_static_tracker_inputs(
+            frame_id, det_bboxes, det_labels, det_scores, det_reid, num_detections
+        )
 
     def _build_static_tracker_inputs(
         self,
@@ -406,6 +412,7 @@ class TrackerPlugin(Plugin):
         det_labels: torch.Tensor,
         det_scores: torch.Tensor,
         det_reid: Optional[torch.Tensor] = None,
+        num_detections: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         assert self._static_tracker_max_detections is not None
         max_det = self._static_tracker_max_detections
@@ -451,6 +458,8 @@ class TrackerPlugin(Plugin):
             if padded_reid is not None:
                 padded_reid[:kept].copy_(reid[:kept])
 
+        kept_t = torch.tensor([kept], dtype=torch.long).to(device=bboxes.device, non_blocking=True)
+
         payload = {
             "frame_id": torch.tensor([frame_id], dtype=torch.int64).to(
                 device=bboxes.device, non_blocking=True
@@ -458,8 +467,8 @@ class TrackerPlugin(Plugin):
             "bboxes": padded_bboxes,
             "labels": padded_labels,
             "scores": padded_scores,
-            "num_detections": torch.tensor([kept], dtype=torch.long).to(
-                device=bboxes.device, non_blocking=True
+            "num_detections": (
+                torch.min(num_detections, kept_t) if num_detections is not None else kept_t
             ),
         }
         if padded_reid is not None:
