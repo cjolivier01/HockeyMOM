@@ -99,14 +99,14 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         # Plugin-mode: if a dict is passed (AspenNet), treat it as context
         if isinstance(img, dict):
             context: Dict[str, Any] = img
-            return self._forward_trunk(context)
+            return self._forward_plugin(context)
         # When used as a model in non-trunk mode, we don't implement end-to-end forward anymore.
         raise NotImplementedError(
             "HmEndToEnd no longer implements ByteTrack forward; use Aspen plugins instead."
         )
 
     # AspenNet trunk interface: runs tracking + returns context updates
-    def _forward_trunk(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    def _forward_plugin(self, context: Dict[str, Any]) -> Dict[str, Any]:
         if not getattr(self, "_enabled", True):
             return {}
 
