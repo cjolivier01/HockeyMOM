@@ -161,7 +161,7 @@ aspen:
         # tracker_kwargs:
         #   device: cuda:0
         #   max_detections: 256
-        #   max_tracks: 100
+        #   max_tracks: 50
         #   reid_feature_dim: 256
         #   reid_weight: 0.5
 
