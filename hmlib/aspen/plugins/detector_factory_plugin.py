@@ -7,8 +7,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Plugin
 from hmlib.utils.nms import DetectorNMS
+
+from .base import Plugin
 
 
 def _strip_static_padding(instances: InstanceData, strip: bool) -> InstanceData:
@@ -887,18 +888,38 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         feats = [torch.as_tensor(feats)]
                 with torch.inference_mode():
                     with self._profile_scope("head"):
-                        cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
-                        # Decode boxes and scores but skip the built-in NMS,
-                        # so that we can apply TensorRT batched NMS instead.
-                        result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
-                            cls_scores=cls_scores,
-                            bbox_preds=bbox_preds,
-                            objectnesses=objectnesses,
-                            batch_img_metas=[img_meta],
-                            cfg=None,
-                            rescale=True,
-                            with_nms=False,
-                        )
+                        bbox_head_results = self.model.bbox_head(tuple(feats))
+                        if len(bbox_head_results) == 3:
+                            # cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
+                            cls_scores, bbox_preds, objectnesses = bbox_head_results
+                            # Decode boxes and scores but skip the built-in NMS,
+                            # so that we can apply TensorRT batched NMS instead.
+                            result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                                cls_scores=cls_scores,
+                                bbox_preds=bbox_preds,
+                                objectnesses=objectnesses,
+                                batch_img_metas=[img_meta],
+                                cfg=None,
+                                rescale=True,
+                                with_nms=False,
+                            )
+                        elif len(bbox_head_results) == 2:
+                            cls_scores, bbox_preds = bbox_head_results
+                            # Decode boxes and scores but skip the built-in NMS,
+                            # so that we can apply TensorRT batched NMS instead.
+                            result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                                cls_scores=cls_scores,
+                                bbox_preds=bbox_preds,
+                                batch_img_metas=[img_meta],
+                                cfg=None,
+                                rescale=True,
+                                with_nms=False,
+                            )
+                        else:
+                            raise RuntimeError(
+                                "Unexpected number of outputs from bbox_head: "
+                                f"{len(bbox_head_results)}"
+                            )
                 inst = result_list[0]
 
                 # Apply configured NMS backend via the centralized dispatcher.
