@@ -93,19 +93,6 @@ aspen:
       depends: []
       params: {}
 
-    model_factory:
-      class: hmlib.aspen.plugins.model_factory_plugin.ModelFactoryPlugin
-      depends: []
-      enabled: true
-      params:
-        model_class: hmlib.models.end_to_end_plugin.HmEndToEnd
-        # Pure YAML detector definition (converted from mmengine config)
-        # No detector/tracker coupling here; post_* pipelines not used for rink mask
-        post_tracking_pipeline:
-          - type: HmNumberClassifier
-            image_label: original_images
-            enabled: false
-
     detector_factory:
       class: hmlib.aspen.plugins.detector_factory_plugin.DetectorFactoryPlugin
       depends: []
@@ -117,12 +104,6 @@ aspen:
           type: TrackDataPreprocessor
           pad_size_divisor: 32
           use_det_processor: true
-
-    boundaries:
-      class: hmlib.aspen.plugins.boundaries_plugin.BoundariesPlugin
-      depends: [model_factory]
-      params:
-        plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     detector:
       class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
@@ -152,7 +133,7 @@ aspen:
 
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
-      depends: [detector, ice_boundaries, model_factory, boundaries]
+      depends: [detector, ice_boundaries]
       params:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
         # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
