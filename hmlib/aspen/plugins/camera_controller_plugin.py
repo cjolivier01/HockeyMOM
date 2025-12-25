@@ -98,10 +98,6 @@ class CameraControllerPlugin(Plugin):
             img_data_sample = track_data_sample[frame_index]
             inst: InstanceData = getattr(img_data_sample, "pred_track_instances", None)
 
-            inst.bboxes = unwrap_tensor(inst.bboxes)
-            inst.scores = unwrap_tensor(inst.scores)
-            inst.labels = unwrap_tensor(inst.labels)
-
             ori_shape = img_data_sample.metainfo.get("ori_shape")
             H = int(ori_shape[0]) if isinstance(ori_shape, (list, tuple)) else int(1080)
             W = int(ori_shape[1]) if isinstance(ori_shape, (list, tuple)) else int(1920)
@@ -118,7 +114,9 @@ class CameraControllerPlugin(Plugin):
                 setattr(img_data_sample, "pred_cam_box", box)
                 continue
 
-            det_tlbr = inst.bboxes
+            det_tlbr = unwrap_tensor(inst.bboxes)
+            inst.bboxes = wrap_tensor(det_tlbr)
+
             if not isinstance(det_tlbr, torch.Tensor):
                 det_tlbr = torch.as_tensor(det_tlbr)
             track_mask = get_track_mask(inst)

@@ -7,7 +7,7 @@ from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.log import get_logger
-from hmlib.utils.gpu import StreamCheckpoint, unwrap_tensor, wrap_tensor
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Plugin
@@ -184,20 +184,9 @@ class TrackerPlugin(Plugin):
                 # No detections, skip tracking; leave pred_track_instances unset
                 continue
 
-            det_instances.bboxes = unwrap_tensor(det_instances.bboxes)
-            det_instances.labels = unwrap_tensor(det_instances.labels)
-            det_instances.scores = unwrap_tensor(det_instances.scores)
-
-            det_bboxes = det_instances.bboxes
-            det_labels = det_instances.labels
-            det_scores = det_instances.scores
-
-            # if len(det_bboxes) == 0:
-            #     print("WARNING: No detections for frame", frame_index + frame_id0)
-            # else:
-            #     print(f"Frame {frame_index + frame_id0}: {len(det_bboxes)} detections")
-
-            # Post-detection pruning is handled by a dedicated trunk upstream
+            det_bboxes = unwrap_tensor(det_instances.bboxes)
+            det_labels = unwrap_tensor(det_instances.labels)
+            det_scores = unwrap_tensor(det_instances.scores)
 
             # Provide frame id for tracker aging
             frame_id = img_data_sample.metainfo.get("img_id")

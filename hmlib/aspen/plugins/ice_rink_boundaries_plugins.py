@@ -4,7 +4,7 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.log import get_logger
-from hmlib.utils.gpu import wrap_tensor
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 
 from .base import Plugin
 
@@ -95,9 +95,9 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             if det_instances is None:
                 continue
 
-            det_bboxes = det_instances.bboxes
-            det_labels = det_instances.labels
-            det_scores = det_instances.scores
+            det_bboxes = unwrap_tensor(det_instances.bboxes)
+            det_labels = unwrap_tensor(det_instances.labels)
+            det_scores = unwrap_tensor(det_instances.scores)
 
             pd_input: Dict[str, Any] = {
                 "det_bboxes": det_bboxes,

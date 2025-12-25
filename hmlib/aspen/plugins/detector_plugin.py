@@ -101,13 +101,6 @@ class DetectorInferencePlugin(Plugin):
                 img_data_sample = track_data_sample[frame_id]
                 # Ensure frame_id metainfo is present for downstream postprocessing
                 fid = img_data_sample.metainfo.get("img_id")
-                try:
-                    if isinstance(fid, torch.Tensor):
-                        fid = fid.reshape([1])[0].item()
-                    if fid is None:
-                        fid = frame_id
-                except Exception:
-                    fid = frame_id
                 img_data_sample.set_metainfo(
                     {
                         "frame_id": fid,

@@ -681,19 +681,13 @@ class PlayTracker(torch.nn.Module):
 
             # Ensure any tracker outputs that may have been produced on a
             # different CUDA stream are synchronized with the current stream.
-            track_inst.instances_id = unwrap_tensor(track_inst.instances_id)
-            track_inst.bboxes = unwrap_tensor(track_inst.bboxes)
-            track_inst.scores = unwrap_tensor(track_inst.scores)
-            track_inst.labels = unwrap_tensor(track_inst.labels)
-
-            bboxes = track_inst.bboxes
             ids = track_inst.instances_id
 
-            online_tlwhs = batch_tlbrs_to_tlwhs(bboxes)
-            online_ids = ids
+            online_tlwhs = batch_tlbrs_to_tlwhs(unwrap_tensor(track_inst.bboxes))
+            online_ids = unwrap_tensor(ids)
             track_mask = get_track_mask(track_inst)
 
-            if True:
+            if False:
                 # goes a few fps faster when async if this is on CPU
                 frame_id = frame_id.cpu()
                 online_tlwhs = online_tlwhs.cpu()
@@ -742,10 +736,17 @@ class PlayTracker(torch.nn.Module):
 
             if self._playtracker is not None:
                 assert not use_transformer, "Cannot use transformer with C++ PlayTracker"
-                online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
-                playtracker_results = self._playtracker.forward(
-                    online_ids.cpu().tolist(), online_bboxes
-                )
+                tracking_ids: List[int] = []
+                online_bboxes: List[BBox] = []
+                for tid, bbox in zip(
+                    online_ids.cpu().tolist(), video_data_sample.pred_track_instances.bboxes
+                ):
+                    if tid < 0:
+                        # Invalid ID
+                        continue
+                    tracking_ids.append(tid)
+                    online_bboxes.append(BBox(*bbox))
+                playtracker_results = self._playtracker.forward(tracking_ids, online_bboxes)
                 for msg in getattr(playtracker_results, "log_messages", []):
                     try:
                         text = msg.message

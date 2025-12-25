@@ -259,7 +259,9 @@ class StreamTensorX(StreamTensorBase):
         self._event = None
         self._stream = None
 
-    def _ensure_ready_for_stream(self, target_stream: Optional[torch.cuda.Stream]) -> torch.Tensor:
+    def _ensure_ready_for_stream(
+        self, target_stream: Optional[torch.cuda.Stream], clear: bool = False
+    ) -> torch.Tensor:
         if self._tensor.device.type != "cuda":
             return self._tensor
         if self._event is None:
@@ -267,7 +269,8 @@ class StreamTensorX(StreamTensorBase):
         if target_stream is None:
             target_stream = torch.cuda.current_stream(self._tensor.device)
         target_stream.wait_event(self._event)
-        self._clear_tracking()
+        if clear:
+            self._clear_tracking()
         return self._tensor
 
     def _ensure_ready_blocking(self) -> torch.Tensor:
@@ -427,9 +430,7 @@ def wrap_tensor(
     if not tensor.is_cuda:
         return tensor
     if isinstance(tensor, StreamTensorBase):
-        tensor.checkpoint()
-        tensor.verbose = verbose
-        return tensor
+        tensor = unwrap_tensor(tensor)
     return StreamTensorX(tensor)
 
 
