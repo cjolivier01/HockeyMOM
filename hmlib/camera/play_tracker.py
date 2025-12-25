@@ -33,7 +33,8 @@ from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.utils import get_track_mask
-from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
+from hmlib.ui import show_image
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
 from hockeymom.core import AllLivingBoxConfig, BBox, HmLogLevel, PlayTrackerConfig
@@ -675,16 +676,11 @@ class PlayTracker(torch.nn.Module):
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             scalar_frame_id = video_data_sample.frame_id
             frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
-            # det_count = (
-            #     len(video_data_sample.pred_instances.bboxes)
-            #     if hasattr(video_data_sample, "pred_instances")
-            #     and hasattr(video_data_sample.pred_instances, "bboxes")
-            #     else -1
-            # )
-            # Ensure any tracker outputs that may have been produced on a
-            # different CUDA stream are synchronized with the current stream.
+
             track_inst = video_data_sample.pred_track_instances
 
+            # Ensure any tracker outputs that may have been produced on a
+            # different CUDA stream are synchronized with the current stream.
             track_inst.instances_id = unwrap_tensor(track_inst.instances_id)
             track_inst.bboxes = unwrap_tensor(track_inst.bboxes)
             track_inst.scores = unwrap_tensor(track_inst.scores)
@@ -706,13 +702,6 @@ class PlayTracker(torch.nn.Module):
                     track_mask = track_mask.cpu()
                     online_tlwhs = online_tlwhs[track_mask]
                     online_ids = online_ids[track_mask]
-
-            # if debug:
-            #     try:
-            #         n = int(len(online_ids))
-            #     except Exception:
-            #         n = -1
-            #     logger.info(f"PlayTracker frame {int(scalar_frame_id)}: det={det_count} tracks={n}")
 
             self.process_jerseys_info(
                 frame_index=frame_index, frame_id=scalar_frame_id, data=results
@@ -1192,12 +1181,15 @@ class PlayTracker(torch.nn.Module):
         results["current_box"] = wrap_tensor(torch.stack(current_box_list))
         results["current_fast_box_list"] = wrap_tensor(torch.stack(current_fast_box_list))
         # Attach per-frame player bottom points and ids for downstream overlays
-        results["player_bottom_points"] = wrap_tensor(player_bottom_points_list)
-        results["player_ids"] = wrap_tensor(player_ids_list)
+        results["player_bottom_points"] = wrap_tensor(torch.stack(player_bottom_points_list))
+        results["player_ids"] = wrap_tensor(torch.stack(player_ids_list))
         if self._rink_profile_cache is not None:
             results["rink_profile"] = self._rink_profile_cache
         # print(f"FAST: {current_fast_box_list}")
         # print(f"CURRENT: {current_box_list}")
+
+        # for img in online_images:
+        #     show_image("Play Tracker", img, wait=False, scale=0.25)
 
         # We want to track if it's slow
         img = torch.stack(online_images)
