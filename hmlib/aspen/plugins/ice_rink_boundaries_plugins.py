@@ -55,6 +55,7 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             game_id=context.get("game_id"),
             original_clip_box=context.get("original_clip_box"),
             det_thresh=self._det_thresh,
+            max_detections_in_mask=self._max_detections_in_mask,
             draw=bool(draw),
         )
 
@@ -115,38 +116,6 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             new_bboxes = out["det_bboxes"]
             new_labels = out["labels"]
             new_scores = out["scores"]
-
-            # Optionally limit the number of detections that survive the rink mask.
-            # This keeps only the top scores within the mask and avoids wasting
-            # downstream static-detector capacity on low-score in-mask items.
-            if self._max_detections_in_mask is not None:
-                try:
-                    if isinstance(new_scores, torch.Tensor):
-                        scores_t = new_scores
-                    else:
-                        scores_t = torch.as_tensor(new_scores)
-                    total = int(scores_t.numel())
-                    if total > self._max_detections_in_mask:
-                        k = int(self._max_detections_in_mask)
-                        topk_idx = torch.topk(scores_t, k=k).indices
-                        # Sort indices to keep detections in score-descending but
-                        # stable order for downstream consumers.
-                        topk_idx, _ = torch.sort(topk_idx)
-                        if isinstance(new_bboxes, torch.Tensor):
-                            new_bboxes = new_bboxes.index_select(0, topk_idx)
-                        else:
-                            new_bboxes = torch.as_tensor(new_bboxes).index_select(0, topk_idx)
-                        if isinstance(new_labels, torch.Tensor):
-                            new_labels = new_labels.index_select(0, topk_idx)
-                        else:
-                            new_labels = torch.as_tensor(new_labels).index_select(0, topk_idx)
-                        if isinstance(new_scores, torch.Tensor):
-                            new_scores = new_scores.index_select(0, topk_idx)
-                        else:
-                            new_scores = scores_t.index_select(0, topk_idx)
-                except Exception:
-                    # If anything goes wrong, fall back to un-capped outputs.
-                    pass
 
             # Try to propagate source pose indices through post-det filtering
             new_src_pose_idx: Optional[torch.Tensor] = None
@@ -211,11 +180,11 @@ class IceRinkSegmBoundariesPlugin(Plugin):
                 labels=new_labels,
                 scores=new_scores,
             )
+            num_detections = out.get("num_detections")
+            if num_detections is not None:
+                new_inst.set_metainfo({"num_detections": num_detections})
             if new_src_pose_idx is not None:
-                try:
-                    new_inst.source_pose_index = new_src_pose_idx.to(dtype=torch.int64)
-                except Exception:
-                    pass
+                new_inst.source_pose_index = new_src_pose_idx.to(dtype=torch.int64)
             img_data_sample.pred_instances = new_inst
 
             # Update original_images if overlay updated

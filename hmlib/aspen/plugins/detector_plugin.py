@@ -97,7 +97,11 @@ class DetectorInferencePlugin(Plugin):
                         fid = frame_id
                 except Exception:
                     fid = frame_id
-                img_data_sample.set_metainfo({"frame_id": int(fid)})
+                img_data_sample.set_metainfo(
+                    {
+                        "frame_id": fid,
+                    }
+                )
                 batch_data_samples.append(img_data_sample)
 
             with amp_ctx:

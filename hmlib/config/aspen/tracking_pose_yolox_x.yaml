@@ -78,7 +78,8 @@ aspen:
     ice_boundaries:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
       depends: [detector, ice_config]
-      params: {}
+      params:
+        max_detections_in_mask: 50
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
       depends: [detector, ice_boundaries, model_factory, boundaries]
