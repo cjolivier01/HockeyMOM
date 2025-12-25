@@ -33,7 +33,7 @@ from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.utils import get_track_mask
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, unwrap_tensor
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
 from hockeymom.core import AllLivingBoxConfig, BBox, HmLogLevel, PlayTrackerConfig
@@ -645,11 +645,7 @@ class PlayTracker(torch.nn.Module):
     def forward(self, results: Dict[str, Any]):
         track_data_sample = results["data_samples"]
 
-        original_images = results.pop("original_images")
-
-        if isinstance(original_images, StreamTensorBase):
-            original_images._verbose = True
-            original_images = original_images.get()
+        original_images = unwrap_tensor(results.pop("original_images"))
 
         # Figure out what device this image should be on
         image_device = self._device
@@ -675,14 +671,7 @@ class PlayTracker(torch.nn.Module):
         del original_images
 
         debug = self._debug_play_tracker
-        # If the tracker trunk recorded a stream token, wait on it using
-        # the current stream before consuming any of its GPU outputs.
-        try:
-            token = results.get("tracker_stream_token")
-            if isinstance(token, StreamTensorBase):
-                unwrap_tensor(token)
-        except Exception:
-            pass
+
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             scalar_frame_id = video_data_sample.frame_id
             frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
@@ -695,12 +684,15 @@ class PlayTracker(torch.nn.Module):
             # Ensure any tracker outputs that may have been produced on a
             # different CUDA stream are synchronized with the current stream.
             track_inst = video_data_sample.pred_track_instances
-            bboxes = getattr(track_inst, "bboxes", None)
-            ids = getattr(track_inst, "instances_id", None)
-            if isinstance(bboxes, StreamTensorBase):
-                bboxes = unwrap_tensor(bboxes)
-            if isinstance(ids, StreamTensorBase):
-                ids = unwrap_tensor(ids)
+
+            track_inst.instances_id = unwrap_tensor(track_inst.instances_id)
+            track_inst.bboxes = unwrap_tensor(track_inst.bboxes)
+            track_inst.scores = unwrap_tensor(track_inst.scores)
+            track_inst.labels = unwrap_tensor(track_inst.labels)
+
+            bboxes = track_inst.bboxes
+            ids = track_inst.instances_id
+
             online_tlwhs = batch_tlbrs_to_tlwhs(bboxes)
             online_ids = ids
             track_mask = get_track_mask(track_inst)
@@ -1196,12 +1188,12 @@ class PlayTracker(torch.nn.Module):
             assert online_im.device == image_device
             online_images.append(make_channels_last(online_im))
 
-        results["frame_ids"] = torch.stack(frame_ids_list)
-        results["current_box"] = torch.stack(current_box_list)
-        results["current_fast_box_list"] = torch.stack(current_fast_box_list)
+        results["frame_ids"] = wrap_tensor(torch.stack(frame_ids_list))
+        results["current_box"] = wrap_tensor(torch.stack(current_box_list))
+        results["current_fast_box_list"] = wrap_tensor(torch.stack(current_fast_box_list))
         # Attach per-frame player bottom points and ids for downstream overlays
-        results["player_bottom_points"] = player_bottom_points_list
-        results["player_ids"] = player_ids_list
+        results["player_bottom_points"] = wrap_tensor(player_bottom_points_list)
+        results["player_ids"] = wrap_tensor(player_ids_list)
         if self._rink_profile_cache is not None:
             results["rink_profile"] = self._rink_profile_cache
         # print(f"FAST: {current_fast_box_list}")
@@ -1209,7 +1201,7 @@ class PlayTracker(torch.nn.Module):
 
         # We want to track if it's slow
         img = torch.stack(online_images)
-        img = StreamCheckpoint(img)
+        img = wrap_tensor(img)
         img._verbose = True
         results["img"] = img
 

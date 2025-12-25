@@ -17,8 +17,8 @@ from hmlib.camera.camera_transformer import (
     unpack_checkpoint,
 )
 from hmlib.camera.clusters import ClusterMan
-from hmlib.utils.gpu import wrap_tensor
 from hmlib.tracking_utils.utils import get_track_mask
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 
 from .base import Plugin
 
@@ -97,6 +97,11 @@ class CameraControllerPlugin(Plugin):
         for frame_index in range(video_len):
             img_data_sample = track_data_sample[frame_index]
             inst: InstanceData = getattr(img_data_sample, "pred_track_instances", None)
+
+            inst.bboxes = unwrap_tensor(inst.bboxes)
+            inst.scores = unwrap_tensor(inst.scores)
+            inst.labels = unwrap_tensor(inst.labels)
+
             ori_shape = img_data_sample.metainfo.get("ori_shape")
             H = int(ori_shape[0]) if isinstance(ori_shape, (list, tuple)) else int(1080)
             W = int(ori_shape[1]) if isinstance(ori_shape, (list, tuple)) else int(1920)
@@ -130,6 +135,7 @@ class CameraControllerPlugin(Plugin):
                 cam_boxes.append(box)
                 setattr(img_data_sample, "pred_cam_box", box)
                 continue
+
             # Convert to TLWH for features
             tlwh = det_tlbr.clone()
             tlwh[:, 2] = tlwh[:, 2] - tlwh[:, 0]
@@ -200,7 +206,7 @@ class CameraControllerPlugin(Plugin):
                 box_out = clamp_box(box_out, self._wh_box)
 
             cam_boxes.append(box_out)
-            setattr(img_data_sample, "pred_cam_box", box_out)
+            setattr(img_data_sample, "pred_cam_box", wrap_tensor(box_out))
 
         # Attach into the shared data dict so downstream postprocess can access
         data["camera_boxes"] = wrap_tensor(torch.cat(cam_boxes))

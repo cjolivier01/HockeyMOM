@@ -1307,3 +1307,4 @@ if __name__ == "__main__":
                     print(f" - {t}")
         except Exception:
             pass
+        raise SystemExit(1)

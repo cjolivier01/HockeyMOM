@@ -7,7 +7,7 @@ from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.log import get_logger
-from hmlib.utils.gpu import StreamCheckpoint, unwrap_tensor
+from hmlib.utils.gpu import StreamCheckpoint, unwrap_tensor, wrap_tensor
 from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Plugin
@@ -136,8 +136,6 @@ class TrackerPlugin(Plugin):
             return {}
 
         data: Dict[str, Any] = context["data"]
-        # preserved_original_images = data.get("original_images")
-        # dataset_results = data.get("dataset_results") or context.get("dataset_results")
         frame_id0: int = int(context.get("frame_id", -1))
 
         # using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
@@ -193,7 +191,6 @@ class TrackerPlugin(Plugin):
             det_bboxes = det_instances.bboxes
             det_labels = det_instances.labels
             det_scores = det_instances.scores
-            # det_src_pose_idx = getattr(det_instances, "source_pose_index", None)
 
             # if len(det_bboxes) == 0:
             #     print("WARNING: No detections for frame", frame_index + frame_id0)
@@ -208,7 +205,7 @@ class TrackerPlugin(Plugin):
                 if frame_id.device.type == "cuda":
                     frame_id = frame_id0 + frame_index
                 else:
-                    frame_id = int(frame_id.reshape(-1)[:1][0])
+                    frame_id = frame_id.reshape(-1)[:1][0]
             if frame_id is None:
                 frame_id = frame_id0 + frame_index
 
@@ -265,7 +262,11 @@ class TrackerPlugin(Plugin):
                 det_reid=det_reid,
                 num_detections=num_detections,
             )
-            results = self._hm_tracker.track(tracker_payload)
+            try:
+                results = self._hm_tracker.track(tracker_payload)
+            except Exception as e:
+                logger.error("Tracker error at frame %d: %s", frame_id, str(e))
+                raise
             results, frame_track_count = self._trim_tracker_outputs(results)
             ids = results.get("user_ids", results.get("ids"))
             num_tracks = frame_track_count
@@ -280,68 +281,22 @@ class TrackerPlugin(Plugin):
                 track_mask = torch.arange(ids.shape[0], device=ids.device) < num_tracks[0]
 
             pred_track_instances = InstanceData(
-                instances_id=ids,
-                bboxes=results["bboxes"],
-                scores=results["scores"],
-                labels=results["labels"],
+                instances_id=wrap_tensor(ids),
+                bboxes=wrap_tensor(results["bboxes"]),
+                scores=wrap_tensor(results["scores"]),
+                labels=wrap_tensor(results["labels"]),
             )
+            meta_info = {}
             if isinstance(num_tracks, torch.Tensor):
-                pred_track_instances.set_metainfo({"num_tracks": num_tracks})
+                meta_info["num_tracks"] = num_tracks
             if track_mask is not None:
-                pred_track_instances.track_mask = track_mask
+                meta_info["track_mask"] = track_mask
             if "reid_features" in results:
-                try:
-                    pred_track_instances.reid_features = results["reid_features"]
-                except Exception:
-                    pass
-            # Propagate source pose indices from detections to per-frame tracks
-            try:
-                src_idx = getattr(img_data_sample.pred_instances, "source_pose_index", None)
-                if src_idx is not None:
-                    tb = pred_track_instances.bboxes
-                    db = img_data_sample.pred_instances.bboxes
-                    if not isinstance(tb, torch.Tensor):
-                        tb = torch.as_tensor(tb)
-                    if not isinstance(db, torch.Tensor):
-                        db = torch.as_tensor(db)
-                    if tb.device.type != "cuda" and db.device.type != "cuda":
-                        if tb.ndim == 1:
-                            tb = tb.reshape(-1, 4)
-                        if db.ndim == 1:
-                            db = db.reshape(-1, 4)
-                        mapped = torch.full((len(tb),), -1, dtype=torch.int64)
-                        # Try exact match first
-                        for j in range(len(tb)):
-                            eq = (
-                                torch.isclose(tb[j], db).all(dim=1)
-                                if len(db)
-                                else torch.zeros((0,), dtype=torch.bool)
-                            )
-                            match_idx = torch.nonzero(eq).reshape(-1)
-                            if len(match_idx) == 1:
-                                k = int(match_idx[0].item())
-                                try:
-                                    mapped[j] = int(src_idx[k])
-                                except Exception:
-                                    pass
-                        if (mapped < 0).any() and len(tb) and len(db):
-                            try:
-                                from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
-                            except Exception:
-                                from hmlib.utils.utils import bbox_iou as _bbox_iou
-                            iou = _bbox_iou(
-                                tb.to(dtype=torch.float32), db.to(dtype=torch.float32), x1y1x2y2=True
-                            )
-                            best_iou, best_idx = torch.max(iou, dim=1)
-                            for j in range(len(tb)):
-                                if mapped[j] < 0 and best_iou[j] > 0:
-                                    try:
-                                        mapped[j] = int(src_idx[int(best_idx[j].item())])
-                                    except Exception:
-                                        pass
-                        pred_track_instances.source_pose_index = mapped
-            except Exception:
-                pass
+                meta_info["reid_features"] = results["reid_features"]
+
+            img_data_sample.pred_track_instances = pred_track_instances
+
+            # For performance: record current active tracks
             if isinstance(num_tracks, torch.Tensor):
                 if active_track_count is None:
                     active_track_count = num_tracks
@@ -349,14 +304,9 @@ class TrackerPlugin(Plugin):
                     active_track_count = torch.maximum(active_track_count, num_tracks)
             else:
                 active_track_count = max(active_track_count or 0, int(num_tracks))
-            img_data_sample.pred_track_instances = pred_track_instances
-            # Provide a simple attribute for downstream postprocessors that expect it
-            # setattr(img_data_sample, "frame_id", frame_id)
+            meta_info["nr_tracks"] = active_track_count if active_track_count is not None else 0
 
-            # Saving to dataframes is now handled by dedicated Save* plugins.
-
-            # For performance: record current active tracks
-            img_data_sample.set_metainfo({"nr_tracks": active_track_count if active_track_count is not None else 0})
+            img_data_sample.set_metainfo(meta_info)
 
             max_id_tensor = results.get("max_id")
             if max_id_tensor is None and isinstance(ids, torch.Tensor):
@@ -364,9 +314,14 @@ class TrackerPlugin(Plugin):
                     max_id_tensor = ids.new_zeros((1,))
                 else:
                     masked_ids = torch.where(track_mask, ids, ids.new_full(ids.shape, -1))
-                    max_id_tensor = torch.max(masked_ids)
-                    max_id_tensor = torch.where(num_tracks[0] > 0, max_id_tensor, max_id_tensor.new_zeros(()))
-                    max_id_tensor = max_id_tensor.reshape(1)
+                    if masked_ids.numel() == 0:
+                        max_id_tensor = torch.zeros((1,), dtype=ids.dtype, device=ids.device)
+                    else:
+                        max_id_tensor = torch.max(masked_ids)
+                        max_id_tensor = torch.where(
+                            num_tracks[0] > 0, max_id_tensor, max_id_tensor.new_zeros(())
+                        )
+                        max_id_tensor = max_id_tensor.reshape(1)
             if isinstance(max_id_tensor, torch.Tensor):
                 if max_tracking_id is None:
                     max_tracking_id = max_id_tensor.reshape(-1)[:1]
@@ -378,22 +333,6 @@ class TrackerPlugin(Plugin):
             "nr_tracks": active_track_count if active_track_count is not None else 0,
             "max_tracking_id": max_tracking_id if max_tracking_id is not None else 0,
         }
-        # Record a lightweight stream token on the current CUDA stream so
-        # downstream trunks (e.g., PlayTrackerPlugin) can establish proper
-        # stream ordering without forcing a full synchronize here.
-        try:
-            original_images = context.get("original_images")
-            device = None
-            if isinstance(original_images, torch.Tensor):
-                device = original_images.device
-            else:
-                device = getattr(original_images, "device", None)
-            if isinstance(device, torch.device) and device.type == "cuda":
-                token_tensor = torch.empty(0, device=device)
-                result["tracker_stream_token"] = StreamCheckpoint(token_tensor)
-        except Exception:
-            # Best-effort only; fall back silently if anything goes wrong.
-            pass
         return result
 
     def input_keys(self):
@@ -401,13 +340,10 @@ class TrackerPlugin(Plugin):
             "data",
             "frame_id",
             "original_images",
-            # "using_precalculated_tracking",
-            # "using_precalculated_detection",
-            # no longer depends on model's post-detection pipeline
         }
 
     def output_keys(self):
-        return {"data", "nr_tracks", "max_tracking_id", "tracker_stream_token"}
+        return {"data", "nr_tracks", "max_tracking_id"}
 
     def _prepare_tracker_inputs(
         self,

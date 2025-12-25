@@ -7,6 +7,7 @@ topological order while sharing a mutable context dictionary.
 import contextlib
 import importlib
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -68,6 +69,7 @@ class AspenNet(torch.nn.Module):
         self.max_concurrent: int = max_concurrent
         self.num_concurrent: int = 0
         self._thread_error: Optional[BaseException] = None
+        self._stop_token: Optional[object] = None
         # Track which plugins have already had their output_keys() contract validated.
         self._output_keys_validated: Set[str] = set()
         # NetworkX DiGraph storing the plugins graph and attributes
@@ -445,7 +447,8 @@ class AspenNet(torch.nn.Module):
     def _forward_threaded(self, context: Dict[str, Any]) -> Dict[str, Any]:
         if not self.initialized:
             self.initialized = True
-            stop_token = object()
+            stop_token = self._stop_token or object()
+            self._stop_token = stop_token
 
             class _ExceptionWrapper:
                 __slots__ = ("exc", "tb")
@@ -515,8 +518,15 @@ class AspenNet(torch.nn.Module):
                 thread.start()
                 self.threads.append(thread)
         while self.num_concurrent >= self.max_concurrent:
+            self._maybe_reraise_thread_error()
             time.sleep(0.01)
-        self.queues[0].put(context)
+        while True:
+            self._maybe_reraise_thread_error()
+            try:
+                self.queues[0].put(context, block=False)
+                break
+            except queue.Full:
+                time.sleep(0.01)
         self.num_concurrent += 1
         return None
 
@@ -524,7 +534,8 @@ class AspenNet(torch.nn.Module):
         """Stop all threaded plugins and join their threads."""
         if not self.threaded_trunks or not hasattr(self, "queues"):
             return
-        stop_token = object()
+        stop_token = self._stop_token or object()
+        self._stop_token = stop_token
         for _ in self.exec_order:
             self.queues[0].put(stop_token)
         for thread in self.threads:
