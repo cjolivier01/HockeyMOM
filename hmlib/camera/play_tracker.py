@@ -28,16 +28,15 @@ from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
-from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.config import get_game_config_private, get_nested_value, save_private_config
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
+from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, unwrap_tensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig, BBox, PlayTrackerConfig
-from hockeymom.core import HmLogLevel
+from hockeymom.core import AllLivingBoxConfig, BBox, HmLogLevel, PlayTrackerConfig
 from hockeymom.core import PlayTracker as CppPlayTracker
 
 from .camera_transformer import (
@@ -679,7 +678,7 @@ class PlayTracker(torch.nn.Module):
         # If the tracker trunk recorded a stream token, wait on it using
         # the current stream before consuming any of its GPU outputs.
         try:
-            token = context.get("tracker_stream_token")
+            token = results.get("tracker_stream_token")
             if isinstance(token, StreamTensorBase):
                 unwrap_tensor(token)
         except Exception:
