@@ -117,7 +117,7 @@ class TrackerPlugin(Plugin):
 
     # post-detection pipeline deprecated; pruning handled by a dedicated trunk
 
-    def __call__(self, *args, **kwds):
+    def __call__(self, *args, **kwargs):
         self._iter_num += 1
         # do_trace = self._iter_num == 4
         # if do_trace:
@@ -126,7 +126,7 @@ class TrackerPlugin(Plugin):
 
         # with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
         with contextlib.nullcontext():
-            results = super().__call__(*args, **kwds)
+            results = super().__call__(*args, **kwargs)
         # if do_trace:
         #     pass
         return results

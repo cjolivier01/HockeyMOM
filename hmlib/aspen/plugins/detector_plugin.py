@@ -1,3 +1,4 @@
+import contextlib
 from contextlib import nullcontext
 from typing import Any, Dict
 
@@ -30,7 +31,17 @@ class DetectorInferencePlugin(Plugin):
 
     def __call__(self, *args, **kwargs) -> Any:
         self._iter_num += 1
-        return super().__call__(*args, **kwargs)
+        # do_trace = self._iter_num == 4
+        # if do_trace:
+        #     pass
+        # from cuda_stacktrace import CudaStackTracer
+
+        # with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+        with contextlib.nullcontext():
+            results = super().__call__(*args, **kwargs)
+        # if do_trace:
+        #     pass
+        return results
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
