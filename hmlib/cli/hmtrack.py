@@ -178,7 +178,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
     )
-    parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
     # Save frame dir moved to hm_opts.parser
     parser.add_argument(
         "--task",
@@ -320,15 +319,11 @@ def _main(args, num_gpu):
 
         # Derived camera args (former DefaultArguments)
         # Crop output image unless explicitly disabled via CLI.
-        args.crop_output_image = not getattr(args, "no_crop", False)
         # Prefer rink.tracking.cam_ignore_largest when CLI did not override.
         if not getattr(args, "cam_ignore_largest", False):
             args.cam_ignore_largest = get_nested_value(
                 game_config, "rink.tracking.cam_ignore_largest", True
             )
-        # CVAT export disables cropping and rink rotation.
-        if args.cvat_output:
-            args.crop_output_image = False
         # Map plotting convenience flag to per-frame tracking overlays.
         args.plot_individual_player_tracking = bool(getattr(args, "plot_tracking", False))
         if args.plot_individual_player_tracking:
@@ -983,55 +978,24 @@ def _main(args, num_gpu):
                         video_out_pipeline = aspen_cfg_for_pipeline.get("video_out_pipeline")
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
-                    fixed_edge_rotation_angle = (
-                        get_nested_value(game_config, "rink.camera.fixed_edge_rotation_angle", None)
-                        if not args.no_rink_rotation
-                        else 0
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmPerspectiveRotation",
-                        dict(
-                            fixed_edge_rotation_angle=fixed_edge_rotation_angle,
-                            fixed_edge_rotation=(
-                                fixed_edge_rotation_angle is not None
-                                and fixed_edge_rotation_angle != 0
-                            ),
-                            pre_clip=args.crop_output_image,
-                            dtype=torch.float,
-                        ),
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmConfigureScoreboard",
-                        dict(
-                            game_id=args.game_id,
-                        ),
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmCropToVideoFrame",
-                        dict(
-                            crop_image=args.crop_output_image,
-                        ),
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmUnsharpMask",
-                        dict(
-                            enabled=args.unsharp_mask,
-                        ),
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmImageOverlays",
-                        dict(
-                            frame_number=bool(args.plot_frame_number),
-                            frame_time=bool(args.plot_frame_time),
-                            overhead_rink=bool(args.plot_overhead_rink),
-                            device=gpus["encoder"],
-                        ),
-                    )
+                    # OBSOLETE
+                    # update_pipeline_item(
+                    #     video_out_pipeline,
+                    #     "HmConfigureScoreboard",
+                    #     dict(
+                    #         game_id=args.game_id,
+                    #     ),
+                    # )
+                    # update_pipeline_item(
+                    #     video_out_pipeline,
+                    #     "HmImageOverlays",
+                    #     dict(
+                    #         frame_number=bool(args.plot_frame_number),
+                    #         frame_time=bool(args.plot_frame_time),
+                    #         overhead_rink=bool(args.plot_overhead_rink),
+                    #         device=gpus["encoder"],
+                    #     ),
+                    # )
                 # Make video_out_pipeline available to Aspen plugins via args
                 args.video_out_pipeline = video_out_pipeline
             postprocessor = None
