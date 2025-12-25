@@ -157,13 +157,13 @@ aspen:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
         # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
         # tracker_class: hockeymom.core.HmDcfTrackerCudaStatic  # NvDCF-style CUDA tracker (static shape + ReID)
-        tracker_class: hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic  # Static-shape CUDA tracker (Python)
-        tracker_kwargs:
-          device: cuda:0
-          max_detections: 256
-          max_tracks: 100
-          # reid_feature_dim: 256
-          # reid_weight: 0.5
+        # tracker_class: hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic  # Static-shape CUDA tracker (Python)
+        # tracker_kwargs:
+        #   device: cuda:0
+        #   max_detections: 256
+        #   max_tracks: 100
+        #   reid_feature_dim: 256
+        #   reid_weight: 0.5
 
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
@@ -188,19 +188,11 @@ aspen:
         model_path: null
         window: 8
 
-    # postprocess:
-    #   class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
-    #   depends: [tracker, camera_controller, ice_config]
-    #   enabled: true
-    #   params: {}
-
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
-      # Does this really need postprocess?
       depends: [
         tracker, 
         camera_controller, 
-        # postprocess,
       ]
       enabled: true
       params:
