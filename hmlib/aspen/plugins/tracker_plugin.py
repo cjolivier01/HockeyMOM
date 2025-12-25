@@ -119,16 +119,16 @@ class TrackerPlugin(Plugin):
 
     def __call__(self, *args, **kwds):
         self._iter_num += 1
-        do_trace = self._iter_num == 4
-        if do_trace:
-            pass
-        from cuda_stacktrace import CudaStackTracer
+        # do_trace = self._iter_num == 4
+        # if do_trace:
+        #     pass
+        # from cuda_stacktrace import CudaStackTracer
 
-        with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
-            # with contextlib.nullcontext():
+        # with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+        with contextlib.nullcontext():
             results = super().__call__(*args, **kwds)
-        if do_trace:
-            pass
+        # if do_trace:
+        #     pass
         return results
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
