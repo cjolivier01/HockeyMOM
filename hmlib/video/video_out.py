@@ -393,16 +393,14 @@ class VideoOutput(torch.nn.ModuleDict):
         assert int(output_frame_width) == image_w
         assert int(output_frame_height) == image_h
 
-        if isinstance(online_im, StreamTensorBase):
-            online_im.verbose = True
-            online_im = online_im.get()
+        online_im = unwrap_tensor(online_im, verbose=True)
 
         if self._mean_tracker is not None:
             self._mean_tracker(online_im)
 
         if self._show_image and self._shower is not None:
             for show_img in online_im:
-                self._shower.show(show_img.clone())
+                self._shower.show(show_img, clone=True)
 
         # torch.cuda.synchronize()
         # torch.cuda.current_stream(online_im.device).synchronize()
@@ -453,7 +451,8 @@ class VideoOutput(torch.nn.ModuleDict):
                 self.create_output_videos(results)
 
             # Step 3: Normalize image tensors onto the writer device
-            online_im = unwrap_tensor(results.get("img"))
+            # online_im = unwrap_tensor(results.get("img"))
+            online_im = results["img"]
 
             if isinstance(online_im, np.ndarray):
                 online_im = torch.from_numpy(online_im)
@@ -468,7 +467,7 @@ class VideoOutput(torch.nn.ModuleDict):
                 if self._device is not None:
                     # Move to writer device and ensure channels-last layout
                     if str(online_im.device) != str(self._device):
-                        online_im = online_im.to(self._device)
+                        online_im = unwrap_tensor(online_im).to(self._device)
 
                 # Optional final move to CPU for CPU-only writers
                 if (
@@ -477,7 +476,7 @@ class VideoOutput(torch.nn.ModuleDict):
                     and self._device.type == "cpu"
                 ):
                     online_im = online_im.to("cpu", non_blocking=True)
-                    online_im = StreamCheckpoint(online_im)
+                    online_im = wrap_tensor(online_im)
 
                 assert self._device is None or results["img"].device == self._device
 

@@ -626,7 +626,8 @@ class PyNvVideoEncoder:
             max_val = frames.max()
             if float(max_val) <= 1.0:
                 frames = frames * 255.0
-            frames = frames.clamp(0, 255).to(torch.uint8)
+            frames.clamp_(0, 255)
+            frames = frames.to(torch.uint8)
         elif frames.dtype != torch.uint8:
             frames = frames.to(torch.uint8)
 

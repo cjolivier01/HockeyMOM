@@ -191,6 +191,8 @@ def copy_video(
                         device=output_device,
                         profiler=profiler,
                         show_image=show,
+                        bit_rate=video_info.bit_rate,
+                        cache_size=0,
                         show_scaled=None if isinstance(show, bool) else show,
                     )
                 return video_out
@@ -294,6 +296,7 @@ def copy_video(
                 profiler=profiler,
             )
             if (show and not use_video_out)
+            # if show
             else None
         )
         prof = profiler
