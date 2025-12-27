@@ -61,21 +61,6 @@ def get_best_codec(
     # return "XVID", False
 
 
-def tensor_ref(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:
-    if isinstance(tensor, StreamTensorBase):
-        return tensor.ref()
-    return tensor
-
-
-def tensor_checkpoint(
-    tensor: Union[torch.Tensor, StreamTensorBase],
-) -> Union[torch.Tensor, StreamTensorBase]:
-    if isinstance(tensor, StreamTensorBase):
-        tensor.new_checkpoint()
-        return tensor
-    return tensor
-
-
 def is_nearly_8k(width, height, size_tolerance=0.10, aspect_ratio_tolerance=0.01):
     """
     Checks if a given width and height are within a configurable tolerance of 8K
