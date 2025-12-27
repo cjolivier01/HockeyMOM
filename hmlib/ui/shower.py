@@ -70,6 +70,8 @@ class Shower:
         self._max_size: int = max(max_size, 1)
         self._fps = fps
         self._cache_on_cpu = cache_on_cpu
+        self._stream = None
+        self._profiler = profiler
         if self._fps is not None:
             self._label += " (" + str(self._fps) + " fps)"
         self._cv2_has_opengl_support = cv2_has_opengl()
@@ -81,8 +83,6 @@ class Shower:
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
         self._thread.start()
-        self._stream = None
-        self._profiler = profiler
 
     def _prof_ctx(self, name: str):
         prof = self._profiler
@@ -91,7 +91,7 @@ class Shower:
         return contextlib.nullcontext()
 
     def _do_show(self, img: Union[torch.Tensor, np.ndarray]):
-        with self._prof_ctx("shower._do_show"):
+        with self._prof_ctx("shower._do_show"), cuda_stream_scope(self._stream):
             if self._use_tk and self._tk_displayer is None:
                 # root = get_tk_root()
                 # self._tk_displayer = ImageDisplayer(root)
@@ -103,32 +103,29 @@ class Shower:
                 elif isinstance(img, np.ndarray):
                     img = np.expand_dims(img, axis=0)
 
-            if self._stream is None and img.device.type == "cuda":
-                self._stream = torch.cuda.Stream(img.device)
-            with cuda_stream_scope(self._stream):
-                img = unwrap_tensor(img)
-                for s_img in img:
-                    if self._use_tk:
-                        self._tk_displayer.display(s_img)
+            img = unwrap_tensor(img)
+            for s_img in img:
+                if self._use_tk:
+                    self._tk_displayer.display(s_img)
+                else:
+                    if self._cv2_has_opengl_support and s_img.device.type == "cuda":
+                        # This doesn't work last time I checked
+                        show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
                     else:
-                        if self._cv2_has_opengl_support and s_img.device.type == "cuda":
-                            # This doesn't work last time I checked
-                            show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
+                        if self._allow_gpu_gl and s_img.device.type == "cuda":
+                            s_img = make_visible_image(
+                                s_img, enable_resizing=self._show_scaled, force_numpy=False
+                            )
+                            self._stream.synchronize()
+                            show_cuda_tensor("Stitched Image", s_img, False, None)
                         else:
-                            if self._allow_gpu_gl and s_img.device.type == "cuda":
-                                s_img = make_visible_image(
-                                    s_img, enable_resizing=self._show_scaled, force_numpy=False
-                                )
-                                self._stream.synchronize()
-                                show_cuda_tensor("Stitched Image", s_img, False, None)
-                            else:
-                                cv2.imshow(
-                                    self._label,
-                                    make_visible_image(
-                                        s_img, enable_resizing=self._show_scaled, force_numpy=True
-                                    ),
-                                )
-                                cv2.waitKey(1)
+                            cv2.imshow(
+                                self._label,
+                                make_visible_image(
+                                    s_img, enable_resizing=self._show_scaled, force_numpy=True
+                                ),
+                            )
+                            cv2.waitKey(1)
 
     def close(self):
         if self._thread is not None:
@@ -140,37 +137,41 @@ class Shower:
         last_frame = None
         next_frame_time = time.time()
         frame_interval = 1.0 / self._fps if self._fps is not None else None
-        while True:
-            if self._fps is None:
-                img = self._q.get()
-                if img is None:
-                    break
-                self._do_show(img=img)
-            else:
-                current_time = time.time()
-                sleep_duration = next_frame_time - current_time
 
-                if sleep_duration > 0:
-                    time.sleep(sleep_duration)
+        with cuda_stream_scope(self._stream):
+            while True:
+                if self._fps is None:
+                    img = self._q.get()
+                    if img is None:
+                        break
+                    self._do_show(img=img)
+                else:
+                    current_time = time.time()
+                    sleep_duration = next_frame_time - current_time
 
-                # Update the next frame time
-                next_frame_time += frame_interval
+                    if sleep_duration > 0:
+                        time.sleep(sleep_duration)
 
-                # Determine which frame to show
-                frame_to_show = last_frame
+                    # Update the next frame time
+                    next_frame_time += frame_interval
 
-                while self._q.qsize() != 0:
-                    potential_frame = self._q.get()
-                    if time.time() >= next_frame_time - frame_interval:
-                        frame_to_show = potential_frame
+                    # Determine which frame to show
+                    frame_to_show = last_frame
 
-                # If we have a frame to show, display it
-                if frame_to_show is not None:
-                    self._do_show(frame_to_show)
-                    last_frame = frame_to_show
+                    while self._q.qsize() != 0:
+                        potential_frame = self._q.get()
+                        if time.time() >= next_frame_time - frame_interval:
+                            frame_to_show = potential_frame
+
+                    # If we have a frame to show, display it
+                    if frame_to_show is not None:
+                        self._do_show(frame_to_show)
+                        last_frame = frame_to_show
 
     def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase], clone: bool = False):
         with self._prof_ctx("shower.show"):
+            if self._stream is None and img.device.type == "cuda":
+                self._stream = torch.cuda.Stream(img.device)
             if self._thread is not None:
                 counter: int = 0
                 while self._q.qsize() >= self._max_size:
