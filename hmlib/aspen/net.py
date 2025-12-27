@@ -470,8 +470,6 @@ class AspenNet(torch.nn.Module):
                 try:
                     while True:
                         item = in_queue.get()
-                        if is_last:
-                            pass
                         if item is stop_token:
                             out_queue.put(stop_token)
                             break
@@ -558,6 +556,8 @@ class AspenNet(torch.nn.Module):
             # Ensure plugins that fetch context["cuda_stream"] see the stream actually running them.
             prev_stream = context.get("cuda_stream")
             has_prev_stream = "cuda_stream" in context
+            if has_prev_stream:
+                node.stream.wait_stream(prev_stream)
             context["cuda_stream"] = node.stream
             try:
                 with torch.cuda.stream(node.stream):
