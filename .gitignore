@@ -27,6 +27,8 @@ hockeymom.egg-info
 /output_image.png
 output_workdirs
 /player_focus
+/*.h265
+/*.h264
 /profile
 /*.pth.tar
 pybind11_project_example.egg-info
