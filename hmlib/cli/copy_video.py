@@ -19,7 +19,7 @@ from hmlib.log import get_logger
 from hmlib.orientation import configure_game_videos
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
-from hmlib.utils.gpu import GpuAllocator, cuda_stream_scope, unwrap_tensor
+from hmlib.utils.gpu import GpuAllocator, cuda_stream_scope, wrap_tensor, unwrap_tensor
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
@@ -351,7 +351,7 @@ def copy_video(
                                 video_out(
                                     {
                                         "frame_id": frame_ids,
-                                        "img": source_tensor,
+                                        "img": wrap_tensor(source_tensor),
                                         "current_box": torch.tensor(
                                             [
                                                 0,
