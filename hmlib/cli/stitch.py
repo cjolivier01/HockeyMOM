@@ -242,6 +242,28 @@ def stitch_videos(
         video_out_spec["params"] = video_out_params
         plugins_cfg["video_out"] = video_out_spec
         aspen_graph_cfg["plugins"] = plugins_cfg
+        pipeline_cfg: Dict[str, Any] = dict(aspen_graph_cfg.get("pipeline", {}) or {})
+        pipeline_modified = bool(pipeline_cfg)
+        if args is not None:
+            threaded_cli = getattr(args, "aspen_threaded", None)
+            if threaded_cli is not None:
+                threaded_bool = bool(threaded_cli)
+                pipeline_cfg["threaded"] = threaded_bool
+                aspen_graph_cfg["threaded_trunks"] = threaded_bool
+                pipeline_modified = True
+            queue_cli = getattr(args, "aspen_thread_queue_size", None)
+            if queue_cli is not None:
+                try:
+                    pipeline_cfg["queue_size"] = max(1, int(queue_cli))
+                    pipeline_modified = True
+                except Exception:
+                    logger.warning("Invalid Aspen queue size override: %r", queue_cli)
+            stream_cli = getattr(args, "aspen_thread_cuda_streams", None)
+            if stream_cli is not None:
+                pipeline_cfg["cuda_streams"] = bool(stream_cli)
+                pipeline_modified = True
+        if pipeline_modified:
+            aspen_graph_cfg["pipeline"] = pipeline_cfg
 
         # For stitching we want to preserve the full panorama resolution, so
         # disable cropping in the camera pipeline by default.
@@ -297,6 +319,18 @@ def stitch_videos(
                             stitched_image, new_width=new_w, new_height=new_h
                         )
 
+                    if shower is not None:
+                        if False and stitched_image.device.type == "cuda":
+                            for stitched_img in stitched_image:
+                                show_cuda_tensor(
+                                    "Stitched Image",
+                                    stitched_img.clamp(min=0, max=255).to(torch.uint8),
+                                    False,
+                                    None,
+                                )
+                        else:
+                            shower.show(stitched_image, clone=True)
+
                     # Execute the Aspen graph to handle camera cropping and
                     # video encoding via VideoOutPlugin.
                     context: Dict[str, Any] = {
@@ -310,18 +344,6 @@ def stitch_videos(
                     # Per-iteration profiler step for gated profiling windows
                     if profiler is not None and getattr(profiler, "enabled", False):
                         profiler.step()
-
-                    if shower is not None:
-                        if False and stitched_image.device.type == "cuda":
-                            for stitched_img in stitched_image:
-                                show_cuda_tensor(
-                                    "Stitched Image",
-                                    stitched_img.clamp(min=0, max=255).to(torch.uint8),
-                                    False,
-                                    None,
-                                )
-                        else:
-                            shower.show(stitched_image)
 
                     if i > 1:
                         dataset_timer.toc()
