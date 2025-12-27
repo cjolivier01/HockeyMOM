@@ -320,16 +320,8 @@ def stitch_videos(
                         )
 
                     if shower is not None:
-                        if False and stitched_image.device.type == "cuda":
-                            for stitched_img in stitched_image:
-                                show_cuda_tensor(
-                                    "Stitched Image",
-                                    stitched_img.clamp(min=0, max=255).to(torch.uint8),
-                                    False,
-                                    None,
-                                )
-                        else:
-                            shower.show(stitched_image, clone=True)
+                        # torch.cuda.synchronize()
+                        shower.show(wrap_tensor(stitched_image), clone=False)
 
                     # Execute the Aspen graph to handle camera cropping and
                     # video encoding via VideoOutPlugin.
