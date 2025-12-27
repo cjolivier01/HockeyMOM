@@ -6,7 +6,8 @@ import argparse
 import contextlib
 import os
 import time
-from typing import Any, Dict, List, Union
+from collections import OrderedDict
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -22,6 +23,7 @@ from hmlib.utils.gpu import GpuAllocator, cuda_stream_scope, unwrap_tensor
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
+from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_seconds_to_hms
 from hmlib.utils.utils import calc_combined_fps
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
@@ -158,6 +160,7 @@ def copy_video(
         split_number: int = 1
         split_frames = get_frame_split_points(len(dataloader), num_splits=num_splits)
         next_split_frame = split_frames[split_number - 1] if split_frames else float("inf")
+        video_frame_cfg: Dict[str, Any] = dict()
 
         def _open_output_video(path: str) -> Union[VideoStreamWriterInterface, VideoOutput]:
             with cuda_stream_scope(main_stream):
@@ -177,16 +180,18 @@ def copy_video(
                     )
                     video_out.open()
                 else:
+                    video_frame_cfg["output_frame_width"] = video_info.width
+                    video_frame_cfg["output_frame_height"] = video_info.height
                     video_out = VideoOutput(
                         name="VideoOutput",
                         output_video_path=path,
-                        output_frame_width=video_info.width,
-                        output_frame_height=video_info.height,
                         fps=video_info.fps,
                         skip_final_save=skip_final_video_save,
                         fourcc="auto",
                         device=output_device,
                         profiler=profiler,
+                        show_image=show,
+                        show_scaled=None if isinstance(show, bool) else show,
                     )
                 return video_out
 
@@ -212,6 +217,70 @@ def copy_video(
         get_timer = Timer()
         batch_count = 0
         processed_frame_count: int = 0
+        progress_bar: Optional[ProgressBar] = None
+        scroll_output: Optional[ScrollOutput] = None
+        total_frames = int(video_info.frame_count) if video_info.frame_count else 0
+        if max_frames:
+            try:
+                max_frames_int = int(max_frames)
+                total_frames = min(total_frames, max_frames_int) if total_frames else max_frames_int
+            except Exception:
+                pass
+        batch_size_hint = max(1, int(getattr(dataloader, "batch_size", batch_size) or 1))
+        total_batches = (
+            int((total_frames + batch_size_hint - 1) // batch_size_hint) if total_frames else 0
+        )
+        start_time = time.time()
+        last_batch_size = batch_size_hint
+        if total_batches > 0:
+            scroll_output = ScrollOutput(lines=4)
+            scroll_output.register_logger(logger)
+            # table_map: OrderedDict[str, str] = OrderedDict()
+
+            def _table_callback(table_map: OrderedDict[str, str]):
+                processed = processed_frame_count
+                if total_frames:
+                    table_map["Frames"] = f"{processed}/{total_frames}"
+                else:
+                    table_map["Frames"] = str(processed)
+                elapsed = time.time() - start_time
+                if elapsed > 0 and processed > 0:
+                    overall_fps = processed / elapsed
+                    table_map["Total FPS"] = f"{overall_fps:.2f}"
+                else:
+                    overall_fps = 0.0
+                    table_map["Total FPS"] = "warming up"
+                io_fps = (
+                    last_batch_size * 1.0 / max(1e-5, io_timer.average_time)
+                    if io_timer.calls
+                    else 0.0
+                )
+                get_fps = (
+                    last_batch_size * 1.0 / max(1e-5, get_timer.average_time)
+                    if get_timer.calls
+                    else 0.0
+                )
+                table_map["IO FPS"] = f"{io_fps:.2f}" if io_fps > 0 else "--"
+                table_map["get() FPS"] = f"{get_fps:.2f}" if get_fps > 0 else "--"
+                if io_fps > 0 and get_fps > 0:
+                    table_map["Combined FPS"] = f"{calc_combined_fps([io_fps, get_fps]):.2f}"
+                else:
+                    table_map["Combined FPS"] = "--"
+                if total_frames and overall_fps > 0:
+                    remaining = max(0, total_frames - processed)
+                    table_map["ETA"] = convert_seconds_to_hms(remaining / overall_fps)
+                else:
+                    table_map["ETA"] = "--:--:--"
+
+            progress_bar = ProgressBar(
+                total=total_batches,
+                iterator=v_iter,
+                scroll_output=scroll_output,
+                update_rate=250,
+                table_callback=_table_callback,
+                use_curses=True,
+            )
+            v_iter = progress_bar
         frame_id = start_frame_number
         frame_ids = list()
         for i in range(batch_size):
@@ -224,7 +293,7 @@ def copy_video(
                 show_scaled=None if isinstance(show, bool) else show,
                 profiler=profiler,
             )
-            if show
+            if (show and not use_video_out)
             else None
         )
         prof = profiler
@@ -250,6 +319,14 @@ def copy_video(
                         get_timer.toc()
 
                         batch_size = 1 if source_tensor.ndim == 3 else source_tensor.shape[0]
+                        last_batch_size = int(batch_size)
+
+                        if torch.is_floating_point(source_tensor):
+                            source_tensor.clamp_(0, 255)
+                            source_tensor = source_tensor.to(torch.uint8, non_blocking=True)
+
+                        if shower:
+                            shower.show(img=source_tensor)
 
                         if video_out is not None:
                             if not use_video_out:
@@ -264,13 +341,6 @@ def copy_video(
                                     video_out = _open_output_video(
                                         _output_file_name(split_number)
                                     )
-
-                                if torch.is_floating_point(source_tensor):
-                                    source_tensor.clamp_(0, 255)
-                                    source_tensor = source_tensor.to(torch.uint8, non_blocking=True)
-
-                                if shower:
-                                    shower.show(img=source_tensor)
 
                                 # Raw VideoStreamWriter path (non-VideoOutput) keeps append().
                                 video_out.append(source_tensor)
@@ -291,11 +361,10 @@ def copy_video(
                                             ],
                                             dtype=torch.float,
                                         ),
+                                        "video_frame_cfg": video_frame_cfg,
                                     }
                                 )
                         else:
-                            if shower:
-                                shower.show(img=source_tensor)
                             # Synchronize the stream so that we report realistic frame rates
                             if source_tensor.device.type == "cuda":
                                 torch.cuda.current_stream(source_tensor.device).synchronize()
@@ -319,6 +388,8 @@ def copy_video(
         except StopIteration:
             logger.info("Done.")
         finally:
+            if progress_bar is not None:
+                progress_bar.close()
             if video_out is not None:
                 if isinstance(video_out, VideoStreamWriterInterface):
                     time.sleep(2)
@@ -327,6 +398,10 @@ def copy_video(
                     video_out.stop()
             if shower is not None:
                 shower.close()
+            try:
+                dataloader.close()
+            except Exception:
+                logger.exception("Failed closing dataloader")
 
 
 #
