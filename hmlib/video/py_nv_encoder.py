@@ -134,6 +134,21 @@ class PyNvVideoEncoder:
         self._frame_duration_units: Optional[int] = None
         self._bitstream_path: Optional[Path] = None
         self._bitstream_file: Optional[IO[bytes]] = None
+        self._bgr_to_i420_cuda: Optional[torch.Tensor] = (
+            self._profiler.rf("bgr_to_i420_cuda")
+            if (self._profiler is not None and self._profiler.enabled)
+            else contextlib.nullcontext()
+        )
+        self._bgr_contiguous_1: Optional[torch.Tensor] = (
+            self._profiler.rf("bgr_contig_1")
+            if (self._profiler is not None and self._profiler.enabled)
+            else contextlib.nullcontext()
+        )
+        self._bgr_contiguous_2: Optional[torch.Tensor] = (
+            self._profiler.rf("bgr_contig_2_dlpack")
+            if (self._profiler is not None and self._profiler.enabled)
+            else contextlib.nullcontext()
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -632,18 +647,22 @@ class PyNvVideoEncoder:
 
         if frame.device != self.device:
             frame = frame.to(self.device, non_blocking=True)
-        if frame.dtype != torch.uint8:
-            frame = frame.clamp(0, 255).to(torch.uint8)
 
-        frame = frame.contiguous()
+        if frame.dtype != torch.uint8:
+            frame.clamp_(0, 255)
+            frame = frame.to(torch.uint8)
+
+        with self._bgr_contiguous_1:
+            frame = frame.contiguous()
 
         # Delegate BGR -> I420 conversion to jetson-utils via hockeymom binding.
-        yuv420 = bgr_to_i420_cuda(frame)
+        with self._bgr_to_i420_cuda:
+            yuv420 = bgr_to_i420_cuda(frame)
 
         if yuv420.dim() != 2 or yuv420.size(0) != h * 3 // 2 or yuv420.size(1) != w:
             raise RuntimeError(
                 "bgr_to_i420_cuda returned unexpected shape "
                 f"{tuple(yuv420.shape)} for input {h}x{w}"
             )
-
-        return _DLPackFrame(yuv420.contiguous())
+        with self._bgr_contiguous_2:
+            return _DLPackFrame(yuv420.contiguous())

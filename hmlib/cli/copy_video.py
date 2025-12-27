@@ -262,7 +262,6 @@ def copy_video(
                                     else:
                                         next_split_frame = split_frames[split_number]
                                     split_number += 1
-                                    torch.cuda.synchronize()
                                     time.sleep(2)
                                     video_out.close()
                                     video_out = _open_output_video(
@@ -273,7 +272,6 @@ def copy_video(
                                     source_tensor = source_tensor.clamp(0, 255).to(
                                         torch.uint8, non_blocking=True
                                     )
-                                torch.cuda.synchronize()
                                 # Raw VideoStreamWriter path (non-VideoOutput) keeps append().
                                 video_out.append(source_tensor)
                             else:

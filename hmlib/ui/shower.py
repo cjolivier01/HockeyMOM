@@ -19,7 +19,7 @@ from PIL import Image, ImageTk
 
 from hmlib.log import get_root_logger
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope
+from hmlib.utils.gpu import StreamTensorBase, cuda_stream_scope, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last, make_visible_image
 from hockeymom.core import show_cuda_tensor
 
@@ -106,16 +106,13 @@ class Shower:
             if self._stream is None and img.device.type == "cuda":
                 self._stream = torch.cuda.Stream(img.device)
             with cuda_stream_scope(self._stream):
-                if isinstance(img, StreamTensorBase):
-                    img.verbose = False
-                    img = img.wait(self._stream)
-                    # torch.cuda.synchronize()
+                img = unwrap_tensor(img)
                 for s_img in img:
                     if self._use_tk:
                         self._tk_displayer.display(s_img)
                     else:
                         if self._cv2_has_opengl_support and s_img.device.type == "cuda":
-                            # This doesn;t work last time I checked
+                            # This doesn't work last time I checked
                             show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
                         else:
                             if self._allow_gpu_gl and s_img.device.type == "cuda":
@@ -123,7 +120,6 @@ class Shower:
                                     s_img, enable_resizing=self._show_scaled, force_numpy=False
                                 )
                                 self._stream.synchronize()
-                                # torch.cuda.synchronize()
                                 show_cuda_tensor("Stitched Image", s_img, False, None)
                             else:
                                 cv2.imshow(
@@ -173,7 +169,7 @@ class Shower:
                     self._do_show(frame_to_show)
                     last_frame = frame_to_show
 
-    def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase]):
+    def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase], clone: bool = False):
         with self._prof_ctx("shower.show"):
             if self._thread is not None:
                 counter: int = 0
@@ -186,8 +182,12 @@ class Shower:
                 if self._cache_on_cpu and not isinstance(img, np.ndarray):
                     img = img.cpu()
                 if self._fps is None or img.ndim == 3:
-                    if not self._cache_on_cpu and not isinstance(img, StreamTensorBase):
-                        img = StreamCheckpoint(img)
+                    if not self._cache_on_cpu:
+                        with cuda_stream_scope(self._stream):
+                            img = unwrap_tensor(img)
+                        if clone:
+                            img = img.clone()
+                        img = wrap_tensor(img)
                     self._q.put(img)
                 else:
                     assert img.ndim == 4
