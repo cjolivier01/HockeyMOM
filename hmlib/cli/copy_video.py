@@ -25,7 +25,11 @@ from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.utils import calc_combined_fps
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
-from hmlib.video.video_stream import VideoStreamWriterInterface, create_output_video_stream
+from hmlib.video.video_stream import (
+    VideoStreamWriterInterface,
+    create_output_video_stream,
+    time_to_frame,
+)
 
 ROOT_DIR = os.getcwd()
 
@@ -61,6 +65,12 @@ def make_parser():
         default=1,
         type=int,
         help="Number of splits",
+    )
+    parser.add_argument(
+        "--async-mode",
+        default=1,
+        type=int,
+        help="Whether to load video frames asynchronously 0|1",
     )
     parser.add_argument(
         "--start-frame-number",
@@ -124,32 +134,30 @@ def copy_video(
     async_mode: bool = True,
     profiler: Any = None,
 ):
-    if isinstance(video_file, list):
-        video_file = ",".join(video_file)
-    video_info = BasicVideoInfo(video_file)
-
-    dataloader = MOTLoadVideoWithOrig(
-        path=video_file,
-        original_image_only=True,
-        start_frame_number=start_frame_number,
-        batch_size=batch_size,
-        max_frames=max_frames,
-        device=device,
-        decoder_device=device,
-        dtype=dtype,
-        no_cuda_streams=no_cuda_streams,
-        async_mode=async_mode,
-    )
-    if profiler is not None and hasattr(dataloader, "set_profiler"):
-        dataloader.set_profiler(profiler)
-
-    split_number: int = 1
-    split_frames = get_frame_split_points(len(dataloader), num_splits=num_splits)
-    next_split_frame = split_frames[split_number - 1] if split_frames else float("inf")
-
-    main_stream = torch.cuda.Stream(device=device)
-
+    main_stream = torch.cuda.Stream(device=device) if "cuda" in str(device) else None
     with cuda_stream_scope(main_stream):
+        if isinstance(video_file, list):
+            video_file = ",".join(video_file)
+        video_info = BasicVideoInfo(video_file)
+
+        dataloader = MOTLoadVideoWithOrig(
+            path=video_file,
+            original_image_only=True,
+            start_frame_number=start_frame_number,
+            batch_size=batch_size,
+            max_frames=max_frames,
+            device=device,
+            decoder_device=device,
+            dtype=dtype,
+            no_cuda_streams=no_cuda_streams or not async_mode,
+            async_mode=async_mode,
+        )
+        if profiler is not None and hasattr(dataloader, "set_profiler"):
+            dataloader.set_profiler(profiler)
+
+        split_number: int = 1
+        split_frames = get_frame_split_points(len(dataloader), num_splits=num_splits)
+        next_split_frame = split_frames[split_number - 1] if split_frames else float("inf")
 
         def _open_output_video(path: str) -> Union[VideoStreamWriterInterface, VideoOutput]:
             with cuda_stream_scope(main_stream):
@@ -315,6 +323,8 @@ def copy_video(
                     video_out.close()
                 else:
                     video_out.stop()
+            if shower is not None:
+                shower.close()
 
 
 #
@@ -348,6 +358,20 @@ def main():
         video_files = args.input_video
     if args.show_scaled:
         args.show_image = args.show_scaled
+    if (getattr(args, "max_frames", None) in (None, 0)) and getattr(args, "max_time", None):
+        try:
+            info_path = ",".join(video_files) if isinstance(video_files, list) else video_files
+            vid_info = BasicVideoInfo(info_path)
+            if vid_info.fps and vid_info.fps > 0:
+                args.max_frames = time_to_frame(time_str=args.max_time, fps=vid_info.fps)
+                logger.info(
+                    "Limiting processing to %s seconds -> %d frames (fps=%.3f)",
+                    args.max_time,
+                    args.max_frames,
+                    vid_info.fps,
+                )
+        except Exception as exc:
+            logger.warning("Failed converting max-time to frames: %s", exc)
     profiler = None
     try:
         from hmlib.utils.profiler import build_profiler_from_args
@@ -375,7 +399,7 @@ def main():
             num_splits=args.num_splits,
             max_frames=args.max_frames,
             no_cuda_streams=getattr(args, "no_cuda_streams", False),
-            async_mode=getattr(args, "async_mode", True),
+            async_mode=args.async_mode,
             profiler=profiler,
         )
 
