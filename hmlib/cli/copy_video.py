@@ -251,9 +251,6 @@ def copy_video(
 
                         batch_size = 1 if source_tensor.ndim == 3 else source_tensor.shape[0]
 
-                        if shower:
-                            shower.show(img=source_tensor)
-
                         if video_out is not None:
                             if not use_video_out:
                                 if processed_frame_count >= next_split_frame:
@@ -269,13 +266,18 @@ def copy_video(
                                     )
 
                                 if torch.is_floating_point(source_tensor):
-                                    source_tensor = source_tensor.clamp(0, 255).to(
-                                        torch.uint8, non_blocking=True
-                                    )
+                                    source_tensor.clamp_(0, 255)
+                                    source_tensor = source_tensor.to(torch.uint8, non_blocking=True)
+
+                                if shower:
+                                    shower.show(img=source_tensor)
+
                                 # Raw VideoStreamWriter path (non-VideoOutput) keeps append().
                                 video_out.append(source_tensor)
                             else:
                                 # For VideoOutput, call the module directly to trigger forward().
+                                if shower:
+                                    shower.show(img=source_tensor)
                                 video_out(
                                     {
                                         "frame_id": frame_ids,
@@ -292,6 +294,8 @@ def copy_video(
                                     }
                                 )
                         else:
+                            if shower:
+                                shower.show(img=source_tensor)
                             # Synchronize the stream so that we report realistic frame rates
                             if source_tensor.device.type == "cuda":
                                 torch.cuda.current_stream(source_tensor.device).synchronize()
