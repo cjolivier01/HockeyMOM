@@ -23,7 +23,7 @@ from hmlib.segm.ice_rink import main as ice_rink_main
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
-from hmlib.utils.gpu import GpuAllocator
+from hmlib.utils.gpu import GpuAllocator, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import image_height, image_width, resize_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
@@ -277,7 +277,8 @@ def stitch_videos(
                         break
                     frame_ids = torch.arange(i * batch_size, (i + 1) * batch_size)
 
-                    cuda_stream.synchronize()
+                    # cuda_stream.synchronize()
+                    stitched_image = unwrap_tensor(stitched_image)
 
                     # Downscale oversized panoramas to stay within encoder
                     # limits while preserving aspect ratio.
@@ -299,7 +300,7 @@ def stitch_videos(
                     # Execute the Aspen graph to handle camera cropping and
                     # video encoding via VideoOutPlugin.
                     context: Dict[str, Any] = {
-                        "img": stitched_image,
+                        "img": wrap_tensor(stitched_image),
                         "frame_ids": frame_ids,
                         "data": {"fps": data_loader.fps},
                         "game_id": game_id,
