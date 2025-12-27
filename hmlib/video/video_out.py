@@ -264,7 +264,12 @@ class VideoOutput(torch.nn.ModuleDict):
         self._show_image = bool(show_image)
         self._show_scaled = show_scaled
         self._shower = (
-            Shower(label="Video Out", show_scaled=self._show_scaled, max_size=cache_size)
+            Shower(
+                label="Video Out",
+                show_scaled=self._show_scaled,
+                max_size=cache_size,
+                profiler=self._prof,
+            )
             if self._show_image
             else None
         )
@@ -439,48 +444,49 @@ class VideoOutput(torch.nn.ModuleDict):
         @param results: Dict containing at least ``"img"`` and ``"frame_ids"``.
         @return: The updated ``results`` dict (for chaining if desired).
         """
-        # Step 1: Lazy initialization of device + codec
-        self._ensure_initialized(results)
+        with self._fctx:
+            # Step 1: Lazy initialization of device + codec
+            self._ensure_initialized(results)
 
-        # Step 2: Ensure underlying video streams are open
-        if not self._output_videos:
-            self.create_output_videos(results)
+            # Step 2: Ensure underlying video streams are open
+            if not self._output_videos:
+                self.create_output_videos(results)
 
-        # Step 3: Normalize image tensors onto the writer device
-        online_im = unwrap_tensor(results.get("img"))
+            # Step 3: Normalize image tensors onto the writer device
+            online_im = unwrap_tensor(results.get("img"))
 
-        if isinstance(online_im, np.ndarray):
-            online_im = torch.from_numpy(online_im)
+            if isinstance(online_im, np.ndarray):
+                online_im = torch.from_numpy(online_im)
 
-        if online_im.ndim == 3:
-            # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
-            online_im = online_im.unsqueeze(0)
+            if online_im.ndim == 3:
+                # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
+                online_im = online_im.unsqueeze(0)
 
-        # online_im = self._make_visible_image(online_im)
+            # online_im = self._make_visible_image(online_im)
 
-        if not self._skip_final_save:
-            if self._device is not None:
-                # Move to writer device and ensure channels-last layout
-                if str(online_im.device) != str(self._device):
-                    online_im = online_im.to(self._device)
+            if not self._skip_final_save:
+                if self._device is not None:
+                    # Move to writer device and ensure channels-last layout
+                    if str(online_im.device) != str(self._device):
+                        online_im = online_im.to(self._device)
 
-            # Optional final move to CPU for CPU-only writers
-            if (
-                online_im.device.type != "cpu"
-                and self._device is not None
-                and self._device.type == "cpu"
-            ):
-                online_im = online_im.to("cpu", non_blocking=True)
-                online_im = StreamCheckpoint(online_im)
+                # Optional final move to CPU for CPU-only writers
+                if (
+                    online_im.device.type != "cpu"
+                    and self._device is not None
+                    and self._device.type == "cpu"
+                ):
+                    online_im = online_im.to("cpu", non_blocking=True)
+                    online_im = StreamCheckpoint(online_im)
 
-            assert self._device is None or results["img"].device == self._device
+                assert self._device is None or results["img"].device == self._device
 
-        results["img"] = online_im
+            results["img"] = online_im
 
-        # Step 4: Persist frames to disk under profiling scopes
-        with self._sctx:
-            results = self._save_frame(results)
+            # Step 4: Persist frames to disk under profiling scopes
+            with self._sctx:
+                results = self._save_frame(results)
 
-        assert "img" not in results
+            assert "img" not in results
 
-        return results
+            return results

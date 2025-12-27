@@ -243,15 +243,15 @@ class PyNvVideoEncoder:
                     self._ffmpeg_proc.stdin.write(bytearray(bitstream))
 
         if self._backend in {"pyav", "raw"}:
-            if self._bitstream_file is not None:
-                self._bitstream_file.close()
-                self._bitstream_file = None
             if self._bitstream_path is not None:
                 if self._backend == "pyav":
                     self._mux_bitstream_file_with_pyav(self._bitstream_path)
-                else:
+                elif self._backend == "ffmpeg":
                     self._mux_bitstream_file_with_ffmpeg(self._bitstream_path)
+                self._bitstream_file.close()
+                self._bitstream_file = None
         else:
+            assert self._bitstream_file is None
             if self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
                 # Close ffmpeg stdin and wait for it to finish writing the container
                 self._ffmpeg_proc.stdin.close()
@@ -344,6 +344,8 @@ class PyNvVideoEncoder:
         bitstream_path.parent.mkdir(parents=True, exist_ok=True)
         self._bitstream_path = bitstream_path
         self._bitstream_file = open(bitstream_path, "wb")
+        if self._bitstream_file is None:
+            raise RuntimeError(f"Failed to open bitstream file for writing: {bitstream_path}")
 
     def _mux_bitstream_file_with_ffmpeg(self, bitstream_path: Path) -> None:
         """
@@ -409,8 +411,9 @@ class PyNvVideoEncoder:
         This avoids depending on an external ffmpeg binary while still using
         FFmpeg's demuxer/muxer logic via libavformat.
         """
-        import av
         from fractions import Fraction
+
+        import av
 
         stream_format = self._bitstream_format()
         input_options = {"framerate": str(self.fps)}

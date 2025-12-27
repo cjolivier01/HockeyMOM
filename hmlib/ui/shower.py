@@ -6,10 +6,11 @@ via OpenCV or (optionally) Tkinter windows.
 @see @ref hmlib.ui.show "show" for simpler one-off display helpers.
 """
 
+import contextlib
 import threading
 import time
 import tkinter as tk
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import cv2
 import numpy as np
@@ -18,7 +19,7 @@ from PIL import Image, ImageTk
 
 from hmlib.log import get_root_logger
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase
+from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope
 from hmlib.utils.image import make_channels_last, make_visible_image
 from hockeymom.core import show_cuda_tensor
 
@@ -61,6 +62,7 @@ class Shower:
         logger=None,
         use_tk: bool = False,
         allow_gpu_gl: bool = True,
+        profiler: Any = None,
     ):
         self._label = label
         self._allow_gpu_gl = allow_gpu_gl
@@ -79,41 +81,58 @@ class Shower:
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
         self._thread.start()
+        self._stream = None
+        self._profiler = profiler
+
+    def _prof_ctx(self, name: str):
+        prof = self._profiler
+        if prof is not None and getattr(prof, "enabled", False):
+            return prof.rf(name)
+        return contextlib.nullcontext()
 
     def _do_show(self, img: Union[torch.Tensor, np.ndarray]):
-        if self._use_tk and self._tk_displayer is None:
-            # root = get_tk_root()
-            # self._tk_displayer = ImageDisplayer(root)
-            assert False
+        with self._prof_ctx("shower._do_show"):
+            if self._use_tk and self._tk_displayer is None:
+                # root = get_tk_root()
+                # self._tk_displayer = ImageDisplayer(root)
+                assert False
 
-        if img.ndim == 3:
-            if isinstance(img, torch.Tensor | StreamTensorBase):
-                img = img.unsqueeze(0)
-            elif isinstance(img, np.ndarray):
-                img = np.expand_dims(img, axis=0)
-        if isinstance(img, StreamTensorBase):
-            img = img.get()
-        for s_img in img:
-            if self._use_tk:
-                self._tk_displayer.display(s_img)
-            else:
-                if self._cv2_has_opengl_support and s_img.device.type == "cuda":
-                    show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
-                else:
-                    if self._allow_gpu_gl and s_img.device.type == "cuda":
-                        s_img = make_visible_image(
-                            s_img, enable_resizing=self._show_scaled, force_numpy=False
-                        )
-                        show_cuda_tensor("Stitched Image", s_img, False, None)
+            if img.ndim == 3:
+                if isinstance(img, torch.Tensor | StreamTensorBase):
+                    img = img.unsqueeze(0)
+                elif isinstance(img, np.ndarray):
+                    img = np.expand_dims(img, axis=0)
 
+            if self._stream is None and img.device.type == "cuda":
+                self._stream = torch.cuda.Stream(img.device)
+            with cuda_stream_scope(self._stream):
+                if isinstance(img, StreamTensorBase):
+                    img.verbose = False
+                    img = img.wait(self._stream)
+                    # torch.cuda.synchronize()
+                for s_img in img:
+                    if self._use_tk:
+                        self._tk_displayer.display(s_img)
                     else:
-                        cv2.imshow(
-                            self._label,
-                            make_visible_image(
-                                s_img, enable_resizing=self._show_scaled, force_numpy=True
-                            ),
-                        )
-                        cv2.waitKey(1)
+                        if self._cv2_has_opengl_support and s_img.device.type == "cuda":
+                            # This doesn;t work last time I checked
+                            show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
+                        else:
+                            if self._allow_gpu_gl and s_img.device.type == "cuda":
+                                s_img = make_visible_image(
+                                    s_img, enable_resizing=self._show_scaled, force_numpy=False
+                                )
+                                self._stream.synchronize()
+                                # torch.cuda.synchronize()
+                                show_cuda_tensor("Stitched Image", s_img, False, None)
+                            else:
+                                cv2.imshow(
+                                    self._label,
+                                    make_visible_image(
+                                        s_img, enable_resizing=self._show_scaled, force_numpy=True
+                                    ),
+                                )
+                                cv2.waitKey(1)
 
     def close(self):
         if self._thread is not None:
@@ -155,22 +174,23 @@ class Shower:
                     last_frame = frame_to_show
 
     def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase]):
-        if self._thread is not None:
-            counter: int = 0
-            while self._q.qsize() >= self._max_size:
-                # print("Too many items in Shower queue...")
-                time.sleep(0.01)
-                counter += 1
-                if counter % 20 == 0:
-                    self._logger.info("Too many items in Shower queue...")
-            if self._cache_on_cpu and not isinstance(img, np.ndarray):
-                img = img.cpu()
-            if self._fps is None or img.ndim == 3:
-                if not self._cache_on_cpu and not isinstance(img, StreamTensorBase):
-                    img = StreamCheckpoint(img)
-                self._q.put(img)
-            else:
-                assert img.ndim == 4
-                for s_img in img:
-                    assert False  # stream issues here sometimes if it cant be strided maybe?
-                    self._q.put(s_img)
+        with self._prof_ctx("shower.show"):
+            if self._thread is not None:
+                counter: int = 0
+                while self._q.qsize() >= self._max_size:
+                    # print("Too many items in Shower queue...")
+                    time.sleep(0.01)
+                    counter += 1
+                    if counter % 20 == 0:
+                        self._logger.info("Too many items in Shower queue...")
+                if self._cache_on_cpu and not isinstance(img, np.ndarray):
+                    img = img.cpu()
+                if self._fps is None or img.ndim == 3:
+                    if not self._cache_on_cpu and not isinstance(img, StreamTensorBase):
+                        img = StreamCheckpoint(img)
+                    self._q.put(img)
+                else:
+                    assert img.ndim == 4
+                    for s_img in img:
+                        assert False  # stream issues here sometimes if it cant be strided maybe?
+                        self._q.put(s_img)

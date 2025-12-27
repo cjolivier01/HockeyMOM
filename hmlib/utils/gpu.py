@@ -416,10 +416,13 @@ def unwrap_tensor(
     tensor: Union[torch.Tensor, StreamTensorBase],
     current_stream: Optional[torch.cuda.Stream] = None,
     verbose: Optional[bool] = None,
+    get: bool = False,
 ) -> torch.Tensor:
     if isinstance(tensor, StreamTensorBase):
         if verbose is not None:
             tensor.verbose = verbose
+        if get:
+            return tensor.get()
         return tensor.wait(current_stream)
     return tensor
 

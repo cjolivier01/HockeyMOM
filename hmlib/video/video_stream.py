@@ -6,9 +6,9 @@ interfaces used across the stitching and tracking CLIs.
 @see @ref hmlib.video.ffmpeg "ffmpeg" for low-level FFmpeg helpers.
 """
 
+import contextlib
 import os
 import platform
-import subprocess
 import sys
 from fractions import Fraction
 from typing import Any, Dict, Literal, Optional, Tuple, Union
@@ -113,8 +113,12 @@ def _max_video_width(codec: str) -> int:
 
 
 class VideoStreamWriterInterface:
-    # TODO: Add the interface stubs
-    pass
+
+    def close(self) -> None:
+        raise NotImplementedError("close not implemented")
+
+    def isOpened(self) -> bool:
+        raise NotImplementedError("isOpenned not implemented")
 
 
 def video_size(
@@ -429,7 +433,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         if flush_video_file and self._video_f is not None:
             self._video_f.flush()
 
-    def isOpened(self):
+    def isOpened(self) -> bool:
         return self._video_f is not None
 
     def open(self):
@@ -1043,13 +1047,20 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
         self._encoder.open()
 
     def append(self, images: torch.Tensor):
-        assert images.device == self._device
-        self._encoder.write(images)
+        prof = self._profiler
+        ctx = (
+            prof.rf("video.nvenc_writer.append")
+            if getattr(prof, "enabled", False)
+            else contextlib.nullcontext()
+        )
+        with ctx:
+            assert images.device == self._device
+            self._encoder.write(images)
 
-        if images.ndim == 4:
-            self._frame_counter += int(images.shape[0])
-        else:
-            self._frame_counter += 1
+            if images.ndim == 4:
+                self._frame_counter += int(images.shape[0])
+            else:
+                self._frame_counter += 1
 
     def write(self, images: torch.Tensor):
         return self.append(images)
