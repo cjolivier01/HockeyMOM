@@ -212,16 +212,16 @@ git_repository(
 #    path = "../hm-cupano",
 #)
 
-# git_repository(
-#      name = "jetson-utils",
-#      branch = "colivier/hm",
-#      remote = "ssh://git@github.com/cjolivier01/jetson-utils",
-# )
-
-local_repository(
-   name = "jetson-utils",
-   path = "../jetson-utils",
+git_repository(
+     name = "jetson-utils",
+     branch = "colivier/hm",
+     remote = "ssh://git@github.com/cjolivier01/jetson-utils",
 )
+
+# local_repository(
+#    name = "jetson-utils",
+#    path = "../jetson-utils",
+# )
 
 ################################ Multiblend ################################
 git_repository(
