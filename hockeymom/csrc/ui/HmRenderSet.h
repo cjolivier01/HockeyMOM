@@ -31,21 +31,27 @@ struct DisplaySurface {
 
 class HmRenderSet {
  public:
+  HmRenderSet();
+  ~HmRenderSet();
+
   bool render(
       const std::string& name,
       const DisplaySurface& surface,
       cudaStream_t stream);
 
  private:
-  static std::unique_ptr<glDisplay> create_video_output(
-      const std::string& name,
-      const DisplaySurface& surface);
-  videoOutput* get_video_output(
-      const std::string& name,
-      const DisplaySurface& surface);
+  struct DisplayWorker;
 
-  std::mutex mu_;
-  std::map<std::string, std::unique_ptr<glDisplay>> video_outputs_;
+  static std::unique_ptr<glDisplay> create_video_output(
+    const std::string& name,
+    const DisplaySurface& surface);
+
+  std::shared_ptr<DisplayWorker> get_or_create_worker(
+    const std::string& name,
+    const DisplaySurface& surface);
+
+  std::mutex workers_mu_;
+  std::map<std::string, std::shared_ptr<DisplayWorker>> workers_;
 };
 
 std::weak_ptr<HmRenderSet> get_or_create_global_render_set();
