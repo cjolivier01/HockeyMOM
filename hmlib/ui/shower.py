@@ -52,11 +52,12 @@ class ImageDisplayer:
 
 
 class Shower:
+
     def __init__(
         self,
         label: str,
         show_scaled: Optional[float] = None,
-        max_size: int = 4,
+        max_size: int = 1,
         fps: Union[float, None] = None,
         cache_on_cpu: bool = False,
         logger=None,
