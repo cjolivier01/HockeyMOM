@@ -169,10 +169,16 @@ class Shower:
                         self._do_show(frame_to_show)
                         last_frame = frame_to_show
 
+    def _ensure_stream(self, device: torch.device):
+        if self._stream is None and device.type == "cuda":
+            # We give our dipslay stream high priority to reduce its dependency on other
+            # computations and try to show the frame as soon as possible, in its (possibly) bad data state.
+            self._stream = torch.cuda.Stream(device, priority=-1)
+
     def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase], clone: bool = False):
         with self._prof_ctx("shower.show"):
             if self._stream is None and img.device.type == "cuda":
-                self._stream = torch.cuda.Stream(img.device)
+                self._ensure_stream(img.device)
             if self._thread is not None:
                 counter: int = 0
                 while self._q.qsize() >= self._max_size:
