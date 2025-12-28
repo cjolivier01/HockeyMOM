@@ -607,7 +607,7 @@ def resize_image(
     new_height: int,
     mode: str = None,
     antialias: bool = True,
-    float_dtype: torch.dtype = torch.float,
+    float_dtype: torch.dtype = torch.float32,
 ):
     w = int(new_width)
     h = int(new_height)
@@ -622,7 +622,7 @@ def resize_image(
             if True:
                 # use interpolate, change to float if necessary
                 if not torch.is_floating_point(img):
-                    img = img.to(dtype=float_dtype, non_blocking=True)
+                    img = img.to(dtype=float_dtype)
                 mode = resize_mode_to_str_mode(mode)
                 # TF.interpolate wants a batch dimension
                 was_batched = img.ndim == 4
