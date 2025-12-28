@@ -407,13 +407,17 @@ class VideoOutput(torch.nn.ModuleDict):
 
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
-                self._output_videos[self.VIDEO_DEFAULT].write(online_im)
+                self._output_videos[self.VIDEO_DEFAULT].write(
+                    online_im, frame_ids=context.get("frame_ids")
+                )
 
             if self.VIDEO_END_ZONES in self._output_videos:
                 ez_img = context.get("end_zone_img")
                 if ez_img is None:
                     ez_img = online_im
-                self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
+                self._output_videos[self.VIDEO_END_ZONES].write(
+                    ez_img, frame_ids=context.get("frame_ids")
+                )
         else:
             # Sync the stream if skipping final save
             online_im = wrap_tensor(online_im, verbose=True).get()

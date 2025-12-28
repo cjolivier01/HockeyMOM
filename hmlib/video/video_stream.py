@@ -1046,7 +1046,7 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
     def open(self):
         self._encoder.open()
 
-    def append(self, images: torch.Tensor):
+    def append(self, images: torch.Tensor, **kwargs):
         prof = self._profiler
         ctx = (
             prof.rf("video.nvenc_writer.append")
@@ -1055,15 +1055,15 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
         )
         with ctx:
             assert images.device == self._device
-            self._encoder.write(images)
+            self._encoder.write(images, **kwargs)
 
             if images.ndim == 4:
                 self._frame_counter += int(images.shape[0])
             else:
                 self._frame_counter += 1
 
-    def write(self, images: torch.Tensor):
-        return self.append(images)
+    def write(self, images: torch.Tensor, **kwargs):
+        return self.append(images, **kwargs)
 
     def flush(self):
         # Flushing is handled in close() via encoder.EndEncode()/ffmpeg drain.

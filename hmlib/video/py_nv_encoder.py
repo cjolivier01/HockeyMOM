@@ -5,7 +5,7 @@ import os
 import subprocess
 from fractions import Fraction
 from pathlib import Path
-from typing import IO, Any, Optional, Union
+from typing import IO, Any, List, Optional, Union
 
 import torch
 from typeguard import typechecked
@@ -90,6 +90,7 @@ class PyNvVideoEncoder:
         self.fps = float(fps)
         self.codec = codec.lower()
         self.preset = preset.upper()
+        self.last_frame_id: Optional[int] = None
 
         if device is None:
             device = torch.device("cuda", 0)
@@ -170,7 +171,9 @@ class PyNvVideoEncoder:
             raise ValueError(f"Unsupported NVENC encoder backend: {self._backend}")
         self._opened = True
 
-    def write(self, frames: torch.Tensor) -> None:
+    def write(
+        self, frames: torch.Tensor, frame_ids: Union[int, torch.Tensor, List[int], None] = None
+    ) -> None:
         """
         Encode one or more BGR frames and append them to the output stream.
 
@@ -188,6 +191,21 @@ class PyNvVideoEncoder:
 
         if self._encoder is None:
             raise RuntimeError("Encoder is not properly initialized.")
+
+        if frame_ids is not None:
+            # In all likelihood, frame_ids as a tensor have been completed on its
+            # stream for some time
+            if isinstance(frame_ids, torch.Tensor):
+                frame_ids = frame_ids.tolist()
+            frame_count = len(frame_ids)
+            assert frame_count == len(frames)
+            if self.last_frame_id is not None:
+                expected_frame_id = self.last_frame_id + 1
+                if frame_ids[0] != expected_frame_id:
+                    raise ValueError(
+                        f"Non-consecutive frame_id: expected {expected_frame_id}, got {frame_ids}"
+                    )
+            self.last_frame_id = frame_ids[-1]
 
         batch = self._normalize_frames(frames)
         prof = self._profiler
@@ -208,6 +226,7 @@ class PyNvVideoEncoder:
                     yuv420 = self._bgr_to_yuv420(frame)
                     # Synchronize the stream before sending it to NVENC.
                     current_stream.synchronize()
+
                     # yuv420 is a 2D CUDA tensor with shape [H*3/2, W], uint8.
                     bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
                     self._frames_in_current_bitstream += 1
