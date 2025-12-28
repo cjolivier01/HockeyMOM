@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from hmlib.aspen import AspenNet
 import hmlib.transforms  # Register custom transforms for Aspen pipelines
+from hmlib.aspen import AspenNet
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
 from hmlib.hm_opts import hm_opts, preferred_arg
@@ -339,7 +339,7 @@ def stitch_videos(
 
                     if i > 1:
                         dataset_timer.toc()
-                    if (i + 1) % 20 == 0:
+                    if (i + 1) % 50 == 0:
                         assert stitched_image.ndim == 4
                         dataset_delivery_fps = batch_size / max(1e-5, dataset_timer.average_time)
                         logger.info(
