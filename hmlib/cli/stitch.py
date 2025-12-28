@@ -182,7 +182,7 @@ def stitch_videos(
         frame_count = 0
         dataset_delivery_fps = 0.0
 
-        use_progress_bar: bool = True
+        use_progress_bar: bool = not bool(getattr(args, "no_progress_bar", False))
         scroll_output: Optional[ScrollOutput] = None
 
         shower = None
@@ -209,7 +209,7 @@ def stitch_videos(
                     table_map["Stitch FPS"] = "warming up"
                     table_map["ETA"] = "--:--:--"
 
-            scroll_output = ScrollOutput()
+            scroll_output = ScrollOutput(lines=getattr(args, "progress_bar_lines", 11))
 
             scroll_output.register_logger(logger)
 
@@ -217,9 +217,9 @@ def stitch_videos(
                 total=total_frame_count,
                 iterator=data_loader_iter,
                 scroll_output=scroll_output,
-                update_rate=20,
+                update_rate=getattr(args, "print_interval", 20),
                 table_callback=_table_callback,
-                use_curses=True,
+                use_curses=getattr(args, "curses_progress", False),
             )
             data_loader_iter = progress_bar
 
