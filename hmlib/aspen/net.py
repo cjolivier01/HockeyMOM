@@ -240,13 +240,13 @@ class AspenNet(torch.nn.Module):
             return self._forward_threaded(context)
         grad_ctx = torch.enable_grad() if self.training else torch.no_grad()
         with grad_ctx:
-            do_trace: bool = True and self._iter_num == 10
-            if do_trace:
-                pass
+            # do_trace: bool = True and self._iter_num == 10
+            # if do_trace:
+            #     pass
             for node in self.exec_order:
                 self._execute_node(node, context)
-            if do_trace:
-                pass
+            # if do_trace:
+            #     pass
         self._iter_num += 1
         return context
 
@@ -555,15 +555,16 @@ class AspenNet(torch.nn.Module):
                 )
             # Ensure plugins that fetch context["cuda_stream"] see the stream actually running them.
             prev_stream = context.get("cuda_stream")
-            has_prev_stream = "cuda_stream" in context
-            if has_prev_stream:
+            if prev_stream is None:
+                prev_stream = torch.cuda.current_stream(device=node.stream.device)
+            if prev_stream is not None:
                 node.stream.wait_stream(prev_stream)
             context["cuda_stream"] = node.stream
             try:
                 with torch.cuda.stream(node.stream):
                     self._execute_node(node, context)
             finally:
-                if has_prev_stream:
+                if prev_stream is not None:
                     context["cuda_stream"] = prev_stream
                 else:
                     context.pop("cuda_stream", None)
