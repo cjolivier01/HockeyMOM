@@ -1,4 +1,5 @@
 cython
+importlib-metadata
 rich
 av
 PyNvVideoCodec
@@ -45,4 +46,3 @@ ffmpegio
 pyquaternion
 ./external/fast_pytorch_kmeans
 ./external/pt_autograph
-

@@ -4200,23 +4200,41 @@ def _write_event_summaries_and_clips(
     *,
     focus_team: Optional[str] = None,
 ) -> None:
+    raw_evt_by_team = event_log_context.event_counts_by_type_team or {}
+    raw_instances = event_log_context.event_instances or {}
+    invert_event_type: Set[str] = set()
+    if focus_team in {"Blue", "White"}:
+        invert_event_type.add("Giveaway")
+        turnover_teams = {
+            str(team)
+            for (etype, team) in raw_evt_by_team.keys()
+            if str(etype) == "TurnoverForced"
+        }
+        if not turnover_teams:
+            turnover_teams = {
+                str(team)
+                for (etype, team) in raw_instances.keys()
+                if str(etype) == "TurnoverForced"
+            }
+        turnover_teams = {t for t in turnover_teams if t in {"Blue", "White"}}
+        if len(turnover_teams) > 1:
+            invert_event_type.add("TurnoverForced")
+
     def _no_parens_label(s: str) -> str:
         return re.sub(r"[()]", "", str(s or "")).strip()
 
     def _team_label(team: Any, *, event_type: Optional[str] = None) -> str:
         team_str = str(team) if team is not None else ""
         if focus_team in {"Blue", "White"} and team_str in {"Blue", "White"}:
-            # Turnovers are recorded for the team that loses possession, but "For/Against"
-            # in outputs is intended to be relative to the focus team (beneficial vs harmful).
-            # Invert the label so opponent turnovers are labeled "For".
+            # Some event types are recorded for the team that loses possession, but
+            # "For/Against" is intended to be relative to the focus team.
             et = str(event_type or "")
-            invert = et in {"TurnoverForced", "Giveaway"}
+            invert = et in invert_event_type
             if invert:
                 return "Against" if team_str == focus_team else "For"
             return "For" if team_str == focus_team else "Against"
         return team_str or "Unknown"
 
-    raw_evt_by_team = event_log_context.event_counts_by_type_team or {}
     evt_by_team: Dict[Tuple[str, str], int] = {}
     for (et, tm), cnt in sorted(raw_evt_by_team.items()):
         label = _team_label(tm, event_type=str(et))
@@ -4270,7 +4288,6 @@ def _write_event_summaries_and_clips(
     if not create_scripts:
         return
 
-    raw_instances = event_log_context.event_instances or {}
     instances: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for (etype, team), lst in raw_instances.items():
         label = _team_label(team, event_type=str(etype))

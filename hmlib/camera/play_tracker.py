@@ -1182,8 +1182,8 @@ class PlayTracker(torch.nn.Module):
         results["current_box"] = wrap_tensor(torch.stack(current_box_list))
         results["current_fast_box_list"] = wrap_tensor(torch.stack(current_fast_box_list))
         # Attach per-frame player bottom points and ids for downstream overlays
-        results["player_bottom_points"] = wrap_tensor(torch.stack(player_bottom_points_list))
-        results["player_ids"] = wrap_tensor(torch.stack(player_ids_list))
+        results["player_bottom_points"] = player_bottom_points_list
+        results["player_ids"] = player_ids_list
         if self._rink_profile_cache is not None:
             results["rink_profile"] = self._rink_profile_cache
         # print(f"FAST: {current_fast_box_list}")

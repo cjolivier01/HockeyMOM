@@ -2,12 +2,9 @@ import os
 import sys
 import tempfile
 
-import pytest
-
 
 def should_detection_dataframe_roundtrip():
-    torch = pytest.importorskip("torch")
-    pytest.importorskip("mmdet.structures")
+    import torch
     from mmengine.structures import InstanceData
     from mmdet.structures import DetDataSample
     from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
@@ -37,8 +34,7 @@ def should_detection_dataframe_roundtrip():
 
 
 def should_tracking_dataframe_roundtrip():
-    torch = pytest.importorskip("torch")
-    pytest.importorskip("mmdet.structures")
+    import torch
     from mmengine.structures import InstanceData
     from mmdet.structures import DetDataSample, TrackDataSample
     from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
@@ -67,8 +63,7 @@ def should_tracking_dataframe_roundtrip():
 
 
 def should_pose_dataframe_roundtrip():
-    torch = pytest.importorskip("torch")
-    pytest.importorskip("mmpose.structures")
+    import torch
     from mmengine.structures import InstanceData
     from mmpose.structures import PoseDataSample
     from hmlib.tracking_utils.pose_dataframe import PoseDataFrame

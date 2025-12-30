@@ -76,6 +76,12 @@ class hm_opts(object):
             help="Crop to play area only",
         )
         parser.add_argument(
+            "--no-crop",
+            dest="no_crop",
+            action="store_true",
+            help="Disable camera/output cropping in the video pipeline",
+        )
+        parser.add_argument(
             "--end-zones",
             action="store_true",
             help="Enable end-zone camera usage when available",

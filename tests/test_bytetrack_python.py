@@ -1,12 +1,7 @@
 import sys
 from pathlib import Path
 
-import pytest
-
-try:
-    import torch
-except Exception:  # pragma: no cover
-    torch = None
+import torch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +9,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-@pytest.mark.skipif(torch is None, reason="torch not available")
 def should_keep_ids_across_frames_on_cpu():
     from hmlib.tracking_utils.bytetrack import HmByteTrackerCuda
 
@@ -38,7 +32,6 @@ def should_keep_ids_across_frames_on_cpu():
     assert torch.equal(res1["ids"], torch.tensor([0, 1], dtype=torch.long))
 
 
-@pytest.mark.skipif(torch is None, reason="torch not available")
 def should_start_no_tracks_below_init_threshold():
     from hmlib.tracking_utils.bytetrack import HmByteTrackerCuda
 
@@ -54,7 +47,6 @@ def should_start_no_tracks_below_init_threshold():
     assert res0["bboxes"].shape == (0, 4)
 
 
-@pytest.mark.skipif(torch is None, reason="torch not available")
 def should_create_new_id_when_label_changes():
     from hmlib.tracking_utils.bytetrack import HmByteTrackerCuda
 
@@ -78,7 +70,6 @@ def should_create_new_id_when_label_changes():
     assert torch.equal(res1["ids"], torch.tensor([1], dtype=torch.long))
 
 
-@pytest.mark.skipif(torch is None, reason="torch not available")
 def should_pad_static_outputs():
     from hmlib.tracking_utils.bytetrack import HmByteTrackerCudaStatic
 

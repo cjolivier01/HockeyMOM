@@ -193,14 +193,6 @@ def should_transcode_with_reader_and_pynvencoder(tmp_path: Path, monkeypatch: py
     Transcode a CPU-written test clip via VideoStreamReader -> PyNvVideoEncoderWriter
     and ensure fps/frame counts/durations match the source.
     """
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA required for PyNvVideoEncoderWriter")
-    try:
-        import PyNvVideoCodec  # noqa: F401
-    except Exception:
-        pytest.skip("PyNvVideoCodec not available")
-    if subprocess.call(["which", "ffprobe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
-        pytest.skip("ffprobe is required for metadata validation")
 
     monkeypatch.setenv("HM_VIDEO_ENCODER_BACKEND", "pyav")
 

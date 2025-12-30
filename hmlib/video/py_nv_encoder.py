@@ -283,7 +283,7 @@ class PyNvVideoEncoder:
             if self._bitstream_path is not None:
                 if self._backend == "pyav":
                     self._mux_bitstream_file_with_pyav(self._bitstream_path)
-                elif self._backend == "ffmpeg":
+                elif self._backend == "raw":
                     self._mux_bitstream_file_with_ffmpeg(self._bitstream_path)
                 self._bitstream_file.close()
                 self._bitstream_file = None
