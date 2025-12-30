@@ -262,6 +262,10 @@ def stitch_videos(
             if stream_cli is not None:
                 pipeline_cfg["cuda_streams"] = bool(stream_cli)
                 pipeline_modified = True
+            graph_cli = getattr(args, "aspen_thread_graph", None)
+            if graph_cli is not None:
+                pipeline_cfg["graph"] = bool(graph_cli)
+                pipeline_modified = True
         if pipeline_modified:
             aspen_graph_cfg["pipeline"] = pipeline_cfg
 

@@ -661,6 +661,20 @@ class hm_opts(object):
             help="Disable threaded Aspen pipeline mode",
         )
         parser.set_defaults(aspen_threaded=None)
+        aspen_graph_group = parser.add_mutually_exclusive_group()
+        aspen_graph_group.add_argument(
+            "--aspen-thread-graph",
+            dest="aspen_thread_graph",
+            action="store_true",
+            help="Run threaded Aspen plugins in graph scheduling mode",
+        )
+        aspen_graph_group.add_argument(
+            "--no-aspen-thread-graph",
+            dest="aspen_thread_graph",
+            action="store_false",
+            help="Use linear scheduling for threaded Aspen plugins",
+        )
+        parser.set_defaults(aspen_thread_graph=None)
         parser.add_argument(
             "--aspen-thread-queue-size",
             dest="aspen_thread_queue_size",

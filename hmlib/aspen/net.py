@@ -37,6 +37,38 @@ class _Node:
     stream: torch.cuda.Stream = None  # type: ignore[assignment]
 
 
+@dataclass
+class _WorkItem:
+    seq: int
+    context: Dict[str, Any]
+
+
+@dataclass
+class _GraphNodeState:
+    queue: Queue
+    next_seq: int
+    ready: Dict[int, _WorkItem]
+    lock: threading.Lock
+
+
+@dataclass
+class _GraphContextState:
+    item: _WorkItem
+    remaining_deps: List[int]
+    remaining_nodes: int
+
+
+class _ExceptionWrapper:
+    __slots__ = ("exc", "tb")
+
+    def __init__(self, exc: BaseException):
+        self.exc = exc
+        self.tb = exc.__traceback__
+
+    def reraise(self) -> None:
+        raise self.exc.with_traceback(self.tb)
+
+
 class AspenNet(torch.nn.Module):
     """Configurable directed-acyclic graph runner for Aspen plugins.
 
@@ -87,6 +119,16 @@ class AspenNet(torch.nn.Module):
         if threaded_flag is None and isinstance(graph_cfg, dict):
             threaded_flag = graph_cfg.get("threaded_trunks", False)
         self.threaded_trunks: bool = bool(threaded_flag)
+        graph_mode_flag = pipeline_cfg.get("graph", None)
+        if graph_mode_flag is None:
+            graph_mode_flag = pipeline_cfg.get("graph_mode", None)
+        if isinstance(graph_mode_flag, str):
+            mode = graph_mode_flag.strip().lower()
+            if mode in ("true", "1", "yes", "graph", "dag", "parallel"):
+                graph_mode_flag = True
+            elif mode in ("false", "0", "no", "linear", "pipeline", "serial"):
+                graph_mode_flag = False
+        self.thread_graph_mode: bool = bool(graph_mode_flag)
         output_check_flag = pipeline_cfg.get("check_output_keys_each_time", None)
         if output_check_flag is None and isinstance(graph_cfg, dict):
             output_check_flag = graph_cfg.get("check_output_keys_each_time", None)
@@ -445,20 +487,176 @@ class AspenNet(torch.nn.Module):
         return subctx
 
     def _forward_threaded(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        if self.thread_graph_mode:
+            return self._forward_threaded_graph(context)
+        return self._forward_threaded_linear(context)
+
+    def _graph_enqueue_ready(self, node_index: int, item: _WorkItem) -> None:
+        if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+            return
+        state = self._graph_node_state[node_index]
+        with state.lock:
+            if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+                return
+            state.ready[item.seq] = item
+            self._graph_drain_ready_locked(state)
+
+    def _graph_drain_ready_locked(self, state: _GraphNodeState) -> None:
+        # Enqueue only contiguous sequences to preserve per-node ordering.
+        while True:
+            next_item = state.ready.get(state.next_seq)
+            if next_item is None:
+                break
+            try:
+                state.queue.put(next_item, block=False)
+            except (queue.Full, ValueError):
+                break
+            del state.ready[state.next_seq]
+            state.next_seq += 1
+
+    def _graph_mark_complete(self, node_index: int, item: _WorkItem) -> None:
+        if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+            return
+        ready_children: List[int] = []
+        with self._graph_lock:
+            if self._graph_stop_event.is_set():
+                return
+            state = self._graph_contexts.get(item.seq)
+            if state is None:
+                return
+            for child_index in self._graph_children[node_index]:
+                state.remaining_deps[child_index] -= 1
+                if state.remaining_deps[child_index] == 0:
+                    ready_children.append(child_index)
+            state.remaining_nodes -= 1
+            if state.remaining_nodes == 0:
+                del self._graph_contexts[item.seq]
+                if self.num_concurrent > 0:
+                    self.num_concurrent -= 1
+        for child_index in ready_children:
+            self._graph_enqueue_ready(child_index, item)
+
+    def _graph_request_stop(self) -> None:
+        stop_event = getattr(self, "_graph_stop_event", None)
+        if stop_event is None:
+            return
+        stop_event.set()
+        stop_token = self._stop_token
+        if stop_token is None:
+            stop_token = object()
+            self._stop_token = stop_token
+        queues = getattr(self, "graph_queues", None)
+        if queues is None:
+            return
+        for q in queues:
+            try:
+                q.put(stop_token, block=False)
+            except (queue.Full, ValueError):
+                continue
+
+    def _graph_worker(self, index: int, node: _Node) -> None:
+        in_queue = self.graph_queues[index]
+        stop_token = self._stop_token
+        state = self._graph_node_state[index]
+        try:
+            while True:
+                item = in_queue.get()
+                if item is stop_token:
+                    break
+                if isinstance(item, _ExceptionWrapper):
+                    self._thread_error = item
+                    self._graph_request_stop()
+                    break
+                if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+                    break
+                with state.lock:
+                    self._graph_drain_ready_locked(state)
+                grad_ctx = torch.enable_grad() if self.training else torch.no_grad()
+                try:
+                    with grad_ctx:
+                        self._execute_with_stream(node, item.context)
+                    self._graph_mark_complete(index, item)
+                except BaseException as exc:
+                    wrapper = _ExceptionWrapper(exc)
+                    self._thread_error = wrapper
+                    self._graph_request_stop()
+                    break
+        finally:
+            print(f"AspenNet: Thread for plugin '{node.name}' exiting.")
+
+    def _init_threaded_graph(self) -> None:
+        self.initialized = True
+        stop_token = self._stop_token or object()
+        self._stop_token = stop_token
+        self._graph_stop_event = threading.Event()
+        self._graph_lock = threading.Lock()
+        self._graph_seq = 0
+        self._graph_contexts = {}
+        self._graph_node_index = {node.name: idx for idx, node in enumerate(self.exec_order)}
+        self._graph_children = [[] for _ in self.exec_order]
+        self._graph_indegree = [0 for _ in self.exec_order]
+        for parent, child in self.graph.edges():
+            parent_idx = self._graph_node_index[parent]
+            child_idx = self._graph_node_index[child]
+            self._graph_children[parent_idx].append(child_idx)
+            self._graph_indegree[child_idx] += 1
+        self._graph_roots = [
+            idx for idx, count in enumerate(self._graph_indegree) if count == 0
+        ]
+        self.graph_queues = [
+            create_queue(
+                mp=False,
+                name=f"Aspen-{node.name}",
+                max_size=self.thread_queue_size,
+            )
+            for node in self.exec_order
+        ]
+        self._graph_node_state = [
+            _GraphNodeState(
+                queue=self.graph_queues[idx],
+                next_seq=0,
+                ready={},
+                lock=threading.Lock(),
+            )
+            for idx in range(len(self.exec_order))
+        ]
+        self.threads = []
+        for idx, node in enumerate(self.exec_order):
+            thread = threading.Thread(
+                target=self._graph_worker, args=(idx, node), daemon=True, name=node.name
+            )
+            thread.start()
+            self.threads.append(thread)
+
+    def _forward_threaded_graph(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.initialized:
+            self._init_threaded_graph()
+        while self.num_concurrent >= self.max_concurrent:
+            self._maybe_reraise_thread_error()
+            time.sleep(0.01)
+        self._maybe_reraise_thread_error()
+        roots = []
+        with self._graph_lock:
+            seq = self._graph_seq
+            self._graph_seq += 1
+            item = _WorkItem(seq=seq, context=context)
+            state = _GraphContextState(
+                item=item,
+                remaining_deps=list(self._graph_indegree),
+                remaining_nodes=len(self.exec_order),
+            )
+            self._graph_contexts[seq] = state
+            self.num_concurrent += 1
+            roots = list(self._graph_roots)
+        for idx in roots:
+            self._graph_enqueue_ready(idx, item)
+        return None
+
+    def _forward_threaded_linear(self, context: Dict[str, Any]) -> Dict[str, Any]:
         if not self.initialized:
             self.initialized = True
             stop_token = self._stop_token or object()
             self._stop_token = stop_token
-
-            class _ExceptionWrapper:
-                __slots__ = ("exc", "tb")
-
-                def __init__(self, exc: BaseException):
-                    self.exc = exc
-                    self.tb = exc.__traceback__
-
-                def reraise(self) -> None:
-                    raise self.exc.with_traceback(self.tb)
 
             def make_grad_ctx():
                 return torch.enable_grad() if self.training else torch.no_grad()
@@ -530,10 +728,27 @@ class AspenNet(torch.nn.Module):
 
     def stop(self, wait: bool = True) -> None:
         """Stop all threaded plugins and join their threads."""
-        if not self.threaded_trunks or not hasattr(self, "queues"):
+        if not self.threaded_trunks:
             return
         stop_token = self._stop_token or object()
         self._stop_token = stop_token
+        if self.thread_graph_mode:
+            if not hasattr(self, "graph_queues"):
+                return
+            if not wait:
+                self._graph_request_stop()
+            else:
+                for q in self.graph_queues:
+                    q.put(stop_token)
+            for thread in self.threads:
+                if wait and thread.is_alive():
+                    thread.join()
+            for q in self.graph_queues:
+                q.close()
+            del self.graph_queues
+            return
+        if not hasattr(self, "queues"):
+            return
         for _ in self.exec_order:
             self.queues[0].put(stop_token)
         for thread in self.threads:

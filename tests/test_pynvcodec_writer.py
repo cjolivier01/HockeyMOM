@@ -1,11 +1,10 @@
-import os
 import json
-import sys
+import os
 import subprocess
+import sys
 from fractions import Fraction
 from pathlib import Path
 
-import av  # type: ignore[import-not-found]
 import cv2
 import numpy as np
 import pytest

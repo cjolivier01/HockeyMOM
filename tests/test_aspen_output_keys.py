@@ -78,7 +78,11 @@ def should_output_keys_violation_be_propagated_in_threaded_mode():
 
     # Enqueue a second context to ensure the worker processes at least one
     # item and captures the violation.
-    net({})
+    try:
+        net({})
+    except ValueError:
+        # Worker may have already surfaced the violation; that's acceptable.
+        pass
 
     # Allow some time for the worker thread to run and record the error.
     for _ in range(50):
