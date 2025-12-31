@@ -29,13 +29,7 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower, show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.containers import create_queue
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensorBase,
-    cuda_stream_scope,
-    unwrap_tensor,
-    wrap_tensor,
-)
+from hmlib.utils.gpu import StreamTensorBase, cuda_stream_scope, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -795,10 +789,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                             wait=False,
                             enable_resizing=0.2,
                         )
-                if not hasattr(self, "_shower") or self._shower is None:
-                    self._shower = Shower(label="stitch-dataset-output", show_scaled=0.2)
+                if False:
+                    if not hasattr(self, "_shower") or self._shower is None:
+                        self._shower = Shower(label="stitch-dataset-output", show_scaled=0.2)
 
-                self._shower.show(blended_stream_tensor[..., :3])
+                    self._shower.show(blended_stream_tensor[..., :3])
                 blended_stream_tensor = wrap_tensor(blended_stream_tensor)
 
             self._current_worker = (self._current_worker + 1) % len(self._stitching_workers)

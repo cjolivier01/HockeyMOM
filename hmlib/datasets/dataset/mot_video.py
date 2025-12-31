@@ -441,6 +441,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         return self.letterbox_dw, self.letterbox_dh
 
     def _next_frame_worker(self):
+        self._to_worker_queue.put("ok")
         try:
             self._open_video()
 
@@ -483,9 +484,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._thread = threading.Thread(
             target=self._next_frame_worker, name="MOTVideoNextFrameWorker"
         )
-        self._thread.start()
-        self._to_worker_queue.put("ok")
         self._next_counter = 0
+        self._thread.start()
 
     def close(self):
         if self._async_mode:
