@@ -560,7 +560,15 @@ class AspenNet(torch.nn.Module):
         state = self._graph_node_state[index]
         try:
             while True:
-                item = in_queue.get()
+                try:
+                    item = in_queue.get(timeout=0.1)
+                except queue.Empty:
+                    if (
+                        getattr(self, "_graph_stop_event", None) is not None
+                        and self._graph_stop_event.is_set()
+                    ):
+                        break
+                    continue
                 if item is stop_token:
                     break
                 if isinstance(item, _ExceptionWrapper):
@@ -735,11 +743,7 @@ class AspenNet(torch.nn.Module):
         if self.thread_graph_mode:
             if not hasattr(self, "graph_queues"):
                 return
-            if not wait:
-                self._graph_request_stop()
-            else:
-                for q in self.graph_queues:
-                    q.put(stop_token)
+            self._graph_request_stop()
             for thread in self.threads:
                 if wait and thread.is_alive():
                     thread.join()
@@ -749,8 +753,15 @@ class AspenNet(torch.nn.Module):
             return
         if not hasattr(self, "queues"):
             return
-        for _ in self.exec_order:
-            self.queues[0].put(stop_token)
+        if wait:
+            for _ in self.exec_order:
+                self.queues[0].put(stop_token)
+        else:
+            for _ in self.exec_order:
+                try:
+                    self.queues[0].put(stop_token, block=False)
+                except queue.Full:
+                    break
         for thread in self.threads:
             if wait and thread.is_alive():
                 thread.join()
