@@ -114,6 +114,8 @@ struct HmRenderSet::DisplayWorker {
 
       task();
     }
+    // Destroy the display in this thread
+    display_.reset();
   }
 
   std::string name_;
@@ -124,7 +126,7 @@ struct HmRenderSet::DisplayWorker {
   std::mutex queue_mu_;
   std::condition_variable queue_cv_;
   std::queue<std::function<void()>> tasks_;
-  bool shutting_down_;
+  std::atomic<bool> shutting_down_;
   std::thread worker_thread_;
   std::unique_ptr<glDisplay> display_;
 };
