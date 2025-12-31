@@ -65,6 +65,7 @@ class Shower:
         allow_gpu_gl: bool = True,
         profiler: Any = None,
         step: int = 1,
+        hold_tensor_ref: bool = True,
     ):
         self._label = label
         self._allow_gpu_gl = allow_gpu_gl
@@ -77,12 +78,14 @@ class Shower:
         if self._fps is not None:
             self._label += " (" + str(self._fps) + " fps)"
         self._cv2_has_opengl_support = cv2_has_opengl()
-        # TODO: use th
         self._step: int = step
         self._iter: int = 0
         self._next_frame_time = None
         self._use_tk = use_tk
         self._tk_displayer = None
+        # Holds a ref to a displayed tensor so the memory pointer is valid
+        self._hold_tensor_ref = hold_tensor_ref
+        self._displayed_tensor: Optional[torch.Tensor] = None
         self._logger = logger if logger is not None else get_root_logger()
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
@@ -122,6 +125,10 @@ class Shower:
                             )
                             self._stream.synchronize()
                             show_cuda_tensor("Stitched Image", s_img, False, None)
+                            if self._hold_tensor_ref:
+                                # Holds a ref to this image to keep its GPU surface valid
+                                # (is this necessary? Do we create a separate texture out of this?)
+                                self._displayed_tensor = s_img
                         else:
                             cv2.imshow(
                                 self._label,
@@ -136,6 +143,7 @@ class Shower:
             self._q.put(None)
             self._thread.join()
             self._thread = None
+        self._displayed_tensor = None
 
     def _worker(self):
         last_frame = None
@@ -197,9 +205,6 @@ class Shower:
                     img = img.cpu()
                 if self._fps is None or img.ndim == 3:
                     if not self._cache_on_cpu:
-                        # if self._stream is not None:
-                        #     self._stream.wait_stream(torch.cuda.current_stream(img.device))
-                        # torch.cuda.current_stream(img.device).synchronize()
                         with cuda_stream_scope(self._stream):
                             img = unwrap_tensor(img)
                         if clone:
