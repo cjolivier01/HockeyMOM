@@ -849,7 +849,6 @@ def _main(args, num_gpu):
                     start_frame_number=args.start_frame,
                     batch_size=1,
                     embedded_data_loader=stitched_dataset,
-                    embedded_data_loader_cache_size=stitch_cache_size,
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     device=gpus["stitching"],
