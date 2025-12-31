@@ -806,10 +806,6 @@ class VideoStreamReader:
             # hw_accel = "cuda"
             decoder = _FOURCC_TO_CODEC[self._video_info.codec.upper()]
             hw_accel = str(self._device)
-            # decoder_options["gpu"] = str(self._device.index)
-            # format = "bgr24"
-            # format = "rgb24"
-            # format = "yuvj420p"
         self._video_in.add_basic_video_stream(
             frames_per_chunk=self._batch_size,
             stream_index=0,
@@ -845,12 +841,17 @@ class VideoStreamReader:
             assert frame_number is not None
             nvc = _load_pynvcodec()
             if isinstance(self._video_in, nvc.SimpleDecoder):
-                self._video_in.seek_to_index(int(frame_number))
+                self._video_in.seek_to_index(
+                    self._video_in.get_index_from_time_in_seconds(timestamp)
+                )
             else:
-                new_args = self._video_in_args.copy()
-                new_args["start_frame"] = int(frame_number)
-                self._video_in.end()
-                self._video_in = nvc.ThreadedDecoder(**new_args)
+                if frame_number:
+                    new_args = self._video_in_args.copy()
+                    new_args["start_frame"] = round(frame_number)
+                    self._video_in.end()
+                    torch.cuda.synchronize()
+                    self._video_in = nvc.ThreadedDecoder(**new_args)
+                    torch.cuda.synchronize()
         else:
             assert False
 
@@ -928,7 +929,7 @@ class VideoStreamReader:
             gpu_id = self._device.index if self._device.index is not None else 0
             if self._cuda_stream is None:
                 self._cuda_stream = torch.cuda.Stream(device=torch.device("cuda", index=gpu_id))
-            if False:
+            if True:
                 self._video_in_args: dict[str, Any] = dict(
                     enc_file_path=self._filename,
                     gpu_id=gpu_id,
