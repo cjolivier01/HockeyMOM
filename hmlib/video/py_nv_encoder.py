@@ -3,6 +3,8 @@ from __future__ import annotations
 import contextlib
 import os
 import subprocess
+import threading
+from collections import deque
 from fractions import Fraction
 from pathlib import Path
 from typing import IO, Any, List, Optional, Union
@@ -10,6 +12,7 @@ from typing import IO, Any, List, Optional, Union
 import torch
 from typeguard import typechecked
 
+from hmlib.video.ffmpeg import build_ffmpeg_output_handler, iter_ffmpeg_output_lines
 from hockeymom import bgr_to_i420_cuda
 
 try:
@@ -77,6 +80,7 @@ class PyNvVideoEncoder:
         bitrate: Optional[int] = None,
         use_pyav: Optional[bool] = None,
         profiler: Optional[Any] = None,
+        ffmpeg_output_handler: Optional[Any] = None,
     ) -> None:
         if nvc is None:
             raise ImportError(
@@ -106,6 +110,7 @@ class PyNvVideoEncoder:
         self.bitrate = int(bitrate) if bitrate is not None else None
         # Optional HmProfiler instance injected by callers.
         self._profiler: Optional[Any] = profiler
+        self._ffmpeg_output_handler = ffmpeg_output_handler
 
         backend_env = os.environ.get("HM_VIDEO_ENCODER_BACKEND", "").lower()
         backend: str
@@ -363,6 +368,20 @@ class PyNvVideoEncoder:
             return ".ivf"
         raise ValueError(f"Unsupported codec for bitstream extension: {self.codec}")
 
+    def _container_format(self) -> Optional[str]:
+        """Return an ffmpeg muxer name based on the output file extension."""
+        suffix = self.output_path.suffix.lower()
+        if not suffix:
+            return None
+        mapping = {
+            ".mp4": "mp4",
+            ".m4v": "mp4",
+            ".mov": "mov",
+            ".mkv": "matroska",
+            ".webm": "webm",
+        }
+        return mapping.get(suffix)
+
     def _open_bitstream_file(self) -> None:
         """
         Open the raw elementary bitstream sidecar file for writing.
@@ -399,47 +418,108 @@ class PyNvVideoEncoder:
             )
 
         stream_format = self._bitstream_format()
+        expected_duration = None
+        try:
+            if self.fps > 0 and self._frames_in_current_bitstream > 0:
+                expected_duration = float(self._frames_in_current_bitstream) / float(self.fps)
+        except Exception:
+            expected_duration = None
+        muxer = self._container_format()
 
         cmd = [
             ffmpeg,
             "-y",
+            "-hide_banner",
             "-loglevel",
-            "error",
+            "warning",
+            "-progress",
+            "pipe:2",
+            "-nostats",
             "-fflags",
             "+genpts",
             "-r",
             str(self.fps),
-            "-f",
-            stream_format,
+            # "-f",
+            # stream_format,
             "-i",
             str(bitstream_path),
             "-c:v",
             "copy",
             "-vsync",
             "cfr",
-            "-f",
-            "mp4",
-            str(self.output_path),
         ]
+        if muxer:
+            cmd += ["-f", muxer]
+        cmd.append(str(self.output_path))
 
+        output_handler = build_ffmpeg_output_handler(
+            self._ffmpeg_output_handler,
+            total_seconds=expected_duration,
+            label="ffmpeg mux",
+        )
+        stdout_lines = deque(maxlen=200)
+        stderr_lines = deque(maxlen=200)
+
+        def _reader(stream, stream_name: str, sink: deque) -> None:
+            try:
+                for line in iter_ffmpeg_output_lines(stream):
+                    sink.append(line)
+                    output_handler.handle_line(line, stream_name)
+            except Exception:
+                pass
+            finally:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        proc = None
+        returncode: Optional[int] = None
         try:
-            proc = subprocess.run(
+            print("Muxing the raw bitstream with ffmpeg, this may take a moment...")
+            proc = subprocess.Popen(
                 cmd,
-                check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
             )
-        except subprocess.CalledProcessError as exc:
-            stderr_output = exc.stderr.decode("utf-8", errors="ignore") if exc.stderr else ""
-            raise RuntimeError(
-                "ffmpeg muxer failed while writing NVENC bitstream container. "
-                "Check codec/format settings, input bitstream, and disk space. "
-                f"(returncode={exc.returncode}, stderr={stderr_output!r})"
-            ) from exc
+            threads = []
+            if proc.stdout is not None:
+                t_out = threading.Thread(
+                    target=_reader,
+                    args=(proc.stdout, "stdout", stdout_lines),
+                    daemon=True,
+                )
+                t_out.start()
+                threads.append(t_out)
+            if proc.stderr is not None:
+                t_err = threading.Thread(
+                    target=_reader,
+                    args=(proc.stderr, "stderr", stderr_lines),
+                    daemon=True,
+                )
+                t_err.start()
+                threads.append(t_err)
+            returncode = proc.wait()
+            for thread in threads:
+                thread.join()
+            if returncode != 0:
+                stderr_output = "\n".join(stderr_lines)
+                stdout_output = "\n".join(stdout_lines)
+                raise RuntimeError(
+                    "ffmpeg muxer failed while writing NVENC bitstream container. "
+                    "Check codec/format settings, input bitstream, and disk space. "
+                    f"(returncode={returncode}, stderr={stderr_output!r}, stdout={stdout_output!r})"
+                )
         finally:
-            # Ensure any child process resources are reaped even on success.
-            if "proc" in locals() and isinstance(proc, subprocess.CompletedProcess):
-                pass
+            output_handler.close(returncode)
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=1.0)
+                except Exception:
+                    pass
 
     def _mux_bitstream_file_with_pyav(self, bitstream_path: Path) -> None:
         """
