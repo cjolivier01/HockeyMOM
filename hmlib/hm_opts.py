@@ -49,6 +49,12 @@ def _debug_to_play_tracker(value: Any) -> Any:
         return _SKIP_CONFIG_VALUE
 
 
+def _get_disable_progress_bar() -> bool:
+    import os
+
+    return bool(os.environ.get("SLURM_JOBID", ""))
+
+
 def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
     """Copy known CLI options from one namespace-like object to another.
 
@@ -1004,6 +1010,7 @@ class hm_opts(object):
             "--no-progress-bar",
             action="store_true",
             help="Don't use the progress bar",
+            default=_get_disable_progress_bar(),
         )
         parser.add_argument(
             "--curses-progress",
