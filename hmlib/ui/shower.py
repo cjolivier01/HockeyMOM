@@ -64,6 +64,7 @@ class Shower:
         use_tk: bool = False,
         allow_gpu_gl: bool = True,
         profiler: Any = None,
+        step: int = 1,
     ):
         self._label = label
         self._allow_gpu_gl = allow_gpu_gl
@@ -77,6 +78,8 @@ class Shower:
             self._label += " (" + str(self._fps) + " fps)"
         self._cv2_has_opengl_support = cv2_has_opengl()
         # TODO: use th
+        self._step: int = step
+        self._iter: int = 0
         self._next_frame_time = None
         self._use_tk = use_tk
         self._tk_displayer = None
@@ -176,6 +179,9 @@ class Shower:
             self._stream = torch.cuda.Stream(device, priority=-1)
 
     def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase], clone: bool = False):
+        self._iter += 1
+        if self._iter % self._step != 0:
+            return
         with self._prof_ctx("shower.show"):
             if self._stream is None and img.device.type == "cuda":
                 self._ensure_stream(img.device)
