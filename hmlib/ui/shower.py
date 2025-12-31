@@ -205,7 +205,14 @@ class Shower:
                     img = img.cpu()
                 if self._fps is None or img.ndim == 3:
                     if not self._cache_on_cpu:
+                        prev_stream = (
+                            torch.cuda.current_stream(img.device)
+                            if img.device.type == "cuda"
+                            else None
+                        )
                         with cuda_stream_scope(self._stream):
+                            if prev_stream is not None:
+                                self._stream.wait_stream(prev_stream)
                             img = unwrap_tensor(img)
                         if clone:
                             img = img.clone()

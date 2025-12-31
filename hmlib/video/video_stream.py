@@ -24,7 +24,7 @@ from typeguard import typechecked
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
-from hmlib.utils.gpu import StreamTensorBase
+from hmlib.utils.gpu import StreamTensorBase, wrap_tensor
 from hmlib.utils.image import make_channels_first, make_channels_last, resize_image
 from hmlib.video.ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 from hmlib.video.py_nv_encoder import PyNvVideoEncoder
@@ -533,41 +533,45 @@ class GStreamerVideoReaderIterator:
 
 
 class PyNvVideoCodecIterator:
+
     def __init__(
         self,
         decoder,
         device: torch.device,
+        cuda_stream: torch.cuda.Stream,
         batch_size: int = 1,
     ):
         self._decoder = decoder
         self._batch_size = batch_size
         self._device = device
-        self.frames_delivered_count = 0
+        self._cuda_stream = cuda_stream
+        self.frames_delivered_count: int = 0
 
     def __next__(self):
-        frames = self._decoder.get_batch_frames(self._batch_size)
-        if not frames:
-            raise StopIteration()
+        with torch.cuda.stream(self._cuda_stream):
+            frames = self._decoder.get_batch_frames(self._batch_size)
+            if not frames:
+                raise StopIteration()
 
-        batch_tensors = []
-        for frame in frames:
-            planes = frame.cuda()
-            if planes is None:
-                continue
-            plane_tensors = [torch.as_tensor(p, device=self._device) for p in planes]
-            if len(plane_tensors) >= 3:
-                # RGB->BGR
-                tmp = plane_tensors[0]
-                plane_tensors[0] = plane_tensors[2]
-                plane_tensors[2] = tmp
-            tensor = torch.stack(plane_tensors, dim=0)
-            batch_tensors.append(tensor)
-            self.frames_delivered_count += 1
+            batch_tensors = []
+            for frame in frames:
+                planes = frame.cuda()
+                if planes is None:
+                    continue
+                plane_tensors = [torch.as_tensor(p, device=self._device) for p in planes]
+                if len(plane_tensors) >= 3:
+                    # RGB->BGR
+                    tmp = plane_tensors[0]
+                    plane_tensors[0] = plane_tensors[2]
+                    plane_tensors[2] = tmp
+                tensor = torch.stack(plane_tensors, dim=0)
+                batch_tensors.append(tensor)
+                self.frames_delivered_count += len(frames)
 
-        if not batch_tensors:
-            raise StopIteration()
+            if not batch_tensors:
+                raise StopIteration()
 
-        return torch.stack(batch_tensors, dim=0)
+            return wrap_tensor(torch.stack(batch_tensors, dim=0))
 
     def __iter__(self):
         return self
@@ -728,6 +732,7 @@ class VideoStreamReader:
         self._torchaudio_stream = False
         self._gstreamer_stream = False
         self._frames_delivered_count = 0
+        self._cuda_stream: Optional[torch.cuda.Stream] = None
         self.open()
 
     @property
@@ -772,9 +777,11 @@ class VideoStreamReader:
                 timeout_ms=5000,
             )
         elif self._type == "pynvcodec":
+            assert self._cuda_stream is not None
             return PyNvVideoCodecIterator(
                 self._video_in,
                 device=self._device,
+                cuda_stream=self._cuda_stream,
                 batch_size=self._batch_size,
             )
         elif self._type == "ffmpeg":
@@ -919,16 +926,20 @@ class VideoStreamReader:
                 )
             nvc = _load_pynvcodec()
             gpu_id = self._device.index if self._device.index is not None else 0
+            if self._cuda_stream is None:
+                self._cuda_stream = torch.cuda.Stream(device=torch.device("cuda", index=gpu_id))
             if False:
-                self._video_in = nvc.SimpleDecoder(
-                    self._filename,
+                self._video_in_args: dict[str, Any] = dict(
+                    enc_file_path=self._filename,
                     gpu_id=gpu_id,
                     use_device_memory=True,
                     max_width=int(self._video_info.width),
                     max_height=int(self._video_info.height),
                     need_scanned_stream_metadata=0,
                     output_color_type=nvc.OutputColorType.RGBP,
+                    cuda_stream=self._cuda_stream.cuda_stream,
                 )
+                self._video_in = nvc.SimpleDecoder(**self._video_in_args)
             else:
                 self._video_in_args: dict[str, Any] = dict(
                     enc_file_path=self._filename,
@@ -939,6 +950,7 @@ class VideoStreamReader:
                     max_height=int(self._video_info.height),
                     need_scanned_stream_metadata=0,
                     output_color_type=nvc.OutputColorType.RGBP,
+                    cuda_stream=self._cuda_stream.cuda_stream,
                 )
                 self._video_in = nvc.ThreadedDecoder(**self._video_in_args)
         elif self._type == "ffmpeg":
