@@ -55,7 +55,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         start_frame_number: int = 0,
         multi_width_img_info: bool = True,
         embedded_data_loader=None,
-        embedded_data_loader_cache_size: int = 6,
         original_image_only: bool = False,
         image_channel_adders: Optional[Tuple[float, float, float]] = None,
         device: torch.device = torch.device("cpu"),
@@ -89,7 +88,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._current_path_index = 0
         self._game_id = game_id
         self._no_cuda_streams = no_cuda_streams
-        self._embedded_data_loader_cache_size = embedded_data_loader_cache_size
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
@@ -520,11 +518,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._timer = Timer()
         if self._embedded_data_loader is not None:
             self._embedded_data_loader_iter = iter(self._embedded_data_loader)
-            if self._embedded_data_loader_cache_size:
-                self._embedded_data_loader_iter = CachedIterator(
-                    iterator=self._embedded_data_loader_iter,
-                    cache_size=self._embedded_data_loader_cache_size,
-                )
         if self._async_mode:
             if self._thread is None:
                 self._start_worker()
