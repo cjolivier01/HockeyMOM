@@ -51,11 +51,13 @@ def get_best_codec(
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
     if compute >= 7 and (width <= MAX_NEVC_VIDEO_WIDTH or allow_scaling):
-        return "hevc_nvenc", True
+        # return "hevc_nvenc", True
         # return "h264_nvenc", True
+        return "av1_nvenc", True
     elif compute >= 6 and width <= 4096:
-        return "hevc_nvenc", True
+        # return "hevc_nvenc", True
         # return "h264_nvenc", True
+        return "av1_nvenc", True
     else:
         return "XVID", False
     # return "XVID", False
