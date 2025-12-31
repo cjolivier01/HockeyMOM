@@ -23,7 +23,6 @@ from hmlib.utils.gpu import (
     wrap_tensor,
 )
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
-from hmlib.utils.iterators import CachedIterator
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import VideoStreamReader
 

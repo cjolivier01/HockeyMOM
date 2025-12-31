@@ -847,7 +847,7 @@ def _main(args, num_gpu):
                     path=None,
                     game_id=dir_name,
                     start_frame_number=args.start_frame,
-                    batch_size=1,
+                    batch_size=1,  # This batch will contain one batch of whatever the stitcher's batch size is
                     embedded_data_loader=stitched_dataset,
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
