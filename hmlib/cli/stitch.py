@@ -191,6 +191,7 @@ def stitch_videos(
                 label="stitched_image",
                 show_scaled=show_scaled,
                 cache_on_cpu=lowmem,
+                max_size=0,
             )
 
         if use_progress_bar and not configure_only:
@@ -227,47 +228,17 @@ def stitch_videos(
         # Load the stitching Aspen graph from YAML and wire in CLI-specific
         # parameters (output path, skip-final-save, frame dumping).
         aspen_cfg_all: Dict[str, Any] = load_yaml_files_ordered(["config/aspen/stitching.yaml"])
+        if args is not None:
+            hm_opts.apply_arg_config_overrides(aspen_cfg_all, args)
         aspen_graph_cfg: Dict[str, Any] = aspen_cfg_all.get("aspen", {}) or {}
         plugins_cfg: Dict[str, Any] = aspen_graph_cfg.get("plugins", {}) or {}
         video_out_spec: Dict[str, Any] = plugins_cfg.get("video_out", {}) or {}
         video_out_params: Dict[str, Any] = video_out_spec.get("params", {}) or {}
         if output_stitched_video_file:
             video_out_params.setdefault("output_video_path", output_stitched_video_file)
-        if args is not None:
-            if getattr(args, "skip_final_video_save", None):
-                video_out_params["skip_final_save"] = True
-            save_frame_dir = getattr(args, "save_frame_dir", None)
-            if save_frame_dir:
-                video_out_params.setdefault("save_frame_dir", save_frame_dir)
         video_out_spec["params"] = video_out_params
         plugins_cfg["video_out"] = video_out_spec
         aspen_graph_cfg["plugins"] = plugins_cfg
-        pipeline_cfg: Dict[str, Any] = dict(aspen_graph_cfg.get("pipeline", {}) or {})
-        pipeline_modified = bool(pipeline_cfg)
-        if args is not None:
-            threaded_cli = getattr(args, "aspen_threaded", None)
-            if threaded_cli is not None:
-                threaded_bool = bool(threaded_cli)
-                pipeline_cfg["threaded"] = threaded_bool
-                aspen_graph_cfg["threaded_trunks"] = threaded_bool
-                pipeline_modified = True
-            queue_cli = getattr(args, "aspen_thread_queue_size", None)
-            if queue_cli is not None:
-                try:
-                    pipeline_cfg["queue_size"] = max(1, int(queue_cli))
-                    pipeline_modified = True
-                except Exception:
-                    logger.warning("Invalid Aspen queue size override: %r", queue_cli)
-            stream_cli = getattr(args, "aspen_thread_cuda_streams", None)
-            if stream_cli is not None:
-                pipeline_cfg["cuda_streams"] = bool(stream_cli)
-                pipeline_modified = True
-            graph_cli = getattr(args, "aspen_thread_graph", None)
-            if graph_cli is not None:
-                pipeline_cfg["graph"] = bool(graph_cli)
-                pipeline_modified = True
-        if pipeline_modified:
-            aspen_graph_cfg["pipeline"] = pipeline_cfg
 
         # For stitching we want to preserve the full panorama resolution, so
         # disable cropping in the camera pipeline by default.

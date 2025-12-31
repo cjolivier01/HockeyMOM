@@ -1,12 +1,52 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+import logging
+from collections import OrderedDict
+from collections.abc import Mapping as MappingABC
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
 
 import yaml
 
 from hmlib.config import get_game_config_private, get_nested_value, set_nested_value
+
+logger = logging.getLogger(__name__)
+
+
+_SKIP_CONFIG_VALUE = object()
+_MISSING_ARG = object()
+
+
+def _get_arg_value(args: Any, name: str) -> Any:
+    if isinstance(args, dict):
+        return args.get(name, _MISSING_ARG)
+    return getattr(args, name, _MISSING_ARG)
+
+
+def _has_nested_key(dct: Dict[str, Any], key_str: str) -> bool:
+    cur: Any = dct
+    for key in key_str.split("."):
+        if not isinstance(cur, dict) or key not in cur:
+            return False
+        cur = cur[key]
+    return True
+
+
+def _coerce_aspen_queue_size(value: Any) -> Any:
+    try:
+        return max(1, int(value))
+    except Exception:
+        return _SKIP_CONFIG_VALUE
+
+
+def _debug_to_play_tracker(value: Any) -> Any:
+    try:
+        if isinstance(value, str):
+            value = int(value)
+        return True if int(value) >= 1 else _SKIP_CONFIG_VALUE
+    except Exception:
+        return _SKIP_CONFIG_VALUE
 
 
 def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
@@ -1158,6 +1198,101 @@ class hm_opts(object):
         "model.tracker",
         "debug",
     ]
+    ARG_TO_CONFIG_MAP: Mapping[str, Union[str, Sequence[str]]] = OrderedDict(
+        [
+            ("aspen_threaded", ["aspen.pipeline.threaded", "aspen.threaded_trunks"]),
+            ("aspen_thread_queue_size", "aspen.pipeline.queue_size"),
+            ("aspen_thread_cuda_streams", "aspen.pipeline.cuda_streams"),
+            ("aspen_thread_graph", "aspen.pipeline.graph"),
+            (
+                "skip_final_video_save",
+                [
+                    "aspen.video_out.skip_final_save",
+                    "aspen.plugins.video_out.params.skip_final_save",
+                ],
+            ),
+            ("video_encoder_backend", "aspen.video_out.encoder_backend"),
+            ("output_file", "aspen.plugins.video_out.params.output_video_path"),
+            ("save_frame_dir", "aspen.plugins.video_out.params.save_frame_dir"),
+            ("checkerboard_input", "debug.rgb_stats_check.enable"),
+            ("debug_play_tracker", "plot.debug_play_tracker"),
+            ("plot_moving_boxes", "plot.plot_moving_boxes"),
+            ("plot_trajectories", "plot.plot_trajectories"),
+            ("plot_jersey_numbers", "plot.plot_jersey_numbers"),
+            ("plot_actions", "plot.plot_actions"),
+            ("plot_pose", "plot.plot_pose"),
+            ("plot_ice_mask", "plot.plot_ice_mask"),
+            ("plot_all_detections", "plot.plot_all_detections"),
+            (
+                "plot_tracking",
+                ["plot.plot_individual_player_tracking", "plot.plot_boundaries"],
+            ),
+            ("debug", "plot.debug_play_tracker"),
+        ]
+    )
+    ARG_VALUE_MAP: Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]] = {
+        "aspen_threaded": bool,
+        "aspen_thread_queue_size": _coerce_aspen_queue_size,
+        "aspen_thread_cuda_streams": bool,
+        "aspen_thread_graph": bool,
+        "skip_final_video_save": {True: True},
+        "checkerboard_input": {True: True},
+        "debug_play_tracker": {True: True},
+        "plot_moving_boxes": {True: True},
+        "plot_trajectories": {True: True},
+        "plot_jersey_numbers": {True: True},
+        "plot_actions": {True: True},
+        "plot_pose": {True: True},
+        "plot_ice_mask": {True: True},
+        "plot_tracking": {True: True},
+        "debug": _debug_to_play_tracker,
+    }
+    ARG_SETDEFAULT = {"output_file", "save_frame_dir"}
+
+    @staticmethod
+    def apply_arg_config_overrides(
+        config: Dict[str, Any],
+        args: Any,
+        arg_to_config: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
+        value_map: Optional[Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]]] = None,
+        setdefault_args: Optional[Sequence[str]] = None,
+    ) -> bool:
+        """Apply CLI-ish overrides to a config dict using dot-path mappings."""
+        if not isinstance(config, dict) or args is None:
+            return False
+        arg_to_config = arg_to_config or hm_opts.ARG_TO_CONFIG_MAP
+        value_map = value_map or hm_opts.ARG_VALUE_MAP
+        setdefault_set = set(setdefault_args or hm_opts.ARG_SETDEFAULT)
+        changed = False
+        for arg_name, cfg_paths in arg_to_config.items():
+            raw_value = _get_arg_value(args, arg_name)
+            if raw_value is _MISSING_ARG or raw_value is None:
+                continue
+            mapper = value_map.get(arg_name)
+            mapped_value = raw_value
+            if mapper is not None:
+                try:
+                    if isinstance(mapper, MappingABC):
+                        if raw_value not in mapper:
+                            continue
+                        mapped_value = mapper[raw_value]
+                    else:
+                        mapped_value = mapper(raw_value)
+                    if mapped_value is _SKIP_CONFIG_VALUE:
+                        continue
+                except Exception:
+                    logger.warning("Invalid config override for %s: %r", arg_name, raw_value)
+                    continue
+            if isinstance(cfg_paths, str):
+                paths = [cfg_paths]
+            else:
+                paths = list(cfg_paths)
+            for path in paths:
+                if arg_name in setdefault_set and _has_nested_key(config, path):
+                    continue
+                set_nested_value(config, path, mapped_value)
+                changed = True
+        return changed
 
     @staticmethod
     def init(opt, parser: Optional[argparse.ArgumentParser] = None):
