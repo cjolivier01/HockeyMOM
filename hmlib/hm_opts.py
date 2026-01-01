@@ -763,6 +763,20 @@ class hm_opts(object):
             help="Disable Aspen stitching plugin",
         )
         parser.set_defaults(aspen_stitching=None)
+        profile_group = parser.add_mutually_exclusive_group()
+        profile_group.add_argument(
+            "--display-plugin-profile",
+            dest="display_plugin_profile",
+            action="store_true",
+            help="Show per-plugin timing percentages in the progress table",
+        )
+        profile_group.add_argument(
+            "--no-display-plugin-profile",
+            dest="display_plugin_profile",
+            action="store_false",
+            help="Hide per-plugin timing percentages in the progress table",
+        )
+        parser.set_defaults(display_plugin_profile=None)
         parser.add_argument(
             "--stitch-cache-size",
             type=int,
@@ -1226,6 +1240,7 @@ class hm_opts(object):
             ("aspen_thread_queue_size", "aspen.pipeline.queue_size"),
             ("aspen_thread_cuda_streams", "aspen.pipeline.cuda_streams"),
             ("aspen_thread_graph", "aspen.pipeline.graph"),
+            ("display_plugin_profile", "aspen.pipeline.display_plugin_profile"),
             ("aspen_stitching", "aspen.stitching.enabled"),
             ("blend_mode", "aspen.stitching.blend_mode"),
             ("max_blend_levels", "aspen.stitching.max_blend_levels"),
@@ -1267,6 +1282,7 @@ class hm_opts(object):
         "aspen_thread_queue_size": _coerce_aspen_queue_size,
         "aspen_thread_cuda_streams": bool,
         "aspen_thread_graph": bool,
+        "display_plugin_profile": bool,
         "aspen_stitching": bool,
         "stitch_auto_adjust_exposure": bool,
         "python_blender": bool,
