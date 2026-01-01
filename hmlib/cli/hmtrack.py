@@ -1051,6 +1051,7 @@ def _main(args, num_gpu):
                 scroll_output=ScrollOutput(lines=args.progress_bar_lines).register_logger(logger),
                 update_rate=args.print_interval,
                 table_map=table_map,
+                title=args.game_id,
                 use_curses=getattr(args, "curses_progress", False),
             )
         else:

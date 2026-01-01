@@ -286,6 +286,7 @@ def stitch_videos(
                 scroll_output=scroll_output,
                 update_rate=getattr(args, "print_interval", 20),
                 table_callback=_table_callback,
+                title=game_id,
                 use_curses=getattr(args, "curses_progress", False),
             )
             data_loader_iter = progress_bar

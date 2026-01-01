@@ -206,6 +206,7 @@ class ProgressBar:
         scroll_output: Optional[ScrollOutput] = None,
         bar_length: Optional[int] = None,
         update_rate: int = 1,
+        title: Optional[str] = None,
         table_callback: Optional[Callable] = None,
         use_curses: bool = True,
     ):
@@ -219,6 +220,7 @@ class ProgressBar:
         self.table_callbacks: List[Callable] = []
         self.bar_length = bar_length
         self._use_curses_requested = use_curses  # Deprecated, no effect
+        self._title = title
         if not self.bar_length:
             self.terminal_width = _get_terminal_width()
             # Re-evaluate the terminal width periodically to handle resizes.
@@ -353,11 +355,16 @@ class ProgressBar:
                     title=self._extra_panel_title,
                 )
 
+        title = None
+        if self._title:
+            title = Text(f" {self._title} ", style="yellow on dark_blue")
         status_panel = Panel(
             status_table,
             border_style="black",
             style="white on dark_blue",
             padding=(0, 1),
+            title=title,
+            title_align="center",
         )
         progress_panel = Panel(
             self._progress,
