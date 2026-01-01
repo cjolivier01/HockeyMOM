@@ -179,28 +179,34 @@ class PosePlugin(Plugin):
             if batched_data_infos:
                 proc_inputs = collate_fn(batched_data_infos)
                 preds: Optional[List[Any]] = None
-                # Prefer TensorRT runner if available, else ONNX
-                trt_runner = getattr(
-                    getattr(context.get("pose_inferencer"), "_hm_trt_runner", None),
-                    "forward",
-                    None,
-                )
-                if callable(trt_runner):
+                tried_runner = None
+                pose_runner = getattr(context.get("pose_inferencer"), "_hm_pose_runner", None)
+                pose_forward = getattr(pose_runner, "forward", None)
+                if callable(pose_forward):
+                    tried_runner = pose_runner
                     try:
-                        pr = trt_runner(proc_inputs)
+                        pr = pose_forward(proc_inputs)
                         if isinstance(pr, (list, tuple)):
                             preds = list(pr)
                     except Exception:
                         preds = None
                 if preds is None:
-                    onnx_runner = getattr(
-                        getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None),
-                        "forward",
-                        None,
-                    )
-                    if callable(onnx_runner):
+                    # Prefer TensorRT runner if available, else ONNX
+                    trt_runner = getattr(context.get("pose_inferencer"), "_hm_trt_runner", None)
+                    trt_forward = getattr(trt_runner, "forward", None)
+                    if callable(trt_forward) and trt_runner is not tried_runner:
                         try:
-                            pr = onnx_runner(proc_inputs)
+                            pr = trt_forward(proc_inputs)
+                            if isinstance(pr, (list, tuple)):
+                                preds = list(pr)
+                        except Exception:
+                            preds = None
+                if preds is None:
+                    onnx_runner = getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None)
+                    onnx_forward = getattr(onnx_runner, "forward", None)
+                    if callable(onnx_forward) and onnx_runner is not tried_runner:
+                        try:
+                            pr = onnx_forward(proc_inputs)
                             if isinstance(pr, (list, tuple)):
                                 preds = list(pr)
                         except Exception:

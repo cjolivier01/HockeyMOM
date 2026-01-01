@@ -61,6 +61,33 @@ class PoseInferencerFactoryPlugin(Plugin):
                 break
         return args
 
+    @staticmethod
+    def _wrap_model_test_step(model: Optional[torch.nn.Module], runner: Optional[Any]) -> None:
+        if model is None or runner is None:
+            return
+        if getattr(model, "_hm_test_step_wrapped", False):
+            return
+        orig_test_step = getattr(model, "test_step", None)
+        if not callable(orig_test_step):
+            return
+        try:
+            runner.set_fallback_test_step(orig_test_step)
+        except Exception:
+            pass
+
+        def _test_step(data, *args, **kwargs):
+            try:
+                preds = runner.forward(data)
+                if isinstance(preds, (list, tuple)):
+                    return list(preds)
+            except Exception:
+                pass
+            return orig_test_step(data, *args, **kwargs)
+
+        setattr(model, "_hm_test_step_wrapped", True)
+        setattr(model, "_hm_orig_test_step", orig_test_step)
+        model.test_step = _test_step  # type: ignore[assignment]
+
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
@@ -100,9 +127,9 @@ class PoseInferencerFactoryPlugin(Plugin):
 
             # Initialize optional accelerators using underlying inferencer's model
             try:
+                pose_impl = getattr(self._inferencer, "inferencer", None)
                 # Prefer TensorRT if enabled
                 if bool(self._trt_cfg.get("enable", False)):
-                    pose_impl = getattr(self._inferencer, "inferencer", None)
                     if (
                         pose_impl is not None
                         and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None)
@@ -119,7 +146,6 @@ class PoseInferencerFactoryPlugin(Plugin):
                         setattr(self._inferencer, "_hm_trt_runner", self._trt_runner)
                 # Otherwise, enable ONNX if requested
                 if self._trt_runner is None and bool(self._onnx_cfg.get("enable", False)):
-                    pose_impl = getattr(self._inferencer, "inferencer", None)
                     if (
                         pose_impl is not None
                         and getattr(getattr(pose_impl, "cfg", object()), "data_mode", None)
@@ -138,6 +164,17 @@ class PoseInferencerFactoryPlugin(Plugin):
                 # Non-fatal; fall back to PyTorch model
                 self._onnx_runner = None
                 self._trt_runner = None
+            try:
+                pose_impl = getattr(self._inferencer, "inferencer", None)
+                pose_model = getattr(pose_impl, "model", None) if pose_impl is not None else None
+                if self._trt_runner is not None:
+                    setattr(self._inferencer, "_hm_pose_runner", self._trt_runner)
+                    self._wrap_model_test_step(pose_model, self._trt_runner)
+                elif self._onnx_runner is not None:
+                    setattr(self._inferencer, "_hm_pose_runner", self._onnx_runner)
+                    self._wrap_model_test_step(pose_model, self._onnx_runner)
+            except Exception:
+                pass
 
         context["pose_inferencer"] = self._inferencer
         return {"pose_inferencer": self._inferencer}
@@ -192,7 +229,109 @@ class _OnnxPoseRunner:
         self._ort_sess = None
         self._providers = None
         self._use_cuda = False
+        self._fallback_test_step = None
+        self._mean = None
+        self._std = None
+        self._mean_t = None
+        self._std_t = None
+        self._swap_rgb = False
+        self._init_preprocess()
         self._export_and_create_session()
+
+    def set_fallback_test_step(self, fn) -> None:
+        self._fallback_test_step = fn
+
+    def _init_preprocess(self) -> None:
+        try:
+            dp = getattr(self.model, "data_preprocessor", None)
+            if dp is None:
+                return
+            mean = getattr(dp, "mean", None)
+            std = getattr(dp, "std", None)
+            if mean is not None and not isinstance(mean, torch.Tensor):
+                try:
+                    mean = torch.as_tensor(mean)
+                except Exception:
+                    mean = None
+            if std is not None and not isinstance(std, torch.Tensor):
+                try:
+                    std = torch.as_tensor(std)
+                except Exception:
+                    std = None
+            if isinstance(mean, torch.Tensor):
+                if mean.ndim == 1:
+                    mean = mean.view(1, -1, 1, 1)
+                elif mean.ndim == 3:
+                    mean = mean.unsqueeze(0)
+                elif mean.ndim != 4:
+                    mean = None
+            if isinstance(std, torch.Tensor):
+                if std.ndim == 1:
+                    std = std.view(1, -1, 1, 1)
+                elif std.ndim == 3:
+                    std = std.unsqueeze(0)
+                elif std.ndim != 4:
+                    std = None
+            if isinstance(mean, torch.Tensor) and isinstance(std, torch.Tensor):
+                self._mean = mean.detach().cpu().numpy()
+                self._std = std.detach().cpu().numpy()
+                self._mean_t = mean.detach()
+                self._std_t = std.detach()
+            bgr_to_rgb = bool(getattr(dp, "bgr_to_rgb", False))
+            rgb_to_bgr = bool(getattr(dp, "rgb_to_bgr", False))
+            self._swap_rgb = bool(bgr_to_rgb or rgb_to_bgr)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _ensure_tensor(x: Any) -> torch.Tensor:
+        if isinstance(x, torch.Tensor):
+            return x
+        if isinstance(x, (list, tuple)):
+            if len(x) == 0:
+                return torch.empty((0,))
+            tensors: List[torch.Tensor] = []
+            for item in x:
+                t = item if isinstance(item, torch.Tensor) else torch.as_tensor(item)
+                if t.ndim == 4 and t.size(0) == 1:
+                    t = t.squeeze(0)
+                tensors.append(t)
+            if len(tensors) == 1:
+                t = tensors[0]
+                if t.ndim == 3:
+                    t = t.unsqueeze(0)
+                return t
+            return torch.stack(tensors, dim=0)
+        return torch.as_tensor(x)
+
+    def _preprocess(self, x: torch.Tensor) -> Any:
+        x = self._ensure_tensor(x)
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        if self._swap_rgb and x.size(1) == 3:
+            x = x[:, [2, 1, 0], :, :]
+        if self._mean is not None and self._std is not None:
+            mean = torch.from_numpy(self._mean).to(device=x.device, dtype=x.dtype)
+            std = torch.from_numpy(self._std).to(device=x.device, dtype=x.dtype)
+            x = (x - mean) / std
+        x_cpu = x.detach().to("cpu")
+        return x_cpu.numpy()
+
+    def _preprocess_gpu(self, x: torch.Tensor) -> torch.Tensor:
+        x = self._ensure_tensor(x)
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        if self._swap_rgb and x.size(1) == 3:
+            x = x[:, [2, 1, 0], :, :]
+        if self._mean_t is not None and self._std_t is not None:
+            mean = self._mean_t.to(device=x.device, dtype=x.dtype)
+            std = self._std_t.to(device=x.device, dtype=x.dtype)
+            x = (x - mean) / std
+        return x.contiguous()
 
     def _export_and_create_session(self) -> None:
         import os
@@ -244,22 +383,29 @@ class _OnnxPoseRunner:
     def _run_feats(self, x: torch.Tensor) -> Any:
         import numpy as np
 
-        x = x.to(torch.float32)
-        # Calibration capture from CPU
-        if self.quantize_int8 and not self._quantized and self.calib_target > 0:
-            try:
-                x_np = x.detach().to("cpu").numpy()
-                self._calib_inputs.append(x_np.copy())
-            except Exception:
-                pass
+        x = self._ensure_tensor(x)
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        need_calib = (
+            self.quantize_int8 and not self._quantized and self.calib_target > 0
+        )
         try:
             dev = next(self.model.parameters()).device
         except StopIteration:
             dev = torch.device("cpu")
         if self._use_cuda and x.is_cuda:
+            xc = self._preprocess_gpu(x)
+            if need_calib and len(self._calib_inputs) < self.calib_target:
+                try:
+                    x_cpu = xc.detach().to("cpu")
+                    remaining = max(0, self.calib_target - len(self._calib_inputs))
+                    take = min(int(x_cpu.shape[0]), remaining)
+                    for i in range(take):
+                        self._calib_inputs.append(x_cpu[i : i + 1].numpy().copy())
+                except Exception:
+                    pass
             io = self._ort_sess.io_binding()
             input_name = self._ort_sess.get_inputs()[0].name
-            xc = x.contiguous()
             io.bind_input(
                 name=input_name,
                 device_type="cuda",
@@ -286,7 +432,15 @@ class _OnnxPoseRunner:
                 return outs_t[0]
             return outs_t
         # CPU fallback
-        x_np = x.detach().to("cpu").numpy()
+        x_np = self._preprocess(x)
+        if need_calib and len(self._calib_inputs) < self.calib_target:
+            try:
+                remaining = max(0, self.calib_target - len(self._calib_inputs))
+                take = min(int(x_np.shape[0]), remaining)
+                for i in range(take):
+                    self._calib_inputs.append(x_np[i : i + 1].copy())
+            except Exception:
+                pass
         outputs = self._ort_sess.run(None, {self._ort_sess.get_inputs()[0].name: x_np})
         if len(outputs) == 1:
             out = torch.from_numpy(outputs[0]).to(device=dev)
@@ -360,6 +514,8 @@ class _OnnxPoseRunner:
         # Fallback: run model directly
         with torch.no_grad():
             try:
+                if self._fallback_test_step is not None:
+                    return self._fallback_test_step(proc_inputs)
                 return self.model.test_step(proc_inputs)
             except Exception:
                 try:
@@ -389,7 +545,100 @@ class _TrtPoseRunner:
         self._trt_module = None
         self._calib_dataset = None
         self._wrapper_module = None
+        self._fallback_test_step = None
+        self._mean = None
+        self._std = None
+        self._mean_t = None
+        self._std_t = None
+        self._swap_rgb = False
+        self._init_preprocess()
         self._build_or_load()
+
+    def set_fallback_test_step(self, fn) -> None:
+        self._fallback_test_step = fn
+
+    def _init_preprocess(self) -> None:
+        try:
+            dp = getattr(self.model, "data_preprocessor", None)
+            if dp is None:
+                return
+            mean = getattr(dp, "mean", None)
+            std = getattr(dp, "std", None)
+            if mean is not None and not isinstance(mean, torch.Tensor):
+                try:
+                    mean = torch.as_tensor(mean)
+                except Exception:
+                    mean = None
+            if std is not None and not isinstance(std, torch.Tensor):
+                try:
+                    std = torch.as_tensor(std)
+                except Exception:
+                    std = None
+            if isinstance(mean, torch.Tensor):
+                if mean.ndim == 1:
+                    mean = mean.view(1, -1, 1, 1)
+                elif mean.ndim == 3:
+                    mean = mean.unsqueeze(0)
+                elif mean.ndim != 4:
+                    mean = None
+            if isinstance(std, torch.Tensor):
+                if std.ndim == 1:
+                    std = std.view(1, -1, 1, 1)
+                elif std.ndim == 3:
+                    std = std.unsqueeze(0)
+                elif std.ndim != 4:
+                    std = None
+            if isinstance(mean, torch.Tensor) and isinstance(std, torch.Tensor):
+                self._mean = mean.detach().cpu()
+                self._std = std.detach().cpu()
+                self._mean_t = mean.detach()
+                self._std_t = std.detach()
+            bgr_to_rgb = bool(getattr(dp, "bgr_to_rgb", False))
+            rgb_to_bgr = bool(getattr(dp, "rgb_to_bgr", False))
+            self._swap_rgb = bool(bgr_to_rgb or rgb_to_bgr)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _ensure_tensor(x: Any) -> torch.Tensor:
+        if isinstance(x, torch.Tensor):
+            return x
+        if isinstance(x, (list, tuple)):
+            if len(x) == 0:
+                return torch.empty((0,))
+            tensors: List[torch.Tensor] = []
+            for item in x:
+                t = item if isinstance(item, torch.Tensor) else torch.as_tensor(item)
+                if t.ndim == 4 and t.size(0) == 1:
+                    t = t.squeeze(0)
+                tensors.append(t)
+            if len(tensors) == 1:
+                t = tensors[0]
+                if t.ndim == 3:
+                    t = t.unsqueeze(0)
+                return t
+            return torch.stack(tensors, dim=0)
+        return torch.as_tensor(x)
+
+    def _prepare_inputs(self, x: Any) -> torch.Tensor:
+        x = self._ensure_tensor(x)
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        if x.dtype != torch.float32:
+            x = x.to(torch.float32)
+        try:
+            dev = next(self.model.parameters()).device
+        except StopIteration:
+            dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if x.device != dev:
+            x = x.to(device=dev, non_blocking=True)
+        if self._swap_rgb and x.size(1) == 3:
+            x = x[:, [2, 1, 0], :, :]
+        if self._mean_t is not None and self._std_t is not None:
+            mean = self._mean_t.to(device=x.device, dtype=x.dtype)
+            std = self._std_t.to(device=x.device, dtype=x.dtype)
+            x = (x - mean) / std
+        return x.contiguous()
 
     def _build_or_load(self) -> None:
         try:
@@ -566,7 +815,7 @@ class _TrtPoseRunner:
 
     def forward(self, proc_inputs: Dict[str, Any]):
         try:
-            inputs = proc_inputs["inputs"]  # Tensor (N,C,H,W)
+            inputs = self._prepare_inputs(proc_inputs["inputs"])
             datas = proc_inputs.get("data_samples", None)
             # Calibration capture for INT8; defer fp16/fp32 build to first inputs
             if self.int8:
@@ -579,10 +828,16 @@ class _TrtPoseRunner:
                         self._calib_dataset = None
                 if self._calib_dataset is not None and len(self._calib_dataset) < self.calib_frames:
                     # store GPU tensors for calibration to match module device
-                    for i in range(inputs.size(0)):
+                    remaining = max(0, self.calib_frames - len(self._calib_dataset))
+                    take = min(int(inputs.size(0)), remaining)
+                    for i in range(take):
                         self._calib_dataset.insert([inputs[i : i + 1].detach()])
                 # Try to build INT8 engine once enough samples collected
-                self._ensure_trt_engine(inputs.shape, inputs.dtype)
+                if (
+                    self._calib_dataset is not None
+                    and len(self._calib_dataset) >= self.calib_frames
+                ):
+                    self._ensure_trt_engine(inputs.shape, inputs.dtype)
             else:
                 # Lazy build for fp16/fp32 path
                 self._ensure_trt_engine(inputs.shape, inputs.dtype)
@@ -597,6 +852,8 @@ class _TrtPoseRunner:
         # Fallback to model
         with torch.no_grad():
             try:
+                if self._fallback_test_step is not None:
+                    return self._fallback_test_step(proc_inputs)
                 return self.model.test_step(proc_inputs)
             except Exception:
                 try:
