@@ -26,4 +26,4 @@ print_targets:
 	@echo "Available targets:"
 	@echo "------------------"
 	@grep -E '^[a-zA-Z_-]+:' Makefile | grep -v print_targets | grep -v '^[.#]' | sed 's/://' | sort | uniq
-# --- IGNORE ---
+	@echo "------------------"
