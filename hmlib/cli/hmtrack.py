@@ -884,7 +884,7 @@ def _main(args, num_gpu):
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
-                    ).force_sync()
+                    )
                     right_loader = MOTLoadVideoWithOrig(
                         path=game_videos["right"],
                         game_id=game_id,
@@ -901,7 +901,7 @@ def _main(args, num_gpu):
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
-                    ).force_sync()
+                    )
                     stitch_inputs = MultiDataLoaderWrapper(
                         dataloaders=[left_loader, right_loader],
                     )
@@ -960,7 +960,7 @@ def _main(args, num_gpu):
                         adjust_exposure=args.adjust_exposure,
                         no_cuda_streams=args.no_cuda_streams,
                         checkerboard_input=args.checkerboard_input,
-                    ).force_sync()
+                    )
                     try:
                         mot_dataloader.set_profiler(getattr(args, "profiler", None))
                     except Exception:
