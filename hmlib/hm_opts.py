@@ -718,6 +718,7 @@ class hm_opts(object):
             "--aspen-thread-graph",
             dest="aspen_thread_graph",
             action="store_true",
+            default=True,
             help="Run threaded Aspen plugins in graph scheduling mode",
         )
         aspen_graph_group.add_argument(
@@ -739,6 +740,7 @@ class hm_opts(object):
             "--aspen-thread-cuda-streams",
             dest="aspen_thread_cuda_streams",
             action="store_true",
+            default=True,
             help="Give each threaded Aspen trunk its own CUDA stream",
         )
         aspen_stream_group.add_argument(
@@ -1490,6 +1492,88 @@ class hm_opts(object):
                         game_cfg,
                         "rink.camera.time_to_dest_speed_limit_frames",
                         int(opt.time_to_dest_speed_limit_frames),
+                    )
+            except Exception:
+                pass
+            # resizing stop_on_dir_change_delay
+            try:
+                if (
+                    _cli_spec("resizing_stop_on_dir_change_delay")
+                    or get_nested_value(
+                        game_cfg, "rink.camera.resizing_stop_on_dir_change_delay", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_stop_on_dir_change_delay",
+                        int(opt.resizing_stop_on_dir_change_delay),
+                    )
+            except Exception:
+                pass
+            # resizing cancel_stop_on_opposite_dir (store as bool in YAML)
+            try:
+                if (
+                    _cli_spec("resizing_cancel_stop_on_opposite_dir")
+                    or get_nested_value(
+                        game_cfg, "rink.camera.resizing_cancel_stop_on_opposite_dir", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_cancel_stop_on_opposite_dir",
+                        bool(int(opt.resizing_cancel_stop_on_opposite_dir)),
+                    )
+            except Exception:
+                pass
+            # resizing cancel hysteresis frames
+            try:
+                if (
+                    _cli_spec("resizing_stop_cancel_hysteresis_frames")
+                    or get_nested_value(
+                        game_cfg, "rink.camera.resizing_stop_cancel_hysteresis_frames", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_stop_cancel_hysteresis_frames",
+                        int(opt.resizing_stop_cancel_hysteresis_frames),
+                    )
+            except Exception:
+                pass
+            # resizing stop delay cooldown frames
+            try:
+                if (
+                    _cli_spec("resizing_stop_delay_cooldown_frames")
+                    or get_nested_value(
+                        game_cfg, "rink.camera.resizing_stop_delay_cooldown_frames", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_stop_delay_cooldown_frames",
+                        int(opt.resizing_stop_delay_cooldown_frames),
+                    )
+            except Exception:
+                pass
+            # resizing time to dest speed limit frames
+            try:
+                if (
+                    _cli_spec("resizing_time_to_dest_speed_limit_frames")
+                    or get_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_time_to_dest_speed_limit_frames",
+                        None,
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_time_to_dest_speed_limit_frames",
+                        int(opt.resizing_time_to_dest_speed_limit_frames),
                     )
             except Exception:
                 pass
