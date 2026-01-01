@@ -26,7 +26,6 @@ from hmlib.utils.progress_bar import (
 
 def run_mmtrack(
     model,
-    pose_inferencer,
     config: Dict[str, Any],
     dataloader,
     postprocessor,
@@ -262,7 +261,6 @@ def run_mmtrack(
                         pp["enabled"] = False
                 shared = dict(
                     model=model,
-                    pose_inferencer=pose_inferencer,
                     postprocessor=postprocessor,
                     fp16=fp16,
                     device=device,

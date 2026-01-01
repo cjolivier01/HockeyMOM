@@ -444,15 +444,6 @@ def _main(args, num_gpu):
 
         data_pipeline = None
 
-        # if not args.exp_file:
-        #     args.exp_file = get_nested_value(game_config, "model.end_to_end.config")
-        #     args.exp_file = os.path.join(ROOT_DIR, args.exp_file)
-        # if not args.checkpoint:
-        #     args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
-        #     args.checkpoint = os.path.join(ROOT_DIR, args.checkpoint)
-
-        # Keep mmengine config path in args.exp_file; do not override --config list
-
         # Prefer unified Aspen config (namespaced under 'aspen') for model + pipeline
         aspen_cfg_for_pipeline = game_config.get("aspen") if isinstance(game_config, dict) else None
         # Expose to downstream run_mmtrack() via args dict
@@ -728,40 +719,6 @@ def _main(args, num_gpu):
             if hasattr(args, "game_config") and isinstance(args.game_config, dict):
                 args.game_config["initial_args"] = args.initial_args
 
-        pose_inferencer = None
-        # if args.multi_pose and not aspen_has_pose_factory:
-        #     from mmpose.apis.inferencers import MMPoseInferencer
-
-        #     if not args.pose_config:
-        #         args.pose_config = get_nested_value(game_config, "model.pose.config")
-        #     if not args.pose_checkpoint:
-        #         args.pose_checkpoint = get_nested_value(game_config, "model.pose.checkpoint")
-
-        #     args.pose_config = os.path.join(ROOT_DIR, args.pose_config)
-        #     pose_config = Config.fromfile(args.pose_config)
-
-        #     filter_args = dict(bbox_thr=0.2, nms_thr=0.3, pose_based_nms=False)
-        #     POSE2D_SPECIFIC_ARGS = dict(
-        #         yoloxpose=dict(bbox_thr=0.01, nms_thr=0.65, pose_based_nms=True),
-        #         rtmo=dict(bbox_thr=0.1, nms_thr=0.65, pose_based_nms=True),
-        #         rtmp=dict(kpt_thr=0.3, pose_based_nms=False, disable_norm_pose_2d=False),
-        #     )
-
-        #     # The default arguments for prediction filtering differ for top-down
-        #     # and bottom-up models. We assign the default arguments according to the
-        #     # selected pose2d model
-        #     for model_str in POSE2D_SPECIFIC_ARGS:
-        #         if model_str in args.pose_config:
-        #             filter_args.update(POSE2D_SPECIFIC_ARGS[model_str])
-        #             break
-
-        #     pose_inferencer = MMPoseInferencer(
-        #         pose2d=pose_config,
-        #         pose2d_weights=args.pose_checkpoint,
-        #         show_progress=False,
-        #     )
-        #     pose_inferencer.filter_args = filter_args
-
         if args.max_frames or args.max_time:
             if args.no_audio:
                 print("Disabling audio extraction due to max-frames/max-time limit")
@@ -821,13 +778,6 @@ def _main(args, num_gpu):
                     left_frame_offset=args.lfo,
                     right_frame_offset=args.rfo,
                 )
-                # Create the stitcher data loader
-                # output_stitched_video_file = (
-                #     os.path.join(".", f"stitched_output-{args.game_id}.mkv")
-                #     if args.save_stitched
-                #     else None
-                # )
-
                 stitch_videos = {
                     "left": {
                         "files": game_videos["left"],
@@ -1081,24 +1031,6 @@ def _main(args, num_gpu):
                         video_out_pipeline = aspen_cfg_for_pipeline.get("video_out_pipeline")
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
-                    # OBSOLETE
-                    # update_pipeline_item(
-                    #     video_out_pipeline,
-                    #     "HmConfigureScoreboard",
-                    #     dict(
-                    #         game_id=args.game_id,
-                    #     ),
-                    # )
-                    # update_pipeline_item(
-                    #     video_out_pipeline,
-                    #     "HmImageOverlays",
-                    #     dict(
-                    #         frame_number=bool(args.plot_frame_number),
-                    #         frame_time=bool(args.plot_frame_time),
-                    #         overhead_rink=bool(args.plot_overhead_rink),
-                    #         device=gpus["encoder"],
-                    #     ),
-                    # )
                 # Make video_out_pipeline available to Aspen plugins via args
                 args.video_out_pipeline = video_out_pipeline
             postprocessor = None
@@ -1110,7 +1042,6 @@ def _main(args, num_gpu):
 
             run_mmtrack(
                 model=model,
-                pose_inferencer=pose_inferencer,
                 config=vars(args),
                 device=main_device,
                 fp16=args.fp16,
@@ -1191,12 +1122,6 @@ def _main(args, num_gpu):
                     traceback.print_exc()
         except Exception as ex:
             print(f"Exception while shutting down: {ex}")
-
-
-def tensor_to_image(tensor: torch.Tensor):  ##
-    if torch.is_floating_point(tensor):
-        tensor = torch.clamp(tensor * 255, min=0, max=255).to(torch.uint8, non_blocking=True)
-    return tensor
 
 
 def setup_logging():
