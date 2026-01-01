@@ -46,10 +46,10 @@ aspen:
   #   - threaded: threaded=true, graph=false
   #   - thread-graph: threaded=true, graph=true
   pipeline:
-    threaded: false
-    graph: false
-    queue_size: 1
-    cuda_streams: false
+    threaded: true
+    graph: true
+    queue_size: 2
+    cuda_streams: true
   video_out:
     # Whether to skip final container flush/save in VideoOutput.
     # CLI flag --skip-final-video-save overrides this when provided.
@@ -65,7 +65,7 @@ aspen:
     encoder_backend: "auto"
   stitching:
     # Controlled by --aspen-stitching / --no-aspen-stitching.
-    enabled: false
+    enabled: true
     pto_project_file: null
     dir_name: null
     blend_mode: "laplacian"
