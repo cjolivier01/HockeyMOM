@@ -27,7 +27,6 @@ class DetectorInferencePlugin(Plugin):
 
     def __init__(self, enabled: bool = True):
         super().__init__(enabled=enabled)
-        self._iter_num: int = 0
 
     def __call__(self, *args, **kwargs) -> Any:
         self._iter_num += 1
