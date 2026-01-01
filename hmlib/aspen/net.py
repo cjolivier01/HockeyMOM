@@ -34,6 +34,7 @@ class _Node:
     depends: List[str]
     params: Dict[str, Any]
     module: torch.nn.Module
+    graph_degree: Optional[int] = None
     stream: torch.cuda.Stream = None  # type: ignore[assignment]
 
 
@@ -98,14 +99,18 @@ class AspenNet(torch.nn.Module):
         self._verbose = verbose
         self.shared: Dict[str, Any] = shared or {}
         self.nodes: List[_Node] = []
+        self.node_map: Dict[str, _Node] = {}
         self.max_concurrent: int = max_concurrent
         self.num_concurrent: int = 0
         self._thread_error: Optional[BaseException] = None
         self._stop_token: Optional[object] = None
+        self._timing_lock = threading.Lock()
+        self._last_timing: Optional[Dict[str, Any]] = None
         # Track which plugins have already had their output_keys() contract validated.
         self._output_keys_validated: Set[str] = set()
         # NetworkX DiGraph storing the plugins graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
+        self.max_graph_degree: int = 0
         self.minimal_context = bool(
             minimal_context
             or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False))
@@ -154,7 +159,7 @@ class AspenNet(torch.nn.Module):
         self._profiler = self.shared.get("profiler", None)
 
         self._build_nodes(plugins)
-        self._build_graph(plugins)
+        self._build_graph()
         self.exec_order = self._toposort()
         self.training: bool = False
         self._iter_num: int = 0
@@ -217,8 +222,10 @@ class AspenNet(torch.nn.Module):
             )
             setattr(self, f"trunk_{name}", module)
             self.nodes.append(node)
+            assert node.name not in self.node_map, f"Duplicate plugin name: {node.name}"
+            self.node_map[node.name] = node
 
-    def _build_graph(self, plugins: Dict[str, Any]):
+    def _build_graph(self):
         # Add all nodes with attributes
         for node in self.nodes:
             self.graph.add_node(
@@ -241,6 +248,24 @@ class AspenNet(torch.nn.Module):
         if unknown_deps:
             details = ", ".join(f"{k}: {v}" for k, v in unknown_deps.items())
             raise ValueError(f"Unknown dependencies referenced in plugins: {details}")
+
+        self.set_graph_degree(self.graph)
+
+    def set_graph_degree(self, G: nx.DiGraph) -> None:
+        if not nx.is_directed_acyclic_graph(G):
+            raise ValueError("Graph must be a DAG")
+
+        for n in G.nodes:
+            node = self.node_map[n]
+            node.graph_degree = 0 if G.in_degree(n) == 0 else None
+
+        for n in nx.topological_sort(G):
+            node = self.node_map[n]
+            if node.graph_degree is None:
+                node.graph_degree = (
+                    max(self.node_map[p].graph_degree for p in G.predecessors(n)) + 1
+                )
+                self.max_graph_degree = max(self.max_graph_degree, node.graph_degree)
 
     @staticmethod
     def _instantiate(cls_path: str, params: Dict[str, Any]) -> torch.nn.Module:
@@ -290,6 +315,7 @@ class AspenNet(torch.nn.Module):
             # if do_trace:
             #     pass
         self._iter_num += 1
+        self._finalize_timing(context)
         return context
 
     # region graph export/visualization
@@ -430,6 +456,9 @@ class AspenNet(torch.nn.Module):
         plugin = node.module
         subctx = self._make_subcontext(plugin, context) if self.minimal_context else context
         name = f"aspen.plugin.{node.name}"
+        start_time = None
+        if context.get("_aspen_timing_enabled"):
+            start_time = time.perf_counter()
         if self._verbose:
             print(f"AspenNet: Executing plugin '{node.name}' with class '{node.cls_path}'")
         if isinstance(plugin, Plugin):
@@ -440,6 +469,9 @@ class AspenNet(torch.nn.Module):
             prof_ctx = contextlib.nullcontext()
         with prof_ctx:
             out = plugin(subctx) or {}
+        if start_time is not None:
+            end_time = time.perf_counter()
+            self._record_timing(context, node.name, start_time, end_time)
 
         declared = set(getattr(plugin, "output_keys", lambda: set())())
         returned_keys = set(out.keys())
@@ -473,6 +505,47 @@ class AspenNet(torch.nn.Module):
                     context[key] = value
 
         context["plugins"][node.name] = {k: out[k] for k in out.keys()}
+
+    def _record_timing(self, context: Dict[str, Any], name: str, start: float, end: float) -> None:
+        if not context.get("_aspen_timing_enabled"):
+            return
+        with self._timing_lock:
+            timing = context.setdefault(
+                "_aspen_timing", {"plugins": {}, "start": None, "end": None}
+            )
+            plugin_entry = timing["plugins"].setdefault(name, {})
+            plugin_entry["start"] = start
+            plugin_entry["end"] = end
+            plugin_entry["duration"] = float(end - start)
+            timing_start = timing.get("start")
+            timing_end = timing.get("end")
+            timing["start"] = start if timing_start is None else min(timing_start, start)
+            timing["end"] = end if timing_end is None else max(timing_end, end)
+
+    def _finalize_timing(self, context: Dict[str, Any]) -> None:
+        if not context.get("_aspen_timing_enabled"):
+            return
+        timing = context.get("_aspen_timing")
+        if not isinstance(timing, dict):
+            return
+        start = timing.get("start")
+        end = timing.get("end")
+        if start is None or end is None:
+            return
+        total = max(1e-9, float(end - start))
+        plugins = timing.get("plugins", {})
+        summary = {
+            "total": total,
+            "plugins": {name: float(info.get("duration", 0.0)) for name, info in plugins.items()},
+        }
+        with self._timing_lock:
+            self._last_timing = summary
+
+    def get_last_timing(self) -> Optional[Dict[str, Any]]:
+        with self._timing_lock:
+            if self._last_timing is None:
+                return None
+            return dict(self._last_timing)
 
     def _make_subcontext(self, plugin: torch.nn.Module, context: Dict[str, Any]) -> Dict[str, Any]:
         req_keys = set(getattr(plugin, "input_keys", lambda: set())())
@@ -518,6 +591,7 @@ class AspenNet(torch.nn.Module):
         if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
             return
         ready_children: List[int] = []
+        finalize_ctx = None
         with self._graph_lock:
             if self._graph_stop_event.is_set():
                 return
@@ -533,8 +607,11 @@ class AspenNet(torch.nn.Module):
                 del self._graph_contexts[item.seq]
                 if self.num_concurrent > 0:
                     self.num_concurrent -= 1
+                finalize_ctx = state.item.context
         for child_index in ready_children:
             self._graph_enqueue_ready(child_index, item)
+        if finalize_ctx is not None:
+            self._finalize_timing(finalize_ctx)
 
     def _graph_request_stop(self) -> None:
         stop_event = getattr(self, "_graph_stop_event", None)
@@ -690,6 +767,7 @@ class AspenNet(torch.nn.Module):
                             if not is_last:
                                 out_queue.put(item)
                             else:
+                                self._finalize_timing(item)
                                 assert self.num_concurrent > 0
                                 self.num_concurrent -= 1
                         except BaseException as exc:
@@ -776,9 +854,16 @@ class AspenNet(torch.nn.Module):
         if use_cuda_stream:
             if node.stream is None:
                 device = self._infer_device(context)
+                # Arbitrarily make normal priority 10
+                # Smaller/neg numbers are higher priority
+                priority: int = self.max_graph_degree + 1
+                if node.graph_degree is not None:
+                    priority += node.graph_degree
                 node.stream = torch.cuda.Stream(
                     device=device,
+                    priority=priority,
                 )
+                print(f"Created stream for plugin {node.name} with priority {priority}")
             # Ensure plugins that fetch context["cuda_stream"] see the stream actually running them.
             prev_stream = context.get("cuda_stream")
             if prev_stream is None:
