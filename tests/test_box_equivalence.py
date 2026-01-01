@@ -33,6 +33,7 @@ def make_cpp_config(core, arena_box: Tuple[float, float, float, float], cfg: Dic
     c.stop_translation_on_dir_change = cfg.get("stop_on_change", False)
     c.stop_translation_on_dir_change_delay = cfg.get("stop_delay", 0)
     c.cancel_stop_on_opposite_dir = cfg.get("cancel", False)
+    c.time_to_dest_speed_limit_frames = cfg.get("time_to_dest_speed_limit_frames", 10)
     c.dynamic_acceleration_scaling = 0.0
     c.arena_angle_from_vertical = 30.0
     c.arena_box = BBox(*arena_box)
@@ -78,6 +79,7 @@ def make_py_box(torch, arena_box_t, init_box_t, cfg: Dict):
         stop_on_dir_change=cfg.get("stop_on_change", False),
         stop_on_dir_change_delay=int(cfg.get("stop_delay", 0)),
         cancel_stop_on_opposite_dir=bool(cfg.get("cancel", False)),
+        time_to_dest_speed_limit_frames=int(cfg.get("time_to_dest_speed_limit_frames", 10)),
         pan_smoothing_alpha=float(cfg.get("pan_smoothing_alpha", 0.0)),
         sticky_translation=bool(cfg.get("sticky_translation", False)),
         sticky_sizing=bool(cfg.get("sticky_sizing", False)),

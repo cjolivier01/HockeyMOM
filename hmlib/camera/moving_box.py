@@ -899,10 +899,6 @@ class MovingBox(ResizingBox):
                 self._cancel_opp_y_count = self._zero_int.clone()
                 accel_y = self._stop_decel_y
 
-        # Preserve previous speeds for increase detection
-        prev_sx = self._current_speed_x.clone()
-        prev_sy = self._current_speed_y.clone()
-
         self.adjust_speed(
             accel_x=accel_x,
             accel_y=accel_y,
@@ -910,24 +906,23 @@ class MovingBox(ResizingBox):
         )
 
         # Time-to-destination speed limiting (per-axis)
-        def _limit_speed_ttg(v, prev_v, dist, frames):
+        def _limit_speed_ttg(v, dist, frames):
             if frames <= 0:
                 return v
             sgn = torch.sign(dist)
             if sgn == 0:
                 return v
-            increasing = torch.abs(v) > torch.abs(prev_v)
-            if torch.sign(v) == sgn and increasing:
+            if torch.sign(v) == sgn:
                 limit = torch.abs(dist) / frames.to(v.dtype)
                 vmax = limit
                 v = torch.clamp(v, min=-vmax, max=vmax)
             return v
 
         self._current_speed_x = _limit_speed_ttg(
-            self._current_speed_x, prev_sx, total_diff[0], self._ttg_limit_frames
+            self._current_speed_x, total_diff[0], self._ttg_limit_frames
         )
         self._current_speed_y = _limit_speed_ttg(
-            self._current_speed_y, prev_sy, total_diff[1], self._ttg_limit_frames
+            self._current_speed_y, total_diff[1], self._ttg_limit_frames
         )
 
         super(MovingBox, self).set_destination(dest_box=dest_box)
