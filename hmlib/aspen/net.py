@@ -109,6 +109,9 @@ class AspenNet(torch.nn.Module):
         self._progress_state_enabled: bool = False
         self._progress_state_lock: Optional[threading.Lock] = None
         self._progress_active_counts: Dict[str, int] = {}
+        self._progress_sampler: Optional[Any] = None
+        self._progress_sampler_index: Dict[str, int] = {}
+        self._progress_last_sample_active: Optional[List[int]] = None
         # Track which plugins have already had their output_keys() contract validated.
         self._output_keys_validated: Set[str] = set()
         # NetworkX DiGraph storing the plugins graph and attributes
@@ -441,6 +444,18 @@ class AspenNet(torch.nn.Module):
         except Exception:
             return False
 
+    def stop_progress_graph(self) -> None:
+        """Stop the progress graph sampler thread if active."""
+        sampler = self._progress_sampler
+        if sampler is None:
+            return
+        try:
+            sampler.stop()
+        except Exception:
+            logger.exception("AspenNet progress sampler stop failed")
+        self._progress_sampler = None
+        self._progress_last_sample_active = None
+
     def finalize(self) -> None:
         """Invoke ``finalize`` on all plugins if they provide it."""
         for node in self.nodes:
@@ -450,6 +465,7 @@ class AspenNet(torch.nn.Module):
                     finalize_fn()
                 except Exception:
                     logger.exception("Aspen plugin %s finalize failed", node.name)
+        self.stop_progress_graph()
 
     # endregion
 
@@ -480,13 +496,25 @@ class AspenNet(torch.nn.Module):
         else:
             prof_ctx = contextlib.nullcontext()
         if self._progress_state_enabled:
-            entered = self._progress_enter(node.name)
-            try:
-                with prof_ctx:
-                    out = plugin(subctx) or {}
-            finally:
-                if entered:
-                    self._progress_exit(node.name)
+            sampler = self._progress_sampler
+            if sampler is not None:
+                idx = self._progress_sampler_index.get(node.name)
+                try:
+                    if idx is not None:
+                        sampler.enter_index(idx)
+                    with prof_ctx:
+                        out = plugin(subctx) or {}
+                finally:
+                    if idx is not None:
+                        sampler.exit_index(idx)
+            else:
+                entered = self._progress_enter(node.name)
+                try:
+                    with prof_ctx:
+                        out = plugin(subctx) or {}
+                finally:
+                    if entered:
+                        self._progress_exit(node.name)
         else:
             with prof_ctx:
                 out = plugin(subctx) or {}
@@ -573,6 +601,27 @@ class AspenNet(torch.nn.Module):
         if self._progress_state_enabled:
             return
         self._progress_state_enabled = True
+        self._progress_last_sample_active = None
+        try:
+            from hockeymom._hockeymom import AspenGraphSampler  # type: ignore
+
+            sampler = AspenGraphSampler(max_samples=24, min_interval_ms=12, max_interval_ms=40)
+            names = [node.name for node in self.exec_order]
+            degrees = [node.graph_degree if node.graph_degree is not None else 0 for node in self.exec_order]
+            self._progress_sampler_index = {name: idx for idx, name in enumerate(names)}
+            edges = [
+                (self._progress_sampler_index[u], self._progress_sampler_index[v])
+                for u, v in self.graph.edges()
+                if u in self._progress_sampler_index and v in self._progress_sampler_index
+            ]
+            sampler.configure_graph(names, degrees, edges)
+            sampler.start()
+            self._progress_sampler = sampler
+            return
+        except Exception:
+            logger.exception("AspenNet progress sampler init failed; falling back to Python state")
+            self._progress_sampler = None
+            self._progress_sampler_index = {}
         self._progress_state_lock = threading.Lock()
         self._progress_active_counts = {node.name: 0 for node in self.exec_order}
 
@@ -602,18 +651,34 @@ class AspenNet(torch.nn.Module):
         if not self._progress_state_enabled:
             return None
         lock = self._progress_state_lock
-        if lock is None:
-            return None
-        with lock:
-            active_counts = dict(self._progress_active_counts)
+        active_flags: Optional[List[int]] = None
+        if self._progress_sampler is not None:
+            try:
+                samples = self._progress_sampler.pop_samples(1)
+            except Exception:
+                samples = []
+            if samples:
+                sample = samples[-1]
+                active_flags = list(sample.get("active", []))
+                self._progress_last_sample_active = active_flags
+            else:
+                active_flags = self._progress_last_sample_active
+        active_counts: Dict[str, int] = {}
+        if lock is not None:
+            with lock:
+                active_counts = dict(self._progress_active_counts)
         nodes = []
-        for node in self.exec_order:
+        for idx, node in enumerate(self.exec_order):
             degree = node.graph_degree if node.graph_degree is not None else 0
+            if active_flags is not None and idx < len(active_flags):
+                active = bool(active_flags[idx])
+            else:
+                active = bool(active_counts.get(node.name, 0) > 0)
             nodes.append(
                 {
                     "name": node.name,
                     "degree": int(degree),
-                    "active": bool(active_counts.get(node.name, 0) > 0),
+                    "active": active,
                 }
             )
         edges = list(self.graph.edges())
@@ -954,11 +1019,13 @@ class AspenNet(torch.nn.Module):
     def stop(self, wait: bool = True) -> None:
         """Stop all threaded plugins and join their threads."""
         if not self.threaded_trunks:
+            self.stop_progress_graph()
             return
         stop_token = self._stop_token or object()
         self._stop_token = stop_token
         if self.thread_graph_mode:
             if not hasattr(self, "graph_queues"):
+                self.stop_progress_graph()
                 return
             self._graph_request_stop()
             for thread in self.threads:
@@ -967,8 +1034,10 @@ class AspenNet(torch.nn.Module):
             for q in self.graph_queues:
                 q.close()
             del self.graph_queues
+            self.stop_progress_graph()
             return
         if not hasattr(self, "queues"):
+            self.stop_progress_graph()
             return
         if wait:
             for _ in self.exec_order:
@@ -985,6 +1054,7 @@ class AspenNet(torch.nn.Module):
         for q in self.queues:
             q.close()
         del self.queues
+        self.stop_progress_graph()
 
     def _execute_with_stream(self, node: _Node, context: Dict[str, Any]) -> None:
         use_cuda_stream = (

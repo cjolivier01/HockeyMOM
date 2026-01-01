@@ -114,6 +114,26 @@ class LivingBox: ...
 class BBox: ...
 class GrowShrink: ...  # enum-like
 
+# AspenNet progress sampling helper (pybind11)
+class AspenGraphSampler:
+    def __init__(
+        self,
+        max_samples: int = ...,
+        min_interval_ms: int = ...,
+        max_interval_ms: int = ...,
+    ) -> None: ...
+    def configure_graph(
+        self,
+        names: Sequence[str],
+        degrees: Sequence[int],
+        edges: Sequence[Tuple[int, int]],
+    ) -> None: ...
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def enter_index(self, index: int) -> None: ...
+    def exit_index(self, index: int) -> None: ...
+    def pop_samples(self, max_items: int = ...) -> list[dict[str, Any]]: ...
+
 # Optional blender implementation
 class EnBlender(ImageBlender): ...  # may be None at runtime
 
@@ -147,6 +167,7 @@ __all__ = [
     "HmLogMessage",
     "StitchImageInfo",
     "EnBlender",
+    "AspenGraphSampler",
     "PlayTracker",
     "PlayTrackerConfig",
     "AllLivingBoxConfig",

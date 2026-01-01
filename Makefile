@@ -5,7 +5,7 @@ TOPDIR=$(shell pwd)
 
 all: print_targets
 
-.PHONY: print_targets perf debug develop wheel test clean distclean expunge
+.PHONY: print_targets perf debug develop wheel docs test clean distclean expunge
 
 perf:
 	bazel/bazel.sh build --config=release //...
@@ -19,6 +19,9 @@ test:
 wheel:
 	bazel/bazel.sh run --config=release //hockeymom:bdist_wheel 
 	bazel/bazel.sh run --config=release //hmlib:bdist_wheel
+
+docs:
+	bazel/bazel.sh build //:all_doxygen_docs
 
 clean:
 	bazel/bazel.sh clean
@@ -43,6 +46,10 @@ print_targets:
 		'-------------' \
 		'perf         Build every Bazel target with --config=release; use for optimized binaries before packaging or deploying.' \
 		'debug        Build every Bazel target with --config=debug; use while iterating locally when you need symbols and asserts.' \
+		'' \
+		'Documentation' \
+		'--------------' \
+		'docs         Builds both hockeymom and hmlib Doxygen archives via //:all_doxygen_docs; run when you need refreshed API docs.' \
 		'' \
 		'Developer Workflow' \
 		'------------------' \

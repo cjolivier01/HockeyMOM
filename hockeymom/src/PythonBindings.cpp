@@ -1,4 +1,14 @@
 #include <ATen/ATen.h>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <random>
+#include <stdexcept>
+#include <thread>
+#include <vector>
 #include <c10/cuda/CUDAGuard.h> // for CUDAStreamGuard
 #include <c10/cuda/CUDAStream.h>
 #include <torch/extension.h>
@@ -52,6 +62,157 @@ struct BlenderConfig {
   bool lazy_init{false};
   std::string interpolation;
   std::string device = std::string("cpu");
+};
+
+class AspenGraphSampler {
+ public:
+  AspenGraphSampler(size_t max_samples, int min_interval_ms, int max_interval_ms)
+      : max_samples_(max_samples),
+        min_interval_ms_(min_interval_ms),
+        max_interval_ms_(max_interval_ms),
+        rng_(std::random_device{}()) {
+    if (max_samples_ == 0) {
+      max_samples_ = 1;
+    }
+    if (min_interval_ms_ < 1) {
+      min_interval_ms_ = 1;
+    }
+    if (max_interval_ms_ < min_interval_ms_) {
+      max_interval_ms_ = min_interval_ms_;
+    }
+  }
+
+  ~AspenGraphSampler() { stop(); }
+
+  void configure_graph(
+      const std::vector<std::string>& names,
+      const std::vector<int>& degrees,
+      const std::vector<std::pair<int, int>>& edges) {
+    if (running_.load(std::memory_order_relaxed)) {
+      throw std::runtime_error("AspenGraphSampler configure_graph while running");
+    }
+    names_ = names;
+    degrees_ = degrees;
+    edges_ = edges;
+    active_count_size_ = names_.size();
+    if (active_count_size_ == 0) {
+      active_counts_.reset();
+      return;
+    }
+    active_counts_ = std::make_unique<std::atomic<int>[]>(active_count_size_);
+    for (size_t i = 0; i < active_count_size_; ++i) {
+      active_counts_[i].store(0, std::memory_order_relaxed);
+    }
+  }
+
+  void start() {
+    bool expected = false;
+    if (!running_.compare_exchange_strong(expected, true)) {
+      return;
+    }
+    worker_ = std::thread(&AspenGraphSampler::run, this);
+  }
+
+  void stop() {
+    if (!running_.exchange(false)) {
+      return;
+    }
+    if (worker_.joinable()) {
+      worker_.join();
+    }
+  }
+
+  void enter_index(int idx) {
+    if (idx < 0 || static_cast<size_t>(idx) >= active_count_size_) {
+      return;
+    }
+    active_counts_[idx].fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void exit_index(int idx) {
+    if (idx < 0 || static_cast<size_t>(idx) >= active_count_size_) {
+      return;
+    }
+    int prev = active_counts_[idx].fetch_sub(1, std::memory_order_relaxed);
+    if (prev <= 0) {
+      active_counts_[idx].store(0, std::memory_order_relaxed);
+    }
+  }
+
+  py::list pop_samples(size_t max_items) {
+    std::deque<Sample> out;
+    {
+      std::lock_guard<std::mutex> lock(samples_mu_);
+      if (samples_.empty()) {
+        return py::list();
+      }
+      size_t count = std::min(max_items, samples_.size());
+      auto start = samples_.size() - count;
+      for (size_t i = start; i < samples_.size(); ++i) {
+        out.push_back(samples_[i]);
+      }
+      samples_.clear();
+    }
+    py::list result;
+    for (const auto& sample : out) {
+      py::dict entry;
+      entry["timestamp"] = sample.timestamp;
+      py::list active;
+      for (auto value : sample.active) {
+        active.append(static_cast<bool>(value));
+      }
+      entry["active"] = active;
+      result.append(entry);
+    }
+    return result;
+  }
+
+ private:
+  struct Sample {
+    double timestamp{0.0};
+    std::vector<uint8_t> active;
+  };
+
+  void run() {
+    std::uniform_int_distribution<int> dist(min_interval_ms_, max_interval_ms_);
+    while (running_.load(std::memory_order_relaxed)) {
+      int sleep_ms = dist(rng_);
+      std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+      if (!running_.load(std::memory_order_relaxed)) {
+        break;
+      }
+      Sample sample;
+      sample.timestamp =
+          std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+              .count();
+      sample.active.resize(active_count_size_);
+      for (size_t i = 0; i < active_count_size_; ++i) {
+        sample.active[i] =
+            active_counts_[i].load(std::memory_order_relaxed) > 0 ? 1 : 0;
+      }
+      {
+        std::lock_guard<std::mutex> lock(samples_mu_);
+        samples_.push_back(std::move(sample));
+        while (samples_.size() > max_samples_) {
+          samples_.pop_front();
+        }
+      }
+    }
+  }
+
+  [[maybe_unused]] std::vector<std::string> names_;
+  [[maybe_unused]] std::vector<int> degrees_;
+  [[maybe_unused]] std::vector<std::pair<int, int>> edges_;
+  std::unique_ptr<std::atomic<int>[]> active_counts_;
+  size_t active_count_size_{0};
+  std::atomic<bool> running_{false};
+  std::thread worker_;
+  std::mutex samples_mu_;
+  std::deque<Sample> samples_;
+  size_t max_samples_;
+  int min_interval_ms_;
+  int max_interval_ms_;
+  std::mt19937 rng_;
 };
 
 using hm::pano::cuda::CudaStitchPano;
@@ -1746,6 +1907,40 @@ void init_cuda_pano(::pybind11::module_& m) {
   atexit.attr("register")(py::cpp_function(&hm::on_python_exit));
 }
 
+void init_aspen_graph_sampler(::pybind11::module_& m) {
+  py::class_<hm::AspenGraphSampler>(m, "AspenGraphSampler")
+      .def(
+          py::init<size_t, int, int>(),
+          py::arg("max_samples") = 24,
+          py::arg("min_interval_ms") = 12,
+          py::arg("max_interval_ms") = 40)
+      .def(
+          "configure_graph",
+          &hm::AspenGraphSampler::configure_graph,
+          py::arg("names"),
+          py::arg("degrees"),
+          py::arg("edges"))
+      .def(
+          "start",
+          &hm::AspenGraphSampler::start,
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "stop",
+          &hm::AspenGraphSampler::stop,
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "enter_index",
+          &hm::AspenGraphSampler::enter_index,
+          py::arg("index"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "exit_index",
+          &hm::AspenGraphSampler::exit_index,
+          py::arg("index"),
+          py::call_guard<py::gil_scoped_release>())
+      .def("pop_samples", &hm::AspenGraphSampler::pop_samples, py::arg("max_items") = 1);
+}
+
 PYBIND11_MODULE(_hockeymom, m) {
   init_stitching(m);
   init_tracking(m);
@@ -1753,4 +1948,5 @@ PYBIND11_MODULE(_hockeymom, m) {
   init_living_boxes(m);
   init_play_tracker(m);
   init_cuda_pano<float4>(m);
+  init_aspen_graph_sampler(m);
 }
