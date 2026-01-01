@@ -3,7 +3,7 @@ PRE_RUN="source .bazel_setup.sh"
 
 all: print_targets
 
-.PHONY: print_targets perf debug develop wheel test
+.PHONY: print_targets perf debug develop wheel test clean distclean expunge
 
 perf:
 	bazel/bazel.sh build --config=release //...
@@ -15,7 +15,14 @@ test:
 	bazel/bazel.sh test --config=release //...
 
 wheel:
-	bazel/bazel.sh run --config=release //hockeymom:bdist_wheel //hmlib:bdist_wheel
+	bazel/bazel.sh run --config=release //hockeymom:bdist_wheel 
+	bazel/bazel.sh run --config=release //hmlib:bdist_wheel
+
+clean:
+	bazel/bazel.sh clean
+
+distclean expunge:
+	bazel/bazel.sh clean --expunge
 
 develop:
 #	bazel/bazel.sh build --config=debug //hockeymom:develop
