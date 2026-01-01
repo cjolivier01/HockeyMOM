@@ -44,4 +44,4 @@ trace.json
 YOLOX_outputs
 player_shifts_fiverr
 /*.dot
-
+/.hugin_built
