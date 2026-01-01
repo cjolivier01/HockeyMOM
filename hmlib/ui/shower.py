@@ -66,6 +66,7 @@ class Shower:
         profiler: Any = None,
         step: int = 1,
         hold_tensor_ref: bool = True,
+        skip_frame_when_full: bool = True,
     ):
         self._label = label
         self._allow_gpu_gl = allow_gpu_gl
@@ -81,6 +82,7 @@ class Shower:
         self._step: int = step
         self._iter: int = 0
         self._next_frame_time = None
+        self._skip_frame_when_full = skip_frame_when_full
         self._use_tk = use_tk
         self._tk_displayer = None
         # Holds a ref to a displayed tensor so the memory pointer is valid
@@ -124,7 +126,7 @@ class Shower:
                                 s_img, enable_resizing=self._show_scaled, force_numpy=False
                             )
                             self._stream.synchronize()
-                            show_cuda_tensor("Stitched Image", s_img, False, None)
+                            show_cuda_tensor(self._label, s_img, False, None)
                             if self._hold_tensor_ref:
                                 # Holds a ref to this image to keep its GPU surface valid
                                 # (is this necessary? Do we create a separate texture out of this?)
@@ -186,7 +188,7 @@ class Shower:
             # computations and try to show the frame as soon as possible, in its (possibly) bad data state.
             self._stream = torch.cuda.Stream(device, priority=-1)
 
-    def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase], clone: bool = False):
+    def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase], clone: bool = True):
         self._iter += 1
         if self._iter % self._step != 0:
             return
@@ -196,6 +198,8 @@ class Shower:
             if self._thread is not None:
                 counter: int = 0
                 while self._q.qsize() >= self._max_size:
+                    if self._skip_frame_when_full:
+                        return
                     # print("Too many items in Shower queue...")
                     time.sleep(0.01)
                     counter += 1

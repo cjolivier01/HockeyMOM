@@ -15,7 +15,7 @@ import shutil
 import sys
 import time
 from collections import OrderedDict
-from typing import Any, Callable, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -248,6 +248,9 @@ class ProgressBar:
         self._line_count: int = 0
         self._log_lines: List[str] = []
         self._log_max_lines: int = scroll_output.lines if scroll_output is not None else 11
+        self._extra_panel_callback: Optional[Callable[[], Any]] = None
+        self._extra_panel_title: Optional[str] = None
+        self._extra_panel_style: str = "white on grey19"
 
         if self.scroll_output is not None:
             # Route ScrollOutput lines into this ProgressBar's log buffer.
@@ -255,6 +258,14 @@ class ProgressBar:
 
     def add_table_callback(self, callback: Callable):
         self.table_callbacks.append(callback)
+
+    def set_extra_panel_callback(
+        self, callback: Optional[Callable[[], Any]], title: Optional[str] = None
+    ) -> None:
+        """Register an optional renderable callback for an extra UI panel."""
+        self._extra_panel_callback = callback
+        if title is not None:
+            self._extra_panel_title = title
 
     def set_iterator(self, iterator: Iterator[Any]) -> Iterator[Any]:
         self.iterator = iterator
@@ -327,6 +338,20 @@ class ProgressBar:
         """Compose the status table, progress bar, and log area inside a single bordered panel."""
         status_table = self._build_table()
         log_table = self._build_log_table()
+        extra_panel = None
+        if self._extra_panel_callback is not None:
+            try:
+                extra_renderable = self._extra_panel_callback()
+            except Exception:
+                extra_renderable = Text("Extra panel unavailable", style="dim")
+            if extra_renderable is not None:
+                extra_panel = Panel(
+                    extra_renderable,
+                    border_style="black",
+                    style=self._extra_panel_style,
+                    padding=(0, 1),
+                    title=self._extra_panel_title,
+                )
 
         status_panel = Panel(
             status_table,
@@ -352,7 +377,11 @@ class ProgressBar:
         # Horizontal ASCII separators between sections
         sep = Rule(style="black")
 
-        body = Group(status_panel, sep, progress_panel, sep, log_panel)
+        sections = [status_panel, sep, progress_panel]
+        if extra_panel is not None:
+            sections.extend([sep, extra_panel])
+        sections.extend([sep, log_panel])
+        body = Group(*sections)
         outer = Panel(
             body,
             border_style="black",
@@ -469,6 +498,81 @@ def convert_seconds_to_hms(total_seconds: Any) -> str:
 
     # Format the time in "HH:MM:SS" format
     return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+
+def build_aspen_graph_renderable(snapshot: Dict[str, Any]) -> Table:
+    """Build a rich renderable showing AspenNet graph activity and queue stats."""
+    table = Table.grid(expand=True, padding=(0, 1))
+    table.add_column(justify="left")
+    stats_parts = []
+    concurrency = snapshot.get("concurrency") or {}
+    if concurrency:
+        if concurrency.get("threaded"):
+            stats_parts.append(
+                f"Concurrent: {concurrency.get('current', 0)}/{concurrency.get('max', 0)}"
+            )
+        else:
+            stats_parts.append("Concurrent: serial")
+    queues = snapshot.get("queues")
+    if isinstance(queues, dict):
+        items = queues.get("items") or []
+        if items:
+            if len(items) <= 6:
+                parts = []
+                for item in items:
+                    label = item.get("label", "")
+                    current = item.get("current", 0)
+                    max_size = item.get("max")
+                    if isinstance(max_size, int) and max_size > 0:
+                        parts.append(f"{label}:{current}/{max_size}")
+                    else:
+                        parts.append(f"{label}:{current}")
+                stats_parts.append("Queues: " + " ".join(parts))
+            else:
+                total_current = queues.get("total_current", 0)
+                total_capacity = queues.get("total_capacity", None)
+                count = queues.get("count", len(items))
+                if isinstance(total_capacity, int):
+                    stats_parts.append(
+                        f"Queues: {total_current}/{total_capacity} (n={count})"
+                    )
+                else:
+                    stats_parts.append(f"Queues: {total_current} (n={count})")
+    elif concurrency:
+        if concurrency.get("threaded"):
+            stats_parts.append("Queues: pending")
+        else:
+            stats_parts.append("Queues: off")
+    if stats_parts:
+        table.add_row(Text(" | ".join(stats_parts), style="white"))
+
+    nodes = snapshot.get("nodes") or []
+    if not nodes:
+        table.add_row(Text("No AspenNet nodes", style="dim"))
+        return table
+
+    max_degree = int(snapshot.get("max_degree", 0))
+    levels: Dict[int, List[Dict[str, Any]]] = {}
+    for node in nodes:
+        degree = int(node.get("degree", 0))
+        levels.setdefault(degree, []).append(node)
+    for degree in range(max_degree + 1):
+        level_nodes = levels.get(degree, [])
+        if not level_nodes:
+            continue
+        row = Text()
+        for idx, node in enumerate(level_nodes):
+            if idx > 0:
+                row.append("  ")
+            active = bool(node.get("active", False))
+            marker = "[#]" if active else "[ ]"
+            marker_style = "bold green" if active else "dim"
+            name_style = "bold white" if active else "dim"
+            row.append(marker, style=marker_style)
+            row.append(" ")
+            row.append(str(node.get("name", "")), style=name_style)
+        table.add_row(row)
+    return table
 
 
 def convert_hms_to_seconds(timestr: str) -> float:

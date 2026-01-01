@@ -106,6 +106,9 @@ class AspenNet(torch.nn.Module):
         self._stop_token: Optional[object] = None
         self._timing_lock = threading.Lock()
         self._last_timing: Optional[Dict[str, Any]] = None
+        self._progress_state_enabled: bool = False
+        self._progress_state_lock: Optional[threading.Lock] = None
+        self._progress_active_counts: Dict[str, int] = {}
         # Track which plugins have already had their output_keys() contract validated.
         self._output_keys_validated: Set[str] = set()
         # NetworkX DiGraph storing the plugins graph and attributes
@@ -476,8 +479,17 @@ class AspenNet(torch.nn.Module):
             prof_ctx = self._profiler.rf(name)
         else:
             prof_ctx = contextlib.nullcontext()
-        with prof_ctx:
-            out = plugin(subctx) or {}
+        if self._progress_state_enabled:
+            entered = self._progress_enter(node.name)
+            try:
+                with prof_ctx:
+                    out = plugin(subctx) or {}
+            finally:
+                if entered:
+                    self._progress_exit(node.name)
+        else:
+            with prof_ctx:
+                out = plugin(subctx) or {}
         if start_time is not None:
             end_time = time.perf_counter()
             self._record_timing(context, node.name, start_time, end_time)
@@ -555,6 +567,99 @@ class AspenNet(torch.nn.Module):
             if self._last_timing is None:
                 return None
             return dict(self._last_timing)
+
+    def enable_progress_graph(self) -> None:
+        """Enable lightweight graph state tracking for progress UI rendering."""
+        if self._progress_state_enabled:
+            return
+        self._progress_state_enabled = True
+        self._progress_state_lock = threading.Lock()
+        self._progress_active_counts = {node.name: 0 for node in self.exec_order}
+
+    def _progress_enter(self, name: str) -> bool:
+        if not self._progress_state_enabled:
+            return False
+        lock = self._progress_state_lock
+        if lock is None:
+            return False
+        with lock:
+            self._progress_active_counts[name] = self._progress_active_counts.get(name, 0) + 1
+        return True
+
+    def _progress_exit(self, name: str) -> None:
+        if not self._progress_state_enabled:
+            return
+        lock = self._progress_state_lock
+        if lock is None:
+            return
+        with lock:
+            current = self._progress_active_counts.get(name, 0)
+            if current > 0:
+                self._progress_active_counts[name] = current - 1
+
+    def get_progress_snapshot(self) -> Optional[Dict[str, Any]]:
+        """Return a snapshot of graph activity and queue state for UI rendering."""
+        if not self._progress_state_enabled:
+            return None
+        lock = self._progress_state_lock
+        if lock is None:
+            return None
+        with lock:
+            active_counts = dict(self._progress_active_counts)
+        nodes = []
+        for node in self.exec_order:
+            degree = node.graph_degree if node.graph_degree is not None else 0
+            nodes.append(
+                {
+                    "name": node.name,
+                    "degree": int(degree),
+                    "active": bool(active_counts.get(node.name, 0)),
+                }
+            )
+        queue_info = None
+        queues = None
+        labels: List[str] = []
+        if self.threaded_trunks:
+            if self.thread_graph_mode and hasattr(self, "graph_queues"):
+                queues = list(self.graph_queues)
+                labels = [node.name for node in self.exec_order]
+            elif hasattr(self, "queues"):
+                queues = list(self.queues)
+                labels = [f"Q{idx}" for idx in range(len(queues))]
+        if queues:
+            items = []
+            total_current = 0
+            total_capacity = 0
+            capacity_known = True
+            for label, q in zip(labels, queues):
+                try:
+                    current = q.qsize()
+                except Exception:
+                    current = 0
+                max_size = getattr(q, "_max_size", None)
+                items.append({"label": label, "current": int(current), "max": max_size})
+                total_current += int(current)
+                if isinstance(max_size, int) and max_size > 0:
+                    total_capacity += max_size
+                else:
+                    capacity_known = False
+            queue_info = {
+                "items": items,
+                "total_current": total_current,
+                "total_capacity": total_capacity if capacity_known else None,
+                "count": len(items),
+            }
+        concurrency = {
+            "current": int(self.num_concurrent) if self.threaded_trunks else 1,
+            "max": int(self.max_concurrent) if self.threaded_trunks else 1,
+            "threaded": bool(self.threaded_trunks),
+        }
+        return {
+            "nodes": nodes,
+            "max_degree": int(self.max_graph_degree),
+            "queues": queue_info,
+            "concurrency": concurrency,
+        }
 
     def _make_subcontext(self, plugin: torch.nn.Module, context: Dict[str, Any]) -> Dict[str, Any]:
         req_keys = set(getattr(plugin, "input_keys", lambda: set())())

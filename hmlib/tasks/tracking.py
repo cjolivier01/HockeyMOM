@@ -17,7 +17,11 @@ from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import cuda_stream_scope
 from hmlib.utils.image import make_channels_first
 from hmlib.utils.iterators import CachedIterator
-from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
+from hmlib.utils.progress_bar import (
+    ProgressBar,
+    build_aspen_graph_renderable,
+    convert_seconds_to_hms,
+)
 
 
 def run_mmtrack(
@@ -74,6 +78,10 @@ def run_mmtrack(
             if display_opt is None:
                 display_opt = get_nested_value(config, "aspen.pipeline.display_plugin_profile", None)
             display_plugin_profile = bool(display_opt)
+            graph_opt = config.get("display_aspen_graph")
+            if graph_opt is None:
+                graph_opt = get_nested_value(config, "aspen.pipeline.display_graph", None)
+            display_aspen_graph = bool(graph_opt)
 
             last_aspen_timing: Optional[Dict[str, Any]] = None
             last_dataloader_time: Optional[float] = None
@@ -297,6 +305,16 @@ def run_mmtrack(
                         if module.__class__.__name__ == "_NoOpPlugin":
                             continue
                         plugin_display_names.append(node.name)
+                if display_aspen_graph and progress_bar is not None:
+                    aspen_net.enable_progress_graph()
+
+                    def _aspen_graph_panel():
+                        snapshot = aspen_net.get_progress_snapshot()
+                        if snapshot is None:
+                            return None
+                        return build_aspen_graph_renderable(snapshot)
+
+                    progress_bar.set_extra_panel_callback(_aspen_graph_panel, title="AspenNet")
             # Optional torch profiler context spanning the run
             prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
             with prof_ctx:

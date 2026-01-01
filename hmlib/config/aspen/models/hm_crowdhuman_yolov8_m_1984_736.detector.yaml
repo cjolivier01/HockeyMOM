@@ -32,7 +32,7 @@ bbox_head:
       type: BN
     num_classes: 80
     reg_max: 16
-    type: YOLOv8HeadModule
+    type: mmyolo.YOLOv8HeadModule
     widen_factor: 0.75
   loss_bbox:
     bbox_format: xyxy
@@ -57,7 +57,7 @@ bbox_head:
     - 16
     - 32
     type: mmdet.MlvlPointGenerator
-  type: mmyolo.YOLOv8Head
+  type: mmyolo.models.dense_heads.YOLOv8Head
 data_preprocessor:
   bgr_to_rgb: true
   mean:

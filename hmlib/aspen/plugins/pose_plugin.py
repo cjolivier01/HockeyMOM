@@ -2,9 +2,9 @@ from typing import Any, Dict, List, Optional, Set
 
 import torch
 
-from hmlib.utils.gpu import StreamTensorBase
-from hmlib.utils.image import make_channels_last
 from hmlib.tracking_utils.utils import get_track_mask
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
+from hmlib.utils.image import make_channels_last
 
 from .base import Plugin
 
@@ -52,6 +52,13 @@ class PosePlugin(Plugin):
             frame_count = original_images.shape[0]
         elif hasattr(original_images, "__len__"):
             frame_count = len(original_images)
+
+        for vs in track_data_sample.video_data_samples:
+            pred_track_instances = getattr(vs, "pred_track_instances", None)
+            if pred_track_instances is not None:
+                pred_track_instances.bboxes = unwrap_tensor(pred_track_instances.bboxes)
+                pred_track_instances.labels = unwrap_tensor(pred_track_instances.labels)
+                pred_track_instances.scores = unwrap_tensor(pred_track_instances.scores)
 
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
 

@@ -77,9 +77,10 @@ aspen:
     - type: HmConfigureScoreboard
     - type: HmCaptureScoreboard
     - type: HmPerspectiveRotation
-      pre_clip: true
+      pre_clip: GLOBAL.rink.camera.pre_clip
       fixed_edge_rotation_angle: GLOBAL.rink.camera.fixed_edge_rotation_angle
     - type: HmCropToVideoFrame
+      crop_image: GLOBAL.rink.camera.crop_image
     - type: HmRenderScoreboard
       image_labels: [img, end_zone_img]
     - type: HmImageOverlays
@@ -113,36 +114,21 @@ aspen:
       depends: [stitching]
       params: {}
 
-    model_factory:
-      class: hmlib.aspen.plugins.model_factory_plugin.ModelFactoryPlugin
-      depends: []
-      params:
-        model_class: hmlib.models.end_to_end_plugin.HmEndToEnd
-        # Pure YAML detector definition (converted from mmengine config)
-        # No detector/tracker coupling here; post_* pipelines not used for rink mask
-        post_tracking_pipeline:
-          - type: HmNumberClassifier
-            image_label: original_images
-            enabled: false
-
     detector_factory:
       class: hmlib.aspen.plugins.detector_factory_plugin.DetectorFactoryPlugin
       depends: []
+      enabled: true
       params:
-        detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
+        # detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
+        detector_yaml: hmlib/config/aspen/models/hm_crowdhuman_yolov8_m_1984_736.detector.yaml
         data_preprocessor:
           type: TrackDataPreprocessor
           pad_size_divisor: 32
           use_det_processor: true
-          batch_augments:
-            - type: BatchSyncRandomResize
-              random_size_range: [576, 1024]
-              size_divisor: 32
-              interval: 10
 
     pose_factory:
       class: hmlib.aspen.plugins.pose_factory_plugin.PoseInferencerFactoryPlugin
-      depends: []
+      depends: [detector_factory]
       params:
         # HARPET
         # pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/harpet/rtmpose-l_8xb64-10e_harpe-384x288.py
@@ -157,11 +143,6 @@ aspen:
         # pose_checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
         show_progress: false
         disable_internal_detector: true
-
-    boundaries:
-      class: hmlib.aspen.plugins.boundaries_plugin.BoundariesPlugin
-      depends: [model_factory]
-      params: {}
 
     detector:
       class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
@@ -191,8 +172,18 @@ aspen:
 
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
-      depends: [detector, ice_boundaries, model_factory, boundaries]
-      params: {}
+      depends: [detector, ice_boundaries]
+      params:
+        # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
+        # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
+        # tracker_class: hockeymom.core.HmDcfTrackerCudaStatic  # NvDCF-style CUDA tracker (static shape + ReID)
+        # tracker_class: hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic  # Static-shape CUDA tracker (Python)
+        # tracker_kwargs:
+        #   device: cuda:0
+        #   max_detections: 256
+        #   max_tracks: 50
+        #   reid_feature_dim: 256
+        #   reid_weight: 0.5
 
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
@@ -212,6 +203,13 @@ aspen:
       enabled: false
       params: {}
 
+    # Optional camera dataframe load/save for camera.csv
+    load_camera:
+      class: hmlib.aspen.plugins.load_plugins.LoadCameraPlugin
+      depends: []
+      enabled: false
+      params: {}
+
     # Optional camera controller (rule-based by default). Enable transformer by
     # setting controller: transformer and model_path to your checkpoint.
     camera_controller:
@@ -224,11 +222,9 @@ aspen:
 
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
-      # Does this really need postprocess?
       depends: [
         tracker, 
         camera_controller, 
-        # postprocess,
       ]
       enabled: true
       params:
@@ -242,6 +238,20 @@ aspen:
         plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
         plot_actions: GLOBAL.plot.plot_actions
 
+    save_camera:
+      class: hmlib.aspen.plugins.save_plugins.SaveCameraPlugin
+      depends: [play_tracker]
+      enabled: false
+      params: {}
+
+    apply_camera:
+      class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
+      depends: [play_tracker, load_camera]
+      enabled: true
+      params: {
+        video_out_pipeline: GLOBAL.aspen.video_out_pipeline,
+      }
+
     rgb_stats_check:
       class: hmlib.aspen.plugins.debug_rgb_stats_plugin.RgbStatsCheckPlugin
       depends: [play_tracker]
@@ -250,14 +260,6 @@ aspen:
         source: stitch
         stats_key: stitched
         tensor_key: original_images
-
-    apply_camera:
-      class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
-      depends: [play_tracker]
-      enabled: true
-      params: {
-        video_out_pipeline: GLOBAL.aspen.video_out_pipeline
-      }
 
     video_out:
       class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin

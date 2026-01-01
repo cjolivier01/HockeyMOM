@@ -790,6 +790,20 @@ class hm_opts(object):
             help="Hide per-plugin timing percentages in the progress table",
         )
         parser.set_defaults(display_plugin_profile=None)
+        graph_display_group = parser.add_mutually_exclusive_group()
+        graph_display_group.add_argument(
+            "--display-aspen-graph",
+            dest="display_aspen_graph",
+            action="store_true",
+            help="Show AspenNet graph activity in the progress UI",
+        )
+        graph_display_group.add_argument(
+            "--no-display-aspen-graph",
+            dest="display_aspen_graph",
+            action="store_false",
+            help="Hide AspenNet graph activity in the progress UI",
+        )
+        parser.set_defaults(display_aspen_graph=None)
         parser.add_argument(
             "--fp16",
             default=False,
@@ -1249,6 +1263,7 @@ class hm_opts(object):
             ("aspen_thread_cuda_streams", "aspen.pipeline.cuda_streams"),
             ("aspen_thread_graph", "aspen.pipeline.graph"),
             ("display_plugin_profile", "aspen.pipeline.display_plugin_profile"),
+            ("display_aspen_graph", "aspen.pipeline.display_graph"),
             ("aspen_stitching", "aspen.stitching.enabled"),
             ("blend_mode", "aspen.stitching.blend_mode"),
             ("max_blend_levels", "aspen.stitching.max_blend_levels"),
@@ -1292,6 +1307,7 @@ class hm_opts(object):
         "aspen_thread_cuda_streams": bool,
         "aspen_thread_graph": bool,
         "display_plugin_profile": bool,
+        "display_aspen_graph": bool,
         "aspen_stitching": bool,
         "stitch_auto_adjust_exposure": bool,
         "python_blender": bool,
