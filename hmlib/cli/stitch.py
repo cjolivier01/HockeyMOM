@@ -361,22 +361,23 @@ def stitch_videos(
                     else:
                         stitched_image = unwrap_tensor(batch)
 
-                        # Downscale oversized panoramas to stay within encoder
-                        # limits while preserving aspect ratio.
-                        width = int(image_width(stitched_image))
-                        height = int(image_height(stitched_image))
-                        if width > MAX_NEVC_VIDEO_WIDTH:
-                            scale = float(MAX_NEVC_VIDEO_WIDTH) / float(width)
-                            new_w = MAX_NEVC_VIDEO_WIDTH
-                            new_h = int(height * scale)
-                            # Ensure even dimensions for encoders
-                            if new_w % 2 != 0:
-                                new_w -= 1
-                            if new_h % 2 != 0:
-                                new_h -= 1
-                            stitched_image = resize_image(
-                                stitched_image, new_width=new_w, new_height=new_h
-                            )
+                        if not args.skip_final_video_save:
+                            # Downscale oversized panoramas to stay within encoder
+                            # limits while preserving aspect ratio.
+                            width = int(image_width(stitched_image))
+                            height = int(image_height(stitched_image))
+                            if width > MAX_NEVC_VIDEO_WIDTH:
+                                scale = float(MAX_NEVC_VIDEO_WIDTH) / float(width)
+                                new_w = MAX_NEVC_VIDEO_WIDTH
+                                new_h = int(height * scale)
+                                # Ensure even dimensions for encoders
+                                if new_w % 2 != 0:
+                                    new_w -= 1
+                                if new_h % 2 != 0:
+                                    new_h -= 1
+                                stitched_image = resize_image(
+                                    stitched_image, new_width=new_w, new_height=new_h
+                                )
 
                         if shower is not None:
                             shower.show(wrap_tensor(stitched_image), clone=False)
