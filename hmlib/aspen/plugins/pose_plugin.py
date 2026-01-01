@@ -3,7 +3,8 @@ from typing import Any, Dict, List, Optional, Set
 import torch
 
 from hmlib.tracking_utils.utils import get_track_mask
-from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
+from hmlib.ui import show_image
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 
 from .base import Plugin
@@ -36,15 +37,8 @@ class PosePlugin(Plugin):
             return {}
 
         data: Dict[str, Any] = context["data"]
-        original_images = data.get("original_images")
-        if isinstance(original_images, StreamTensorBase):
-            original_images = original_images.wait()
-            data["original_images"] = original_images
-        if original_images is None:
-            return {}
-        if not isinstance(original_images, torch.Tensor):
-            original_images = torch.as_tensor(original_images)
-            data["original_images"] = original_images
+        original_images = unwrap_tensor(data["original_images"])
+        drawn_original_images: list[torch.Tensor] = []
 
         track_data_sample = self._get_track_data_sample(data.get("data_samples"))
         frame_count = None
@@ -57,8 +51,11 @@ class PosePlugin(Plugin):
             pred_track_instances = getattr(vs, "pred_track_instances", None)
             if pred_track_instances is not None:
                 pred_track_instances.bboxes = unwrap_tensor(pred_track_instances.bboxes)
+                pred_track_instances.instances_id = unwrap_tensor(pred_track_instances.instances_id)
                 pred_track_instances.labels = unwrap_tensor(pred_track_instances.labels)
                 pred_track_instances.scores = unwrap_tensor(pred_track_instances.scores)
+            else:
+                assert False, "No pred_track_instances found in video_data_samples"
 
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
 
@@ -284,24 +281,26 @@ class PosePlugin(Plugin):
             if show and getattr(pose_inferencer, "inferencer", None) is not None:
                 vis = pose_inferencer.inferencer.visualizer
                 if vis is not None:
-                    for img, pose_result in zip(original_images, all_pose_results):
+                    for i, (img, pose_result) in enumerate(zip(original_images, all_pose_results)):
                         data_sample = pose_result.get("predictions", [])
                         if not data_sample:
                             continue
                         try:
-                            vis.add_datasample(
+                            img = vis.add_datasample(
                                 name="pose results",
                                 image=img,
                                 data_sample=data_sample[0],
                                 clone_image=False,
                                 draw_gt=False,
                                 draw_bbox=False,
-                                show_kpt_idx=True,
+                                show_kpt_idx=False,
                                 kpt_thr=kpt_thr if kpt_thr is not None else 0.3,
                             )
+                            original_images[i] = img
                             # show_image("pose", img, wait=False)
                         except Exception:
                             pass
+                    drawn_original_images.append(img)
         else:
             # Fallback: let MMPose handle detection internally
             for pose_results in pose_inferencer(
@@ -328,11 +327,16 @@ class PosePlugin(Plugin):
                             clone_image=False,
                             draw_gt=False,
                             draw_bbox=False,
+                            show_kpt_idx=False,
                         )
                         # show_image("pose", img, wait=False)
 
         pose_results = all_pose_results
         data["pose_results"] = pose_results
+        if drawn_original_images:
+            original_images = torch.stack(drawn_original_images)
+            # show_image("original_images", original_images, wait=False)
+            data["original_images"] = wrap_tensor(original_images)
         return {"data": data}
 
     @staticmethod

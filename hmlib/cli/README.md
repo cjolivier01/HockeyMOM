@@ -39,7 +39,7 @@ hmtrack --input-video path/to/stitched_output-with-audio.mp4 --output tracking.m
 - `--stitch-rotate-degrees <float>` — After stitching, rotate the panorama about its center by the given degrees; keeps same dimensions (use small values to level the horizon)
 - `--detect-jersey-numbers`, `--plot-jersey-numbers` — Jersey number detection and overlay
 - `--plot-pose` — Pose skeletons overlay
-- `--plot-tracking`, `--plot-trajectories` — Visualize boxes and paths
+- `--plot-tracking`, `--plot-trajectories` — Visualize tracking overlays (circles by default) and paths; use `--no-plot-tracking-circles` for boxes
 - `--cvat-output` — Export data for CVAT
 - `--save-tracking-data`, `--save-detection-data`, `--save-camera-data` — Write CSV artifacts
 - `--output-video <file>` and `--no-save-video` — Control rendered output

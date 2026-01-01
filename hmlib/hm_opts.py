@@ -264,7 +264,15 @@ class hm_opts(object):
         #
         plot = parser.add_argument_group("Visualization & Plotting")
         plot.add_argument(
-            "--plot-tracking", action="store_true", help="Plot individual tracking boxes"
+            "--plot-tracking",
+            action="store_true",
+            help="Plot individual tracking overlays (circles by default)",
+        )
+        plot.add_argument(
+            "--no-plot-tracking-circles",
+            dest="no_plot_tracking_circles",
+            action="store_true",
+            help="Disable tracking circles and draw bounding boxes instead.",
         )
         plot.add_argument("--plot-ice-mask", action="store_true", help="Plot the ice mask")
         plot.add_argument(
@@ -1297,6 +1305,7 @@ class hm_opts(object):
                 "plot_tracking",
                 ["plot.plot_individual_player_tracking", "plot.plot_boundaries"],
             ),
+            ("no_plot_tracking_circles", "plot.plot_tracking_circles"),
             ("debug", "plot.debug_play_tracker"),
         ]
     )
@@ -1324,6 +1333,7 @@ class hm_opts(object):
         "plot_pose": {True: True},
         "plot_ice_mask": {True: True},
         "plot_tracking": {True: True},
+        "no_plot_tracking_circles": {True: False},
         "debug": _debug_to_play_tracker,
     }
     ARG_SETDEFAULT = {"output_file", "save_frame_dir"}

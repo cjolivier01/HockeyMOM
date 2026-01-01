@@ -103,6 +103,7 @@ class PlayTracker(torch.nn.Module):
         track_ids: Optional[Union[str, List[int], Set[int]]] = None,
         debug_play_tracker: bool = False,
         plot_individual_player_tracking: bool = False,
+        plot_tracking_circles: bool = True,
         plot_boundaries: bool = False,
         plot_all_detections: Optional[float] = None,
         plot_trajectories: bool = False,
@@ -136,6 +137,7 @@ class PlayTracker(torch.nn.Module):
         @param debug_play_tracker: Enable per-frame debug logging.
         @param plot_moving_boxes: Enable ROI/mover overlay plotting.
         @param plot_individual_player_tracking: Enable per-player overlays.
+        @param plot_tracking_circles: Draw flat circles instead of tracking boxes.
         @param plot_boundaries: Enable rink boundary overlays.
         @param plot_all_detections: Score threshold for plotting all dets.
         @param plot_trajectories: Enable track trajectory overlays.
@@ -163,6 +165,7 @@ class PlayTracker(torch.nn.Module):
         self._plot_individual_player_tracking: bool = (
             bool(plot_individual_player_tracking) or debug_play_tracker
         )
+        self._plot_tracking_circles: bool = bool(plot_tracking_circles)
         self._plot_boundaries: bool = bool(plot_boundaries)
         self._plot_all_detections: Optional[float] = plot_all_detections
         self._cpp_boxes = cpp_boxes
@@ -1092,6 +1095,7 @@ class PlayTracker(torch.nn.Module):
                     line_thickness=2,
                     ignore_tracking_ids=vis_ignored_tracking_ids,
                     ignored_color=(0, 0, 0),
+                    draw_tracking_circles=self._plot_tracking_circles,
                 )
                 # logger.info(f"Tracking {len(online_ids)} players...")
                 if largest_bbox is not None and vis_ignored_tracking_ids is None:

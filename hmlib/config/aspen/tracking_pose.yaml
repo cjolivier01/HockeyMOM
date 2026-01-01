@@ -224,13 +224,15 @@ aspen:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
       depends: [
         tracker, 
-        camera_controller, 
+        camera_controller,
+        pose,
       ]
       enabled: true
       params:
         debug_play_tracker: GLOBAL.plot.debug_play_tracker
         plot_moving_boxes: GLOBAL.plot.plot_moving_boxes
         plot_individual_player_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_tracking_circles: GLOBAL.plot.plot_tracking_circles
         plot_boundaries: GLOBAL.plot.plot_boundaries
         plot_all_detections: GLOBAL.plot.plot_all_detections
         plot_trajectories: GLOBAL.plot.plot_trajectories

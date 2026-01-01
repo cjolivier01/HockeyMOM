@@ -27,6 +27,7 @@ plot:
   debug_play_tracker: false
   plot_moving_boxes: false
   plot_individual_player_tracking: false
+  plot_tracking_circles: true
   plot_boundaries: false
   plot_all_detections: null
   plot_trajectories: false
