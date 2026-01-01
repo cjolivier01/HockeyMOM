@@ -147,6 +147,15 @@ class AspenNet(torch.nn.Module):
             raise ValueError(
                 f"AspenNet pipeline queue_size must be an integer, got {queue_size_cfg!r}"
             ) from exc
+        max_concurrent_cfg = pipeline_cfg.get("max_concurrent", None)
+        if max_concurrent_cfg is not None:
+            try:
+                self.max_concurrent = max(1, int(max_concurrent_cfg))
+            except Exception as exc:
+                raise ValueError(
+                    "AspenNet pipeline max_concurrent must be an integer, "
+                    f"got {max_concurrent_cfg!r}"
+                ) from exc
         cuda_streams_flag = pipeline_cfg.get("cuda_streams", True)
         self.thread_cuda_streams: bool = bool(cuda_streams_flag)
 

@@ -40,6 +40,16 @@ plot:
 # Aspen / video output defaults
 #
 aspen:
+  # AspenNet execution settings (serial vs threaded).
+  # Modes:
+  #   - serial: threaded=false
+  #   - threaded: threaded=true, graph=false
+  #   - thread-graph: threaded=true, graph=true
+  pipeline:
+    threaded: true
+    graph: true
+    queue_size: 1
+    cuda_streams: true
   video_out:
     # Whether to skip final container flush/save in VideoOutput.
     # CLI flag --skip-final-video-save overrides this when provided.
@@ -54,7 +64,8 @@ aspen:
     # The CLI flag --video-encoder-backend overrides this when provided.
     encoder_backend: "auto"
   stitching:
-    enabled: false
+    # Controlled by --aspen-stitching / --no-aspen-stitching.
+    enabled: true
     pto_project_file: null
     dir_name: null
     blend_mode: "laplacian"

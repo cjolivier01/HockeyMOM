@@ -40,6 +40,13 @@ def _coerce_aspen_queue_size(value: Any) -> Any:
         return _SKIP_CONFIG_VALUE
 
 
+def _coerce_aspen_max_concurrent(value: Any) -> Any:
+    try:
+        return max(1, int(value))
+    except Exception:
+        return _SKIP_CONFIG_VALUE
+
+
 def _debug_to_play_tracker(value: Any) -> Any:
     try:
         if isinstance(value, str):
@@ -734,6 +741,13 @@ class hm_opts(object):
             default=None,
             help="Queue size between threaded Aspen plugins (defaults to 1)",
         )
+        parser.add_argument(
+            "--aspen-max-concurrent",
+            dest="aspen_max_concurrent",
+            type=int,
+            default=None,
+            help="Max concurrent frames in threaded Aspen pipeline (defaults to 3)",
+        )
         aspen_stream_group = parser.add_mutually_exclusive_group()
         aspen_stream_group.add_argument(
             "--aspen-thread-cuda-streams",
@@ -1231,6 +1245,7 @@ class hm_opts(object):
         [
             ("aspen_threaded", ["aspen.pipeline.threaded", "aspen.threaded_trunks"]),
             ("aspen_thread_queue_size", "aspen.pipeline.queue_size"),
+            ("aspen_max_concurrent", "aspen.pipeline.max_concurrent"),
             ("aspen_thread_cuda_streams", "aspen.pipeline.cuda_streams"),
             ("aspen_thread_graph", "aspen.pipeline.graph"),
             ("display_plugin_profile", "aspen.pipeline.display_plugin_profile"),
@@ -1273,6 +1288,7 @@ class hm_opts(object):
     ARG_VALUE_MAP: Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]] = {
         "aspen_threaded": bool,
         "aspen_thread_queue_size": _coerce_aspen_queue_size,
+        "aspen_max_concurrent": _coerce_aspen_max_concurrent,
         "aspen_thread_cuda_streams": bool,
         "aspen_thread_graph": bool,
         "display_plugin_profile": bool,
