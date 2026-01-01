@@ -5,7 +5,13 @@ import torch
 from hmlib.bbox.box_functions import center, height, width
 from hmlib.transforms.perspective_rotation import HmPerspectiveRotation, _slow_to_tensor, image_wh
 from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
-from hmlib.utils.image import image_height, image_width, rotate_image, to_float_image
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    rotate_image,
+    rotate_image_batch,
+    to_float_image,
+)
 
 
 class LegacyHmPerspectiveRotation:
@@ -161,6 +167,47 @@ def _make_edge_boxes(H: int, W: int):
     )
 
 
+def should_rotate_image_accept_scalar_tensor_angle():
+    torch.manual_seed(0)
+    img = torch.rand(64, 96, 3, dtype=torch.float32)
+    rp = [40, 30]
+    out1 = rotate_image(img=img, angle=torch.tensor(10.0), rotation_point=rp)
+    out2 = rotate_image(img=img, angle=10.0, rotation_point=rp)
+    assert isinstance(out1, torch.Tensor)
+    assert out1.shape == img.shape
+    assert torch.allclose(out1, out2, atol=1e-4, rtol=1e-4)
+
+
+def should_rotate_image_batch_zero_angle_is_identity():
+    torch.manual_seed(0)
+    b, h, w, c = 4, 64, 96, 3
+    img = torch.rand(b, h, w, c, dtype=torch.float32)
+    angle = torch.zeros(b, dtype=torch.float32)
+    rotation_point = torch.tensor([[w / 2, h / 2]] * b, dtype=torch.float32)
+    out = rotate_image_batch(img=img, angle=angle, rotation_point=rotation_point)
+    assert out.shape == img.shape
+    assert torch.allclose(out, img, atol=0.0, rtol=0.0)
+
+
+def should_rotate_image_batch_runs_with_per_item_angles_and_centers():
+    torch.manual_seed(0)
+    b, h, w, c = 3, 80, 120, 3
+    img = torch.rand(b, h, w, c, dtype=torch.float32)
+    angle = torch.tensor([5.0, -7.0, 12.0], dtype=torch.float32)
+    rotation_point = torch.tensor(
+        [
+            [w * 0.25, h * 0.50],
+            [w * 0.75, h * 0.50],
+            [w * 0.50, h * 0.25],
+        ],
+        dtype=torch.float32,
+    )
+    out = rotate_image_batch(img=img, angle=angle, rotation_point=rotation_point)
+    assert out.shape == img.shape
+    # Sanity: rotation should change values for at least one sample
+    assert not torch.allclose(out, img)
+
+
 def _run_pair(transform_cls, legacy_cls, *, pre_clip: bool, angle, boxes: torch.Tensor, compare_images: bool = True):
     img = torch.rand(boxes.shape[0], 180, 320, 3, dtype=torch.float32)
 
@@ -290,6 +337,12 @@ def should_perspective_rotation_pre_clip_keep_width_across_calls():
     second_imgs = second["img"]
     assert isinstance(first_imgs, torch.Tensor)
     assert isinstance(second_imgs, torch.Tensor)
+
+    first_widths = {int(image_width(t)) for t in first_imgs}
+    second_widths = {int(image_width(t)) for t in second_imgs}
+    assert len(first_widths) == 1
+    assert len(second_widths) == 1
+    assert first_widths == second_widths
 
     first_widths = {int(image_width(t)) for t in first_imgs}
     second_widths = {int(image_width(t)) for t in second_imgs}

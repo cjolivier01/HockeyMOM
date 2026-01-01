@@ -786,9 +786,10 @@ def to_uint8_image(tensor: torch.Tensor, apply_scale: bool = False):
         if apply_scale:
             assert False
             assert torch.is_floating_point(tensor)
+            tensor.clamp_(min=0, max=255.0)
             return (
                 # note, no scale applied here (I removed before adding assert)
-                tensor.clamp(min=0, max=255.0).to(torch.uint8)
+                tensor.to(torch.uint8)
             )
         else:
             # There has got to be a more elegant way to do this with reflection
@@ -802,13 +803,32 @@ def to_uint8_image(tensor: torch.Tensor, apply_scale: bool = False):
 
 
 def rotate_image(img, angle: float, rotation_point: List[int]):
+    if isinstance(angle, torch.Tensor):
+        # TorchVision expects a Python scalar for the angle.
+        # In our pipelines, we often compute `angle` as a 0-dim tensor.
+        if angle.numel() == 1:
+            angle = float(angle.item())
+        else:
+            if (
+                isinstance(img, torch.Tensor)
+                and img.ndim == 4
+                and isinstance(rotation_point, torch.Tensor)
+            ):
+                return rotate_image_batch(img=img, angle=angle, rotation_point=rotation_point)
+            raise TypeError(
+                "rotate_image received a non-scalar tensor angle, but rotate_image_batch requires "
+                "batched torch.Tensor inputs for both img and rotation_point"
+            )
+
     rotation_point = [int(i) for i in rotation_point]
     if isinstance(img, torch.Tensor):
         current_dtype = img.dtype
         if img.dim() == 4:
+            # Expected channels-last: (B, H, W, C)
+            assert img.shape[-1] in [1, 3, 4]
             # H, W, C -> C, W, H
             img = img.permute(0, 3, 2, 1)
-            angle = -angle
+            angle = -float(angle)
             if current_dtype == torch.half:
                 img = img.to(torch.float32, non_blocking=True)
             img = F.rotate(
@@ -822,9 +842,11 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
             # W, H, C -> C, H, W
             img = img.permute(0, 3, 2, 1)
         else:
+            # Expected channels-last: (H, W, C)
+            assert img.shape[-1] in [1, 3, 4]
             # H, W, C -> C, W, H
             img = img.permute(2, 1, 0)
-            angle = -angle
+            angle = -float(angle)
             if current_dtype == torch.half:
                 img = img.to(torch.float32, non_blocking=True)
             img = F.rotate(
@@ -839,9 +861,143 @@ def rotate_image(img, angle: float, rotation_point: List[int]):
             img = img.permute(2, 1, 0)
     elif isinstance(img, PIL.Image.Image):
         img = img.rotate(
-            angle, resample=PIL.Image.BICUBIC, center=(rotation_point[0], rotation_point[1])
+            float(angle),
+            resample=PIL.Image.BICUBIC,
+            center=(rotation_point[0], rotation_point[1]),
         )
     else:
-        rotation_matrix = cv2.getRotationMatrix2D(rotation_point, angle, 1.0)
+        rotation_matrix = cv2.getRotationMatrix2D(rotation_point, float(angle), 1.0)
         img = cv2.warpAffine(img, rotation_matrix, (image_width(img), image_height(img)))
     return img
+
+
+def rotate_image_batch(
+    img: torch.Tensor,
+    angle: torch.Tensor,
+    rotation_point: torch.Tensor,
+) -> torch.Tensor:
+    """Rotate a batch of images with per-image angles and centers.
+
+    This is a convenience wrapper around `rotate_image()` that accepts:
+    - `img`: torch.Tensor of shape (B, H, W, C) (channels-last)
+    - `angle`: torch.Tensor of shape (B,) (or broadcastable to B)
+    - `rotation_point`: torch.Tensor of shape (B, 2) or list of length B
+
+    Returns a tensor with the same shape/dtype/device as `img` (except dtype
+    may upcast internally for the rotation operation).
+    """
+    if img.ndim != 4:
+        raise ValueError(
+            f"rotate_image_batch expects 4D tensor image, got shape={tuple(img.shape)}"
+        )
+
+    # Support either channels-last (B,H,W,C) or channels-first (B,C,H,W)
+    channels_last = img.shape[-1] in (1, 3, 4)
+    channels_first = img.shape[1] in (1, 3, 4)
+    if not (channels_last or channels_first):
+        raise ValueError(
+            "rotate_image_batch expects image to be channels-last (B,H,W,C) or channels-first (B,C,H,W) "
+            "with C in [1,3,4]; "
+            f"got shape={tuple(img.shape)}"
+        )
+
+    x = img.permute(0, 3, 1, 2) if channels_last else img
+    b, c, h, w = x.shape
+
+    if angle.ndim == 0:
+        angle = angle.reshape(1)
+    angle = angle.reshape(-1)
+    if angle.numel() == 1:
+        angle = angle.expand(b)
+    elif angle.numel() != b:
+        raise ValueError(
+            f"rotate_image_batch expects angle with numel()==B (or 1), got {angle.numel()} vs B={b}"
+        )
+
+    if not isinstance(rotation_point, torch.Tensor):
+        raise TypeError(
+            f"rotate_image_batch expects torch.Tensor rotation_point, got {type(rotation_point)}"
+        )
+    if rotation_point.ndim == 1 and rotation_point.numel() == 2:
+        rotation_point = rotation_point.reshape(1, 2).expand(b, 2)
+    if rotation_point.ndim != 2 or rotation_point.shape != (b, 2):
+        raise ValueError(
+            f"rotate_image_batch expects rotation_point shape (B,2) (or (2,)); got {tuple(rotation_point.shape)}"
+        )
+
+    orig_dtype = x.dtype
+    x_work = x.to(dtype=torch.float32, non_blocking=True)
+
+    device = x.device
+    dtype = torch.float32
+
+    # Convert degrees -> radians. Negative sign matches existing rotation semantics
+    # used in StitchingPlugin._rotate_tensor_keep_size.
+    angle_rad = (-angle.to(device=device, dtype=dtype)) * (torch.pi / 180.0)
+    cos_a = torch.cos(angle_rad)
+    sin_a = torch.sin(angle_rad)
+
+    # rotation_point is (x, y) in pixel coords.
+    rp = rotation_point.to(device=device, dtype=dtype)
+    cx = rp[:, 0]
+    cy = rp[:, 1]
+
+    # Build inverse transform in pixel coordinates (3x3), per item.
+    # See StitchingPlugin._rotate_tensor_keep_size for derivation.
+    tx = (1.0 - cos_a) * cx - sin_a * cy
+    ty = sin_a * cx + (1.0 - cos_a) * cy
+
+    m_inv = torch.zeros((b, 3, 3), device=device, dtype=dtype)
+    m_inv[:, 0, 0] = cos_a
+    m_inv[:, 0, 1] = sin_a
+    m_inv[:, 0, 2] = tx
+    m_inv[:, 1, 0] = -sin_a
+    m_inv[:, 1, 1] = cos_a
+    m_inv[:, 1, 2] = ty
+    m_inv[:, 2, 2] = 1.0
+
+    # Pixel <-> normalized conversion for align_corners=True.
+    # Protect against degenerate sizes.
+    if w <= 1 or h <= 1:
+        y = x_work
+    else:
+        s = torch.tensor(
+            [
+                [(w - 1) / 2.0, 0.0, (w - 1) / 2.0],
+                [0.0, (h - 1) / 2.0, (h - 1) / 2.0],
+                [0.0, 0.0, 1.0],
+            ],
+            device=device,
+            dtype=dtype,
+        )
+        s_inv = torch.tensor(
+            [
+                [2.0 / (w - 1), 0.0, -1.0],
+                [0.0, 2.0 / (h - 1), -1.0],
+                [0.0, 0.0, 1.0],
+            ],
+            device=device,
+            dtype=dtype,
+        )
+        s_b = s.unsqueeze(0).expand(b, 3, 3)
+        s_inv_b = s_inv.unsqueeze(0).expand(b, 3, 3)
+
+        a = torch.bmm(s_inv_b, torch.bmm(m_inv, s_b))
+        theta = a[:, :2, :]
+        grid = TF.affine_grid(theta, size=(b, c, h, w), align_corners=True)
+        y = TF.grid_sample(
+            x_work,
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+
+    if orig_dtype == torch.uint8:
+        y = y.clamp(min=0.0, max=255.0).to(dtype=torch.uint8)
+    else:
+        y = y.to(dtype=orig_dtype)
+
+    if channels_last:
+        y = y.permute(0, 2, 3, 1)
+    return y

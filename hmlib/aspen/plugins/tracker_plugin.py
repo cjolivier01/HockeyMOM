@@ -192,11 +192,16 @@ class TrackerPlugin(Plugin):
             frame_id = img_data_sample.metainfo.get("img_id")
             if isinstance(frame_id, torch.Tensor):
                 if frame_id.device.type == "cuda":
-                    frame_id = frame_id0 + frame_index
+                    frame_id = torch.tensor(
+                        [frame_id0 + frame_index], dtype=torch.int64, device=frame_id.device
+                    )
                 else:
-                    frame_id = frame_id.reshape(-1)[:1][0]
-            if frame_id is None:
-                frame_id = frame_id0 + frame_index
+                    frame_id = frame_id.reshape(-1).to(dtype=torch.int64)
+            elif frame_id is None:
+                frame_id = torch.tensor([frame_id0 + frame_index], dtype=torch.int64)
+            else:
+                frame_id = torch.tensor([frame_id], dtype=torch.int64)
+            frame_id_scalar = int(frame_id.reshape(-1)[:1][0].item())
 
             # Use C++ tracker
             assert self._hm_tracker is not None
@@ -254,7 +259,7 @@ class TrackerPlugin(Plugin):
             try:
                 results = self._hm_tracker.track(tracker_payload)
             except Exception as e:
-                logger.error("Tracker error at frame %d: %s", frame_id, str(e))
+                logger.error("Tracker error at frame %d: %s", frame_id_scalar, str(e))
                 raise
             results, frame_track_count = self._trim_tracker_outputs(results)
             ids = results.get("user_ids", results.get("ids"))
@@ -334,6 +339,21 @@ class TrackerPlugin(Plugin):
     def output_keys(self):
         return {"data", "nr_tracks", "max_tracking_id"}
 
+    @staticmethod
+    def _coerce_frame_id_tensor(
+        frame_id: Any, device: Optional[torch.device] = None
+    ) -> torch.Tensor:
+        if isinstance(frame_id, torch.Tensor):
+            if frame_id.numel() == 0:
+                out = torch.zeros((1,), dtype=torch.int64, device=frame_id.device)
+            else:
+                out = frame_id.reshape(-1).to(dtype=torch.int64)
+        else:
+            out = torch.tensor([frame_id], dtype=torch.int64)
+        if device is not None:
+            out = out.to(device=device, non_blocking=True)
+        return out
+
     def _prepare_tracker_inputs(
         self,
         frame_id: int,
@@ -343,9 +363,10 @@ class TrackerPlugin(Plugin):
         det_reid: Optional[torch.Tensor] = None,
         num_detections: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
+        frame_id_t = self._coerce_frame_id_tensor(frame_id)
         if not self._using_static_tracker():
             payload = dict(
-                frame_id=torch.tensor([frame_id], dtype=torch.int64),
+                frame_id=frame_id_t,
                 bboxes=det_bboxes,
                 labels=det_labels,
                 scores=det_scores,
@@ -366,6 +387,7 @@ class TrackerPlugin(Plugin):
         det_reid: Optional[torch.Tensor] = None,
         num_detections: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
+        frame_id_t = self._coerce_frame_id_tensor(frame_id, device=bboxes.device)
         assert self._static_tracker_max_detections is not None
         max_det = self._static_tracker_max_detections
         bboxes = det_bboxes.to(dtype=torch.float32)
@@ -413,9 +435,7 @@ class TrackerPlugin(Plugin):
         kept_t = torch.tensor([kept], dtype=torch.long).to(device=bboxes.device, non_blocking=True)
 
         payload = {
-            "frame_id": torch.tensor([frame_id], dtype=torch.int64).to(
-                device=bboxes.device, non_blocking=True
-            ),
+            "frame_id": frame_id_t,
             "bboxes": padded_bboxes,
             "labels": padded_labels,
             "scores": padded_scores,
