@@ -225,7 +225,7 @@ aspen:
       depends: [
         tracker, 
         camera_controller,
-        pose,
+        # pose,
       ]
       enabled: true
       params:
