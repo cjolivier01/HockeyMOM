@@ -149,6 +149,8 @@ rink:
     # Rink-related tracking config
     #
     fixed_edge_rotation_angle: 10
+    # Ratio of height and width for the "destination" box based upon what the "fast box" size is.
+    # Making this ratio larger makes the destination box larger, which makes the camera less zoomed in
     follower_box_scale_width: 1.5
     follower_box_scale_height: 1.5
     crop_image: true
@@ -177,7 +179,9 @@ rink:
     stop_delay_cooldown_frames: 2
     # When increasing speed toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
-    time_to_dest_speed_limit_frames: 10
+    time_to_dest_speed_limit_frames: 30
+    # When time-to-dest limiting is active, snap to zero below this speed (px/frame)
+    time_to_dest_stop_speed_threshold: 0.25
 
     # Resizing direction-change braking (size dampening)
     # Frames to brake to a stop on resize direction change
@@ -190,7 +194,10 @@ rink:
     resizing_stop_delay_cooldown_frames: 2
     # When increasing size toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
-    resizing_time_to_dest_speed_limit_frames: 10
+    resizing_time_to_dest_speed_limit_frames: 20
+    # When resize time-to-dest limiting is active, snap to zero below this speed (px/frame)
+    resizing_time_to_dest_stop_speed_threshold: 0.25
+
 
     # Sticky translation
     sticky_size_ratio_to_frame_width: 10.0

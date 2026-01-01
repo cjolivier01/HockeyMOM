@@ -350,12 +350,44 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.cancel_stop_hysteresis_frames = cancel_hyst
             current_roi_aspect_config.stop_delay_cooldown_frames = cooldown_frames
 
+            resize_stop_dir_delay = int(
+                self._initial_camera_value("resizing_stop_on_dir_change_delay")
+            )
+            resize_cancel_stop = bool(
+                self._initial_camera_value("resizing_cancel_stop_on_opposite_dir")
+            )
+            resize_cancel_hyst = int(
+                self._initial_camera_value("resizing_stop_cancel_hysteresis_frames")
+            )
+            resize_cooldown_frames = int(
+                self._initial_camera_value("resizing_stop_delay_cooldown_frames")
+            )
+            resize_ttg_frames = int(
+                self._require_camera_value("resizing_time_to_dest_speed_limit_frames")
+            )
+            for cfg in (current_roi_config, current_roi_aspect_config):
+                cfg.resizing_stop_on_dir_change_delay = resize_stop_dir_delay
+                cfg.resizing_cancel_stop_on_opposite_dir = resize_cancel_stop
+                cfg.resizing_stop_cancel_hysteresis_frames = resize_cancel_hyst
+                cfg.resizing_stop_delay_cooldown_frames = resize_cooldown_frames
+                cfg.resizing_time_to_dest_speed_limit_frames = int(
+                    resize_ttg_frames * self._hockey_mom.fps_speed_scale
+                )
+
             # FIXME: get this from config
             current_roi_aspect_config.dynamic_acceleration_scaling = 1.0
             current_roi_aspect_config.arena_angle_from_vertical = 30.0
 
             current_roi_aspect_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             cam_cfg = self._camera_cfg()
+            ttg_stop_thresh = float(cam_cfg.get("time_to_dest_stop_speed_threshold", 0.0))
+            resize_ttg_stop_thresh = float(
+                cam_cfg.get("resizing_time_to_dest_stop_speed_threshold", 0.0)
+            )
+            current_roi_config.time_to_dest_stop_speed_threshold = ttg_stop_thresh
+            current_roi_aspect_config.time_to_dest_stop_speed_threshold = ttg_stop_thresh
+            for cfg in (current_roi_config, current_roi_aspect_config):
+                cfg.resizing_time_to_dest_stop_speed_threshold = resize_ttg_stop_thresh
             current_roi_aspect_config.sticky_size_ratio_to_frame_width = cam_cfg[
                 "sticky_size_ratio_to_frame_width"
             ]
@@ -446,6 +478,27 @@ class PlayTracker(torch.nn.Module):
             cancel_stop = bool(self._initial_camera_value("cancel_stop_on_opposite_dir"))
             cancel_hyst = int(self._initial_camera_value("stop_cancel_hysteresis_frames"))
             cooldown_frames = int(self._initial_camera_value("stop_delay_cooldown_frames"))
+            ttg_stop_thresh = float(
+                self._camera_cfg().get("time_to_dest_stop_speed_threshold", 0.0)
+            )
+            resize_stop_dir_delay = int(
+                self._initial_camera_value("resizing_stop_on_dir_change_delay")
+            )
+            resize_cancel_stop = bool(
+                self._initial_camera_value("resizing_cancel_stop_on_opposite_dir")
+            )
+            resize_cancel_hyst = int(
+                self._initial_camera_value("resizing_stop_cancel_hysteresis_frames")
+            )
+            resize_cooldown_frames = int(
+                self._initial_camera_value("resizing_stop_delay_cooldown_frames")
+            )
+            resize_ttg_frames = int(
+                self._require_camera_value("resizing_time_to_dest_speed_limit_frames") * speed_scale
+            )
+            resize_ttg_stop_thresh = float(
+                self._camera_cfg().get("resizing_time_to_dest_stop_speed_threshold", 0.0)
+            )
 
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="Current ROI",
@@ -461,6 +514,14 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
                 stop_delay_cooldown_frames=cooldown_frames,
+                time_to_dest_stop_speed_threshold=ttg_stop_thresh,
+                resize_stop_on_dir_change=False,
+                resize_stop_on_dir_change_delay=resize_stop_dir_delay,
+                resize_cancel_stop_on_opposite_dir=resize_cancel_stop,
+                resize_stop_cancel_hysteresis_frames=resize_cancel_hyst,
+                resize_stop_delay_cooldown_frames=resize_cooldown_frames,
+                resize_time_to_dest_speed_limit_frames=resize_ttg_frames,
+                resize_time_to_dest_stop_speed_threshold=resize_ttg_stop_thresh,
                 color=(255, 128, 64),
                 thickness=5,
                 device=self._device,
@@ -484,6 +545,13 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change=True,
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
+                resize_stop_on_dir_change=True,
+                resize_stop_on_dir_change_delay=resize_stop_dir_delay,
+                resize_cancel_stop_on_opposite_dir=resize_cancel_stop,
+                resize_stop_cancel_hysteresis_frames=resize_cancel_hyst,
+                resize_stop_delay_cooldown_frames=resize_cooldown_frames,
+                resize_time_to_dest_speed_limit_frames=resize_ttg_frames,
+                resize_time_to_dest_stop_speed_threshold=resize_ttg_stop_thresh,
                 sticky_translation=True,
                 sticky_size_ratio_to_frame_width=camera_cfg["sticky_size_ratio_to_frame_width"],
                 sticky_translation_gaussian_mult=camera_cfg["sticky_translation_gaussian_mult"],
@@ -502,6 +570,7 @@ class PlayTracker(torch.nn.Module):
                 time_to_dest_speed_limit_frames=int(
                     self._require_camera_value("time_to_dest_speed_limit_frames") * speed_scale
                 ),
+                time_to_dest_stop_speed_threshold=ttg_stop_thresh,
             )
 
         if self._camera_ui_enabled:
@@ -1911,6 +1980,11 @@ class PlayTracker(torch.nn.Module):
             "stop_cancel_hysteresis_frames",
             "stop_delay_cooldown_frames",
             "time_to_dest_speed_limit_frames",
+            "resizing_stop_on_dir_change_delay",
+            "resizing_cancel_stop_on_opposite_dir",
+            "resizing_stop_cancel_hysteresis_frames",
+            "resizing_stop_delay_cooldown_frames",
+            "resizing_time_to_dest_speed_limit_frames",
             "sticky_size_ratio_to_frame_width",
             "sticky_translation_gaussian_mult",
             "unsticky_translation_size_ratio",

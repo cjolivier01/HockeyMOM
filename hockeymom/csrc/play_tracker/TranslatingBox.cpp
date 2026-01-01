@@ -165,8 +165,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
           state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
         }
         if (config_.stop_translation_on_dir_change) {
-          total_diff.dx *= 0.25f; // soften abrupt direction reversals
-          accel_x = total_diff.dx;
+          accel_x = total_diff.dx * 0.25f; // soften abrupt direction reversals
         }
       }
     }
@@ -190,8 +189,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
           state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
         }
         if (config_.stop_translation_on_dir_change) {
-          total_diff.dy *= 0.25f;
-          accel_y = total_diff.dy;
+          accel_y = total_diff.dy * 0.25f;
         }
       }
     }
@@ -260,7 +258,8 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
       if (sgn != 0.0f) {
         const FloatValue new_sgn = sign(v);
         if (new_sgn == sgn) {
-          const FloatValue limit = std::abs(dist) / static_cast<FloatValue>(config_.time_to_dest_speed_limit_frames);
+          const FloatValue limit = std::abs(dist) /
+              static_cast<FloatValue>(config_.time_to_dest_speed_limit_frames);
           // Clamp magnitude to at most limit
           const FloatValue vmax = limit;
           auto v1 = clamp(v, -vmax, vmax);
@@ -270,6 +269,14 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
             //           << " frames.\n";
           }
           v = v1;
+          if (config_.time_to_dest_stop_speed_threshold > 0.0f) {
+            const FloatValue thresh = config_.time_to_dest_stop_speed_threshold;
+            if (std::abs(dist) <=
+                    thresh * static_cast<FloatValue>(config_.time_to_dest_speed_limit_frames) &&
+                std::abs(v) <= thresh) {
+              v = 0.0f;
+            }
+          }
         }
       }
     }

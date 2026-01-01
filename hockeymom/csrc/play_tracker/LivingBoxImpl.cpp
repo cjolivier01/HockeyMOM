@@ -82,7 +82,8 @@ BBox LivingBox::next_position() {
   set_bbox(new_box);
 
   update_nonstop_delay();
-  update_stop_delays();
+  TranslatingBox::update_stop_delays();
+  ResizingBox::update_stop_delays();
   stop_translation_if_out_of_arena();
   clamp_to_arena();
 

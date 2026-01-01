@@ -87,7 +87,7 @@ class AspenNet(torch.nn.Module):
         graph_cfg: Dict[str, Any],
         shared: Optional[Dict[str, Any]] = None,
         minimal_context: bool = False,
-        max_concurrent: int = 3,
+        max_concurrent: int = 2,
         verbose: bool = False,
         validate_output_keys_each_time: bool = False,
     ):

@@ -1131,6 +1131,24 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "stop_resizing_on_dir_change",
           &ResizingConfig::stop_resizing_on_dir_change)
+      .def_readwrite(
+          "resizing_stop_on_dir_change_delay",
+          &ResizingConfig::resizing_stop_on_dir_change_delay)
+      .def_readwrite(
+          "resizing_cancel_stop_on_opposite_dir",
+          &ResizingConfig::resizing_cancel_stop_on_opposite_dir)
+      .def_readwrite(
+          "resizing_stop_cancel_hysteresis_frames",
+          &ResizingConfig::resizing_stop_cancel_hysteresis_frames)
+      .def_readwrite(
+          "resizing_stop_delay_cooldown_frames",
+          &ResizingConfig::resizing_stop_delay_cooldown_frames)
+      .def_readwrite(
+          "resizing_time_to_dest_speed_limit_frames",
+          &ResizingConfig::resizing_time_to_dest_speed_limit_frames)
+      .def_readwrite(
+          "resizing_time_to_dest_stop_speed_threshold",
+          &ResizingConfig::resizing_time_to_dest_stop_speed_threshold)
       .def_readwrite("sticky_sizing", &ResizingConfig::sticky_sizing)
       .def_readwrite(
           "size_ratio_thresh_grow_dw",
@@ -1149,7 +1167,22 @@ void init_living_boxes(::pybind11::module_& m) {
       .def(py::init<>())
       .def_readonly("size_is_frozen", &ResizingState::size_is_frozen)
       .def_readonly("current_speed_w", &ResizingState::current_speed_w)
-      .def_readonly("current_speed_h", &ResizingState::current_speed_h);
+      .def_readonly("current_speed_h", &ResizingState::current_speed_h)
+      // Resize stop-on-direction-change braking state
+      .def_readonly("stop_delay_w", &ResizingState::stop_delay_w)
+      .def_readonly("stop_delay_w_counter", &ResizingState::stop_delay_w_counter)
+      .def_readonly("stop_decel_w", &ResizingState::stop_decel_w)
+      .def_readonly("stop_trigger_dir_w", &ResizingState::stop_trigger_dir_w)
+      .def_readonly("cancel_opp_w_count", &ResizingState::cancel_opp_w_count)
+      .def_readonly("cooldown_w_counter", &ResizingState::cooldown_w_counter)
+      .def_readonly("stop_delay_h", &ResizingState::stop_delay_h)
+      .def_readonly("stop_delay_h_counter", &ResizingState::stop_delay_h_counter)
+      .def_readonly("stop_decel_h", &ResizingState::stop_decel_h)
+      .def_readonly("stop_trigger_dir_h", &ResizingState::stop_trigger_dir_h)
+      .def_readonly("cancel_opp_h_count", &ResizingState::cancel_opp_h_count)
+      .def_readonly("cooldown_h_counter", &ResizingState::cooldown_h_counter)
+      .def_readonly("canceled_stop_w", &ResizingState::canceled_stop_w)
+      .def_readonly("canceled_stop_h", &ResizingState::canceled_stop_h);
 
   py::class_<TranslatingBoxConfig>(m, "TranslatingBoxConfig")
       .def(py::init<>())
@@ -1175,6 +1208,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "time_to_dest_speed_limit_frames",
           &TranslatingBoxConfig::time_to_dest_speed_limit_frames)
+      .def_readwrite(
+          "time_to_dest_stop_speed_threshold",
+          &TranslatingBoxConfig::time_to_dest_stop_speed_threshold)
       .def_readwrite(
           "dynamic_acceleration_scaling",
           &TranslatingBoxConfig::dynamic_acceleration_scaling)
