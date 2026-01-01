@@ -551,27 +551,164 @@ def build_aspen_graph_renderable(snapshot: Dict[str, Any]) -> Table:
         table.add_row(Text("No AspenNet nodes", style="dim"))
         return table
 
+    order = snapshot.get("order") or [node.get("name", "") for node in nodes]
+    order_index = {name: idx for idx, name in enumerate(order)}
+    node_queues = snapshot.get("node_queues") or {}
+
     max_degree = int(snapshot.get("max_degree", 0))
     levels: Dict[int, List[Dict[str, Any]]] = {}
+    node_degree: Dict[str, int] = {}
     for node in nodes:
         degree = int(node.get("degree", 0))
+        name = str(node.get("name", ""))
+        node_degree[name] = degree
         levels.setdefault(degree, []).append(node)
+
+    for degree, level_nodes in levels.items():
+        level_nodes.sort(key=lambda n: order_index.get(str(n.get("name", "")), 0))
+        levels[degree] = level_nodes
+
+    max_nodes = max((len(level_nodes) for level_nodes in levels.values()), default=1)
+
+    label_info: Dict[str, Dict[str, Any]] = {}
+    max_label_len = 0
+    for node in nodes:
+        name = str(node.get("name", ""))
+        active = bool(node.get("active", False))
+        marker = "[#]" if active else "[ ]"
+        q_label = ""
+        q_info = node_queues.get(name)
+        if isinstance(q_info, dict):
+            current = q_info.get("current", 0)
+            max_size = q_info.get("max")
+            if isinstance(max_size, int) and max_size > 0:
+                q_label = f" q:{current}/{max_size}"
+            else:
+                q_label = f" q:{current}"
+        label = f"{marker} {name}{q_label}"
+        max_label_len = max(max_label_len, len(label))
+        label_info[name] = {"label": label, "active": active}
+
+    slot_padding = 2
+    slot_width = max_label_len + slot_padding
+    gap = 4
+    width = slot_width * max_nodes + gap * (max_nodes - 1 if max_nodes > 1 else 0)
+
+    def _spread_positions(count: int, slots: int) -> List[int]:
+        if count <= 0:
+            return []
+        if slots <= 1:
+            return [0] * count
+        if count == 1:
+            return [slots // 2]
+        positions: List[int] = []
+        last = -1
+        for idx in range(count):
+            pos = int(round(idx * (slots - 1) / (count - 1)))
+            if pos <= last:
+                pos = last + 1
+            positions.append(pos)
+            last = pos
+        if positions[-1] >= slots:
+            start = max(0, (slots - count) // 2)
+            positions = list(range(start, start + count))
+        return positions
+
+    level_layouts: Dict[int, List[Dict[str, Any]]] = {}
+    node_centers: Dict[str, int] = {}
     for degree in range(max_degree + 1):
         level_nodes = levels.get(degree, [])
         if not level_nodes:
             continue
-        row = Text()
-        for idx, node in enumerate(level_nodes):
-            if idx > 0:
-                row.append("  ")
-            active = bool(node.get("active", False))
-            marker = "[#]" if active else "[ ]"
-            marker_style = "bold green" if active else "dim"
-            name_style = "bold white" if active else "dim"
-            row.append(marker, style=marker_style)
-            row.append(" ")
-            row.append(str(node.get("name", "")), style=name_style)
-        table.add_row(row)
+        slots = _spread_positions(len(level_nodes), max_nodes)
+        layouts = []
+        for node, slot in zip(level_nodes, slots):
+            name = str(node.get("name", ""))
+            info = label_info.get(name, {})
+            label = info.get("label", "")
+            active = bool(info.get("active", False))
+            slot_start = slot * (slot_width + gap)
+            offset = max(0, (slot_width - len(label)) // 2)
+            pos = slot_start + offset
+            center = pos + (len(label) // 2 if label else 0)
+            node_centers[name] = center
+            layouts.append(
+                {
+                    "name": name,
+                    "label": label,
+                    "active": active,
+                    "pos": pos,
+                }
+            )
+        level_layouts[degree] = layouts
+
+    edges = snapshot.get("edges") or []
+    edges_by_level: Dict[int, List[tuple]] = {}
+    for edge in edges:
+        if not isinstance(edge, (list, tuple)) or len(edge) != 2:
+            continue
+        src, dst = edge
+        src_name = str(src)
+        dst_name = str(dst)
+        src_degree = node_degree.get(src_name)
+        dst_degree = node_degree.get(dst_name)
+        if src_degree is None or dst_degree is None:
+            continue
+        if dst_degree == src_degree + 1:
+            edges_by_level.setdefault(src_degree, []).append((src_name, dst_name))
+
+    def _merge_char(existing: str, new_char: str) -> str:
+        if existing == " ":
+            return new_char
+        if existing == new_char:
+            return existing
+        if existing in "|-+" and new_char in "|-+":
+            return "+"
+        return existing
+
+    for degree in range(max_degree + 1):
+        layouts = level_layouts.get(degree, [])
+        if not layouts:
+            continue
+        row_chars = [" "] * width
+        label_spans = []
+        marker_spans = []
+        for entry in layouts:
+            label = entry["label"]
+            pos = entry["pos"]
+            active = entry["active"]
+            for idx, ch in enumerate(label):
+                if 0 <= pos + idx < width:
+                    row_chars[pos + idx] = ch
+            label_spans.append((pos, pos + len(label), active))
+            marker_spans.append((pos, pos + 3, active))
+        row_text = Text("".join(row_chars))
+        for start, end, active in label_spans:
+            row_text.stylize("bold white" if active else "dim", start, end)
+        for start, end, active in marker_spans:
+            row_text.stylize("bold green" if active else "dim", start, end)
+        table.add_row(row_text)
+
+        connectors = edges_by_level.get(degree, [])
+        if connectors:
+            conn_chars = [" "] * width
+            for src_name, dst_name in connectors:
+                x1 = node_centers.get(src_name)
+                x2 = node_centers.get(dst_name)
+                if x1 is None or x2 is None:
+                    continue
+                if x1 == x2:
+                    conn_chars[x1] = _merge_char(conn_chars[x1], "|")
+                    continue
+                start = min(x1, x2)
+                end = max(x1, x2)
+                conn_chars[start] = _merge_char(conn_chars[start], "+")
+                conn_chars[end] = _merge_char(conn_chars[end], "+")
+                for idx in range(start + 1, end):
+                    conn_chars[idx] = _merge_char(conn_chars[idx], "-")
+            conn_text = Text("".join(conn_chars))
+            conn_text.stylize("dim", 0, len(conn_chars))
+            table.add_row(conn_text)
     return table
 
 

@@ -613,9 +613,11 @@ class AspenNet(torch.nn.Module):
                 {
                     "name": node.name,
                     "degree": int(degree),
-                    "active": bool(active_counts.get(node.name, 0)),
+                    "active": bool(active_counts.get(node.name, 0) > 0),
                 }
             )
+        edges = list(self.graph.edges())
+        node_queues: Dict[str, Dict[str, Any]] = {}
         queue_info = None
         queues = None
         labels: List[str] = []
@@ -623,9 +625,28 @@ class AspenNet(torch.nn.Module):
             if self.thread_graph_mode and hasattr(self, "graph_queues"):
                 queues = list(self.graph_queues)
                 labels = [node.name for node in self.exec_order]
+                for node, q in zip(self.exec_order, queues):
+                    try:
+                        current = q.qsize()
+                    except Exception:
+                        current = 0
+                    max_size = getattr(q, "_max_size", None)
+                    node_queues[node.name] = {"current": int(current), "max": max_size}
             elif hasattr(self, "queues"):
                 queues = list(self.queues)
-                labels = [f"Q{idx}" for idx in range(len(queues))]
+                labels = [node.name for node in self.exec_order]
+                if len(queues) > len(labels):
+                    labels.append("out")
+                for idx, node in enumerate(self.exec_order):
+                    if idx >= len(queues):
+                        break
+                    q = queues[idx]
+                    try:
+                        current = q.qsize()
+                    except Exception:
+                        current = 0
+                    max_size = getattr(q, "_max_size", None)
+                    node_queues[node.name] = {"current": int(current), "max": max_size}
         if queues:
             items = []
             total_current = 0
@@ -659,6 +680,9 @@ class AspenNet(torch.nn.Module):
             "max_degree": int(self.max_graph_degree),
             "queues": queue_info,
             "concurrency": concurrency,
+            "edges": edges,
+            "node_queues": node_queues,
+            "order": [node.name for node in self.exec_order],
         }
 
     def _make_subcontext(self, plugin: torch.nn.Module, context: Dict[str, Any]) -> Dict[str, Any]:
