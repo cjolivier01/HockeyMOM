@@ -867,7 +867,7 @@ class AspenNet(torch.nn.Module):
                 # Smaller/neg numbers are higher priority
                 priority: int = self.max_graph_degree + 1
                 if node.graph_degree is not None:
-                    priority += node.graph_degree
+                    priority -= node.graph_degree
                 node.stream = torch.cuda.Stream(
                     device=device,
                     priority=priority,
