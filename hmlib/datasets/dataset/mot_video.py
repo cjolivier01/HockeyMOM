@@ -149,10 +149,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._to_worker_queue = create_queue(
             mp=False,
             name="mot-video-to-worker" + ("-EDL" if embedded_data_loader is not None else ""),
+            warn_after=10.0,
         )
         self._from_worker_queue = create_queue(
             mp=False,
             name="mot-video-from-worker" + ("-EDL" if embedded_data_loader is not None else ""),
+            warn_after=10.0,
         )
 
         self.load_video_info()

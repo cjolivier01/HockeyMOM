@@ -702,6 +702,7 @@ class AspenNet(torch.nn.Module):
                 mp=False,
                 name=f"Aspen-{node.name}",
                 max_size=self.thread_queue_size,
+                warn_after=5.0,
             )
             for node in self.exec_order
         ]
