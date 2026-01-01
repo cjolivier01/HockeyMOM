@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import math
 from pathlib import Path
@@ -16,11 +17,23 @@ from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
 from hmlib.stitching.blender2 import create_stitcher
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase, cuda_stream_scope, unwrap_tensor, wrap_tensor
-from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last, resize_image
+from hmlib.utils.gpu import (
+    StreamCheckpoint,
+    StreamTensorBase,
+    cuda_stream_scope,
+    unwrap_tensor,
+    wrap_tensor,
+)
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    resize_image,
+)
+from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
 
 from .base import Plugin
-from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
 
 
 def _to_tensor(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> torch.Tensor:
@@ -113,12 +126,12 @@ class StitchingPlugin(Plugin):
         self._config_ref: Optional[Dict[str, Any]] = None
         self._initialized: bool = False
         self._stitcher = None
-        self._remapping_stream: Optional[torch.cuda.Stream] = None
         self._rotate_cache: Dict[Tuple[int, int, torch.device], Dict[str, torch.Tensor]] = {}
         self._width_t: Optional[torch.Tensor] = None
         self._height_t: Optional[torch.Tensor] = None
         self._channel_add_left: Optional[List[float]] = None
         self._channel_add_right: Optional[List[float]] = None
+        self._iter_num: int = 0
 
     def _ensure_initialized(self, context: Dict[str, Any]) -> None:
         if self._initialized:
@@ -382,7 +395,7 @@ class StitchingPlugin(Plugin):
             cache = {"center": center, "s": s, "s_inv": s_inv, "s_001": s_001}
             self._rotate_cache[cache_key] = cache
 
-        angle = torch.tensor(-degrees * math.pi / 180.0, device=device, dtype=torch.float32)
+        angle = torch.zeros((), device=device, dtype=torch.float32) + (-degrees * math.pi / 180.0)
         cos_a = torch.cos(angle)
         sin_a = torch.sin(angle)
         cx, cy = cache["center"][0], cache["center"][1]
@@ -424,6 +437,20 @@ class StitchingPlugin(Plugin):
         if new_h % 2 != 0:
             new_h -= 1
         return resize_image(img, new_width=new_w, new_height=new_h)
+
+    def __call__(self, *args, **kwds):
+        self._iter_num += 1
+        # do_trace = self._iter_num == 4
+        # if do_trace:
+        #     pass
+        # from cuda_stacktrace import CudaStackTracer
+
+        # with CudaStackTracer(functions="cudaStreamSynchronize", enabled=do_trace):
+        with contextlib.nullcontext():
+            results = super().__call__(*args, **kwds)
+        # if do_trace:
+        #     pass
+        return results
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -487,38 +514,29 @@ class StitchingPlugin(Plugin):
                 logger.debug("Right stitch color pipeline failed", exc_info=True)
 
         device = imgs_1.device
-        if device.type == "cuda" and not self._no_cuda_streams and self._remapping_stream is None:
-            self._remapping_stream = torch.cuda.Stream(device=device)
-        stream = None if self._no_cuda_streams else self._remapping_stream
-
-        with cuda_stream_scope(stream), torch.no_grad():
-            self._create_stitcher(context=context, imgs_1=imgs_1, imgs_2=imgs_2, device=device)
-            if isinstance(self._stitcher, (CudaStitchPanoF32, CudaStitchPanoU8)):
-                imgs_1 = make_channels_last(self._ensure_rgba(imgs_1))
-                imgs_2 = make_channels_last(self._ensure_rgba(imgs_2))
-                blended = torch.empty(
-                    [
-                        imgs_1.shape[0],
-                        self._stitcher.canvas_height(),
-                        self._stitcher.canvas_width(),
-                        imgs_1.shape[-1],
-                    ],
-                    dtype=imgs_1.dtype,
-                    device=imgs_1.device,
-                )
-                stream_handle = (
-                    stream.cuda_stream
-                    if stream is not None
-                    else torch.cuda.current_stream(imgs_1.device).cuda_stream
-                )
-                self._stitcher.process(
-                    imgs_1.contiguous(),
-                    imgs_2.contiguous(),
-                    blended,
-                    stream_handle,
-                )
-            else:
-                blended = self._stitcher.forward(inputs=[imgs_1, imgs_2])
+        self._create_stitcher(context=context, imgs_1=imgs_1, imgs_2=imgs_2, device=device)
+        if isinstance(self._stitcher, (CudaStitchPanoF32, CudaStitchPanoU8)):
+            imgs_1 = make_channels_last(self._ensure_rgba(imgs_1))
+            imgs_2 = make_channels_last(self._ensure_rgba(imgs_2))
+            blended = torch.empty(
+                [
+                    imgs_1.shape[0],
+                    self._stitcher.canvas_height(),
+                    self._stitcher.canvas_width(),
+                    imgs_1.shape[-1],
+                ],
+                dtype=imgs_1.dtype,
+                device=imgs_1.device,
+            )
+            stream_handle = torch.cuda.current_stream(imgs_1.device).cuda_stream
+            self._stitcher.process(
+                imgs_1.contiguous(),
+                imgs_2.contiguous(),
+                blended,
+                stream_handle,
+            )
+        else:
+            blended = self._stitcher.forward(inputs=[imgs_1, imgs_2])
 
         rotate_degrees = self._resolve_rotation_degrees(context)
         if rotate_degrees is not None and abs(rotate_degrees) > 1e-6:
@@ -577,7 +595,7 @@ class StitchingPlugin(Plugin):
                 raise RuntimeError("StitchingPlugin pipeline returned unexpected 'img' key")
             data_item["img"] = pipeline_result.pop("inputs")
             data_item.update(pipeline_result)
-            data_item["img"] = StreamCheckpoint(tensor=data_item["img"])
+            data_item["img"] = wrap_tensor(tensor=data_item["img"])
 
         original_images = make_channels_first(blended)
         original_images = wrap_tensor(original_images)
