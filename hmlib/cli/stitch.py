@@ -194,9 +194,9 @@ def stitch_videos(
                 device=remapping_device,
                 decoder_device=decoder_device,
                 frame_step=frame_step_left,
-                no_cuda_streams=bool(getattr(args, "no_cuda_streams", False)),
+                no_cuda_streams=args.no_cuda_streams,
                 image_channel_adders=None,
-                checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
+                checkerboard_input=args.checkerboard_input,
                 async_mode=not args.serial,
             )
             right_loader = MOTLoadVideoWithOrig(
@@ -210,9 +210,9 @@ def stitch_videos(
                 device=remapping_device,
                 decoder_device=decoder_device,
                 frame_step=frame_step_right,
-                no_cuda_streams=bool(getattr(args, "no_cuda_streams", False)),
+                no_cuda_streams=args.no_cuda_streams,
                 image_channel_adders=None,
-                checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
+                checkerboard_input=args.checkerboard_input,
                 async_mode=not args.serial,
             )
             data_loader = MultiDataLoaderWrapper(
@@ -226,7 +226,9 @@ def stitch_videos(
                 max_frames=max_frames,
                 batch_size=batch_size,
                 image_roi=(
-                    get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None
+                    get_clip_box(game_id=game_id, root_dir=ROOT_DIR)
+                    if not ignore_clip_box
+                    else None
                 ),
                 decoder_device=decoder_device,
                 blend_mode=blend_mode,
@@ -237,9 +239,8 @@ def stitch_videos(
                 python_blender=python_blender,
                 post_stitch_rotate_degrees=post_stitch_rotate_degrees,
                 profiler=profiler,
-                # no_cuda_streams=args.no_cuda_streams,
-                no_cuda_streams=True,
-                max_blend_levels=getattr(args, "max_blend_levels", None),
+                no_cuda_streams=args.no_cuda_streams,
+                max_blend_levels=args.max_blend_levels,
             )
 
         data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
