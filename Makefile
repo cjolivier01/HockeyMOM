@@ -32,7 +32,7 @@ develop:
 	bazel/bazel.sh build --config=release //hmlib:develop
 
 deps:
-	 cd external/hugin && $(TOPDIR)/bazel/bazel.sh run --config=release //:install_tree -- --prefix=$(CONDA_PREFIX)
+  cd external/hugin && $(TOPDIR)/bazel/bazel.sh run --config=release //:install_tree -- --prefix=$(CONDA_PREFIX)
 	cd -
 	touch .hugin_built
 
