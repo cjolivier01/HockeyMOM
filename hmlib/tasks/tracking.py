@@ -443,7 +443,7 @@ def run_mmtrack(
                                     max_tracking_id = 0
                         elif display_plugin_profile:
                             last_aspen_timing = aspen_net.get_last_timing()
-                            elif not isinstance(max_tracking_id, (int, float)):
+                        elif not isinstance(max_tracking_id, (int, float)):
                                 try:
                                     max_tracking_id = int(max_tracking_id)
                                 except Exception:
