@@ -272,10 +272,11 @@ class SidebandQueue:
                             f"SidebandQueue '{self._name}' resumed after waiting {total_wait:.2f}s",
                             file=sys.stderr,
                         )
+                        warned = False
                     return val
                 except queue.Empty:
                     # segment timed out without getting an item
-                    if (not warned) or repeat_warn:
+                    if ((not warned) or repeat_warn) and seg_timeout >= warn_after:
                         print(
                             f"Warning: SidebandQueue '{self._name}' waiting >= {seg_timeout:.2f}s for item",
                             file=sys.stderr,
