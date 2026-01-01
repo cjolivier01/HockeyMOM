@@ -829,7 +829,6 @@ def _main(args, num_gpu):
                     python_blender=args.python_blender,
                     minimize_blend=not args.no_minimize_blend,
                     no_cuda_streams=args.no_cuda_streams,
-                    async_mode=not args.no_async_dataset,
                     post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
                     profiler=getattr(args, "profiler", None),
                     config_ref=args.game_config,

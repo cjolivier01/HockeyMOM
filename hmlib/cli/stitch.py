@@ -173,7 +173,6 @@ def stitch_videos(
             profiler=profiler,
             # no_cuda_streams=args.no_cuda_streams,
             no_cuda_streams=True,
-            async_mode=False,
             max_blend_levels=getattr(args, "max_blend_levels", None),
         )
 

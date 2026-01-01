@@ -144,7 +144,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         minimize_blend: bool = True,
         python_blender: bool = True,
         no_cuda_streams: bool = False,
-        async_mode: bool = True,
         show_image_components: bool = False,
         post_stitch_rotate_degrees: Optional[float] = None,
         profiler: Any = None,
@@ -157,8 +156,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         checkerboard_input: bool = False,
     ):
         super().__init__()
-        if async_mode:
-            logger.warning("StitchDataset async_mode is no longer supported; running synchronously")
         self._start_frame_number = start_frame_number
         self._no_cuda_streams = bool(no_cuda_streams)
         self._checkerboard_input = checkerboard_input
@@ -403,7 +400,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 frame_step=frame_step_1,
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_left,
-                async_mode=False,
+                async_mode=True,
                 checkerboard_input=self._checkerboard_input,
             )
         )
@@ -421,7 +418,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 frame_step=frame_step_2,
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_right,
-                async_mode=False,
+                async_mode=True,
                 checkerboard_input=self._checkerboard_input,
             )
         )
