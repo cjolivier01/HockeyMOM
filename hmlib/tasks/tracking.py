@@ -1,13 +1,14 @@
 import contextlib
+import time
 import traceback
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
 # AspenNet graph runner
 from hmlib.aspen import AspenNet
-from hmlib.config import get_game_dir
+from hmlib.config import get_game_dir, get_nested_value
 from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.hm_opts import hm_opts
 from hmlib.log import logger
@@ -69,6 +70,16 @@ def run_mmtrack(
             last_frame_id = None
             max_tracking_id = 0
 
+            display_opt = config.get("display_plugin_profile")
+            if display_opt is None:
+                display_opt = get_nested_value(config, "aspen.pipeline.display_plugin_profile", None)
+            display_plugin_profile = bool(display_opt)
+
+            last_aspen_timing: Optional[Dict[str, Any]] = None
+            last_dataloader_time: Optional[float] = None
+            plugin_names: List[str] = []
+            plugin_display_names: List[str] = []
+
             if progress_bar is not None:
                 dataloader_iterator = progress_bar.set_iterator(dataloader_iterator)
 
@@ -76,6 +87,9 @@ def run_mmtrack(
                 # The progress table
                 #
                 def _table_callback(table_map: OrderedDict[Any, Any]):
+                    for key in list(table_map.keys()):
+                        if str(key).startswith("Pct "):
+                            del table_map[key]
                     duration_processed_in_seconds = (
                         number_of_batches_processed * batch_size / dataloader.fps
                     )
@@ -100,6 +114,29 @@ def run_mmtrack(
                         )
                         table_map["Track count"] = str(nr_tracks)
                         table_map["Track IDs"] = str(int(max_tracking_id))
+                    if display_plugin_profile and last_aspen_timing is not None:
+                        plugin_times = last_aspen_timing.get("plugins", {})
+                        total_time = float(last_aspen_timing.get("total", 0.0) or 0.0)
+                        if last_dataloader_time is not None:
+                            total_time += float(last_dataloader_time)
+                        if total_time > 0.0:
+                            dl_pct = (
+                                100.0 * float(last_dataloader_time) / total_time
+                                if last_dataloader_time is not None
+                                else None
+                            )
+                            if dl_pct is not None and dl_pct >= 1.0:
+                                table_map["Pct dataloader"] = f"{dl_pct:.1f}%"
+                            ordered_plugins = plugin_display_names or plugin_names or list(
+                                plugin_times.keys()
+                            )
+                            for name in ordered_plugins:
+                                if name not in plugin_times:
+                                    continue
+                                pct = 100.0 * float(plugin_times[name]) / total_time
+                                if pct < 1.0:
+                                    continue
+                                table_map[f"Pct {name}"] = f"{pct:.1f}%"
 
                 # Add that table-maker to the progress bar
                 progress_bar.add_table_callback(_table_callback)
@@ -250,6 +287,16 @@ def run_mmtrack(
                 aspen_name = aspen_cfg.get("name") or config.get("game_id") or "aspen"
                 aspen_net = AspenNet(aspen_name, aspen_cfg, shared=shared)
                 aspen_net = aspen_net.to(device)
+                if display_plugin_profile:
+                    plugin_names = [node.name for node in aspen_net.exec_order]
+                    plugin_display_names = []
+                    for node in aspen_net.exec_order:
+                        module = node.module
+                        if getattr(module, "enabled", True) is False:
+                            continue
+                        if module.__class__.__name__ == "_NoOpPlugin":
+                            continue
+                        plugin_display_names.append(node.name)
             # Optional torch profiler context spanning the run
             prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
             with prof_ctx:
@@ -281,7 +328,19 @@ def run_mmtrack(
                         return None, int(img.shape[0]) if img.ndim == 4 else 1
                     return None, 0
 
-                for cur_iter, dataset_results in enumerate(dataloader_iterator):
+                cur_iter = 0
+                while True:
+                    dataloader_start = time.perf_counter() if display_plugin_profile else None
+                    try:
+                        dataset_results = next(dataloader_iterator)
+                    except StopIteration:
+                        break
+                    if display_plugin_profile:
+                        last_dataloader_time = (
+                            time.perf_counter() - dataloader_start
+                            if dataloader_start is not None
+                            else None
+                        )
                     data_item = None
                     original_images = None
                     info_imgs = None
@@ -332,6 +391,8 @@ def run_mmtrack(
                             detect_timer=detect_timer,
                             mean_tracker=mean_tracker,
                         )
+                        if display_plugin_profile and progress_bar is not None:
+                            iter_context["_aspen_timing_enabled"] = True
                         if stitch_inputs is not None:
                             iter_context.update(
                                 stitch_inputs=stitch_inputs,
@@ -363,6 +424,8 @@ def run_mmtrack(
 
                         # Async AspenNet returns None from forward()
                         if out_context is not None:
+                            if display_plugin_profile:
+                                last_aspen_timing = aspen_net.get_last_timing()
                             # Update stats for progress bar
                             nr_tracks = out_context.get("nr_tracks", 0)
                             if isinstance(nr_tracks, torch.Tensor):
@@ -378,6 +441,8 @@ def run_mmtrack(
                                     max_tracking_id = int(max_tracking_id.reshape(-1)[0].item())
                                 except Exception:
                                     max_tracking_id = 0
+                        elif display_plugin_profile:
+                            last_aspen_timing = aspen_net.get_last_timing()
                             elif not isinstance(max_tracking_id, (int, float)):
                                 try:
                                     max_tracking_id = int(max_tracking_id)
@@ -414,6 +479,7 @@ def run_mmtrack(
                         wraparound_timer.toc()
 
                     number_of_batches_processed += 1
+                    cur_iter += 1
                     # Per-iteration profiler step for per-iter export if enabled
                     if getattr(profiler, "enabled", False):
                         profiler.step()
