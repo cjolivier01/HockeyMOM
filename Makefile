@@ -1,6 +1,8 @@
 
 PRE_RUN="source .bazel_setup.sh"
 
+TOPDIR=$(shell pwd)
+
 all: print_targets
 
 .PHONY: print_targets perf debug develop wheel test clean distclean expunge
@@ -28,6 +30,11 @@ develop:
 #	bazel/bazel.sh build --config=debug //hockeymom:develop
 	bazel/bazel.sh run --config=release //hockeymom:link_ext
 	bazel/bazel.sh build --config=release //hmlib:develop
+
+deps:
+	 cd external/hugin && $(TOPDIR)/bazel/bazel.sh run --config=release //:install_tree -- --prefix=$(CONDA_PREFIX)
+	cd -
+	touch .hugin_built
 
 print_targets:
 	@echo "Available targets:"
