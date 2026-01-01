@@ -718,7 +718,6 @@ class hm_opts(object):
             "--aspen-thread-graph",
             dest="aspen_thread_graph",
             action="store_true",
-            default=True,
             help="Run threaded Aspen plugins in graph scheduling mode",
         )
         aspen_graph_group.add_argument(
@@ -740,7 +739,6 @@ class hm_opts(object):
             "--aspen-thread-cuda-streams",
             dest="aspen_thread_cuda_streams",
             action="store_true",
-            default=True,
             help="Give each threaded Aspen trunk its own CUDA stream",
         )
         aspen_stream_group.add_argument(
@@ -755,7 +753,6 @@ class hm_opts(object):
             "--aspen-stitching",
             dest="aspen_stitching",
             action="store_true",
-            default=True,
             help="Enable Aspen stitching plugin for multi-camera inputs",
         )
         aspen_stitch_group.add_argument(
@@ -779,12 +776,6 @@ class hm_opts(object):
             help="Hide per-plugin timing percentages in the progress table",
         )
         parser.set_defaults(display_plugin_profile=None)
-        parser.add_argument(
-            "--stitch-cache-size",
-            type=int,
-            default=None,
-            help="cache size for GPU stitching async operations",
-        )
         parser.add_argument(
             "--fp16",
             default=False,
@@ -1355,7 +1346,6 @@ class hm_opts(object):
         # Normalize some conflicting arguments
         if opt.serial:
             opt.cache_size = 0
-            opt.stitch_cache_size = 0
             opt.no_async_dataset = True
 
         if opt.show_scaled:
