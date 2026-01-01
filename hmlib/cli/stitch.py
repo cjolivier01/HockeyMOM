@@ -299,6 +299,8 @@ def stitch_videos(
         video_out_params: Dict[str, Any] = video_out_spec.get("params", {}) or {}
         if output_stitched_video_file:
             video_out_params.setdefault("output_video_path", output_stitched_video_file)
+        else:
+            video_out_params.setdefault("output_video_path", "stitched_output.mkv")
         video_out_spec["params"] = video_out_params
         plugins_cfg["video_out"] = video_out_spec
         aspen_graph_cfg["plugins"] = plugins_cfg

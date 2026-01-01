@@ -100,11 +100,11 @@ class VideoOutPlugin(Plugin):
         #   2. CLI/config-derived path on cam_args.output_video_path
         #   3. Fallback to <work_dir>/tracking_output.mkv
         out_path = self._out_path
-        if not out_path:
+        if not out_path or "/" not in out_path:
             candidate = getattr(cam_args, "output_video_path", None)
             if not candidate:
                 work_dir = context.get("work_dir") or os.path.join(os.getcwd(), "output_workdirs")
-                candidate = os.path.join(str(work_dir), "tracking_output.mkv")
+                candidate = os.path.join(str(work_dir), out_path or "tracking_output.mkv")
             out_path = candidate
         self._out_path = out_path
 
