@@ -157,7 +157,7 @@ class AspenNet(torch.nn.Module):
                     f"got {max_concurrent_cfg!r}"
                 ) from exc
         cuda_streams_flag = pipeline_cfg.get("cuda_streams", True)
-        self.thread_cuda_streams: bool = bool(cuda_streams_flag)
+        self.thread_cuda_streams: bool = bool(cuda_streams_flag) or self.thread_graph_mode
 
         # Accept a dict with a required {plugins: {...}} mapping.
         plugins = graph_cfg.get("plugins") if isinstance(graph_cfg, dict) else None
