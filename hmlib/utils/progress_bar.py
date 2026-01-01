@@ -8,6 +8,7 @@ tools in :mod:`hmlib`.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import logging
 import shutil
@@ -30,6 +31,18 @@ logging_out = sys.stdout
 
 # Shared rich console used for both progress bars and log output.
 RICH_CONSOLE = Console(file=progress_out, stderr=True)
+_CURSOR_SHOW = "\033[?25h"
+
+
+def _restore_cursor():
+    try:
+        progress_out.write(_CURSOR_SHOW)
+        progress_out.flush()
+    except Exception:
+        pass
+
+
+atexit.register(_restore_cursor)
 
 
 class FramesColumn(ProgressColumn):
@@ -437,6 +450,7 @@ class ProgressBar:
             except Exception:
                 pass
             self._rich_started = False
+        _restore_cursor()
 
     def refresh(self, final: bool = False):
         # Avoid starting the rich UI until after the warm-up threshold so
