@@ -422,7 +422,8 @@ class VideoOutput(torch.nn.ModuleDict):
                 )
         else:
             # Sync the stream if skipping final save
-            online_im = wrap_tensor(online_im, verbose=True).get()
+            # online_im = wrap_tensor(online_im, verbose=True).get()
+            pass
 
         # Save frames as individual frames
         if self._save_frame_dir:

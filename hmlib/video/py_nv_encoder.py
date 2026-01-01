@@ -230,7 +230,7 @@ class PyNvVideoEncoder:
                 with frame_ctx:
                     yuv420 = self._bgr_to_yuv420(frame)
                     # Synchronize the stream before sending it to NVENC.
-                    current_stream.synchronize()
+                    # current_stream.synchronize()
 
                     # yuv420 is a 2D CUDA tensor with shape [H*3/2, W], uint8.
                     bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
