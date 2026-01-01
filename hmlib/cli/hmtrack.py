@@ -1,5 +1,6 @@
 import argparse
 import copy
+import math
 import os
 import shutil
 
@@ -7,7 +8,7 @@ import shutil
 import traceback
 from collections import OrderedDict
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # We need this to get registered
 import torch
@@ -33,7 +34,7 @@ from hmlib.config import (
 from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
-from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
+from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
 from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
 
@@ -274,6 +275,35 @@ def is_stitching(input_video: str) -> bool:
     return len(input_video_files) == 2 or os.path.isdir(input_video)
 
 
+class _StitchRotationController:
+    def __init__(self, game_config: Optional[Dict[str, Any]] = None) -> None:
+        self._config = game_config
+        self._value: Optional[float] = None
+
+    def get_post_stitch_rotate_degrees(self) -> Optional[float]:
+        if isinstance(self._config, dict):
+            try:
+                val = get_nested_value(self._config, "game.stitching.stitch-rotate-degrees", None)
+                if val is None:
+                    val = get_nested_value(self._config, "game.stitching.stitch_rotate_degrees", None)
+                if val is not None:
+                    return float(val)
+            except Exception:
+                pass
+        return self._value
+
+    def set_post_stitch_rotate_degrees(self, degrees: Optional[float]) -> None:
+        self._value = degrees
+        if isinstance(self._config, dict):
+            try:
+                set_nested_value(self._config, "game.stitching.stitch-rotate-degrees", degrees)
+            except Exception:
+                try:
+                    set_nested_value(self._config, "game.stitching.stitch_rotate_degrees", degrees)
+                except Exception:
+                    pass
+
+
 def _main(args, num_gpu):
     dataloader = None
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
@@ -401,7 +431,6 @@ def _main(args, num_gpu):
         if is_single_lowmem_gpu:
             print("Adjusting configuration for a single low-memory GPU environment...")
             args.cache_size = 0
-            args.stitch_cache_size = 0
             # args.batch_size = 1
 
         # This would be way too slow on CPU
@@ -741,6 +770,13 @@ def _main(args, num_gpu):
         postprocessor = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
+            aspen_stitching_cli = getattr(args, "aspen_stitching", None)
+            if aspen_stitching_cli is None and isinstance(aspen_cfg_for_pipeline, dict):
+                use_aspen_stitching = bool(
+                    get_nested_value(aspen_cfg_for_pipeline, "stitching.enabled", False)
+                )
+            else:
+                use_aspen_stitching = bool(aspen_stitching_cli)
             if is_stitching(args.input_video):
                 project_file_name = "hm_project.pto"
 
@@ -802,66 +838,134 @@ def _main(args, num_gpu):
                         "frame_offset": rfo,
                     },
                 }
-                stitch_cache_size = (
-                    args.cache_size if args.stitch_cache_size is None else args.stitch_cache_size
-                )
-                # Optional per-camera stitching color pipelines from Aspen config
-                left_stitch_pipeline_cfg = None
-                right_stitch_pipeline_cfg = None
-                if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
-                    left_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get("left_stitch_pipeline")
-                    right_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get("right_stitch_pipeline")
-                stitched_dataset = StitchDataset(
-                    videos=stitch_videos,
-                    pto_project_file=pto_project_file,
-                    start_frame_number=args.start_frame,
-                    max_frames=args.max_frames,
-                    max_input_queue_size=stitch_cache_size,
-                    image_roi=None,
-                    batch_size=args.batch_size,
-                    remapping_device=gpus["stitching"],
-                    decoder_device=(
-                        torch.device(args.decoder_device) if args.decoder_device else None
-                    ),
-                    blend_mode=opts.blend_mode,
-                    dtype=torch.float if not args.fp16_stitch else torch.half,
-                    auto_adjust_exposure=args.stitch_auto_adjust_exposure,
-                    python_blender=args.python_blender,
-                    minimize_blend=not args.no_minimize_blend,
-                    no_cuda_streams=args.no_cuda_streams,
-                    post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
-                    profiler=getattr(args, "profiler", None),
-                    config_ref=args.game_config,
-                    left_color_pipeline=left_stitch_pipeline_cfg,
-                    right_color_pipeline=right_stitch_pipeline_cfg,
-                    capture_rgb_stats=bool(getattr(args, "checkerboard_input", False)),
-                    checkerboard_input=args.checkerboard_input,
-                )
-                # Expose the StitchDataset instance so PlayTracker can control
-                # post-stitch rotation via the UI slider.
-                args.stitch_rotation_controller = stitched_dataset
-                # Create the MOT video data loader, passing it the
-                # stitching data loader as its image source
-                mot_dataloader = MOTLoadVideoWithOrig(
-                    path=None,
-                    game_id=dir_name,
-                    start_frame_number=args.start_frame,
-                    batch_size=1,  # This batch will contain one batch of whatever the stitcher's batch size is
-                    embedded_data_loader=stitched_dataset,
-                    data_pipeline=data_pipeline,
-                    dtype=torch.float if not args.fp16 else torch.half,
-                    device=gpus["stitching"],
-                    original_image_only=False,
-                    adjust_exposure=args.adjust_exposure,
-                    no_cuda_streams=args.no_cuda_streams,
-                    async_mode=not args.no_async_dataset,
-                    checkerboard_input=args.checkerboard_input,
-                )
-                try:
-                    mot_dataloader.set_profiler(getattr(args, "profiler", None))
-                except Exception:
-                    pass
-                dataloader.append_dataset("pano", mot_dataloader)
+                def _set_runtime_arg(name: str, value: Any) -> None:
+                    setattr(args, name, value)
+                    if hasattr(args, "initial_args") and isinstance(args.initial_args, dict):
+                        args.initial_args[name] = value
+                    if isinstance(args.game_config, dict):
+                        init_args = args.game_config.get("initial_args")
+                        if isinstance(init_args, dict):
+                            init_args[name] = value
+
+                _set_runtime_arg("stitch_pto_project_file", str(pto_project_file))
+                args.stitch_data_pipeline = data_pipeline
+
+                if use_aspen_stitching:
+                    # Enable the UI slider without a StitchDataset instance.
+                    args.stitch_rotation_controller = _StitchRotationController(args.game_config)
+
+                    frame_step_left = 1
+                    frame_step_right = 1
+                    if left_vid.fps > right_vid.fps:
+                        int_ratio = int(left_vid.fps // right_vid.fps)
+                        float_ratio = float(left_vid.fps / right_vid.fps)
+                        if math.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
+                            frame_step_left = int_ratio
+                    elif right_vid.fps > left_vid.fps:
+                        int_ratio = int(right_vid.fps // left_vid.fps)
+                        float_ratio = float(right_vid.fps / left_vid.fps)
+                        if math.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
+                            frame_step_right = int_ratio
+
+                    game_id = os.path.basename(str(dir_name))
+                    left_loader = MOTLoadVideoWithOrig(
+                        path=game_videos["left"],
+                        game_id=game_id,
+                        max_frames=args.max_frames,
+                        batch_size=args.batch_size,
+                        start_frame_number=args.start_frame + lfo,
+                        original_image_only=True,
+                        dtype=torch.uint8,
+                        device=gpus["stitching"],
+                        decoder_device=(
+                            torch.device(args.decoder_device) if args.decoder_device else None
+                        ),
+                        frame_step=frame_step_left,
+                        no_cuda_streams=args.no_cuda_streams,
+                        image_channel_adders=None,
+                        checkerboard_input=args.checkerboard_input,
+                    ).force_sync()
+                    right_loader = MOTLoadVideoWithOrig(
+                        path=game_videos["right"],
+                        game_id=game_id,
+                        max_frames=args.max_frames,
+                        batch_size=args.batch_size,
+                        start_frame_number=args.start_frame + rfo,
+                        original_image_only=True,
+                        dtype=torch.uint8,
+                        device=gpus["stitching"],
+                        decoder_device=(
+                            torch.device(args.decoder_device) if args.decoder_device else None
+                        ),
+                        frame_step=frame_step_right,
+                        no_cuda_streams=args.no_cuda_streams,
+                        image_channel_adders=None,
+                        checkerboard_input=args.checkerboard_input,
+                    ).force_sync()
+                    stitch_inputs = MultiDataLoaderWrapper(
+                        dataloaders=[left_loader, right_loader],
+                    )
+                    dataloader.append_dataset("stitch_inputs", stitch_inputs)
+                else:
+                    # Optional per-camera stitching color pipelines from Aspen config
+                    left_stitch_pipeline_cfg = None
+                    right_stitch_pipeline_cfg = None
+                    if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
+                        left_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get(
+                            "left_stitch_pipeline"
+                        )
+                        right_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get(
+                            "right_stitch_pipeline"
+                        )
+                    stitched_dataset = StitchDataset(
+                        videos=stitch_videos,
+                        pto_project_file=pto_project_file,
+                        start_frame_number=args.start_frame,
+                        max_frames=args.max_frames,
+                        image_roi=None,
+                        batch_size=args.batch_size,
+                        remapping_device=gpus["stitching"],
+                        decoder_device=(
+                            torch.device(args.decoder_device) if args.decoder_device else None
+                        ),
+                        blend_mode=opts.blend_mode,
+                        dtype=torch.float if not args.fp16_stitch else torch.half,
+                        auto_adjust_exposure=args.stitch_auto_adjust_exposure,
+                        python_blender=args.python_blender,
+                        minimize_blend=not args.no_minimize_blend,
+                        no_cuda_streams=args.no_cuda_streams,
+                        post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
+                        profiler=getattr(args, "profiler", None),
+                        config_ref=args.game_config,
+                        left_color_pipeline=left_stitch_pipeline_cfg,
+                        right_color_pipeline=right_stitch_pipeline_cfg,
+                        capture_rgb_stats=bool(getattr(args, "checkerboard_input", False)),
+                        checkerboard_input=args.checkerboard_input,
+                    )
+                    # Expose the StitchDataset instance so PlayTracker can control
+                    # post-stitch rotation via the UI slider.
+                    args.stitch_rotation_controller = stitched_dataset
+                    # Create the MOT video data loader, passing it the
+                    # stitching data loader as its image source
+                    mot_dataloader = MOTLoadVideoWithOrig(
+                        path=None,
+                        game_id=dir_name,
+                        start_frame_number=args.start_frame,
+                        batch_size=1,  # This batch will contain one batch of whatever the stitcher's batch size is
+                        embedded_data_loader=stitched_dataset,
+                        data_pipeline=data_pipeline,
+                        dtype=torch.float if not args.fp16 else torch.half,
+                        device=gpus["stitching"],
+                        original_image_only=False,
+                        adjust_exposure=args.adjust_exposure,
+                        no_cuda_streams=args.no_cuda_streams,
+                        checkerboard_input=args.checkerboard_input,
+                    ).force_sync()
+                    try:
+                        mot_dataloader.set_profiler(getattr(args, "profiler", None))
+                    except Exception:
+                        pass
+                    dataloader.append_dataset("pano", mot_dataloader)
             else:
                 assert len(input_video_files) == 1
                 if os.path.isdir(input_video_files[0]):

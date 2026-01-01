@@ -526,6 +526,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 self._open_video()
         return self
 
+    def force_sync(self) -> "MOTLoadVideoWithOrig":
+        """Force synchronous iteration (no background worker)."""
+        self._async_mode = False
+        return self
+
     def _read_next_image(self):
         img = None
         if self.cap is not None:

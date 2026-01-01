@@ -53,6 +53,34 @@ aspen:
     #              and invoke ffmpeg once at close() to mux into the container
     # The CLI flag --video-encoder-backend overrides this when provided.
     encoder_backend: "auto"
+  stitching:
+    enabled: false
+    pto_project_file: null
+    dir_name: null
+    blend_mode: "laplacian"
+    max_blend_levels: null
+    auto_adjust_exposure: true
+    python_blender: false
+    minimize_blend: true
+    dtype: "float32"
+    no_cuda_streams: false
+    post_stitch_rotate_degrees: null
+    capture_rgb_stats: false
+    max_output_width: 8192
+  left_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      config_paths:
+        - [game, stitching, left, color]
+        - [game, stitching, left]
+      refresh_from_config: true
+  right_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      config_paths:
+        - [game, stitching, right, color]
+        - [game, stitching, right]
+      refresh_from_config: true
 
 #
 # Rink config

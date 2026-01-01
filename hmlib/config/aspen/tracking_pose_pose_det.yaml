@@ -35,9 +35,29 @@ aspen:
         image: images/sports_ai_watermark.png
 
   plugins:
+    stitching:
+      class: hmlib.aspen.plugins.stitching_plugin.StitchingPlugin
+      depends: []
+      enabled: GLOBAL.aspen.stitching.enabled
+      params:
+        pto_project_file: GLOBAL.aspen.stitching.pto_project_file
+        dir_name: GLOBAL.aspen.stitching.dir_name
+        blend_mode: GLOBAL.aspen.stitching.blend_mode
+        max_blend_levels: GLOBAL.aspen.stitching.max_blend_levels
+        auto_adjust_exposure: GLOBAL.aspen.stitching.auto_adjust_exposure
+        python_blender: GLOBAL.aspen.stitching.python_blender
+        minimize_blend: GLOBAL.aspen.stitching.minimize_blend
+        dtype: GLOBAL.aspen.stitching.dtype
+        no_cuda_streams: GLOBAL.aspen.stitching.no_cuda_streams
+        post_stitch_rotate_degrees: GLOBAL.aspen.stitching.post_stitch_rotate_degrees
+        left_color_pipeline: GLOBAL.aspen.left_stitch_pipeline
+        right_color_pipeline: GLOBAL.aspen.right_stitch_pipeline
+        capture_rgb_stats: GLOBAL.aspen.stitching.capture_rgb_stats
+        max_output_width: GLOBAL.aspen.stitching.max_output_width
+
     image_prep:
       class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
-      depends: []
+      depends: [stitching]
       params: {}
 
     model_factory:

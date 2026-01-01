@@ -1,7 +1,7 @@
 import contextlib
 import traceback
 from collections import OrderedDict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 
@@ -253,26 +253,72 @@ def run_mmtrack(
             # Optional torch profiler context spanning the run
             prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
             with prof_ctx:
-                for cur_iter, dataset_results in enumerate(dataloader_iterator):
-                    data_item = dataset_results.pop("pano")
-                    original_images = data_item.pop("original_images")
-                    info_imgs = data_item["img_info"]
-                    ids = data_item["ids"]
-
-                    if fps:
-                        data_item["fps"] = fps
-                    with torch.no_grad():
-                        frame_id = info_imgs["frame_id"]
-
-                    batch_size = original_images.shape[0]
-
-                    if last_frame_id is None:
-                        last_frame_id = int(frame_id)
+                def _extract_stitch_ids(stitch_inputs: Any) -> Tuple[Optional[torch.Tensor], int]:
+                    if isinstance(stitch_inputs, dict):
+                        left = stitch_inputs.get("left")
                     else:
-                        assert int(frame_id) == last_frame_id + batch_size
-                        last_frame_id = int(frame_id)
+                        left = stitch_inputs[0] if stitch_inputs else None
+                    if left is None:
+                        return None, 0
+                    ids_val = left.get("frame_ids")
+                    if ids_val is None:
+                        ids_val = left.get("ids")
+                    if ids_val is None:
+                        ids_val = left.get("img_id")
+                    if isinstance(ids_val, (list, tuple)):
+                        ids_val = torch.tensor(ids_val, dtype=torch.int64)
+                    if isinstance(ids_val, torch.Tensor) and ids_val.is_cuda:
+                        ids_val = ids_val.detach().cpu()
+                    if isinstance(ids_val, torch.Tensor):
+                        return ids_val, int(ids_val.shape[0])
+                    if ids_val is not None:
+                        try:
+                            return torch.tensor(list(ids_val), dtype=torch.int64), len(ids_val)
+                        except Exception:
+                            pass
+                    img = left.get("img")
+                    if isinstance(img, torch.Tensor):
+                        return None, int(img.shape[0]) if img.ndim == 4 else 1
+                    return None, 0
 
-                    batch_size = original_images.shape[0]
+                for cur_iter, dataset_results in enumerate(dataloader_iterator):
+                    data_item = None
+                    original_images = None
+                    info_imgs = None
+                    ids = None
+                    frame_id = None
+                    batch_size = 0
+                    stitch_inputs = None
+
+                    if "pano" in dataset_results:
+                        data_item = dataset_results.pop("pano")
+                        original_images = data_item.pop("original_images")
+                        info_imgs = data_item["img_info"]
+                        ids = data_item["ids"]
+                        if fps:
+                            data_item["fps"] = fps
+                        with torch.no_grad():
+                            frame_id = info_imgs["frame_id"]
+                        batch_size = original_images.shape[0]
+                    elif "stitch_inputs" in dataset_results:
+                        stitch_inputs = dataset_results.pop("stitch_inputs")
+                        ids, batch_size = _extract_stitch_ids(stitch_inputs)
+                        if isinstance(ids, torch.Tensor) and ids.numel():
+                            frame_id = int(ids[0].item())
+                        elif ids is not None:
+                            try:
+                                frame_id = int(ids[0])
+                            except Exception:
+                                frame_id = None
+                    else:
+                        raise RuntimeError("Dataset results missing expected 'pano' or 'stitch_inputs'")
+
+                    if frame_id is not None and batch_size:
+                        if last_frame_id is None:
+                            last_frame_id = int(frame_id)
+                        else:
+                            assert int(frame_id) == last_frame_id + batch_size
+                            last_frame_id = int(frame_id)
 
                     if detect_timer is None:
                         detect_timer = Timer()
@@ -281,16 +327,29 @@ def run_mmtrack(
                         # Execute the configured DAG
                         # Prepare per-iteration context
                         iter_context: Dict[str, Any] = dict(
-                            original_images=make_channels_first(original_images),
-                            data=data_item,
-                            ids=ids,
-                            info_imgs=info_imgs,
-                            frame_id=int(frame_id),
                             device=device,
                             cuda_stream=cuda_stream,
                             detect_timer=detect_timer,
                             mean_tracker=mean_tracker,
                         )
+                        if stitch_inputs is not None:
+                            iter_context.update(
+                                stitch_inputs=stitch_inputs,
+                                stitch_data_pipeline=config.get("stitch_data_pipeline"),
+                                stitch_fps=fps,
+                            )
+                            if fps:
+                                iter_context.setdefault("data", {})["fps"] = fps
+                        else:
+                            iter_context.update(
+                                original_images=make_channels_first(original_images),
+                                data=data_item,
+                                ids=ids,
+                                info_imgs=info_imgs,
+                                frame_id=int(frame_id),
+                            )
+                        if frame_id is not None and "frame_id" not in iter_context:
+                            iter_context["frame_id"] = int(frame_id)
                         # Merge shared into context for plugins convenience
                         iter_context.update(aspen_net.shared)
                         if dataset_results:

@@ -748,6 +748,20 @@ class hm_opts(object):
             help="Disable per-trunk CUDA streams in threaded Aspen mode",
         )
         parser.set_defaults(aspen_thread_cuda_streams=None)
+        aspen_stitch_group = parser.add_mutually_exclusive_group()
+        aspen_stitch_group.add_argument(
+            "--aspen-stitching",
+            dest="aspen_stitching",
+            action="store_true",
+            help="Enable Aspen stitching plugin for multi-camera inputs",
+        )
+        aspen_stitch_group.add_argument(
+            "--no-aspen-stitching",
+            dest="aspen_stitching",
+            action="store_false",
+            help="Disable Aspen stitching plugin",
+        )
+        parser.set_defaults(aspen_stitching=None)
         parser.add_argument(
             "--stitch-cache-size",
             type=int,
@@ -1211,6 +1225,16 @@ class hm_opts(object):
             ("aspen_thread_queue_size", "aspen.pipeline.queue_size"),
             ("aspen_thread_cuda_streams", "aspen.pipeline.cuda_streams"),
             ("aspen_thread_graph", "aspen.pipeline.graph"),
+            ("aspen_stitching", "aspen.stitching.enabled"),
+            ("blend_mode", "aspen.stitching.blend_mode"),
+            ("max_blend_levels", "aspen.stitching.max_blend_levels"),
+            ("stitch_auto_adjust_exposure", "aspen.stitching.auto_adjust_exposure"),
+            ("python_blender", "aspen.stitching.python_blender"),
+            ("no_minimize_blend", "aspen.stitching.minimize_blend"),
+            ("no_cuda_streams", "aspen.stitching.no_cuda_streams"),
+            ("stitch_rotate_degrees", "aspen.stitching.post_stitch_rotate_degrees"),
+            ("fp16_stitch", "aspen.stitching.dtype"),
+            ("stitch_pto_project_file", "aspen.stitching.pto_project_file"),
             (
                 "skip_final_video_save",
                 [
@@ -1221,7 +1245,7 @@ class hm_opts(object):
             ("video_encoder_backend", "aspen.video_out.encoder_backend"),
             ("output_file", "aspen.plugins.video_out.params.output_video_path"),
             ("save_frame_dir", "aspen.plugins.video_out.params.save_frame_dir"),
-            ("checkerboard_input", "debug.rgb_stats_check.enable"),
+            ("checkerboard_input", ["debug.rgb_stats_check.enable", "aspen.stitching.capture_rgb_stats"]),
             ("debug_play_tracker", "plot.debug_play_tracker"),
             ("plot_moving_boxes", "plot.plot_moving_boxes"),
             ("plot_trajectories", "plot.plot_trajectories"),
@@ -1242,6 +1266,12 @@ class hm_opts(object):
         "aspen_thread_queue_size": _coerce_aspen_queue_size,
         "aspen_thread_cuda_streams": bool,
         "aspen_thread_graph": bool,
+        "aspen_stitching": bool,
+        "stitch_auto_adjust_exposure": bool,
+        "python_blender": bool,
+        "no_minimize_blend": {True: False},
+        "no_cuda_streams": bool,
+        "fp16_stitch": {True: "float16"},
         "skip_final_video_save": {True: True},
         "checkerboard_input": {True: True},
         "debug_play_tracker": {True: True},

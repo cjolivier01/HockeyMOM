@@ -34,7 +34,6 @@ from hmlib.utils.image import (
     make_channels_last,
     make_visible_image,
 )
-from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.utils.tensor import make_const_tensor
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -60,24 +59,17 @@ def to_tensor(tensor: Union[torch.Tensor, StreamTensorBase, np.ndarray]) -> torc
         assert False
 
 
-class MultiDataLoaderWrapper:
-    def __init__(
-        self, dataloaders: List[MOTLoadVideoWithOrig], input_queueue_size: int = 0
-    ) -> None:
+class MultiDataLoaderWrapper(torch.utils.data.IterableDataset):
+    def __init__(self, dataloaders: List[MOTLoadVideoWithOrig]) -> None:
+        super().__init__()
         self._dataloaders: List[MOTLoadVideoWithOrig] = dataloaders
         self._iters: List[Any] = []
-        self._input_queueue_size: int = input_queueue_size
         self._len: Optional[int] = None
 
     def __iter__(self) -> "MultiDataLoaderWrapper":
         self._iters = []
         for dl in self._dataloaders:
-            if self._input_queueue_size:
-                self._iters.append(
-                    CachedIterator(iterator=iter(dl), cache_size=self._input_queueue_size)
-                )
-            else:
-                self._iters.append(iter(dl))
+            self._iters.append(iter(dl))
         return self
 
     def close(self) -> None:
@@ -99,11 +91,30 @@ class MultiDataLoaderWrapper:
 
     def __len__(self) -> int:
         if self._len is None:
-            self._len = -1
+            min_length = math.inf
             for dl in self._dataloaders:
                 this_len = len(dl)
-                self._len = this_len if self._len is None else min(self._len, this_len)
+                min_length = min(min_length, this_len)
+            self._len = 0 if min_length is math.inf else int(min_length)
         return self._len
+
+    @property
+    def batch_size(self) -> int:
+        if not self._dataloaders:
+            return 0
+        return int(getattr(self._dataloaders[0], "batch_size", 0) or 0)
+
+    @property
+    def fps(self) -> Optional[float]:
+        if not self._dataloaders:
+            return None
+        return getattr(self._dataloaders[0], "fps", None)
+
+    @property
+    def bit_rate(self) -> Optional[int]:
+        if not self._dataloaders:
+            return None
+        return getattr(self._dataloaders[0], "bit_rate", None)
 
 
 def as_torch_device(device: Any) -> torch.device:
@@ -128,11 +139,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         videos: Dict[str, List[Path]],
         pto_project_file: str = None,
         start_frame_number: int = 0,
-        max_input_queue_size: int = 2,
         batch_size: int = 1,
         max_frames: int = None,
         auto_configure: bool = True,
-        num_workers: int = 1,
         image_roi: List[int] = None,
         blend_mode: str = "laplacian",
         remapping_device: torch.device = None,
@@ -168,7 +177,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._video_right_offset_frame = videos["right"]["frame_offset"]
         self._videos = videos
         self._pto_project_file = pto_project_file
-        self._max_input_queue_size = max_input_queue_size
         self._blend_mode = blend_mode
         self._auto_adjust_exposure = auto_adjust_exposure
         self._exposure_adjustment: List[float] = None
@@ -201,7 +209,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._fps = None
         self._bitrate = None
         self._auto_configure = auto_configure
-        self._num_workers = num_workers
         self._stitching_worker = None
         self._batch_count = 0
 
@@ -360,7 +367,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         start_frame_number: int,
         frame_stride_count: int,
         max_frames: int,
-        max_input_queue_size: int,
         remapping_device: torch.device,
         dataset_name: str = "crowdhuman",
     ):
@@ -400,9 +406,8 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 frame_step=frame_step_1,
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_left,
-                async_mode=True,
                 checkerboard_input=self._checkerboard_input,
-            )
+            ).force_sync()
         )
         dataloaders.append(
             MOTLoadVideoWithOrig(
@@ -418,12 +423,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 frame_step=frame_step_2,
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_right,
-                async_mode=True,
                 checkerboard_input=self._checkerboard_input,
-            )
+            ).force_sync()
         )
         stitching_worker = MultiDataLoaderWrapper(
-            dataloaders=dataloaders, input_queueue_size=max_input_queue_size
+            dataloaders=dataloaders
         )
         return stitching_worker
 
@@ -732,15 +736,12 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
     def __iter__(self):
         if self._stitching_worker is None:
             self.initialize()
-            if self._num_workers and self._num_workers != 1:
-                logger.warning("StitchDataset num_workers is ignored in synchronous mode")
             self._stitching_worker = iter(
                 self.create_stitching_worker(
                     rank=0,
                     start_frame_number=self._start_frame_number,
                     frame_stride_count=1,
                     max_frames=self._max_frames,
-                    max_input_queue_size=self._max_input_queue_size,
                     remapping_device=self._remapping_device,
                 )
             )
