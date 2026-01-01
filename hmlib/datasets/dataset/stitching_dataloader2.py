@@ -407,7 +407,8 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_left,
                 checkerboard_input=self._checkerboard_input,
-            ).force_sync()
+                async_mode=True,
+            )
         )
         dataloaders.append(
             MOTLoadVideoWithOrig(
@@ -424,7 +425,8 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_right,
                 checkerboard_input=self._checkerboard_input,
-            ).force_sync()
+                async_mode=True,
+            )
         )
         stitching_worker = MultiDataLoaderWrapper(
             dataloaders=dataloaders

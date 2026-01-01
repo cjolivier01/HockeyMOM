@@ -197,7 +197,8 @@ def stitch_videos(
                 no_cuda_streams=bool(getattr(args, "no_cuda_streams", False)),
                 image_channel_adders=None,
                 checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
-            ).force_sync()
+                async_mode=not args.serial,
+            )
             right_loader = MOTLoadVideoWithOrig(
                 path=stitch_videos["right"]["files"],
                 game_id=game_id_name,
@@ -212,7 +213,8 @@ def stitch_videos(
                 no_cuda_streams=bool(getattr(args, "no_cuda_streams", False)),
                 image_channel_adders=None,
                 checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
-            ).force_sync()
+                async_mode=not args.serial,
+            )
             data_loader = MultiDataLoaderWrapper(
                 dataloaders=[left_loader, right_loader],
             )

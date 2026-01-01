@@ -753,6 +753,7 @@ class hm_opts(object):
             "--aspen-stitching",
             dest="aspen_stitching",
             action="store_true",
+            default=True,
             help="Enable Aspen stitching plugin for multi-camera inputs",
         )
         aspen_stitch_group.add_argument(
