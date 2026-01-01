@@ -66,7 +66,7 @@ class Shower:
         profiler: Any = None,
         step: int = 1,
         hold_tensor_ref: bool = True,
-        skip_frame_when_full: bool = True,
+        skip_frame_when_full: bool = False,
     ):
         self._label = label
         self._allow_gpu_gl = allow_gpu_gl
