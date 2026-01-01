@@ -148,7 +148,6 @@ rink:
     #
     # Rink-related tracking config
     #
-    fixed_edge_scaling_factor: 0.8
     fixed_edge_rotation_angle: 10
     follower_box_scale_width: 1.5
     follower_box_scale_height: 1.5
@@ -179,6 +178,19 @@ rink:
     # When increasing speed toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
     time_to_dest_speed_limit_frames: 10
+
+    # Resizing direction-change braking (size dampening)
+    # Frames to brake to a stop on resize direction change
+    resizing_stop_on_dir_change_delay: 10
+    # Cancel resizing brake when inputs flip opposite (true/false)
+    resizing_cancel_stop_on_opposite_dir: true
+    # Consecutive opposite-direction frames required to cancel resize braking
+    resizing_stop_cancel_hysteresis_frames: 2
+    # Cooldown frames after a resize stop-delay finishes/cancels before another can start
+    resizing_stop_delay_cooldown_frames: 2
+    # When increasing size toward destination, enforce a minimum number of frames
+    # to reach the target along that axis (0 disables)
+    resizing_time_to_dest_speed_limit_frames: 10
 
     # Sticky translation
     sticky_size_ratio_to_frame_width: 10.0

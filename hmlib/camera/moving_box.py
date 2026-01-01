@@ -76,11 +76,18 @@ class ResizingBox(BasicBox):
         max_height: Union[torch.Tensor, int, float],
         stop_on_dir_change: bool,
         stop_on_dir_change_delay: int = 0,
+        resize_stop_on_dir_change: bool = False,
+        resize_stop_on_dir_change_delay: int = 0,
+        resize_cancel_stop_on_opposite_dir: bool = False,
+        resize_stop_cancel_hysteresis_frames: int = 0,
+        resize_stop_delay_cooldown_frames: int = 0,
+        resize_time_to_dest_speed_limit_frames: int = 10,
         sticky_sizing: bool = False,
         device: Optional[Union[str, torch.device]] = None,
     ):
         super(ResizingBox, self).__init__(bbox=bbox, device=device)
         self._stop_on_dir_change = stop_on_dir_change
+        self._resize_stop_on_dir_change = bool(resize_stop_on_dir_change)
 
         self._sticky_sizing = sticky_sizing
 
@@ -111,6 +118,36 @@ class ResizingBox(BasicBox):
         # One-frame visual cue flags when cancel-on-opposite triggers
         self._cancel_stop_x_flash = False
         self._cancel_stop_y_flash = False
+        self._resize_cancel_stop_w_flash = False
+        self._resize_cancel_stop_h_flash = False
+
+        # Resizing stop-on-direction-change braking config
+        self._resize_stop_on_dir_change_delay = torch.tensor(
+            int(resize_stop_on_dir_change_delay), dtype=torch.int64, device=self.device
+        )
+        self._resize_cancel_stop_on_opposite_dir = bool(resize_cancel_stop_on_opposite_dir)
+        self._resize_cancel_hysteresis_frames = torch.tensor(
+            int(resize_stop_cancel_hysteresis_frames), dtype=torch.int64, device=self.device
+        )
+        self._resize_stop_delay_cooldown_frames = torch.tensor(
+            int(resize_stop_delay_cooldown_frames), dtype=torch.int64, device=self.device
+        )
+        self._resize_ttg_limit_frames = torch.tensor(
+            int(resize_time_to_dest_speed_limit_frames), dtype=torch.int64, device=self.device
+        )
+
+        self._resize_stop_delay_w = self._zero_int.clone()
+        self._resize_stop_delay_h = self._zero_int.clone()
+        self._resize_stop_delay_w_counter = self._zero_int.clone()
+        self._resize_stop_delay_h_counter = self._zero_int.clone()
+        self._resize_stop_decel_w = self._zero.clone()
+        self._resize_stop_decel_h = self._zero.clone()
+        self._resize_stop_trigger_dir_w = self._zero.clone()
+        self._resize_stop_trigger_dir_h = self._zero.clone()
+        self._resize_cancel_opp_w_count = self._zero_int.clone()
+        self._resize_cancel_opp_h_count = self._zero_int.clone()
+        self._resize_cooldown_w_counter = self._zero_int.clone()
+        self._resize_cooldown_h_counter = self._zero_int.clone()
 
     def draw(
         self,
