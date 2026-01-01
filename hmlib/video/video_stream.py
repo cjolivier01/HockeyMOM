@@ -714,6 +714,7 @@ class VideoStreamReader:
         codec: str = None,
         batch_size: int = 1,
         device: torch.device = None,
+        pynvc_simple_decoder: Optional[bool] = None,
     ):
         self._filename = filename
         self._type = type
@@ -733,6 +734,7 @@ class VideoStreamReader:
         self._gstreamer_stream = False
         self._frames_delivered_count = 0
         self._cuda_stream: Optional[torch.cuda.Stream] = None
+        self._pynvc_simple_decoder = pynvc_simple_decoder
         self.open()
 
     @property
@@ -929,7 +931,7 @@ class VideoStreamReader:
             gpu_id = self._device.index if self._device.index is not None else 0
             if self._cuda_stream is None:
                 self._cuda_stream = torch.cuda.Stream(device=torch.device("cuda", index=gpu_id))
-            if True:
+            if self._pynvc_simple_decoder:
                 self._video_in_args: dict[str, Any] = dict(
                     enc_file_path=self._filename,
                     gpu_id=gpu_id,
