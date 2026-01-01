@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -52,6 +53,7 @@ class ApplyCameraPlugin(Plugin):
         self._video_frame_cfg: Optional[Dict[str, Any]] = None
         self._end_zones: Optional[EndZones] = None
         self._game_config: Optional[Dict[str, Any]] = None
+        self._iter_num: int = 0
         self._initialized: bool = False
 
     def _ensure_initialized(self, context: Dict[str, Any]) -> None:
@@ -163,6 +165,20 @@ class ApplyCameraPlugin(Plugin):
 
         self._initialized = True
 
+    def __call__(self, *args, **kwds):
+        self._iter_num += 1
+        # do_trace = self._iter_num == 4
+        # if do_trace:
+        #     pass
+        # from cuda_stacktrace import CudaStackTracer
+
+        # with CudaStackTracer(functions="cudaStreamSynchronize", enabled=do_trace):
+        with contextlib.nullcontext():
+            results = super().__call__(*args, **kwds)
+        # if do_trace:
+        #     pass
+        return results
+
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {"img": context.get("img", None)}
@@ -190,11 +206,9 @@ class ApplyCameraPlugin(Plugin):
                 batch_size = img.size(0)
             else:
                 batch_size = 1
-            whole_box = torch.tensor(
-                [0, 0, image_width(img), image_height(img)],
-                dtype=torch.float,
-                device=img.device,
-            )
+            whole_box = torch.zeros((4,), dtype=torch.float32, device=img.device)
+            whole_box[2] += image_width(img)
+            whole_box[3] += image_height(img)
             current_boxes = whole_box.repeat(batch_size, 1)
         else:
             current_boxes = current_boxes.clone().to(img.device, non_blocking=True)
