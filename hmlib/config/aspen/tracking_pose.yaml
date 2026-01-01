@@ -200,7 +200,7 @@ aspen:
     save_pose:
       class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
       depends: [pose]
-      enabled: false
+      enabled: true
       params: {}
 
     # Optional camera dataframe load/save for camera.csv
