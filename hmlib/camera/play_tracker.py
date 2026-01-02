@@ -37,8 +37,9 @@ from hmlib.ui import show_image
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig, BBox, HmLogLevel, PlayTrackerConfig
+from hockeymom.core import AllLivingBoxConfig, BBox, HmLogLevel
 from hockeymom.core import PlayTracker as CppPlayTracker
+from hockeymom.core import PlayTrackerConfig
 
 from .camera_transformer import (
     CameraNorm,
@@ -103,7 +104,7 @@ class PlayTracker(torch.nn.Module):
         track_ids: Optional[Union[str, List[int], Set[int]]] = None,
         debug_play_tracker: bool = False,
         plot_individual_player_tracking: bool = False,
-        plot_tracking_circles: bool = True,
+        plot_tracking_circles: bool = False,
         plot_boundaries: bool = False,
         plot_all_detections: Optional[float] = None,
         plot_trajectories: bool = False,
@@ -2223,4 +2224,5 @@ class PlayTracker(torch.nn.Module):
         #
         # END Breakway detection
         #
+        return current_box, online_im
         return current_box, online_im

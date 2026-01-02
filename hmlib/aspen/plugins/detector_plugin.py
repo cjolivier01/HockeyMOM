@@ -111,6 +111,7 @@ class DetectorInferencePlugin(Plugin):
 
             with amp_ctx:
                 det_results = detector.predict(batch_inputs / 255.0, batch_data_samples)
+                # det_results = detector.predict(batch_inputs, batch_data_samples)
 
             assert (
                 isinstance(det_results, (list, tuple)) and len(det_results) == video_len
