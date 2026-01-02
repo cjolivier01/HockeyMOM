@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import numpy as np
@@ -37,13 +38,70 @@ class TrackingDataFrame(HmDataFrameBase):
             "Labels",
             "Visibility",
             "JerseyInfo",
-            "PoseIndex",
             # Optional per-track action annotations (if available)
             "ActionLabel",
             "ActionScore",
             "ActionIndex",
         ]
         super().__init__(*args, fields=fields, input_batch_size=input_batch_size, **kwargs)
+
+    def read_data(self) -> None:
+        """Read tracking CSVs supporting both legacy and current schemas."""
+        if not self.input_file:
+            return
+        from hmlib.log import logger
+
+        if not os.path.exists(self.input_file):
+            logger.error("Could not open dataframe file: %s", self.input_file)
+            self.data = None
+            return
+
+        df = pd.read_csv(self.input_file, header=None)
+        n = int(df.shape[1])
+
+        base_cols = [
+            "Frame",
+            "ID",
+            "BBox_X",
+            "BBox_Y",
+            "BBox_W",
+            "BBox_H",
+            "Scores",
+            "Labels",
+            "Visibility",
+            "JerseyInfo",
+        ]
+        action_cols = ["ActionLabel", "ActionScore", "ActionIndex"]
+
+        if n == len(base_cols) + 1 + len(action_cols):
+            # Legacy: base + PoseIndex + actions
+            df.columns = base_cols + ["PoseIndex"] + action_cols
+            df = df.drop(columns=["PoseIndex"])
+        elif n == len(base_cols) + len(action_cols):
+            # Current: base + actions
+            df.columns = base_cols + action_cols
+        elif n == len(base_cols) + 1:
+            # Legacy: base + PoseIndex
+            df.columns = base_cols + ["PoseIndex"]
+            df = df.drop(columns=["PoseIndex"])
+        elif n == len(base_cols):
+            # Current: base only
+            df.columns = base_cols
+        elif n > len(base_cols) + 1 + len(action_cols):
+            # Future-proof: allow extra columns; assume legacy layout and ignore extras.
+            extra = [f"Extra{i}" for i in range(n - (len(base_cols) + 1 + len(action_cols)))]
+            df.columns = base_cols + ["PoseIndex"] + action_cols + extra
+            df = df.drop(columns=["PoseIndex"])
+        elif n > len(base_cols):
+            # Partial action columns (no PoseIndex).
+            df.columns = base_cols + action_cols[: n - len(base_cols)]
+        else:
+            # Pad missing base columns.
+            for _ in range(len(base_cols) - n):
+                df[df.shape[1]] = np.nan
+            df.columns = base_cols
+
+        self.data = df.reindex(columns=self.fields)
 
     def add_frame_records(
         self,
@@ -54,7 +112,6 @@ class TrackingDataFrame(HmDataFrameBase):
         jersey_info: List[TrackJerseyInfo] = None,
         tlbr: Optional[np.ndarray] = None,
         tlwh: Optional[np.ndarray] = None,
-        pose_indices: Optional[np.ndarray] = None,
         action_info: Optional[List[Dict[str, Any]]] = None,
     ):
         if tlwh is None:
@@ -67,13 +124,6 @@ class TrackingDataFrame(HmDataFrameBase):
         tlwh = self._make_array(tlwh)
         scores = self._make_array(scores)
         labels = self._make_array(labels)
-        # Pose index cross-reference (per track in this frame); -1 if unknown
-        if pose_indices is None:
-            pose_indices = -np.ones((len(tracking_ids),), dtype=np.int64)
-        else:
-            if isinstance(pose_indices, torch.Tensor):
-                pose_indices = pose_indices.to("cpu").numpy()
-            pose_indices = pose_indices.astype(np.int64, copy=False)
         jersey_dict: Dict[int, TrackJerseyInfo] = {}
         if jersey_info is not None:
             for j_info in jersey_info:
@@ -132,7 +182,6 @@ class TrackingDataFrame(HmDataFrameBase):
                 "Labels": labels,
                 "Visibility": [-1 for _ in range(len(tracking_ids))],
                 "JerseyInfo": [_jersey_item(t_id) for t_id in tracking_ids],
-                "PoseIndex": pose_indices,
                 "ActionLabel": [_action_label_item(t_id) for t_id in tracking_ids],
                 "ActionScore": [_action_score_item(t_id) for t_id in tracking_ids],
                 "ActionIndex": [_action_index_item(t_id) for t_id in tracking_ids],
@@ -170,9 +219,6 @@ class TrackingDataFrame(HmDataFrameBase):
         labels = frame_data["Labels"].to_numpy()
         tlwh = frame_data[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy()
         jersey_info = frame_data["JerseyInfo"]
-        pose_indices = (
-            frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
-        )
 
         all_track_jersey_info: List[Optional[TrackJerseyInfo]] = []
         for tid, jersey in zip(tracking_ids, jersey_info):
@@ -188,7 +234,6 @@ class TrackingDataFrame(HmDataFrameBase):
             bboxes=tlwh,
             labels=labels,
             jersey_info=all_track_jersey_info,
-            pose_indices=pose_indices,
         )
 
     def add_frame_sample(
@@ -196,7 +241,6 @@ class TrackingDataFrame(HmDataFrameBase):
         frame_id: int,
         data_sample: Any,
         jersey_info: Optional[List[TrackJerseyInfo]] = None,
-        pose_indices: Optional[Any] = None,
         action_info: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """Persist a tracking result provided as a per-frame DetDataSample.
@@ -214,7 +258,6 @@ class TrackingDataFrame(HmDataFrameBase):
                 scores=np.empty((0,), dtype=np.float32),
                 labels=np.empty((0,), dtype=np.int64),
                 jersey_info=None,
-                pose_indices=None,
                 action_info=None,
             )
             return
@@ -222,8 +265,6 @@ class TrackingDataFrame(HmDataFrameBase):
         tlbr = getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32))
         scores = getattr(inst, "scores", np.empty((0,), dtype=np.float32))
         labels = getattr(inst, "labels", np.empty((0,), dtype=np.int64))
-        if pose_indices is None:
-            pose_indices = getattr(inst, "source_pose_index", None)
         mask = get_track_mask(inst)
         if isinstance(mask, torch.Tensor):
             if isinstance(tids, torch.Tensor):
@@ -246,11 +287,6 @@ class TrackingDataFrame(HmDataFrameBase):
             else:
                 mask_np = mask.detach().cpu().numpy()
                 labels = np.asarray(labels)[mask_np]
-            if isinstance(pose_indices, torch.Tensor):
-                pose_indices = pose_indices[mask]
-            elif pose_indices is not None:
-                mask_np = mask.detach().cpu().numpy()
-                pose_indices = np.asarray(pose_indices)[mask_np]
         self.add_frame_records(
             frame_id=int(frame_id),
             tracking_ids=tids,
@@ -258,7 +294,6 @@ class TrackingDataFrame(HmDataFrameBase):
             scores=scores,
             labels=labels,
             jersey_info=jersey_info,
-            pose_indices=pose_indices,
             action_info=action_info,
         )
 
@@ -280,12 +315,6 @@ class TrackingDataFrame(HmDataFrameBase):
             scores=torch.as_tensor(rec.get("scores", np.empty((0,), dtype=np.float32))),
             labels=torch.as_tensor(rec.get("labels", np.empty((0,), dtype=np.int64))),
         )
-        pi = rec.get("pose_indices", None)
-        if pi is not None:
-            try:
-                inst.source_pose_index = torch.as_tensor(pi, dtype=torch.long)
-            except Exception:
-                pass
 
         # Build a one-frame DetDataSample to wrap pred_track_instances
         if DetDataSample is None or TrackDataSample is None:

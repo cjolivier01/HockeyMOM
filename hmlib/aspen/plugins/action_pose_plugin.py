@@ -28,9 +28,8 @@ class ActionFromPosePlugin(Plugin):
       - data: with key 'action_results': List[List[Dict]] per frame
 
     Notes:
-      - We map track IDs to pose indices per frame using
-        pred_track_instances.source_pose_index when available; otherwise
-        we fallback to an IoU-based assignment derived from SaveTrackingPlugin.
+      - We map track IDs to pose indices per frame using an IoU-based assignment
+        between track bounding boxes and pose boxes derived from keypoints.
       - For each active track across the current clip, we build a per-track
         keypoint sequence and run inference, then attach the action label
         (top-1) per frame for that track.
@@ -131,14 +130,8 @@ class ActionFromPosePlugin(Plugin):
     def _map_tracks_to_pose_indices(
         self, inst: InstanceData, pose_kpts: np.ndarray, iou_thresh: float = 0.3
     ) -> Optional[torch.Tensor]:
-        # Prefer direct mapping if present
-        pose_indices = getattr(inst, "source_pose_index", None)
         track_mask = get_track_mask(inst)
-        if isinstance(track_mask, torch.Tensor) and isinstance(pose_indices, torch.Tensor):
-            pose_indices = pose_indices[track_mask]
-        if pose_indices is not None:
-            return pose_indices
-        # Fallback: map by IoU between track bboxes and pose bbox (derived from keypoints)
+        # Map by IoU between track bboxes and pose bbox (derived from keypoints)
         try:
             tb = getattr(inst, "bboxes", None)
             if tb is None or pose_kpts.size == 0:
