@@ -11,7 +11,7 @@
   --warn: #ffc107;
   --border: #242835;
   --row-odd: #10141c;
-  --row-even: #1b2230;
+  --row-even: #243147;
 }
 
 * { box-sizing: border-box; }
@@ -77,6 +77,10 @@ tbody tr:hover { background: #151924; }
 td, th { vertical-align: top; }
 td { overflow-wrap: anywhere; }
 td.nowrap, th.nowrap { white-space: nowrap; }
+
+/* Utility: prevent column text wrapping for wide tables (use with overflow-x:auto wrappers). */
+.table-nowrap { width: max-content; min-width: 100%; }
+.table-nowrap th, .table-nowrap td { white-space: nowrap; }
 
 .status-badge { display: inline-block; padding: .2rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 800; }
 .status-COMPLETED { background: rgba(40,167,69,.15); color: #7bdfa1; border: 1px solid rgba(40,167,69,.3); }

@@ -296,7 +296,14 @@ def ensure_user(conn, email: str, name: str | None = None, password_hash: str | 
 
 
 def ensure_team(conn, user_id: int, name: str, *, is_external: bool = True) -> int:
-    nm = (name or "").strip()
+    def _norm_team_name(s: str) -> str:
+        # Normalize whitespace and common unicode variants to avoid duplicate teams that render identically in HTML.
+        t = str(s or "").replace("\xa0", " ").strip()
+        t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
+        t = " ".join(t.split())
+        return t
+
+    nm = _norm_team_name(name or "")
     if not nm:
         nm = "UNKNOWN"
     with conn.cursor() as cur:
@@ -866,6 +873,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     logo_url_cache: dict[int, Optional[str]] = {}
     cleaned_team_ids: set[int] = set()
     started = time.time()
+    last_heartbeat = started
 
     api_base = str(args.api_url or "").rstrip("/")
     api_headers: dict[str, str] = {}
@@ -897,6 +905,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         posted += int(out.get("imported") or 0)
         api_games_batch = []
     for gid in game_ids:
+        now = time.time()
+        if (now - last_heartbeat) >= 30.0:
+            pct = (count / total * 100.0) if total else 100.0
+            log(f"Working... next game_id={gid} ({count}/{total}, {pct:.1f}%)")
+            last_heartbeat = now
         if args.limit is not None and count >= int(args.limit):
             break
         fb = fallback_by_gid.get(int(gid))

@@ -66,12 +66,10 @@
         <td class="nowrap">{{ (g['starts_at'] or '')|fmt_date }}</td>
         <td class="nowrap">{{ (g['starts_at'] or '')|fmt_time }}</td>
       <td>
-        {% if g.get('can_view_summary') %}
-          {% if public_league_id is defined %}
-            <a href="{{ base }}/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
-          {% else %}
-            <a href="/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
-          {% endif %}
+        {% if public_league_id is defined %}
+          <a href="{{ base }}/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
+        {% else %}
+          <a href="/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
         {% endif %}
         <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="display:inline-flex;align-items:center;gap:6px;">
@@ -84,7 +82,7 @@
             <span>{{ g['team2_name'] }}</span>
           </span>
         </span>
-        {% if g.get('can_view_summary') %}</a>{% endif %}
+        </a>
       </td>
       <td>{{ g['game_type_name'] or '' }}</td>
       <td>{{ g['location'] or '' }}</td>
@@ -93,7 +91,11 @@
         {% if public_league_id is defined %}
           <a class="btn" href="{{ base }}/hky/games/{{ g['id'] }}">View</a>
         {% else %}
-          <a class="btn" href="/hky/games/{{ g['id'] }}">Edit</a>
+          {% if g.get('can_edit') %}
+            <a class="btn" href="/hky/games/{{ g['id'] }}?edit=1">Edit</a>
+          {% else %}
+            <a class="btn" href="/hky/games/{{ g['id'] }}">View</a>
+          {% endif %}
         {% endif %}
       </td>
       </tr>

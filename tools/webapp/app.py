@@ -896,7 +896,13 @@ def create_app() -> Flask:
                 g.db.commit()
 
     def _ensure_external_team_for_import(owner_user_id: int, name: str, *, commit: bool = True) -> int:
-        nm = (name or "").strip()
+        def _norm_team_name(s: str) -> str:
+            t = str(s or "").replace("\xa0", " ").strip()
+            t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
+            t = " ".join(t.split())
+            return t
+
+        nm = _norm_team_name(name or "")
         if not nm:
             nm = "UNKNOWN"
         with g.db.cursor() as cur:
@@ -1699,6 +1705,246 @@ def create_app() -> Flask:
             }
         )
 
+    @app.post("/api/import/hockey/shift_package")
+    def api_import_shift_package():
+        auth = _require_import_auth()
+        if auth:
+            return auth
+        payload = request.get_json(silent=True) or {}
+        replace = bool(payload.get("replace", False))
+
+        game_id = payload.get("game_id")
+        tts_game_id = payload.get("timetoscore_game_id")
+        resolved_game_id: Optional[int] = None
+        try:
+            resolved_game_id = int(game_id) if game_id is not None else None
+        except Exception:
+            resolved_game_id = None
+
+        if resolved_game_id is None and tts_game_id is not None:
+            try:
+                tts_int = int(tts_game_id)
+            except Exception:
+                tts_int = None
+            if tts_int is not None:
+                token_json = f'\"timetoscore_game_id\":{int(tts_int)}'
+                token_plain = f"game_id={int(tts_int)}"
+                with g.db.cursor() as cur:
+                    cur.execute("SELECT id FROM hky_games WHERE notes LIKE %s LIMIT 1", (f"%{token_json}%",))
+                    r = cur.fetchone()
+                    if not r:
+                        cur.execute("SELECT id FROM hky_games WHERE notes LIKE %s LIMIT 1", (f"%{token_plain}%",))
+                        r = cur.fetchone()
+                if r:
+                    resolved_game_id = int(r[0])
+
+        if resolved_game_id is None:
+            return jsonify({"ok": False, "error": "game_id or timetoscore_game_id is required"}), 400
+
+        # Load game + teams
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT * FROM hky_games WHERE id=%s", (resolved_game_id,))
+            game_row = cur.fetchone()
+        if not game_row:
+            return jsonify({"ok": False, "error": "game not found"}), 404
+
+        team1_id = int(game_row["team1_id"])
+        team2_id = int(game_row["team2_id"])
+        owner_user_id = int(game_row.get("user_id") or 0)
+
+        player_stats_csv = payload.get("player_stats_csv")
+        game_stats_csv = payload.get("game_stats_csv")
+        events_csv = payload.get("events_csv")
+        source_label = str(payload.get("source_label") or "").strip() or None
+
+        imported = 0
+        unmatched: list[str] = []
+
+        try:
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    "SELECT id, team_id, name, jersey_number FROM players WHERE team_id IN (%s,%s)",
+                    (team1_id, team2_id),
+                )
+                players = cur.fetchall() or []
+
+            players_by_team: dict[int, list[dict[str, Any]]] = {}
+            jersey_to_player_ids: dict[tuple[int, str], list[int]] = {}
+            name_to_player_ids: dict[tuple[int, str], list[int]] = {}
+
+            for p in players:
+                tid = int(p["team_id"])
+                players_by_team.setdefault(tid, []).append(p)
+                j = normalize_jersey_number(p.get("jersey_number"))
+                if j:
+                    jersey_to_player_ids.setdefault((tid, j), []).append(int(p["id"]))
+                nm = normalize_player_name(p.get("name") or "")
+                if nm:
+                    name_to_player_ids.setdefault((tid, nm), []).append(int(p["id"]))
+
+            def _resolve_player_id(jersey_norm: Optional[str], name_norm: str) -> Optional[int]:
+                candidates: list[int] = []
+                for tid in (team1_id, team2_id):
+                    if jersey_norm:
+                        candidates.extend(jersey_to_player_ids.get((tid, jersey_norm), []))
+                if len(set(candidates)) == 1:
+                    return int(list(set(candidates))[0])
+                candidates = []
+                for tid in (team1_id, team2_id):
+                    candidates.extend(name_to_player_ids.get((tid, name_norm), []))
+                if len(set(candidates)) == 1:
+                    return int(list(set(candidates))[0])
+                return None
+
+            with g.db.cursor() as cur:
+                if isinstance(events_csv, str) and events_csv.strip():
+                    # Only overwrite existing events if replace is requested.
+                    if replace:
+                        cur.execute(
+                            """
+                            INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
+                            VALUES(%s,%s,%s,%s)
+                            ON DUPLICATE KEY UPDATE events_csv=VALUES(events_csv), source_label=VALUES(source_label), updated_at=VALUES(updated_at)
+                            """,
+                            (resolved_game_id, events_csv, source_label, dt.datetime.now().isoformat()),
+                        )
+                    else:
+                        cur.execute(
+                            "SELECT events_csv FROM hky_game_events WHERE game_id=%s",
+                            (resolved_game_id,),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
+                                VALUES(%s,%s,%s,%s)
+                                """,
+                                (resolved_game_id, events_csv, source_label, dt.datetime.now().isoformat()),
+                            )
+
+                if isinstance(game_stats_csv, str) and game_stats_csv.strip():
+                    try:
+                        game_stats = parse_shift_stats_game_stats_csv(game_stats_csv)
+                    except Exception:
+                        game_stats = None
+                    if game_stats is not None:
+                        cur.execute(
+                            """
+                            INSERT INTO hky_game_stats(game_id, stats_json, updated_at)
+                            VALUES(%s,%s,%s)
+                            ON DUPLICATE KEY UPDATE stats_json=VALUES(stats_json), updated_at=VALUES(updated_at)
+                            """,
+                            (resolved_game_id, json.dumps(game_stats, ensure_ascii=False), dt.datetime.now().isoformat()),
+                        )
+
+                if isinstance(player_stats_csv, str) and player_stats_csv.strip():
+                    parsed_rows = parse_shift_stats_player_stats_csv(player_stats_csv)
+                    for row in parsed_rows:
+                        jersey_norm = row.get("jersey_number")
+                        name_norm = row.get("name_norm") or ""
+                        pid = _resolve_player_id(jersey_norm, name_norm)
+                        if pid is None:
+                            unmatched.append(row.get("player_label") or "")
+                            continue
+                        # Determine team_id for this player
+                        team_id = None
+                        for t_players in players_by_team.values():
+                            for pr in t_players:
+                                if int(pr["id"]) == int(pid):
+                                    team_id = int(pr["team_id"])
+                                    break
+                            if team_id is not None:
+                                break
+                        if team_id is None:
+                            unmatched.append(row.get("player_label") or "")
+                            continue
+
+                        stats = row.get("stats") or {}
+                        cols = [
+                            "goals",
+                            "assists",
+                            "shots",
+                            "plus_minus",
+                            "toi_seconds",
+                            "sog",
+                            "expected_goals",
+                            "giveaways",
+                            "takeaways",
+                            "controlled_entry_for",
+                            "controlled_entry_against",
+                            "controlled_exit_for",
+                            "controlled_exit_against",
+                            "gt_goals",
+                            "gw_goals",
+                            "ot_goals",
+                            "ot_assists",
+                            "shifts",
+                            "gf_counted",
+                            "ga_counted",
+                            "video_toi_seconds",
+                            "sb_avg_shift_seconds",
+                            "sb_median_shift_seconds",
+                            "sb_longest_shift_seconds",
+                            "sb_shortest_shift_seconds",
+                        ]
+                        placeholders = ",".join(["%s"] * len(cols))
+                        update_clause = ", ".join([f"{c}=COALESCE(VALUES({c}), {c})" for c in cols])
+                        params = [owner_user_id, team_id, resolved_game_id, pid] + [stats.get(c) for c in cols]
+                        cur.execute(
+                            f"""
+                            INSERT INTO player_stats(user_id, team_id, game_id, player_id, {', '.join(cols)})
+                            VALUES(%s,%s,%s,%s,{placeholders})
+                            ON DUPLICATE KEY UPDATE {update_clause}
+                            """,
+                            params,
+                        )
+
+                        for per, per_stats in (row.get("period_stats") or {}).items():
+                            cur.execute(
+                                """
+                                INSERT INTO player_period_stats(game_id, player_id, period, toi_seconds, shifts, gf, ga)
+                                VALUES(%s,%s,%s,%s,%s,%s,%s)
+                                ON DUPLICATE KEY UPDATE
+                                  toi_seconds=COALESCE(VALUES(toi_seconds), toi_seconds),
+                                  shifts=COALESCE(VALUES(shifts), shifts),
+                                  gf=COALESCE(VALUES(gf), gf),
+                                  ga=COALESCE(VALUES(ga), ga)
+                                """,
+                                (
+                                    resolved_game_id,
+                                    pid,
+                                    int(per),
+                                    per_stats.get("toi_seconds"),
+                                    per_stats.get("shifts"),
+                                    per_stats.get("gf"),
+                                    per_stats.get("ga"),
+                                ),
+                            )
+                        imported += 1
+
+                if player_stats_csv or game_stats_csv or events_csv:
+                    cur.execute(
+                        "UPDATE hky_games SET stats_imported_at=%s WHERE id=%s",
+                        (dt.datetime.now().isoformat(), resolved_game_id),
+                    )
+
+            g.db.commit()
+        except Exception as e:
+            try:
+                g.db.rollback()
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": str(e)}), 400
+
+        return jsonify(
+            {
+                "ok": True,
+                "game_id": int(resolved_game_id),
+                "imported_players": int(imported),
+                "unmatched": [u for u in unmatched if u],
+            }
+        )
+
     @app.post("/leagues/new")
     def leagues_new():
         r = require_login()
@@ -2056,7 +2302,8 @@ def create_app() -> Flask:
                 except Exception:
                     started = False
             has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
-            g2["can_view_summary"] = bool(started or has_score)
+            g2["can_view_summary"] = True
+            g2["can_edit"] = False
         return render_template(
             "schedule.html",
             games=games,
@@ -2120,6 +2367,26 @@ def create_app() -> Flask:
                 "gf": r.get("gf"),
                 "ga": r.get("ga"),
             }
+
+        events_headers: list[str] = []
+        events_rows: list[dict[str, str]] = []
+        events_meta: Optional[dict[str, Any]] = None
+        try:
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    "SELECT events_csv, source_label, updated_at FROM hky_game_events WHERE game_id=%s",
+                    (game_id,),
+                )
+                erow = cur.fetchone()
+            if erow and str(erow.get("events_csv") or "").strip():
+                events_headers, events_rows = parse_events_csv(str(erow.get("events_csv") or ""))
+                events_meta = {
+                    "source_label": erow.get("source_label"),
+                    "updated_at": erow.get("updated_at"),
+                    "count": len(events_rows),
+                }
+        except Exception:
+            events_headers, events_rows, events_meta = [], [], None
         return render_template(
             "hky_game_detail.html",
             game=game,
@@ -2130,7 +2397,12 @@ def create_app() -> Flask:
             game_stats=game_stats,
             game_stats_updated_at=game_stats_updated_at,
             editable=False,
+            can_edit=False,
+            edit_mode=False,
             public_league_id=int(league_id),
+            events_headers=events_headers,
+            events_rows=events_rows,
+            events_meta=events_meta,
         )
 
     @app.get("/leagues/<int:league_id>/members")
@@ -2517,6 +2789,12 @@ def create_app() -> Flask:
                 )
             games = cur.fetchall()
         now_dt = dt.datetime.now()
+        is_league_admin = False
+        if league_id:
+            try:
+                is_league_admin = bool(_is_league_admin(int(league_id), int(session["user_id"])))
+            except Exception:
+                is_league_admin = False
         for g2 in games or []:
             sdt = g2.get("starts_at")
             started = False
@@ -2526,7 +2804,13 @@ def create_app() -> Flask:
                 except Exception:
                     started = False
             has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
-            g2["can_view_summary"] = bool(started or has_score)
+            # Always allow opening the game summary; many imported games have no starts_at.
+            g2["can_view_summary"] = True
+            # Editing is gated to owners or league admins; UI still defaults to read-only unless Edit is clicked.
+            try:
+                g2["can_edit"] = bool(int(g2.get("user_id") or 0) == int(session["user_id"]) or is_league_admin)
+            except Exception:
+                g2["can_edit"] = bool(is_league_admin)
         return render_template(
             "schedule.html",
             games=games,
@@ -2634,16 +2918,10 @@ def create_app() -> Flask:
             flash("Not found", "error")
             return redirect(url_for("schedule"))
 
-        # Authorization: only allow edits if owner or league editor/admin
+        # Authorization: only allow edits if owner or league admin/owner.
         editable = True
         if league_id:
-            with g.db.cursor() as cur:
-                cur.execute(
-                    "SELECT COALESCE(MAX(CASE WHEN role IN ('admin','owner','editor') THEN 1 ELSE 0 END),0) FROM league_members WHERE league_id=%s AND user_id=%s",
-                    (league_id, session["user_id"]),
-                )
-                can_edit = int((cur.fetchone() or [0])[0]) == 1
-            if not can_edit:
+            if not _is_league_admin(int(league_id), int(session["user_id"])):
                 editable = False
         if not editable:
             flash("You do not have permission to import stats for this game.", "error")
@@ -2880,15 +3158,14 @@ def create_app() -> Flask:
             return redirect(url_for("schedule"))
         is_owner = int(game.get("user_id") or 0) == int(session["user_id"])
 
-        # Authorization: allow edits if owner or league editor/admin.
-        editable = is_owner
-        if not editable and league_id:
-            with g.db.cursor() as cur:
-                cur.execute(
-                    "SELECT COALESCE(MAX(CASE WHEN role IN ('admin','owner','editor') THEN 1 ELSE 0 END),0) FROM league_members WHERE league_id=%s AND user_id=%s",
-                    (league_id, session["user_id"]),
-                )
-                editable = int((cur.fetchone() or [0])[0]) == 1
+        # Authorization: editing requires ownership or league admin/owner.
+        can_edit = bool(is_owner)
+        if league_id and not can_edit:
+            try:
+                can_edit = bool(_is_league_admin(int(league_id), int(session["user_id"])))
+            except Exception:
+                can_edit = False
+        edit_mode = bool(can_edit and (request.args.get("edit") == "1" or request.method == "POST"))
 
         # Load players from both teams (league view must not require ownership)
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
@@ -2946,10 +3223,31 @@ def create_app() -> Flask:
                     "ga": r.get("ga"),
                 }
 
-        if request.method == "POST" and not editable:
-            flash("You do not have permission to edit this game in the selected league.", "error")
+        events_headers: list[str] = []
+        events_rows: list[dict[str, str]] = []
+        events_meta: Optional[dict[str, Any]] = None
+        try:
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    "SELECT events_csv, source_label, updated_at FROM hky_game_events WHERE game_id=%s",
+                    (game_id,),
+                )
+                erow = cur.fetchone()
+            if erow and str(erow.get("events_csv") or "").strip():
+                events_headers, events_rows = parse_events_csv(str(erow.get("events_csv") or ""))
+                events_meta = {
+                    "source_label": erow.get("source_label"),
+                    "updated_at": erow.get("updated_at"),
+                    "count": len(events_rows),
+                }
+        except Exception:
+            events_headers, events_rows, events_meta = [], [], None
 
-        if request.method == "POST" and editable:
+        if request.method == "POST" and not edit_mode:
+            flash("You do not have permission to edit this game in the selected league.", "error")
+            return redirect(url_for("hky_game_detail", game_id=game_id))
+
+        if request.method == "POST" and edit_mode:
             # Update game meta and scores
             loc = request.form.get("location", "").strip()
             starts_at = request.form.get("starts_at", "").strip()
@@ -2997,7 +3295,6 @@ def create_app() -> Flask:
                     "plus_minus": _ival("plusminus"),
                     "hits": _ival("hits"),
                     "blocks": _ival("blocks"),
-                    "toi_seconds": _ival("toi"),
                     "faceoff_wins": _ival("fow"),
                     "faceoff_attempts": _ival("foa"),
                     "goalie_saves": _ival("saves"),
@@ -3025,7 +3322,6 @@ def create_app() -> Flask:
                         "plus_minus",
                         "hits",
                         "blocks",
-                        "toi_seconds",
                         "faceoff_wins",
                         "faceoff_attempts",
                         "goalie_saves",
@@ -3061,7 +3357,12 @@ def create_app() -> Flask:
             period_stats_by_pid=period_stats_by_pid,
             game_stats=game_stats,
             game_stats_updated_at=game_stats_updated_at,
-            editable=editable,
+            editable=bool(edit_mode),
+            can_edit=bool(can_edit),
+            edit_mode=bool(edit_mode),
+            events_headers=events_headers,
+            events_rows=events_rows,
+            events_meta=events_meta,
         )
 
     @app.route("/game_types", methods=["GET", "POST"])
@@ -3428,6 +3729,19 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
+
+        # Raw per-game events CSV (e.g., all_events_summary.csv from scripts/parse_shift_spreadsheet.py)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hky_game_events (
+              game_id INT PRIMARY KEY,
+              events_csv MEDIUMTEXT NULL,
+              source_label VARCHAR(255) NULL,
+              updated_at DATETIME NULL,
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
         # League mappings (created after dependent tables)
         cur.execute(
             """
@@ -3627,6 +3941,13 @@ def save_team_logo(file_storage, team_id: int) -> Path:
 
 
 def ensure_external_team(user_id: int, name: str) -> int:
+    def _norm_team_name(s: str) -> str:
+        t = str(s or "").replace("\xa0", " ").strip()
+        t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
+        t = " ".join(t.split())
+        return t
+
+    name = _norm_team_name(name)
     db = get_db()
     with db.cursor() as cur:
         cur.execute("SELECT id FROM teams WHERE user_id=%s AND name=%s", (user_id, name))
@@ -3683,6 +4004,22 @@ def parse_dt_or_none(s: Optional[str]) -> Optional[str]:
         return dt.datetime.fromisoformat(s + "T00:00").strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return None
+
+
+def parse_events_csv(events_csv: str) -> tuple[list[str], list[dict[str, str]]]:
+    s = str(events_csv or "").strip()
+    if not s:
+        return [], []
+    s = s.lstrip("\ufeff")
+    f = io.StringIO(s)
+    reader = csv.DictReader(f)
+    headers = [str(h) for h in (reader.fieldnames or []) if h is not None]
+    rows: list[dict[str, str]] = []
+    for row in reader:
+        if not isinstance(row, dict):
+            continue
+        rows.append({h: ("" if row.get(h) is None else str(row.get(h))) for h in headers})
+    return headers, rows
 
 
 def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:

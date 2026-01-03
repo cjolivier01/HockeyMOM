@@ -37,6 +37,7 @@
               <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_date }}</td>
               <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_time }}</td>
               <td>
+                <a href="{{ base }}/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
                 <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
                   <span style="display:inline-flex;align-items:center;gap:6px;">
                     <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
@@ -48,6 +49,7 @@
                     <span>{{ g.get('team2_name') or '' }}</span>
                   </span>
                 </span>
+                </a>
               </td>
               <td>{{ g.get('location') or '' }}</td>
               <td>

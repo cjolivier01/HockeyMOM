@@ -7050,7 +7050,85 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip validation checks on start/end ordering and excessive durations.",
     )
+    p.add_argument(
+        "--upload-webapp",
+        action="store_true",
+        help="Upload per-game CSV outputs (player_stats/game_stats/all_events_summary) to the HockeyMOM webapp via REST.",
+    )
+    p.add_argument(
+        "--webapp-url",
+        type=str,
+        default="http://127.0.0.1:8008",
+        help="Webapp base URL for --upload-webapp (default: http://127.0.0.1:8008).",
+    )
+    p.add_argument(
+        "--webapp-token",
+        type=str,
+        default=None,
+        help="Optional import token for webapp REST upload (sent as X-HM-Import-Token).",
+    )
+    p.add_argument(
+        "--webapp-replace",
+        action="store_true",
+        help="For --upload-webapp: overwrite existing stats/events for the game (server-side).",
+    )
     return p
+
+
+def _upload_shift_package_to_webapp(
+    *,
+    webapp_url: str,
+    webapp_token: Optional[str],
+    t2s_game_id: int,
+    label: str,
+    stats_dir: Path,
+    replace: bool,
+) -> None:
+    try:
+        import requests  # type: ignore
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"requests is required for --upload-webapp: {e}") from e
+
+    def _read_text(p: Path) -> str:
+        try:
+            if p.exists():
+                return p.read_text(encoding="utf-8")
+        except Exception:
+            pass
+        return ""
+
+    player_stats_csv = _read_text(stats_dir / "player_stats.csv")
+    game_stats_csv = _read_text(stats_dir / "game_stats.csv")
+    events_csv = _read_text(stats_dir / "all_events_summary.csv")
+
+    payload = {
+        "timetoscore_game_id": int(t2s_game_id),
+        "player_stats_csv": player_stats_csv,
+        "game_stats_csv": game_stats_csv,
+        "events_csv": events_csv,
+        "source_label": f"parse_shift_spreadsheet:{label}",
+        "replace": bool(replace),
+    }
+    headers: Dict[str, str] = {}
+    if webapp_token:
+        headers["X-HM-Import-Token"] = str(webapp_token)
+
+    base = str(webapp_url or "").rstrip("/")
+    r = requests.post(
+        f"{base}/api/import/hockey/shift_package",
+        json=payload,
+        headers=headers,
+        timeout=180,
+    )
+    r.raise_for_status()
+    out = r.json()
+    if not out.get("ok"):
+        raise RuntimeError(str(out))
+    unmatched = out.get("unmatched") or []
+    if unmatched:
+        print(f"[webapp] Uploaded shift package for t2s={t2s_game_id} ({label}) with unmatched: {unmatched}")
+    else:
+        print(f"[webapp] Uploaded shift package for t2s={t2s_game_id} ({label})")
 
 
 def main() -> None:
@@ -7503,6 +7581,22 @@ def main() -> None:
             print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
         except Exception:
             print("✅ Done.")
+
+        if getattr(args, "upload_webapp", False):
+            if t2s_id is None:
+                print("[webapp] Skipping upload (no TimeToScore game id available).")
+            else:
+                try:
+                    _upload_shift_package_to_webapp(
+                        webapp_url=str(getattr(args, "webapp_url", "") or "").strip() or "http://127.0.0.1:8008",
+                        webapp_token=(getattr(args, "webapp_token", None) or None),
+                        t2s_game_id=int(t2s_id),
+                        label=str(label or ""),
+                        stats_dir=(final_outdir / "stats"),
+                        replace=bool(getattr(args, "webapp_replace", False)),
+                    )
+                except Exception as e:  # noqa: BLE001
+                    print(f"[webapp] Upload failed for t2s={t2s_id} ({label}): {e}", file=sys.stderr)
 
     if multiple_inputs:
         agg_rows, agg_periods, per_game_denoms = _aggregate_stats_rows(
