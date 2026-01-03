@@ -1,5 +1,6 @@
 {% extends 'layout.html' %}
 {% block content %}
+{% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
 <h2>{% if editable %}Edit Game{% else %}Game{% endif %}</h2>
 
 <div class="card">
@@ -55,7 +56,7 @@
 {% endif %}
 
 <div class="card">
-  <form method="post">
+  <form method="{{ 'post' if editable else 'get' }}" action="{% if editable %}{% if public_league_id is defined %}{{ base }}/hky/games/{{ game['id'] }}{% else %}/hky/games/{{ game['id'] }}{% endif %}{% else %}#{% endif %}">
     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
       <div>
         <h3 style="margin-top:0">{{ game['team1_name'] }}</h3>
@@ -235,9 +236,9 @@
       {% if editable %}
         <button class="btn primary" type="submit">Save</button>
       {% else %}
-        <span class="muted">Read-only (shared league)</span>
+        <span class="muted">Read-only</span>
       {% endif %}
-      <a class="btn" href="/schedule">Back</a>
+      <a class="btn" href="{{ base }}/schedule">Back</a>
     </div>
   </form>
 </div>

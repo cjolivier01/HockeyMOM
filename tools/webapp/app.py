@@ -78,7 +78,13 @@ APP_SECRET = _load_or_create_app_secret()
 
 
 def create_app() -> Flask:
-    app = Flask(__name__, instance_path=str(INSTANCE_DIR))
+    base_dir = Path(__file__).resolve().parent
+    app = Flask(
+        __name__,
+        instance_path=str(INSTANCE_DIR),
+        template_folder=str(base_dir / "templates"),
+        static_folder=str(base_dir / "static"),
+    )
     app.config.update(
         SECRET_KEY=APP_SECRET,
         MAX_CONTENT_LENGTH=1024 * 1024 * 500,  # 500MB
@@ -177,7 +183,7 @@ def create_app() -> Flask:
                 with g.db.cursor(pymysql.cursors.DictCursor) as cur:
                     cur.execute(
                         """
-                        SELECT l.id, l.name, l.is_shared, (l.owner_user_id=%s) AS is_owner,
+                        SELECT l.id, l.name, l.is_shared, l.is_public, (l.owner_user_id=%s) AS is_owner,
                                CASE WHEN (l.owner_user_id=%s OR EXISTS (
                                    SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s AND m.role IN ('admin','owner')
                                )) THEN 1 ELSE 0 END AS is_admin
@@ -700,10 +706,9 @@ def create_app() -> Flask:
             if league_id:
                 cur.execute(
                     """
-                    SELECT t.*
+                    SELECT t.*, lt.division_name, lt.division_id, lt.conference_id
                     FROM league_teams lt JOIN teams t ON lt.team_id=t.id
                     WHERE lt.league_id=%s
-                    ORDER BY t.name ASC
                     """,
                     (league_id,),
                 )
@@ -720,9 +725,20 @@ def create_app() -> Flask:
                 stats[t["id"]] = compute_team_stats_league(g.db, t["id"], int(league_id))
             else:
                 stats[t["id"]] = compute_team_stats(g.db, t["id"], session["user_id"])
+        divisions = None
+        if league_id:
+            grouped: dict[str, list[dict]] = {}
+            for t in rows:
+                dn = str(t.get("division_name") or "").strip() or "Unknown Division"
+                grouped.setdefault(dn, []).append(t)
+            divisions = []
+            for dn in sorted(grouped.keys(), key=lambda s: s.lower()):
+                teams_sorted = sorted(grouped[dn], key=lambda tr: sort_key_team_standings(tr, stats.get(tr["id"], {})))
+                divisions.append({"name": dn, "teams": teams_sorted})
         return render_template(
             "teams.html",
             teams=rows,
+            divisions=divisions,
             stats=stats,
             include_external=include_external,
             league_view=bool(league_id),
@@ -737,7 +753,7 @@ def create_app() -> Flask:
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 """
-                SELECT l.id, l.name, l.is_shared,
+                SELECT l.id, l.name, l.is_shared, l.is_public, (l.owner_user_id=%s) AS is_owner,
                        CASE WHEN (l.owner_user_id=%s OR EXISTS (
                            SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s AND m.role IN ('admin','owner')
                        )) THEN 1 ELSE 0 END AS is_admin
@@ -747,7 +763,7 @@ def create_app() -> Flask:
                 )
                 ORDER BY l.name
                 """,
-                (session["user_id"], session["user_id"], session["user_id"], session["user_id"]),
+                (session["user_id"], session["user_id"], session["user_id"], session["user_id"], session["user_id"]),
             )
             leagues = cur.fetchall()
         return render_template("leagues.html", leagues=leagues)
@@ -1011,20 +1027,62 @@ def create_app() -> Flask:
             g.db.commit()
             return gid
 
-    def _map_team_to_league_for_import(league_id: int, team_id: int) -> None:
+    def _map_team_to_league_for_import(
+        league_id: int,
+        team_id: int,
+        *,
+        division_name: Optional[str] = None,
+        division_id: Optional[int] = None,
+        conference_id: Optional[int] = None,
+    ) -> None:
+        dn = (division_name or "").strip() or None
         with g.db.cursor() as cur:
-            cur.execute(
-                "INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)",
-                (league_id, team_id),
-            )
+            if dn is None and division_id is None and conference_id is None:
+                cur.execute(
+                    "INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)",
+                    (league_id, team_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO league_teams(league_id, team_id, division_name, division_id, conference_id)
+                    VALUES(%s,%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE
+                      division_name=COALESCE(VALUES(division_name), division_name),
+                      division_id=COALESCE(VALUES(division_id), division_id),
+                      conference_id=COALESCE(VALUES(conference_id), conference_id)
+                    """,
+                    (league_id, team_id, dn, division_id, conference_id),
+                )
             g.db.commit()
 
-    def _map_game_to_league_for_import(league_id: int, game_id: int) -> None:
+    def _map_game_to_league_for_import(
+        league_id: int,
+        game_id: int,
+        *,
+        division_name: Optional[str] = None,
+        division_id: Optional[int] = None,
+        conference_id: Optional[int] = None,
+    ) -> None:
+        dn = (division_name or "").strip() or None
         with g.db.cursor() as cur:
-            cur.execute(
-                "INSERT IGNORE INTO league_games(league_id, game_id) VALUES(%s,%s)",
-                (league_id, game_id),
-            )
+            if dn is None and division_id is None and conference_id is None:
+                cur.execute(
+                    "INSERT IGNORE INTO league_games(league_id, game_id) VALUES(%s,%s)",
+                    (league_id, game_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id)
+                    VALUES(%s,%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE
+                      division_name=COALESCE(VALUES(division_name), division_name),
+                      division_id=COALESCE(VALUES(division_id), division_id),
+                      conference_id=COALESCE(VALUES(conference_id), conference_id)
+                    """,
+                    (league_id, game_id, dn, division_id, conference_id),
+                )
             g.db.commit()
 
     @app.post("/api/import/hockey/ensure_league")
@@ -1077,10 +1135,32 @@ def create_app() -> Flask:
         if not home_name or not away_name:
             return jsonify({"ok": False, "error": "home_name and away_name are required"}), 400
 
+        division_name = str(game.get("division_name") or "").strip() or None
+        try:
+            division_id = int(game.get("division_id")) if game.get("division_id") is not None else None
+        except Exception:
+            division_id = None
+        try:
+            conference_id = int(game.get("conference_id")) if game.get("conference_id") is not None else None
+        except Exception:
+            conference_id = None
+
         team1_id = _ensure_external_team_for_import(owner_user_id, home_name)
         team2_id = _ensure_external_team_for_import(owner_user_id, away_name)
-        _map_team_to_league_for_import(league_id, team1_id)
-        _map_team_to_league_for_import(league_id, team2_id)
+        _map_team_to_league_for_import(
+            league_id,
+            team1_id,
+            division_name=division_name,
+            division_id=division_id,
+            conference_id=conference_id,
+        )
+        _map_team_to_league_for_import(
+            league_id,
+            team2_id,
+            division_name=division_name,
+            division_id=division_id,
+            conference_id=conference_id,
+        )
 
         starts_at = game.get("starts_at")
         starts_at_s = str(starts_at) if starts_at else None
@@ -1123,7 +1203,13 @@ def create_app() -> Flask:
             replace=replace,
             notes_json_fields=notes_fields,
         )
-        _map_game_to_league_for_import(league_id, gid)
+        _map_game_to_league_for_import(
+            league_id,
+            gid,
+            division_name=division_name,
+            division_id=division_id,
+            conference_id=conference_id,
+        )
 
         for side_key, tid in (("home", team1_id), ("away", team2_id)):
             roster = game.get(f"{side_key}_roster") or []
@@ -1213,14 +1299,15 @@ def create_app() -> Flask:
             return r
         name = request.form.get("name", "").strip()
         is_shared = 1 if request.form.get("is_shared") == "1" else 0
+        is_public = 1 if request.form.get("is_public") == "1" else 0
         if not name:
             flash("Name is required", "error")
             return redirect(url_for("leagues_index"))
         with g.db.cursor() as cur:
             try:
                 cur.execute(
-                    "INSERT INTO leagues(name, owner_user_id, is_shared, created_at) VALUES(%s,%s,%s,%s)",
-                    (name, session["user_id"], is_shared, dt.datetime.now().isoformat()),
+                    "INSERT INTO leagues(name, owner_user_id, is_shared, is_public, created_at) VALUES(%s,%s,%s,%s,%s)",
+                    (name, session["user_id"], is_shared, is_public, dt.datetime.now().isoformat()),
                 )
                 lid = int(cur.lastrowid)
                 # Add owner as admin member
@@ -1237,76 +1324,103 @@ def create_app() -> Flask:
         flash("League created and selected", "success")
         return redirect(url_for("leagues_index"))
 
+    @app.post("/leagues/<int:league_id>/update")
+    def leagues_update(league_id: int):
+        r = require_login()
+        if r:
+            return r
+        if not _is_league_admin(league_id, session["user_id"]):
+            flash("Not authorized", "error")
+            return redirect(url_for("leagues_index"))
+        is_shared = 1 if request.form.get("is_shared") == "1" else 0
+        is_public = 1 if request.form.get("is_public") == "1" else 0
+        with g.db.cursor() as cur:
+            cur.execute(
+                "UPDATE leagues SET is_shared=%s, is_public=%s, updated_at=%s WHERE id=%s",
+                (is_shared, is_public, dt.datetime.now().isoformat(), league_id),
+            )
+        g.db.commit()
+        flash("League settings updated", "success")
+        return redirect(url_for("leagues_index"))
+
     @app.post("/leagues/<int:league_id>/delete")
     def leagues_delete(league_id: int):
         r = require_login()
         if r:
             return r
-        # Only owner can delete
-        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute("SELECT owner_user_id FROM leagues WHERE id=%s", (league_id,))
-            row = cur.fetchone()
-        if not row or int(row["owner_user_id"]) != int(session["user_id"]):
+        if not _is_league_admin(league_id, session["user_id"]):
             flash("Not authorized to delete this league", "error")
             return redirect(url_for("leagues_index"))
 
-        # Delete child data like schedules, teams, players similar to reset script
+        def _chunks(ids: list[int], n: int = 500) -> list[list[int]]:
+            return [ids[i : i + n] for i in range(0, len(ids), n)]
+
         try:
             with g.db.cursor() as cur:
-                # Collect games mapped to this league
+                cur.execute("SELECT owner_user_id FROM leagues WHERE id=%s", (league_id,))
+                row = cur.fetchone()
+                if not row:
+                    flash("Not found", "error")
+                    return redirect(url_for("leagues_index"))
+                owner_user_id = int(row[0])
+
+                # Only delete games/teams that are exclusively mapped to this league.
                 cur.execute(
-                    "SELECT DISTINCT game_id FROM league_games WHERE league_id=%s", (league_id,)
+                    """
+                    SELECT game_id
+                    FROM league_games
+                    WHERE league_id=%s
+                      AND game_id NOT IN (SELECT game_id FROM league_games WHERE league_id<>%s)
+                    """,
+                    (league_id, league_id),
                 )
-                game_ids = [int(r[0]) for r in cur.fetchall() or []]
-                if game_ids:
-                    # Delete player stats for these games
-                    qmarks = ",".join(["%s"] * len(game_ids))
-                    cur.execute(f"DELETE FROM player_stats WHERE game_id IN ({qmarks})", game_ids)
-                    # Delete league_games entries for this league
-                    cur.execute("DELETE FROM league_games WHERE league_id=%s", (league_id,))
-                    # Delete hky_games not used by other leagues
-                    cur.execute(
-                        f"SELECT DISTINCT game_id FROM league_games WHERE game_id IN ({qmarks}) AND league_id<>%s",
-                        game_ids + [league_id],
-                    )
-                    keep = {int(r[0]) for r in cur.fetchall() or []}
-                    to_delete = [gid for gid in game_ids if gid not in keep]
-                    if to_delete:
-                        q2 = ",".join(["%s"] * len(to_delete))
-                        cur.execute(f"DELETE FROM hky_games WHERE id IN ({q2})", to_delete)
-                # Teams mapped to this league
+                exclusive_game_ids = sorted({int(r[0]) for r in (cur.fetchall() or [])})
                 cur.execute(
-                    "SELECT DISTINCT team_id FROM league_teams WHERE league_id=%s", (league_id,)
+                    """
+                    SELECT team_id
+                    FROM league_teams
+                    WHERE league_id=%s
+                      AND team_id NOT IN (SELECT team_id FROM league_teams WHERE league_id<>%s)
+                    """,
+                    (league_id, league_id),
                 )
-                team_ids = [int(r[0]) for r in cur.fetchall() or []]
-                if team_ids:
-                    cur.execute("DELETE FROM league_teams WHERE league_id=%s", (league_id,))
-                    # Delete players for these teams
-                    q3 = ",".join(["%s"] * len(team_ids))
-                    cur.execute(f"DELETE FROM players WHERE team_id IN ({q3})", team_ids)
-                    # Delete teams if no other league maps them and no games reference them
-                    cur.execute(
-                        f"SELECT DISTINCT team_id FROM league_teams WHERE team_id IN ({q3})",
-                        team_ids,
-                    )
-                    still = {int(r[0]) for r in cur.fetchall() or []}
-                    deleteable = []
-                    for tid in team_ids:
-                        if tid in still:
-                            continue
-                        cur.execute(
-                            "SELECT COUNT(*) FROM hky_games WHERE team1_id=%s OR team2_id=%s",
-                            (tid, tid),
-                        )
-                        cnt = int((cur.fetchone() or [0])[0])
-                        if cnt == 0:
-                            deleteable.append(tid)
-                    if deleteable:
-                        q4 = ",".join(["%s"] * len(deleteable))
-                        cur.execute(f"DELETE FROM teams WHERE id IN ({q4})", deleteable)
-                # Finally delete league members and league row
+                exclusive_team_ids = sorted({int(r[0]) for r in (cur.fetchall() or [])})
+
+                # Remove mappings + league row first.
+                cur.execute("DELETE FROM league_games WHERE league_id=%s", (league_id,))
+                cur.execute("DELETE FROM league_teams WHERE league_id=%s", (league_id,))
                 cur.execute("DELETE FROM league_members WHERE league_id=%s", (league_id,))
                 cur.execute("DELETE FROM leagues WHERE id=%s", (league_id,))
+
+                # Delete exclusive games (cascades to player_stats etc).
+                for chunk in _chunks(exclusive_game_ids, n=500):
+                    q = ",".join(["%s"] * len(chunk))
+                    cur.execute(f"DELETE FROM hky_games WHERE id IN ({q})", tuple(chunk))
+
+                # Delete eligible external teams owned by league owner that are now unused by any remaining games.
+                eligible_team_ids: list[int] = []
+                if exclusive_team_ids:
+                    q = ",".join(["%s"] * len(exclusive_team_ids))
+                    cur.execute(f"SELECT id, user_id, is_external FROM teams WHERE id IN ({q})", tuple(exclusive_team_ids))
+                    for tid, uid, is_ext in (cur.fetchall() or []):
+                        if int(uid) == owner_user_id and int(is_ext) == 1:
+                            eligible_team_ids.append(int(tid))
+                safe_team_ids: list[int] = []
+                if eligible_team_ids:
+                    q2 = ",".join(["%s"] * len(eligible_team_ids))
+                    cur.execute(
+                        f"""
+                        SELECT DISTINCT team1_id AS tid FROM hky_games WHERE team1_id IN ({q2})
+                        UNION
+                        SELECT DISTINCT team2_id AS tid FROM hky_games WHERE team2_id IN ({q2})
+                        """,
+                        tuple(eligible_team_ids) * 2,
+                    )
+                    still_used = {int(r[0]) for r in (cur.fetchall() or [])}
+                    safe_team_ids = [tid for tid in eligible_team_ids if tid not in still_used]
+                for chunk in _chunks(sorted(safe_team_ids), n=500):
+                    q = ",".join(["%s"] * len(chunk))
+                    cur.execute(f"DELETE FROM teams WHERE id IN ({q})", tuple(chunk))
             g.db.commit()
             if session.get("league_id") == league_id:
                 session.pop("league_id", None)
@@ -1329,6 +1443,246 @@ def create_app() -> Flask:
                 (league_id, user_id),
             )
             return bool(cur.fetchone())
+
+    def _is_public_league(league_id: int) -> Optional[dict]:
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT id, name FROM leagues WHERE id=%s AND is_public=1", (league_id,))
+            return cur.fetchone()
+
+    @app.get("/public/leagues")
+    def public_leagues_index():
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT id, name FROM leagues WHERE is_public=1 ORDER BY name")
+            leagues = cur.fetchall() or []
+        return render_template("public_leagues.html", leagues=leagues)
+
+    @app.get("/public/leagues/<int:league_id>")
+    def public_league_home(league_id: int):
+        league = _is_public_league(league_id)
+        if not league:
+            return ("Not found", 404)
+        return redirect(url_for("public_league_teams", league_id=league_id))
+
+    @app.get("/public/leagues/<int:league_id>/media/team_logo/<int:team_id>")
+    def public_media_team_logo(league_id: int, team_id: int):
+        league = _is_public_league(league_id)
+        if not league:
+            return ("Not found", 404)
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT t.id, t.logo_path
+                FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                WHERE lt.league_id=%s AND t.id=%s
+                """,
+                (league_id, team_id),
+            )
+            row = cur.fetchone()
+        if not row or not row.get("logo_path"):
+            return ("Not found", 404)
+        p = Path(row["logo_path"]).resolve()
+        if not p.exists():
+            return ("Not found", 404)
+        return send_from_directory(str(p.parent), p.name)
+
+    @app.get("/public/leagues/<int:league_id>/teams")
+    def public_league_teams(league_id: int):
+        league = _is_public_league(league_id)
+        if not league:
+            return ("Not found", 404)
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT t.*, lt.division_name, lt.division_id, lt.conference_id
+                FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                WHERE lt.league_id=%s
+                """,
+                (league_id,),
+            )
+            rows = cur.fetchall() or []
+        stats = {t["id"]: compute_team_stats_league(g.db, t["id"], int(league_id)) for t in rows}
+        grouped: dict[str, list[dict]] = {}
+        for t in rows:
+            dn = str(t.get("division_name") or "").strip() or "Unknown Division"
+            grouped.setdefault(dn, []).append(t)
+        divisions = []
+        for dn in sorted(grouped.keys(), key=lambda s: s.lower()):
+            teams_sorted = sorted(grouped[dn], key=lambda tr: sort_key_team_standings(tr, stats.get(tr["id"], {})))
+            divisions.append({"name": dn, "teams": teams_sorted})
+        return render_template(
+            "teams.html",
+            teams=rows,
+            divisions=divisions,
+            stats=stats,
+            include_external=True,
+            league_view=True,
+            current_user_id=-1,
+            public_league_id=int(league_id),
+        )
+
+    @app.get("/public/leagues/<int:league_id>/teams/<int:team_id>")
+    def public_league_team_detail(league_id: int, team_id: int):
+        league = _is_public_league(league_id)
+        if not league:
+            return ("Not found", 404)
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT t.*
+                FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                WHERE lt.league_id=%s AND t.id=%s
+                """,
+                (league_id, team_id),
+            )
+            team = cur.fetchone()
+        if not team:
+            return ("Not found", 404)
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC", (team_id,))
+            players = cur.fetchall() or []
+        player_totals = aggregate_players_totals_league(g.db, team_id, int(league_id))
+        tstats = compute_team_stats_league(g.db, team_id, int(league_id))
+        return render_template(
+            "team_detail.html",
+            team=team,
+            players=players,
+            player_totals=player_totals,
+            tstats=tstats,
+            editable=False,
+            public_league_id=int(league_id),
+        )
+
+    @app.get("/public/leagues/<int:league_id>/schedule")
+    def public_league_schedule(league_id: int):
+        league = _is_public_league(league_id)
+        if not league:
+            return ("Not found", 404)
+        selected_division = (request.args.get("division") or "").strip() or None
+        selected_team_id = request.args.get("team_id") or ""
+        team_id_i: Optional[int] = None
+        try:
+            team_id_i = int(selected_team_id) if str(selected_team_id).strip() else None
+        except Exception:
+            team_id_i = None
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT division_name
+                FROM league_teams
+                WHERE league_id=%s AND division_name IS NOT NULL AND division_name<>''
+                ORDER BY division_name
+                """,
+                (league_id,),
+            )
+            divisions = [str(r["division_name"]) for r in (cur.fetchall() or []) if r.get("division_name")]
+            cur.execute(
+                """
+                SELECT t.id, t.name
+                FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                WHERE lt.league_id=%s
+                ORDER BY t.name
+                """,
+                (league_id,),
+            )
+            league_teams = cur.fetchall() or []
+            where = ["lg.league_id=%s"]
+            params: list[Any] = [league_id]
+            if selected_division:
+                where.append("lg.division_name=%s")
+                params.append(selected_division)
+            if team_id_i is not None:
+                where.append("(g.team1_id=%s OR g.team2_id=%s)")
+                params.extend([team_id_i, team_id_i])
+            cur.execute(
+                f"""
+                SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
+                       lg.division_name AS division_name
+                FROM league_games lg
+                  JOIN hky_games g ON lg.game_id=g.id
+                  JOIN teams t1 ON g.team1_id=t1.id
+                  JOIN teams t2 ON g.team2_id=t2.id
+                  LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                WHERE {' AND '.join(where)}
+                ORDER BY COALESCE(g.starts_at, g.created_at) DESC
+                """,
+                tuple(params),
+            )
+            games = cur.fetchall() or []
+        return render_template(
+            "schedule.html",
+            games=games,
+            league_view=True,
+            divisions=divisions,
+            league_teams=league_teams,
+            selected_division=selected_division or "",
+            selected_team_id=str(team_id_i) if team_id_i is not None else "",
+            can_add_game=False,
+            public_league_id=int(league_id),
+        )
+
+    @app.get("/public/leagues/<int:league_id>/hky/games/<int:game_id>")
+    def public_league_game_detail(league_id: int, game_id: int):
+        league = _is_public_league(league_id)
+        if not league:
+            return ("Not found", 404)
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, t1.is_external AS team1_ext, t2.is_external AS team2_ext
+                FROM league_games lg JOIN hky_games g ON lg.game_id=g.id
+                  JOIN teams t1 ON g.team1_id=t1.id JOIN teams t2 ON g.team2_id=t2.id
+                WHERE g.id=%s AND lg.league_id=%s
+                """,
+                (game_id, league_id),
+            )
+            game = cur.fetchone()
+        if not game:
+            return ("Not found", 404)
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC", (game["team1_id"],))
+            team1_players = cur.fetchall() or []
+            cur.execute("SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC", (game["team2_id"],))
+            team2_players = cur.fetchall() or []
+            cur.execute("SELECT * FROM player_stats WHERE game_id=%s", (game_id,))
+            stats_rows = cur.fetchall() or []
+            cur.execute("SELECT stats_json, updated_at FROM hky_game_stats WHERE game_id=%s", (game_id,))
+            game_stats_row = cur.fetchone()
+            cur.execute(
+                "SELECT player_id, period, toi_seconds, shifts, gf, ga FROM player_period_stats WHERE game_id=%s",
+                (game_id,),
+            )
+            period_rows = cur.fetchall() or []
+        stats_by_pid = {r["player_id"]: r for r in stats_rows}
+        game_stats = None
+        game_stats_updated_at = None
+        try:
+            if game_stats_row and game_stats_row.get("stats_json"):
+                game_stats = json.loads(game_stats_row["stats_json"])
+                game_stats_updated_at = game_stats_row.get("updated_at")
+        except Exception:
+            game_stats = None
+        period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
+        for r in period_rows:
+            pid = int(r["player_id"])
+            period = int(r["period"])
+            period_stats_by_pid.setdefault(pid, {})[period] = {
+                "toi_seconds": r.get("toi_seconds"),
+                "shifts": r.get("shifts"),
+                "gf": r.get("gf"),
+                "ga": r.get("ga"),
+            }
+        return render_template(
+            "hky_game_detail.html",
+            game=game,
+            team1_players=team1_players,
+            team2_players=team2_players,
+            stats_by_pid=stats_by_pid,
+            period_stats_by_pid=period_stats_by_pid,
+            game_stats=game_stats,
+            game_stats_updated_at=game_stats_updated_at,
+            editable=False,
+            public_league_id=int(league_id),
+        )
 
     @app.get("/leagues/<int:league_id>/members")
     def league_members(league_id: int):
@@ -1599,20 +1953,60 @@ def create_app() -> Flask:
         if r:
             return r
         league_id = session.get("league_id")
+        selected_division = (request.args.get("division") or "").strip() or None
+        selected_team_id = request.args.get("team_id") or ""
+        team_id_i: Optional[int] = None
+        try:
+            team_id_i = int(selected_team_id) if str(selected_team_id).strip() else None
+        except Exception:
+            team_id_i = None
+        divisions = []
+        league_teams = []
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             if league_id:
+                # Filter options for league schedule
                 cur.execute(
                     """
-                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name
+                    SELECT DISTINCT division_name
+                    FROM league_teams
+                    WHERE league_id=%s AND division_name IS NOT NULL AND division_name<>''
+                    ORDER BY division_name
+                    """,
+                    (league_id,),
+                )
+                divisions = [str(r["division_name"]) for r in (cur.fetchall() or []) if r.get("division_name")]
+                cur.execute(
+                    """
+                    SELECT t.id, t.name
+                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                    WHERE lt.league_id=%s
+                    ORDER BY t.name
+                    """,
+                    (league_id,),
+                )
+                league_teams = cur.fetchall() or []
+
+                where = ["lg.league_id=%s"]
+                params: list[Any] = [league_id]
+                if selected_division:
+                    where.append("lg.division_name=%s")
+                    params.append(selected_division)
+                if team_id_i is not None:
+                    where.append("(g.team1_id=%s OR g.team2_id=%s)")
+                    params.extend([team_id_i, team_id_i])
+                cur.execute(
+                    f"""
+                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
+                           lg.division_name AS division_name
                     FROM league_games lg
                       JOIN hky_games g ON lg.game_id=g.id
                       JOIN teams t1 ON g.team1_id=t1.id
                       JOIN teams t2 ON g.team2_id=t2.id
                       LEFT JOIN game_types gt ON g.game_type_id=gt.id
-                    WHERE lg.league_id=%s
+                    WHERE {' AND '.join(where)}
                     ORDER BY COALESCE(g.starts_at, g.created_at) DESC
                     """,
-                    (league_id,),
+                    tuple(params),
                 )
             else:
                 cur.execute(
@@ -1628,7 +2022,15 @@ def create_app() -> Flask:
                     (session["user_id"],),
                 )
             games = cur.fetchall()
-        return render_template("schedule.html", games=games)
+        return render_template(
+            "schedule.html",
+            games=games,
+            league_view=bool(league_id),
+            divisions=divisions,
+            league_teams=league_teams,
+            selected_division=selected_division or "",
+            selected_team_id=str(team_id_i) if team_id_i is not None else "",
+        )
 
     @app.route("/schedule/new", methods=["GET", "POST"])
     def schedule_new():
@@ -2205,6 +2607,7 @@ def init_db():
               name VARCHAR(255) UNIQUE NOT NULL,
               owner_user_id INT NOT NULL,
               is_shared TINYINT(1) NOT NULL DEFAULT 0,
+              is_public TINYINT(1) NOT NULL DEFAULT 0,
               source VARCHAR(64) NULL,
               external_key VARCHAR(255) NULL,
               created_at DATETIME NOT NULL,
@@ -2232,6 +2635,17 @@ def init_db():
         except Exception:
             try:
                 cur.execute("ALTER TABLE leagues ADD COLUMN external_key VARCHAR(255) NULL")
+            except Exception:
+                pass
+        # Add leagues.is_public if missing (older installs)
+        try:
+            cur.execute("SHOW COLUMNS FROM leagues LIKE 'is_public'")
+            has_pub = cur.fetchone()
+            if not has_pub:
+                cur.execute("ALTER TABLE leagues ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE leagues ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0")
             except Exception:
                 pass
         cur.execute(
@@ -2516,6 +2930,9 @@ def init_db():
               id INT AUTO_INCREMENT PRIMARY KEY,
               league_id INT NOT NULL,
               team_id INT NOT NULL,
+              division_name VARCHAR(255) NULL,
+              division_id INT NULL,
+              conference_id INT NULL,
               UNIQUE KEY uniq_league_team (league_id, team_id),
               INDEX(league_id), INDEX(team_id),
               FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -2529,6 +2946,9 @@ def init_db():
               id INT AUTO_INCREMENT PRIMARY KEY,
               league_id INT NOT NULL,
               game_id INT NOT NULL,
+              division_name VARCHAR(255) NULL,
+              division_id INT NULL,
+              conference_id INT NULL,
               UNIQUE KEY uniq_league_game (league_id, game_id),
               INDEX(league_id), INDEX(game_id),
               FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -2536,6 +2956,24 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
+        # Extend league_teams/league_games with division metadata (older installs)
+        for table in ("league_teams", "league_games"):
+            for col_ddl in [
+                "division_name VARCHAR(255) NULL",
+                "division_id INT NULL",
+                "conference_id INT NULL",
+            ]:
+                col = col_ddl.split(" ", 1)[0]
+                try:
+                    cur.execute(f"SHOW COLUMNS FROM {table} LIKE %s", (col,))
+                    exists = cur.fetchone()
+                    if not exists:
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
+                except Exception:
+                    try:
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
+                    except Exception:
+                        pass
     db.commit()
     # Seed default game types if empty
     with db.cursor() as cur:
@@ -2814,6 +3252,17 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
             ties += 1
     points = wins * 2 + ties * 1
     return {"wins": wins, "losses": losses, "ties": ties, "gf": gf, "ga": ga, "points": points}
+
+
+def sort_key_team_standings(team_row: dict, stats: dict) -> tuple:
+    """Standard hockey standings sort (points, wins, goal diff, goals for, goals against, name)."""
+    pts = int(stats.get("points", 0))
+    wins = int(stats.get("wins", 0))
+    gf = int(stats.get("gf", 0))
+    ga = int(stats.get("ga", 0))
+    gd = gf - ga
+    name = str(team_row.get("name") or "")
+    return (-pts, -wins, -gd, -gf, ga, name.lower())
 
 
 def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:

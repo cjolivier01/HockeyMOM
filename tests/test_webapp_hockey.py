@@ -125,3 +125,22 @@ def should_aggregate_player_totals_from_rows():
     agg = mod.aggregate_players_totals(_Conn(rows), team_id=1, user_id=123)
     assert agg[10]["goals"] == 2 and agg[10]["assists"] == 1 and agg[10]["points"] == 3
     assert agg[11]["goals"] == 0 and agg[11]["assists"] == 2 and agg[11]["points"] == 2
+
+
+def should_sort_standings_by_points_then_tiebreakers():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+    f = mod.sort_key_team_standings
+
+    a = {"id": 1, "name": "A"}
+    b = {"id": 2, "name": "B"}
+    c = {"id": 3, "name": "C"}
+    # A and B tied on points, A has better goal diff; C higher points.
+    stats = {
+        1: {"points": 10, "wins": 5, "gf": 20, "ga": 10},
+        2: {"points": 10, "wins": 5, "gf": 18, "ga": 12},
+        3: {"points": 12, "wins": 6, "gf": 15, "ga": 5},
+    }
+    ordered = sorted([a, b, c], key=lambda tr: f(tr, stats[tr["id"]]))
+    assert [t["id"] for t in ordered] == [3, 1, 2]

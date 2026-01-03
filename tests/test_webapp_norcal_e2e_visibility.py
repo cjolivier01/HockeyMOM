@@ -44,7 +44,7 @@ def should_show_shared_norcal_league_and_stats_for_all_users():
     found_team_with_players = False
     for tid in team_ids[:20]:
         html = sess.get(f"{base_url}/teams/{tid}", timeout=60).text
-        if "Read-only (shared league)" not in html:
+        if "Read-only" not in html:
             continue
         if "No players yet." in html:
             continue
@@ -61,7 +61,7 @@ def should_show_shared_norcal_league_and_stats_for_all_users():
     found_game_with_players = False
     for gid in game_ids[:50]:
         html = sess.get(f"{base_url}/hky/games/{gid}", timeout=60).text
-        if "Read-only (shared league)" not in html:
+        if "Read-only" not in html:
             continue
         if re.search(r'name="ps_goals_\d+"', html):
             found_game_with_players = True

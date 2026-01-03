@@ -8,12 +8,12 @@ such as no season drop-down on the main stats page.
 from __future__ import annotations
 
 import io
+import logging
+import re
 from typing import Any
 
 import numpy as np
 import pandas as pd
-
-from hmlib.log import get_logger
 
 from . import util
 from .database import Database
@@ -30,7 +30,7 @@ CAHA_LEAGUE = 3
 STAT_CLASS = 1  # youth
 
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 td_selectors = dict(
@@ -381,6 +381,20 @@ def scrape_season_divisions(season_id: int):
             table = table.parent
         if table is None:
             return None
+        # The "Division Player Stats" row is preceded by a "X Schedule" row which carries the actual division name.
+        div_name = a_tag.get_text(strip=True) or f"Level {level} Conf {conf}"
+        try:
+            prev = row.find_previous_sibling("tr")
+            if prev is not None:
+                txt = prev.get_text(" ", strip=True)
+                if txt:
+                    # e.g. "10U B West Schedule" -> "10 B West"
+                    txt = txt.replace("\xa0", " ").strip()
+                    txt = txt[:-8].strip() if txt.lower().endswith("schedule") else txt
+                    txt = re.sub(r"^(\d+)U\b", r"\1", txt).strip()
+                    div_name = txt or div_name
+        except Exception:
+            pass
         # Walk subsequent rows in this table until the next header row (with th)
         teams: list[dict[str, Any]] = []
         for sib in row.find_next_siblings():
@@ -406,7 +420,7 @@ def scrape_season_divisions(season_id: int):
         if not teams:
             return None
         return {
-            "name": a_tag.get_text(strip=True) or f"Level {level} Conf {conf}",
+            "name": div_name,
             "id": int(level) if level and level.isdigit() else 0,
             "conferenceId": int(conf) if conf and conf.isdigit() else 0,
             "seasonId": season_id,
@@ -652,7 +666,5 @@ def load_data(db: Database):
         sync_season_teams(db, season)
 
 
-DATABASE = Database()
-
 if __name__ == "__main__":
-    load_data(DATABASE)
+    load_data(Database())

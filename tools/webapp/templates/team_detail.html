@@ -1,8 +1,9 @@
 {% extends 'layout.html' %}
 {% block content %}
+{% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
 <div style="display:flex;align-items:center;gap:1rem;">
   {% if team['logo_path'] %}
-    <img src="/media/team_logo/{{ team['id'] }}" alt="logo" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--border);" />
+    <img src="{{ base }}/media/team_logo/{{ team['id'] }}" alt="logo" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--border);" />
   {% else %}
     <div style="width:72px;height:72px;border-radius:10px;background:#1c212c;border:1px solid var(--border);"></div>
   {% endif %}
@@ -23,7 +24,7 @@
     {% if editable %}
       <p><a class="btn" href="/teams/{{ team['id'] }}/edit">Edit team</a> <a class="btn" href="/schedule/new">Add game</a></p>
     {% else %}
-      <p class="muted">Read-only (shared league)</p>
+      <p class="muted">Read-only</p>
     {% endif %}
   </div>
 </div>

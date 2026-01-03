@@ -2,13 +2,12 @@
 
 import datetime
 import json
+import logging
 import os
 from urllib import parse
 
 import bs4
 import requests
-
-from hmlib.log import get_logger
 
 HEADERS = {
     "Content-Type": "html",
@@ -21,7 +20,7 @@ HEADERS = {
 CACHE = False
 
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def get_value_from_link(url: str, key: str):
@@ -43,7 +42,8 @@ def get_html(url: str, params: dict[str, str] | None = None, log=False):
     """Read HTML from a given URL."""
     if log:
         logger.info("Reading HTML from %s (%s)...", url, params)
-    html = requests.get(url, params=params, headers=HEADERS)
+    timeout_s = float(os.environ.get("HM_T2S_HTTP_TIMEOUT", "30"))
+    html = requests.get(url, params=params, headers=HEADERS, timeout=timeout_s)
     return bs4.BeautifulSoup(html.text, "html5lib")
 
 

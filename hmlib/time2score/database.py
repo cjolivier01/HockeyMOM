@@ -2,13 +2,11 @@
 
 import datetime
 import json
+import logging
 import sqlite3
 from typing import Any
 
-from hmlib.log import get_logger
-
-
-_logger = get_logger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 # Connect to the database (or create it if it doesn't exist)

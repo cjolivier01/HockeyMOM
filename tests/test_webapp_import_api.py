@@ -38,7 +38,9 @@ class FakeConn:
         self.player_id_by_user_team_name: dict[tuple[int, int, str], int] = {}
         self.hky_games_by_id: dict[int, dict[str, Any]] = {}
         self.league_teams: set[tuple[int, int]] = set()
+        self.league_teams_meta: dict[tuple[int, int], dict[str, Any]] = {}
         self.league_games: set[tuple[int, int]] = set()
+        self.league_games_meta: dict[tuple[int, int], dict[str, Any]] = {}
         self.player_stats: dict[tuple[int, int], dict[str, Any]] = {}
 
     def _alloc_id(self, table: str) -> int:
@@ -165,12 +167,60 @@ class FakeCursor:
 
         if q == "INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)":
             league_id, team_id = p
-            self._conn.league_teams.add((int(league_id), int(team_id)))
+            key = (int(league_id), int(team_id))
+            self._conn.league_teams.add(key)
+            self._conn.league_teams_meta.setdefault(
+                key, {"division_name": None, "division_id": None, "conference_id": None}
+            )
+            return 1
+
+        if q.startswith(
+            "INSERT INTO league_teams(league_id, team_id, division_name, division_id, conference_id) VALUES"
+        ):
+            league_id, team_id, division_name, division_id, conference_id = p
+            key = (int(league_id), int(team_id))
+            self._conn.league_teams.add(key)
+            prev = self._conn.league_teams_meta.get(key) or {
+                "division_name": None,
+                "division_id": None,
+                "conference_id": None,
+            }
+            if division_name is not None and str(division_name).strip():
+                prev["division_name"] = str(division_name).strip()
+            if division_id is not None:
+                prev["division_id"] = int(division_id)
+            if conference_id is not None:
+                prev["conference_id"] = int(conference_id)
+            self._conn.league_teams_meta[key] = prev
             return 1
 
         if q == "INSERT IGNORE INTO league_games(league_id, game_id) VALUES(%s,%s)":
             league_id, game_id = p
-            self._conn.league_games.add((int(league_id), int(game_id)))
+            key = (int(league_id), int(game_id))
+            self._conn.league_games.add(key)
+            self._conn.league_games_meta.setdefault(
+                key, {"division_name": None, "division_id": None, "conference_id": None}
+            )
+            return 1
+
+        if q.startswith(
+            "INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id) VALUES"
+        ):
+            league_id, game_id, division_name, division_id, conference_id = p
+            key = (int(league_id), int(game_id))
+            self._conn.league_games.add(key)
+            prev = self._conn.league_games_meta.get(key) or {
+                "division_name": None,
+                "division_id": None,
+                "conference_id": None,
+            }
+            if division_name is not None and str(division_name).strip():
+                prev["division_name"] = str(division_name).strip()
+            if division_id is not None:
+                prev["division_id"] = int(division_id)
+            if conference_id is not None:
+                prev["conference_id"] = int(conference_id)
+            self._conn.league_games_meta[key] = prev
             return 1
 
         # Teams
@@ -571,6 +621,62 @@ def should_import_game_and_be_non_destructive_without_replace(client_and_db, mon
     assert ps["goals"] == 1 and ps["assists"] == 0
 
 
+def should_persist_division_metadata_on_import(client_and_db, monkeypatch):
+    client, db = client_and_db
+    monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
+
+    r = _post(
+        client,
+        "/api/import/hockey/ensure_league",
+        {"league_name": "Norcal", "shared": True, "owner_email": "owner@example.com"},
+        token="sekret",
+    )
+    assert r.status_code == 200
+    lid = int(r.get_json()["league_id"])
+
+    payload = {
+        "league_name": "Norcal",
+        "shared": True,
+        "replace": False,
+        "owner_email": "owner@example.com",
+        "game": {
+            "home_name": "Alpha",
+            "away_name": "Beta",
+            "starts_at": "2026-01-02 10:00:00",
+            "location": "Rink",
+            "home_score": 1,
+            "away_score": 2,
+            "division_name": "10U A",
+            "division_id": 55,
+            "conference_id": 7,
+            "home_roster": [{"name": "P1"}],
+            "away_roster": [{"name": "P2"}],
+            "player_stats": [{"name": "P1", "goals": 1, "assists": 0}],
+        },
+        "source": "timetoscore",
+        "external_key": "caha:0",
+    }
+    r2 = _post(client, "/api/import/hockey/game", payload, token="sekret")
+    assert r2.status_code == 200
+    gid = int(r2.get_json()["game_id"])
+
+    team1_id = int(r2.get_json()["team1_id"])
+    team2_id = int(r2.get_json()["team2_id"])
+    assert db.league_teams_meta[(lid, team1_id)]["division_name"] == "10U A"
+    assert db.league_teams_meta[(lid, team2_id)]["division_id"] == 55
+    assert db.league_games_meta[(lid, gid)]["conference_id"] == 7
+
+    # Re-import without division fields should not erase existing metadata.
+    payload2 = dict(payload)
+    payload2["game"] = dict(payload["game"])
+    payload2["game"].pop("division_name", None)
+    payload2["game"].pop("division_id", None)
+    payload2["game"].pop("conference_id", None)
+    r3 = _post(client, "/api/import/hockey/game", payload2, token="sekret")
+    assert r3.status_code == 200
+    assert db.league_teams_meta[(lid, team1_id)]["division_name"] == "10U A"
+
+
 def should_overwrite_with_replace(client_and_db, monkeypatch):
     client, db = client_and_db
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
@@ -718,4 +824,3 @@ def should_update_player_roster_fields_without_replace(client_and_db, monkeypatc
     _post(client, "/api/import/hockey/game", payload2, token="sekret")
     assert db.players_by_id[alice_pid]["jersey_number"] == "12"
     assert db.players_by_id[alice_pid]["position"] == "F"
-

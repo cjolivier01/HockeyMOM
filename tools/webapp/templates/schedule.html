@@ -1,13 +1,44 @@
 {% extends 'layout.html' %}
 {% block content %}
+{% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
   <h2>Games Schedule</h2>
-  <a class="btn primary" href="/schedule/new">Add game</a>
+  {% if can_add_game|default(True) %}
+    <a class="btn primary" href="/schedule/new">Add game</a>
+  {% endif %}
 </div>
+
+{% if league_view %}
+  <div class="card" style="margin-bottom:1rem;">
+    <form method="get" action="{{ base }}/schedule" style="display:flex;gap:1rem;flex-wrap:wrap;align-items:end;">
+      <div class="form-row">
+        <label class="muted">Division</label>
+        <select name="division">
+          <option value="">(All)</option>
+          {% for d in divisions %}
+            <option value="{{ d }}" {% if selected_division==d %}selected{% endif %}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="muted">Team</label>
+        <select name="team_id">
+          <option value="">(All)</option>
+          {% for t in league_teams %}
+            <option value="{{ t.id }}" {% if selected_team_id==(t.id|string) %}selected{% endif %}>{{ t.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn" type="submit">Filter</button>
+      <a class="btn" href="{{ base }}/schedule">Clear</a>
+    </form>
+  </div>
+{% endif %}
 
 <table>
   <thead>
     <tr>
+      {% if league_view %}<th>Division</th>{% endif %}
       <th>Date</th>
       <th>Matchup</th>
       <th>Type</th>
@@ -19,17 +50,23 @@
   <tbody>
     {% for g in games %}
       <tr>
+        {% if league_view %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
         <td>{{ g['starts_at'] or '' }}</td>
         <td>{{ g['team1_name'] }} vs {{ g['team2_name'] }}</td>
         <td>{{ g['game_type_name'] or '' }}</td>
         <td>{{ g['location'] or '' }}</td>
         <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
-        <td><a class="btn" href="/hky/games/{{ g['id'] }}">Edit</a></td>
+        <td>
+          {% if public_league_id is defined %}
+            <a class="btn" href="{{ base }}/hky/games/{{ g['id'] }}">View</a>
+          {% else %}
+            <a class="btn" href="/hky/games/{{ g['id'] }}">Edit</a>
+          {% endif %}
+        </td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="muted">No games yet.</td></tr>
+      <tr><td colspan="{% if league_view %}7{% else %}6{% endif %}" class="muted">No games yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>
 {% endblock %}
-

@@ -1,16 +1,27 @@
 """Scraper for SIAHL."""
 
 import re
+import logging
 from typing import Any
 
-import database
-import util
 import hashlib
 import hmac
 import time
 from urllib.parse import quote
 
-from hmlib.log import get_logger
+try:  # pragma: no cover
+    from . import database  # type: ignore
+    from . import util  # type: ignore
+except Exception:  # noqa: BLE001
+    # Fallback for direct execution without package context.
+    import os as _os
+    import sys as _sys
+
+    _here = _os.path.dirname(__file__)
+    if _here not in _sys.path:
+        _sys.path.insert(0, _here)
+    import database  # type: ignore  # noqa: E402
+    import util  # type: ignore  # noqa: E402
 
 TIMETOSCORE_URL = "https://stats.sharksice.timetoscore.com/"
 TEAM_URL = TIMETOSCORE_URL + "display-schedule"
@@ -19,7 +30,7 @@ DIVISION_URL = TIMETOSCORE_URL + "display-league-stats"
 MAIN_STATS_URL = TIMETOSCORE_URL + "display-stats.php"
 CALENDAR = "webcal://stats.sharksice.timetoscore.com/team-cal.php?team={team}&tlev=0&tseq=0&season={season}&format=iCal"
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _API_CONFIG: dict[str, str] | None = None
 
@@ -783,8 +794,6 @@ def load_data(db: database.Database):
         sync_season_teams(db, season)
 
 
-DATABASE = database.Database()
-
 if __name__ == "__main__":
-    load_data(DATABASE)
+    load_data(database.Database())
     # d = scrape_season_divisions(66)
