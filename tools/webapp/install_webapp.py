@@ -21,6 +21,11 @@ def main():
     ap.add_argument("--user", default=os.environ.get("SUDO_USER") or os.environ.get("USER"))
     ap.add_argument("--watch-root", default="/data/incoming")
     ap.add_argument("--port", type=int, default=8008)
+    ap.add_argument(
+        "--bind-address",
+        default="127.0.0.1",
+        help="Bind address for gunicorn (default: 127.0.0.1). Use 0.0.0.0 to expose the app port.",
+    )
     ap.add_argument("--server-name", default="_")
     ap.add_argument("--client-max-body-size", default="500M")
     ap.add_argument("--db-name", default="hm_app_db")
@@ -167,7 +172,7 @@ Environment=MSMTP_CONFIG=/etc/msmtprc
 Environment=MSMTPRC=/etc/msmtprc
 Environment=HM_DB_CONFIG={app_dir}/config.json
 WorkingDirectory={app_dir}
-ExecStart={python_bin} -m gunicorn -b 127.0.0.1:{args.port} app:app
+ExecStart={python_bin} -m gunicorn -b {args.bind_address}:{args.port} app:app
 Restart=on-failure
 RestartSec=3
 

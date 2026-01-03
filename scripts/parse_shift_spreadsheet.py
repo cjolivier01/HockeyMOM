@@ -571,9 +571,31 @@ def _apply_excel_table_style(
         except Exception:
             pass
 
-        # Freeze the first column (Player/Stat) and the title+header rows so player
-        # names stay visible while scrolling in Excel/LibreOffice.
-        ws.freeze_panes = "B3"
+        # Freeze key identity columns and the title+header rows so the important
+        # left-side columns stay visible while scrolling in Excel/LibreOffice.
+        #
+        # Default: freeze column A + rows 1-2 (pane starts at B3).
+        # Player stats tables now have: [Jersey #, Player, ...] so freeze both.
+        try:
+            h1 = ws.cell(row=header_row, column=1).value
+            h2 = ws.cell(row=header_row, column=2).value
+            h3 = ws.cell(row=header_row, column=3).value
+            h4 = ws.cell(row=header_row, column=4).value
+            h1n = str(h1 or "").replace("\n", " ").strip()
+            h2n = str(h2 or "").replace("\n", " ").strip()
+            h3n = str(h3 or "").replace("\n", " ").strip()
+            h4n = str(h4 or "").replace("\n", " ").strip()
+
+            # Pair-on-ice: freeze both player identity columns and teammate identity columns.
+            if h1n == "Player Jersey #" and h2n == "Player" and h3n == "Teammate Jersey #" and h4n == "Teammate":
+                ws.freeze_panes = "E3"
+            # Player stats: freeze jersey + player name.
+            elif h1n in {"Jersey #", "Jersey", "Jersey No", "Jersey Number"} and h2n == "Player":
+                ws.freeze_panes = "C3"
+            else:
+                ws.freeze_panes = "B3"
+        except Exception:
+            ws.freeze_panes = "B3"
     except Exception:
         return
 
@@ -799,6 +821,81 @@ def _normalize_jersey_number(token: Any) -> Optional[str]:
         return None
     num = m.group(1).lstrip("0")
     return num or "0"
+
+
+@dataclass(frozen=True)
+class PlayerKeyParts:
+    raw: str
+    jersey: Optional[str]
+    name: str
+
+
+def _parse_player_key(raw: Any) -> PlayerKeyParts:
+    """
+    Parse internal player keys like:
+      - '1_Ethan_L_Olivier'    -> jersey='1',  name='Ethan L Olivier'
+      - '59_Ryan_S_Donahue'    -> jersey='59', name='Ryan S Donahue'
+      - 'Blue_1'               -> jersey='1',  name='Blue'
+
+    This is used for user-facing table formatting and for robust jersey extraction
+    (avoid ad-hoc `split('_', 1)` parsing).
+    """
+    try:
+        text = str(raw or "").strip()
+    except Exception:
+        text = ""
+    if not text:
+        return PlayerKeyParts(raw="", jersey=None, name="")
+
+    parts = [p for p in text.split("_") if p != ""]
+    if not parts:
+        return PlayerKeyParts(raw=text, jersey=None, name=text.replace("_", " ").strip())
+
+    jersey: Optional[str] = None
+    name_parts: List[str] = []
+
+    # Primary format: <jersey>_<first>_<...>_<last>
+    jersey_norm = _normalize_jersey_number(parts[0])
+    if jersey_norm and len(parts) > 1:
+        jersey = jersey_norm
+        name_parts = parts[1:]
+    else:
+        # Secondary: <team>_<jersey>_<optional name...>
+        if len(parts) >= 2 and parts[0] in {"Blue", "White"}:
+            jersey_norm2 = _normalize_jersey_number(parts[1])
+            if jersey_norm2:
+                jersey = jersey_norm2
+                name_parts = parts[2:] if len(parts) > 2 else [parts[0]]
+            else:
+                name_parts = parts
+        else:
+            name_parts = parts
+
+    name = " ".join([p for p in name_parts if p]).replace("_", " ").strip()
+    if not name:
+        name = text.replace("_", " ").strip()
+    return PlayerKeyParts(raw=text, jersey=jersey, name=name)
+
+
+def _player_sort_key(raw: Any) -> Tuple[str, int, str]:
+    p = _parse_player_key(raw)
+    try:
+        j = int(p.jersey) if p.jersey is not None else 10**9
+    except Exception:
+        j = 10**9
+    return (p.name.lower(), j, p.raw)
+
+
+def _format_player_name_only(raw: Any) -> str:
+    p = _parse_player_key(raw)
+    return p.name
+
+
+def _format_player_name_with_jersey(raw: Any) -> str:
+    p = _parse_player_key(raw)
+    if p.jersey:
+        return f"{p.name} ({p.jersey})"
+    return p.name
 
 
 def _extract_jersey_number(cell: Any) -> Optional[str]:
@@ -1401,8 +1498,7 @@ def _compute_pair_on_ice_rows(
 
     jersey_to_player: Dict[str, str] = {}
     for pk in players:
-        jersey_part = str(pk).split("_", 1)[0]
-        norm = _normalize_jersey_number(jersey_part)
+        norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
         if norm:
             jersey_to_player.setdefault(norm, pk)
 
@@ -2932,10 +3028,12 @@ def _write_global_summary_csv(
 ) -> None:
     summary_rows = []
     for player_key, sb_list in sb_pairs_by_player.items():
+        parts = _parse_player_key(player_key)
         all_pairs = [(a, b) for (_, a, b) in sb_list]
         shift_summary = summarize_shift_lengths_sec(all_pairs)
         row = {
-            "player": player_key,
+            "jersey": parts.jersey or "",
+            "player": parts.name,
             "num_shifts": int(shift_summary["num_shifts"]),
             "toi_total_sec": (
                 parse_flex_time_to_seconds(shift_summary["toi_total"])
@@ -2965,7 +3063,7 @@ def _write_global_summary_csv(
         }
         summary_rows.append(row)
     if summary_rows:
-        df = pd.DataFrame(summary_rows).sort_values(by="player")
+        df = pd.DataFrame(summary_rows).sort_values(by=["player", "jersey"])
         df.to_csv(stats_dir / "summary_stats.csv", index=False)
         _write_styled_xlsx_table(
             stats_dir / "summary_stats.xlsx",
@@ -2987,9 +3085,13 @@ def _write_pair_on_ice_csv(stats_dir: Path, rows: List[Dict[str, Any]], *, inclu
 
     out_rows: List[Dict[str, Any]] = []
     for r in rows:
+        p_parts = _parse_player_key(r.get("player", ""))
+        t_parts = _parse_player_key(r.get("teammate", ""))
         row_out: Dict[str, Any] = {
-            "Player": r.get("player", ""),
-            "Teammate": r.get("teammate", ""),
+            "Player Jersey #": p_parts.jersey or "",
+            "Player": p_parts.name,
+            "Teammate Jersey #": t_parts.jersey or "",
+            "Teammate": t_parts.name,
             "Games with Data": int(r.get("shift_games", 0) or 0),
             "Overlap %": float(r.get("overlap_pct", 0.0) or 0.0),
             "GF Together": int(r.get("gf_together", 0) or 0),
@@ -3078,7 +3180,8 @@ def _write_all_events_summary(
                 if interval_contains(game_s, lo, hi):
                     out.append(pk)
                     break
-        return sorted(out)
+        out.sort(key=_player_sort_key)
+        return out
 
     def _on_ice_players_pm(period: int, game_s: int) -> List[str]:
         # Plus/minus skips goals exactly at shift start for each player.
@@ -3141,7 +3244,7 @@ def _write_all_events_summary(
                 gs_i = int(game_s) if isinstance(game_s, (int, float)) else None
                 key = (str(etype), str(team), period, vs_i, gs_i)
                 pj = player_rows_by_event.get(key, {"players": set(), "jerseys": set()})
-                attrib_players = sorted([str(x) for x in pj.get("players", set()) if x])
+                attrib_players = sorted([str(x) for x in pj.get("players", set()) if x], key=_player_sort_key)
                 attrib_jerseys = sorted([int(x) for x in pj.get("jerseys", set()) if isinstance(x, int)])
                 on_ice = _on_ice_players(period, gs_i) if (gs_i is not None and period > 0) else []
                 on_ice_pm = _on_ice_players_pm(period, gs_i) if (gs_i is not None and period > 0) else []
@@ -3160,10 +3263,10 @@ def _write_all_events_summary(
                         "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
                         "Game Seconds": gs_i if gs_i is not None else "",
                         "Video Seconds": vs_i if vs_i is not None else "",
-                        "Attributed Players": ",".join(attrib_players),
+                        "Attributed Players": ",".join(_format_player_name_with_jersey(x) for x in attrib_players),
                         "Attributed Jerseys": ",".join(str(j) for j in attrib_jerseys),
-                        "On-Ice Players": ",".join(on_ice),
-                        "On-Ice Players (PM)": ",".join(on_ice_pm),
+                        "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
+                        "On-Ice Players (PM)": ",".join(_format_player_name_with_jersey(x) for x in on_ice_pm),
                     }
                 )
 
@@ -3195,8 +3298,8 @@ def _write_all_events_summary(
                     "Video Seconds": vs_i if vs_i is not None else "",
                     "Attributed Players": "",
                     "Attributed Jerseys": str(scorer),
-                    "On-Ice Players": ",".join(on_ice),
-                    "On-Ice Players (PM)": ",".join(on_ice_pm),
+                    "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
+                    "On-Ice Players (PM)": ",".join(_format_player_name_with_jersey(x) for x in on_ice_pm),
                 }
             )
         # Assist rows (if any).
@@ -3219,8 +3322,8 @@ def _write_all_events_summary(
                     "Video Seconds": vs_i if vs_i is not None else "",
                     "Attributed Players": "",
                     "Attributed Jerseys": str(ast),
-                    "On-Ice Players": ",".join(on_ice),
-                    "On-Ice Players (PM)": ",".join(on_ice_pm),
+                    "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
+                    "On-Ice Players (PM)": ",".join(_format_player_name_with_jersey(x) for x in on_ice_pm),
                 }
             )
 
@@ -3487,13 +3590,13 @@ def _build_stats_dataframe(
             except Exception:
                 return 0
 
-        rows_sorted.sort(key=lambda r: r.get("player", ""))
+        rows_sorted.sort(key=lambda r: _player_sort_key(r.get("player", "")))
         rows_sorted.sort(key=lambda r: _intval(r, "assists"))
         rows_sorted.sort(key=lambda r: _intval(r, "goals"))
         rows_sorted.sort(key=lambda r: _intval(r, "points"), reverse=True)
     else:
         # Per-game sheets: simple alphabetical order by player.
-        rows_sorted.sort(key=lambda r: r.get("player", ""))
+        rows_sorted.sort(key=lambda r: _player_sort_key(r.get("player", "")))
 
     rows_for_print: List[List[str]] = [
         [r.get(c, "") for c in cols] for r in rows_sorted
@@ -3509,6 +3612,7 @@ def _display_col_name(key: str) -> str:
     """
     # Explicit overrides for common fields
     overrides = {
+        "jersey": "Jersey #",
         "player": "Player",
         "gp": "GP",
         "goals": "Goals",
@@ -3681,9 +3785,12 @@ def _write_player_stats_text_and_csv(
         sort_for_cumulative=False,
         include_shifts_in_stats=include_shifts_in_stats,
     )
-    # Pretty-print player names for display tables
-    if "player" in df.columns:
-        df["player"] = df["player"].apply(_display_player_name)
+    # Pretty-print player identity for display tables: separate jersey + name.
+    if "player" in df.columns and "jersey" not in df.columns:
+        jerseys = df["player"].apply(lambda x: _parse_player_key(x).jersey or "")
+        df.insert(0, "jersey", jerseys)
+        df["player"] = df["player"].apply(_format_player_name_only)
+        cols = ["jersey"] + cols
     rows_for_print = df.values.tolist()
 
     # Human-friendly display column names
@@ -4086,7 +4193,9 @@ def _write_pair_on_ice_consolidated_files(
         # Still write an empty consolidated file set so users always see it
         # alongside other consolidated outputs.
         empty_cols = [
+            "Player Jersey #",
             "Player",
+            "Teammate Jersey #",
             "Teammate",
             "Games with Data",
             "Overlap %",
@@ -4101,8 +4210,12 @@ def _write_pair_on_ice_consolidated_files(
             "Teammate Total +/-",
         ]
         if include_toi:
-            empty_cols.insert(3, "Player TOI")
-            empty_cols.insert(4, "Overlap")
+            try:
+                idx = empty_cols.index("Overlap %")
+            except Exception:
+                idx = len(empty_cols)
+            empty_cols.insert(idx, "Player TOI")
+            empty_cols.insert(idx + 1, "Overlap")
         df_out = pd.DataFrame([], columns=empty_cols)
         csv_out = base_outdir / "pair_on_ice_consolidated.csv"
         xlsx_out = base_outdir / "pair_on_ice_consolidated.xlsx"
@@ -4128,14 +4241,18 @@ def _write_pair_on_ice_consolidated_files(
         return "" if v == 0 else v
 
     for (player, teammate), d in agg.items():
+        p_parts = _parse_player_key(player)
+        t_parts = _parse_player_key(teammate)
         toi = int(d.get("player_toi_seconds", 0) or 0)
         overlap = int(d.get("overlap_seconds", 0) or 0)
         gf = int(d.get("gf_together", 0) or 0)
         ga = int(d.get("ga_together", 0) or 0)
         pct = 100.0 * overlap / toi if toi > 0 else 0.0
         row_out: Dict[str, Any] = {
-            "Player": player,
-            "Teammate": teammate,
+            "Player Jersey #": p_parts.jersey or "",
+            "Player": p_parts.name,
+            "Teammate Jersey #": t_parts.jersey or "",
+            "Teammate": t_parts.name,
             "Games with Data": int(d.get("shift_games", 0) or 0),
             "Overlap %": pct,
             "GF Together": gf,
@@ -4570,9 +4687,12 @@ def _write_consolidated_workbook(
             for name, df in sheets:
                 safe_name = re.sub(r"[:\\\\/?*\\[\\]]", "_", name or "Sheet")[:31]
                 df_display = df.copy()
-                # Pretty player names if present
+                # Pretty player identity if present: separate jersey + name.
                 if "player" in df_display.columns:
-                    df_display["player"] = df_display["player"].apply(_display_player_name)
+                    if "jersey" not in df_display.columns:
+                        jerseys = df_display["player"].apply(lambda x: _parse_player_key(x).jersey or "")
+                        df_display.insert(0, "jersey", jerseys)
+                    df_display["player"] = df_display["player"].apply(_format_player_name_only)
                 is_cumulative = str(name or "").strip().lower() == "cumulative"
                 disp_cols = [
                     _wrap_header_after_words(_disp_col(c, is_cumulative=is_cumulative), words_per_line=2)
@@ -5308,11 +5428,16 @@ def _write_event_summaries_and_clips(
 
         rows = []
         for r in player_event_rows:
+            pk_raw = r.get("player")
+            pk_parts = _parse_player_key(pk_raw)
+            jersey_val = r.get("jersey")
+            if (jersey_val is None or str(jersey_val).strip() == "") and pk_parts.jersey:
+                jersey_val = pk_parts.jersey
             rows.append(
                 {
                     "event_type": _display_event_type(str(r.get("event_type") or "")),
-                    "player": r.get("player"),
-                    "jersey": r.get("jersey"),
+                    "jersey": jersey_val,
+                    "player": pk_parts.name,
                     "period": r.get("period"),
                     "video_time": _fmt_v(r.get("video_s")),
                     "game_time": _fmt_g(r.get("game_s")),
@@ -6001,7 +6126,7 @@ def process_sheet(
 
     jersey_to_players: Dict[str, List[str]] = {}
     for pk in sb_pairs_by_player.keys():
-        norm = _normalize_jersey_number(pk)
+        norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
         if norm:
             jersey_to_players.setdefault(norm, []).append(pk)
 
@@ -6011,8 +6136,7 @@ def process_sheet(
         # Jersey numbers already present in this sheet (normalized).
         seen_normals: set[str] = set()
         for pk in sb_pairs_by_player.keys():
-            jersey_part = pk.split("_", 1)[0]
-            norm = _normalize_jersey_number(jersey_part)
+            norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
             if norm:
                 seen_normals.add(norm)
 
@@ -6781,8 +6905,7 @@ def process_t2s_only_game(
 
     def _sort_player_key(pk: str) -> Tuple[int, str]:
         try:
-            jersey_part = pk.split("_", 1)[0]
-            norm = _normalize_jersey_number(jersey_part) or ""
+            norm = _normalize_jersey_number(_parse_player_key(pk).jersey) or ""
             return int(norm), pk
         except Exception:
             return 9999, pk
@@ -7692,7 +7815,10 @@ def main() -> None:
         try:
             df_csv = agg_df.copy()
             if "player" in df_csv.columns:
-                df_csv["player"] = df_csv["player"].apply(_display_player_name)
+                if "jersey" not in df_csv.columns:
+                    jerseys = df_csv["player"].apply(lambda x: _parse_player_key(x).jersey or "")
+                    df_csv.insert(0, "jersey", jerseys)
+                df_csv["player"] = df_csv["player"].apply(_format_player_name_only)
             df_csv.columns = [
                 f"{_display_col_name(c)} ({per_game_denoms[c]})"
                 if c in per_game_denoms
