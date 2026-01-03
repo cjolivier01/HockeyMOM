@@ -31,3 +31,17 @@ def should_parse_caha_division_names_from_schedule_headers(monkeypatch):
     assert "10 B West" in names
     assert any(t["name"] == "Team One" for d in divs for t in d.get("teams", []))
 
+
+def should_map_numeric_scorers_to_roster_names():
+    from hmlib.time2score import normalize
+
+    stats = {
+        "homePlayers": [{"number": "88", "position": "F", "name": "Alice"}, {"number": "76", "position": "D", "name": "Bob"}],
+        "awayPlayers": [],
+        "homeScoring": [{"goal": "88", "assist1": "76", "assist2": ""}],
+        "awayScoring": [],
+    }
+    out = normalize.aggregate_goals_assists(stats)
+    out_by_name = {r["name"]: r for r in out}
+    assert out_by_name["Alice"]["goals"] == 1
+    assert out_by_name["Bob"]["assists"] == 1

@@ -393,6 +393,65 @@ def _ensure_team_logo(
     conn.commit()
 
 
+def _cleanup_numeric_named_players(conn, *, user_id: int, team_id: int) -> int:
+    """Fix bogus players created from numeric scorer ids (e.g. name='88').
+
+    Migrate any player_stats rows from bogus numeric-name players to the real player
+    matching jersey_number, then delete the bogus player records if unused.
+    """
+    moved = 0
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, name FROM players WHERE user_id=%s AND team_id=%s AND name REGEXP '^[0-9]+$'",
+            (user_id, team_id),
+        )
+        bogus = [(int(r[0]), str(r[1])) for r in (cur.fetchall() or [])]
+    for bogus_id, bogus_name in bogus:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id
+                FROM players
+                WHERE user_id=%s AND team_id=%s AND jersey_number=%s AND name NOT REGEXP '^[0-9]+$'
+                LIMIT 1
+                """,
+                (user_id, team_id, bogus_name),
+            )
+            row = cur.fetchone()
+        if not row:
+            continue
+        real_id = int(row[0])
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT game_id FROM player_stats WHERE player_id=%s",
+                (bogus_id,),
+            )
+            game_ids = [int(r[0]) for r in (cur.fetchall() or [])]
+        for gid in game_ids:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM player_stats WHERE game_id=%s AND player_id=%s",
+                    (gid, real_id),
+                )
+                exists = cur.fetchone()
+                if exists:
+                    cur.execute("DELETE FROM player_stats WHERE game_id=%s AND player_id=%s", (gid, bogus_id))
+                else:
+                    cur.execute(
+                        "UPDATE player_stats SET player_id=%s WHERE game_id=%s AND player_id=%s",
+                        (real_id, gid, bogus_id),
+                    )
+                    moved += 1
+            conn.commit()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM player_stats WHERE player_id=%s", (bogus_id,))
+            cnt = int((cur.fetchone() or [0])[0])
+            if cnt == 0:
+                cur.execute("DELETE FROM players WHERE id=%s", (bogus_id,))
+                conn.commit()
+    return moved
+
+
 def upsert_hky_game(
     conn,
     *,
@@ -543,6 +602,16 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--logo-dir",
         default=None,
         help="Directory to store downloaded logos (default: /opt/hm-webapp/app/instance/uploads/team_logos if present)",
+    )
+    ap.add_argument(
+        "--no-cleanup-bogus-players",
+        action="store_true",
+        help="Skip cleaning bogus numeric-name players created from score sheets",
+    )
+    ap.add_argument(
+        "--cleanup-only",
+        action="store_true",
+        help="Only run DB cleanup (no schedule/game scraping).",
     )
     ap.add_argument("--division", dest="divisions", action="append", default=[], help="Division filter token (repeatable)")
     ap.add_argument("--team", dest="teams", action="append", default=[], help="Team substring filter (repeatable)")
@@ -701,35 +770,40 @@ def main(argv: Optional[list[str]] = None) -> int:
             continue
         ensure_league_member(conn, league_id, uid, role="viewer")
 
-    # Build explicit game list if present
-    explicit_game_ids: list[int] = []
-    if args.games_file:
-        for line in Path(args.games_file).read_text(encoding="utf-8").splitlines():
-            s = line.strip()
-            if s.isdigit():
-                explicit_game_ids.append(int(s))
-    for s in args.game_ids:
-        if str(s).strip().isdigit():
-            explicit_game_ids.append(int(s))
-
-    if explicit_game_ids:
-        game_ids = list(explicit_game_ids)
-        fallback_by_gid: dict[int, dict[str, Any]] = {}
+    if args.cleanup_only:
+        game_ids = []
+        fallback_by_gid = {}
     else:
-        log("Discovering game ids from team schedules...")
-        fallback_by_gid = tts_direct.iter_season_games(
-            args.source,
-            season_id=season_id,
-            divisions=sorted(allowed_divs) if allowed_divs is not None else None,
-            team_name_substrings=args.teams,
-        )
-        game_ids = sorted(fallback_by_gid.keys())
+        # Build explicit game list if present
+        explicit_game_ids: list[int] = []
+        if args.games_file:
+            for line in Path(args.games_file).read_text(encoding="utf-8").splitlines():
+                s = line.strip()
+                if s.isdigit():
+                    explicit_game_ids.append(int(s))
+        for s in args.game_ids:
+            if str(s).strip().isdigit():
+                explicit_game_ids.append(int(s))
+
+        if explicit_game_ids:
+            game_ids = list(explicit_game_ids)
+            fallback_by_gid = {}
+        else:
+            log("Discovering game ids from team schedules...")
+            fallback_by_gid = tts_direct.iter_season_games(
+                args.source,
+                season_id=season_id,
+                divisions=sorted(allowed_divs) if allowed_divs is not None else None,
+                team_name_substrings=args.teams,
+            )
+            game_ids = sorted(fallback_by_gid.keys())
 
     total = len(game_ids)
     log(f"Importing games: total={total} replace={bool(args.replace)}")
 
     count = 0
     skipped = 0
+    cleaned_team_ids: set[int] = set()
     started = time.time()
     for gid in game_ids:
         if args.limit is not None and count >= int(args.limit):
@@ -848,6 +922,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             ensure_player(conn, user_id=user_id, team_id=team1_id, name=row["name"], jersey=row["number"], position=row["position"])
         for row in tts_norm.extract_roster(stats, "away"):
             ensure_player(conn, user_id=user_id, team_id=team2_id, name=row["name"], jersey=row["number"], position=row["position"])
+        if not args.no_cleanup_bogus_players:
+            if int(team1_id) not in cleaned_team_ids:
+                _cleanup_numeric_named_players(conn, user_id=user_id, team_id=int(team1_id))
+                cleaned_team_ids.add(int(team1_id))
+            if int(team2_id) not in cleaned_team_ids:
+                _cleanup_numeric_named_players(conn, user_id=user_id, team_id=int(team2_id))
+                cleaned_team_ids.add(int(team2_id))
 
         # Minimal player stats (goals/assists)
         for agg in tts_norm.aggregate_goals_assists(stats):
@@ -907,6 +988,25 @@ def main(argv: Optional[list[str]] = None) -> int:
             log(f"Progress: {count}/{total} ({pct:.1f}%) games, skipped={skipped}, {rate:.2f} games/s")
 
     log(f"Import complete. Imported {count} games, skipped={skipped}.")
+    if not args.no_cleanup_bogus_players:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT lt.team_id
+                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                    WHERE lt.league_id=%s AND t.user_id=%s
+                    """,
+                    (league_id, user_id),
+                )
+                all_team_ids = sorted({int(r[0]) for r in (cur.fetchall() or [])})
+            moved_total = 0
+            for tid in all_team_ids:
+                moved_total += _cleanup_numeric_named_players(conn, user_id=user_id, team_id=int(tid))
+            if moved_total:
+                log(f"Cleaned bogus numeric-name players: migrated {moved_total} stat rows.")
+        except Exception:
+            pass
     return 0
 
 

@@ -17,7 +17,6 @@
     <table>
       <thead>
         <tr>
-          <th>Logo</th>
           <th>Name</th>
           <th>Record</th>
           <th>GF/GA</th>
@@ -29,14 +28,13 @@
         {% for t in div.teams %}
         {% set s = stats.get(t['id'], {}) %}
           <tr>
-            <td style="width:56px;">
-              {% if t['logo_path'] %}
-                <img src="{{ base }}/media/team_logo/{{ t['id'] }}" alt="logo" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" />
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
+            <td>
+              <span style="display:inline-flex;align-items:center;gap:10px;">
+                <img src="{{ base }}/media/team_logo/{{ t['id'] }}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+                <a class="btn secondary" href="{{ base }}/teams/{{ t['id'] }}">{{ t['name'] }}</a>
+                {% if t['is_external'] %}<span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}
+              </span>
             </td>
-            <td><a class="btn secondary" href="{{ base }}/teams/{{ t['id'] }}">{{ t['name'] }}</a>{% if t['is_external'] %} <span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}</td>
             <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
             <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
             <td>{{ s.get('points',0) }}</td>
@@ -47,7 +45,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="6" class="muted">No teams yet.</td></tr>
+          <tr><td colspan="5" class="muted">No teams yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -56,7 +54,6 @@
   <table>
     <thead>
       <tr>
-        <th>Logo</th>
         <th>Name</th>
         <th>Record</th>
         <th>GF/GA</th>
@@ -68,14 +65,13 @@
       {% for t in teams %}
       {% set s = stats.get(t['id'], {}) %}
         <tr>
-          <td style="width:56px;">
-            {% if t['logo_path'] %}
-              <img src="{{ base }}/media/team_logo/{{ t['id'] }}" alt="logo" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" />
-            {% else %}
-              <span class="muted">—</span>
-            {% endif %}
+          <td>
+            <span style="display:inline-flex;align-items:center;gap:10px;">
+              <img src="{{ base }}/media/team_logo/{{ t['id'] }}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+              <a class="btn secondary" href="{{ base }}/teams/{{ t['id'] }}">{{ t['name'] }}</a>
+              {% if t['is_external'] %}<span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}
+            </span>
           </td>
-          <td><a class="btn secondary" href="{{ base }}/teams/{{ t['id'] }}">{{ t['name'] }}</a>{% if t['is_external'] %} <span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}</td>
           <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
           <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
           <td>{{ s.get('points',0) }}</td>
@@ -86,7 +82,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="6" class="muted">No teams yet.</td></tr>
+        <tr><td colspan="5" class="muted">No teams yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

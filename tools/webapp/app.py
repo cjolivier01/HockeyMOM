@@ -98,6 +98,34 @@ def create_app() -> Flask:
     def _fmt_toi(seconds: Any) -> str:
         return format_seconds_to_mmss_or_hhmmss(seconds)
 
+    def _to_dt(value: Any) -> Optional[dt.datetime]:
+        if value is None:
+            return None
+        if isinstance(value, dt.datetime):
+            return value
+        s = str(value).strip()
+        if not s:
+            return None
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+            try:
+                return dt.datetime.strptime(s, fmt)
+            except Exception:
+                continue
+        try:
+            return dt.datetime.fromisoformat(s)
+        except Exception:
+            return None
+
+    @app.template_filter("fmt_date")
+    def _fmt_date(value: Any) -> str:
+        d = _to_dt(value)
+        return d.strftime("%Y-%m-%d") if d else ""
+
+    @app.template_filter("fmt_time")
+    def _fmt_time(value: Any) -> str:
+        d = _to_dt(value)
+        return d.strftime("%H:%M") if d else ""
+
     @app.before_request
     def open_db():
         g.db = get_db()
@@ -1542,12 +1570,29 @@ def create_app() -> Flask:
             players = cur.fetchall() or []
         player_totals = aggregate_players_totals_league(g.db, team_id, int(league_id))
         tstats = compute_team_stats_league(g.db, team_id, int(league_id))
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
+                       lg.division_name AS division_name
+                FROM league_games lg
+                  JOIN hky_games g ON lg.game_id=g.id
+                  JOIN teams t1 ON g.team1_id=t1.id
+                  JOIN teams t2 ON g.team2_id=t2.id
+                  LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
+                ORDER BY COALESCE(g.starts_at, g.created_at) DESC
+                """,
+                (int(league_id), team_id, team_id),
+            )
+            schedule_games = cur.fetchall() or []
         return render_template(
             "team_detail.html",
             team=team,
             players=players,
             player_totals=player_totals,
             tstats=tstats,
+            schedule_games=schedule_games,
             editable=False,
             public_league_id=int(league_id),
         )
@@ -1575,16 +1620,30 @@ def create_app() -> Flask:
                 (league_id,),
             )
             divisions = [str(r["division_name"]) for r in (cur.fetchall() or []) if r.get("division_name")]
-            cur.execute(
-                """
-                SELECT t.id, t.name
-                FROM league_teams lt JOIN teams t ON lt.team_id=t.id
-                WHERE lt.league_id=%s
-                ORDER BY t.name
-                """,
-                (league_id,),
-            )
+            if selected_division:
+                cur.execute(
+                    """
+                    SELECT DISTINCT t.id, t.name
+                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                    WHERE lt.league_id=%s AND lt.division_name=%s
+                    ORDER BY t.name
+                    """,
+                    (league_id, selected_division),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT DISTINCT t.id, t.name
+                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                    WHERE lt.league_id=%s
+                    ORDER BY t.name
+                    """,
+                    (league_id,),
+                )
             league_teams = cur.fetchall() or []
+            if team_id_i is not None and not any(int(t["id"]) == int(team_id_i) for t in league_teams):
+                team_id_i = None
+                selected_team_id = ""
             where = ["lg.league_id=%s"]
             params: list[Any] = [league_id]
             if selected_division:
@@ -1811,15 +1870,46 @@ def create_app() -> Flask:
         if league_id:
             player_totals = aggregate_players_totals_league(g.db, team_id, int(league_id))
             tstats = compute_team_stats_league(g.db, team_id, int(league_id))
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
+                           lg.division_name AS division_name
+                    FROM league_games lg
+                      JOIN hky_games g ON lg.game_id=g.id
+                      JOIN teams t1 ON g.team1_id=t1.id
+                      JOIN teams t2 ON g.team2_id=t2.id
+                      LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                    WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
+                    ORDER BY COALESCE(g.starts_at, g.created_at) DESC
+                    """,
+                    (int(league_id), team_id, team_id),
+                )
+                schedule_games = cur.fetchall() or []
         else:
             player_totals = aggregate_players_totals(g.db, team_id, team_owner_id)
             tstats = compute_team_stats(g.db, team_id, team_owner_id)
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name
+                    FROM hky_games g
+                      JOIN teams t1 ON g.team1_id=t1.id
+                      JOIN teams t2 ON g.team2_id=t2.id
+                      LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                    WHERE g.user_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
+                    ORDER BY COALESCE(g.starts_at, g.created_at) DESC
+                    """,
+                    (team_owner_id, team_id, team_id),
+                )
+                schedule_games = cur.fetchall() or []
         return render_template(
             "team_detail.html",
             team=team,
             players=players,
             player_totals=player_totals,
             tstats=tstats,
+            schedule_games=schedule_games,
             editable=editable,
         )
 
@@ -1975,16 +2065,30 @@ def create_app() -> Flask:
                     (league_id,),
                 )
                 divisions = [str(r["division_name"]) for r in (cur.fetchall() or []) if r.get("division_name")]
-                cur.execute(
-                    """
-                    SELECT t.id, t.name
-                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
-                    WHERE lt.league_id=%s
-                    ORDER BY t.name
-                    """,
-                    (league_id,),
-                )
+                if selected_division:
+                    cur.execute(
+                        """
+                        SELECT DISTINCT t.id, t.name
+                        FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                        WHERE lt.league_id=%s AND lt.division_name=%s
+                        ORDER BY t.name
+                        """,
+                        (league_id, selected_division),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT DISTINCT t.id, t.name
+                        FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                        WHERE lt.league_id=%s
+                        ORDER BY t.name
+                        """,
+                        (league_id,),
+                    )
                 league_teams = cur.fetchall() or []
+                if team_id_i is not None and not any(int(t["id"]) == int(team_id_i) for t in league_teams):
+                    team_id_i = None
+                    selected_team_id = ""
 
                 where = ["lg.league_id=%s"]
                 params: list[Any] = [league_id]

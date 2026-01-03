@@ -67,6 +67,8 @@ button { cursor: pointer; }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--border); text-align: left; }
 thead th { background: #12151c; color: var(--muted); font-weight: 700; }
+tbody tr:nth-child(odd) { background: #141823; }
+tbody tr:nth-child(even) { background: var(--panel); }
 tbody tr:hover { background: #151924; }
 
 .status-badge { display: inline-block; padding: .2rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 800; }

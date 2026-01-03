@@ -13,7 +13,7 @@
     <form method="get" action="{{ base }}/schedule" style="display:flex;gap:1rem;flex-wrap:wrap;align-items:end;">
       <div class="form-row">
         <label class="muted">Division</label>
-        <select name="division">
+        <select name="division" id="division_select">
           <option value="">(All)</option>
           {% for d in divisions %}
             <option value="{{ d }}" {% if selected_division==d %}selected{% endif %}>{{ d }}</option>
@@ -22,7 +22,7 @@
       </div>
       <div class="form-row">
         <label class="muted">Team</label>
-        <select name="team_id">
+        <select name="team_id" id="team_select">
           <option value="">(All)</option>
           {% for t in league_teams %}
             <option value="{{ t.id }}" {% if selected_team_id==(t.id|string) %}selected{% endif %}>{{ t.name }}</option>
@@ -32,6 +32,17 @@
       <button class="btn" type="submit">Filter</button>
       <a class="btn" href="{{ base }}/schedule">Clear</a>
     </form>
+    <script>
+      (function() {
+        var divSel = document.getElementById('division_select');
+        var teamSel = document.getElementById('team_select');
+        if (!divSel || !teamSel) return;
+        divSel.addEventListener('change', function() {
+          teamSel.value = '';
+          divSel.form.submit();
+        });
+      })();
+    </script>
   </div>
 {% endif %}
 
@@ -40,6 +51,7 @@
     <tr>
       {% if league_view %}<th>Division</th>{% endif %}
       <th>Date</th>
+      <th>Time</th>
       <th>Matchup</th>
       <th>Type</th>
       <th>Location</th>
@@ -50,8 +62,9 @@
   <tbody>
     {% for g in games %}
       <tr>
-      {% if league_view %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
-      <td>{{ g['starts_at'] or '' }}</td>
+        {% if league_view %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
+        <td>{{ (g['starts_at'] or '')|fmt_date }}</td>
+        <td>{{ (g['starts_at'] or '')|fmt_time }}</td>
       <td>
         <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="display:inline-flex;align-items:center;gap:6px;">
@@ -77,7 +90,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="{% if league_view %}7{% else %}6{% endif %}" class="muted">No games yet.</td></tr>
+      <tr><td colspan="{% if league_view %}8{% else %}7{% endif %}" class="muted">No games yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>

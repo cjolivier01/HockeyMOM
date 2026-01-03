@@ -13,6 +13,67 @@
   </div>
 </div>
 
+{% if schedule_games is defined %}
+  <h3 style="margin-top:1.25rem;">Schedule</h3>
+  <div class="card">
+    {% set show_division = (schedule_games and schedule_games[0].get('division_name') is not none) %}
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            {% if show_division %}<th>Division</th>{% endif %}
+            <th>Date</th>
+            <th>Time</th>
+            <th>Matchup</th>
+            <th>Location</th>
+            <th>Score</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in schedule_games %}
+            <tr>
+              {% if show_division %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
+              <td>{{ (g.get('starts_at') or '')|fmt_date }}</td>
+              <td>{{ (g.get('starts_at') or '')|fmt_time }}</td>
+              <td>
+                <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <span style="display:inline-flex;align-items:center;gap:6px;">
+                    <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+                    <span>{{ g.get('team1_name') or '' }}</span>
+                  </span>
+                  <span class="muted">vs</span>
+                  <span style="display:inline-flex;align-items:center;gap:6px;">
+                    <img src="{{ base }}/media/team_logo/{{ g['team2_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+                    <span>{{ g.get('team2_name') or '' }}</span>
+                  </span>
+                </span>
+              </td>
+              <td>{{ g.get('location') or '' }}</td>
+              <td>
+                {% if g.get('team1_score') is not none and g.get('team2_score') is not none %}
+                  {{ g.get('team1_score') }} - {{ g.get('team2_score') }}
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if public_league_id is defined %}
+                  <a class="btn" href="{{ base }}/hky/games/{{ g['id'] }}">View</a>
+                {% else %}
+                  <a class="btn" href="/hky/games/{{ g['id'] }}">Edit</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="{{ 7 if show_division else 6 }}" class="muted">No games yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+
 <div class="grid" style="margin-top:1rem;">
   <div class="card">
     <h3>Team Stats</h3>

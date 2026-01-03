@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 
@@ -64,15 +65,39 @@ def aggregate_goals_assists(game_stats: dict[str, Any]) -> list[dict[str, Any]]:
 
     stats_by_player: dict[str, dict[str, int]] = {}
     for side in ("home", "away"):
+        # Some CAHA score sheets put only jersey numbers in the scoring columns.
+        num_to_name: dict[str, str] = {}
+        roster = game_stats.get(f"{side}Players") or []
+        if isinstance(roster, list):
+            for prow in roster:
+                if not isinstance(prow, dict):
+                    continue
+                num = str(prow.get("number") or "").strip()
+                name = str(prow.get("name") or "").strip()
+                if not num or not name:
+                    continue
+                m = re.search(r"(\d+)", num)
+                if m:
+                    num_to_name[m.group(1)] = name
+
+        def _norm_player(raw: Any) -> str:
+            s = str(raw or "").strip()
+            if not s:
+                return ""
+            m = re.fullmatch(r"(\d+)", s)
+            if m:
+                return str(num_to_name.get(m.group(1)) or "").strip()
+            return s
+
         scoring = game_stats.get(f"{side}Scoring") or []
         if not isinstance(scoring, list):
             continue
         for srow in scoring:
             if not isinstance(srow, dict):
                 continue
-            gname = str(srow.get("goal") or "").strip()
-            a1 = str(srow.get("assist1") or "").strip()
-            a2 = str(srow.get("assist2") or "").strip()
+            gname = _norm_player(srow.get("goal"))
+            a1 = _norm_player(srow.get("assist1"))
+            a2 = _norm_player(srow.get("assist2"))
             if gname:
                 incr(stats_by_player, gname, "goals")
             if a1:
@@ -84,4 +109,3 @@ def aggregate_goals_assists(game_stats: dict[str, Any]) -> list[dict[str, Any]]:
     for name, rec in stats_by_player.items():
         out.append({"name": name, "goals": int(rec.get("goals", 0)), "assists": int(rec.get("assists", 0))})
     return out
-
