@@ -397,6 +397,34 @@ def should_compute_pair_on_ice_goal_at_shift_boundary_counts_like_player_stats()
     assert a_b["plus_minus_together"] == 1
 
 
+def should_compute_pair_on_ice_player_goal_assist_and_collaboration_counts():
+    sb_pairs_by_player = {
+        "12_Alice": [(1, "15:00", "14:00")],
+        "34_Bob": [(1, "15:00", "14:00")],
+    }
+    goals_by_period = {1: [pss.GoalEvent("GF", 1, "14:30", scorer="12", assists=["34"])]}
+    rows = pss._compute_pair_on_ice_rows(sb_pairs_by_player, goals_by_period)
+
+    def _row(player: str, teammate: str) -> dict:
+        for r in rows:
+            if r.get("player") == player and r.get("teammate") == teammate:
+                return r
+        raise AssertionError(f"missing pair row {player} / {teammate}")
+
+    a_b = _row("12_Alice", "34_Bob")
+    b_a = _row("34_Bob", "12_Alice")
+
+    assert a_b["player_goals_on_ice_together"] == 1
+    assert a_b["player_assists_on_ice_together"] == 0
+    assert a_b["goals_collab_with_teammate"] == 1  # Alice scored, Bob assisted
+    assert a_b["assists_collab_with_teammate"] == 0
+
+    assert b_a["player_goals_on_ice_together"] == 0
+    assert b_a["player_assists_on_ice_together"] == 1
+    assert b_a["goals_collab_with_teammate"] == 0
+    assert b_a["assists_collab_with_teammate"] == 1  # Bob assisted Alice's goal
+
+
 def should_aggregate_per_shift_rates_use_shift_games_only():
     shift_game_rows = [
         {
@@ -511,6 +539,10 @@ def should_write_pair_on_ice_csv_headers_human_readable(tmp_path: Path):
                 "gf_together": 1,
                 "ga_together": 0,
                 "plus_minus_together": 1,
+                "player_goals_on_ice_together": 0,
+                "player_assists_on_ice_together": 0,
+                "goals_collab_with_teammate": 0,
+                "assists_collab_with_teammate": 0,
             }
         ],
         include_toi=True,
@@ -521,6 +553,10 @@ def should_write_pair_on_ice_csv_headers_human_readable(tmp_path: Path):
     assert "Overlap %" in header
     assert "Player Total +/-" in header
     assert "Teammate Total +/-" in header
+    assert "Player Goals (On Ice Together)" in header
+    assert "Player Assists (On Ice Together)" in header
+    assert "Goals Collaborated" in header
+    assert "Assists Collaborated" in header
     # CSV stores full precision for Overlap % (XLSX applies display formatting).
     first_row = (stats_dir / "pair_on_ice.csv").read_text(encoding="utf-8").splitlines()[1]
     assert ",25.1234," in f",{first_row},"
@@ -543,6 +579,10 @@ def should_write_pair_on_ice_csv_without_toi_when_disabled(tmp_path: Path):
                 "gf_together": 1,
                 "ga_together": 0,
                 "plus_minus_together": 1,
+                "player_goals_on_ice_together": 0,
+                "player_assists_on_ice_together": 0,
+                "goals_collab_with_teammate": 0,
+                "assists_collab_with_teammate": 0,
             }
         ],
         include_toi=False,

@@ -1399,6 +1399,13 @@ def _compute_pair_on_ice_rows(
     if not players:
         return []
 
+    jersey_to_player: Dict[str, str] = {}
+    for pk in players:
+        jersey_part = str(pk).split("_", 1)[0]
+        norm = _normalize_jersey_number(jersey_part)
+        if norm:
+            jersey_to_player.setdefault(norm, pk)
+
     def _on_ice_for_goal(player: str, period: int, t_sec: int) -> bool:
         # Match `_compute_player_stats` behavior:
         #  - count a goal if it falls within any shift interval for the player
@@ -1410,6 +1417,12 @@ def _compute_pair_on_ice_rows(
             if start_sec is not None and t_sec == start_sec:
                 continue
             return True
+        return False
+
+    def _on_ice_any(player: str, period: int, t_sec: int) -> bool:
+        for lo, hi in intervals_by_player_period.get(player, {}).get(period, []):
+            if interval_contains(t_sec, lo, hi):
+                return True
         return False
 
     overlap_by_pair: Dict[Tuple[str, str], int] = {}
@@ -1425,17 +1438,64 @@ def _compute_pair_on_ice_rows(
             overlap_by_pair[(a, b)] = overlap
 
     goals_by_pair: Dict[Tuple[str, str], Tuple[int, int]] = {}
+    player_goals_on_ice_by_pair: Dict[Tuple[str, str], int] = {}
+    player_assists_on_ice_by_pair: Dict[Tuple[str, str], int] = {}
+    collab_goals_by_pair: Dict[Tuple[str, str], int] = {}
+    collab_assists_by_pair: Dict[Tuple[str, str], int] = {}
     player_total_pm: Dict[str, int] = {p: 0 for p in players}
     for period, goals in (goals_by_period or {}).items():
         if not goals:
             continue
         for ev in goals:
             on_ice = [p for p in players if _on_ice_for_goal(p, period, int(ev.t_sec))]
+            on_ice_any = [p for p in players if _on_ice_any(p, period, int(ev.t_sec))]
             for p in on_ice:
                 if ev.kind == "GF":
                     player_total_pm[p] = int(player_total_pm.get(p, 0) or 0) + 1
                 else:
                     player_total_pm[p] = int(player_total_pm.get(p, 0) or 0) - 1
+
+            # Attribute goal/assist counts only for our team's goals (GF) when scorer/assists are known.
+            if ev.kind == "GF":
+                scorer_key: Optional[str] = None
+                if ev.scorer:
+                    scorer_key = jersey_to_player.get(_normalize_jersey_number(ev.scorer) or "")
+                assist_keys: List[str] = []
+                for a in (ev.assists or []):
+                    ak = jersey_to_player.get(_normalize_jersey_number(a) or "")
+                    if ak:
+                        assist_keys.append(ak)
+
+                if scorer_key and scorer_key in on_ice_any:
+                    for teammate in on_ice_any:
+                        if teammate == scorer_key:
+                            continue
+                        player_goals_on_ice_by_pair[(scorer_key, teammate)] = int(
+                            player_goals_on_ice_by_pair.get((scorer_key, teammate), 0) or 0
+                        ) + 1
+
+                for ak in assist_keys:
+                    if ak not in on_ice_any:
+                        continue
+                    for teammate in on_ice_any:
+                        if teammate == ak:
+                            continue
+                        player_assists_on_ice_by_pair[(ak, teammate)] = int(
+                            player_assists_on_ice_by_pair.get((ak, teammate), 0) or 0
+                        ) + 1
+
+                # Direct collaboration: scorer<->assister pairs on the same goal.
+                if scorer_key:
+                    for ak in assist_keys:
+                        if ak == scorer_key:
+                            continue
+                        collab_goals_by_pair[(scorer_key, ak)] = int(
+                            collab_goals_by_pair.get((scorer_key, ak), 0) or 0
+                        ) + 1
+                        collab_assists_by_pair[(ak, scorer_key)] = int(
+                            collab_assists_by_pair.get((ak, scorer_key), 0) or 0
+                        ) + 1
+
             if len(on_ice) < 2:
                 continue
             for i in range(len(on_ice)):
@@ -1468,6 +1528,12 @@ def _compute_pair_on_ice_rows(
                     "overlap_pct": pct,
                     "gf_together": int(gf),
                     "ga_together": int(ga),
+                    "player_goals_on_ice_together": int(player_goals_on_ice_by_pair.get((player, teammate), 0) or 0),
+                    "player_assists_on_ice_together": int(
+                        player_assists_on_ice_by_pair.get((player, teammate), 0) or 0
+                    ),
+                    "goals_collab_with_teammate": int(collab_goals_by_pair.get((player, teammate), 0) or 0),
+                    "assists_collab_with_teammate": int(collab_assists_by_pair.get((player, teammate), 0) or 0),
                     "player_total_plus_minus": int(player_total_pm.get(player, 0) or 0),
                     "teammate_total_plus_minus": int(player_total_pm.get(teammate, 0) or 0),
                     "plus_minus_together": int(gf) - int(ga),
@@ -2912,6 +2978,13 @@ def _write_global_summary_csv(
 def _write_pair_on_ice_csv(stats_dir: Path, rows: List[Dict[str, Any]], *, include_toi: bool) -> None:
     if not rows:
         return
+    def _blank_if_zero(x: Any) -> Any:
+        try:
+            v = int(x or 0)
+        except Exception:
+            v = 0
+        return "" if v == 0 else v
+
     out_rows: List[Dict[str, Any]] = []
     for r in rows:
         row_out: Dict[str, Any] = {
@@ -2921,6 +2994,10 @@ def _write_pair_on_ice_csv(stats_dir: Path, rows: List[Dict[str, Any]], *, inclu
             "Overlap %": float(r.get("overlap_pct", 0.0) or 0.0),
             "GF Together": int(r.get("gf_together", 0) or 0),
             "GA Together": int(r.get("ga_together", 0) or 0),
+            "Player Goals (On Ice Together)": _blank_if_zero(r.get("player_goals_on_ice_together", 0)),
+            "Player Assists (On Ice Together)": _blank_if_zero(r.get("player_assists_on_ice_together", 0)),
+            "Goals Collaborated": _blank_if_zero(r.get("goals_collab_with_teammate", 0)),
+            "Assists Collaborated": _blank_if_zero(r.get("assists_collab_with_teammate", 0)),
             "+/- Together": int(r.get("plus_minus_together", 0) or 0),
             "Player Total +/-": int(r.get("player_total_plus_minus", 0) or 0),
             "Teammate Total +/-": int(r.get("teammate_total_plus_minus", 0) or 0),
@@ -3986,6 +4063,10 @@ def _write_pair_on_ice_consolidated_files(
                         "overlap_seconds": 0,
                         "gf_together": 0,
                         "ga_together": 0,
+                        "player_goals_on_ice_together": 0,
+                        "player_assists_on_ice_together": 0,
+                        "goals_collab_with_teammate": 0,
+                        "assists_collab_with_teammate": 0,
                     },
                 )
                 dest["shift_games"] += int(raw.get("shift_games", 1) or 1)
@@ -3993,6 +4074,10 @@ def _write_pair_on_ice_consolidated_files(
                 dest["overlap_seconds"] += int(raw.get("overlap_seconds", 0) or 0)
                 dest["gf_together"] += int(raw.get("gf_together", 0) or 0)
                 dest["ga_together"] += int(raw.get("ga_together", 0) or 0)
+                dest["player_goals_on_ice_together"] += int(raw.get("player_goals_on_ice_together", 0) or 0)
+                dest["player_assists_on_ice_together"] += int(raw.get("player_assists_on_ice_together", 0) or 0)
+                dest["goals_collab_with_teammate"] += int(raw.get("goals_collab_with_teammate", 0) or 0)
+                dest["assists_collab_with_teammate"] += int(raw.get("assists_collab_with_teammate", 0) or 0)
             except Exception:
                 continue
 
@@ -4007,6 +4092,10 @@ def _write_pair_on_ice_consolidated_files(
             "Overlap %",
             "GF Together",
             "GA Together",
+            "Player Goals (On Ice Together)",
+            "Player Assists (On Ice Together)",
+            "Goals Collaborated",
+            "Assists Collaborated",
             "+/- Together",
             "Player Total +/-",
             "Teammate Total +/-",
@@ -4031,6 +4120,13 @@ def _write_pair_on_ice_consolidated_files(
         )
         return True
 
+    def _blank_if_zero(x: Any) -> Any:
+        try:
+            v = int(x or 0)
+        except Exception:
+            v = 0
+        return "" if v == 0 else v
+
     for (player, teammate), d in agg.items():
         toi = int(d.get("player_toi_seconds", 0) or 0)
         overlap = int(d.get("overlap_seconds", 0) or 0)
@@ -4044,6 +4140,10 @@ def _write_pair_on_ice_consolidated_files(
             "Overlap %": pct,
             "GF Together": gf,
             "GA Together": ga,
+            "Player Goals (On Ice Together)": _blank_if_zero(d.get("player_goals_on_ice_together", 0)),
+            "Player Assists (On Ice Together)": _blank_if_zero(d.get("player_assists_on_ice_together", 0)),
+            "Goals Collaborated": _blank_if_zero(d.get("goals_collab_with_teammate", 0)),
+            "Assists Collaborated": _blank_if_zero(d.get("assists_collab_with_teammate", 0)),
             "+/- Together": gf - ga,
             "Player Total +/-": int(total_pm_by_player.get(player, 0) or 0),
             "Teammate Total +/-": int(total_pm_by_player.get(teammate, 0) or 0),
