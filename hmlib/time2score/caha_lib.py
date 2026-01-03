@@ -382,17 +382,24 @@ def scrape_season_divisions(season_id: int):
         if table is None:
             return None
         # The "Division Player Stats" row is preceded by a "X Schedule" row which carries the actual division name.
+        # On the live site there are sometimes spacer rows in between, so we walk backwards to find the closest
+        # sibling row with a non-empty "… Schedule" label.
         div_name = a_tag.get_text(strip=True) or f"Level {level} Conf {conf}"
         try:
             prev = row.find_previous_sibling("tr")
-            if prev is not None:
-                txt = prev.get_text(" ", strip=True)
-                if txt:
+            while prev is not None:
+                txt = prev.get_text(" ", strip=True).replace("\xa0", " ").strip()
+                if txt and txt.lower().endswith("schedule"):
                     # e.g. "10U B West Schedule" -> "10 B West"
-                    txt = txt.replace("\xa0", " ").strip()
-                    txt = txt[:-8].strip() if txt.lower().endswith("schedule") else txt
+                    txt = txt[:-8].strip()
                     txt = re.sub(r"^(\d+)U\b", r"\1", txt).strip()
                     div_name = txt or div_name
+                    break
+                if txt and div_name.lower() == "division player stats":
+                    # If the schedule label isn't present but we found any non-empty header text,
+                    # use it as a better fallback than "Division Player Stats".
+                    div_name = txt
+                prev = prev.find_previous_sibling("tr")
         except Exception:
             pass
         # Walk subsequent rows in this table until the next header row (with th)

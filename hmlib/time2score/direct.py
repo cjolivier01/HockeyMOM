@@ -193,6 +193,8 @@ def scrape_team_logo_url(source: str, *, season_id: int, team_id: int) -> Option
         params = {"team": str(int(team_id)), "season": str(int(season_id))}
 
     soup = util.get_html(str(mod.TEAM_URL), params=params)
+
+    candidates: list[str] = []
     for img in soup.find_all("img"):
         src_attr = str(img.get("src") or "").strip()
         if not src_attr:
@@ -200,10 +202,26 @@ def scrape_team_logo_url(source: str, *, season_id: int, team_id: int) -> Option
         # Some sharksice teams have a placeholder URL with no filename.
         if src_attr.endswith("/"):
             continue
-        if "logo" not in src_attr.lower():
-            continue
-        if src_attr.startswith("http://") or src_attr.startswith("https://"):
-            return src_attr
-        base = getattr(mod, "TIMETOSCORE_URL", "")
-        return urljoin(str(base), src_attr)
+        full = src_attr
+        if not (full.startswith("http://") or full.startswith("https://")):
+            base = getattr(mod, "TIMETOSCORE_URL", "")
+            full = urljoin(str(base), full)
+        candidates.append(full)
+
+    if not candidates:
+        return None
+
+    def _score(u: str) -> tuple[int, int]:
+        ul = u.lower()
+        has_logo = 1 if ("logo" in ul or "/logos/" in ul or "/logo/" in ul) else 0
+        looks_img = 1 if any(ul.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")) else 0
+        return (has_logo, looks_img)
+
+    # Prefer explicit logo-like URLs; otherwise if there's a single image on the page (common on CAHA),
+    # accept it as the logo.
+    best = sorted(candidates, key=_score, reverse=True)[0]
+    if _score(best) != (0, 0):
+        return best
+    if len(candidates) == 1:
+        return candidates[0]
     return None
