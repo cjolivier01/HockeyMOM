@@ -59,10 +59,16 @@
   <form method="{{ 'post' if editable else 'get' }}" action="{% if editable %}{% if public_league_id is defined %}{{ base }}/hky/games/{{ game['id'] }}{% else %}/hky/games/{{ game['id'] }}{% endif %}{% else %}#{% endif %}">
     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
       <div>
-        <h3 style="margin-top:0">{{ game['team1_name'] }}</h3>
+        <h3 style="margin-top:0; display:flex; align-items:center; gap:10px;">
+          <img src="{{ base }}/media/team_logo/{{ game['team1_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
+          <span>{{ game['team1_name'] }}</span>
+        </h3>
       </div>
       <div>
-        <h3 style="margin-top:0">{{ game['team2_name'] }}</h3>
+        <h3 style="margin-top:0; display:flex; align-items:center; gap:10px;">
+          <img src="{{ base }}/media/team_logo/{{ game['team2_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
+          <span>{{ game['team2_name'] }}</span>
+        </h3>
       </div>
     </div>
     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -92,7 +98,10 @@
     <h3>Player Stats</h3>
     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
       <div>
-        <h4>{{ game['team1_name'] }}</h4>
+        <h4 style="display:flex;align-items:center;gap:8px;">
+          <img src="{{ base }}/media/team_logo/{{ game['team1_id'] }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+          <span>{{ game['team1_name'] }}</span>
+        </h4>
         <table>
           <thead>
             <tr><th>#</th><th>Name</th><th>G</th><th>A</th><th>S</th><th>PIM</th><th>+/-</th></tr>
@@ -116,7 +125,10 @@
         </table>
       </div>
       <div>
-        <h4>{{ game['team2_name'] }}</h4>
+        <h4 style="display:flex;align-items:center;gap:8px;">
+          <img src="{{ base }}/media/team_logo/{{ game['team2_id'] }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+          <span>{{ game['team2_name'] }}</span>
+        </h4>
         <table>
           <thead>
             <tr><th>#</th><th>Name</th><th>G</th><th>A</th><th>S</th><th>PIM</th><th>+/-</th></tr>

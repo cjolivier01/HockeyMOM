@@ -19,6 +19,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 
 def load_db_cfg(config_path: str) -> dict:
@@ -317,6 +318,81 @@ def ensure_team(conn, user_id: int, name: str, *, is_external: bool = True) -> i
         return int(cur.lastrowid)
 
 
+def _download_logo_bytes(url: str) -> tuple[bytes, Optional[str]]:
+    import requests
+
+    resp = requests.get(
+        url,
+        timeout=float(os.environ.get("HM_T2S_HTTP_TIMEOUT", "30")),
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type")
+
+
+def _guess_ext(url: str, content_type: Optional[str]) -> str:
+    path = urlparse(url).path
+    for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+        if path.lower().endswith(ext):
+            return ext
+    ct = (content_type or "").lower()
+    if "png" in ct:
+        return ".png"
+    if "jpeg" in ct or "jpg" in ct:
+        return ".jpg"
+    if "gif" in ct:
+        return ".gif"
+    if "webp" in ct:
+        return ".webp"
+    if "svg" in ct:
+        return ".svg"
+    return ".jpg"
+
+
+def _ensure_team_logo(
+    conn,
+    *,
+    team_db_id: int,
+    team_owner_user_id: int,
+    source: str,
+    season_id: int,
+    tts_team_id: int,
+    logo_dir: Path,
+    replace: bool,
+    tts_direct,
+) -> None:
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT logo_path FROM teams WHERE id=%s", (team_db_id,))
+            row = cur.fetchone()
+        existing = str(row[0]) if row and row[0] else ""
+    except Exception:
+        existing = ""
+
+    if existing and not replace:
+        return
+
+    try:
+        url = tts_direct.scrape_team_logo_url(str(source), season_id=int(season_id), team_id=int(tts_team_id))
+    except Exception:
+        url = None
+    if not url:
+        return
+
+    logo_dir.mkdir(parents=True, exist_ok=True)
+    data, content_type = _download_logo_bytes(url)
+    ext = _guess_ext(url, content_type)
+    dest = logo_dir / f"t2s_{source}_season{int(season_id)}_team{int(tts_team_id)}{ext}"
+    if not dest.exists() or replace:
+        dest.write_bytes(data)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE teams SET logo_path=%s, updated_at=%s WHERE id=%s AND user_id=%s",
+            (str(dest), dt.datetime.now().isoformat(), team_db_id, team_owner_user_id),
+        )
+    conn.commit()
+
+
 def upsert_hky_game(
     conn,
     *,
@@ -462,6 +538,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--create-user", action="store_true", help="Create user if missing (requires --password-hash)")
 
     ap.add_argument("--replace", action="store_true", help="Overwrite existing scores/player_stats")
+    ap.add_argument("--no-import-logos", action="store_true", help="Skip downloading and saving team logos")
+    ap.add_argument(
+        "--logo-dir",
+        default=None,
+        help="Directory to store downloaded logos (default: /opt/hm-webapp/app/instance/uploads/team_logos if present)",
+    )
     ap.add_argument("--division", dest="divisions", action="append", default=[], help="Division filter token (repeatable)")
     ap.add_argument("--team", dest="teams", action="append", default=[], help="Team substring filter (repeatable)")
     ap.add_argument("--game-id", dest="game_ids", action="append", default=[], help="Import specific game id (repeatable)")
@@ -494,6 +576,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     conn = connect_pymysql(load_db_cfg(args.config))
     ensure_defaults(conn)
     ensure_league_schema(conn)
+
+    logo_dir = None
+    if not args.no_import_logos:
+        if args.logo_dir:
+            logo_dir = Path(str(args.logo_dir)).expanduser()
+        else:
+            preferred = Path("/opt/hm-webapp/app/instance/uploads/team_logos")
+            logo_dir = preferred if preferred.exists() else (base_dir / "instance" / "uploads" / "team_logos")
 
     log(f"Resolving user: {args.user_email}")
     user_id = ensure_user(
@@ -532,6 +622,33 @@ def main(argv: Optional[list[str]] = None) -> int:
         if dn and team_name_counts.get(nm.lower(), 0) > 1:
             return f"{nm} ({dn})"
         return nm
+
+    # Map (team_name_lower, division_name_lower) -> team_id for logo retrieval.
+    tts_team_id_by_name_div: dict[tuple[str, str], int] = {}
+    tts_team_ids_by_name: dict[str, list[int]] = {}
+    for d in divs:
+        dn = str(d.name or "").strip()
+        for t in d.teams:
+            nm = str((t or {}).get("name") or "").strip()
+            tid = (t or {}).get("id")
+            if not nm or tid is None:
+                continue
+            try:
+                tid_i = int(tid)
+            except Exception:
+                continue
+            tts_team_id_by_name_div[(nm.lower(), dn.lower())] = tid_i
+            tts_team_ids_by_name.setdefault(nm.lower(), []).append(tid_i)
+
+    def resolve_tts_team_id(name: str, division_name: Optional[str]) -> Optional[int]:
+        nm = str(name or "").strip().lower()
+        dn = str(division_name or "").strip().lower()
+        if nm and dn and (nm, dn) in tts_team_id_by_name_div:
+            return int(tts_team_id_by_name_div[(nm, dn)])
+        ids = tts_team_ids_by_name.get(nm) or []
+        if len(ids) == 1:
+            return int(ids[0])
+        return None
 
     # Division filter resolution
     allowed_divs: Optional[set[tuple[int, int]]] = None
@@ -644,8 +761,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         except Exception:
             conference_id = None
 
-        home_name = canonical_team_name(home_name, division_name)
-        away_name = canonical_team_name(away_name, division_name)
+        home_name_raw = str(home_name or "").strip()
+        away_name_raw = str(away_name or "").strip()
+        home_name = canonical_team_name(home_name_raw, division_name)
+        away_name = canonical_team_name(away_name_raw, division_name)
 
         starts_at = parse_starts_at(args.source, stats=stats, fallback=fb)
         location = str(stats.get("location") or "").strip() or str((fb or {}).get("rink") or "").strip() or None
@@ -654,6 +773,36 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         team1_id = ensure_team(conn, user_id, home_name, is_external=True)
         team2_id = ensure_team(conn, user_id, away_name, is_external=True)
+        if logo_dir is not None:
+            try:
+                tts_home_id = resolve_tts_team_id(home_name_raw, division_name)
+                tts_away_id = resolve_tts_team_id(away_name_raw, division_name)
+                if tts_home_id is not None:
+                    _ensure_team_logo(
+                        conn,
+                        team_db_id=team1_id,
+                        team_owner_user_id=user_id,
+                        source=str(args.source),
+                        season_id=int(season_id),
+                        tts_team_id=int(tts_home_id),
+                        logo_dir=Path(logo_dir),
+                        replace=bool(args.replace),
+                        tts_direct=tts_direct,
+                    )
+                if tts_away_id is not None:
+                    _ensure_team_logo(
+                        conn,
+                        team_db_id=team2_id,
+                        team_owner_user_id=user_id,
+                        source=str(args.source),
+                        season_id=int(season_id),
+                        tts_team_id=int(tts_away_id),
+                        logo_dir=Path(logo_dir),
+                        replace=bool(args.replace),
+                        tts_direct=tts_direct,
+                    )
+            except Exception:
+                pass
 
         notes = f"Imported from TimeToScore {args.source} game_id={gid}"
         game_db_id = upsert_hky_game(

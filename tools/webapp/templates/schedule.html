@@ -50,14 +50,26 @@
   <tbody>
     {% for g in games %}
       <tr>
-        {% if league_view %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
-        <td>{{ g['starts_at'] or '' }}</td>
-        <td>{{ g['team1_name'] }} vs {{ g['team2_name'] }}</td>
-        <td>{{ g['game_type_name'] or '' }}</td>
-        <td>{{ g['location'] or '' }}</td>
-        <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
-        <td>
-          {% if public_league_id is defined %}
+      {% if league_view %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
+      <td>{{ g['starts_at'] or '' }}</td>
+      <td>
+        <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="display:inline-flex;align-items:center;gap:6px;">
+            <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+            <span>{{ g['team1_name'] }}</span>
+          </span>
+          <span class="muted">vs</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;">
+            <img src="{{ base }}/media/team_logo/{{ g['team2_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+            <span>{{ g['team2_name'] }}</span>
+          </span>
+        </span>
+      </td>
+      <td>{{ g['game_type_name'] or '' }}</td>
+      <td>{{ g['location'] or '' }}</td>
+      <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>
+        {% if public_league_id is defined %}
             <a class="btn" href="{{ base }}/hky/games/{{ g['id'] }}">View</a>
           {% else %}
             <a class="btn" href="/hky/games/{{ g['id'] }}">Edit</a>

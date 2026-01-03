@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import time
+from urllib.parse import urljoin
 from typing import Any, Callable, Iterable, Optional
 
 
@@ -174,3 +175,35 @@ def scrape_game_stats(source: str, *, game_id: int, season_id: Optional[int] = N
     if source.strip().lower() in ("sharksice", "sharks_ice", "siahl"):
         return mod.scrape_game_stats(int(game_id), season_id=int(season_id) if season_id is not None else None)
     return mod.scrape_game_stats(int(game_id))
+
+
+def scrape_team_logo_url(source: str, *, season_id: int, team_id: int) -> Optional[str]:
+    """Best-effort scrape of the team logo URL from the team schedule page."""
+    mod = _module_for_source(source)
+    # Import here to avoid cycles; util already depends on requests/bs4.
+    from . import util
+
+    params: dict[str, str] = {}
+    src = str(source or "").strip().lower()
+    if src == "caha":
+        params = {"team": str(int(team_id)), "league": str(mod.CAHA_LEAGUE), "stat_class": str(mod.STAT_CLASS)}
+        if int(season_id) > 0:
+            params["season"] = str(int(season_id))
+    else:
+        params = {"team": str(int(team_id)), "season": str(int(season_id))}
+
+    soup = util.get_html(str(mod.TEAM_URL), params=params)
+    for img in soup.find_all("img"):
+        src_attr = str(img.get("src") or "").strip()
+        if not src_attr:
+            continue
+        # Some sharksice teams have a placeholder URL with no filename.
+        if src_attr.endswith("/"):
+            continue
+        if "logo" not in src_attr.lower():
+            continue
+        if src_attr.startswith("http://") or src_attr.startswith("https://"):
+            return src_attr
+        base = getattr(mod, "TIMETOSCORE_URL", "")
+        return urljoin(str(base), src_attr)
+    return None

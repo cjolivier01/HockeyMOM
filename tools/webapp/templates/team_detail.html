@@ -3,9 +3,9 @@
 {% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
 <div style="display:flex;align-items:center;gap:1rem;">
   {% if team['logo_path'] %}
-    <img src="{{ base }}/media/team_logo/{{ team['id'] }}" alt="logo" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid var(--border);" />
+    <img src="{{ base }}/media/team_logo/{{ team['id'] }}" alt="logo" style="width:150px;height:150px;border-radius:14px;object-fit:cover;border:1px solid var(--border);" />
   {% else %}
-    <div style="width:72px;height:72px;border-radius:10px;background:#1c212c;border:1px solid var(--border);"></div>
+    <div style="width:150px;height:150px;border-radius:14px;background:#1c212c;border:1px solid var(--border);"></div>
   {% endif %}
   <div>
     <h2 style="margin:0">{{ team['name'] }}</h2>
