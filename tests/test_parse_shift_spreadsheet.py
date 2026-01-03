@@ -304,6 +304,55 @@ def should_invert_for_against_labels_for_turnovers_in_event_clips(tmp_path: Path
     )
 
 
+def should_write_all_events_summary_without_shifts_when_requested(tmp_path: Path):
+    shift_xlsx = tmp_path / "game.xlsx"
+    long_xlsx = tmp_path / "game-long.xlsx"
+
+    # Minimal per-player shift sheet with one skater.
+    shift_df = _basic_shift_sheet_df()
+    shift_df.to_excel(shift_xlsx, index=False, header=False)
+
+    # Minimal TimeToScore-like long sheet with one goal event for jersey 12.
+    long_rows = [
+        ["1st Period", "Video Time", "Scoreboard", "Team", "Shots", "Shots on Goal", "Assist"],
+        ["Goal", "0:10", "14:20", "Blue", "12", "Goal", ""],
+    ]
+    pd.DataFrame(long_rows).to_excel(long_xlsx, index=False, header=False)
+
+    outdir = tmp_path / "out_sheet"
+    final_outdir, *_rest = pss.process_sheet(
+        xls_path=shift_xlsx,
+        sheet_name=None,
+        outdir=outdir,
+        keep_goalies=False,
+        goals=[],
+        long_xls_paths=[long_xlsx],
+        include_shifts_in_stats=False,
+        write_events_summary=True,
+        skip_validation=True,
+        create_scripts=False,
+    )
+    events_path = final_outdir / "stats" / "all_events_summary.csv"
+    assert events_path.exists()
+    txt = events_path.read_text(encoding="utf-8")
+    assert "Event Type" in txt
+
+    outdir2 = tmp_path / "out_sheet2"
+    final_outdir2, *_rest2 = pss.process_sheet(
+        xls_path=shift_xlsx,
+        sheet_name=None,
+        outdir=outdir2,
+        keep_goalies=False,
+        goals=[],
+        long_xls_paths=[long_xlsx],
+        include_shifts_in_stats=False,
+        write_events_summary=False,
+        skip_validation=True,
+        create_scripts=False,
+    )
+    assert not (final_outdir2 / "stats" / "all_events_summary.csv").exists()
+
+
 def should_expand_dir_input_to_game_sheets_and_ignore_goals_xlsx(tmp_path: Path):
     # Primary + companion long sheet.
     (tmp_path / "game-54111.xlsx").write_text("", encoding="utf-8")

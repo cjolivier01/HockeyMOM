@@ -71,15 +71,26 @@
         {% else %}
           <a href="/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
         {% endif %}
+        {% set s1 = g.get('team1_score') %}
+        {% set s2 = g.get('team2_score') %}
+        {% set has_score = (s1 is not none and s2 is not none) %}
         <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="display:inline-flex;align-items:center;gap:6px;">
             <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-            <span>{{ g['team1_name'] }}</span>
+            {% if has_score and s1 > s2 %}
+              <strong>{{ g['team1_name'] }}</strong>
+            {% else %}
+              <span>{{ g['team1_name'] }}</span>
+            {% endif %}
           </span>
           <span class="muted">vs</span>
           <span style="display:inline-flex;align-items:center;gap:6px;">
             <img src="{{ base }}/media/team_logo/{{ g['team2_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-            <span>{{ g['team2_name'] }}</span>
+            {% if has_score and s2 > s1 %}
+              <strong>{{ g['team2_name'] }}</strong>
+            {% else %}
+              <span>{{ g['team2_name'] }}</span>
+            {% endif %}
           </span>
         </span>
         </a>

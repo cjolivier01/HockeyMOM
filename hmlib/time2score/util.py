@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import os
+import re
 from urllib import parse
 
 import bs4
@@ -29,10 +30,52 @@ def get_value_from_link(url: str, key: str):
     return query_map.get(key)
 
 
+_MONTHS = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
+
+
+def infer_season_year_for_date_str(
+    date_str: str,
+    *,
+    season_start_month: int = 9,
+    reference_dt: datetime.datetime | None = None,
+) -> int:
+    """Infer the year for a season that spans across calendar years.
+
+    Hockey seasons commonly start in September; games in Sep-Dec belong to the
+    season start year, and Jan-Jun belong to the following year.
+    """
+    ref = reference_dt or datetime.datetime.now()
+    season_start_year = int(ref.year) if int(ref.month) >= int(season_start_month) else int(ref.year) - 1
+
+    s = str(date_str or "")
+    m = re.search(r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b", s, flags=re.IGNORECASE)
+    if not m:
+        return int(ref.year)
+    month = _MONTHS.get(m.group(1).lower()[:3])
+    if not month:
+        return int(ref.year)
+    return int(season_start_year) if int(month) >= int(season_start_month) else int(season_start_year) + 1
+
+
 def parse_game_time(date_str, time_str, year=None):
     time_str = time_str.replace("12 Noon", "12:00 PM")
     if year is None:
-        year = str(datetime.datetime.now().year)
+        year = str(infer_season_year_for_date_str(str(date_str or "")))
+    else:
+        year = str(year)
     return datetime.datetime.strptime(
         year + " " + date_str + " " + time_str, "%Y %a %b %d %I:%M %p"
     )

@@ -471,8 +471,53 @@ def upsert_hky_game(
     team2_score: Optional[int],
     replace: bool,
     notes: Optional[str] = None,
+    timetoscore_game_id: Optional[int] = None,
 ) -> int:
     with conn.cursor() as cur:
+        if timetoscore_game_id is not None:
+            # Prefer matching by external (TimeToScore) id so we can correct starts_at even if an earlier import
+            # used the wrong year inference.
+            token = f"game_id={int(timetoscore_game_id)}"
+            cur.execute(
+                """
+                SELECT id, team1_score, team2_score
+                FROM hky_games
+                WHERE user_id=%s AND notes LIKE %s
+                LIMIT 1
+                """,
+                (user_id, f"%{token}%"),
+            )
+            row = cur.fetchone()
+            if row:
+                gid, old1, old2 = int(row[0]), row[1], row[2]
+                new1 = team1_score if (replace or old1 is None) else old1
+                new2 = team2_score if (replace or old2 is None) else old2
+                cur.execute(
+                    """
+                    UPDATE hky_games
+                    SET starts_at=COALESCE(%s, starts_at),
+                        location=COALESCE(%s, location),
+                        team1_score=%s,
+                        team2_score=%s,
+                        is_final=%s,
+                        notes=COALESCE(%s, notes),
+                        updated_at=%s
+                    WHERE id=%s
+                    """,
+                    (
+                        starts_at,
+                        location,
+                        new1,
+                        new2,
+                        1 if (new1 is not None and new2 is not None) else 0,
+                        notes,
+                        dt.datetime.now().isoformat(),
+                        gid,
+                    ),
+                )
+                conn.commit()
+                return gid
+
         cur.execute(
             """
             SELECT id, team1_score, team2_score
@@ -1069,6 +1114,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             team2_score=t2_score,
             replace=bool(args.replace),
             notes=notes,
+            timetoscore_game_id=int(gid),
         )
 
         map_team_to_league_with_division(

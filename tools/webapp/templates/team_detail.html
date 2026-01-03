@@ -38,15 +38,26 @@
               <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_time }}</td>
               <td>
                 <a href="{{ base }}/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
+                {% set s1 = g.get('team1_score') %}
+                {% set s2 = g.get('team2_score') %}
+                {% set has_score = (s1 is not none and s2 is not none) %}
                 <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
                   <span style="display:inline-flex;align-items:center;gap:6px;">
                     <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-                    <span>{{ g.get('team1_name') or '' }}</span>
+                    {% if has_score and s1 > s2 %}
+                      <strong>{{ g.get('team1_name') or '' }}</strong>
+                    {% else %}
+                      <span>{{ g.get('team1_name') or '' }}</span>
+                    {% endif %}
                   </span>
                   <span class="muted">vs</span>
                   <span style="display:inline-flex;align-items:center;gap:6px;">
                     <img src="{{ base }}/media/team_logo/{{ g['team2_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-                    <span>{{ g.get('team2_name') or '' }}</span>
+                    {% if has_score and s2 > s1 %}
+                      <strong>{{ g.get('team2_name') or '' }}</strong>
+                    {% else %}
+                      <span>{{ g.get('team2_name') or '' }}</span>
+                    {% endif %}
                   </span>
                 </span>
                 </a>

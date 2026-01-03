@@ -5949,6 +5949,7 @@ def process_sheet(
     long_xls_paths: Optional[List[Path]] = None,
     focus_team_override: Optional[str] = None,
     include_shifts_in_stats: bool = False,
+    write_events_summary: Optional[bool] = None,
     skip_validation: bool = False,
     create_scripts: bool = True,
 ) -> Tuple[
@@ -5991,6 +5992,9 @@ def process_sheet(
     if include_shifts_in_stats:
         _write_video_times_and_scripts(outdir, video_pairs_by_player, create_scripts=create_scripts)
         _write_scoreboard_times(outdir, sb_pairs_by_player, create_scripts=create_scripts)
+
+    if write_events_summary is None:
+        write_events_summary = include_shifts_in_stats
 
     stats_table_rows: List[Dict[str, str]] = []
     all_periods_seen: set[int] = set()
@@ -6204,7 +6208,7 @@ def process_sheet(
             elif etype == "ControlledExit":
                 has_controlled_exit_events = True
 
-    if include_shifts_in_stats:
+    if write_events_summary:
         _write_all_events_summary(
             stats_dir,
             sb_pairs_by_player=sb_pairs_by_player,
@@ -7136,6 +7140,7 @@ def main() -> None:
     hockey_db_dir = args.hockey_db_dir.expanduser()
     create_scripts = not args.no_scripts
     include_shifts_in_stats = bool(getattr(args, "shifts", False))
+    write_events_summary = include_shifts_in_stats or bool(getattr(args, "upload_webapp", False))
     focus_team_override: Optional[str] = None
     if getattr(args, "light", False):
         focus_team_override = "White"
@@ -7286,6 +7291,9 @@ def main() -> None:
     groups = sorted(groups_by_label.values(), key=lambda x: int(x.get("order", 0)))
     multiple_inputs = len(groups) > 1
     results: List[Dict[str, Any]] = []
+    upload_ok = 0
+    upload_failed = 0
+    upload_skipped_no_t2s = 0
 
     if t2s_arg_id is not None and len(groups) > 1:
         print(
@@ -7559,6 +7567,7 @@ def main() -> None:
             long_xls_paths=long_paths,
             focus_team_override=focus_team_override,
             include_shifts_in_stats=include_shifts_in_stats,
+            write_events_summary=write_events_summary,
             skip_validation=args.skip_validation,
             create_scripts=create_scripts,
         )
@@ -7584,7 +7593,7 @@ def main() -> None:
 
         if getattr(args, "upload_webapp", False):
             if t2s_id is None:
-                print("[webapp] Skipping upload (no TimeToScore game id available).")
+                upload_skipped_no_t2s += 1
             else:
                 try:
                     _upload_shift_package_to_webapp(
@@ -7595,8 +7604,20 @@ def main() -> None:
                         stats_dir=(final_outdir / "stats"),
                         replace=bool(getattr(args, "webapp_replace", False)),
                     )
+                    upload_ok += 1
                 except Exception as e:  # noqa: BLE001
+                    upload_failed += 1
                     print(f"[webapp] Upload failed for t2s={t2s_id} ({label}): {e}", file=sys.stderr)
+
+    if getattr(args, "upload_webapp", False):
+        print(f"[webapp] Upload summary: ok={upload_ok} failed={upload_failed} missing_t2s_id={upload_skipped_no_t2s}")
+        if upload_ok == 0:
+            print(
+                "[webapp] No games were uploaded. Ensure each game has a TimeToScore id (e.g. file-list lines like "
+                "'t2s=<game_id>:HOME|AWAY[:label]' or filenames like 'game-<id>.xlsx').",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     if multiple_inputs:
         agg_rows, agg_periods, per_game_denoms = _aggregate_stats_rows(
