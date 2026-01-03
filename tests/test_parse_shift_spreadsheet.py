@@ -331,6 +331,283 @@ def should_select_tracking_output_video_prefers_highest_numbered(tmp_path: Path)
     assert best.name == "tracking_output-with-audio-10.mp4"
 
 
+def should_compute_pair_on_ice_overlap_pct_and_plus_minus_together():
+    sb_pairs_by_player = {
+        "12_Alice": [(1, "15:00", "14:00"), (1, "13:00", "12:00")],
+        "34_Bob": [(1, "14:30", "13:30")],
+        "56_Cara": [(1, "10:00", "9:00")],
+        "1_Goalie": [],  # zero TOI -> should be excluded
+    }
+    goals_by_period = {
+        1: [
+            pss.GoalEvent("GF", 1, "14:15"),
+            pss.GoalEvent("GA", 1, "14:30"),  # Bob shift start -> should be skipped
+            pss.GoalEvent("GA", 1, "14:05"),
+        ]
+    }
+    rows = pss._compute_pair_on_ice_rows(sb_pairs_by_player, goals_by_period)
+    assert not any(r.get("player") == "1_Goalie" or r.get("teammate") == "1_Goalie" for r in rows)
+
+    def _row(player: str, teammate: str) -> dict:
+        for r in rows:
+            if r.get("player") == player and r.get("teammate") == teammate:
+                return r
+        raise AssertionError(f"missing pair row {player} / {teammate}")
+
+    a_b = _row("12_Alice", "34_Bob")
+    b_a = _row("34_Bob", "12_Alice")
+
+    assert a_b["overlap_seconds"] == 30
+    assert round(a_b["overlap_pct"], 1) == 25.0
+    assert round(b_a["overlap_pct"], 1) == 50.0
+
+    assert a_b["gf_together"] == 1
+    assert a_b["ga_together"] == 1
+    assert a_b["plus_minus_together"] == 0
+    assert a_b["player_total_plus_minus"] == -1
+    assert a_b["teammate_total_plus_minus"] == 0
+
+    a_c = _row("12_Alice", "56_Cara")
+    assert a_c["overlap_seconds"] == 0
+    assert a_c["gf_together"] == 0
+    assert a_c["ga_together"] == 0
+
+
+def should_count_player_total_plus_minus_even_when_no_teammates_on_ice():
+    sb_pairs_by_player = {"12_Alice": [(1, "15:00", "14:00")], "34_Bob": [(1, "13:00", "12:00")]}
+    goals_by_period = {1: [pss.GoalEvent("GA", 1, "14:30")]}
+    rows = pss._compute_pair_on_ice_rows(sb_pairs_by_player, goals_by_period)
+    a_b = next(r for r in rows if r["player"] == "12_Alice" and r["teammate"] == "34_Bob")
+    assert a_b["player_total_plus_minus"] == -1
+
+
+def should_compute_pair_on_ice_goal_at_shift_boundary_counts_like_player_stats():
+    # Goal at 14:00 is the end of Alice's first shift and the start of her second shift.
+    # Player stats count this goal (it matches the earlier shift interval and is not
+    # at that shift's start), so pair-on-ice must count it too.
+    sb_pairs_by_player = {
+        "12_Alice": [(1, "15:00", "14:00"), (1, "14:00", "13:00")],
+        "34_Bob": [(1, "15:00", "13:00")],
+    }
+    goals_by_period = {1: [pss.GoalEvent("GF", 1, "14:00")]}
+    rows = pss._compute_pair_on_ice_rows(sb_pairs_by_player, goals_by_period)
+    a_b = next(r for r in rows if r["player"] == "12_Alice" and r["teammate"] == "34_Bob")
+    assert a_b["player_total_plus_minus"] == 1
+    assert a_b["gf_together"] == 1
+    assert a_b["plus_minus_together"] == 1
+
+
+def should_aggregate_per_shift_rates_use_shift_games_only():
+    shift_game_rows = [
+        {
+            "player": "1_A",
+            "goals": "2",
+            "assists": "1",
+            "shots": "5",
+            "sog": "4",
+            "expected_goals": "3",
+            "shifts": "10",
+            "sb_toi_total": "10:00",
+            "plus_minus": "1",
+            "gf_counted": "2",
+            "ga_counted": "1",
+        }
+    ]
+    t2s_only_rows = [
+        {
+            "player": "1_A",
+            "goals": "1",
+            "assists": "0",
+            "shifts": "",
+            "sb_toi_total": "",
+            "plus_minus": "",
+            "gf_counted": "",
+            "ga_counted": "",
+        }
+    ]
+    agg_rows, _periods, _per_game_denoms = pss._aggregate_stats_rows([(shift_game_rows, [1]), (t2s_only_rows, [1])])
+    row = next(r for r in agg_rows if r.get("player") == "1_A")
+
+    # Totals still include T2S-only games.
+    assert row["goals"] == "3"
+    assert row["assists"] == "1"
+
+    # Per-shift rates only use games that have shift times.
+    assert row["goals_per_shift"] == "0.20"
+    assert row["assists_per_shift"] == "0.10"
+    assert row["points_per_shift"] == "0.30"
+    assert row["shots_per_shift"] == "0.50"
+
+
+def should_only_include_per_shift_columns_when_shifts_enabled():
+    rows = [{"player": "1_Ethan", "gp": "1", "goals": "1", "assists": "0", "points": "1", "ppg": "1.0"}]
+    _df0, cols0 = pss._build_stats_dataframe(rows, [1], include_shifts_in_stats=False)
+    assert "goals_per_shift" not in cols0
+    assert "shots_per_shift" not in cols0
+
+    rows2 = [
+        {
+            "player": "1_Ethan",
+            "gp": "1",
+            "goals": "1",
+            "assists": "0",
+            "points": "1",
+            "ppg": "1.0",
+            "shifts": "10",
+        }
+    ]
+    _df1, cols1 = pss._build_stats_dataframe(rows2, [1], include_shifts_in_stats=True)
+    assert "goals_per_shift" in cols1
+    assert "shots_per_shift" in cols1
+
+
+def should_place_plus_minus_columns_right_after_ppg():
+    rows = [
+        {
+            "player": "1_Ethan",
+            "gp": "2",
+            "goals": "1",
+            "assists": "1",
+            "points": "2",
+            "ppg": "1.0",
+            "plus_minus": "0",
+            "plus_minus_per_game": "0.0",
+            "gf_counted": "2",
+            "gf_per_game": "1.0",
+            "ga_counted": "2",
+            "ga_per_game": "1.0",
+            "gf_per_shift": "0.10",
+            "ga_per_shift": "0.10",
+            "shots": "1",
+        }
+    ]
+    _df, cols = pss._build_stats_dataframe(rows, [1], include_shifts_in_stats=True)
+    i = cols.index("ppg")
+    assert cols[i + 1 : i + 9] == [
+        "plus_minus",
+        "plus_minus_per_game",
+        "gf_counted",
+        "gf_per_game",
+        "ga_counted",
+        "ga_per_game",
+        "gf_per_shift",
+        "ga_per_shift",
+    ]
+
+
+def should_write_pair_on_ice_csv_headers_human_readable(tmp_path: Path):
+    stats_dir = tmp_path / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+    pss._write_pair_on_ice_csv(
+        stats_dir,
+        [
+            {
+                "player": "12_Alice",
+                "teammate": "34_Bob",
+                "shift_games": 1,
+                "player_toi_seconds": 120,
+                "overlap_seconds": 30,
+                "overlap_pct": 25.1234,
+                "gf_together": 1,
+                "ga_together": 0,
+                "plus_minus_together": 1,
+            }
+        ],
+        include_toi=True,
+    )
+    header = (stats_dir / "pair_on_ice.csv").read_text(encoding="utf-8").splitlines()[0].split(",")
+    assert "Player TOI" in header
+    assert "Overlap" in header
+    assert "Overlap %" in header
+    assert "Player Total +/-" in header
+    assert "Teammate Total +/-" in header
+    # CSV stores full precision for Overlap % (XLSX applies display formatting).
+    first_row = (stats_dir / "pair_on_ice.csv").read_text(encoding="utf-8").splitlines()[1]
+    assert ",25.1234," in f",{first_row},"
+    assert ",30," in f",{first_row},"
+
+
+def should_write_pair_on_ice_csv_without_toi_when_disabled(tmp_path: Path):
+    stats_dir = tmp_path / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+    pss._write_pair_on_ice_csv(
+        stats_dir,
+        [
+            {
+                "player": "12_Alice",
+                "teammate": "34_Bob",
+                "shift_games": 1,
+                "player_toi_seconds": 120,
+                "overlap_seconds": 30,
+                "overlap_pct": 25.0,
+                "gf_together": 1,
+                "ga_together": 0,
+                "plus_minus_together": 1,
+            }
+        ],
+        include_toi=False,
+    )
+    header = (stats_dir / "pair_on_ice.csv").read_text(encoding="utf-8").splitlines()[0].split(",")
+    assert "Player TOI" not in header
+    assert "Overlap" not in header
+    assert "Overlap %" in header
+    assert "Player Total +/-" in header
+    assert "Teammate Total +/-" in header
+
+
+def should_consolidate_pair_on_ice_across_games(tmp_path: Path):
+    ok = pss._write_pair_on_ice_consolidated_files(
+        tmp_path,
+        [
+            {
+                "pair_on_ice": [
+                    {
+                        "player": "12_Alice",
+                        "teammate": "34_Bob",
+                        "shift_games": 1,
+                        "player_toi_seconds": 100,
+                        "overlap_seconds": 25,
+                        "overlap_pct": 25.0,
+                        "gf_together": 1,
+                        "ga_together": 0,
+                        "plus_minus_together": 1,
+                    }
+                ]
+            },
+            {
+                "pair_on_ice": [
+                    {
+                        "player": "12_Alice",
+                        "teammate": "34_Bob",
+                        "shift_games": 1,
+                        "player_toi_seconds": 200,
+                        "overlap_seconds": 50,
+                        "overlap_pct": 25.0,
+                        "gf_together": 0,
+                        "ga_together": 1,
+                        "plus_minus_together": -1,
+                    }
+                ]
+            },
+        ],
+        include_toi=False,
+    )
+    assert ok
+    csv_text = (tmp_path / "pair_on_ice_consolidated.csv").read_text(encoding="utf-8")
+    assert "Games with Data" in csv_text.splitlines()[0]
+    assert "Player Total +/-" in csv_text.splitlines()[0]
+    assert "Teammate Total +/-" in csv_text.splitlines()[0]
+    # Games with Data should sum to 2.
+    assert ",2," in csv_text.replace("\r\n", "\n")
+
+
+def should_write_empty_pair_on_ice_consolidated_files(tmp_path: Path):
+    ok = pss._write_pair_on_ice_consolidated_files(tmp_path, [{"pair_on_ice": []}], include_toi=False)
+    assert ok
+    assert (tmp_path / "pair_on_ice_consolidated.csv").exists()
+    assert (tmp_path / "pair_on_ice_consolidated.xlsx").exists()
+
+
 if __name__ == "__main__":
     # Make `bazel test //tests:test_parse_shift_spreadsheet` run pytest collection.
     raise SystemExit(
