@@ -846,7 +846,13 @@ def create_app() -> Flask:
             return int(cur.lastrowid)
 
     def _ensure_league_for_import(
-        *, league_name: str, owner_user_id: int, is_shared: bool, source: Optional[str], external_key: Optional[str]
+        *,
+        league_name: str,
+        owner_user_id: int,
+        is_shared: bool,
+        source: Optional[str],
+        external_key: Optional[str],
+        commit: bool = True,
     ) -> int:
         name = (league_name or "").strip()
         if not name:
@@ -862,7 +868,8 @@ def create_app() -> Flask:
                         "UPDATE leagues SET is_shared=%s, updated_at=%s WHERE id=%s",
                         (want_shared, dt.datetime.now().isoformat(), lid),
                     )
-                    g.db.commit()
+                    if commit:
+                        g.db.commit()
                 return lid
             cur.execute(
                 "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
@@ -875,18 +882,20 @@ def create_app() -> Flask:
                     dt.datetime.now().isoformat(),
                 ),
             )
-            g.db.commit()
+            if commit:
+                g.db.commit()
             return int(cur.lastrowid)
 
-    def _ensure_league_member_for_import(league_id: int, user_id: int, role: str) -> None:
+    def _ensure_league_member_for_import(league_id: int, user_id: int, role: str, *, commit: bool = True) -> None:
         with g.db.cursor() as cur:
             cur.execute(
                 "INSERT IGNORE INTO league_members(league_id, user_id, role, created_at) VALUES(%s,%s,%s,%s)",
                 (league_id, user_id, role, dt.datetime.now().isoformat()),
             )
-            g.db.commit()
+            if commit:
+                g.db.commit()
 
-    def _ensure_external_team_for_import(owner_user_id: int, name: str) -> int:
+    def _ensure_external_team_for_import(owner_user_id: int, name: str, *, commit: bool = True) -> int:
         nm = (name or "").strip()
         if not nm:
             nm = "UNKNOWN"
@@ -899,11 +908,18 @@ def create_app() -> Flask:
                 "INSERT INTO teams(user_id, name, is_external, created_at) VALUES(%s,%s,%s,%s)",
                 (owner_user_id, nm, 1, dt.datetime.now().isoformat()),
             )
-            g.db.commit()
+            if commit:
+                g.db.commit()
             return int(cur.lastrowid)
 
     def _ensure_player_for_import(
-        owner_user_id: int, team_id: int, name: str, jersey_number: Optional[str], position: Optional[str]
+        owner_user_id: int,
+        team_id: int,
+        name: str,
+        jersey_number: Optional[str],
+        position: Optional[str],
+        *,
+        commit: bool = True,
     ) -> int:
         nm = (name or "").strip()
         if not nm:
@@ -921,13 +937,15 @@ def create_app() -> Flask:
                         "UPDATE players SET jersey_number=COALESCE(%s, jersey_number), position=COALESCE(%s, position), updated_at=%s WHERE id=%s",
                         (jersey_number, position, dt.datetime.now().isoformat(), pid),
                     )
-                    g.db.commit()
+                    if commit:
+                        g.db.commit()
                 return pid
             cur.execute(
                 "INSERT INTO players(user_id, team_id, name, jersey_number, position, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
                 (owner_user_id, team_id, nm, jersey_number, position, dt.datetime.now().isoformat()),
             )
-            g.db.commit()
+            if commit:
+                g.db.commit()
             return int(cur.lastrowid)
 
     def _merge_notes(existing: Optional[str], new_fields: dict[str, Any]) -> str:
@@ -953,6 +971,7 @@ def create_app() -> Flask:
         team2_score: Optional[int],
         replace: bool,
         notes_json_fields: dict[str, Any],
+        commit: bool = True,
     ) -> int:
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             gid: Optional[int] = None
@@ -995,7 +1014,8 @@ def create_app() -> Flask:
                         dt.datetime.now().isoformat(),
                     ),
                 )
-                g.db.commit()
+                if commit:
+                    g.db.commit()
                 return int(cur.lastrowid)
 
             cur.execute("SELECT notes, team1_score, team2_score FROM hky_games WHERE id=%s", (gid,))
@@ -1052,7 +1072,8 @@ def create_app() -> Flask:
                         gid,
                     ),
                 )
-            g.db.commit()
+            if commit:
+                g.db.commit()
             return gid
 
     def _map_team_to_league_for_import(
@@ -1062,6 +1083,7 @@ def create_app() -> Flask:
         division_name: Optional[str] = None,
         division_id: Optional[int] = None,
         conference_id: Optional[int] = None,
+        commit: bool = True,
     ) -> None:
         dn = (division_name or "").strip() or None
         with g.db.cursor() as cur:
@@ -1082,7 +1104,8 @@ def create_app() -> Flask:
                     """,
                     (league_id, team_id, dn, division_id, conference_id),
                 )
-            g.db.commit()
+            if commit:
+                g.db.commit()
 
     def _map_game_to_league_for_import(
         league_id: int,
@@ -1091,6 +1114,7 @@ def create_app() -> Flask:
         division_name: Optional[str] = None,
         division_id: Optional[int] = None,
         conference_id: Optional[int] = None,
+        commit: bool = True,
     ) -> None:
         dn = (division_name or "").strip() or None
         with g.db.cursor() as cur:
@@ -1111,7 +1135,76 @@ def create_app() -> Flask:
                     """,
                     (league_id, game_id, dn, division_id, conference_id),
                 )
-            g.db.commit()
+            if commit:
+                g.db.commit()
+
+    def _ensure_team_logo_from_url_for_import(
+        *,
+        team_id: int,
+        logo_url: Optional[str],
+        replace: bool,
+        commit: bool = True,
+    ) -> None:
+        url = str(logo_url or "").strip()
+        if not url:
+            return
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT logo_path FROM teams WHERE id=%s", (int(team_id),))
+            row = cur.fetchone()
+            if row and row.get("logo_path") and not replace:
+                return
+
+        try:
+            import requests
+        except Exception:
+            return
+
+        try:
+            resp = requests.get(url, timeout=(10, 30))
+            resp.raise_for_status()
+            data = resp.content
+            ctype = str(resp.headers.get("Content-Type") or "")
+        except Exception:
+            return
+
+        ext = None
+        ctype_l = ctype.lower()
+        if "png" in ctype_l:
+            ext = ".png"
+        elif "jpeg" in ctype_l or "jpg" in ctype_l:
+            ext = ".jpg"
+        elif "gif" in ctype_l:
+            ext = ".gif"
+        elif "webp" in ctype_l:
+            ext = ".webp"
+        elif "svg" in ctype_l:
+            ext = ".svg"
+        if ext is None:
+            for cand in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+                if url.lower().split("?", 1)[0].endswith(cand):
+                    ext = cand
+                    break
+        if ext is None:
+            ext = ".png"
+
+        try:
+            logo_dir = INSTANCE_DIR / "uploads" / "team_logos"
+            logo_dir.mkdir(parents=True, exist_ok=True)
+            dest = logo_dir / f"import_team{int(team_id)}{ext}"
+            dest.write_bytes(data)
+            try:
+                os.chmod(dest, 0o644)
+            except Exception:
+                pass
+            with g.db.cursor() as cur:
+                cur.execute(
+                    "UPDATE teams SET logo_path=%s, updated_at=%s WHERE id=%s",
+                    (str(dest), dt.datetime.now().isoformat(), int(team_id)),
+                )
+            if commit:
+                g.db.commit()
+        except Exception:
+            return
 
     @app.post("/api/import/hockey/ensure_league")
     def api_import_ensure_league():
@@ -1164,6 +1257,8 @@ def create_app() -> Flask:
             return jsonify({"ok": False, "error": "home_name and away_name are required"}), 400
 
         division_name = str(game.get("division_name") or "").strip() or None
+        home_division_name = str(game.get("home_division_name") or division_name or "").strip() or None
+        away_division_name = str(game.get("away_division_name") or division_name or "").strip() or None
         try:
             division_id = int(game.get("division_id")) if game.get("division_id") is not None else None
         except Exception:
@@ -1172,22 +1267,52 @@ def create_app() -> Flask:
             conference_id = int(game.get("conference_id")) if game.get("conference_id") is not None else None
         except Exception:
             conference_id = None
+        try:
+            home_division_id = int(game.get("home_division_id")) if game.get("home_division_id") is not None else division_id
+        except Exception:
+            home_division_id = division_id
+        try:
+            away_division_id = int(game.get("away_division_id")) if game.get("away_division_id") is not None else division_id
+        except Exception:
+            away_division_id = division_id
+        try:
+            home_conference_id = (
+                int(game.get("home_conference_id")) if game.get("home_conference_id") is not None else conference_id
+            )
+        except Exception:
+            home_conference_id = conference_id
+        try:
+            away_conference_id = (
+                int(game.get("away_conference_id")) if game.get("away_conference_id") is not None else conference_id
+            )
+        except Exception:
+            away_conference_id = conference_id
 
         team1_id = _ensure_external_team_for_import(owner_user_id, home_name)
         team2_id = _ensure_external_team_for_import(owner_user_id, away_name)
         _map_team_to_league_for_import(
             league_id,
             team1_id,
-            division_name=division_name,
-            division_id=division_id,
-            conference_id=conference_id,
+            division_name=home_division_name,
+            division_id=home_division_id,
+            conference_id=home_conference_id,
         )
         _map_team_to_league_for_import(
             league_id,
             team2_id,
-            division_name=division_name,
-            division_id=division_id,
-            conference_id=conference_id,
+            division_name=away_division_name,
+            division_id=away_division_id,
+            conference_id=away_conference_id,
+        )
+        _ensure_team_logo_from_url_for_import(
+            team_id=int(team1_id),
+            logo_url=game.get("home_logo_url") or game.get("team1_logo_url"),
+            replace=replace,
+        )
+        _ensure_team_logo_from_url_for_import(
+            team_id=int(team2_id),
+            logo_url=game.get("away_logo_url") or game.get("team2_logo_url"),
+            replace=replace,
         )
 
         starts_at = game.get("starts_at")
@@ -1234,9 +1359,9 @@ def create_app() -> Flask:
         _map_game_to_league_for_import(
             league_id,
             gid,
-            division_name=division_name,
-            division_id=division_id,
-            conference_id=conference_id,
+            division_name=division_name or home_division_name or away_division_name,
+            division_id=division_id or home_division_id or away_division_id,
+            conference_id=conference_id or home_conference_id or away_conference_id,
         )
 
         for side_key, tid in (("home", team1_id), ("away", team2_id)):
@@ -1317,6 +1442,260 @@ def create_app() -> Flask:
                 "team1_id": team1_id,
                 "team2_id": team2_id,
                 "game_id": gid,
+            }
+        )
+
+    @app.post("/api/import/hockey/games_batch")
+    def api_import_games_batch():
+        auth = _require_import_auth()
+        if auth:
+            return auth
+        payload = request.get_json(silent=True) or {}
+        league_name = str(payload.get("league_name") or "Norcal")
+        shared = bool(payload.get("shared", True))
+        replace = bool(payload.get("replace", False))
+        owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
+        owner_name = str(payload.get("owner_name") or "Norcal Import")
+        owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
+
+        games = payload.get("games") or []
+        if not isinstance(games, list) or not games:
+            return jsonify({"ok": False, "error": "games must be a non-empty list"}), 400
+
+        league_id = _ensure_league_for_import(
+            league_name=league_name,
+            owner_user_id=owner_user_id,
+            is_shared=shared,
+            source=str(payload.get("source") or "timetoscore"),
+            external_key=str(payload.get("external_key") or ""),
+            commit=False,
+        )
+        _ensure_league_member_for_import(league_id, owner_user_id, role="admin", commit=False)
+
+        results: list[dict[str, Any]] = []
+        try:
+            for idx, game in enumerate(games):
+                if not isinstance(game, dict):
+                    raise ValueError(f"games[{idx}] must be an object")
+                home_name = str(game.get("home_name") or "").strip()
+                away_name = str(game.get("away_name") or "").strip()
+                if not home_name or not away_name:
+                    raise ValueError(f"games[{idx}]: home_name and away_name are required")
+
+                game_replace = bool(game.get("replace", replace))
+
+                division_name = str(game.get("division_name") or "").strip() or None
+                home_division_name = str(game.get("home_division_name") or division_name or "").strip() or None
+                away_division_name = str(game.get("away_division_name") or division_name or "").strip() or None
+                try:
+                    division_id = int(game.get("division_id")) if game.get("division_id") is not None else None
+                except Exception:
+                    division_id = None
+                try:
+                    conference_id = int(game.get("conference_id")) if game.get("conference_id") is not None else None
+                except Exception:
+                    conference_id = None
+                try:
+                    home_division_id = (
+                        int(game.get("home_division_id")) if game.get("home_division_id") is not None else division_id
+                    )
+                except Exception:
+                    home_division_id = division_id
+                try:
+                    away_division_id = (
+                        int(game.get("away_division_id")) if game.get("away_division_id") is not None else division_id
+                    )
+                except Exception:
+                    away_division_id = division_id
+                try:
+                    home_conference_id = (
+                        int(game.get("home_conference_id"))
+                        if game.get("home_conference_id") is not None
+                        else conference_id
+                    )
+                except Exception:
+                    home_conference_id = conference_id
+                try:
+                    away_conference_id = (
+                        int(game.get("away_conference_id"))
+                        if game.get("away_conference_id") is not None
+                        else conference_id
+                    )
+                except Exception:
+                    away_conference_id = conference_id
+
+                team1_id = _ensure_external_team_for_import(owner_user_id, home_name, commit=False)
+                team2_id = _ensure_external_team_for_import(owner_user_id, away_name, commit=False)
+                _map_team_to_league_for_import(
+                    league_id,
+                    team1_id,
+                    division_name=home_division_name,
+                    division_id=home_division_id,
+                    conference_id=home_conference_id,
+                    commit=False,
+                )
+                _map_team_to_league_for_import(
+                    league_id,
+                    team2_id,
+                    division_name=away_division_name,
+                    division_id=away_division_id,
+                    conference_id=away_conference_id,
+                    commit=False,
+                )
+                _ensure_team_logo_from_url_for_import(
+                    team_id=int(team1_id),
+                    logo_url=game.get("home_logo_url") or game.get("team1_logo_url"),
+                    replace=game_replace,
+                    commit=False,
+                )
+                _ensure_team_logo_from_url_for_import(
+                    team_id=int(team2_id),
+                    logo_url=game.get("away_logo_url") or game.get("team2_logo_url"),
+                    replace=game_replace,
+                    commit=False,
+                )
+
+                starts_at = game.get("starts_at")
+                starts_at_s = str(starts_at) if starts_at else None
+                location = str(game.get("location")).strip() if game.get("location") else None
+                team1_score = game.get("home_score")
+                team2_score = game.get("away_score")
+                tts_game_id = game.get("timetoscore_game_id")
+
+                notes_fields: dict[str, Any] = {}
+                if tts_game_id is not None:
+                    try:
+                        notes_fields["timetoscore_game_id"] = int(tts_game_id)
+                    except Exception:
+                        pass
+                if game.get("season_id") is not None:
+                    try:
+                        notes_fields["timetoscore_season_id"] = int(game.get("season_id"))
+                    except Exception:
+                        pass
+                if payload.get("source"):
+                    notes_fields["source"] = str(payload.get("source"))
+
+                try:
+                    t1s = int(team1_score) if team1_score is not None else None
+                except Exception:
+                    t1s = None
+                try:
+                    t2s = int(team2_score) if team2_score is not None else None
+                except Exception:
+                    t2s = None
+
+                gid = _upsert_game_for_import(
+                    owner_user_id=owner_user_id,
+                    team1_id=team1_id,
+                    team2_id=team2_id,
+                    starts_at=starts_at_s,
+                    location=location,
+                    team1_score=t1s,
+                    team2_score=t2s,
+                    replace=game_replace,
+                    notes_json_fields=notes_fields,
+                    commit=False,
+                )
+                _map_game_to_league_for_import(
+                    league_id,
+                    gid,
+                    division_name=division_name or home_division_name or away_division_name,
+                    division_id=division_id or home_division_id or away_division_id,
+                    conference_id=conference_id or home_conference_id or away_conference_id,
+                    commit=False,
+                )
+
+                for side_key, tid in (("home", team1_id), ("away", team2_id)):
+                    roster = game.get(f"{side_key}_roster") or []
+                    if isinstance(roster, list):
+                        for row in roster:
+                            if not isinstance(row, dict):
+                                continue
+                            nm = str(row.get("name") or "").strip()
+                            if not nm:
+                                continue
+                            jersey = str(row.get("number") or "").strip() or None
+                            pos = str(row.get("position") or "").strip() or None
+                            _ensure_player_for_import(
+                                owner_user_id, tid, nm, jersey, pos, commit=False
+                            )
+
+                def _player_id_by_name(team_id: int, name: str) -> Optional[int]:
+                    with g.db.cursor() as cur:
+                        cur.execute(
+                            "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
+                            (owner_user_id, team_id, name),
+                        )
+                        r = cur.fetchone()
+                        return int(r[0]) if r else None
+
+                stats_rows = game.get("player_stats") or []
+                if isinstance(stats_rows, list):
+                    with g.db.cursor() as cur:
+                        for srow in stats_rows:
+                            if not isinstance(srow, dict):
+                                continue
+                            pname = str(srow.get("name") or "").strip()
+                            if not pname:
+                                continue
+                            goals = srow.get("goals")
+                            assists = srow.get("assists")
+                            try:
+                                gval = int(goals) if goals is not None else 0
+                            except Exception:
+                                gval = 0
+                            try:
+                                aval = int(assists) if assists is not None else 0
+                            except Exception:
+                                aval = 0
+
+                            team_ref = team1_id
+                            pid = _player_id_by_name(team1_id, pname)
+                            if pid is None:
+                                pid = _player_id_by_name(team2_id, pname)
+                                team_ref = team2_id if pid is not None else team1_id
+                            if pid is None:
+                                pid = _ensure_player_for_import(
+                                    owner_user_id, team_ref, pname, None, None, commit=False
+                                )
+
+                            if game_replace:
+                                cur.execute(
+                                    """
+                                    INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
+                                    VALUES(%s,%s,%s,%s,%s,%s)
+                                    ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists)
+                                    """,
+                                    (owner_user_id, team_ref, gid, pid, gval, aval),
+                                )
+                            else:
+                                cur.execute(
+                                    """
+                                    INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
+                                    VALUES(%s,%s,%s,%s,%s,%s)
+                                    ON DUPLICATE KEY UPDATE goals=COALESCE(goals, VALUES(goals)), assists=COALESCE(assists, VALUES(assists))
+                                    """,
+                                    (owner_user_id, team_ref, gid, pid, gval, aval),
+                                )
+
+                results.append({"game_id": gid, "team1_id": team1_id, "team2_id": team2_id})
+
+            g.db.commit()
+        except Exception as e:
+            try:
+                g.db.rollback()
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": str(e)}), 400
+
+        return jsonify(
+            {
+                "ok": True,
+                "league_id": league_id,
+                "owner_user_id": owner_user_id,
+                "imported": len(results),
+                "results": results,
             }
         )
 
@@ -1667,6 +2046,17 @@ def create_app() -> Flask:
                 tuple(params),
             )
             games = cur.fetchall() or []
+        now_dt = dt.datetime.now()
+        for g2 in games or []:
+            sdt = g2.get("starts_at")
+            started = False
+            if sdt is not None:
+                try:
+                    started = _to_dt(sdt) is not None and _to_dt(sdt) <= now_dt
+                except Exception:
+                    started = False
+            has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
+            g2["can_view_summary"] = bool(started or has_score)
         return render_template(
             "schedule.html",
             games=games,
@@ -2126,6 +2516,17 @@ def create_app() -> Flask:
                     (session["user_id"],),
                 )
             games = cur.fetchall()
+        now_dt = dt.datetime.now()
+        for g2 in games or []:
+            sdt = g2.get("starts_at")
+            started = False
+            if sdt is not None:
+                try:
+                    started = _to_dt(sdt) is not None and _to_dt(sdt) <= now_dt
+                except Exception:
+                    started = False
+            has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
+            g2["can_view_summary"] = bool(started or has_score)
         return render_template(
             "schedule.html",
             games=games,

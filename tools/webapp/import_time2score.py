@@ -613,6 +613,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="Only run DB cleanup (no schedule/game scraping).",
     )
+    ap.add_argument(
+        "--refresh-team-metadata",
+        action="store_true",
+        help="Refresh league team divisions/logos from TimeToScore division lists (no game scraping).",
+    )
     ap.add_argument("--division", dest="divisions", action="append", default=[], help="Division filter token (repeatable)")
     ap.add_argument("--team", dest="teams", action="append", default=[], help="Team substring filter (repeatable)")
     ap.add_argument("--game-id", dest="game_ids", action="append", default=[], help="Import specific game id (repeatable)")
@@ -628,6 +633,25 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--shared", action="store_true", help="Mark the league as shared")
     ap.add_argument("--share-with", action="append", default=[], help="Emails to add as league viewers (repeatable)")
 
+    ap.add_argument(
+        "--api-url",
+        "--url",
+        dest="api_url",
+        default=None,
+        help="If set, import via the webapp REST API at this base URL (e.g. http://127.0.0.1:8008).",
+    )
+    ap.add_argument(
+        "--api-token",
+        default=None,
+        help="Optional import token for REST API auth (sent as X-HM-Import-Token).",
+    )
+    ap.add_argument(
+        "--api-batch-size",
+        type=int,
+        default=50,
+        help="Games per REST batch request (only with --api-url).",
+    )
+
     args = ap.parse_args(argv)
 
     def log(msg: str) -> None:
@@ -641,26 +665,37 @@ def main(argv: Optional[list[str]] = None) -> int:
     from hmlib.time2score import direct as tts_direct
     from hmlib.time2score import normalize as tts_norm
 
-    log(f"Connecting to DB via config: {args.config}")
-    conn = connect_pymysql(load_db_cfg(args.config))
-    ensure_defaults(conn)
-    ensure_league_schema(conn)
+    rest_mode = bool(args.api_url)
+    if rest_mode and (args.cleanup_only or args.refresh_team_metadata or args.share_with):
+        raise SystemExit(
+            "--cleanup-only/--refresh-team-metadata/--share-with are only supported for direct DB imports (omit --api-url)"
+        )
+
+    conn = None
+    if not rest_mode:
+        log(f"Connecting to DB via config: {args.config}")
+        conn = connect_pymysql(load_db_cfg(args.config))
+        ensure_defaults(conn)
+        ensure_league_schema(conn)
 
     logo_dir = None
-    if not args.no_import_logos:
+    if (not args.no_import_logos) and (not rest_mode):
         if args.logo_dir:
             logo_dir = Path(str(args.logo_dir)).expanduser()
         else:
             preferred = Path("/opt/hm-webapp/app/instance/uploads/team_logos")
             logo_dir = preferred if preferred.exists() else (base_dir / "instance" / "uploads" / "team_logos")
 
-    log(f"Resolving user: {args.user_email}")
-    user_id = ensure_user(
-        conn,
-        args.user_email,
-        name=args.user_name or args.user_email,
-        password_hash=(args.password_hash if args.create_user else None),
-    )
+    user_id = None
+    if not rest_mode:
+        assert conn is not None
+        log(f"Resolving user: {args.user_email}")
+        user_id = ensure_user(
+            conn,
+            args.user_email,
+            name=args.user_name or args.user_email,
+            password_hash=(args.password_hash if args.create_user else None),
+        )
 
     seasons = tts_direct.list_seasons(args.source)
     if args.list_seasons:
@@ -695,6 +730,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Map (team_name_lower, division_name_lower) -> team_id for logo retrieval.
     tts_team_id_by_name_div: dict[tuple[str, str], int] = {}
     tts_team_ids_by_name: dict[str, list[int]] = {}
+    tts_team_div_meta_by_id: dict[int, tuple[str, int, int]] = {}
     for d in divs:
         dn = str(d.name or "").strip()
         for t in d.teams:
@@ -708,6 +744,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 continue
             tts_team_id_by_name_div[(nm.lower(), dn.lower())] = tid_i
             tts_team_ids_by_name.setdefault(nm.lower(), []).append(tid_i)
+            tts_team_div_meta_by_id[tid_i] = (dn, int(d.division_id), int(d.conference_id))
 
     def resolve_tts_team_id(name: str, division_name: Optional[str]) -> Optional[int]:
         nm = str(name or "").strip().lower()
@@ -718,6 +755,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         if len(ids) == 1:
             return int(ids[0])
         return None
+
+    def resolve_team_division_meta(name: str, fallback_division_name: Optional[str]) -> tuple[Optional[str], Optional[int], Optional[int], Optional[int]]:
+        """Return (division_name, division_id, conference_id, team_tts_id)."""
+        tts_id = resolve_tts_team_id(name, fallback_division_name)
+        if tts_id is not None and int(tts_id) in tts_team_div_meta_by_id:
+            dn, did, cid = tts_team_div_meta_by_id[int(tts_id)]
+            return dn or None, int(did), int(cid), int(tts_id)
+        # If the team name is unique across all divisions, assign its division without relying on the game.
+        ids = tts_team_ids_by_name.get(str(name or "").strip().lower()) or []
+        if len(ids) == 1 and int(ids[0]) in tts_team_div_meta_by_id:
+            dn, did, cid = tts_team_div_meta_by_id[int(ids[0])]
+            return dn or None, int(did), int(cid), int(ids[0])
+        return (fallback_division_name, None, None, int(tts_id) if tts_id is not None else None)
 
     # Division filter resolution
     allowed_divs: Optional[set[tuple[int, int]]] = None
@@ -747,30 +797,35 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Always import into a league (create if needed).
     league_name = str(args.league_name or args.source).strip() or str(args.source)
     owner_email = args.league_owner_email or args.user_email
-    owner_id = ensure_user(
-        conn,
-        owner_email,
-        name=owner_email,
-        password_hash=(args.password_hash if args.create_user else None),
-    )
-    league_id = ensure_league(
-        conn,
-        league_name,
-        owner_id,
-        bool(args.shared),
-        source="timetoscore",
-        external_key=f"{args.source}:{season_id}",
-    )
-    ensure_league_member(conn, league_id, owner_id, role="admin")
-    ensure_league_member(conn, league_id, user_id, role="editor")
-    for em in args.share_with:
-        try:
-            uid = ensure_user(conn, em, name=em, password_hash=None)
-        except RuntimeError:
-            continue
-        ensure_league_member(conn, league_id, uid, role="viewer")
+    owner_id = None
+    league_id = None
+    if not rest_mode:
+        assert conn is not None
+        assert user_id is not None
+        owner_id = ensure_user(
+            conn,
+            owner_email,
+            name=owner_email,
+            password_hash=(args.password_hash if args.create_user else None),
+        )
+        league_id = ensure_league(
+            conn,
+            league_name,
+            owner_id,
+            bool(args.shared),
+            source="timetoscore",
+            external_key=f"{args.source}:{season_id}",
+        )
+        ensure_league_member(conn, league_id, owner_id, role="admin")
+        ensure_league_member(conn, league_id, user_id, role="editor")
+        for em in args.share_with:
+            try:
+                uid = ensure_user(conn, em, name=em, password_hash=None)
+            except RuntimeError:
+                continue
+            ensure_league_member(conn, league_id, uid, role="viewer")
 
-    if args.cleanup_only:
+    if args.cleanup_only or args.refresh_team_metadata:
         game_ids = []
         fallback_by_gid = {}
     else:
@@ -795,6 +850,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 season_id=season_id,
                 divisions=sorted(allowed_divs) if allowed_divs is not None else None,
                 team_name_substrings=args.teams,
+                progress_cb=log,
+                progress_every_teams=10,
+                heartbeat_seconds=30.0,
             )
             game_ids = sorted(fallback_by_gid.keys())
 
@@ -803,8 +861,41 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     count = 0
     skipped = 0
+    posted = 0
+    api_games_batch: list[dict[str, Any]] = []
+    logo_url_cache: dict[int, Optional[str]] = {}
     cleaned_team_ids: set[int] = set()
     started = time.time()
+
+    api_base = str(args.api_url or "").rstrip("/")
+    api_headers: dict[str, str] = {}
+    if rest_mode and args.api_token:
+        api_headers["X-HM-Import-Token"] = str(args.api_token)
+    api_batch_size = max(1, int(args.api_batch_size or 1))
+
+    def _post_batch() -> None:
+        nonlocal posted, api_games_batch
+        if not rest_mode or not api_games_batch:
+            return
+        import requests
+
+        payload = {
+            "league_name": league_name,
+            "shared": bool(args.shared),
+            "replace": bool(args.replace),
+            "owner_email": owner_email,
+            "owner_name": owner_email,
+            "source": "timetoscore",
+            "external_key": f"{args.source}:{season_id}",
+            "games": api_games_batch,
+        }
+        r = requests.post(f"{api_base}/api/import/hockey/games_batch", json=payload, headers=api_headers, timeout=180)
+        r.raise_for_status()
+        out = r.json()
+        if not out.get("ok"):
+            raise RuntimeError(str(out))
+        posted += int(out.get("imported") or 0)
+        api_games_batch = []
     for gid in game_ids:
         if args.limit is not None and count >= int(args.limit):
             break
@@ -812,8 +903,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         try:
             stats = tts_direct.scrape_game_stats(args.source, game_id=int(gid), season_id=season_id)
         except Exception:
-            skipped += 1
-            continue
+            stats = {}
+            if not fb:
+                skipped += 1
+                continue
 
         home_name = str(stats.get("home") or "").strip() or str((fb or {}).get("home") or "").strip()
         away_name = str(stats.get("away") or "").strip() or str((fb or {}).get("away") or "").strip()
@@ -821,56 +914,129 @@ def main(argv: Optional[list[str]] = None) -> int:
             skipped += 1
             continue
 
-        division_name = str((fb or {}).get("division_name") or "").strip() or None
-        division_id = None
-        conference_id = None
+        fb_division_name = str((fb or {}).get("division_name") or "").strip() or None
+        fb_division_id = None
+        fb_conference_id = None
         try:
-            division_id = int((fb or {}).get("division_id")) if (fb or {}).get("division_id") is not None else None
+            fb_division_id = int((fb or {}).get("division_id")) if (fb or {}).get("division_id") is not None else None
         except Exception:
-            division_id = None
+            fb_division_id = None
         try:
-            conference_id = (
-                int((fb or {}).get("conference_id")) if (fb or {}).get("conference_id") is not None else None
-            )
+            fb_conference_id = int((fb or {}).get("conference_id")) if (fb or {}).get("conference_id") is not None else None
         except Exception:
-            conference_id = None
+            fb_conference_id = None
 
         home_name_raw = str(home_name or "").strip()
         away_name_raw = str(away_name or "").strip()
-        home_name = canonical_team_name(home_name_raw, division_name)
-        away_name = canonical_team_name(away_name_raw, division_name)
+        home_div_name, home_div_id, home_conf_id, home_tts_id = resolve_team_division_meta(home_name_raw, fb_division_name)
+        away_div_name, away_div_id, away_conf_id, away_tts_id = resolve_team_division_meta(away_name_raw, fb_division_name)
+
+        # Use per-team division for disambiguation, not the game's division block.
+        home_name = canonical_team_name(home_name_raw, home_div_name)
+        away_name = canonical_team_name(away_name_raw, away_div_name)
 
         starts_at = parse_starts_at(args.source, stats=stats, fallback=fb)
         location = str(stats.get("location") or "").strip() or str((fb or {}).get("rink") or "").strip() or None
         t1_score = tts_norm.parse_int_or_none(stats.get("homeGoals"))
         t2_score = tts_norm.parse_int_or_none(stats.get("awayGoals"))
+        if t1_score is None and (fb or {}).get("homeGoals") is not None:
+            t1_score = tts_norm.parse_int_or_none((fb or {}).get("homeGoals"))
+        if t2_score is None and (fb or {}).get("awayGoals") is not None:
+            t2_score = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
+
+        if rest_mode:
+            def _logo_url(tts_id: Optional[int]) -> Optional[str]:
+                if args.no_import_logos or tts_id is None:
+                    return None
+                tid_i = int(tts_id)
+                if tid_i in logo_url_cache:
+                    return logo_url_cache[tid_i]
+                try:
+                    u = tts_direct.scrape_team_logo_url(str(args.source), season_id=int(season_id), team_id=tid_i)
+                except Exception:
+                    u = None
+                logo_url_cache[tid_i] = u
+                return u
+
+            game_div_name = home_div_name or fb_division_name
+            game_div_id = home_div_id if home_div_id is not None else fb_division_id
+            game_conf_id = home_conf_id if home_conf_id is not None else fb_conference_id
+
+            api_games_batch.append(
+                {
+                    "home_name": home_name,
+                    "away_name": away_name,
+                    "division_name": game_div_name,
+                    "division_id": game_div_id,
+                    "conference_id": game_conf_id,
+                    "home_division_name": home_div_name,
+                    "home_division_id": home_div_id,
+                    "home_conference_id": home_conf_id,
+                    "away_division_name": away_div_name,
+                    "away_division_id": away_div_id,
+                    "away_conference_id": away_conf_id,
+                    "starts_at": starts_at,
+                    "location": location,
+                    "home_score": t1_score,
+                    "away_score": t2_score,
+                    "timetoscore_game_id": int(gid),
+                    "season_id": int(season_id),
+                    "home_logo_url": _logo_url(home_tts_id),
+                    "away_logo_url": _logo_url(away_tts_id),
+                    "home_roster": list(tts_norm.extract_roster(stats, "home")),
+                    "away_roster": list(tts_norm.extract_roster(stats, "away")),
+                    "player_stats": [
+                        {
+                            "name": str(agg.get("name") or "").strip(),
+                            "goals": int(agg.get("goals") or 0),
+                            "assists": int(agg.get("assists") or 0),
+                        }
+                        for agg in tts_norm.aggregate_goals_assists(stats)
+                        if str(agg.get("name") or "").strip()
+                    ],
+                }
+            )
+            if len(api_games_batch) >= api_batch_size:
+                _post_batch()
+
+            count += 1
+            if count % 25 == 0 or count == total:
+                elapsed = max(0.001, time.time() - started)
+                rate = count / elapsed
+                pct = (count / total * 100.0) if total else 100.0
+                log(
+                    f"Progress: scraped {count}/{total} ({pct:.1f}%) games, posted={posted}, skipped={skipped}, {rate:.2f} games/s"
+                )
+            continue
+
+        assert conn is not None
+        assert user_id is not None
+        assert league_id is not None
 
         team1_id = ensure_team(conn, user_id, home_name, is_external=True)
         team2_id = ensure_team(conn, user_id, away_name, is_external=True)
         if logo_dir is not None:
             try:
-                tts_home_id = resolve_tts_team_id(home_name_raw, division_name)
-                tts_away_id = resolve_tts_team_id(away_name_raw, division_name)
-                if tts_home_id is not None:
+                if home_tts_id is not None:
                     _ensure_team_logo(
                         conn,
                         team_db_id=team1_id,
                         team_owner_user_id=user_id,
                         source=str(args.source),
                         season_id=int(season_id),
-                        tts_team_id=int(tts_home_id),
+                        tts_team_id=int(home_tts_id),
                         logo_dir=Path(logo_dir),
                         replace=bool(args.replace),
                         tts_direct=tts_direct,
                     )
-                if tts_away_id is not None:
+                if away_tts_id is not None:
                     _ensure_team_logo(
                         conn,
                         team_db_id=team2_id,
                         team_owner_user_id=user_id,
                         source=str(args.source),
                         season_id=int(season_id),
-                        tts_team_id=int(tts_away_id),
+                        tts_team_id=int(away_tts_id),
                         logo_dir=Path(logo_dir),
                         replace=bool(args.replace),
                         tts_direct=tts_direct,
@@ -896,32 +1062,50 @@ def main(argv: Optional[list[str]] = None) -> int:
             conn,
             league_id=league_id,
             team_id=team1_id,
-            division_name=division_name,
-            division_id=division_id,
-            conference_id=conference_id,
+            division_name=home_div_name,
+            division_id=home_div_id if home_div_id is not None else fb_division_id,
+            conference_id=home_conf_id if home_conf_id is not None else fb_conference_id,
         )
         map_team_to_league_with_division(
             conn,
             league_id=league_id,
             team_id=team2_id,
-            division_name=division_name,
-            division_id=division_id,
-            conference_id=conference_id,
+            division_name=away_div_name,
+            division_id=away_div_id if away_div_id is not None else fb_division_id,
+            conference_id=away_conf_id if away_conf_id is not None else fb_conference_id,
         )
+        # For a per-division schedule, attribute games to the home team's division when available.
+        game_div_name = home_div_name or fb_division_name
+        game_div_id = home_div_id if home_div_id is not None else fb_division_id
+        game_conf_id = home_conf_id if home_conf_id is not None else fb_conference_id
         map_game_to_league_with_division(
             conn,
             league_id=league_id,
             game_id=game_db_id,
-            division_name=division_name,
-            division_id=division_id,
-            conference_id=conference_id,
+            division_name=game_div_name,
+            division_id=game_div_id,
+            conference_id=game_conf_id,
         )
 
-        # Rosters
+        # Rosters (optional for schedule-only rows)
         for row in tts_norm.extract_roster(stats, "home"):
-            ensure_player(conn, user_id=user_id, team_id=team1_id, name=row["name"], jersey=row["number"], position=row["position"])
+            ensure_player(
+                conn,
+                user_id=user_id,
+                team_id=team1_id,
+                name=row["name"],
+                jersey=row["number"],
+                position=row["position"],
+            )
         for row in tts_norm.extract_roster(stats, "away"):
-            ensure_player(conn, user_id=user_id, team_id=team2_id, name=row["name"], jersey=row["number"], position=row["position"])
+            ensure_player(
+                conn,
+                user_id=user_id,
+                team_id=team2_id,
+                name=row["name"],
+                jersey=row["number"],
+                position=row["position"],
+            )
         if not args.no_cleanup_bogus_players:
             if int(team1_id) not in cleaned_team_ids:
                 _cleanup_numeric_named_players(conn, user_id=user_id, team_id=int(team1_id))
@@ -930,7 +1114,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 _cleanup_numeric_named_players(conn, user_id=user_id, team_id=int(team2_id))
                 cleaned_team_ids.add(int(team2_id))
 
-        # Minimal player stats (goals/assists)
+        # Minimal player stats (goals/assists). If we couldn't load boxscore stats, this will be empty.
         for agg in tts_norm.aggregate_goals_assists(stats):
             pname = str(agg.get("name") or "").strip()
             if not pname:
@@ -987,9 +1171,15 @@ def main(argv: Optional[list[str]] = None) -> int:
             pct = (count / total * 100.0) if total else 100.0
             log(f"Progress: {count}/{total} ({pct:.1f}%) games, skipped={skipped}, {rate:.2f} games/s")
 
+    if rest_mode:
+        _post_batch()
+
     log(f"Import complete. Imported {count} games, skipped={skipped}.")
-    if not args.no_cleanup_bogus_players:
+    if (not rest_mode) and (not args.no_cleanup_bogus_players):
         try:
+            assert conn is not None
+            assert league_id is not None
+            assert user_id is not None
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -1005,6 +1195,77 @@ def main(argv: Optional[list[str]] = None) -> int:
                 moved_total += _cleanup_numeric_named_players(conn, user_id=user_id, team_id=int(tid))
             if moved_total:
                 log(f"Cleaned bogus numeric-name players: migrated {moved_total} stat rows.")
+        except Exception:
+            pass
+    if (not rest_mode) and args.refresh_team_metadata:
+        log("Refreshing league team metadata (divisions/logos)...")
+        # Update league_teams divisions based on TimeToScore team list, and fill missing logos.
+        try:
+            assert conn is not None
+            assert league_id is not None
+            assert user_id is not None
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT lt.team_id, t.name, t.logo_path
+                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                    WHERE lt.league_id=%s AND t.user_id=%s
+                    """,
+                    (league_id, user_id),
+                )
+                league_team_rows = list(cur.fetchall() or [])
+            updated_div = 0
+            updated_logo = 0
+            for team_db_id, team_name, logo_path in league_team_rows:
+                nm = str(team_name or "").strip()
+                # If canonical disambiguation is present, strip " (Division)" suffix for matching.
+                base_name = nm
+                if base_name.endswith(")") and "(" in base_name:
+                    base_name = base_name.rsplit("(", 1)[0].strip()
+                div_name, div_id, conf_id, tts_id = resolve_team_division_meta(base_name, None)
+                if div_name:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            UPDATE league_teams
+                            SET division_name=%s,
+                                division_id=COALESCE(%s, division_id),
+                                conference_id=COALESCE(%s, conference_id)
+                            WHERE league_id=%s AND team_id=%s
+                            """,
+                            (div_name, div_id, conf_id, league_id, int(team_db_id)),
+                        )
+                    conn.commit()
+                    updated_div += 1
+                if logo_dir is not None and (not logo_path) and tts_id is not None:
+                    _ensure_team_logo(
+                        conn,
+                        team_db_id=int(team_db_id),
+                        team_owner_user_id=user_id,
+                        source=str(args.source),
+                        season_id=int(season_id),
+                        tts_team_id=int(tts_id),
+                        logo_dir=Path(logo_dir),
+                        replace=False,
+                        tts_direct=tts_direct,
+                    )
+                    updated_logo += 1
+            # Also align league_games division to the home team division when possible.
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE league_games lg
+                      JOIN hky_games g ON lg.game_id=g.id
+                      JOIN league_teams lt ON lt.league_id=lg.league_id AND lt.team_id=g.team1_id
+                    SET lg.division_name=COALESCE(lt.division_name, lg.division_name),
+                        lg.division_id=COALESCE(lt.division_id, lg.division_id),
+                        lg.conference_id=COALESCE(lt.conference_id, lg.conference_id)
+                    WHERE lg.league_id=%s
+                    """,
+                    (league_id,),
+                )
+            conn.commit()
+            log(f"Refreshed teams: divisions_updated={updated_div} logos_checked={updated_logo}")
         except Exception:
             pass
     return 0

@@ -8,7 +8,7 @@ def should_scrape_team_logo_url_from_team_page(monkeypatch):
 
     html = """
     <html><body>
-      <img src="https://assets.caha.timetoscore.com/logos/SJ.jpg" width="150" height="150" />
+      <img src="https://se-portal-production.s3.amazonaws.com/uploads/3848/logo.png" height="150" />
     </body></html>
     """
 
@@ -19,7 +19,7 @@ def should_scrape_team_logo_url_from_team_page(monkeypatch):
 
     monkeypatch.setattr(util, "get_html", fake_get_html)
     url = direct.scrape_team_logo_url("caha", season_id=31, team_id=58)
-    assert url == "https://assets.caha.timetoscore.com/logos/SJ.jpg"
+    assert url == "https://se-portal-production.s3.amazonaws.com/uploads/3848/logo.png"
 
 
 def should_ignore_placeholder_team_logo_urls(monkeypatch):
@@ -33,4 +33,3 @@ def should_ignore_placeholder_team_logo_urls(monkeypatch):
 
     monkeypatch.setattr(util, "get_html", fake_get_html)
     assert direct.scrape_team_logo_url("sharksice", season_id=72, team_id=123) is None
-

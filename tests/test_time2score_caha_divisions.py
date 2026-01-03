@@ -10,6 +10,7 @@ def should_parse_caha_division_names_from_schedule_headers(monkeypatch):
     <html><body>
       <table>
         <tr><th>10U B West Schedule</th></tr>
+        <tr><th>&nbsp;</th></tr>
         <tr><th><a href="display-league-stats?stat_class=1&league=3&season=31&level=136&conf=0">Division Player Stats</a></th></tr>
         <tr><th>Team</th></tr>
         <tr><td><a href="display-schedule?team=123&league=3&stat_class=1">Team One</a></td></tr>
@@ -45,3 +46,46 @@ def should_map_numeric_scorers_to_roster_names():
     out_by_name = {r["name"]: r for r in out}
     assert out_by_name["Alice"]["goals"] == 1
     assert out_by_name["Bob"]["assists"] == 1
+
+
+def should_parse_caha_league_schedule_rows_with_scores(monkeypatch):
+    from hmlib.time2score import direct
+    from hmlib.time2score import caha_lib
+
+    def fake_scrape_season_divisions(*, season_id: int):  # noqa: ARG001
+        return [
+            {
+                "name": "12 A",
+                "id": 4,
+                "conferenceId": 0,
+                "seasonId": 31,
+                "teams": [{"id": 1, "name": "Team A"}],
+            }
+        ]
+
+    def fake_scrape_league_schedule(*, season_id: int):  # noqa: ARG001
+        return [
+            {
+                "id": "51259*",
+                "date": "Sun Aug 24",
+                "time": "8:45 AM",
+                "rink": "Stockton",
+                "league": "Norcal",
+                "level": "12U A",
+                "away": "Away Team",
+                "awayGoals": "1",
+                "home": "Home Team",
+                "homeGoals": "6",
+                "type": "Exhibition",
+            }
+        ]
+
+    monkeypatch.setattr(caha_lib, "scrape_season_divisions", fake_scrape_season_divisions)
+    monkeypatch.setattr(caha_lib, "scrape_league_schedule", fake_scrape_league_schedule)
+
+    games = direct.iter_season_games("caha", season_id=31)
+    assert 51259 in games
+    g = games[51259]
+    assert g["homeGoals"] == 6
+    assert g["awayGoals"] == 1
+    assert g["division_name"] == "12 A"

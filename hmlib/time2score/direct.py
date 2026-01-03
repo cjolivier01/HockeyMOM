@@ -108,6 +108,103 @@ def iter_season_games(
 
     games_by_id: dict[int, dict[str, Any]] = {}
     divs_list = list_divisions(source, season_id=int(season_id))
+
+    # CAHA youth exposes a league-wide schedule page that includes scores and game ids.
+    # Prefer it to avoid slow per-team traversal and to capture scores even when boxscore pages are missing.
+    if str(source or "").strip().lower() == "caha":
+        name_to_ids: dict[str, tuple[int, int, str]] = {}
+        for div in divs_list:
+            dn = str(div.name or "").strip()
+            key = dn.lower().replace(" ", "")
+            name_to_ids[key] = (int(div.division_id), int(div.conference_id), dn)
+
+        def _norm_div(s: str) -> str:
+            t = str(s or "").replace("\xa0", " ").strip()
+            # "10U A" -> "10 A"
+            t = t.replace("U ", " ")
+            t = t.replace("U\t", " ")
+            t = t.replace("U", " ")
+            t = " ".join(t.split())
+            return t.lower().replace(" ", "")
+
+        total_rows = 0
+        try:
+            schedule_rows = mod.scrape_league_schedule(season_id=int(season_id))  # type: ignore[attr-defined]
+        except Exception:
+            schedule_rows = []
+        total_rows = len(schedule_rows)
+        if progress_cb:
+            progress_cb(f"Loading league schedule rows: {total_rows}...")
+        elif total_rows:
+            logger.info("Loading league schedule rows: %d...", total_rows)
+
+        # Map rows by game id
+        for row in schedule_rows:
+            raw_gid = str((row or {}).get("id") or "").strip()
+            gid_s = "".join([c for c in raw_gid if c.isdigit()])
+            if not gid_s:
+                continue
+            gid = int(gid_s)
+            home = str((row or {}).get("home") or "").strip()
+            away = str((row or {}).get("away") or "").strip()
+            if not home or not away:
+                continue
+
+            if team_filters:
+                hn = _norm(home)
+                an = _norm(away)
+                if not any(tf in hn or tf in an for tf in team_filters):
+                    continue
+
+            date_s = str((row or {}).get("date") or "").strip()
+            time_s = str((row or {}).get("time") or "").strip()
+            start_time = None
+            if date_s and time_s:
+                try:
+                    from . import util as tutil
+
+                    start_time = tutil.parse_game_time(date_s, time_s, year=None)
+                except Exception:
+                    start_time = None
+
+            level = str((row or {}).get("level") or "").strip()
+            div_key = _norm_div(level)
+            div_id = None
+            conf_id = None
+            div_name = level.replace("U ", " ").replace("U", " ").strip() if level else ""
+            if div_key in name_to_ids:
+                div_id, conf_id, div_name = name_to_ids[div_key]
+
+            # We can't apply allowed_divs accurately without ids; if ids are known, enforce.
+            if allowed_divs is not None and div_id is not None and conf_id is not None:
+                if (int(div_id), int(conf_id)) not in allowed_divs:
+                    continue
+
+            def _parse_goal(v: Any) -> Optional[int]:
+                s = str(v).strip()
+                if not s:
+                    return None
+                s2 = "".join([c for c in s if c.isdigit()])
+                return int(s2) if s2.isdigit() else None
+
+            info = {
+                "home": home,
+                "away": away,
+                "start_time": start_time,
+                "rink": str((row or {}).get("rink") or "").strip() or None,
+                "league": str((row or {}).get("league") or "").strip() or None,
+                "level": level,
+                "type": str((row or {}).get("type") or "").strip() or None,
+                "division_id": int(div_id) if div_id is not None else None,
+                "conference_id": int(conf_id) if conf_id is not None else None,
+                "division_name": div_name or None,
+                "homeGoals": _parse_goal((row or {}).get("homeGoals")),
+                "awayGoals": _parse_goal((row or {}).get("awayGoals")),
+            }
+            games_by_id[gid] = info
+
+        return games_by_id
+
     total_teams = 0
     for div in divs_list:
         key = (int(div.division_id), int(div.conference_id))
@@ -159,7 +256,7 @@ def iter_season_games(
                 existing = games_by_id.get(gid) or {}
                 # Prefer non-empty names / start_time / rink.
                 merged = dict(existing)
-                for k2 in ("home", "away", "start_time", "rink", "league", "level", "type"):
+                for k2 in ("home", "away", "start_time", "rink", "league", "level", "type", "homeGoals", "awayGoals"):
                     v2 = g.get(k2)
                     if merged.get(k2) in ("", None) and v2 not in ("", None):
                         merged[k2] = v2

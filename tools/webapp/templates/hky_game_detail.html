@@ -154,7 +154,7 @@
     </div>
 
     <h3>Imported Shift/Video Stats (Read-only)</h3>
-    <p class="muted" style="margin-top:0">Shows values imported into <code>player_stats</code> (TOI, shifts, SOG, xG, entries/exits, etc.).</p>
+    <p class="muted" style="margin-top:0">Shows values imported into <code>player_stats</code> (shifts, SOG, xG, entries/exits, etc.).</p>
     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
       <div>
         <h4>{{ game['team1_name'] }}</h4>
@@ -162,7 +162,7 @@
           <table>
             <thead>
               <tr>
-                <th>#</th><th>Name</th><th>TOI</th><th>V-TOI</th><th>Sh</th><th>SOG</th><th>xG</th><th>+/-</th><th>CE (F/A)</th><th>CX (F/A)</th><th>G/T</th><th>GF/GA</th><th>Periods</th>
+                <th>#</th><th>Name</th><th>Sh</th><th>SOG</th><th>xG</th><th>+/-</th><th>CE (F/A)</th><th>CX (F/A)</th><th>G/T</th><th>GF/GA</th><th>Periods</th>
               </tr>
             </thead>
             <tbody>
@@ -172,8 +172,6 @@
                 <tr>
                   <td>{{ p['jersey_number'] or '' }}</td>
                   <td>{{ p['name'] }}</td>
-                  <td title="Avg {{ s.get('sb_avg_shift_seconds')|fmt_toi }}, Median {{ s.get('sb_median_shift_seconds')|fmt_toi }}, Longest {{ s.get('sb_longest_shift_seconds')|fmt_toi }}, Shortest {{ s.get('sb_shortest_shift_seconds')|fmt_toi }}">{{ s.get('toi_seconds')|fmt_toi }}</td>
-                  <td>{{ s.get('video_toi_seconds')|fmt_toi }}</td>
                   <td>{{ s.get('shifts') or '' }}</td>
                   <td>{{ s.get('sog') or '' }}</td>
                   <td>{{ s.get('expected_goals') or '' }}</td>
@@ -185,7 +183,7 @@
                   <td class="muted" style="font-size:.85rem;">
                     {% if per %}
                       {% for per_num, ps in per|dictsort %}
-                        P{{ per_num }} {{ ps.get('toi_seconds')|fmt_toi }} ({{ ps.get('shifts') or 0 }}; {{ ps.get('gf') or 0 }}-{{ ps.get('ga') or 0 }}){% if not loop.last %}<br>{% endif %}
+                        P{{ per_num }} ({{ ps.get('shifts') or 0 }}; {{ ps.get('gf') or 0 }}-{{ ps.get('ga') or 0 }}){% if not loop.last %}<br>{% endif %}
                       {% endfor %}
                     {% else %}
                       —
@@ -193,7 +191,7 @@
                   </td>
                 </tr>
               {% else %}
-                <tr><td colspan="13" class="muted">No players</td></tr>
+                <tr><td colspan="11" class="muted">No players</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -205,7 +203,7 @@
           <table>
             <thead>
               <tr>
-                <th>#</th><th>Name</th><th>TOI</th><th>V-TOI</th><th>Sh</th><th>SOG</th><th>xG</th><th>+/-</th><th>CE (F/A)</th><th>CX (F/A)</th><th>G/T</th><th>GF/GA</th><th>Periods</th>
+                <th>#</th><th>Name</th><th>Sh</th><th>SOG</th><th>xG</th><th>+/-</th><th>CE (F/A)</th><th>CX (F/A)</th><th>G/T</th><th>GF/GA</th><th>Periods</th>
               </tr>
             </thead>
             <tbody>
@@ -215,8 +213,6 @@
                 <tr>
                   <td>{{ p['jersey_number'] or '' }}</td>
                   <td>{{ p['name'] }}</td>
-                  <td title="Avg {{ s.get('sb_avg_shift_seconds')|fmt_toi }}, Median {{ s.get('sb_median_shift_seconds')|fmt_toi }}, Longest {{ s.get('sb_longest_shift_seconds')|fmt_toi }}, Shortest {{ s.get('sb_shortest_shift_seconds')|fmt_toi }}">{{ s.get('toi_seconds')|fmt_toi }}</td>
-                  <td>{{ s.get('video_toi_seconds')|fmt_toi }}</td>
                   <td>{{ s.get('shifts') or '' }}</td>
                   <td>{{ s.get('sog') or '' }}</td>
                   <td>{{ s.get('expected_goals') or '' }}</td>
@@ -228,7 +224,7 @@
                   <td class="muted" style="font-size:.85rem;">
                     {% if per %}
                       {% for per_num, ps in per|dictsort %}
-                        P{{ per_num }} {{ ps.get('toi_seconds')|fmt_toi }} ({{ ps.get('shifts') or 0 }}; {{ ps.get('gf') or 0 }}-{{ ps.get('ga') or 0 }}){% if not loop.last %}<br>{% endif %}
+                        P{{ per_num }} ({{ ps.get('shifts') or 0 }}; {{ ps.get('gf') or 0 }}-{{ ps.get('ga') or 0 }}){% if not loop.last %}<br>{% endif %}
                       {% endfor %}
                     {% else %}
                       —
@@ -236,7 +232,7 @@
                   </td>
                 </tr>
               {% else %}
-                <tr><td colspan="13" class="muted">No players</td></tr>
+                <tr><td colspan="11" class="muted">No players</td></tr>
               {% endfor %}
             </tbody>
           </table>

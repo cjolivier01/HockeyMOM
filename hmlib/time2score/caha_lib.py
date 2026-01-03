@@ -530,6 +530,48 @@ def scrape_game_stats(game_id: int):
     return data
 
 
+def scrape_league_schedule(season_id: int) -> list[dict[str, Any]]:
+    """Scrape the CAHA league schedule page for a full season.
+
+    This page contains all games (including results/scores when available) and links to the game id.
+    Example: https://stats.caha.timetoscore.com/display-schedule.php?stat_class=1&league=3&season=31
+    """
+    params = {"league": str(CAHA_LEAGUE), "stat_class": str(STAT_CLASS)}
+    if season_id and season_id > 0:
+        params["season"] = str(season_id)
+    soup = util.get_html(TIMETOSCORE_URL + "display-schedule.php", params=params)
+    if not soup.table:
+        return []
+    try:
+        df = pd.read_html(io.StringIO(str(soup.table)), header=0, flavor="bs4")[0]
+    except Exception:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for _, r in df.iterrows():
+        d = r.to_dict()
+        # CAHA nests headers as "Game Results.*"; row 0 repeats the column titles ("Game", "Date", ...).
+        first = str(d.get("Game Results") or "").strip()
+        if first.lower() == "game":
+            continue
+        # Map into stable keys.
+        out: dict[str, Any] = {
+            "id": d.get("Game Results"),
+            "date": d.get("Game Results.1"),
+            "time": d.get("Game Results.2"),
+            "rink": d.get("Game Results.3"),
+            "league": d.get("Game Results.4"),
+            "level": d.get("Game Results.5"),
+            "away": d.get("Game Results.6"),
+            "awayGoals": d.get("Game Results.7"),
+            "home": d.get("Game Results.8"),
+            "homeGoals": d.get("Game Results.9"),
+            "type": d.get("Game Results.10"),
+        }
+        rows.append(out)
+    return rows
+
+
 def sync_seasons(db: Database):
     seasons = scrape_seasons()
     for name, season_id in seasons.items():

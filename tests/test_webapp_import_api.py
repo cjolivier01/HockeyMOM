@@ -824,3 +824,116 @@ def should_update_player_roster_fields_without_replace(client_and_db, monkeypatc
     _post(client, "/api/import/hockey/game", payload2, token="sekret")
     assert db.players_by_id[alice_pid]["jersey_number"] == "12"
     assert db.players_by_id[alice_pid]["position"] == "F"
+
+
+def should_import_games_batch_and_match_individual_imports(monkeypatch):
+    import copy
+
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
+
+    mod = _load_app_module()
+    monkeypatch.setattr(mod, "pymysql", _DummyPyMySQL(), raising=False)
+
+    current_db = [FakeConn()]
+    monkeypatch.setattr(mod, "get_db", lambda: current_db[0])
+
+    app = mod.create_app()
+    app.testing = True
+    client = app.test_client()
+
+    game1 = {
+        "home_name": "Home A",
+        "away_name": "Away A",
+        "starts_at": "2026-01-01 10:00:00",
+        "location": "Rink 1",
+        "home_score": 1,
+        "away_score": 2,
+        "timetoscore_game_id": 1001,
+        "season_id": 77,
+        "home_roster": [{"name": "Alice", "number": "9", "position": "F"}],
+        "away_roster": [{"name": "Bob", "number": "4", "position": "D"}],
+        "player_stats": [{"name": "Alice", "goals": 1, "assists": 0}],
+        "home_division_name": "10 B West",
+        "away_division_name": "10 B West",
+    }
+    game2 = {
+        "home_name": "Home B",
+        "away_name": "Away B",
+        "starts_at": "2026-01-02 11:00:00",
+        "location": "Rink 2",
+        "home_score": 3,
+        "away_score": 4,
+        "timetoscore_game_id": 1002,
+        "season_id": 77,
+        "home_roster": [{"name": "Carol", "number": "12", "position": "F"}],
+        "away_roster": [{"name": "Dan", "number": "2", "position": "D"}],
+        "player_stats": [{"name": "Carol", "goals": 2, "assists": 1}],
+        "home_division_name": "12U A",
+        "away_division_name": "12U A",
+    }
+
+    # Reference: individual imports
+    payload = {
+        "league_name": "Norcal",
+        "shared": True,
+        "replace": False,
+        "owner_email": "owner@example.com",
+        "source": "timetoscore",
+        "external_key": "caha:77",
+    }
+    _post(client, "/api/import/hockey/game", dict(payload, game=game1), token="sekret")
+    _post(client, "/api/import/hockey/game", dict(payload, game=game2), token="sekret")
+    db_individual = current_db[0]
+    def _strip_time_fields(obj):  # noqa: ANN001
+        if isinstance(obj, dict):
+            return {
+                k: _strip_time_fields(v)
+                for k, v in obj.items()
+                if k not in ("created_at", "updated_at", "stats_imported_at")
+            }
+        if isinstance(obj, list):
+            return [_strip_time_fields(x) for x in obj]
+        return obj
+
+    snap_individual = _strip_time_fields(
+        copy.deepcopy(
+            {
+                "leagues_by_id": db_individual.leagues_by_id,
+                "league_members": db_individual.league_members,
+                "teams_by_id": db_individual.teams_by_id,
+                "players_by_id": db_individual.players_by_id,
+                "hky_games_by_id": db_individual.hky_games_by_id,
+                "league_teams_meta": db_individual.league_teams_meta,
+                "league_games_meta": db_individual.league_games_meta,
+                "player_stats": db_individual.player_stats,
+            }
+        )
+    )
+
+    # Batch imports into a fresh DB should yield identical final state.
+    current_db[0] = FakeConn()
+    batch_payload = dict(payload)
+    batch_payload["games"] = [game1, game2]
+    r = _post(client, "/api/import/hockey/games_batch", batch_payload, token="sekret")
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+    assert int(r.get_json()["imported"]) == 2
+
+    db_batch = current_db[0]
+    snap_batch = _strip_time_fields(
+        copy.deepcopy(
+            {
+                "leagues_by_id": db_batch.leagues_by_id,
+                "league_members": db_batch.league_members,
+                "teams_by_id": db_batch.teams_by_id,
+                "players_by_id": db_batch.players_by_id,
+                "hky_games_by_id": db_batch.hky_games_by_id,
+                "league_teams_meta": db_batch.league_teams_meta,
+                "league_games_meta": db_batch.league_games_meta,
+                "player_stats": db_batch.player_stats,
+            }
+        )
+    )
+    assert snap_batch == snap_individual
