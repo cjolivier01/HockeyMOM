@@ -302,6 +302,7 @@ def upsert_hky_game(
     team1_score: Optional[int],
     team2_score: Optional[int],
     notes: Optional[str],
+    replace: bool = False,
 ) -> int:
     # Try to find an existing entry by a stable tuple (user, teams, starts_at)
     with conn.cursor() as cur:
@@ -316,30 +317,56 @@ def upsert_hky_game(
         if r:
             gid = int(r[0])
             # Update scores/type/location/notes if provided
-            cur.execute(
-                """
-                UPDATE hky_games
-                SET game_type_id=COALESCE(%s, game_type_id),
-                    location=COALESCE(%s, location),
-                    team1_score=COALESCE(%s, team1_score),
-                    team2_score=COALESCE(%s, team2_score),
-                    is_final=CASE WHEN %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
-                    updated_at=%s,
-                    notes=COALESCE(%s, notes)
-                WHERE id=%s
-                """,
-                (
-                    game_type_id,
-                    location,
-                    team1_score,
-                    team2_score,
-                    team1_score,
-                    team2_score,
-                    dt.datetime.now().isoformat(),
-                    notes,
-                    gid,
-                ),
-            )
+            if replace:
+                cur.execute(
+                    """
+                    UPDATE hky_games
+                    SET game_type_id=COALESCE(%s, game_type_id),
+                        location=COALESCE(%s, location),
+                        team1_score=%s,
+                        team2_score=%s,
+                        is_final=CASE WHEN %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
+                        updated_at=%s,
+                        notes=COALESCE(%s, notes)
+                    WHERE id=%s
+                    """,
+                    (
+                        game_type_id,
+                        location,
+                        team1_score,
+                        team2_score,
+                        team1_score,
+                        team2_score,
+                        dt.datetime.now().isoformat(),
+                        notes,
+                        gid,
+                    ),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE hky_games
+                    SET game_type_id=COALESCE(%s, game_type_id),
+                        location=COALESCE(%s, location),
+                        team1_score=COALESCE(team1_score, %s),
+                        team2_score=COALESCE(team2_score, %s),
+                        is_final=CASE WHEN team1_score IS NULL AND team2_score IS NULL AND %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
+                        updated_at=%s,
+                        notes=COALESCE(%s, notes)
+                    WHERE id=%s
+                    """,
+                    (
+                        game_type_id,
+                        location,
+                        team1_score,
+                        team2_score,
+                        team1_score,
+                        team2_score,
+                        dt.datetime.now().isoformat(),
+                        notes,
+                        gid,
+                    ),
+                )
             conn.commit()
             return gid
         # Insert new
@@ -427,6 +454,7 @@ def _import_game_by_id(
     user_id: int,
     league_id: Optional[int],
     team_filters: Optional[list[str]] = None,
+    replace: bool = False,
 ) -> Optional[int]:
     """Import a single game by its time2score game id.
 
@@ -492,6 +520,7 @@ def _import_game_by_id(
             team1_score=t1_score,
             team2_score=t2_score,
             notes=None,
+            replace=replace,
         )
 
         # Map to league if set
@@ -558,21 +587,38 @@ def _import_game_by_id(
                 # create a player placeholder under home team to store stats
                 pid = _ensure_player(conn, user_id, team_ref, pname, None, None)
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
-                    VALUES(%s,%s,%s,%s,%s,%s)
-                    ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists)
-                    """,
-                    (
-                        user_id,
-                        team_ref,
-                        gid,
-                        pid,
-                        int(agg.get("goals", 0)),
-                        int(agg.get("assists", 0)),
-                    ),
-                )
+                if replace:
+                    cur.execute(
+                        """
+                        INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
+                        VALUES(%s,%s,%s,%s,%s,%s)
+                        ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists)
+                        """,
+                        (
+                            user_id,
+                            team_ref,
+                            gid,
+                            pid,
+                            int(agg.get("goals", 0)),
+                            int(agg.get("assists", 0)),
+                        ),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
+                        VALUES(%s,%s,%s,%s,%s,%s)
+                        ON DUPLICATE KEY UPDATE goals=COALESCE(goals, VALUES(goals)), assists=COALESCE(assists, VALUES(assists))
+                        """,
+                        (
+                            user_id,
+                            team_ref,
+                            gid,
+                            pid,
+                            int(agg.get("goals", 0)),
+                            int(agg.get("assists", 0)),
+                        ),
+                    )
             conn.commit()
 
         return gid
@@ -611,6 +657,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     ap.add_argument(
         "--stats", action="store_true", help="Fetch game stats to enrich scores if missing"
+    )
+    ap.add_argument(
+        "--replace",
+        action="store_true",
+        help="Overwrite existing game scores and player_stats (default: only fill missing)",
     )
     ap.add_argument(
         "--division",
@@ -906,7 +957,15 @@ def main(argv: Optional[list[str]] = None) -> int:
             log(f"Importing {len(explicit_game_ids)} explicit game ids...")
             for gid in explicit_game_ids:
                 log(f"- Importing game_id={gid}")
-                _import_game_by_id(conn, tts_dir, gid, user_id, league_id, team_filters=args.teams)
+                _import_game_by_id(
+                    conn,
+                    tts_dir,
+                    gid,
+                    user_id,
+                    league_id,
+                    team_filters=args.teams,
+                    replace=bool(args.replace),
+                )
                 count += 1
                 if args.limit is not None and count >= args.limit:
                     break
@@ -1259,7 +1318,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                         break
                     log(f"- Importing game_id={gid}")
                     _import_game_by_id(
-                        conn, tts_dir, gid, user_id, league_id, team_filters=args.teams
+                        conn,
+                        tts_dir,
+                        gid,
+                        user_id,
+                        league_id,
+                        team_filters=args.teams,
+                        replace=bool(args.replace),
                     )
                     count += 1
             else:
@@ -1281,7 +1346,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                         continue
                     log(f"- Importing game_id={gid}")
                     _import_game_by_id(
-                        conn, tts_dir, gid, user_id, league_id, team_filters=args.teams
+                        conn,
+                        tts_dir,
+                        gid,
+                        user_id,
+                        league_id,
+                        team_filters=args.teams,
+                        replace=bool(args.replace),
                     )
                     count += 1
         # Done

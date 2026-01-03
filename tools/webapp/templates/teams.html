@@ -1,10 +1,12 @@
 {% extends 'layout.html' %}
 {% block content %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
-  <h2>Your Teams</h2>
+  <h2>{{ 'League Teams' if league_view else 'Your Teams' }}</h2>
   <div>
-    <a class="btn" href="/teams?all={{ 0 if include_external else 1 }}">{{ 'Hide' if include_external else 'Show' }} external</a>
-    <a class="btn primary" href="/teams/new" style="margin-left:.5rem">New team</a>
+    {% if not league_view %}
+      <a class="btn" href="/teams?all={{ 0 if include_external else 1 }}">{{ 'Hide' if include_external else 'Show' }} external</a>
+      <a class="btn primary" href="/teams/new" style="margin-left:.5rem">New team</a>
+    {% endif %}
   </div>
 </div>
 
@@ -34,7 +36,11 @@
         <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
         <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
         <td>{{ s.get('points',0) }}</td>
-        <td><a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a></td>
+        <td>
+          {% if t['user_id'] == current_user_id %}
+            <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
+          {% endif %}
+        </td>
       </tr>
     {% else %}
       <tr><td colspan="6" class="muted">No teams yet.</td></tr>
@@ -42,4 +48,3 @@
   </tbody>
 </table>
 {% endblock %}
-

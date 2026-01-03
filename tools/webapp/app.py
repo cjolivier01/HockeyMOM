@@ -13,6 +13,7 @@ from flask import (
     Flask,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -34,7 +35,46 @@ INSTANCE_DIR = BASE_DIR / "instance"
 CONFIG_PATH = BASE_DIR / "config.json"
 
 WATCH_ROOT = os.environ.get("HM_WATCH_ROOT", "/data/incoming")
-APP_SECRET = os.environ.get("HM_WEBAPP_SECRET") or secrets.token_hex(16)
+
+
+def _load_or_create_app_secret() -> str:
+    env = os.environ.get("HM_WEBAPP_SECRET")
+    if env:
+        return str(env)
+
+    # Best-effort: allow config.json to pin the secret for multi-worker deployments.
+    try:
+        cfg_path = os.environ.get("HM_DB_CONFIG", str(CONFIG_PATH))
+        with open(cfg_path, "r", encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        for k in ("app_secret", "secret_key", "webapp_secret"):
+            v = cfg.get(k)
+            if v:
+                return str(v)
+    except Exception:
+        pass
+
+    # Fall back to a persistent secret under instance/ so all gunicorn workers share it.
+    try:
+        INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
+        secret_path = INSTANCE_DIR / "app_secret.txt"
+        if secret_path.exists():
+            s = secret_path.read_text(encoding="utf-8").strip()
+            if s:
+                return s
+        s = secrets.token_hex(32)
+        secret_path.write_text(s + "\n", encoding="utf-8")
+        try:
+            os.chmod(secret_path, 0o600)
+        except Exception:
+            pass
+        return s
+    except Exception:
+        # Last resort: non-persistent secret (may break sessions across workers).
+        return secrets.token_hex(16)
+
+
+APP_SECRET = _load_or_create_app_secret()
 
 
 def create_app() -> Flask:
@@ -67,7 +107,7 @@ def create_app() -> Flask:
                             SELECT 1 FROM leagues l
                             LEFT JOIN league_members m
                               ON m.league_id=l.id AND m.user_id=%s
-                            WHERE l.id=%s AND (l.owner_user_id=%s OR m.user_id=%s)
+                            WHERE l.id=%s AND (l.is_shared=1 OR l.owner_user_id=%s OR m.user_id=%s)
                             """,
                             (uid, lid, uid, uid),
                         )
@@ -142,7 +182,7 @@ def create_app() -> Flask:
                                    SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s AND m.role IN ('admin','owner')
                                )) THEN 1 ELSE 0 END AS is_admin
                         FROM leagues l
-                        WHERE l.owner_user_id=%s OR EXISTS (
+                        WHERE l.is_shared=1 OR l.owner_user_id=%s OR EXISTS (
                           SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s
                         )
                         ORDER BY l.name
@@ -171,7 +211,7 @@ def create_app() -> Flask:
             lid_i = int(lid)
             with g.db.cursor() as cur:
                 cur.execute(
-                    "SELECT 1 FROM leagues l LEFT JOIN league_members m ON l.id=m.league_id AND m.user_id=%s WHERE l.id=%s AND (l.owner_user_id=%s OR m.user_id=%s)",
+                    "SELECT 1 FROM leagues l LEFT JOIN league_members m ON l.id=m.league_id AND m.user_id=%s WHERE l.id=%s AND (l.is_shared=1 OR l.owner_user_id=%s OR m.user_id=%s)",
                     (session["user_id"], lid_i, session["user_id"], session["user_id"]),
                 )
                 ok = cur.fetchone()
@@ -625,12 +665,23 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
+        league_id = session.get("league_id")
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 "SELECT id, user_id, logo_path FROM teams WHERE id=%s AND user_id=%s",
                 (team_id, session["user_id"]),
             )
             row = cur.fetchone()
+            if not row and league_id:
+                cur.execute(
+                    """
+                    SELECT t.id, t.user_id, t.logo_path
+                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                    WHERE lt.league_id=%s AND t.id=%s
+                    """,
+                    (league_id, team_id),
+                )
+                row = cur.fetchone()
         if not row or not row.get("logo_path"):
             return ("Not found", 404)
         p = Path(row["logo_path"]).resolve()
@@ -670,7 +721,12 @@ def create_app() -> Flask:
             else:
                 stats[t["id"]] = compute_team_stats(g.db, t["id"], session["user_id"])
         return render_template(
-            "teams.html", teams=rows, stats=stats, include_external=include_external
+            "teams.html",
+            teams=rows,
+            stats=stats,
+            include_external=include_external,
+            league_view=bool(league_id),
+            current_user_id=int(session["user_id"]),
         )
 
     @app.get("/leagues")
@@ -686,7 +742,7 @@ def create_app() -> Flask:
                            SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s AND m.role IN ('admin','owner')
                        )) THEN 1 ELSE 0 END AS is_admin
                 FROM leagues l
-                WHERE l.owner_user_id=%s OR EXISTS (
+                WHERE l.is_shared=1 OR l.owner_user_id=%s OR EXISTS (
                   SELECT 1 FROM league_members m WHERE m.league_id=l.id AND m.user_id=%s
                 )
                 ORDER BY l.name
@@ -695,6 +751,460 @@ def create_app() -> Flask:
             )
             leagues = cur.fetchall()
         return render_template("leagues.html", leagues=leagues)
+
+    def _get_import_token() -> Optional[str]:
+        token = os.environ.get("HM_WEBAPP_IMPORT_TOKEN")
+        if token:
+            return token
+        try:
+            cfg_path = os.environ.get("HM_DB_CONFIG", str(CONFIG_PATH))
+            with open(cfg_path, "r", encoding="utf-8") as fh:
+                cfg = json.load(fh)
+            t = cfg.get("import_token")
+            return str(t) if t else None
+        except Exception:
+            return None
+
+    def _require_import_auth():
+        required = _get_import_token()
+        if required:
+            supplied = None
+            auth = request.headers.get("Authorization", "").strip()
+            if auth.lower().startswith("bearer "):
+                supplied = auth.split(" ", 1)[1].strip()
+            if not supplied:
+                supplied = request.headers.get("X-HM-Import-Token") or request.args.get("token")
+            if supplied != required:
+                return jsonify({"ok": False, "error": "unauthorized"}), 401
+            return None
+
+        if request.headers.get("X-Forwarded-For"):
+            return jsonify({"ok": False, "error": "import_token_required"}), 403
+        if request.remote_addr not in ("127.0.0.1", "::1"):
+            return jsonify({"ok": False, "error": "import_token_required"}), 403
+        return None
+
+    def _ensure_user_for_import(email: str, name: Optional[str] = None) -> int:
+        email_norm = (email or "").strip().lower()
+        if not email_norm:
+            raise ValueError("owner_email is required")
+        with g.db.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email=%s", (email_norm,))
+            row = cur.fetchone()
+            if row:
+                return int(row[0])
+            pwd = generate_password_hash(secrets.token_hex(24))
+            cur.execute(
+                "INSERT INTO users(email, password_hash, name, created_at) VALUES(%s,%s,%s,%s)",
+                (email_norm, pwd, name or email_norm, dt.datetime.now().isoformat()),
+            )
+            g.db.commit()
+            return int(cur.lastrowid)
+
+    def _ensure_league_for_import(
+        *, league_name: str, owner_user_id: int, is_shared: bool, source: Optional[str], external_key: Optional[str]
+    ) -> int:
+        name = (league_name or "").strip()
+        if not name:
+            raise ValueError("league_name is required")
+        with g.db.cursor() as cur:
+            cur.execute("SELECT id, is_shared FROM leagues WHERE name=%s", (name,))
+            row = cur.fetchone()
+            if row:
+                lid = int(row[0])
+                want_shared = 1 if is_shared else 0
+                if int(row[1]) != want_shared:
+                    cur.execute(
+                        "UPDATE leagues SET is_shared=%s, updated_at=%s WHERE id=%s",
+                        (want_shared, dt.datetime.now().isoformat(), lid),
+                    )
+                    g.db.commit()
+                return lid
+            cur.execute(
+                "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
+                (
+                    name,
+                    owner_user_id,
+                    1 if is_shared else 0,
+                    source,
+                    external_key,
+                    dt.datetime.now().isoformat(),
+                ),
+            )
+            g.db.commit()
+            return int(cur.lastrowid)
+
+    def _ensure_league_member_for_import(league_id: int, user_id: int, role: str) -> None:
+        with g.db.cursor() as cur:
+            cur.execute(
+                "INSERT IGNORE INTO league_members(league_id, user_id, role, created_at) VALUES(%s,%s,%s,%s)",
+                (league_id, user_id, role, dt.datetime.now().isoformat()),
+            )
+            g.db.commit()
+
+    def _ensure_external_team_for_import(owner_user_id: int, name: str) -> int:
+        nm = (name or "").strip()
+        if not nm:
+            nm = "UNKNOWN"
+        with g.db.cursor() as cur:
+            cur.execute("SELECT id FROM teams WHERE user_id=%s AND name=%s", (owner_user_id, nm))
+            row = cur.fetchone()
+            if row:
+                return int(row[0])
+            cur.execute(
+                "INSERT INTO teams(user_id, name, is_external, created_at) VALUES(%s,%s,%s,%s)",
+                (owner_user_id, nm, 1, dt.datetime.now().isoformat()),
+            )
+            g.db.commit()
+            return int(cur.lastrowid)
+
+    def _ensure_player_for_import(
+        owner_user_id: int, team_id: int, name: str, jersey_number: Optional[str], position: Optional[str]
+    ) -> int:
+        nm = (name or "").strip()
+        if not nm:
+            raise ValueError("player name is required")
+        with g.db.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
+                (owner_user_id, team_id, nm),
+            )
+            row = cur.fetchone()
+            if row:
+                pid = int(row[0])
+                if jersey_number or position:
+                    cur.execute(
+                        "UPDATE players SET jersey_number=COALESCE(%s, jersey_number), position=COALESCE(%s, position), updated_at=%s WHERE id=%s",
+                        (jersey_number, position, dt.datetime.now().isoformat(), pid),
+                    )
+                    g.db.commit()
+                return pid
+            cur.execute(
+                "INSERT INTO players(user_id, team_id, name, jersey_number, position, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
+                (owner_user_id, team_id, nm, jersey_number, position, dt.datetime.now().isoformat()),
+            )
+            g.db.commit()
+            return int(cur.lastrowid)
+
+    def _merge_notes(existing: Optional[str], new_fields: dict[str, Any]) -> str:
+        if not existing:
+            return json.dumps(new_fields, sort_keys=True)
+        try:
+            cur = json.loads(existing)
+            if isinstance(cur, dict):
+                cur.update(new_fields)
+                return json.dumps(cur, sort_keys=True)
+        except Exception:
+            pass
+        return existing
+
+    def _upsert_game_for_import(
+        *,
+        owner_user_id: int,
+        team1_id: int,
+        team2_id: int,
+        starts_at: Optional[str],
+        location: Optional[str],
+        team1_score: Optional[int],
+        team2_score: Optional[int],
+        replace: bool,
+        notes_json_fields: dict[str, Any],
+    ) -> int:
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            gid: Optional[int] = None
+            if starts_at:
+                cur.execute(
+                    "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND team1_id=%s AND team2_id=%s AND starts_at=%s",
+                    (owner_user_id, team1_id, team2_id, starts_at),
+                )
+                row = cur.fetchone()
+                if row:
+                    gid = int(row["id"])
+            if gid is None and notes_json_fields.get("timetoscore_game_id") is not None:
+                token = f'\"timetoscore_game_id\":{int(notes_json_fields["timetoscore_game_id"])}'
+                cur.execute(
+                    "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND notes LIKE %s",
+                    (owner_user_id, f"%{token}%"),
+                )
+                row = cur.fetchone()
+                if row:
+                    gid = int(row["id"])
+
+            if gid is None:
+                notes = json.dumps(notes_json_fields, sort_keys=True)
+                cur.execute(
+                    """
+                    INSERT INTO hky_games(user_id, team1_id, team2_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """,
+                    (
+                        owner_user_id,
+                        team1_id,
+                        team2_id,
+                        starts_at,
+                        location,
+                        team1_score,
+                        team2_score,
+                        1 if (team1_score is not None and team2_score is not None) else 0,
+                        notes,
+                        dt.datetime.now().isoformat(),
+                        dt.datetime.now().isoformat(),
+                    ),
+                )
+                g.db.commit()
+                return int(cur.lastrowid)
+
+            cur.execute("SELECT notes, team1_score, team2_score FROM hky_games WHERE id=%s", (gid,))
+            row2 = cur.fetchone()
+            existing_notes = row2["notes"] if row2 else None
+            merged_notes = _merge_notes(existing_notes, notes_json_fields)
+            if replace:
+                cur.execute(
+                    """
+                    UPDATE hky_games
+                    SET location=COALESCE(%s, location),
+                        team1_score=%s,
+                        team2_score=%s,
+                        is_final=CASE WHEN %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
+                        notes=%s,
+                        stats_imported_at=%s,
+                        updated_at=%s
+                    WHERE id=%s
+                    """,
+                    (
+                        location,
+                        team1_score,
+                        team2_score,
+                        team1_score,
+                        team2_score,
+                        merged_notes,
+                        dt.datetime.now().isoformat(),
+                        dt.datetime.now().isoformat(),
+                        gid,
+                    ),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE hky_games
+                    SET location=COALESCE(%s, location),
+                        team1_score=COALESCE(team1_score, %s),
+                        team2_score=COALESCE(team2_score, %s),
+                        is_final=CASE WHEN team1_score IS NULL AND team2_score IS NULL AND %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
+                        notes=%s,
+                        stats_imported_at=%s,
+                        updated_at=%s
+                    WHERE id=%s
+                    """,
+                    (
+                        location,
+                        team1_score,
+                        team2_score,
+                        team1_score,
+                        team2_score,
+                        merged_notes,
+                        dt.datetime.now().isoformat(),
+                        dt.datetime.now().isoformat(),
+                        gid,
+                    ),
+                )
+            g.db.commit()
+            return gid
+
+    def _map_team_to_league_for_import(league_id: int, team_id: int) -> None:
+        with g.db.cursor() as cur:
+            cur.execute(
+                "INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)",
+                (league_id, team_id),
+            )
+            g.db.commit()
+
+    def _map_game_to_league_for_import(league_id: int, game_id: int) -> None:
+        with g.db.cursor() as cur:
+            cur.execute(
+                "INSERT IGNORE INTO league_games(league_id, game_id) VALUES(%s,%s)",
+                (league_id, game_id),
+            )
+            g.db.commit()
+
+    @app.post("/api/import/hockey/ensure_league")
+    def api_import_ensure_league():
+        auth = _require_import_auth()
+        if auth:
+            return auth
+        payload = request.get_json(silent=True) or {}
+        league_name = str(payload.get("league_name") or "Norcal")
+        shared = bool(payload.get("shared", True))
+        owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
+        owner_name = str(payload.get("owner_name") or "Norcal Import")
+        source = payload.get("source")
+        external_key = payload.get("external_key")
+        owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
+        league_id = _ensure_league_for_import(
+            league_name=league_name,
+            owner_user_id=owner_user_id,
+            is_shared=shared,
+            source=str(source) if source else None,
+            external_key=str(external_key) if external_key else None,
+        )
+        _ensure_league_member_for_import(league_id, owner_user_id, role="admin")
+        return jsonify({"ok": True, "league_id": league_id, "owner_user_id": owner_user_id})
+
+    @app.post("/api/import/hockey/game")
+    def api_import_game():
+        auth = _require_import_auth()
+        if auth:
+            return auth
+        payload = request.get_json(silent=True) or {}
+        league_name = str(payload.get("league_name") or "Norcal")
+        shared = bool(payload.get("shared", True))
+        replace = bool(payload.get("replace", False))
+        owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
+        owner_name = str(payload.get("owner_name") or "Norcal Import")
+        owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
+        league_id = _ensure_league_for_import(
+            league_name=league_name,
+            owner_user_id=owner_user_id,
+            is_shared=shared,
+            source=str(payload.get("source") or "timetoscore"),
+            external_key=str(payload.get("external_key") or ""),
+        )
+        _ensure_league_member_for_import(league_id, owner_user_id, role="admin")
+
+        game = payload.get("game") or {}
+        home_name = str(game.get("home_name") or "").strip()
+        away_name = str(game.get("away_name") or "").strip()
+        if not home_name or not away_name:
+            return jsonify({"ok": False, "error": "home_name and away_name are required"}), 400
+
+        team1_id = _ensure_external_team_for_import(owner_user_id, home_name)
+        team2_id = _ensure_external_team_for_import(owner_user_id, away_name)
+        _map_team_to_league_for_import(league_id, team1_id)
+        _map_team_to_league_for_import(league_id, team2_id)
+
+        starts_at = game.get("starts_at")
+        starts_at_s = str(starts_at) if starts_at else None
+        location = str(game.get("location")).strip() if game.get("location") else None
+        team1_score = game.get("home_score")
+        team2_score = game.get("away_score")
+        tts_game_id = game.get("timetoscore_game_id")
+
+        notes_fields: dict[str, Any] = {}
+        if tts_game_id is not None:
+            try:
+                notes_fields["timetoscore_game_id"] = int(tts_game_id)
+            except Exception:
+                pass
+        if game.get("season_id") is not None:
+            try:
+                notes_fields["timetoscore_season_id"] = int(game.get("season_id"))
+            except Exception:
+                pass
+        if payload.get("source"):
+            notes_fields["source"] = str(payload.get("source"))
+
+        try:
+            t1s = int(team1_score) if team1_score is not None else None
+        except Exception:
+            t1s = None
+        try:
+            t2s = int(team2_score) if team2_score is not None else None
+        except Exception:
+            t2s = None
+
+        gid = _upsert_game_for_import(
+            owner_user_id=owner_user_id,
+            team1_id=team1_id,
+            team2_id=team2_id,
+            starts_at=starts_at_s,
+            location=location,
+            team1_score=t1s,
+            team2_score=t2s,
+            replace=replace,
+            notes_json_fields=notes_fields,
+        )
+        _map_game_to_league_for_import(league_id, gid)
+
+        for side_key, tid in (("home", team1_id), ("away", team2_id)):
+            roster = game.get(f"{side_key}_roster") or []
+            if isinstance(roster, list):
+                for row in roster:
+                    if not isinstance(row, dict):
+                        continue
+                    nm = str(row.get("name") or "").strip()
+                    if not nm:
+                        continue
+                    jersey = str(row.get("number") or "").strip() or None
+                    pos = str(row.get("position") or "").strip() or None
+                    _ensure_player_for_import(owner_user_id, tid, nm, jersey, pos)
+
+        def _player_id_by_name(team_id: int, name: str) -> Optional[int]:
+            with g.db.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
+                    (owner_user_id, team_id, name),
+                )
+                r = cur.fetchone()
+                return int(r[0]) if r else None
+
+        stats_rows = game.get("player_stats") or []
+        if isinstance(stats_rows, list):
+            with g.db.cursor() as cur:
+                for srow in stats_rows:
+                    if not isinstance(srow, dict):
+                        continue
+                    pname = str(srow.get("name") or "").strip()
+                    if not pname:
+                        continue
+                    goals = srow.get("goals")
+                    assists = srow.get("assists")
+                    try:
+                        gval = int(goals) if goals is not None else 0
+                    except Exception:
+                        gval = 0
+                    try:
+                        aval = int(assists) if assists is not None else 0
+                    except Exception:
+                        aval = 0
+
+                    team_ref = team1_id
+                    pid = _player_id_by_name(team1_id, pname)
+                    if pid is None:
+                        pid = _player_id_by_name(team2_id, pname)
+                        team_ref = team2_id if pid is not None else team1_id
+                    if pid is None:
+                        pid = _ensure_player_for_import(owner_user_id, team_ref, pname, None, None)
+
+                    if replace:
+                        cur.execute(
+                            """
+                            INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
+                            VALUES(%s,%s,%s,%s,%s,%s)
+                            ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists)
+                            """,
+                            (owner_user_id, team_ref, gid, pid, gval, aval),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
+                            VALUES(%s,%s,%s,%s,%s,%s)
+                            ON DUPLICATE KEY UPDATE goals=COALESCE(goals, VALUES(goals)), assists=COALESCE(assists, VALUES(assists))
+                            """,
+                            (owner_user_id, team_ref, gid, pid, gval, aval),
+                        )
+            g.db.commit()
+
+        return jsonify(
+            {
+                "ok": True,
+                "league_id": league_id,
+                "owner_user_id": owner_user_id,
+                "team1_id": team1_id,
+                "team2_id": team2_id,
+                "game_id": gid,
+            }
+        )
 
     @app.post("/leagues/new")
     def leagues_new():
@@ -914,25 +1424,49 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
+        league_id = session.get("league_id")
         team = get_team(team_id, session["user_id"])
+        editable = bool(team)
+        if not team and league_id:
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT t.*
+                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                    WHERE lt.league_id=%s AND t.id=%s
+                    """,
+                    (league_id, team_id),
+                )
+                team = cur.fetchone()
         if not team:
             flash("Not found", "error")
             return redirect(url_for("teams"))
+        team_owner_id = int(team["user_id"])
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute(
-                "SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC",
-                (team_id, session["user_id"]),
-            )
+            if editable:
+                cur.execute(
+                    "SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC",
+                    (team_id, session["user_id"]),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC",
+                    (team_id,),
+                )
             players = cur.fetchall()
-        # Aggregate player career stats
-        player_totals = aggregate_players_totals(g.db, team_id, session["user_id"])  # pid -> dict
-        tstats = compute_team_stats(g.db, team_id, session["user_id"])  # team totals from games
+        if league_id:
+            player_totals = aggregate_players_totals_league(g.db, team_id, int(league_id))
+            tstats = compute_team_stats_league(g.db, team_id, int(league_id))
+        else:
+            player_totals = aggregate_players_totals(g.db, team_id, team_owner_id)
+            tstats = compute_team_stats(g.db, team_id, team_owner_id)
         return render_template(
             "team_detail.html",
             team=team,
             players=players,
             player_totals=player_totals,
             tstats=tstats,
+            editable=editable,
         )
 
     @app.route("/teams/<int:team_id>/edit", methods=["GET", "POST"])
@@ -1437,17 +1971,41 @@ def create_app() -> Flask:
         if not game:
             flash("Not found", "error")
             return redirect(url_for("schedule"))
-        # Load players from both teams
+        is_owner = int(game.get("user_id") or 0) == int(session["user_id"])
+
+        # Authorization: allow edits if owner or league editor/admin.
+        editable = is_owner
+        if not editable and league_id:
+            with g.db.cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(MAX(CASE WHEN role IN ('admin','owner','editor') THEN 1 ELSE 0 END),0) FROM league_members WHERE league_id=%s AND user_id=%s",
+                    (league_id, session["user_id"]),
+                )
+                editable = int((cur.fetchone() or [0])[0]) == 1
+
+        # Load players from both teams (league view must not require ownership)
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute(
-                "SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC",
-                (game["team1_id"], session["user_id"]),
-            )
+            if is_owner:
+                cur.execute(
+                    "SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC",
+                    (game["team1_id"], session["user_id"]),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC",
+                    (game["team1_id"],),
+                )
             team1_players = cur.fetchall()
-            cur.execute(
-                "SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC",
-                (game["team2_id"], session["user_id"]),
-            )
+            if is_owner:
+                cur.execute(
+                    "SELECT * FROM players WHERE team_id=%s AND user_id=%s ORDER BY jersey_number ASC, name ASC",
+                    (game["team2_id"], session["user_id"]),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC",
+                    (game["team2_id"],),
+                )
             team2_players = cur.fetchall()
             # Load existing player stats rows for this game
             cur.execute("SELECT * FROM player_stats WHERE game_id=%s", (game_id,))
@@ -1481,20 +2039,9 @@ def create_app() -> Flask:
                     "ga": r.get("ga"),
                 }
 
-        # Authorization: only allow edits if owner or league editor/admin
-        editable = True
-        if league_id and game and request.method == "POST":
-            with g.db.cursor() as cur:
-                cur.execute(
-                    "SELECT COALESCE(MAX(CASE WHEN role IN ('admin','owner','editor') THEN 1 ELSE 0 END),0) FROM league_members WHERE league_id=%s AND user_id=%s",
-                    (league_id, session["user_id"]),
-                )
-                can_edit = int((cur.fetchone() or [0])[0]) == 1
-            if not can_edit:
-                editable = False
-                flash(
-                    "You do not have permission to edit this game in the selected league.", "error"
-                )
+        if request.method == "POST" and not editable:
+            flash("You do not have permission to edit this game in the selected league.", "error")
+
         if request.method == "POST" and editable:
             # Update game meta and scores
             loc = request.form.get("location", "").strip()
@@ -1503,18 +2050,31 @@ def create_app() -> Flask:
             t2_score = request.form.get("team2_score")
             is_final = bool(request.form.get("is_final"))
             with g.db.cursor() as cur:
-                cur.execute(
-                    "UPDATE hky_games SET location=%s, starts_at=%s, team1_score=%s, team2_score=%s, is_final=%s WHERE id=%s AND user_id=%s",
-                    (
-                        loc or None,
-                        parse_dt_or_none(starts_at),
-                        int(t1_score) if (t1_score or "").strip() else None,
-                        int(t2_score) if (t2_score or "").strip() else None,
-                        1 if is_final else 0,
-                        game_id,
-                        session["user_id"],
-                    ),
-                )
+                if is_owner:
+                    cur.execute(
+                        "UPDATE hky_games SET location=%s, starts_at=%s, team1_score=%s, team2_score=%s, is_final=%s WHERE id=%s AND user_id=%s",
+                        (
+                            loc or None,
+                            parse_dt_or_none(starts_at),
+                            int(t1_score) if (t1_score or "").strip() else None,
+                            int(t2_score) if (t2_score or "").strip() else None,
+                            1 if is_final else 0,
+                            game_id,
+                            session["user_id"],
+                        ),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE hky_games SET location=%s, starts_at=%s, team1_score=%s, team2_score=%s, is_final=%s WHERE id=%s",
+                        (
+                            loc or None,
+                            parse_dt_or_none(starts_at),
+                            int(t1_score) if (t1_score or "").strip() else None,
+                            int(t2_score) if (t2_score or "").strip() else None,
+                            1 if is_final else 0,
+                            game_id,
+                        ),
+                    )
 
             # Upsert player stats
             def _collect(prefix: str, pid: int) -> dict:
@@ -1574,7 +2134,7 @@ def create_app() -> Flask:
                         )
                     else:
                         placeholders = ",".join(["%s"] * len(cols))
-                        params = [session["user_id"], team_id, game_id, pid] + [
+                        params = [int(game.get("user_id") or session["user_id"]), team_id, game_id, pid] + [
                             vals.get(c) for c in cols
                         ]
                         cur.execute(
@@ -1653,6 +2213,27 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
+        # Add leagues.source and leagues.external_key if missing (older installs)
+        try:
+            cur.execute("SHOW COLUMNS FROM leagues LIKE 'source'")
+            has_source = cur.fetchone()
+            if not has_source:
+                cur.execute("ALTER TABLE leagues ADD COLUMN source VARCHAR(64) NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE leagues ADD COLUMN source VARCHAR(64) NULL")
+            except Exception:
+                pass
+        try:
+            cur.execute("SHOW COLUMNS FROM leagues LIKE 'external_key'")
+            has_ext = cur.fetchone()
+            if not has_ext:
+                cur.execute("ALTER TABLE leagues ADD COLUMN external_key VARCHAR(255) NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE leagues ADD COLUMN external_key VARCHAR(255) NULL")
+            except Exception:
+                pass
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS league_members (
@@ -2263,6 +2844,63 @@ def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
             GROUP BY player_id
             """,
             (team_id, user_id),
+        )
+        rows = cur.fetchall()
+    out = {}
+    for r in rows:
+        out[int(r["player_id"])] = {
+            "goals": int(r["goals"] or 0),
+            "assists": int(r["assists"] or 0),
+            "points": int(r["goals"] or 0) + int(r["assists"] or 0),
+            "shots": int(r["shots"] or 0),
+            "sog": int(r.get("sog") or 0),
+            "expected_goals": int(r.get("expected_goals") or 0),
+            "giveaways": int(r.get("giveaways") or 0),
+            "takeaways": int(r.get("takeaways") or 0),
+            "controlled_entry_for": int(r.get("controlled_entry_for") or 0),
+            "controlled_entry_against": int(r.get("controlled_entry_against") or 0),
+            "controlled_exit_for": int(r.get("controlled_exit_for") or 0),
+            "controlled_exit_against": int(r.get("controlled_exit_against") or 0),
+            "plus_minus": int(r.get("plus_minus") or 0),
+            "toi_seconds": int(r.get("toi_seconds") or 0),
+            "video_toi_seconds": int(r.get("video_toi_seconds") or 0),
+            "shifts": int(r.get("shifts") or 0),
+            "gf_counted": int(r.get("gf_counted") or 0),
+            "ga_counted": int(r.get("ga_counted") or 0),
+            "pim": int(r["pim"] or 0),
+        }
+    return out
+
+
+def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> dict:
+    curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, "cursors", None)) else None  # type: ignore
+    with db_conn.cursor(curtype) if curtype else db_conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT ps.player_id,
+                   COALESCE(SUM(ps.goals),0) AS goals,
+                   COALESCE(SUM(ps.assists),0) AS assists,
+                   COALESCE(SUM(ps.pim),0) AS pim,
+                   COALESCE(SUM(ps.shots),0) AS shots,
+                   COALESCE(SUM(ps.sog),0) AS sog,
+                   COALESCE(SUM(ps.expected_goals),0) AS expected_goals,
+                   COALESCE(SUM(ps.giveaways),0) AS giveaways,
+                   COALESCE(SUM(ps.takeaways),0) AS takeaways,
+                   COALESCE(SUM(ps.controlled_entry_for),0) AS controlled_entry_for,
+                   COALESCE(SUM(ps.controlled_entry_against),0) AS controlled_entry_against,
+                   COALESCE(SUM(ps.controlled_exit_for),0) AS controlled_exit_for,
+                   COALESCE(SUM(ps.controlled_exit_against),0) AS controlled_exit_against,
+                   COALESCE(SUM(ps.plus_minus),0) AS plus_minus,
+                   COALESCE(SUM(ps.toi_seconds),0) AS toi_seconds,
+                   COALESCE(SUM(ps.video_toi_seconds),0) AS video_toi_seconds,
+                   COALESCE(SUM(ps.shifts),0) AS shifts,
+                   COALESCE(SUM(ps.gf_counted),0) AS gf_counted,
+                   COALESCE(SUM(ps.ga_counted),0) AS ga_counted
+            FROM league_games lg JOIN player_stats ps ON lg.game_id=ps.game_id
+            WHERE lg.league_id=%s AND ps.team_id=%s
+            GROUP BY ps.player_id
+            """,
+            (league_id, team_id),
         )
         rows = cur.fetchall()
     out = {}

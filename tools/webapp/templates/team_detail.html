@@ -20,7 +20,11 @@
   </div>
   <div class="card">
     <h3>Manage</h3>
-    <p><a class="btn" href="/teams/{{ team['id'] }}/edit">Edit team</a> <a class="btn" href="/schedule/new">Add game</a></p>
+    {% if editable %}
+      <p><a class="btn" href="/teams/{{ team['id'] }}/edit">Edit team</a> <a class="btn" href="/schedule/new">Add game</a></p>
+    {% else %}
+      <p class="muted">Read-only (shared league)</p>
+    {% endif %}
   </div>
 </div>
 
@@ -49,10 +53,12 @@
             <td>{{ agg['plus_minus'] }}</td>
             <td>{{ agg['pim'] }}</td>
             <td>
-              <a class="btn" href="/teams/{{ team['id'] }}/players/{{ p['id'] }}/edit">Edit</a>
-              <form style="display:inline" method="post" action="/teams/{{ team['id'] }}/players/{{ p['id'] }}/delete" onsubmit="return confirm('Delete player?');">
-                <button class="btn danger" type="submit">Delete</button>
-              </form>
+              {% if editable %}
+                <a class="btn" href="/teams/{{ team['id'] }}/players/{{ p['id'] }}/edit">Edit</a>
+                <form style="display:inline" method="post" action="/teams/{{ team['id'] }}/players/{{ p['id'] }}/delete" onsubmit="return confirm('Delete player?');">
+                  <button class="btn danger" type="submit">Delete</button>
+                </form>
+              {% endif %}
             </td>
           </tr>
         {% else %}
@@ -61,6 +67,8 @@
       </tbody>
     </table>
   </div>
-  <p><a class="btn primary" href="/teams/{{ team['id'] }}/players/new">Add player</a></p>
+  {% if editable %}
+    <p><a class="btn primary" href="/teams/{{ team['id'] }}/players/new">Add player</a></p>
+  {% endif %}
 </div>
 {% endblock %}

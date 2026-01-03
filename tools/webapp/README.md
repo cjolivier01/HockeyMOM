@@ -102,6 +102,24 @@ Flags:
 - League grouping and sharing:
   - `--league-name` (default: `CAHA-<season>`), `--shared`, `--share-with <email>`
   - Adds records to `leagues`, `league_members`, `league_teams`, `league_games`
+- Non-destructive by default:
+  - `--replace` overwrites existing game scores and `player_stats`; otherwise importer only fills missing values.
+
+Import "Norcal" (Shared, via REST API)
+-------------------------------------
+To import the current season from TimeToScore into a league named `Norcal` that is visible to all users, use:
+
+```
+python3 tools/webapp/import_time2score_norcal.py
+```
+
+This script scrapes TimeToScore locally and inserts/upserts data through the webapp REST API:
+- `POST /api/import/hockey/ensure_league`
+- `POST /api/import/hockey/game`
+
+Remote deployment:
+- Set `import_token` in `/opt/hm-webapp/app/config.json` (or env `HM_WEBAPP_IMPORT_TOKEN`) and pass `--token ...`.
+- Use `--url https://<server>/` to target the deployed app.
 
 Reset Hockey Data
 -----------------

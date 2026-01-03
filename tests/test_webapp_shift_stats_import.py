@@ -175,6 +175,9 @@ def should_not_write_times_files_when_no_scripts():
         )
 
         assert (stats_dir / "event_summary.csv").exists()
+        assert (stats_dir / "event_summary.xlsx").exists()
+        assert (stats_dir / "event_players.csv").exists()
+        assert (stats_dir / "event_players.xlsx").exists()
         assert not list(outdir.glob("*_times.txt"))
         assert not list(outdir.glob("clip_*.sh"))
 
@@ -213,7 +216,7 @@ def should_not_write_player_shift_clip_files_without_shifts_flag():
         df.to_excel(xls_path, index=False, header=False)
 
         out_base = base / "out"
-        outdir, stats_rows, _periods, _per_player_events = mod.process_sheet(  # type: ignore[attr-defined]
+        outdir, stats_rows, _periods, _per_player_events, _pair_rows = mod.process_sheet(  # type: ignore[attr-defined]
             xls_path=xls_path,
             sheet_name=None,
             outdir=out_base,
@@ -226,6 +229,8 @@ def should_not_write_player_shift_clip_files_without_shifts_flag():
         assert (outdir / "clip_all.sh").exists()
         assert (outdir / "stats" / "player_stats.csv").exists()
         assert stats_rows
+        assert not (outdir / "stats" / "all_events_summary.csv").exists()
+        assert not (outdir / "stats" / "all_events_summary.xlsx").exists()
 
         for row in stats_rows:
             pk = row["player"]
@@ -234,7 +239,7 @@ def should_not_write_player_shift_clip_files_without_shifts_flag():
             assert not (outdir / f"clip_{pk}.sh").exists()
 
         out_base2 = base / "out2"
-        outdir2, stats_rows2, _periods2, _per_player_events2 = mod.process_sheet(  # type: ignore[attr-defined]
+        outdir2, stats_rows2, _periods2, _per_player_events2, _pair_rows2 = mod.process_sheet(  # type: ignore[attr-defined]
             xls_path=xls_path,
             sheet_name=None,
             outdir=out_base2,
@@ -246,11 +251,115 @@ def should_not_write_player_shift_clip_files_without_shifts_flag():
         )
         assert (outdir2 / "clip_all.sh").exists()
         assert stats_rows2
+        assert (outdir2 / "stats" / "summary_stats.csv").exists()
+        assert (outdir2 / "stats" / "summary_stats.xlsx").exists()
+        assert (outdir2 / "stats" / "all_events_summary.csv").exists()
+        assert (outdir2 / "stats" / "all_events_summary.xlsx").exists()
         for row in stats_rows2:
             pk = row["player"]
             assert (outdir2 / f"{pk}_video_times.txt").exists()
             assert (outdir2 / f"{pk}_scoreboard_times.txt").exists()
             assert (outdir2 / f"clip_{pk}.sh").exists()
+
+
+def should_write_pair_on_ice_xlsx_when_shifts_enabled(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    import pandas as pd
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_pair", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    base = Path(tmp_path)
+    xls_path = base / "shift_sheet.xlsx"
+    df = pd.DataFrame(
+        [
+            ["1st Period", "", "", "", "", ""],
+            [
+                "Jersey No",
+                "Name",
+                mod.LABEL_START_SB,  # type: ignore[attr-defined]
+                mod.LABEL_END_SB,  # type: ignore[attr-defined]
+                mod.LABEL_START_V,  # type: ignore[attr-defined]
+                mod.LABEL_END_V,  # type: ignore[attr-defined]
+            ],
+            ["8", "Adam Ro", "0:10", "0:40", "0:10", "0:40"],
+            ["9", "Bee Two", "0:20", "0:30", "0:20", "0:30"],
+        ]
+    )
+    df.to_excel(xls_path, index=False, header=False)
+
+    outdir, _rows, _periods, _events, _pair_rows = mod.process_sheet(  # type: ignore[attr-defined]
+        xls_path=xls_path,
+        sheet_name=None,
+        outdir=base / "out",
+        keep_goalies=True,
+        goals=[],
+        include_shifts_in_stats=True,
+        skip_validation=True,
+        create_scripts=False,
+    )
+    assert (outdir / "stats" / "pair_on_ice.csv").exists()
+    assert (outdir / "stats" / "pair_on_ice.xlsx").exists()
+
+
+def should_write_pair_on_ice_without_shifts_but_not_publish_toi(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    import pandas as pd
+
+    spec = importlib.util.spec_from_file_location(
+        "parse_shift_spreadsheet_mod_pair_no_shifts", "scripts/parse_shift_spreadsheet.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)  # type: ignore
+
+    base = Path(tmp_path)
+    xls_path = base / "shift_sheet.xlsx"
+    df = pd.DataFrame(
+        [
+            ["1st Period", "", "", "", "", ""],
+            [
+                "Jersey No",
+                "Name",
+                mod.LABEL_START_SB,  # type: ignore[attr-defined]
+                mod.LABEL_END_SB,  # type: ignore[attr-defined]
+                mod.LABEL_START_V,  # type: ignore[attr-defined]
+                mod.LABEL_END_V,  # type: ignore[attr-defined]
+            ],
+            ["8", "Adam Ro", "0:10", "0:40", "0:10", "0:40"],
+            ["9", "Bee Two", "0:20", "0:30", "0:20", "0:30"],
+        ]
+    )
+    df.to_excel(xls_path, index=False, header=False)
+
+    outdir, _rows, _periods, _events, _pair_rows = mod.process_sheet(  # type: ignore[attr-defined]
+        xls_path=xls_path,
+        sheet_name=None,
+        outdir=base / "out",
+        keep_goalies=True,
+        goals=[],
+        include_shifts_in_stats=False,
+        skip_validation=True,
+        create_scripts=False,
+    )
+    csv_text = (outdir / "stats" / "pair_on_ice.csv").read_text(encoding="utf-8")
+    assert "Overlap %" in csv_text.splitlines()[0]
+    assert "Player TOI" not in csv_text.splitlines()[0]
+    assert "Overlap," not in csv_text.splitlines()[0]
+
+    # Per-player stats should include the pair section, but without absolute time values.
+    stats_text = (outdir / "stats" / "8_Adam_Ro_stats.txt").read_text(encoding="utf-8")
+    assert "On-ice with teammates (by TOI%)" in stats_text
+    assert "00:00:" not in stats_text
+    assert "+0" not in stats_text
 
 
 def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():

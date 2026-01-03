@@ -1,6 +1,6 @@
 {% extends 'layout.html' %}
 {% block content %}
-<h2>Edit Game</h2>
+<h2>{% if editable %}Edit Game{% else %}Game{% endif %}</h2>
 
 <div class="card">
   <h3 style="margin-top:0">Import Shift Spreadsheet Stats</h3>
@@ -232,7 +232,11 @@
     </div>
 
     <div style="margin-top:1rem;">
-      <button class="btn primary" type="submit">Save</button>
+      {% if editable %}
+        <button class="btn primary" type="submit">Save</button>
+      {% else %}
+        <span class="muted">Read-only (shared league)</span>
+      {% endif %}
       <a class="btn" href="/schedule">Back</a>
     </div>
   </form>
