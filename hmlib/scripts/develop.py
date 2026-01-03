@@ -10,10 +10,9 @@ import argparse
 import os
 import sys
 import sysconfig
+import logging
 from pathlib import Path
 from textwrap import dedent
-
-from hmlib.log import get_logger
 
 ENTRY_POINTS = {
     "hmtrack": "hmlib.cli.hmtrack:main",
@@ -33,7 +32,9 @@ ENTRY_POINTS = {
 }
 
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
 
 def _find_workspace_root() -> Path:

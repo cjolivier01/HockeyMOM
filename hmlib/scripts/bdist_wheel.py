@@ -3,11 +3,11 @@ import argparse
 import glob
 import os
 import shutil
+import logging
 
-from hmlib.log import get_logger
-
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
 
 def find_wheel(name: str):
