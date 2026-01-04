@@ -5243,17 +5243,6 @@ PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("ot_assists", "OT Assists"),
     ("pim", "PIM"),
     ("pim_per_game", "PIM per Game"),
-    ("hits", "Hits"),
-    ("hits_per_game", "Hits per Game"),
-    ("blocks", "Blocks"),
-    ("blocks_per_game", "Blocks per Game"),
-    ("faceoff_wins", "Faceoff Wins"),
-    ("faceoff_attempts", "Faceoff Attempts"),
-    ("faceoff_pct", "Faceoff %"),
-    ("goalie_saves", "Saves"),
-    ("goalie_sa", "SA"),
-    ("goalie_ga", "GA"),
-    ("goalie_sv_pct", "SV%"),
 )
 
 OT_ONLY_PLAYER_STATS_KEYS: frozenset[str] = frozenset({"ot_goals", "ot_assists"})
@@ -5261,6 +5250,10 @@ OT_ONLY_PLAYER_STATS_KEYS: frozenset[str] = frozenset({"ot_goals", "ot_assists"}
 GAME_PLAYER_STATS_COLUMNS: tuple[dict[str, Any], ...] = (
     {"id": "goals", "label": "G", "keys": ("goals",)},
     {"id": "assists", "label": "A", "keys": ("assists",)},
+    {"id": "gt_goals", "label": "GT Goals", "keys": ("gt_goals",)},
+    {"id": "gw_goals", "label": "GW Goals", "keys": ("gw_goals",)},
+    {"id": "ot_goals", "label": "OT Goals", "keys": ("ot_goals",)},
+    {"id": "ot_assists", "label": "OT Assists", "keys": ("ot_assists",)},
     {"id": "shots", "label": "S", "keys": ("shots",)},
     {"id": "pim", "label": "PIM", "keys": ("pim",)},
     {"id": "plus_minus", "label": "+/-", "keys": ("plus_minus",)},
@@ -5268,7 +5261,7 @@ GAME_PLAYER_STATS_COLUMNS: tuple[dict[str, Any], ...] = (
     {"id": "expected_goals", "label": "xG", "keys": ("expected_goals",)},
     {"id": "ce", "label": "CE (F/A)", "keys": ("controlled_entry_for", "controlled_entry_against")},
     {"id": "cx", "label": "CX (F/A)", "keys": ("controlled_exit_for", "controlled_exit_against")},
-    {"id": "gt", "label": "G/T", "keys": ("giveaways", "takeaways")},
+    {"id": "give_take", "label": "Give/Take", "keys": ("giveaways", "takeaways")},
     {"id": "gfga", "label": "GF/GA", "keys": ("gf_counted", "ga_counted")},
 )
 
@@ -5622,6 +5615,9 @@ def build_game_player_stats_table(
     visible_columns: list[dict[str, Any]] = []
     for col in GAME_PLAYER_STATS_COLUMNS:
         keys = [str(k) for k in (col.get("keys") or ())]
+        if keys and set(keys).issubset(OT_ONLY_PLAYER_STATS_KEYS):
+            if all(all(_is_zero_or_blank_stat(merged_vals[pid].get(k)) for k in keys) for pid in all_pids):
+                continue
         if keys and all(all(merged_vals[pid].get(k) is None for k in keys) for pid in all_pids):
             continue
         visible_columns.append(dict(col))
