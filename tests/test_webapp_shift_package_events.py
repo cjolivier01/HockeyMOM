@@ -164,6 +164,16 @@ class FakeCursor:
             self._rows = [t(int(tid))] if tid is not None else []
             return 1
 
+        if q == "SELECT id, name FROM teams WHERE user_id=%s":
+            user_id = int(p[0])
+            rows = []
+            for tid, tr in self._conn.teams.items():
+                if int(tr.get("user_id") or 0) != user_id:
+                    continue
+                rows.append(t(int(tid), str(tr.get("name") or "")))
+            self._rows = rows
+            return 1
+
         if q == "SELECT logo_path FROM teams WHERE id=%s":
             team_id = int(p[0])
             team = self._conn.teams.get(team_id)
@@ -200,35 +210,129 @@ class FakeCursor:
             self.lastrowid = tid
             return 1
 
+        if q == "INSERT IGNORE INTO league_teams(league_id, team_id) VALUES(%s,%s)":
+            league_id, team_id = int(p[0]), int(p[1])
+            existing = next(
+                (
+                    r
+                    for r in self._conn.league_teams
+                    if int(r["league_id"]) == league_id and int(r["team_id"]) == team_id
+                ),
+                None,
+            )
+            if existing is None:
+                self._conn.league_teams.append(
+                    {"league_id": league_id, "team_id": team_id, "division_name": None, "division_id": None, "conference_id": None}
+                )
+            return 1
+
         if q.startswith(
             "INSERT INTO league_teams(league_id, team_id, division_name, division_id, conference_id) VALUES"
         ):
             league_id, team_id, division_name, division_id, conference_id = p
-            self._conn.league_teams.append(
-                {
-                    "league_id": int(league_id),
-                    "team_id": int(team_id),
-                    "division_name": division_name,
-                    "division_id": division_id,
-                    "conference_id": conference_id,
-                }
+            existing = next(
+                (
+                    r
+                    for r in self._conn.league_teams
+                    if int(r["league_id"]) == int(league_id) and int(r["team_id"]) == int(team_id)
+                ),
+                None,
             )
+            if existing is None:
+                self._conn.league_teams.append(
+                    {
+                        "league_id": int(league_id),
+                        "team_id": int(team_id),
+                        "division_name": division_name,
+                        "division_id": division_id,
+                        "conference_id": conference_id,
+                    }
+                )
+            else:
+                incoming_dn = str(division_name).strip() if division_name is not None else None
+                cur_dn = existing.get("division_name")
+                cur_dn_s = str(cur_dn).strip() if cur_dn is not None else ""
+                if incoming_dn and incoming_dn.lower() != "external":
+                    existing["division_name"] = incoming_dn
+                elif (not cur_dn_s) and incoming_dn:
+                    existing["division_name"] = incoming_dn
+                if division_id is not None and existing.get("division_id") is None:
+                    existing["division_id"] = division_id
+                if conference_id is not None and existing.get("conference_id") is None:
+                    existing["conference_id"] = conference_id
             return 1
 
         if q.startswith(
             "INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id, sort_order) VALUES"
         ):
             league_id, game_id, division_name, division_id, conference_id, sort_order = p
-            self._conn.league_games.append(
-                {
-                    "league_id": int(league_id),
-                    "game_id": int(game_id),
-                    "division_name": division_name,
-                    "division_id": division_id,
-                    "conference_id": conference_id,
-                    "sort_order": int(sort_order) if sort_order is not None else None,
-                }
+            existing = next(
+                (
+                    r
+                    for r in self._conn.league_games
+                    if int(r["league_id"]) == int(league_id) and int(r["game_id"]) == int(game_id)
+                ),
+                None,
             )
+            if existing is None:
+                self._conn.league_games.append(
+                    {
+                        "league_id": int(league_id),
+                        "game_id": int(game_id),
+                        "division_name": division_name,
+                        "division_id": division_id,
+                        "conference_id": conference_id,
+                        "sort_order": int(sort_order) if sort_order is not None else None,
+                    }
+                )
+            else:
+                incoming_dn = str(division_name).strip() if division_name is not None else None
+                cur_dn = existing.get("division_name")
+                cur_dn_s = str(cur_dn).strip() if cur_dn is not None else ""
+                if incoming_dn and incoming_dn.lower() != "external":
+                    existing["division_name"] = incoming_dn
+                elif (not cur_dn_s) and incoming_dn:
+                    existing["division_name"] = incoming_dn
+                if division_id is not None and existing.get("division_id") is None:
+                    existing["division_id"] = division_id
+                if conference_id is not None and existing.get("conference_id") is None:
+                    existing["conference_id"] = conference_id
+                if sort_order is not None and existing.get("sort_order") is None:
+                    existing["sort_order"] = int(sort_order)
+            return 1
+
+        if "FROM league_teams lt JOIN teams t ON lt.team_id=t.id" in q and "WHERE lt.league_id=%s" in q:
+            league_id = int(p[0])
+            out = []
+            for lt in self._conn.league_teams:
+                if int(lt["league_id"]) != league_id:
+                    continue
+                team = self._conn.teams.get(int(lt["team_id"]))
+                if not team:
+                    continue
+                if self._dict_mode:
+                    out.append(
+                        d(
+                            {
+                                "team_id": int(team["id"]),
+                                "team_name": str(team.get("name") or ""),
+                                "division_name": lt.get("division_name"),
+                                "division_id": lt.get("division_id"),
+                                "conference_id": lt.get("conference_id"),
+                            }
+                        )
+                    )
+                else:
+                    out.append(
+                        t(
+                            int(team["id"]),
+                            str(team.get("name") or ""),
+                            lt.get("division_name"),
+                            lt.get("division_id"),
+                            lt.get("conference_id"),
+                        )
+                    )
+            self._rows = out
             return 1
 
         if "SELECT id FROM hky_games WHERE notes LIKE %s LIMIT 1" in q:
@@ -685,3 +789,42 @@ def should_create_external_game_via_shift_package_and_map_to_league(client_and_d
     # Missing player is created and stats are inserted.
     assert any(str(p.get("name")) == "Charlie" and str(p.get("jersey_number")) == "13" for p in db.players)
     assert any(int(ps.get("game_id")) == gid for ps in db.player_stats)
+
+
+def should_reuse_existing_league_team_by_name_and_preserve_division(client_and_db):
+    client, db = client_and_db
+    db.users_by_email["owner@example.com"] = {"id": 10, "email": "owner@example.com", "name": "Owner"}
+    # Pre-create a league and map Team A into a non-external division.
+    db.leagues[2] = {"id": 2, "name": "Norcal", "is_public": 1, "owner_user_id": 10, "is_shared": 0}
+    db.league_id_by_name["Norcal"] = 2
+    db.league_teams.append({"league_id": 2, "team_id": 101, "division_name": "10 B West", "division_id": 136, "conference_id": 0})
+
+    before_team_count = len(db.teams)
+    before_div = next((lt for lt in db.league_teams if int(lt["league_id"]) == 2 and int(lt["team_id"]) == 101), None)
+    assert before_div and before_div["division_name"] == "10 B West"
+
+    r = client.post(
+        "/api/import/hockey/shift_package",
+        json={
+            "external_game_key": "tourny-1",
+            "owner_email": "owner@example.com",
+            "league_name": "Norcal",
+            "team_side": "home",
+            "home_team_name": "Team A",
+            "away_team_name": "Opponent X",
+            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
+        },
+        headers={"X-HM-Import-Token": "sekret"},
+    )
+    assert r.status_code == 200
+    out = r.get_json()
+    assert out["ok"] is True
+    gid = int(out["game_id"])
+    # No duplicate Team A created.
+    assert len(db.teams) == before_team_count + 1  # only Opponent X added
+    # Team A's division mapping stays intact (not overwritten to External).
+    after_div = next((lt for lt in db.league_teams if int(lt["league_id"]) == 2 and int(lt["team_id"]) == 101), None)
+    assert after_div and str(after_div["division_name"]) == "10 B West"
+    # Game should be mapped under the same division, not "External".
+    lg = next((lg for lg in db.league_games if int(lg["league_id"]) == 2 and int(lg["game_id"]) == gid), None)
+    assert lg and str(lg.get("division_name") or "") == "10 B West"

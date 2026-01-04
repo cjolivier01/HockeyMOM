@@ -928,6 +928,7 @@ def create_app() -> Flask:
             t = str(s or "").replace("\xa0", " ").strip()
             t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
             t = " ".join(t.split())
+            t = re.sub(r"\s*\(\s*external\s*\)\s*$", "", t, flags=re.IGNORECASE).strip()
             return t
 
         nm = _norm_team_name(name or "")
@@ -938,6 +939,12 @@ def create_app() -> Flask:
             row = cur.fetchone()
             if row:
                 return int(row[0])
+            # Robust match: normalize existing names to avoid duplicate external teams due to minor name variations.
+            cur.execute("SELECT id, name FROM teams WHERE user_id=%s", (owner_user_id,))
+            rows = cur.fetchall() or []
+            for tid, tname in rows:
+                if _norm_team_name(tname) == nm:
+                    return int(tid)
             cur.execute(
                 "INSERT INTO teams(user_id, name, is_external, created_at) VALUES(%s,%s,%s,%s)",
                 (owner_user_id, nm, 1, dt.datetime.now().isoformat()),
@@ -1165,7 +1172,12 @@ def create_app() -> Flask:
                     INSERT INTO league_teams(league_id, team_id, division_name, division_id, conference_id)
                     VALUES(%s,%s,%s,%s,%s)
                     ON DUPLICATE KEY UPDATE
-                      division_name=COALESCE(VALUES(division_name), division_name),
+                      division_name=CASE
+                        WHEN VALUES(division_name) IS NULL OR VALUES(division_name)='' THEN division_name
+                        WHEN division_name IS NULL OR division_name='' THEN VALUES(division_name)
+                        WHEN VALUES(division_name)='External' THEN division_name
+                        ELSE VALUES(division_name)
+                      END,
                       division_id=COALESCE(VALUES(division_id), division_id),
                       conference_id=COALESCE(VALUES(conference_id), conference_id)
                     """,
@@ -1191,7 +1203,12 @@ def create_app() -> Flask:
                 INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id, sort_order)
                 VALUES(%s,%s,%s,%s,%s,%s)
                 ON DUPLICATE KEY UPDATE
-                  division_name=COALESCE(VALUES(division_name), division_name),
+                  division_name=CASE
+                    WHEN VALUES(division_name) IS NULL OR VALUES(division_name)='' THEN division_name
+                    WHEN division_name IS NULL OR division_name='' THEN VALUES(division_name)
+                    WHEN VALUES(division_name)='External' THEN division_name
+                    ELSE VALUES(division_name)
+                  END,
                   division_id=COALESCE(VALUES(division_id), division_id),
                   conference_id=COALESCE(VALUES(conference_id), conference_id),
                   sort_order=COALESCE(VALUES(sort_order), sort_order)
@@ -1915,6 +1932,34 @@ def create_app() -> Flask:
         # External game flow: allow creating / matching games not in TimeToScore.
         if resolved_game_id is None and external_game_key and owner_email:
             owner_user_id_for_create = _ensure_user_for_import(owner_email)
+            # Reuse existing league teams when names match (e.g., teams already imported from TimeToScore),
+            # to avoid creating duplicates and to preserve their division mappings.
+            def _norm_team_name_for_match(s: str) -> str:
+                t = str(s or "").replace("\xa0", " ").strip()
+                t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
+                t = " ".join(t.split())
+                t = re.sub(r"\s*\(\s*external\s*\)\s*$", "", t, flags=re.IGNORECASE).strip()
+                return t
+
+            def _find_team_in_league_by_name(league_id_i: int, name: str) -> Optional[dict[str, Any]]:
+                nm = _norm_team_name_for_match(name)
+                if not nm:
+                    return None
+                with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                    cur.execute(
+                        """
+                        SELECT t.id AS team_id, t.name AS team_name, lt.division_name, lt.division_id, lt.conference_id
+                        FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+                        WHERE lt.league_id=%s
+                        """,
+                        (int(league_id_i),),
+                    )
+                    rows = cur.fetchall() or []
+                for r in rows:
+                    if _norm_team_name_for_match(str(r.get("team_name") or "")) == nm:
+                        return r
+                return None
+
             try:
                 ext_json = json.dumps(external_game_key)
             except Exception:
@@ -1985,8 +2030,20 @@ def create_app() -> Flask:
                             )
                             league_id_i = int(cur.lastrowid)
 
-                team1_id = _ensure_external_team_for_import(owner_user_id_for_create, home_team_name, commit=False)
-                team2_id = _ensure_external_team_for_import(owner_user_id_for_create, away_team_name, commit=False)
+                match_home = _find_team_in_league_by_name(int(league_id_i), home_team_name) if league_id_i else None
+                match_away = _find_team_in_league_by_name(int(league_id_i), away_team_name) if league_id_i else None
+
+                team1_id = int(match_home["team_id"]) if match_home else _ensure_external_team_for_import(owner_user_id_for_create, home_team_name, commit=False)
+                team2_id = int(match_away["team_id"]) if match_away else _ensure_external_team_for_import(owner_user_id_for_create, away_team_name, commit=False)
+
+                def _pick_division_name() -> str:
+                    for m in (match_home, match_away):
+                        dn = str((m or {}).get("division_name") or "").strip()
+                        if dn and dn.lower() != "external":
+                            return dn
+                    return str(division_name or "").strip() or "External"
+
+                division_name_effective = _pick_division_name()
 
                 # Optional team icons for external games (do not overwrite unless replace).
                 _ensure_team_logo_for_import(
@@ -2040,19 +2097,19 @@ def create_app() -> Flask:
                 _map_team_to_league_for_import(
                     int(league_id_i),
                     team1_id,
-                    division_name=division_name or "External",
+                    division_name=division_name_effective if match_home else (division_name or "External"),
                     commit=False,
                 )
                 _map_team_to_league_for_import(
                     int(league_id_i),
                     team2_id,
-                    division_name=division_name or "External",
+                    division_name=division_name_effective if match_away else (division_name or "External"),
                     commit=False,
                 )
                 _map_game_to_league_for_import(
                     int(league_id_i),
                     int(resolved_game_id),
-                    division_name=division_name or "External",
+                    division_name=division_name_effective,
                     sort_order=sort_order,
                     commit=False,
                 )
@@ -2346,6 +2403,43 @@ def create_app() -> Flask:
                 "unmatched": [u for u in unmatched if u],
             }
         )
+
+    @app.post("/api/internal/reset_league_data")
+    def api_internal_reset_league_data():
+        """
+        Hidden administrative endpoint used by tools/webapp/reset_league_data.py.
+        Requires import auth (token or localhost rules). Not linked from the UI.
+        """
+        auth = _require_import_auth()
+        if auth:
+            return auth
+        payload = request.get_json(silent=True) or {}
+        league_name = str(payload.get("league_name") or "").strip()
+        owner_email = str(payload.get("owner_email") or "").strip().lower()
+        if not league_name or not owner_email:
+            return jsonify({"ok": False, "error": "owner_email and league_name are required"}), 400
+
+        with g.db.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email=%s", (owner_email,))
+            row = cur.fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "owner_email_not_found"}), 404
+            owner_user_id = int(row[0])
+            cur.execute("SELECT id FROM leagues WHERE name=%s AND owner_user_id=%s", (league_name, owner_user_id))
+            lrow = cur.fetchone()
+            if not lrow:
+                return jsonify({"ok": False, "error": "league_not_found_for_owner"}), 404
+            league_id = int(lrow[0])
+
+        try:
+            stats = reset_league_data(g.db, league_id, owner_user_id=owner_user_id)
+        except Exception as e:  # noqa: BLE001
+            try:
+                g.db.rollback()
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": True, "league_id": league_id, "stats": stats})
 
     @app.post("/leagues/new")
     def leagues_new():
@@ -4674,6 +4768,105 @@ def filter_game_stats_for_display(game_stats: Optional[dict[str, Any]]) -> Optio
             continue
         out[k] = v
     return out
+
+
+def reset_league_data(db_conn, league_id: int, *, owner_user_id: Optional[int] = None) -> dict[str, int]:
+    """
+    Wipe imported hockey data for a league (games/teams/players/stats) while keeping:
+      - users
+      - league record and memberships
+
+    This is used by `tools/webapp/reset_league_data.py` and the hidden REST endpoint.
+    """
+    stats: dict[str, int] = {
+        "player_stats": 0,
+        "league_games": 0,
+        "hky_games": 0,
+        "league_teams": 0,
+        "players": 0,
+        "teams": 0,
+    }
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM league_games WHERE league_id=%s", (int(league_id),))
+        stats["league_games"] = int((cur.fetchone() or [0])[0])
+        cur.execute("SELECT COUNT(*) FROM league_teams WHERE league_id=%s", (int(league_id),))
+        stats["league_teams"] = int((cur.fetchone() or [0])[0])
+
+        # Exclusive games for this league (safe to delete without impacting other leagues).
+        cur.execute(
+            """
+            SELECT game_id
+            FROM league_games
+            WHERE league_id=%s
+              AND game_id NOT IN (SELECT game_id FROM league_games WHERE league_id<>%s)
+            """,
+            (int(league_id), int(league_id)),
+        )
+        exclusive_game_ids = sorted({int(r[0]) for r in (cur.fetchall() or [])})
+        if exclusive_game_ids:
+            ph = ",".join(["%s"] * len(exclusive_game_ids))
+            cur.execute(f"SELECT COUNT(*) FROM player_stats WHERE game_id IN ({ph})", tuple(exclusive_game_ids))
+            stats["player_stats"] = int((cur.fetchone() or [0])[0])
+            cur.execute(f"SELECT COUNT(*) FROM hky_games WHERE id IN ({ph})", tuple(exclusive_game_ids))
+            stats["hky_games"] = int((cur.fetchone() or [0])[0])
+
+        # Exclusive teams for this league (safe candidates).
+        cur.execute(
+            """
+            SELECT team_id
+            FROM league_teams
+            WHERE league_id=%s
+              AND team_id NOT IN (SELECT team_id FROM league_teams WHERE league_id<>%s)
+            """,
+            (int(league_id), int(league_id)),
+        )
+        exclusive_team_ids = sorted({int(r[0]) for r in (cur.fetchall() or [])})
+
+        # Remove league mappings (this is the "reset" behavior).
+        cur.execute("DELETE FROM league_games WHERE league_id=%s", (int(league_id),))
+        cur.execute("DELETE FROM league_teams WHERE league_id=%s", (int(league_id),))
+
+        # Delete exclusive games (cascades to player_stats/hky_game_* tables).
+        if exclusive_game_ids:
+            ph = ",".join(["%s"] * len(exclusive_game_ids))
+            cur.execute(f"DELETE FROM hky_games WHERE id IN ({ph})", tuple(exclusive_game_ids))
+        if exclusive_team_ids:
+            ph = ",".join(["%s"] * len(exclusive_team_ids))
+            # Only delete external teams (and optionally only those owned by the league owner).
+            cur.execute(
+                f"SELECT id, user_id, is_external FROM teams WHERE id IN ({ph})",
+                tuple(exclusive_team_ids),
+            )
+            team_rows = cur.fetchall() or []
+            eligible = []
+            for tid, uid, is_ext in team_rows:
+                if int(is_ext or 0) != 1:
+                    continue
+                if owner_user_id is not None and int(uid) != int(owner_user_id):
+                    continue
+                eligible.append(int(tid))
+            if eligible:
+                ph2 = ",".join(["%s"] * len(eligible))
+                cur.execute(
+                    f"""
+                    SELECT DISTINCT team1_id AS tid FROM hky_games WHERE team1_id IN ({ph2})
+                    UNION
+                    SELECT DISTINCT team2_id AS tid FROM hky_games WHERE team2_id IN ({ph2})
+                    """,
+                    tuple(eligible) * 2,
+                )
+                still_used = {int(r[0]) for r in (cur.fetchall() or [])}
+                safe_team_ids = sorted([tid for tid in eligible if tid not in still_used])
+                if safe_team_ids:
+                    ph3 = ",".join(["%s"] * len(safe_team_ids))
+                    cur.execute(f"SELECT COUNT(*) FROM players WHERE team_id IN ({ph3})", tuple(safe_team_ids))
+                    stats["players"] = int((cur.fetchone() or [0])[0])
+                    cur.execute(f"SELECT COUNT(*) FROM teams WHERE id IN ({ph3})", tuple(safe_team_ids))
+                    stats["teams"] = int((cur.fetchone() or [0])[0])
+                    cur.execute(f"DELETE FROM teams WHERE id IN ({ph3})", tuple(safe_team_ids))
+
+    db_conn.commit()
+    return stats
 
 
 def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:

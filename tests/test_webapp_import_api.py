@@ -255,6 +255,16 @@ class FakeCursor:
                 self._rows = [as_row_tuple(tid)]
             return 1
 
+        if q == "SELECT id, name FROM teams WHERE user_id=%s":
+            user_id = int(p[0])
+            rows = []
+            for tid, tr in self._conn.teams_by_id.items():
+                if int(tr.get("user_id") or 0) != user_id:
+                    continue
+                rows.append(as_row_tuple(int(tid), str(tr.get("name") or "")))
+            self._rows = rows
+            return 1
+
         if q.startswith("INSERT INTO teams(user_id, name, is_external, created_at) VALUES"):
             user_id, name, is_external, created_at = p
             key = (int(user_id), str(name).strip())

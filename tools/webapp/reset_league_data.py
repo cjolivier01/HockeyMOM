@@ -3,6 +3,7 @@ import argparse
 import json
 import sys
 from typing import Optional
+from urllib.parse import urljoin
 
 
 def load_db_cfg(config_path: str) -> dict:
@@ -51,94 +52,77 @@ def wipe_all(conn) -> dict:
 
 
 def wipe_league(conn, league_id: int) -> dict:
-    stats = {
-        "player_stats": 0,
-        "league_games": 0,
-        "hky_games": 0,
-        "league_teams": 0,
-        "players": 0,
-        "teams": 0,
-    }
+    # NOTE: This script historically used a more destructive implementation.
+    # The REST-backed implementation uses the webapp's safer logic (only deletes
+    # exclusive games/teams to avoid impacting other leagues).
+    stats = {"player_stats": 0, "league_games": 0, "hky_games": 0, "league_teams": 0, "players": 0, "teams": 0}
     with conn.cursor() as cur:
-        # games in this league
-        cur.execute("SELECT DISTINCT game_id FROM league_games WHERE league_id=%s", (league_id,))
-        game_ids = [int(r[0]) for r in cur.fetchall() or []]
-        if game_ids:
-            # player stats for those games
-            cur.execute(
-                f"SELECT COUNT(*) FROM player_stats WHERE game_id IN ({','.join(['%s']*len(game_ids))})",
-                game_ids,
-            )
+        cur.execute("SELECT COUNT(*) FROM league_games WHERE league_id=%s", (league_id,))
+        stats["league_games"] = int((cur.fetchone() or [0])[0])
+        cur.execute("SELECT COUNT(*) FROM league_teams WHERE league_id=%s", (league_id,))
+        stats["league_teams"] = int((cur.fetchone() or [0])[0])
+
+        cur.execute(
+            """
+            SELECT game_id
+            FROM league_games
+            WHERE league_id=%s
+              AND game_id NOT IN (SELECT game_id FROM league_games WHERE league_id<>%s)
+            """,
+            (league_id, league_id),
+        )
+        exclusive_game_ids = sorted({int(r[0]) for r in cur.fetchall() or []})
+        if exclusive_game_ids:
+            q = ",".join(["%s"] * len(exclusive_game_ids))
+            cur.execute(f"SELECT COUNT(*) FROM player_stats WHERE game_id IN ({q})", exclusive_game_ids)
             stats["player_stats"] = int((cur.fetchone() or [0])[0])
-            cur.execute(
-                f"DELETE FROM player_stats WHERE game_id IN ({','.join(['%s']*len(game_ids))})",
-                game_ids,
-            )
-            # delete league games mapping for this league
-            cur.execute("SELECT COUNT(*) FROM league_games WHERE league_id=%s", (league_id,))
-            stats["league_games"] = int((cur.fetchone() or [0])[0])
-            cur.execute("DELETE FROM league_games WHERE league_id=%s", (league_id,))
-            # only delete hky_games that are not mapped by other leagues
-            cur.execute(
-                f"SELECT DISTINCT game_id FROM league_games WHERE game_id IN ({','.join(['%s']*len(game_ids))}) AND league_id<>%s",
-                game_ids + [league_id],
-            )
-            keep = {int(r[0]) for r in cur.fetchall() or []}
-            to_delete = [gid for gid in game_ids if gid not in keep]
-            if to_delete:
+            cur.execute(f"SELECT COUNT(*) FROM hky_games WHERE id IN ({q})", exclusive_game_ids)
+            stats["hky_games"] = int((cur.fetchone() or [0])[0])
+
+        cur.execute(
+            """
+            SELECT team_id
+            FROM league_teams
+            WHERE league_id=%s
+              AND team_id NOT IN (SELECT team_id FROM league_teams WHERE league_id<>%s)
+            """,
+            (league_id, league_id),
+        )
+        exclusive_team_ids = sorted({int(r[0]) for r in cur.fetchall() or []})
+
+        # Remove mappings
+        cur.execute("DELETE FROM league_games WHERE league_id=%s", (league_id,))
+        cur.execute("DELETE FROM league_teams WHERE league_id=%s", (league_id,))
+
+        # Delete exclusive games (cascades to player_stats and hky_game_*).
+        if exclusive_game_ids:
+            q = ",".join(["%s"] * len(exclusive_game_ids))
+            cur.execute(f"DELETE FROM hky_games WHERE id IN ({q})", exclusive_game_ids)
+
+        # Delete safe external teams (and their players) that are not referenced by remaining games.
+        if exclusive_team_ids:
+            q = ",".join(["%s"] * len(exclusive_team_ids))
+            cur.execute(f"SELECT id, is_external FROM teams WHERE id IN ({q})", exclusive_team_ids)
+            eligible = [int(tid) for (tid, is_ext) in (cur.fetchall() or []) if int(is_ext or 0) == 1]
+            if eligible:
+                q2 = ",".join(["%s"] * len(eligible))
                 cur.execute(
-                    f"SELECT COUNT(*) FROM hky_games WHERE id IN ({','.join(['%s']*len(to_delete))})",
-                    to_delete,
+                    f"""
+                    SELECT DISTINCT team1_id AS tid FROM hky_games WHERE team1_id IN ({q2})
+                    UNION
+                    SELECT DISTINCT team2_id AS tid FROM hky_games WHERE team2_id IN ({q2})
+                    """,
+                    eligible * 2,
                 )
-                stats["hky_games"] = int((cur.fetchone() or [0])[0])
-                cur.execute(
-                    f"DELETE FROM hky_games WHERE id IN ({','.join(['%s']*len(to_delete))})",
-                    to_delete,
-                )
-        # teams in this league
-        cur.execute("SELECT DISTINCT team_id FROM league_teams WHERE league_id=%s", (league_id,))
-        team_ids = [int(r[0]) for r in cur.fetchall() or []]
-        if team_ids:
-            # delete league team mappings for this league
-            cur.execute("SELECT COUNT(*) FROM league_teams WHERE league_id=%s", (league_id,))
-            stats["league_teams"] = int((cur.fetchone() or [0])[0])
-            cur.execute("DELETE FROM league_teams WHERE league_id=%s", (league_id,))
-            # delete players for teams in this league
-            cur.execute(
-                f"SELECT COUNT(*) FROM players WHERE team_id IN ({','.join(['%s']*len(team_ids))})",
-                team_ids,
-            )
-            stats["players"] = int((cur.fetchone() or [0])[0])
-            cur.execute(
-                f"DELETE FROM players WHERE team_id IN ({','.join(['%s']*len(team_ids))})",
-                team_ids,
-            )
-            # delete teams that are not used by other leagues and not referenced by remaining games
-            cur.execute(
-                f"SELECT DISTINCT team_id FROM league_teams WHERE team_id IN ({','.join(['%s']*len(team_ids))})",
-                team_ids,
-            )
-            still_mapped = {int(r[0]) for r in cur.fetchall() or []}
-            # teams used in games
-            ref_counts = {}
-            for tid in team_ids:
-                cur.execute(
-                    "SELECT COUNT(*) FROM hky_games WHERE team1_id=%s OR team2_id=%s", (tid, tid)
-                )
-                ref_counts[tid] = int((cur.fetchone() or [0])[0])
-            to_delete_teams = [
-                tid for tid in team_ids if tid not in still_mapped and ref_counts.get(tid, 0) == 0
-            ]
-            if to_delete_teams:
-                cur.execute(
-                    f"SELECT COUNT(*) FROM teams WHERE id IN ({','.join(['%s']*len(to_delete_teams))})",
-                    to_delete_teams,
-                )
-                stats["teams"] = int((cur.fetchone() or [0])[0])
-                cur.execute(
-                    f"DELETE FROM teams WHERE id IN ({','.join(['%s']*len(to_delete_teams))})",
-                    to_delete_teams,
-                )
+                still_used = {int(r[0]) for r in (cur.fetchall() or [])}
+                safe_team_ids = sorted([tid for tid in eligible if tid not in still_used])
+                if safe_team_ids:
+                    q3 = ",".join(["%s"] * len(safe_team_ids))
+                    cur.execute(f"SELECT COUNT(*) FROM players WHERE team_id IN ({q3})", safe_team_ids)
+                    stats["players"] = int((cur.fetchone() or [0])[0])
+                    cur.execute(f"SELECT COUNT(*) FROM teams WHERE id IN ({q3})", safe_team_ids)
+                    stats["teams"] = int((cur.fetchone() or [0])[0])
+                    cur.execute(f"DELETE FROM teams WHERE id IN ({q3})", safe_team_ids)
     conn.commit()
     return stats
 
@@ -149,6 +133,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     ap.add_argument("--config", default="/opt/hm-webapp/app/config.json")
     ap.add_argument("--force", action="store_true", help="Do not prompt for confirmation")
+    ap.add_argument("--yes", "-y", action="store_true", help="Alias for --force")
+    ap.add_argument("--webapp-url", default=None, help="If set, reset via webapp REST API (e.g. http://127.0.0.1:8008)")
+    ap.add_argument("--webapp-token", default=None, help="Optional import token (sent as X-HM-Import-Token)")
+    ap.add_argument("--webapp-owner-email", default=None, help="League owner email for REST mode")
     ap.add_argument(
         "--league-id", type=int, default=None, help="Only wipe data associated to this league id"
     )
@@ -156,6 +144,48 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--league-name", default=None, help="Only wipe data associated to this league name"
     )
     args = ap.parse_args(argv)
+    force = bool(args.force or args.yes)
+
+    if args.webapp_url:
+        if not args.league_name:
+            print("Error: --webapp-url requires --league-name.", file=sys.stderr)
+            return 2
+        if not args.webapp_owner_email:
+            print("Error: --webapp-url requires --webapp-owner-email.", file=sys.stderr)
+            return 2
+
+        scope = f"league_name={args.league_name}"
+        if not force:
+            ans = input(f"This will reset hockey data for {scope} via REST. Type RESET to continue: ").strip()
+            if ans != "RESET":
+                print("Aborted.")
+                return 1
+
+        import requests
+
+        base = str(args.webapp_url).rstrip("/") + "/"
+        url = urljoin(base, "api/internal/reset_league_data")
+        headers = {}
+        if args.webapp_token:
+            headers["X-HM-Import-Token"] = str(args.webapp_token)
+        r = requests.post(
+            url,
+            json={"owner_email": str(args.webapp_owner_email).strip(), "league_name": str(args.league_name).strip()},
+            headers=headers,
+            timeout=120,
+        )
+        if r.status_code != 200:
+            print(f"[!] REST reset failed: {r.status_code} {r.text}", file=sys.stderr)
+            if r.status_code == 404:
+                print(
+                    "[!] Hint: the webapp at --webapp-url does not have /api/internal/reset_league_data. "
+                    "If you recently updated the webapp code, restart the running gunicorn/service "
+                    "(and ensure nothing else is already listening on that port).",
+                    file=sys.stderr,
+                )
+            return 3
+        print(json.dumps(r.json(), indent=2, sort_keys=True))
+        return 0
 
     db_cfg = load_db_cfg(args.config)
     conn = connect_pymysql(db_cfg)
@@ -172,7 +202,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             league_id = int(row[0])
 
     scope = f"league_id={league_id}" if league_id else "ALL"
-    if not args.force:
+    if not force:
         ans = input(
             f"This will wipe teams/players/hky games/stats for {scope}. Type RESET to continue: "
         ).strip()
