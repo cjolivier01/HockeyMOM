@@ -225,7 +225,7 @@ aspen:
       depends: [
         tracker, 
         camera_controller,
-        # pose,
+        # pose,  # Uncomment to see pose drawn on the main image, but this has aperformance cost in that it can't run pose in parallel to play tracking
       ]
       enabled: true
       params:
