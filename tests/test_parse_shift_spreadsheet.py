@@ -868,6 +868,33 @@ def should_parse_file_list_inline_meta_after_side_suffix(tmp_path: Path):
     assert meta.get("home_team") == "Reston Renegades 12AA"
 
 
+def should_build_webapp_logo_payload_from_meta_path_and_base64(tmp_path: Path, capsys):
+    # Minimal valid PNG header + chunk (not a full image, but enough for sniffing).
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    logo_path = tmp_path / "logo.png"
+    logo_path.write_bytes(png_bytes)
+
+    meta = {"home_logo": str(logo_path)}
+    fields = pss._load_logo_fields_from_meta(meta, base_dir=None, warn_label="test")
+    assert "home_logo_b64" in fields
+    assert fields.get("home_logo_content_type") == "image/png"
+    assert "away_logo_b64" not in fields
+
+    # Missing path should only warn, not error.
+    meta2 = {"away_logo": str(tmp_path / "missing.png")}
+    fields2 = pss._load_logo_fields_from_meta(meta2, base_dir=None, warn_label="test2")
+    assert fields2 == {}
+    err = capsys.readouterr().err
+    assert "away_logo path does not exist" in err
+
+    # Base64 path (with optional content type).
+    b64 = fields["home_logo_b64"]
+    meta3 = {"away_logo_base64": b64, "away_logo_content_type": "image/png"}
+    fields3 = pss._load_logo_fields_from_meta(meta3, base_dir=None, warn_label="test3")
+    assert fields3.get("away_logo_b64") == b64
+    assert fields3.get("away_logo_content_type") == "image/png"
+
+
 if __name__ == "__main__":
     # Make `bazel test //tests:test_parse_shift_spreadsheet` run pytest collection.
     raise SystemExit(

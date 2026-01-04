@@ -58,6 +58,16 @@ body {
 .btn.secondary { background: #1c212c; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #101114; }
 
+/* In tables (white background), render "secondary" buttons as slightly darker than the row background. */
+table a.btn.secondary, table button.btn.secondary {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.14);
+  color: var(--table-text);
+}
+table a.btn.secondary:hover, table button.btn.secondary:hover {
+  background: rgba(0, 0, 0, 0.09);
+}
+
 .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
 .card h3 { margin: 0 0 .5rem; }

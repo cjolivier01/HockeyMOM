@@ -34,6 +34,7 @@ Example:
 """
 
 import argparse
+import base64
 import datetime
 import os
 import re
@@ -209,6 +210,139 @@ def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
             continue
         groups.setdefault(lab, []).append(idx)
     return groups
+
+
+def _sniff_image_content_type(data: bytes) -> Optional[str]:
+    if not data:
+        return None
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "image/gif"
+    if len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    head = data[:2048].lstrip()
+    if head.startswith(b"<?xml") or head.lower().startswith(b"<svg") or b"<svg" in head.lower():
+        return "image/svg+xml"
+    return None
+
+
+def _content_type_from_ext(path: Path) -> Optional[str]:
+    ext = path.suffix.lower()
+    if ext == ".png":
+        return "image/png"
+    if ext in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if ext == ".gif":
+        return "image/gif"
+    if ext == ".webp":
+        return "image/webp"
+    if ext == ".svg":
+        return "image/svg+xml"
+    return None
+
+
+def _normalize_logo_b64(s: str) -> str:
+    ss = str(s or "").strip()
+    m = re.match(r"(?is)^data:[^;]+;base64,(.+)$", ss)
+    if m:
+        ss = m.group(1).strip()
+    return re.sub(r"\s+", "", ss)
+
+
+def _load_logo_fields_from_meta(
+    meta: Dict[str, str],
+    *,
+    base_dir: Optional[Path] = None,
+    warn_label: str = "",
+) -> Dict[str, str]:
+    """
+    Build webapp shift_package logo fields from per-game metadata.
+
+    Supports either:
+      - home_logo=/path/to/image.png
+      - home_logo_base64=<base64>
+      - home_logo_content_type=image/png  (optional; otherwise guessed)
+    and same for away_*.
+
+    Missing files are warnings (non-fatal).
+    """
+
+    def _warn(msg: str) -> None:
+        if not msg:
+            return
+        prefix = f"[warning]{' [' + warn_label + ']' if warn_label else ''}"
+        print(f"{prefix} {msg}", file=sys.stderr)
+
+    def _resolve_path(p: str) -> Path:
+        pp = Path(str(p)).expanduser()
+        if base_dir is not None and not pp.is_absolute():
+            pp = (Path(base_dir) / pp).resolve()
+        return pp
+
+    def _one_side(side: str) -> Dict[str, str]:
+        out: Dict[str, str] = {}
+        side_l = str(side).strip().lower()
+        if side_l not in {"home", "away"}:
+            return out
+
+        b64_key = f"{side_l}_logo_base64"
+        path_key = f"{side_l}_logo"
+        ct_key = f"{side_l}_logo_content_type"
+
+        b64_raw = str(meta.get(b64_key) or "").strip()
+        path_raw = str(meta.get(path_key) or "").strip()
+        ct_raw = str(meta.get(ct_key) or "").strip()
+
+        if b64_raw:
+            b64_norm = _normalize_logo_b64(b64_raw)
+            out[f"{side_l}_logo_b64"] = b64_norm
+            if ct_raw:
+                out[f"{side_l}_logo_content_type"] = ct_raw
+                return out
+            try:
+                data = base64.b64decode(b64_norm.encode("ascii"), validate=False)
+            except Exception:
+                data = b""
+            out[f"{side_l}_logo_content_type"] = _sniff_image_content_type(data) or "image/png"
+            return out
+
+        if not path_raw:
+            return out
+
+        logo_path = _resolve_path(path_raw)
+        if not logo_path.exists():
+            _warn(f"{side_l}_logo path does not exist: {logo_path}")
+            return out
+        if not logo_path.is_file():
+            _warn(f"{side_l}_logo path is not a file: {logo_path}")
+            return out
+
+        try:
+            data = logo_path.read_bytes()
+        except Exception as e:  # noqa: BLE001
+            _warn(f"failed to read {side_l}_logo file {logo_path}: {e}")
+            return out
+
+        if not data:
+            _warn(f"{side_l}_logo file is empty: {logo_path}")
+            return out
+        if len(data) > 5 * 1024 * 1024:
+            _warn(f"{side_l}_logo file too large (>5MB), skipping: {logo_path}")
+            return out
+
+        out[f"{side_l}_logo_b64"] = base64.b64encode(data).decode("ascii")
+        out[f"{side_l}_logo_content_type"] = (
+            ct_raw or _content_type_from_ext(logo_path) or _sniff_image_content_type(data) or "image/png"
+        )
+        return out
+
+    out_all: Dict[str, str] = {}
+    out_all.update(_one_side("home"))
+    out_all.update(_one_side("away"))
+    return out_all
 
 
 def _normalize_header_label(label: str) -> str:
@@ -6914,7 +7048,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Path to a text file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
         "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
         "You can append ':HOME' or ':AWAY' per line. "
-        "You can also append metadata like '|key=value' (e.g. owner_email/league/home_team/away_team/division) for webapp upload. "
+        "You can also append metadata like '|key=value' (e.g. owner_email/league/home_team/away_team/division/home_logo/away_logo) for webapp upload. "
         "Lines may also be 't2s=<game_id>[:HOME|AWAY][:game_label]' to process a TimeToScore-only game with no spreadsheets.",
     )
     p.add_argument(
@@ -7060,6 +7194,10 @@ def _upload_shift_package_to_webapp(
     team_side: Optional[str] = None,
     home_team_name: Optional[str] = None,
     away_team_name: Optional[str] = None,
+    home_logo_b64: Optional[str] = None,
+    home_logo_content_type: Optional[str] = None,
+    away_logo_b64: Optional[str] = None,
+    away_logo_content_type: Optional[str] = None,
     create_missing_players: bool = False,
 ) -> None:
     try:
@@ -7104,6 +7242,14 @@ def _upload_shift_package_to_webapp(
         payload["home_team_name"] = str(home_team_name)
     if away_team_name:
         payload["away_team_name"] = str(away_team_name)
+    if home_logo_b64:
+        payload["home_logo_b64"] = str(home_logo_b64)
+    if home_logo_content_type:
+        payload["home_logo_content_type"] = str(home_logo_content_type)
+    if away_logo_b64:
+        payload["away_logo_b64"] = str(away_logo_b64)
+    if away_logo_content_type:
+        payload["away_logo_content_type"] = str(away_logo_content_type)
     if create_missing_players:
         payload["create_missing_players"] = True
     headers: Dict[str, str] = {}
@@ -7727,6 +7873,12 @@ def main() -> None:
 
             external_home = _meta("home_team", "home_team_name", "home")
             external_away = _meta("away_team", "away_team_name", "away")
+            file_list_base_dir: Optional[Path] = None
+            try:
+                file_list_base_dir = args.file_list.expanduser().resolve().parent if args.file_list else None
+            except Exception:
+                file_list_base_dir = None
+            logo_fields = _load_logo_fields_from_meta(meta, base_dir=file_list_base_dir, warn_label=str(label or ""))
 
             try:
                 print(f"[webapp] Uploading {idx + 1}/{len(groups)}: {label}")
@@ -7748,6 +7900,10 @@ def main() -> None:
                         division_name=division_name,
                         sort_order=sort_order,
                         team_side=team_side,
+                        home_logo_b64=logo_fields.get("home_logo_b64"),
+                        home_logo_content_type=logo_fields.get("home_logo_content_type"),
+                        away_logo_b64=logo_fields.get("away_logo_b64"),
+                        away_logo_content_type=logo_fields.get("away_logo_content_type"),
                         create_missing_players=False,
                     )
                     upload_ok += 1
@@ -7787,6 +7943,10 @@ def main() -> None:
                             team_side=team_side,
                             home_team_name=external_home,
                             away_team_name=external_away,
+                            home_logo_b64=logo_fields.get("home_logo_b64"),
+                            home_logo_content_type=logo_fields.get("home_logo_content_type"),
+                            away_logo_b64=logo_fields.get("away_logo_b64"),
+                            away_logo_content_type=logo_fields.get("away_logo_content_type"),
                             create_missing_players=True,
                         )
                         upload_ok += 1
