@@ -542,7 +542,7 @@ def get_best_resize_mode(
                 # Maybe you have a one-off match error somewhere
                 # causing an expensive resize?
                 logger.warning(
-                    "PERF WARNING: Almost trival resize from %dx%d -> %dx%d",
+                    "PERF WARNING: Almost trivial resize from %dx%d -> %dx%d",
                     w1,
                     h1,
                     w2,
