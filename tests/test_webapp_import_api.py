@@ -503,6 +503,20 @@ class FakeCursor:
             return 1
 
         # Player stats
+        if q.startswith("INSERT INTO player_stats(user_id, team_id, game_id, player_id) VALUES"):
+            user_id, team_id, game_id, player_id = p
+            key = (int(game_id), int(player_id))
+            if key not in self._conn.player_stats:
+                self._conn.player_stats[key] = {
+                    "user_id": int(user_id),
+                    "team_id": int(team_id),
+                    "game_id": int(game_id),
+                    "player_id": int(player_id),
+                    "goals": None,
+                    "assists": None,
+                }
+            return 1
+
         if q.startswith("INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists) VALUES"):
             user_id, team_id, game_id, player_id, goals, assists = p
             key = (int(game_id), int(player_id))

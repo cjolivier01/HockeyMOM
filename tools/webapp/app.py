@@ -2876,6 +2876,17 @@ def create_app() -> Flask:
                 (int(league_id), team_id, team_id),
             )
             schedule_games = cur.fetchall() or []
+        now_dt = dt.datetime.now()
+        for g2 in schedule_games:
+            sdt = g2.get("starts_at")
+            started = False
+            if sdt is not None:
+                try:
+                    started = _to_dt(sdt) is not None and _to_dt(sdt) <= now_dt
+                except Exception:
+                    started = False
+            has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
+            g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
 
         cols_sql = ", ".join([f"ps.{c}" for c in PLAYER_STATS_SUM_KEYS])
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
@@ -3000,7 +3011,9 @@ def create_app() -> Flask:
                 except Exception:
                     started = False
             has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
-            g2["can_view_summary"] = True
+            # Hide game pages for future scheduled games that have not started and have no score yet.
+            # If starts_at is missing (common for imported games), allow viewing.
+            g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
             g2["can_edit"] = False
         return render_template(
             "schedule.html",
@@ -3031,6 +3044,18 @@ def create_app() -> Flask:
             )
             game = cur.fetchone()
         if not game:
+            return ("Not found", 404)
+        now_dt = dt.datetime.now()
+        sdt = game.get("starts_at")
+        started = False
+        if sdt is not None:
+            try:
+                started = _to_dt(sdt) is not None and _to_dt(sdt) <= now_dt
+            except Exception:
+                started = False
+        has_score = (game.get("team1_score") is not None) or (game.get("team2_score") is not None) or bool(game.get("is_final"))
+        can_view_summary = bool(has_score or (sdt is None) or started)
+        if not can_view_summary:
             return ("Not found", 404)
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute("SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC", (game["team1_id"],))
@@ -3280,6 +3305,17 @@ def create_app() -> Flask:
                     (int(league_id), team_id, team_id),
                 )
                 schedule_games = cur.fetchall() or []
+            now_dt = dt.datetime.now()
+            for g2 in schedule_games:
+                sdt = g2.get("starts_at")
+                started = False
+                if sdt is not None:
+                    try:
+                        started = _to_dt(sdt) is not None and _to_dt(sdt) <= now_dt
+                    except Exception:
+                        started = False
+                has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
+                g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
 
             cols_sql = ", ".join([f"ps.{c}" for c in PLAYER_STATS_SUM_KEYS])
             with g.db.cursor(pymysql.cursors.DictCursor) as cur:
@@ -3309,6 +3345,17 @@ def create_app() -> Flask:
                     (team_owner_id, team_id, team_id),
                 )
                 schedule_games = cur.fetchall() or []
+            now_dt = dt.datetime.now()
+            for g2 in schedule_games:
+                sdt = g2.get("starts_at")
+                started = False
+                if sdt is not None:
+                    try:
+                        started = _to_dt(sdt) is not None and _to_dt(sdt) <= now_dt
+                    except Exception:
+                        started = False
+                has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
+                g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
             cols_sql = ", ".join([str(c) for c in PLAYER_STATS_SUM_KEYS])
             with g.db.cursor(pymysql.cursors.DictCursor) as cur:
                 cur.execute(
@@ -3576,8 +3623,9 @@ def create_app() -> Flask:
                 except Exception:
                     started = False
             has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
-            # Always allow opening the game summary; many imported games have no starts_at.
-            g2["can_view_summary"] = True
+            # Hide game pages for future scheduled games that have not started and have no score yet.
+            # If starts_at is missing (common for imported games), allow viewing.
+            g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
             # Editing is gated to owners or league admins; UI still defaults to read-only unless Edit is clicked.
             try:
                 g2["can_edit"] = bool(int(g2.get("user_id") or 0) == int(session["user_id"]) or is_league_admin)
@@ -3922,6 +3970,18 @@ def create_app() -> Flask:
         if not game:
             flash("Not found", "error")
             return redirect(url_for("schedule"))
+        now_dt = dt.datetime.now()
+        sdt = game.get("starts_at")
+        started = False
+        if sdt is not None:
+            try:
+                started = _to_dt(sdt) is not None and _to_dt(sdt) <= now_dt
+            except Exception:
+                started = False
+        has_score = (game.get("team1_score") is not None) or (game.get("team2_score") is not None) or bool(game.get("is_final"))
+        can_view_summary = bool(has_score or (sdt is None) or started)
+        if not can_view_summary:
+            return ("Not found", 404)
         is_owner = int(game.get("user_id") or 0) == int(session["user_id"])
 
         # Authorization: editing requires ownership or league admin/owner.

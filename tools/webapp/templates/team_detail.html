@@ -58,7 +58,10 @@
               <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_date }}</td>
               <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_time }}</td>
               <td>
-                <a href="{{ base }}/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
+                {% set game_href = base ~ '/hky/games/' ~ g['id'] %}
+                {% if g.get('can_view_summary', True) %}
+                  <a href="{{ game_href }}" style="text-decoration:none;color:inherit;">
+                {% endif %}
                 {% set s1 = g.get('team1_score') %}
                 {% set s2 = g.get('team2_score') %}
                 {% set has_score = (s1 is not none and s2 is not none) %}
@@ -79,9 +82,11 @@
                     {% else %}
                       <span>{{ g.get('team2_name') or '' }}</span>
                     {% endif %}
-                  </span>
+	                  </span>
                 </span>
-                </a>
+                {% if g.get('can_view_summary', True) %}
+                  </a>
+                {% endif %}
               </td>
               {% set gt = g.get('game_type_name') %}
               {% if not gt and (g.get('division_name') or '')|lower == 'external' %}
@@ -97,10 +102,14 @@
                 {% endif %}
               </td>
               <td>
-                {% if public_league_id is defined %}
-                  <a class="btn" href="{{ base }}/hky/games/{{ g['id'] }}">View</a>
+                {% if g.get('can_view_summary', True) %}
+                  {% if public_league_id is defined %}
+                    <a class="btn" href="{{ game_href }}">View</a>
+                  {% else %}
+                    <a class="btn" href="{{ game_href }}">Edit</a>
+                  {% endif %}
                 {% else %}
-                  <a class="btn" href="/hky/games/{{ g['id'] }}">Edit</a>
+                  <span class="muted">—</span>
                 {% endif %}
               </td>
             </tr>

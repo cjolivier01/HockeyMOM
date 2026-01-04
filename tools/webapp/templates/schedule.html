@@ -67,9 +67,12 @@
         <td class="nowrap">{{ (g['starts_at'] or '')|fmt_time }}</td>
       <td>
         {% if public_league_id is defined %}
-          <a href="{{ base }}/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
+          {% set game_href = base ~ '/hky/games/' ~ g['id'] %}
         {% else %}
-          <a href="/hky/games/{{ g['id'] }}" style="text-decoration:none;color:inherit;">
+          {% set game_href = '/hky/games/' ~ g['id'] %}
+        {% endif %}
+        {% if g.get('can_view_summary') %}
+          <a href="{{ game_href }}" style="text-decoration:none;color:inherit;">
         {% endif %}
         {% set s1 = g.get('team1_score') %}
         {% set s2 = g.get('team2_score') %}
@@ -93,7 +96,9 @@
             {% endif %}
           </span>
         </span>
-        </a>
+        {% if g.get('can_view_summary') %}
+          </a>
+        {% endif %}
       </td>
       {% set gt = g.get('game_type_name') %}
       {% if not gt and (g.get('division_name') or '')|lower == 'external' %}
@@ -103,14 +108,18 @@
       <td>{{ g['location'] or '' }}</td>
       <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td>
-        {% if public_league_id is defined %}
-          <a class="btn" href="{{ base }}/hky/games/{{ g['id'] }}">View</a>
-        {% else %}
-          {% if g.get('can_edit') %}
-            <a class="btn" href="/hky/games/{{ g['id'] }}?edit=1">Edit</a>
+        {% if g.get('can_view_summary') %}
+          {% if public_league_id is defined %}
+            <a class="btn" href="{{ game_href }}">View</a>
           {% else %}
-            <a class="btn" href="/hky/games/{{ g['id'] }}">View</a>
+            {% if g.get('can_edit') %}
+              <a class="btn" href="{{ game_href }}?edit=1">Edit</a>
+            {% else %}
+              <a class="btn" href="{{ game_href }}">View</a>
+            {% endif %}
           {% endif %}
+        {% else %}
+          <span class="muted">—</span>
         {% endif %}
       </td>
       </tr>

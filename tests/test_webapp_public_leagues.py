@@ -51,8 +51,25 @@ class FakeConn:
                 "created_at": "2026-01-01 00:00:00",
                 "updated_at": None,
             }
+            ,
+            1002: {
+                "id": 1002,
+                "user_id": 10,
+                "team1_id": 101,
+                "team2_id": 102,
+                "starts_at": "2099-01-01 10:00:00",
+                "location": "Future Rink",
+                "team1_score": None,
+                "team2_score": None,
+                "is_final": 0,
+                "created_at": "2026-01-01 00:00:00",
+                "updated_at": None,
+            },
         }
-        self.league_games = [{"league_id": 1, "game_id": 1001, "division_name": "10 B West"}]
+        self.league_games = [
+            {"league_id": 1, "game_id": 1001, "division_name": "10 B West"},
+            {"league_id": 1, "game_id": 1002, "division_name": "10 B West"},
+        ]
         self.player_stats = [{"game_id": 1001, "player_id": 501, "goals": 1, "assists": 0}]
 
     def cursor(self, cursorclass: Any = None):
@@ -263,6 +280,12 @@ def should_allow_public_league_teams_schedule_and_game_pages_without_login(clien
     r3 = client.get("/public/leagues/1/hky/games/1001")
     assert r3.status_code == 200
     assert "Team A" in r3.get_data(as_text=True)
+
+
+def should_hide_future_unplayed_game_pages_in_public_schedule(client):
+    html = client.get("/public/leagues/1/schedule").get_data(as_text=True)
+    assert "/public/leagues/1/hky/games/1002" not in html
+    assert client.get("/public/leagues/1/hky/games/1002").status_code == 404
 
 
 def should_reject_private_league_public_routes(client):
