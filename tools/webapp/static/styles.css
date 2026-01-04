@@ -119,6 +119,10 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 /* Allow newline rendering inside specific cells even in nowrap tables */
 td.cell-pre { white-space: pre-line !important; }
 
+/* Tables that should never wrap cell content (used with JS fit scaling). */
+.table-never-wrap th, .table-never-wrap td { white-space: nowrap !important; }
+.table-never-wrap td { overflow-wrap: normal !important; word-break: normal !important; }
+
 /* Freeze left columns (JS sets left offsets; CSS provides layering + row-matched backgrounds) */
 th.sticky-col, td.sticky-col { position: sticky; left: 0; z-index: 3; }
 thead th.sticky-col { background: var(--thead-bg); z-index: 6; }
@@ -135,7 +139,7 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 .spacer { height: 1rem; }
 
 /* Mobile: tables should scroll horizontally instead of wrapping each cell into unreadable columns. */
-@media (max-width: 720px) {
+@media (max-width: 720px), (pointer: coarse) and (max-width: 980px) {
   body { font-size: 14px; }
   .container { padding: .75rem; }
   .nav-wrap { padding: .6rem .85rem; }
@@ -158,6 +162,22 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   }
   table th, table td { white-space: nowrap; }
   table td { overflow-wrap: normal; word-break: normal; }
+
+  /* Additionally scale down scrollable tables based on JS-computed --mobile-table-scale. */
+  table.table-mobile-scale th,
+  table.table-mobile-scale td {
+    font-size: calc(.84rem * var(--mobile-table-scale, 1));
+    padding: calc(.5rem * var(--mobile-table-scale, 1)) calc(.55rem * var(--mobile-table-scale, 1));
+  }
+  table.table-mobile-scale img {
+    width: calc(22px * var(--mobile-table-scale, 1)) !important;
+    height: calc(22px * var(--mobile-table-scale, 1)) !important;
+  }
+  table.table-mobile-scale a.btn,
+  table.table-mobile-scale button.btn {
+    font-size: calc(.92rem * var(--mobile-table-scale, 1));
+    padding: calc(.42rem * var(--mobile-table-scale, 1)) calc(.6rem * var(--mobile-table-scale, 1));
+  }
 
   /* Opt-out for small tables that should fit on mobile without scrolling. */
   table.table-no-scroll-mobile {

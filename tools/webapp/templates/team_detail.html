@@ -39,14 +39,15 @@
   <h3 style="margin-top:1.25rem;">Schedule</h3>
   <div class="card">
     {% set show_division = (schedule_games and schedule_games[0].get('division_name') is not none) %}
-    <div style="overflow-x:auto;">
-          <table>
+    <div>
+          <table class="table-no-scroll-mobile table-fit-always table-never-wrap">
             <thead>
               <tr>
                 {% if show_division %}<th>Division</th>{% endif %}
                 <th class="nowrap">Date</th>
                 <th class="nowrap">Time</th>
-                <th>Matchup</th>
+                <th>Away</th>
+                <th>Home</th>
                 <th>Type</th>
                 <th>Location</th>
                 <th>Score</th>
@@ -60,36 +61,33 @@
               {% if show_division %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
               <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_date }}</td>
               <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_time }}</td>
+              {% set game_href = base ~ '/hky/games/' ~ g['id'] ~ return_to_q %}
+              {% set s1 = g.get('team1_score') %}
+              {% set s2 = g.get('team2_score') %}
+              {% set has_score = (s1 is not none and s2 is not none) %}
               <td>
-                {% set game_href = base ~ '/hky/games/' ~ g['id'] ~ return_to_q %}
-                {% if g.get('can_view_summary', True) %}
-                  <a href="{{ game_href }}" style="text-decoration:none;color:inherit;">
-                {% endif %}
-                {% set s1 = g.get('team1_score') %}
-                {% set s2 = g.get('team2_score') %}
-                {% set has_score = (s1 is not none and s2 is not none) %}
-                <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                  <span style="display:inline-flex;align-items:center;gap:6px;">
-                    <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-                    {% if has_score and s1 > s2 %}
-                      <strong>{{ g.get('team1_name') or '' }}</strong>
-                    {% else %}
-                      <span>{{ g.get('team1_name') or '' }}</span>
-                    {% endif %}
-                  </span>
-                  <span class="muted">vs</span>
-                  <span style="display:inline-flex;align-items:center;gap:6px;">
-                    <img src="{{ base }}/media/team_logo/{{ g['team2_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-                    {% if has_score and s2 > s1 %}
-                      <strong>{{ g.get('team2_name') or '' }}</strong>
-                    {% else %}
-                      <span>{{ g.get('team2_name') or '' }}</span>
-                    {% endif %}
-	                  </span>
+                {% if g.get('can_view_summary', True) %}<a href="{{ game_href }}" style="text-decoration:none;color:inherit;">{% endif %}
+                <span style="display:inline-flex;align-items:center;gap:6px;">
+                  <img src="{{ base }}/media/team_logo/{{ g['team2_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+                  {% if has_score and s2 > s1 %}
+                    <strong>{{ g.get('team2_name') or '' }}</strong>
+                  {% else %}
+                    <span>{{ g.get('team2_name') or '' }}</span>
+                  {% endif %}
                 </span>
-                {% if g.get('can_view_summary', True) %}
-                  </a>
-                {% endif %}
+                {% if g.get('can_view_summary', True) %}</a>{% endif %}
+              </td>
+              <td>
+                {% if g.get('can_view_summary', True) %}<a href="{{ game_href }}" style="text-decoration:none;color:inherit;">{% endif %}
+                <span style="display:inline-flex;align-items:center;gap:6px;">
+                  <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+                  {% if has_score and s1 > s2 %}
+                    <strong>{{ g.get('team1_name') or '' }}</strong>
+                  {% else %}
+                    <span>{{ g.get('team1_name') or '' }}</span>
+                  {% endif %}
+                </span>
+                {% if g.get('can_view_summary', True) %}</a>{% endif %}
               </td>
               {% set gt = g.get('game_type_name') %}
               {% if not gt and (g.get('division_name') or '')|lower == 'external' %}

@@ -194,6 +194,18 @@
             return window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
           }
 
+          function shouldFitAlways(table) {
+            if (!table || !table.classList || !table.classList.contains("table-fit-always")) return false;
+            // Apply on mobile + small landscape tablets/phones; avoid shrinking on large desktops.
+            var coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+            return coarse || (window.innerWidth && window.innerWidth <= 980);
+          }
+
+          function isMobileish() {
+            var coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+            return isMobile() || (coarse && (window.innerWidth && window.innerWidth <= 980));
+          }
+
           function ensureWrap(table) {
             if (!table || !table.parentElement) return null;
             if (table.parentElement && table.parentElement.classList && table.parentElement.classList.contains("table-fit-wrap")) {
@@ -245,14 +257,40 @@
             if (raf) window.cancelAnimationFrame(raf);
             raf = window.requestAnimationFrame(function() {
               var mobile = isMobile();
+              var mobileish = isMobileish();
               document.querySelectorAll("table.table-no-scroll-mobile").forEach(function(t) {
                 var wrap = ensureWrap(t);
                 if (!wrap) return;
-                if (!mobile) {
+                var fitAlways = shouldFitAlways(t);
+                if (!mobile && !fitAlways) {
                   resetFit(t, wrap);
                 } else {
                   applyFit(t, wrap);
                 }
+              });
+
+              // For tables that remain horizontally scrollable on mobile, still scale down the
+              // font/padding proportionally (without using transforms) so they remain readable.
+              document.querySelectorAll("table").forEach(function(t) {
+                if (!t || !t.classList) return;
+                if (t.classList.contains("table-no-scroll-mobile")) return; // handled above
+                if (!mobileish) {
+                  t.classList.remove("table-mobile-scale");
+                  try { t.style.removeProperty("--mobile-table-scale"); } catch (e) {}
+                  return;
+                }
+                // Reset scale before measuring.
+                t.classList.add("table-mobile-scale");
+                try { t.style.setProperty("--mobile-table-scale", "1"); } catch (e) {}
+                var parent = t.parentElement;
+                var avail = (parent && parent.clientWidth) ? parent.clientWidth : (t.clientWidth || 0);
+                var needed = t.scrollWidth || 0;
+                if (!avail || !needed) return;
+                var s = avail / needed;
+                if (s > 1) s = 1;
+                var minS = 0.72;
+                if (s < minS) s = minS;
+                try { t.style.setProperty("--mobile-table-scale", String(s)); } catch (e) {}
               });
             });
           }

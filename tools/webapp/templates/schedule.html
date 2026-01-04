@@ -49,13 +49,14 @@
   </div>
 {% endif %}
 
-<table>
+<table class="table-no-scroll-mobile table-fit-always table-never-wrap">
   <thead>
     <tr>
       {% if league_view %}<th>Division</th>{% endif %}
       <th class="nowrap">Date</th>
       <th class="nowrap">Time</th>
-      <th>Matchup</th>
+      <th>Away</th>
+      <th>Home</th>
       <th>Type</th>
       <th>Location</th>
       <th>Score</th>
@@ -69,28 +70,16 @@
         {% if league_view %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
         <td class="nowrap">{{ (g['starts_at'] or '')|fmt_date }}</td>
         <td class="nowrap">{{ (g['starts_at'] or '')|fmt_time }}</td>
-      <td>
         {% if public_league_id is defined %}
           {% set game_href = base ~ '/hky/games/' ~ g['id'] ~ return_to_q %}
         {% else %}
           {% set game_href = '/hky/games/' ~ g['id'] ~ return_to_q %}
         {% endif %}
-        {% if g.get('can_view_summary') %}
-          <a href="{{ game_href }}" style="text-decoration:none;color:inherit;">
-        {% endif %}
         {% set s1 = g.get('team1_score') %}
         {% set s2 = g.get('team2_score') %}
         {% set has_score = (s1 is not none and s2 is not none) %}
-        <span style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <span style="display:inline-flex;align-items:center;gap:6px;">
-            <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-            {% if has_score and s1 > s2 %}
-              <strong>{{ g['team1_name'] }}</strong>
-            {% else %}
-              <span>{{ g['team1_name'] }}</span>
-            {% endif %}
-          </span>
-          <span class="muted">vs</span>
+        <td>
+          {% if g.get('can_view_summary') %}<a href="{{ game_href }}" style="text-decoration:none;color:inherit;">{% endif %}
           <span style="display:inline-flex;align-items:center;gap:6px;">
             <img src="{{ base }}/media/team_logo/{{ g['team2_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
             {% if has_score and s2 > s1 %}
@@ -99,11 +88,20 @@
               <span>{{ g['team2_name'] }}</span>
             {% endif %}
           </span>
-        </span>
-        {% if g.get('can_view_summary') %}
-          </a>
-        {% endif %}
-      </td>
+          {% if g.get('can_view_summary') %}</a>{% endif %}
+        </td>
+        <td>
+          {% if g.get('can_view_summary') %}<a href="{{ game_href }}" style="text-decoration:none;color:inherit;">{% endif %}
+          <span style="display:inline-flex;align-items:center;gap:6px;">
+            <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+            {% if has_score and s1 > s2 %}
+              <strong>{{ g['team1_name'] }}</strong>
+            {% else %}
+              <span>{{ g['team1_name'] }}</span>
+            {% endif %}
+          </span>
+          {% if g.get('can_view_summary') %}</a>{% endif %}
+        </td>
       {% set gt = g.get('game_type_name') %}
       {% if not gt and (g.get('division_name') or '')|lower == 'external' %}
         {% set gt = 'Tournament' %}
@@ -135,7 +133,7 @@
       </td>
       </tr>
     {% else %}
-      <tr><td colspan="{% if league_view %}9{% else %}8{% endif %}" class="muted">No games yet.</td></tr>
+      <tr><td colspan="{% if league_view %}10{% else %}9{% endif %}" class="muted">No games yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>
