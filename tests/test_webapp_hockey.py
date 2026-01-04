@@ -127,6 +127,8 @@ def should_merge_imported_and_db_game_player_stats():
     assert warn is None
     col_ids = [c["id"] for c in cols]
     assert "goals" in col_ids
+    assert "assists" in col_ids
+    assert "shots" in col_ids
     assert cell_text_by_pid[1]["goals"] == "2"
     assert cell_conf_by_pid[1]["goals"] is False
     assert cell_text_by_pid[2]["goals"] == "1"
@@ -138,6 +140,30 @@ def should_merge_imported_and_db_game_player_stats():
     )
     assert cell_text2[1]["goals"] == "1/2"
     assert cell_conf2[1]["goals"] is True
+
+
+def should_build_game_player_stats_table_preserves_unknown_imported_columns():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    players = [
+        {"id": 1, "team_id": 10, "name": "Ethan L Olivier", "jersey_number": "1", "position": "F"},
+    ]
+    stats_by_pid = {1: {"goals": 0, "assists": 0}}
+    imported_csv = (
+        "Jersey #,Player,Goals,Assists,TOI,Shifts\n"
+        "1,Ethan L Olivier,1,0,12:34,18\n"
+    )
+    cols, cell_text_by_pid, _conf, warn = mod.build_game_player_stats_table(
+        players=players, stats_by_pid=stats_by_pid, imported_csv_text=imported_csv
+    )
+    assert warn is None
+    col_ids = [c["id"] for c in cols]
+    assert "toi" in col_ids
+    assert "shifts" in col_ids
+    assert cell_text_by_pid[1]["toi"] == "12:34"
+    assert cell_text_by_pid[1]["shifts"] == "18"
 
 
 def should_compute_team_stats_from_rows():

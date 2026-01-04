@@ -3158,13 +3158,34 @@ def create_app() -> Flask:
                 imported_csv_text=imported_player_stats_csv_text,
             )
         )
+        team1_skaters_sorted = list(team1_skaters)
+        team2_skaters_sorted = list(team2_skaters)
+        try:
+            def _sort_players_for_game(players_in: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                rows = []
+                by_pid = {}
+                for p in players_in:
+                    pid = int(p.get("id"))
+                    cells = (player_stats_cells_by_pid or {}).get(pid, {})
+                    g = _parse_int_from_cell_text(cells.get("goals", ""))
+                    a = _parse_int_from_cell_text(cells.get("assists", ""))
+                    rows.append({"player_id": pid, "name": str(p.get("name") or ""), "goals": g, "assists": a, "points": g + a})
+                    by_pid[pid] = p
+                sorted_rows = sort_players_table_default(rows)
+                return [by_pid[int(r["player_id"])] for r in sorted_rows if int(r["player_id"]) in by_pid]
+
+            team1_skaters_sorted = _sort_players_for_game(team1_skaters_sorted)
+            team2_skaters_sorted = _sort_players_for_game(team2_skaters_sorted)
+        except Exception:
+            team1_skaters_sorted = list(team1_skaters)
+            team2_skaters_sorted = list(team2_skaters)
         return render_template(
             "hky_game_detail.html",
             game=game,
             team1_roster=team1_roster,
             team2_roster=team2_roster,
-            team1_players=team1_skaters,
-            team2_players=team2_skaters,
+            team1_players=team1_skaters_sorted,
+            team2_players=team2_skaters_sorted,
             stats_by_pid=stats_by_pid,
             period_stats_by_pid=period_stats_by_pid,
             game_stats=game_stats,
@@ -4148,6 +4169,27 @@ def create_app() -> Flask:
                 imported_csv_text=imported_player_stats_csv_text,
             )
         )
+        team1_skaters_sorted = list(team1_skaters)
+        team2_skaters_sorted = list(team2_skaters)
+        try:
+            def _sort_players_for_game(players_in: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                rows = []
+                by_pid = {}
+                for p in players_in:
+                    pid = int(p.get("id"))
+                    cells = (player_stats_cells_by_pid or {}).get(pid, {})
+                    g = _parse_int_from_cell_text(cells.get("goals", ""))
+                    a = _parse_int_from_cell_text(cells.get("assists", ""))
+                    rows.append({"player_id": pid, "name": str(p.get("name") or ""), "goals": g, "assists": a, "points": g + a})
+                    by_pid[pid] = p
+                sorted_rows = sort_players_table_default(rows)
+                return [by_pid[int(r["player_id"])] for r in sorted_rows if int(r["player_id"]) in by_pid]
+
+            team1_skaters_sorted = _sort_players_for_game(team1_skaters_sorted)
+            team2_skaters_sorted = _sort_players_for_game(team2_skaters_sorted)
+        except Exception:
+            team1_skaters_sorted = list(team1_skaters)
+            team2_skaters_sorted = list(team2_skaters)
 
         if request.method == "POST" and not edit_mode:
             flash("You do not have permission to edit this game in the selected league.", "error")
@@ -4259,8 +4301,8 @@ def create_app() -> Flask:
             game=game,
             team1_roster=team1_roster,
             team2_roster=team2_roster,
-            team1_players=team1_skaters,
-            team2_players=team2_skaters,
+            team1_players=team1_skaters_sorted,
+            team2_players=team2_skaters_sorted,
             stats_by_pid=stats_by_pid,
             period_stats_by_pid=period_stats_by_pid,
             game_stats=game_stats,
@@ -4976,8 +5018,9 @@ def to_csv_text(headers: list[str], rows: list[dict[str, str]]) -> str:
 
 
 def sanitize_player_stats_csv_for_storage(player_stats_csv: str) -> str:
+    # Store the full CSV so the game page can display the same columns as
+    # scripts/parse_shift_spreadsheet.py generates (including shift/TOI fields).
     headers, rows = parse_events_csv(player_stats_csv)
-    headers, rows = filter_single_game_player_stats_csv(headers, rows)
     return to_csv_text(headers, rows)
 
 
@@ -5441,6 +5484,222 @@ GAME_PLAYER_STATS_COLUMNS: tuple[dict[str, Any], ...] = (
     {"id": "gfga", "label": "GF/GA", "keys": ("gf_counted", "ga_counted")},
 )
 
+_PLAYER_STATS_IDENTITY_HEADERS: frozenset[str] = frozenset(
+    {
+        "player",
+        "name",
+        "jersey #",
+        "jersey",
+        "jersey no",
+        "jersey number",
+        "pos",
+        "position",
+    }
+)
+
+_PLAYER_STATS_HEADER_TO_DB_KEY: dict[str, str] = {
+    "goals": "goals",
+    "assists": "assists",
+    "shots": "shots",
+    "pim": "pim",
+    "hits": "hits",
+    "blocks": "blocks",
+    "faceoff wins": "faceoff_wins",
+    "faceoffs won": "faceoff_wins",
+    "faceoff attempts": "faceoff_attempts",
+    "faceoffs": "faceoff_attempts",
+    "saves": "goalie_saves",
+    "goalie saves": "goalie_saves",
+    "ga": "goalie_ga",
+    "goalie ga": "goalie_ga",
+    "sa": "goalie_sa",
+    "goalie sa": "goalie_sa",
+    "sog": "sog",
+    "xg": "expected_goals",
+    "giveaways": "giveaways",
+    "turnovers (forced)": "turnovers_forced",
+    "created turnovers": "created_turnovers",
+    "takeaways": "takeaways",
+    "controlled entry for (on-ice)": "controlled_entry_for",
+    "controlled entry against (on-ice)": "controlled_entry_against",
+    "controlled exit for (on-ice)": "controlled_exit_for",
+    "controlled exit against (on-ice)": "controlled_exit_against",
+    "gt goals": "gt_goals",
+    "gw goals": "gw_goals",
+    "ot goals": "ot_goals",
+    "ot assists": "ot_assists",
+    "plus minus": "plus_minus",
+    "goal +/-": "plus_minus",
+    "gf counted": "gf_counted",
+    "ga counted": "ga_counted",
+}
+
+
+def _normalize_header_for_lookup(h: str) -> str:
+    return str(h or "").strip().lower()
+
+
+def _normalize_column_id(h: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", str(h or "").strip().lower()).strip("_") or "col"
+    return base
+
+
+def _parse_int_from_cell_text(s: Any) -> int:
+    """
+    Parse integers from a cell like "2", "1/2", "1 / 2", returning max part.
+    """
+    if s is None:
+        return 0
+    ss = str(s).strip()
+    if not ss:
+        return 0
+    parts = [p.strip() for p in re.split(r"\s*/\s*", ss) if p.strip()]
+    out = 0
+    for p in parts:
+        try:
+            out = max(out, int(float(p)))
+        except Exception:
+            continue
+    return out
+
+
+def _build_game_player_stats_table_from_imported_csv(
+    *,
+    players: list[dict[str, Any]],
+    stats_by_pid: dict[int, dict[str, Any]],
+    imported_csv_text: str,
+) -> tuple[list[dict[str, Any]], dict[int, dict[str, str]], dict[int, dict[str, bool]], Optional[str]]:
+    """
+    Display-first per-game table: preserve imported CSV columns (minus identity fields),
+    with optional DB merge/conflict highlighting for known numeric stats.
+    """
+    try:
+        headers, rows = parse_events_csv(imported_csv_text)
+    except Exception as e:  # noqa: BLE001
+        return list(GAME_PLAYER_STATS_COLUMNS), {}, {}, f"Unable to parse imported player_stats_csv: {e}"
+
+    if not headers:
+        return [], {}, {}, "Imported player_stats_csv has no headers"
+
+    team_ids = sorted({int(p.get("team_id") or 0) for p in (players or []) if p.get("team_id") is not None})
+    jersey_to_player_ids: dict[tuple[int, str], list[int]] = {}
+    name_to_player_ids: dict[tuple[int, str], list[int]] = {}
+    for p in (players or []):
+        try:
+            pid = int(p.get("id"))
+            tid = int(p.get("team_id") or 0)
+        except Exception:
+            continue
+        jersey_norm = normalize_jersey_number(p.get("jersey_number"))
+        if jersey_norm:
+            jersey_to_player_ids.setdefault((tid, jersey_norm), []).append(pid)
+        name_norm = normalize_player_name(str(p.get("name") or ""))
+        if name_norm:
+            name_to_player_ids.setdefault((tid, name_norm), []).append(pid)
+
+    def _resolve_player_id(jersey_norm: Optional[str], name_norm: str) -> Optional[int]:
+        candidates: list[int] = []
+        for tid in team_ids:
+            if jersey_norm:
+                candidates.extend(jersey_to_player_ids.get((tid, jersey_norm), []))
+        if len(set(candidates)) == 1:
+            return int(list(set(candidates))[0])
+        candidates = []
+        for tid in team_ids:
+            candidates.extend(name_to_player_ids.get((tid, name_norm), []))
+        if len(set(candidates)) == 1:
+            return int(list(set(candidates))[0])
+        return None
+
+    def _first_non_empty(d: dict[str, str], keys: tuple[str, ...]) -> str:
+        for k in keys:
+            v = str(d.get(k) or "").strip()
+            if v:
+                return v
+        return ""
+
+    imported_row_by_pid: dict[int, dict[str, str]] = {}
+    for r in rows:
+        jersey_raw = _first_non_empty(
+            r,
+            (
+                "Jersey #",
+                "Jersey",
+                "Jersey No",
+                "Jersey Number",
+            ),
+        )
+        jersey_norm = normalize_jersey_number(jersey_raw) if jersey_raw else None
+        player_name = _first_non_empty(r, ("Player", "Name"))
+        name_part = player_name
+        if jersey_norm is None:
+            m = re.match(r"^\s*(\d+)\s+(.*)$", player_name)
+            if m:
+                jersey_norm = normalize_jersey_number(m.group(1))
+                name_part = m.group(2).strip()
+        name_norm = normalize_player_name(name_part)
+        pid = _resolve_player_id(jersey_norm, name_norm)
+        if pid is None:
+            continue
+        imported_row_by_pid[int(pid)] = dict(r)
+
+    # Build columns in imported header order (minus identity headers).
+    columns: list[dict[str, Any]] = []
+    used_ids: set[str] = set()
+    for h in headers:
+        key = _normalize_header_for_lookup(h)
+        if key in _PLAYER_STATS_IDENTITY_HEADERS:
+            continue
+        col_id = _PLAYER_STATS_HEADER_TO_DB_KEY.get(key) or _normalize_column_id(h)
+        if col_id in used_ids:
+            # De-dupe while preserving order.
+            i = 2
+            while f"{col_id}_{i}" in used_ids:
+                i += 1
+            col_id = f"{col_id}_{i}"
+        used_ids.add(col_id)
+        columns.append({"id": col_id, "label": str(h), "header": str(h), "db_key": _PLAYER_STATS_HEADER_TO_DB_KEY.get(key)})
+
+    all_pids = [int(p.get("id")) for p in (players or []) if p.get("id") is not None]
+    cell_text_by_pid: dict[int, dict[str, str]] = {pid: {} for pid in all_pids}
+    cell_conf_by_pid: dict[int, dict[str, bool]] = {pid: {} for pid in all_pids}
+
+    # Populate cells (imported first; merge with DB for known numeric keys).
+    for pid in all_pids:
+        db_row = stats_by_pid.get(pid) or {}
+        imp_row = imported_row_by_pid.get(pid) or {}
+        for col in columns:
+            cid = str(col["id"])
+            header = str(col.get("header") or "")
+            db_key = col.get("db_key")
+            raw_v = str(imp_row.get(header) or "").strip()
+            if db_key:
+                v, s, is_conf = _merge_stat_values(db_row.get(str(db_key)), raw_v)
+                cell_text_by_pid[pid][cid] = s
+                cell_conf_by_pid[pid][cid] = bool(is_conf)
+            else:
+                cell_text_by_pid[pid][cid] = raw_v
+                cell_conf_by_pid[pid][cid] = False
+
+    # Hide columns that are entirely blank, and OT-only columns if all zero/blank.
+    visible: list[dict[str, Any]] = []
+    for col in columns:
+        cid = str(col["id"])
+        label_l = str(col.get("label") or "").strip().lower()
+        vals = [cell_text_by_pid.get(pid, {}).get(cid, "") for pid in all_pids]
+        if all(_is_blank_stat(v) or str(v).strip() == "" for v in vals):
+            continue
+        if label_l.startswith("ot ") or label_l in {"ot goals", "ot assists"}:
+            if all(_is_zero_or_blank_stat(_parse_int_from_cell_text(v)) for v in vals):
+                continue
+        visible.append(col)
+
+    # Rebuild cell dicts to only include visible columns.
+    vis_ids = {str(c["id"]) for c in visible}
+    cell_text_by_pid = {pid: {k: v for k, v in row.items() if k in vis_ids} for pid, row in cell_text_by_pid.items()}
+    cell_conf_by_pid = {pid: {k: v for k, v in row.items() if k in vis_ids} for pid, row in cell_conf_by_pid.items()}
+    return visible, cell_text_by_pid, cell_conf_by_pid, None
+
 
 def _int0(v: Any) -> int:
     try:
@@ -5772,6 +6031,13 @@ def build_game_player_stats_table(
     Build a merged (DB + imported CSV) per-game player stats table.
     Returns: (visible_columns, cell_text_by_pid, cell_conflict_by_pid, imported_parse_warning)
     """
+    if imported_csv_text and str(imported_csv_text).strip():
+        return _build_game_player_stats_table_from_imported_csv(
+            players=players,
+            stats_by_pid=stats_by_pid,
+            imported_csv_text=str(imported_csv_text),
+        )
+
     imported_by_pid, imported_warning = _map_imported_shift_stats_to_player_ids(
         players=players, imported_csv_text=imported_csv_text
     )

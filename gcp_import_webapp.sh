@@ -61,8 +61,7 @@ echo "[i] Importing TimeToScore (caha -> ${LEAGUE_NAME}) via REST"
   --season 0 \
   --api-url "${WEBAPP_URL}" \
   "${TOKEN_ARGS[@]}" \
-  --user-email "${OWNER_EMAIL}" \
-  --division 6:0
+  --user-email "${OWNER_EMAIL}"
 
 echo "[i] Uploading shift spreadsheets via REST"
 ./p scripts/parse_shift_spreadsheet.py \
