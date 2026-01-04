@@ -828,25 +828,28 @@ def create_app() -> Flask:
             is_league_admin=is_league_admin,
         )
 
-    @app.post("/leagues/<int:league_id>/teams/<int:team_id>/recalc_mhr_rating")
-    def league_team_recalc_mhr_rating(league_id: int, team_id: int):
+    @app.post("/leagues/recalc_div_ratings")
+    def leagues_recalc_div_ratings():
         r = require_login()
         if r:
             return r
+        league_id = session.get("league_id")
+        if not league_id:
+            flash("Select an active league first.", "error")
+            return redirect(url_for("leagues_index"))
         if not _is_league_admin(int(league_id), int(session["user_id"])):
             flash("Not authorized", "error")
-            return redirect(url_for("teams"))
-        # Recompute for the entire league (ratings depend on opponents), then return.
+            return redirect(url_for("leagues_index"))
         try:
             recompute_league_mhr_ratings(g.db, int(league_id))
-            flash("MHR-like ratings recalculated", "success")
+            flash("Div Ratings recalculated.", "success")
         except Exception as e:  # noqa: BLE001
             try:
                 g.db.rollback()
             except Exception:
                 pass
-            flash(f"Failed to recalculate ratings: {e}", "error")
-        return redirect(url_for("teams"))
+            flash(f"Failed to recalculate Div Ratings: {e}", "error")
+        return redirect(url_for("leagues_index"))
 
     @app.get("/leagues")
     def leagues_index():

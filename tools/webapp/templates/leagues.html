@@ -2,6 +2,26 @@
 {% block content %}
 <h2>Leagues</h2>
 
+{% set active_league = None %}
+{% if selected_league_id and leagues %}
+  {% for L in leagues %}
+    {% if L.id == selected_league_id %}
+      {% set active_league = L %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{% if active_league and active_league.is_admin %}
+  <div class="card" style="margin-bottom:1rem;">
+    <h3>Active League Actions</h3>
+    <p style="margin:.25rem 0 .75rem 0;"><strong>{{ active_league.name }}</strong></p>
+    <form method="post" action="/leagues/recalc_div_ratings" style="display:inline;">
+      <button class="btn" type="submit">Recalc Div Ratings (All Teams)</button>
+    </form>
+    <p class="muted" style="margin:.75rem 0 0;">Auto-recalculates weekly (Wed 12:00am) once the timer is installed.</p>
+  </div>
+{% endif %}
+
 <div class="card">
   <h3>Your Leagues</h3>
   {% if leagues %}

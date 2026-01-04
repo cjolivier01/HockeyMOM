@@ -75,6 +75,7 @@ def main() -> int:
             "sudo mkdir -p /opt/hm-webapp/app/templates /opt/hm-webapp/app/static; "
             "sudo cp /tmp/hm/tools/webapp/app.py /opt/hm-webapp/app/app.py; "
             "sudo cp /tmp/hm/tools/webapp/hockey_rankings.py /opt/hm-webapp/app/hockey_rankings.py; "
+            "sudo cp /tmp/hm/tools/webapp/recalc_div_ratings.py /opt/hm-webapp/app/recalc_div_ratings.py; "
             "sudo cp -r /tmp/hm/tools/webapp/templates/. /opt/hm-webapp/app/templates/; "
             "sudo cp -r /tmp/hm/tools/webapp/static/. /opt/hm-webapp/app/static/; "
             "sudo chown -R colivier:colivier /opt/hm-webapp/app; "
