@@ -162,6 +162,8 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   /* Opt-out for small tables that should fit on mobile without scrolling. */
   table.table-no-scroll-mobile {
     display: table;
+    width: max-content;
+    max-width: none;
     overflow-x: visible;
     white-space: normal;
   }
@@ -182,8 +184,7 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
     width: 22px !important;
     height: 22px !important;
   }
-  .table-fit-wrap { width: 100%; max-width: 100%; }
-  .col-hide-sm { display: none !important; }
+  .table-fit-wrap { width: 100%; max-width: 100%; overflow: hidden; }
 }
 
 @media (max-width: 420px) {
