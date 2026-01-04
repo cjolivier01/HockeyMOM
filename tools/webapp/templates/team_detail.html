@@ -45,6 +45,7 @@
             <th class="nowrap">Date</th>
             <th class="nowrap">Time</th>
             <th>Matchup</th>
+            <th>Type</th>
             <th>Location</th>
             <th>Score</th>
             <th></th>
@@ -82,6 +83,11 @@
                 </span>
                 </a>
               </td>
+              {% set gt = g.get('game_type_name') %}
+              {% if not gt and (g.get('division_name') or '')|lower == 'external' %}
+                {% set gt = 'Tournament' %}
+              {% endif %}
+              <td>{{ gt or '' }}</td>
               <td>{{ g.get('location') or '' }}</td>
               <td>
                 {% if g.get('team1_score') is not none and g.get('team2_score') is not none %}
@@ -99,7 +105,7 @@
               </td>
             </tr>
           {% else %}
-            <tr><td colspan="{{ 7 if show_division else 6 }}" class="muted">No games yet.</td></tr>
+            <tr><td colspan="{{ 8 if show_division else 7 }}" class="muted">No games yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>

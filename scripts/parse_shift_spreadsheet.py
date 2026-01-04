@@ -4790,6 +4790,20 @@ def _augment_aggregate_with_goal_details(
         row["gw_goals"] = str(t.get("gw_goals", 0))
 
 
+def _count_goal_role_flags(goal_events: List[GoalEvent]) -> Tuple[int, int]:
+    """
+    Returns (gt_goals, gw_goals) for the given list of goal events.
+    """
+    gt = 0
+    gw = 0
+    for ev in goal_events or []:
+        if getattr(ev, "is_game_tying", False):
+            gt += 1
+        if getattr(ev, "is_game_winning", False):
+            gw += 1
+    return gt, gw
+
+
 def _write_consolidated_workbook(
     out_path: Path,
     sheets: List[Tuple[str, pd.DataFrame]],
@@ -6546,6 +6560,16 @@ def process_sheet(
             ot_goals_cnt = 0
             ot_assists_cnt = 0
 
+        # Game-tying / game-winning goals for this game.
+        gt_goals_cnt = 0
+        gw_goals_cnt = 0
+        try:
+            ev_map = per_player_goal_events.get(player_key, {}) or {}
+            gt_goals_cnt, gw_goals_cnt = _count_goal_role_flags(list(ev_map.get("goals") or []))
+        except Exception:
+            gt_goals_cnt = 0
+            gw_goals_cnt = 0
+
         # On-ice for/against metrics for team-level events (e.g., controlled exits)
         on_ice: Dict[str, int] = {
             "controlled_entry_for": 0,
@@ -6690,6 +6714,8 @@ def process_sheet(
             "player": player_key,
             "goals": str(goals_cnt),
             "assists": str(assists_cnt),
+            "gt_goals": str(gt_goals_cnt),
+            "gw_goals": str(gw_goals_cnt),
             "ot_goals": str(ot_goals_cnt),
             "ot_assists": str(ot_assists_cnt),
             "points": str(points_val),
@@ -6978,6 +7004,7 @@ def process_t2s_only_game(
         ot_assists_cnt = sum(
             1 for ev in (ev_map.get("assists") or []) if int(getattr(ev, "period", 0) or 0) >= 4
         )
+        gt_goals_cnt, gw_goals_cnt = _count_goal_role_flags(list(ev_map.get("goals") or []))
 
         # Individual per-player stats file (best-effort, without shift-derived fields).
         try:
@@ -7023,6 +7050,8 @@ def process_t2s_only_game(
             "player": player_key,
             "goals": str(goals_cnt),
             "assists": str(assists_cnt),
+            "gt_goals": str(gt_goals_cnt),
+            "gw_goals": str(gw_goals_cnt),
             "ot_goals": str(ot_goals_cnt),
             "ot_assists": str(ot_assists_cnt),
             "points": str(points_val),

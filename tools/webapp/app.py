@@ -1590,6 +1590,7 @@ def create_app() -> Flask:
             conference_id=conference_id or home_conference_id or away_conference_id,
         )
 
+        roster_player_ids_by_team: dict[int, set[int]] = {int(team1_id): set(), int(team2_id): set()}
         for side_key, tid in (("home", team1_id), ("away", team2_id)):
             roster = game.get(f"{side_key}_roster") or []
             if isinstance(roster, list):
@@ -1601,7 +1602,11 @@ def create_app() -> Flask:
                         continue
                     jersey = str(row.get("number") or "").strip() or None
                     pos = str(row.get("position") or "").strip() or None
-                    _ensure_player_for_import(owner_user_id, tid, nm, jersey, pos)
+                    pid = _ensure_player_for_import(owner_user_id, tid, nm, jersey, pos)
+                    try:
+                        roster_player_ids_by_team[int(tid)].add(int(pid))
+                    except Exception:
+                        pass
 
         def _player_id_by_name(team_id: int, name: str) -> Optional[int]:
             with g.db.cursor() as cur:
@@ -1613,8 +1618,21 @@ def create_app() -> Flask:
                 return int(r[0]) if r else None
 
         stats_rows = game.get("player_stats") or []
-        if isinstance(stats_rows, list):
-            with g.db.cursor() as cur:
+        played = bool(game.get("is_final")) or (t1s is not None and t2s is not None) or (isinstance(stats_rows, list) and bool(stats_rows))
+        with g.db.cursor() as cur:
+            if played:
+                # Credit GP for roster players even when they have no scoring stats in TimeToScore.
+                for tid, pids in roster_player_ids_by_team.items():
+                    for pid in sorted(pids):
+                        cur.execute(
+                            """
+                            INSERT INTO player_stats(user_id, team_id, game_id, player_id)
+                            VALUES(%s,%s,%s,%s)
+                            ON DUPLICATE KEY UPDATE player_id=player_id
+                            """,
+                            (owner_user_id, int(tid), gid, int(pid)),
+                        )
+            if isinstance(stats_rows, list):
                 for srow in stats_rows:
                     if not isinstance(srow, dict):
                         continue
@@ -1658,7 +1676,7 @@ def create_app() -> Flask:
                             """,
                             (owner_user_id, team_ref, gid, pid, gval, aval),
                         )
-            g.db.commit()
+        g.db.commit()
 
         return jsonify(
             {
@@ -1892,6 +1910,7 @@ def create_app() -> Flask:
                     commit=False,
                 )
 
+                roster_player_ids_by_team: dict[int, set[int]] = {int(team1_id): set(), int(team2_id): set()}
                 for side_key, tid in (("home", team1_id), ("away", team2_id)):
                     roster = game.get(f"{side_key}_roster") or []
                     if isinstance(roster, list):
@@ -1903,9 +1922,11 @@ def create_app() -> Flask:
                                 continue
                             jersey = str(row.get("number") or "").strip() or None
                             pos = str(row.get("position") or "").strip() or None
-                            _ensure_player_for_import(
-                                owner_user_id, tid, nm, jersey, pos, commit=False
-                            )
+                            pid = _ensure_player_for_import(owner_user_id, tid, nm, jersey, pos, commit=False)
+                            try:
+                                roster_player_ids_by_team[int(tid)].add(int(pid))
+                            except Exception:
+                                pass
 
                 def _player_id_by_name(team_id: int, name: str) -> Optional[int]:
                     with g.db.cursor() as cur:
@@ -1917,8 +1938,22 @@ def create_app() -> Flask:
                         return int(r[0]) if r else None
 
                 stats_rows = game.get("player_stats") or []
-                if isinstance(stats_rows, list):
-                    with g.db.cursor() as cur:
+                played = bool(game.get("is_final")) or (t1s is not None and t2s is not None) or (
+                    isinstance(stats_rows, list) and bool(stats_rows)
+                )
+                with g.db.cursor() as cur:
+                    if played:
+                        for tid, pids in roster_player_ids_by_team.items():
+                            for pid in sorted(pids):
+                                cur.execute(
+                                    """
+                                    INSERT INTO player_stats(user_id, team_id, game_id, player_id)
+                                    VALUES(%s,%s,%s,%s)
+                                    ON DUPLICATE KEY UPDATE player_id=player_id
+                                    """,
+                                    (owner_user_id, int(tid), gid, int(pid)),
+                                )
+                    if isinstance(stats_rows, list):
                         for srow in stats_rows:
                             if not isinstance(srow, dict):
                                 continue

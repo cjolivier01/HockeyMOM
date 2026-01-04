@@ -186,6 +186,18 @@ def should_compute_player_stats_plus_minus_skips_goal_on_shift_start():
     assert per_period_toi_map == {1: "1:00"}
 
 
+def should_count_goal_role_flags_from_annotated_goals():
+    # Simple game where the 2nd goal ties the game and the 3rd becomes the game-winner.
+    goals = [
+        pss.GoalEvent("GA", 1, "1:00", scorer=9),
+        pss.GoalEvent("GF", 1, "2:00", scorer=12),
+        pss.GoalEvent("GF", 1, "3:00", scorer=12),
+    ]
+    pss._annotate_goal_roles(goals)
+    gt, gw = pss._count_goal_role_flags([g for g in goals if g.kind == "GF" and g.scorer == 12])
+    assert gt == 1
+    assert gw == 1
+
 def should_parse_long_sheet_times_mmss_and_excel_like_cells():
     assert pss._parse_long_mmss_time_to_seconds(datetime.time(23, 56)) == 23 * 60 + 56
     assert pss._parse_long_mmss_time_to_seconds("23:56:00") == 23 * 60 + 56

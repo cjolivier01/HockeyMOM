@@ -95,7 +95,11 @@
         </span>
         </a>
       </td>
-      <td>{{ g['game_type_name'] or '' }}</td>
+      {% set gt = g.get('game_type_name') %}
+      {% if not gt and (g.get('division_name') or '')|lower == 'external' %}
+        {% set gt = 'Tournament' %}
+      {% endif %}
+      <td>{{ gt or '' }}</td>
       <td>{{ g['location'] or '' }}</td>
       <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td>
