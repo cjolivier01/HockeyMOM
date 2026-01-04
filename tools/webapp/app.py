@@ -2892,10 +2892,27 @@ def create_app() -> Flask:
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 f"""
-                SELECT ps.player_id, ps.game_id, {cols_sql}
-                FROM league_games lg JOIN player_stats ps ON lg.game_id=ps.game_id
-                WHERE lg.league_id=%s AND ps.team_id=%s
-                """,
+	                SELECT ps.player_id, ps.game_id, {cols_sql}
+	                FROM league_games lg
+	                  JOIN hky_games g ON lg.game_id=g.id
+	                  JOIN player_stats ps ON lg.game_id=ps.game_id
+	                  LEFT JOIN league_teams lt_self ON lt_self.league_id=lg.league_id AND lt_self.team_id=ps.team_id
+	                  LEFT JOIN league_teams lt_opp ON lt_opp.league_id=lg.league_id AND lt_opp.team_id=(
+	                       CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
+	                  )
+	                  LEFT JOIN teams opp_t ON opp_t.id=(
+	                       CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
+	                  )
+	                WHERE lg.league_id=%s AND ps.team_id=%s
+	                  AND (
+	                    LOWER(COALESCE(lg.division_name,''))='external'
+	                    OR COALESCE(opp_t.is_external,0)=1
+	                    OR lt_opp.division_name IS NULL
+	                    OR LOWER(COALESCE(lt_opp.division_name,''))='external'
+	                    OR lt_self.division_name IS NULL
+	                    OR lt_self.division_name=lt_opp.division_name
+	                  )
+	                """,
                 (int(league_id), team_id),
             )
             ps_rows = cur.fetchall() or []
@@ -3321,10 +3338,27 @@ def create_app() -> Flask:
             with g.db.cursor(pymysql.cursors.DictCursor) as cur:
                 cur.execute(
                     f"""
-                    SELECT ps.player_id, ps.game_id, {cols_sql}
-                    FROM league_games lg JOIN player_stats ps ON lg.game_id=ps.game_id
-                    WHERE lg.league_id=%s AND ps.team_id=%s
-                    """,
+	                    SELECT ps.player_id, ps.game_id, {cols_sql}
+	                    FROM league_games lg
+	                      JOIN hky_games g ON lg.game_id=g.id
+	                      JOIN player_stats ps ON lg.game_id=ps.game_id
+	                      LEFT JOIN league_teams lt_self ON lt_self.league_id=lg.league_id AND lt_self.team_id=ps.team_id
+	                      LEFT JOIN league_teams lt_opp ON lt_opp.league_id=lg.league_id AND lt_opp.team_id=(
+	                           CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
+	                      )
+	                      LEFT JOIN teams opp_t ON opp_t.id=(
+	                           CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
+	                      )
+	                    WHERE lg.league_id=%s AND ps.team_id=%s
+	                      AND (
+	                        LOWER(COALESCE(lg.division_name,''))='external'
+	                        OR COALESCE(opp_t.is_external,0)=1
+	                        OR lt_opp.division_name IS NULL
+	                        OR LOWER(COALESCE(lt_opp.division_name,''))='external'
+	                        OR lt_self.division_name IS NULL
+	                        OR lt_self.division_name=lt_opp.division_name
+	                      )
+	                    """,
                     (int(league_id), team_id),
                 )
                 ps_rows = cur.fetchall() or []
@@ -5454,6 +5488,14 @@ def _classify_roster_role(p: dict[str, Any]) -> Optional[str]:
     Returns "HC", "AC", or "G" when the player dict is clearly a coach/goalie.
     Falls back to None for skaters/unknown.
     """
+    jersey = str(p.get("jersey_number") or "").strip().upper()
+    if jersey in {"HC", "HEAD COACH"}:
+        return "HC"
+    if jersey in {"AC", "ASSISTANT COACH"}:
+        return "AC"
+    if jersey in {"G", "GOALIE", "GOALTENDER"}:
+        return "G"
+
     pos = p.get("position")
     role = _classify_coach_position(pos)
     if role:
@@ -5957,8 +5999,25 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
 	                   COALESCE(SUM(ps.goalie_saves),0) AS goalie_saves,
 	                   COALESCE(SUM(ps.goalie_ga),0) AS goalie_ga,
 	                   COALESCE(SUM(ps.goalie_sa),0) AS goalie_sa
-	            FROM league_games lg JOIN player_stats ps ON lg.game_id=ps.game_id
+	            FROM league_games lg
+	              JOIN hky_games g ON lg.game_id=g.id
+	              JOIN player_stats ps ON lg.game_id=ps.game_id
+	              LEFT JOIN league_teams lt_self ON lt_self.league_id=lg.league_id AND lt_self.team_id=ps.team_id
+	              LEFT JOIN league_teams lt_opp ON lt_opp.league_id=lg.league_id AND lt_opp.team_id=(
+	                   CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
+	              )
+	              LEFT JOIN teams opp_t ON opp_t.id=(
+	                   CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
+	              )
 	            WHERE lg.league_id=%s AND ps.team_id=%s
+	              AND (
+	                LOWER(COALESCE(lg.division_name,''))='external'
+	                OR COALESCE(opp_t.is_external,0)=1
+	                OR lt_opp.division_name IS NULL
+	                OR LOWER(COALESCE(lt_opp.division_name,''))='external'
+	                OR lt_self.division_name IS NULL
+	                OR lt_self.division_name=lt_opp.division_name
+	              )
 	            GROUP BY ps.player_id
             """,
             (league_id, team_id),

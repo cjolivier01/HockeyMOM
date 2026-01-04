@@ -59,12 +59,14 @@ def should_split_roster_separates_coaches_and_goalies():
         {"id": 4, "name": "Asst Coach", "jersey_number": "", "position": "AC"},
         {"id": 5, "name": "HC Jane Doe", "jersey_number": "", "position": ""},
         {"id": 6, "name": "AC John Doe", "jersey_number": "", "position": None},
+        {"id": 7, "name": "Jane Coach", "jersey_number": "HC", "position": ""},
+        {"id": 8, "name": "John Coach", "jersey_number": "AC", "position": ""},
     ]
     skaters, goalies, hcs, acs = mod.split_roster(players)
     assert [p["name"] for p in skaters] == ["Skater A"]
     assert [p["name"] for p in goalies] == ["Goalie"]
-    assert [p["name"] for p in hcs] == ["Head Coach", "HC Jane Doe"]
-    assert [p["name"] for p in acs] == ["Asst Coach", "AC John Doe"]
+    assert [p["name"] for p in hcs] == ["Head Coach", "HC Jane Doe", "Jane Coach"]
+    assert [p["name"] for p in acs] == ["Asst Coach", "AC John Doe", "John Coach"]
 
 
 def should_hide_ot_and_blank_only_team_stat_columns():
