@@ -118,7 +118,7 @@ class VideoStreamWriterInterface:
         raise NotImplementedError("close not implemented")
 
     def isOpened(self) -> bool:
-        raise NotImplementedError("isOpenned not implemented")
+        raise NotImplementedError("isOpened not implemented")
 
 
 def video_size(
