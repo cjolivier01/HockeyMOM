@@ -335,6 +335,17 @@ def should_hide_cross_division_timetoscore_games_from_public_views(client):
     assert "/public/leagues/1/hky/games/1003" not in html
     assert client.get("/public/leagues/1/hky/games/1003").status_code == 404
 
+
+def should_return_to_entry_page_when_viewing_game_from_team_page(client):
+    team_html = client.get("/public/leagues/1/teams/101").get_data(as_text=True)
+    assert "/public/leagues/1/hky/games/1001?return_to=/public/leagues/1/teams/101" in team_html
+
+    game_html = client.get(
+        "/public/leagues/1/hky/games/1001?return_to=/public/leagues/1/teams/101"
+    ).get_data(as_text=True)
+    assert 'href="/public/leagues/1/teams/101"' in game_html
+
+
 def should_reject_private_league_public_routes(client):
     r = client.get("/public/leagues/2/teams")
     assert r.status_code == 404

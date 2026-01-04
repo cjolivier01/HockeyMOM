@@ -187,10 +187,10 @@ def should_build_game_player_stats_table_preserves_unknown_imported_columns():
     )
     assert warn is None
     col_ids = [c["id"] for c in cols]
-    assert "toi" in col_ids
-    assert "shifts" in col_ids
-    assert cell_text_by_pid[1]["toi"] == "12:34"
-    assert cell_text_by_pid[1]["shifts"] == "18"
+    assert "toi" not in col_ids
+    assert "shifts" not in col_ids
+    assert all("toi" not in k for k in cell_text_by_pid[1].keys())
+    assert all("shift" not in k for k in cell_text_by_pid[1].keys())
 
 
 def should_compute_team_stats_from_rows():

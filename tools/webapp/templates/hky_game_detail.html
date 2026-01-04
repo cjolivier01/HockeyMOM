@@ -3,6 +3,9 @@
 {% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
 {% set can_edit_game = can_edit|default(false) %}
 {% set edit_mode = edit_mode|default(false) %}
+{% set back_href = back_url if back_url is defined else (base ~ '/schedule') %}
+{% set return_to_q = ('&return_to=' ~ (return_to|urlencode)) if (return_to is defined and return_to) else '' %}
+{% set return_to_first_q = ('?return_to=' ~ (return_to|urlencode)) if (return_to is defined and return_to) else '' %}
 
 <h2>Game Summary</h2>
 
@@ -33,13 +36,13 @@
     <div style="display:flex;align-items:center;gap:.5rem;">
       {% if public_league_id is not defined %}
         {% if can_edit_game and not edit_mode %}
-          <a class="btn primary" href="/hky/games/{{ game['id'] }}?edit=1">Edit</a>
+          <a class="btn primary" href="/hky/games/{{ game['id'] }}?edit=1{{ return_to_q }}">Edit</a>
         {% endif %}
         {% if edit_mode %}
-          <a class="btn" href="/hky/games/{{ game['id'] }}">Cancel</a>
+          <a class="btn" href="/hky/games/{{ game['id'] }}{{ return_to_first_q }}">Cancel</a>
         {% endif %}
       {% endif %}
-      <a class="btn" href="{{ base }}/schedule">Back</a>
+      <a class="btn" href="{{ back_href }}">Back</a>
     </div>
   </div>
 </div>
@@ -68,7 +71,7 @@
 
 <div class="card">
   {% if edit_mode and public_league_id is not defined %}
-    <form method="post" action="/hky/games/{{ game['id'] }}?edit=1">
+    <form method="post" action="/hky/games/{{ game['id'] }}?edit=1{{ return_to_q }}">
   {% endif %}
 
   {% if edit_mode and public_league_id is not defined %}
@@ -208,7 +211,7 @@
           Upload <code>stats/player_stats.csv</code> and optionally <code>stats/game_stats.csv</code> from
           <code>scripts/parse_shift_spreadsheet.py</code>.
         </p>
-        <form method="post" action="/hky/games/{{ game['id'] }}/import_shift_stats" enctype="multipart/form-data">
+        <form method="post" action="/hky/games/{{ game['id'] }}/import_shift_stats{{ return_to_first_q }}" enctype="multipart/form-data">
           <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
             <div class="form-row">
               <label class="muted">player_stats.csv</label>

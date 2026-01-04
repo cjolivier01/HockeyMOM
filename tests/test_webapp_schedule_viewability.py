@@ -155,5 +155,4 @@ def client(monkeypatch):
 def should_hide_view_links_for_future_unplayed_games_but_allow_unknown_date_games(client):
     html = client.get("/schedule").get_data(as_text=True)
     assert 'href="/hky/games/123"' not in html
-    assert 'href="/hky/games/124"' in html
-
+    assert 'href="/hky/games/124?return_to=/schedule"' in html

@@ -2601,6 +2601,50 @@ def create_app() -> Flask:
             return jsonify({"ok": False, "error": str(e)}), 500
         return jsonify({"ok": True, "league_id": league_id, "stats": stats})
 
+    @app.post("/api/internal/ensure_league_owner")
+    def api_internal_ensure_league_owner():
+        """
+        Hidden administrative endpoint to ensure a league exists and is owned by the specified user.
+        Requires import auth (token or localhost rules). Not linked from the UI.
+        """
+        auth = _require_import_auth()
+        if auth:
+            return auth
+        payload = request.get_json(silent=True) or {}
+        league_name = str(payload.get("league_name") or "").strip()
+        owner_email = str(payload.get("owner_email") or "").strip().lower()
+        owner_name = str(payload.get("owner_name") or owner_email).strip() or owner_email
+        is_shared = bool(payload.get("shared", True))
+        if not league_name or not owner_email:
+            return jsonify({"ok": False, "error": "owner_email and league_name are required"}), 400
+
+        owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
+        with g.db.cursor() as cur:
+            cur.execute("SELECT id FROM leagues WHERE name=%s", (league_name,))
+            row = cur.fetchone()
+            if row:
+                league_id = int(row[0])
+                cur.execute(
+                    "UPDATE leagues SET owner_user_id=%s, is_shared=%s, updated_at=%s WHERE id=%s",
+                    (owner_user_id, 1 if is_shared else 0, dt.datetime.now().isoformat(), league_id),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO leagues(name, owner_user_id, is_shared, is_public, created_at) VALUES(%s,%s,%s,%s,%s)",
+                    (league_name, owner_user_id, 1 if is_shared else 0, 0, dt.datetime.now().isoformat()),
+                )
+                league_id = int(cur.lastrowid)
+            cur.execute(
+                """
+                INSERT INTO league_members(league_id, user_id, role, created_at)
+                VALUES(%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE role=%s
+                """,
+                (league_id, owner_user_id, "owner", dt.datetime.now().isoformat(), "owner"),
+            )
+        g.db.commit()
+        return jsonify({"ok": True, "league_id": league_id, "owner_user_id": owner_user_id})
+
     @app.post("/leagues/new")
     def leagues_new():
         r = require_login()
@@ -3179,6 +3223,8 @@ def create_app() -> Flask:
         except Exception:
             team1_skaters_sorted = list(team1_skaters)
             team2_skaters_sorted = list(team2_skaters)
+        default_back_url = f"/public/leagues/{int(league_id)}/schedule"
+        return_to = _safe_return_to_url(request.args.get("return_to"), default=default_back_url)
         return render_template(
             "hky_game_detail.html",
             game=game,
@@ -3194,6 +3240,8 @@ def create_app() -> Flask:
             can_edit=False,
             edit_mode=False,
             public_league_id=int(league_id),
+            back_url=return_to,
+            return_to=return_to,
             events_headers=events_headers,
             events_rows=events_rows,
             events_meta=events_meta,
@@ -4013,7 +4061,8 @@ def create_app() -> Flask:
             )
         else:
             flash(f"Imported stats for {imported} player(s).", "success")
-        return redirect(url_for("hky_game_detail", game_id=game_id))
+        return_to = _safe_return_to_url(request.args.get("return_to"), default="/schedule")
+        return redirect(url_for("hky_game_detail", game_id=game_id, return_to=return_to))
 
     @app.route("/hky/games/<int:game_id>", methods=["GET", "POST"])
     def hky_game_detail(game_id: int):
@@ -4067,6 +4116,8 @@ def create_app() -> Flask:
         if not can_view_summary:
             return ("Not found", 404)
         # is_owner already computed above
+
+        return_to = _safe_return_to_url(request.args.get("return_to"), default="/schedule")
 
         # Authorization: editing requires ownership or league admin/owner.
         can_edit = bool(is_owner)
@@ -4193,7 +4244,7 @@ def create_app() -> Flask:
 
         if request.method == "POST" and not edit_mode:
             flash("You do not have permission to edit this game in the selected league.", "error")
-            return redirect(url_for("hky_game_detail", game_id=game_id))
+            return redirect(url_for("hky_game_detail", game_id=game_id, return_to=return_to))
 
         if request.method == "POST" and edit_mode:
             # Update game meta and scores
@@ -4294,7 +4345,7 @@ def create_app() -> Flask:
                         )
             g.db.commit()
             flash("Game updated", "success")
-            return redirect(url_for("hky_game_detail", game_id=game_id))
+            return redirect(url_for("hky_game_detail", game_id=game_id, return_to=return_to))
 
         return render_template(
             "hky_game_detail.html",
@@ -4310,6 +4361,8 @@ def create_app() -> Flask:
             editable=bool(edit_mode),
             can_edit=bool(can_edit),
             edit_mode=bool(edit_mode),
+            back_url=return_to,
+            return_to=return_to,
             events_headers=events_headers,
             events_rows=events_rows,
             events_meta=events_meta,
@@ -4990,6 +5043,23 @@ def parse_dt_or_none(s: Optional[str]) -> Optional[str]:
         return None
 
 
+def _safe_return_to_url(value: Optional[str], *, default: str) -> str:
+    """
+    Only allow returning to same-site relative URLs.
+    Accepts paths like "/teams/123" or "/schedule?division=..." and rejects external URLs.
+    """
+    if not value:
+        return str(default)
+    s = str(value).strip()
+    if not s:
+        return str(default)
+    if not s.startswith("/"):
+        return str(default)
+    if s.startswith("//"):
+        return str(default)
+    return s
+
+
 def parse_events_csv(events_csv: str) -> tuple[list[str], list[dict[str, str]]]:
     s = str(events_csv or "").strip()
     if not s:
@@ -5589,6 +5659,11 @@ def _build_game_player_stats_table_from_imported_csv(
 
     if not headers:
         return [], {}, {}, "Imported player_stats_csv has no headers"
+
+    # Never show shift/TOI/per-game/per-shift columns in the web UI, even if older data is stored.
+    headers, rows = filter_single_game_player_stats_csv(headers, rows)
+    if not headers:
+        return [], {}, {}, "Imported player_stats_csv has no displayable columns"
 
     team_ids = sorted({int(p.get("team_id") or 0) for p in (players or []) if p.get("team_id") is not None})
     jersey_to_player_ids: dict[tuple[int, str], list[int]] = {}

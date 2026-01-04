@@ -135,7 +135,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--force", action="store_true", help="Do not prompt for confirmation")
     ap.add_argument("--yes", "-y", action="store_true", help="Alias for --force")
     ap.add_argument("--webapp-url", default=None, help="If set, reset via webapp REST API (e.g. http://127.0.0.1:8008)")
-    ap.add_argument("--webapp-token", default=None, help="Optional import token (sent as X-HM-Import-Token)")
+    ap.add_argument("--webapp-token", default=None, help="Optional import token for REST mode")
+    ap.add_argument("--import-token", dest="webapp_token", default=None, help="Alias for --webapp-token")
     ap.add_argument("--webapp-owner-email", default=None, help="League owner email for REST mode")
     ap.add_argument(
         "--league-id", type=int, default=None, help="Only wipe data associated to this league id"
@@ -167,7 +168,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         url = urljoin(base, "api/internal/reset_league_data")
         headers = {}
         if args.webapp_token:
-            headers["X-HM-Import-Token"] = str(args.webapp_token)
+            tok = str(args.webapp_token).strip()
+            if tok:
+                headers["Authorization"] = f"Bearer {tok}"
+                headers["X-HM-Import-Token"] = tok
         r = requests.post(
             url,
             json={"owner_email": str(args.webapp_owner_email).strip(), "league_name": str(args.league_name).strip()},

@@ -1,6 +1,8 @@
 {% extends 'layout.html' %}
 {% block content %}
 {% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
+{% set return_to = request.full_path.rstrip('?') %}
+{% set return_to_q = ('?return_to=' ~ (return_to|urlencode)) if return_to else '' %}
 <div style="margin-bottom:.75rem;">
   <a class="btn" href="#" onclick="history.back(); return false;">Back</a>
 </div>
@@ -58,7 +60,7 @@
               <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_date }}</td>
               <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_time }}</td>
               <td>
-                {% set game_href = base ~ '/hky/games/' ~ g['id'] %}
+                {% set game_href = base ~ '/hky/games/' ~ g['id'] ~ return_to_q %}
                 {% if g.get('can_view_summary', True) %}
                   <a href="{{ game_href }}" style="text-decoration:none;color:inherit;">
                 {% endif %}

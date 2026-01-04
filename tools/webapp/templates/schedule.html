@@ -1,6 +1,9 @@
 {% extends 'layout.html' %}
 {% block content %}
 {% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
+{% set return_to = request.full_path.rstrip('?') %}
+{% set return_to_q = ('?return_to=' ~ (return_to|urlencode)) if return_to else '' %}
+{% set return_to_amp = ('&return_to=' ~ (return_to|urlencode)) if return_to else '' %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
   <h2>Games Schedule</h2>
   {% if can_add_game|default(True) %}
@@ -67,9 +70,9 @@
         <td class="nowrap">{{ (g['starts_at'] or '')|fmt_time }}</td>
       <td>
         {% if public_league_id is defined %}
-          {% set game_href = base ~ '/hky/games/' ~ g['id'] %}
+          {% set game_href = base ~ '/hky/games/' ~ g['id'] ~ return_to_q %}
         {% else %}
-          {% set game_href = '/hky/games/' ~ g['id'] %}
+          {% set game_href = '/hky/games/' ~ g['id'] ~ return_to_q %}
         {% endif %}
         {% if g.get('can_view_summary') %}
           <a href="{{ game_href }}" style="text-decoration:none;color:inherit;">
@@ -113,7 +116,7 @@
             <a class="btn" href="{{ game_href }}">View</a>
           {% else %}
             {% if g.get('can_edit') %}
-              <a class="btn" href="{{ game_href }}?edit=1">Edit</a>
+              <a class="btn" href="{{ game_href }}{{ '&' if ('?' in game_href) else '?' }}edit=1">Edit</a>
             {% else %}
               <a class="btn" href="{{ game_href }}">View</a>
             {% endif %}

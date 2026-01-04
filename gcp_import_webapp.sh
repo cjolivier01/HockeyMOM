@@ -46,6 +46,19 @@ python3 tools/webapp/redeploy_gcp.py --project "${PROJECT_ID}" --zone "${ZONE}" 
 echo "[i] Verifying webapp endpoint"
 curl -sS -o /dev/null -m 15 -f -I "${WEBAPP_URL}/" >/dev/null
 
+echo "[i] Ensuring league '${LEAGUE_NAME}' is owned by ${OWNER_EMAIL}"
+LEAGUE_OWNER_PAYLOAD="$(
+  LEAGUE_NAME="${LEAGUE_NAME}" OWNER_EMAIL="${OWNER_EMAIL}" python3 - <<'PY'
+import json, os
+print(json.dumps({"league_name": os.environ["LEAGUE_NAME"], "owner_email": os.environ["OWNER_EMAIL"], "shared": True}))
+PY
+)"
+curl -sS -m 30 -f \
+  -X POST "${WEBAPP_URL}/api/internal/ensure_league_owner" \
+  -H "Authorization: Bearer ${HM_WEBAPP_IMPORT_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "${LEAGUE_OWNER_PAYLOAD}" >/dev/null
+
 echo "[i] Resetting league data (REST)"
 ./p tools/webapp/reset_league_data.py \
   --force \
@@ -72,4 +85,3 @@ echo "[i] Uploading shift spreadsheets via REST"
   "${TOKEN_ARGS[@]}" \
   --webapp-owner-email "${OWNER_EMAIL}" \
   --webapp-league-name "${LEAGUE_NAME}"
-

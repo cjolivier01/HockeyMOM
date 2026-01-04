@@ -4,6 +4,9 @@
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
   <h2>{{ 'League Teams' if league_view else 'Your Teams' }}</h2>
   <div>
+    {% if league_view %}
+      <a class="btn" href="{{ base }}/schedule">Schedule</a>
+    {% endif %}
     {% if not league_view %}
       <a class="btn" href="/teams?all={{ 0 if include_external else 1 }}">{{ 'Hide' if include_external else 'Show' }} external</a>
       <a class="btn primary" href="/teams/new" style="margin-left:.5rem">New team</a>
