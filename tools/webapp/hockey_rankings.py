@@ -139,6 +139,49 @@ def compute_mhr_like_ratings(
     return out
 
 
+def scale_ratings_to_0_99_9(results: dict[int, dict[str, Any]], *, key: str = "rating") -> dict[int, dict[str, Any]]:
+    """
+    Return a shallow-copied results dict with `key` (default: "rating") scaled to [0, 99.9],
+    with the top rated team being exactly 99.9.
+
+    Teams whose `key` is None are left as None.
+    """
+    if not results:
+        return {}
+
+    rated: list[tuple[int, float]] = []
+    for tid, row in results.items():
+        try:
+            v = row.get(key)
+        except Exception:
+            v = None
+        if v is None:
+            continue
+        try:
+            rated.append((int(tid), float(v)))
+        except Exception:
+            continue
+
+    if not rated:
+        return {int(tid): dict(row) for tid, row in results.items()}
+
+    vals = [v for _tid, v in rated]
+    vmin = min(vals)
+    vmax = max(vals)
+
+    def _scale(v: float) -> float:
+        if vmax <= vmin + 1e-12:
+            return 99.9
+        x = (float(v) - float(vmin)) / (float(vmax) - float(vmin))
+        x = max(0.0, min(1.0, x))
+        return round(99.9 * x, 2)
+
+    out: dict[int, dict[str, Any]] = {int(tid): dict(row) for tid, row in results.items()}
+    for tid, v in rated:
+        out[int(tid)][key] = _scale(float(v))
+    return out
+
+
 def parse_mhr_config_from_source(*, max_goal_diff: Optional[int] = None) -> int:
     """
     Placeholder helper in case we later want league-specific overrides.
@@ -149,4 +192,3 @@ def parse_mhr_config_from_source(*, max_goal_diff: Optional[int] = None) -> int:
     except Exception:
         v = 7
     return 7 if v <= 0 else v
-

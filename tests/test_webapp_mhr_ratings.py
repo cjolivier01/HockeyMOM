@@ -42,3 +42,26 @@ def should_require_min_games_for_rating():
     assert out[1]["games"] == 4
     assert out[1]["rating"] is None
     assert out[1]["rating_raw"] is not None
+
+
+def should_scale_ratings_to_0_99_9_top_is_99_9():
+    mod = _load_rankings_module()
+    out = {
+        1: {"rating": -5.0, "games": 5},
+        2: {"rating": 0.0, "games": 5},
+        3: {"rating": 10.0, "games": 5},
+        4: {"rating": None, "games": 4},
+    }
+    scaled = mod.scale_ratings_to_0_99_9(out)
+    assert scaled[3]["rating"] == 99.9
+    assert scaled[1]["rating"] == 0.0
+    assert scaled[2]["rating"] > 0.0 and scaled[2]["rating"] < 99.9
+    assert scaled[4]["rating"] is None
+
+
+def should_scale_ratings_to_0_99_9_equal_values_all_99_9():
+    mod = _load_rankings_module()
+    out = {1: {"rating": 1.23, "games": 5}, 2: {"rating": 1.23, "games": 5}}
+    scaled = mod.scale_ratings_to_0_99_9(out)
+    assert scaled[1]["rating"] == 99.9
+    assert scaled[2]["rating"] == 99.9

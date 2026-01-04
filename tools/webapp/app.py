@@ -43,7 +43,7 @@ _base_dir_str = str(BASE_DIR)
 if _base_dir_str not in sys.path:
     sys.path.insert(0, _base_dir_str)
 
-from hockey_rankings import GameScore, compute_mhr_like_ratings  # noqa: E402
+from hockey_rankings import GameScore, compute_mhr_like_ratings, scale_ratings_to_0_99_9  # noqa: E402
 
 
 def to_dt(value: Any) -> Optional[dt.datetime]:
@@ -5315,12 +5315,6 @@ def recompute_league_mhr_ratings(db_conn, league_id: int, *, max_goal_diff: int 
     games: list[GameScore] = []
     for r in rows:
         try:
-            if _league_game_is_cross_division_non_external_row(
-                r.get("game_division_name"),
-                r.get("team1_league_division_name"),
-                r.get("team2_league_division_name"),
-            ):
-                continue
             games.append(
                 GameScore(
                     team1_id=int(r["team1_id"]),
@@ -5337,6 +5331,7 @@ def recompute_league_mhr_ratings(db_conn, league_id: int, *, max_goal_diff: int 
         max_goal_diff=int(max_goal_diff),
         min_games_for_rating=int(min_games),
     )
+    computed = scale_ratings_to_0_99_9(computed, key="rating")
 
     now_s = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     # Persist for all league teams (set NULL when unknown/insufficient).

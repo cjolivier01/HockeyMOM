@@ -27,7 +27,7 @@
           <th>Pts</th>
           <th>Pts (Total)</th>
           {% if league_view %}
-            <th>Rating</th>
+            <th>Div Rating</th>
           {% endif %}
           <th></th>
         </tr>
@@ -61,7 +61,7 @@
             <td>
               {% if is_league_admin|default(false) %}
                 <form method="post" action="/leagues/{{ session.get('league_id') }}/teams/{{ t['id'] }}/recalc_mhr_rating" style="display:inline;">
-                  <button class="btn" type="submit">Recalc Rating</button>
+                  <button class="btn" type="submit">Recalc Div Rating</button>
                 </form>
               {% endif %}
               {% if not (public_league_id is defined) and (not league_view) and t['user_id'] == current_user_id %}
@@ -86,7 +86,7 @@
         <th>Pts</th>
         <th>Pts (Total)</th>
         {% if league_view %}
-          <th>Rating</th>
+          <th>Div Rating</th>
         {% endif %}
         <th></th>
       </tr>
@@ -120,7 +120,7 @@
           <td>
             {% if is_league_admin|default(false) and league_view %}
               <form method="post" action="/leagues/{{ session.get('league_id') }}/teams/{{ t['id'] }}/recalc_mhr_rating" style="display:inline;">
-                <button class="btn" type="submit">Recalc Rating</button>
+                <button class="btn" type="submit">Recalc Div Rating</button>
               </form>
             {% endif %}
             {% if not (public_league_id is defined) and (not league_view) and t['user_id'] == current_user_id %}

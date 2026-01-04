@@ -17,7 +17,7 @@
     {% if team['is_external'] %}<p class="muted" style="margin:.25rem 0 0">External team</p>{% endif %}
     {% if is_league_admin|default(false) and public_league_id is not defined %}
       <form method="post" action="/leagues/{{ session.get('league_id') }}/teams/{{ team['id'] }}/recalc_mhr_rating" style="margin-top:.5rem;">
-        <button class="btn" type="submit">Recalc MHR-like Rating</button>
+        <button class="btn" type="submit">Recalc Div Rating</button>
       </form>
     {% endif %}
   </div>
