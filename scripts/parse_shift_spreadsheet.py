@@ -1076,17 +1076,45 @@ def _parse_t2s_only_token(token: str) -> Optional[Tuple[int, Optional[str], Opti
 
 
 def _parse_input_token(token: str, base_dir: Optional[Path] = None) -> Tuple[Path, Optional[str]]:
+    p, side, _meta = _parse_input_token_with_meta(token, base_dir=base_dir)
+    return p, side
+
+
+def _parse_input_token_with_meta(
+    token: str, base_dir: Optional[Path] = None
+) -> Tuple[Path, Optional[str], dict[str, str]]:
+    """
+    Parse a non-`t2s=...` input token with optional inline side and metadata:
+      - /path/to/stats
+      - /path/to/stats:HOME
+      - /path/to/stats:AWAY
+      - /path/to/stats:AWAY:home_team=Reston Renegades 12AA
+
+    Inline `key=value` segments are primarily a convenience/back-compat for
+    users who accidentally use ':' instead of '|key=value' in --file-list.
+    """
     raw = token.strip()
     side: Optional[str] = None
+    meta: dict[str, str] = {}
     if ":" in raw:
-        raw_path, suffix = raw.rsplit(":", 1)
-        if suffix.upper() in {"HOME", "AWAY"}:
-            side = suffix.lower()
-            raw = raw_path
+        parts = raw.split(":")
+        # Parse from right-to-left:
+        #   ...:<HOME|AWAY>[:key=value[:key=value...]]
+        while len(parts) > 1 and "=" in parts[-1]:
+            k, v = parts[-1].split("=", 1)
+            kk = str(k or "").strip().lower()
+            vv = str(v or "").strip()
+            if kk and vv:
+                meta[kk] = vv
+            parts.pop()
+        if len(parts) > 1 and parts[-1].upper() in {"HOME", "AWAY"}:
+            side = parts[-1].lower()
+            parts.pop()
+        raw = ":".join(parts)
     p = Path(raw).expanduser()
     if base_dir and not p.is_absolute():
         p = (base_dir / p).resolve()
-    return p, side
+    return p, side, meta
 
 
 def _is_spreadsheet_input_path(path: Path) -> bool:
@@ -7161,8 +7189,19 @@ def main() -> None:
                             InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta)
                         )
                         continue
-                    p, side = _parse_input_token(token, base_dir=base_dir)
-                    input_entries.append(InputEntry(path=p, side=side, meta=meta))
+                    p, side, inline_meta = _parse_input_token_with_meta(token, base_dir=base_dir)
+                    merged_meta = dict(meta or {})
+                    for k, v in (inline_meta or {}).items():
+                        kk = str(k or "").strip().lower()
+                        vv = str(v or "").strip()
+                        if not kk or not vv:
+                            continue
+                        if kk in merged_meta and str(merged_meta[kk]) != vv:
+                            raise ValueError(
+                                f"conflicting metadata for key '{kk}': {merged_meta[kk]!r} vs {vv!r}"
+                            )
+                        merged_meta[kk] = vv
+                    input_entries.append(InputEntry(path=p, side=side, meta=merged_meta))
         except Exception as e:
             print(f"Error reading --file-list: {e}", file=sys.stderr)
             sys.exit(2)
@@ -7184,8 +7223,17 @@ def main() -> None:
             t2s_id, side, label = t2s_only
             input_entries.append(InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta))
             continue
-        p, side = _parse_input_token(token)
-        input_entries.append(InputEntry(path=p, side=side, meta=meta))
+        p, side, inline_meta = _parse_input_token_with_meta(token)
+        merged_meta = dict(meta or {})
+        for k, v in (inline_meta or {}).items():
+            kk = str(k or "").strip().lower()
+            vv = str(v or "").strip()
+            if not kk or not vv:
+                continue
+            if kk in merged_meta and str(merged_meta[kk]) != vv:
+                raise ValueError(f"conflicting metadata for key '{kk}': {merged_meta[kk]!r} vs {vv!r}")
+            merged_meta[kk] = vv
+        input_entries.append(InputEntry(path=p, side=side, meta=merged_meta))
 
     if not input_entries:
         # Allow a TimeToScore-only run by specifying just `--t2s`.

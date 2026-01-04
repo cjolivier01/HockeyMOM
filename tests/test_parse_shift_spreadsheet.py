@@ -840,6 +840,34 @@ def should_allow_file_list_home_away_suffix_on_directory_inputs(tmp_path: Path):
     assert groups_by_label["coyotes-1"]["side"] == "away"
 
 
+def should_parse_file_list_inline_meta_after_side_suffix(tmp_path: Path):
+    stats_dir = tmp_path / "chicago-2" / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+
+    df = pd.DataFrame(
+        [
+            ["1st Period", "", "", "", "", ""],
+            [
+                "Jersey No",
+                "Name",
+                pss.LABEL_START_SB,
+                pss.LABEL_END_SB,
+                pss.LABEL_START_V,
+                pss.LABEL_END_V,
+            ],
+            ["8", "Adam Ro", "0:10", "0:40", "0:10", "0:40"],
+        ]
+    )
+    xlsx_path = stats_dir / "chicago-2.xlsx"
+    df.to_excel(xlsx_path, index=False, header=False)
+
+    token = f"{stats_dir}:AWAY:home_team=Reston Renegades 12AA"
+    p, side, meta = pss._parse_input_token_with_meta(token)
+    assert p == stats_dir
+    assert side == "away"
+    assert meta.get("home_team") == "Reston Renegades 12AA"
+
+
 if __name__ == "__main__":
     # Make `bazel test //tests:test_parse_shift_spreadsheet` run pytest collection.
     raise SystemExit(
