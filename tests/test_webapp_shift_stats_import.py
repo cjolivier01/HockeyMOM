@@ -75,7 +75,7 @@ def should_parse_shift_spreadsheet_otg_ota_columns():
     assert r["stats"]["ot_assists"] == 2
 
 
-def should_parse_shift_spreadsheet_turnovers_forced_sums_into_giveaways():
+def should_parse_shift_spreadsheet_turnovers_forced_keeps_columns_separate():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
@@ -84,7 +84,8 @@ def should_parse_shift_spreadsheet_turnovers_forced_sums_into_giveaways():
     rows = mod.parse_shift_stats_player_stats_csv(csv_text)
     assert len(rows) == 1
     r = rows[0]
-    assert r["stats"]["giveaways"] == 5
+    assert r["stats"]["giveaways"] == 2
+    assert r["stats"]["turnovers_forced"] == 3
     assert r["stats"]["takeaways"] == 1
 
 
