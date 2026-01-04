@@ -808,6 +808,36 @@ def should_error_when_upload_webapp_external_game_missing_team_names(tmp_path: P
     assert int(getattr(e.value, "code", 0) or 0) == 2
 
 
+def should_error_when_upload_webapp_external_game_missing_date(tmp_path: Path, monkeypatch):
+    # Upload mode requires a resolvable game date for external games.
+    xlsx_path = tmp_path / "coyotes-1.xlsx"
+    xlsx_path.write_text("dummy", encoding="utf-8")
+
+    file_list = tmp_path / "games.txt"
+    file_list.write_text(
+        str(xlsx_path) + "|home_team=Arizona Coyotes|away_team=Jr Sharks 12AA-2\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "parse_shift_spreadsheet.py",
+            "--file-list",
+            str(file_list),
+            "--upload-webapp",
+            "--webapp-owner-email",
+            "owner@example.com",
+            "--webapp-league-name",
+            "Norcal",
+        ],
+    )
+    with pytest.raises(SystemExit) as e:
+        pss.main()
+    assert int(getattr(e.value, "code", 0) or 0) == 2
+
+
 def should_allow_file_list_home_away_suffix_on_directory_inputs(tmp_path: Path):
     # File-list inputs can be directories, and may include ':HOME' / ':AWAY' to
     # specify whether the "For" team is home or away (used for T2S mapping and
@@ -910,6 +940,8 @@ def should_build_webapp_logo_payload_from_meta_path_and_base64(tmp_path: Path, c
 def should_parse_webapp_starts_at_from_meta_date_and_starts_at(capsys):
     assert pss._starts_at_from_meta({"date": "2026-01-04"}) == "2026-01-04 00:00:00"
     assert pss._starts_at_from_meta({"date": "1/4/2026"}) == "2026-01-04 00:00:00"
+    assert pss._starts_at_from_meta({"date": "2026-01-04", "time": "13:05"}) == "2026-01-04 13:05:00"
+    assert pss._starts_at_from_meta({"date": "2026-01-04", "time": "13:05:09"}) == "2026-01-04 13:05:09"
     assert pss._starts_at_from_meta({"starts_at": "2026-01-04T13:05:09"}) == "2026-01-04 13:05:09"
     assert pss._starts_at_from_meta({"starts_at": "2026-01-04"}) == "2026-01-04 00:00:00"
 

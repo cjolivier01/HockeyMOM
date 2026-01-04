@@ -351,7 +351,8 @@ def _starts_at_from_meta(meta: Dict[str, str], *, warn_label: str = "") -> Optio
 
     Supported keys:
       - starts_at=<datetime string> (passed through after light normalization)
-      - date=<YYYY-MM-DD> (converted to 'YYYY-MM-DD 00:00:00')
+      - date=<YYYY-MM-DD> (converted to 'YYYY-MM-DD 00:00:00' unless `time` is provided)
+      - time=<HH:MM[:SS]> (used with `date` to form 'YYYY-MM-DD HH:MM:SS')
 
     This is only used for external games (the webapp does not update starts_at on existing games).
     """
@@ -388,6 +389,16 @@ def _starts_at_from_meta(meta: Dict[str, str], *, warn_label: str = "") -> Optio
                 return None
         return None
 
+    def _parse_time_only(s: str) -> Optional[datetime.time]:
+        ss = s.strip()
+        if not ss:
+            return None
+        try:
+            # Accept HH:MM[:SS]
+            return datetime.time.fromisoformat(ss)
+        except Exception:
+            return None
+
     starts_at_raw = str(meta.get("starts_at") or "").strip()
     if starts_at_raw:
         # Normalize ISO-ish strings to a SQL-friendly format when possible.
@@ -405,12 +416,73 @@ def _starts_at_from_meta(meta: Dict[str, str], *, warn_label: str = "") -> Optio
             return starts_at_raw
 
     date_raw = str(meta.get("date") or "").strip()
+    time_raw = str(meta.get("time") or "").strip()
     if date_raw:
         parsed2 = _parse_date_only(date_raw)
         if parsed2:
+            if time_raw:
+                t = _parse_time_only(time_raw)
+                if t is None:
+                    _warn(f"could not parse time={time_raw!r} (expected HH:MM or HH:MM:SS); ignoring")
+                    return parsed2
+                try:
+                    d = datetime.date.fromisoformat(parsed2.split(" ", 1)[0])
+                    dt_obj = datetime.datetime.combine(d, t)
+                    return _fmt_dt(dt_obj)
+                except Exception:
+                    return parsed2
             return parsed2
         _warn(f"could not parse date={date_raw!r} (expected YYYY-MM-DD or M/D/YYYY); ignoring")
+        return None
+    if time_raw:
+        _warn("time=... provided without date=...; ignoring")
     return None
+
+
+def _starts_at_from_t2s_game_id(t2s_game_id: int, *, hockey_db_dir: Path, warn_label: str = "") -> Optional[str]:
+    def _warn(msg: str) -> None:
+        if not msg:
+            return
+        prefix = f"[warning]{' [' + warn_label + ']' if warn_label else ''}"
+        print(f"{prefix} {msg}", file=sys.stderr)
+
+    try:
+        from hmlib.time2score.api import get_game_details
+    except Exception as e:  # noqa: BLE001
+        _warn(f"failed to import TimeToScore API helpers: {e}")
+        return None
+
+    try:
+        with _working_directory(hockey_db_dir):
+            info = get_game_details(
+                int(t2s_game_id),
+                season=None,
+                sync_if_missing=True,
+                fetch_stats_if_missing=False,
+            )
+    except Exception as e:  # noqa: BLE001
+        _warn(f"failed to fetch TimeToScore game details for game_id={t2s_game_id}: {e}")
+        return None
+
+    st = ((info or {}).get("game") or {}).get("start_time")
+    if st is None:
+        return None
+    if isinstance(st, datetime.datetime):
+        return st.strftime("%Y-%m-%d %H:%M:%S")
+    ss = str(st).strip()
+    if not ss:
+        return None
+    ss = ss.replace("T", " ").strip()
+    try:
+        dt_obj = datetime.datetime.fromisoformat(ss)
+        return dt_obj.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        # If we only get a date, normalize to midnight.
+        try:
+            d = datetime.date.fromisoformat(ss)
+            return f"{d.isoformat()} 00:00:00"
+        except Exception:
+            return None
 
 
 def _normalize_header_label(label: str) -> str:
@@ -7630,6 +7702,7 @@ def main() -> None:
             sys.exit(2)
 
         missing_external_meta: list[str] = []
+        missing_external_date: list[str] = []
         for gg in groups:
             t2s_only_id = gg.get("t2s_id_only")
             if t2s_only_id is not None:
@@ -7649,11 +7722,21 @@ def main() -> None:
 
             if not (_m("home_team", "home_team_name", "home") and _m("away_team", "away_team_name", "away")):
                 missing_external_meta.append(str(gg.get("label") or gg.get("primary") or "UNKNOWN"))
+            if _starts_at_from_meta(meta, warn_label=str(gg.get("label") or "")) is None:
+                missing_external_date.append(str(gg.get("label") or gg.get("primary") or "UNKNOWN"))
         if missing_external_meta:
             print(
                 "Error: --upload-webapp external games require per-game metadata for team names.\n"
                 "Add `|home_team=...|away_team=...` to the corresponding lines in --file-list for:\n"
                 f"  - " + "\n  - ".join(missing_external_meta),
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if missing_external_date:
+            print(
+                "Error: --upload-webapp requires a resolvable game date for external games.\n"
+                "Add `|date=YYYY-MM-DD` (and optional `|time=HH:MM`) to the corresponding lines in --file-list for:\n"
+                f"  - " + "\n  - ".join(missing_external_date),
                 file=sys.stderr,
             )
             sys.exit(2)
@@ -7978,7 +8061,7 @@ def main() -> None:
                 division_name = _meta("division", "division_name") or (
                     str(getattr(args, "webapp_division_name", "") or "").strip() or None
                 )
-            sort_order = int(idx)
+            sort_order = int((idx + 1) * 100)
             team_side = str(side_to_use or "").strip().lower() or None
             # If this is a non-TimeToScore game and side isn't specified, treat the "for" team as home for now.
             # TODO: infer home/away robustly from spreadsheet metadata when available.
@@ -7994,6 +8077,18 @@ def main() -> None:
                 file_list_base_dir = None
             logo_fields = _load_logo_fields_from_meta(meta, base_dir=file_list_base_dir, warn_label=str(label or ""))
             starts_at = _starts_at_from_meta(meta, warn_label=str(label or ""))
+            if starts_at is None and t2s_id is not None:
+                starts_at = _starts_at_from_t2s_game_id(
+                    int(t2s_id), hockey_db_dir=hockey_db_dir, warn_label=str(label or "")
+                )
+            if starts_at is None:
+                print(
+                    "Error: --upload-webapp requires a resolvable game date.\n"
+                    "Provide `|date=YYYY-MM-DD` (and optional `|time=HH:MM`) in --file-list, or ensure TimeToScore provides start_time.\n"
+                    f"  Game: {label} (t2s={t2s_id})",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
 
             try:
                 print(f"[webapp] Uploading {idx + 1}/{len(groups)}: {label}")

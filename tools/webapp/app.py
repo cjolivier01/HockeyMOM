@@ -2871,7 +2871,7 @@ def create_app() -> Flask:
                   JOIN teams t2 ON g.team2_id=t2.id
                   LEFT JOIN game_types gt ON g.game_type_id=gt.id
                 WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
-                ORDER BY COALESCE(lg.sort_order, 2147483647) ASC, (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, COALESCE(lg.sort_order, 2147483647) ASC, g.created_at ASC
                 """,
                 (int(league_id), team_id, team_id),
             )
@@ -2996,7 +2996,7 @@ def create_app() -> Flask:
                   JOIN teams t2 ON g.team2_id=t2.id
                   LEFT JOIN game_types gt ON g.game_type_id=gt.id
                 WHERE {' AND '.join(where)}
-                ORDER BY COALESCE(lg.sort_order, 2147483647) ASC, (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, COALESCE(lg.sort_order, 2147483647) ASC, g.created_at ASC
                 """,
                 tuple(params),
             )
@@ -3300,7 +3300,7 @@ def create_app() -> Flask:
                       JOIN teams t2 ON g.team2_id=t2.id
                       LEFT JOIN game_types gt ON g.game_type_id=gt.id
                     WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
-                    ORDER BY COALESCE(lg.sort_order, 2147483647) ASC, (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                    ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, COALESCE(lg.sort_order, 2147483647) ASC, g.created_at ASC
                     """,
                     (int(league_id), team_id, team_id),
                 )
@@ -3340,7 +3340,7 @@ def create_app() -> Flask:
                       JOIN teams t2 ON g.team2_id=t2.id
                       LEFT JOIN game_types gt ON g.game_type_id=gt.id
                     WHERE g.user_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
-                    ORDER BY (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                    ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, g.created_at ASC
                     """,
                     (team_owner_id, team_id, team_id),
                 )
@@ -3589,7 +3589,7 @@ def create_app() -> Flask:
                       JOIN teams t2 ON g.team2_id=t2.id
                       LEFT JOIN game_types gt ON g.game_type_id=gt.id
                     WHERE {' AND '.join(where)}
-                    ORDER BY COALESCE(lg.sort_order, 2147483647) ASC, (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                    ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, COALESCE(lg.sort_order, 2147483647) ASC, g.created_at ASC
                     """,
                     tuple(params),
                 )
@@ -3602,7 +3602,7 @@ def create_app() -> Flask:
                       JOIN teams t2 ON g.team2_id=t2.id
                       LEFT JOIN game_types gt ON g.game_type_id=gt.id
                     WHERE g.user_id=%s
-                    ORDER BY (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                    ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, g.created_at ASC
                     """,
                     (session["user_id"],),
                 )
