@@ -88,6 +88,21 @@ def should_hide_ot_and_blank_only_team_stat_columns():
     assert kept == (("gp", "GP"),)
 
 
+def should_sort_players_table_default_points_desc_with_stable_tiebreakers():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    rows = [
+        {"name": "B", "goals": 2, "assists": 0, "points": 2},
+        {"name": "A", "goals": 1, "assists": 1, "points": 2},
+        {"name": "C", "goals": 0, "assists": 1, "points": 1},
+        {"name": "D", "goals": 3, "assists": 0, "points": 3},
+    ]
+    out = mod.sort_players_table_default(rows)
+    assert [r["name"] for r in out] == ["D", "B", "A", "C"]
+
+
 def should_merge_imported_and_db_game_player_stats():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"

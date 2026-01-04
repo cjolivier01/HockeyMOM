@@ -29,10 +29,12 @@ class FakeConn:
         self.teams = {
             101: {"id": 101, "user_id": 10, "name": "Team A", "is_external": 1, "logo_path": None},
             102: {"id": 102, "user_id": 10, "name": "Team B", "is_external": 1, "logo_path": None},
+            103: {"id": 103, "user_id": 10, "name": "Team C", "is_external": 1, "logo_path": None},
         }
         self.league_teams = [
             {"league_id": 1, "team_id": 101, "division_name": "10 B West", "division_id": 136, "conference_id": 0},
             {"league_id": 1, "team_id": 102, "division_name": "10 B West", "division_id": 136, "conference_id": 0},
+            {"league_id": 1, "team_id": 103, "division_name": "12A", "division_id": 137, "conference_id": 0},
         ]
         self.players = [
             {"id": 501, "user_id": 10, "team_id": 101, "name": "Player 1", "jersey_number": "9", "position": "F"},
@@ -65,10 +67,25 @@ class FakeConn:
                 "created_at": "2026-01-01 00:00:00",
                 "updated_at": None,
             },
+            1003: {
+                "id": 1003,
+                "user_id": 10,
+                "team1_id": 101,
+                "team2_id": 103,
+                "starts_at": "2026-01-03 10:00:00",
+                "location": "Other Rink",
+                "team1_score": 3,
+                "team2_score": 1,
+                "is_final": 1,
+                "created_at": "2026-01-01 00:00:00",
+                "updated_at": None,
+            },
         }
         self.league_games = [
             {"league_id": 1, "game_id": 1001, "division_name": "10 B West"},
             {"league_id": 1, "game_id": 1002, "division_name": "10 B West"},
+            # Cross-division game (10 B West vs 12A): should be ignored for league views.
+            {"league_id": 1, "game_id": 1003, "division_name": "10 B West"},
         ]
         self.player_stats = [{"game_id": 1001, "player_id": 501, "goals": 1, "assists": 0}]
 
@@ -174,6 +191,18 @@ class FakeCursor:
                 g = dict(self._conn.hky_games[game_id])
                 t1 = self._conn.teams[int(g["team1_id"])]
                 t2 = self._conn.teams[int(g["team2_id"])]
+                lt1 = next(
+                    (lt for lt in self._conn.league_teams if int(lt["league_id"]) == league_id and int(lt["team_id"]) == int(g["team1_id"])),
+                    None,
+                )
+                lt2 = next(
+                    (lt for lt in self._conn.league_teams if int(lt["league_id"]) == league_id and int(lt["team_id"]) == int(g["team2_id"])),
+                    None,
+                )
+                lg_row = next(
+                    (lg for lg in self._conn.league_games if int(lg["league_id"]) == league_id and int(lg["game_id"]) == game_id),
+                    None,
+                )
                 self._rows = [
                     d(
                         dict(
@@ -182,6 +211,9 @@ class FakeCursor:
                             team2_name=t2["name"],
                             team1_ext=t1["is_external"],
                             team2_ext=t2["is_external"],
+                            division_name=(lg_row or {}).get("division_name"),
+                            team1_league_division_name=(lt1 or {}).get("division_name"),
+                            team2_league_division_name=(lt2 or {}).get("division_name"),
                         )
                     )
                 ]
@@ -197,6 +229,14 @@ class FakeCursor:
                 g = self._conn.hky_games[int(lg["game_id"])]
                 team1 = self._conn.teams[int(g["team1_id"])]
                 team2 = self._conn.teams[int(g["team2_id"])]
+                lt1 = next(
+                    (lt for lt in self._conn.league_teams if int(lt["league_id"]) == league_id and int(lt["team_id"]) == int(g["team1_id"])),
+                    None,
+                )
+                lt2 = next(
+                    (lt for lt in self._conn.league_teams if int(lt["league_id"]) == league_id and int(lt["team_id"]) == int(g["team2_id"])),
+                    None,
+                )
                 rows.append(
                     d(
                         dict(
@@ -205,6 +245,8 @@ class FakeCursor:
                             team2_name=team2["name"],
                             game_type_name=None,
                             division_name=lg.get("division_name"),
+                            team1_league_division_name=(lt1 or {}).get("division_name"),
+                            team2_league_division_name=(lt2 or {}).get("division_name"),
                         )
                     )
                 )
@@ -287,6 +329,11 @@ def should_hide_future_unplayed_game_pages_in_public_schedule(client):
     assert "/public/leagues/1/hky/games/1002" not in html
     assert client.get("/public/leagues/1/hky/games/1002").status_code == 404
 
+
+def should_hide_cross_division_timetoscore_games_from_public_views(client):
+    html = client.get("/public/leagues/1/schedule").get_data(as_text=True)
+    assert "/public/leagues/1/hky/games/1003" not in html
+    assert client.get("/public/leagues/1/hky/games/1003").status_code == 404
 
 def should_reject_private_league_public_routes(client):
     r = client.get("/public/leagues/2/teams")

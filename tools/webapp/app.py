@@ -2864,29 +2864,34 @@ def create_app() -> Flask:
             cur.execute(
                 """
                 SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
-                       lg.division_name AS division_name, lg.sort_order AS sort_order
+                       lg.division_name AS division_name, lg.sort_order AS sort_order,
+                       lt1.division_name AS team1_league_division_name,
+                       lt2.division_name AS team2_league_division_name
                 FROM league_games lg
                   JOIN hky_games g ON lg.game_id=g.id
                   JOIN teams t1 ON g.team1_id=t1.id
                   JOIN teams t2 ON g.team2_id=t2.id
                   LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                  LEFT JOIN league_teams lt1 ON lt1.league_id=lg.league_id AND lt1.team_id=g.team1_id
+                  LEFT JOIN league_teams lt2 ON lt2.league_id=lg.league_id AND lt2.team_id=g.team2_id
                 WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
                 ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, COALESCE(lg.sort_order, 2147483647) ASC, g.created_at ASC
                 """,
                 (int(league_id), team_id, team_id),
             )
             schedule_games = cur.fetchall() or []
-        now_dt = dt.datetime.now()
-        for g2 in schedule_games:
-            sdt = g2.get("starts_at")
-            started = False
-            if sdt is not None:
-                try:
-                    started = _to_dt(sdt) is not None and _to_dt(sdt) <= now_dt
-                except Exception:
-                    started = False
-            has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
-            g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
+            now_dt = dt.datetime.now()
+            schedule_games = [g2 for g2 in (schedule_games or []) if not _league_game_is_cross_division_non_external(g2)]
+            for g2 in schedule_games:
+                sdt = g2.get("starts_at")
+                started = False
+                if sdt is not None:
+                    try:
+                        started = _to_dt(sdt) is not None and _to_dt(sdt) <= now_dt
+                    except Exception:
+                        started = False
+                has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
+                g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
 
         cols_sql = ", ".join([f"ps.{c}" for c in PLAYER_STATS_SUM_KEYS])
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
@@ -3006,18 +3011,23 @@ def create_app() -> Flask:
             cur.execute(
                 f"""
                 SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
-                       lg.division_name AS division_name
+                       lg.division_name AS division_name,
+                       lt1.division_name AS team1_league_division_name,
+                       lt2.division_name AS team2_league_division_name
                 FROM league_games lg
                   JOIN hky_games g ON lg.game_id=g.id
                   JOIN teams t1 ON g.team1_id=t1.id
                   JOIN teams t2 ON g.team2_id=t2.id
                   LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                  LEFT JOIN league_teams lt1 ON lt1.league_id=lg.league_id AND lt1.team_id=g.team1_id
+                  LEFT JOIN league_teams lt2 ON lt2.league_id=lg.league_id AND lt2.team_id=g.team2_id
                 WHERE {' AND '.join(where)}
                 ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, COALESCE(lg.sort_order, 2147483647) ASC, g.created_at ASC
                 """,
                 tuple(params),
             )
             games = cur.fetchall() or []
+        games = [g2 for g2 in (games or []) if not _league_game_is_cross_division_non_external(g2)]
         now_dt = dt.datetime.now()
         for g2 in games or []:
             sdt = g2.get("starts_at")
@@ -3052,15 +3062,22 @@ def create_app() -> Flask:
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 """
-                SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, t1.is_external AS team1_ext, t2.is_external AS team2_ext
+                SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, t1.is_external AS team1_ext, t2.is_external AS team2_ext,
+                       lg.division_name AS division_name,
+                       lt1.division_name AS team1_league_division_name,
+                       lt2.division_name AS team2_league_division_name
                 FROM league_games lg JOIN hky_games g ON lg.game_id=g.id
                   JOIN teams t1 ON g.team1_id=t1.id JOIN teams t2 ON g.team2_id=t2.id
+                  LEFT JOIN league_teams lt1 ON lt1.league_id=lg.league_id AND lt1.team_id=g.team1_id
+                  LEFT JOIN league_teams lt2 ON lt2.league_id=lg.league_id AND lt2.team_id=g.team2_id
                 WHERE g.id=%s AND lg.league_id=%s
                 """,
                 (game_id, league_id),
             )
             game = cur.fetchone()
         if not game:
+            return ("Not found", 404)
+        if _league_game_is_cross_division_non_external(game):
             return ("Not found", 404)
         now_dt = dt.datetime.now()
         sdt = game.get("starts_at")
@@ -3310,18 +3327,24 @@ def create_app() -> Flask:
                 cur.execute(
                     """
                     SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
-                           lg.division_name AS division_name, lg.sort_order AS sort_order
+                           lg.division_name AS division_name, lg.sort_order AS sort_order,
+                           lt1.division_name AS team1_league_division_name,
+                           lt2.division_name AS team2_league_division_name
                     FROM league_games lg
                       JOIN hky_games g ON lg.game_id=g.id
                       JOIN teams t1 ON g.team1_id=t1.id
                       JOIN teams t2 ON g.team2_id=t2.id
                       LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                      LEFT JOIN league_teams lt1 ON lt1.league_id=lg.league_id AND lt1.team_id=g.team1_id
+                      LEFT JOIN league_teams lt2 ON lt2.league_id=lg.league_id AND lt2.team_id=g.team2_id
                     WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
                     ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, COALESCE(lg.sort_order, 2147483647) ASC, g.created_at ASC
                     """,
                     (int(league_id), team_id, team_id),
                 )
                 schedule_games = cur.fetchall() or []
+
+            schedule_games = [g2 for g2 in (schedule_games or []) if not _league_game_is_cross_division_non_external(g2)]
             now_dt = dt.datetime.now()
             for g2 in schedule_games:
                 sdt = g2.get("starts_at")
@@ -3616,12 +3639,16 @@ def create_app() -> Flask:
                 cur.execute(
                     f"""
                     SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
-                           lg.division_name AS division_name
+                           lg.division_name AS division_name,
+                           lt1.division_name AS team1_league_division_name,
+                           lt2.division_name AS team2_league_division_name
                     FROM league_games lg
                       JOIN hky_games g ON lg.game_id=g.id
                       JOIN teams t1 ON g.team1_id=t1.id
                       JOIN teams t2 ON g.team2_id=t2.id
                       LEFT JOIN game_types gt ON g.game_type_id=gt.id
+                      LEFT JOIN league_teams lt1 ON lt1.league_id=lg.league_id AND lt1.team_id=g.team1_id
+                      LEFT JOIN league_teams lt2 ON lt2.league_id=lg.league_id AND lt2.team_id=g.team2_id
                     WHERE {' AND '.join(where)}
                     ORDER BY (g.starts_at IS NULL) ASC, g.starts_at ASC, COALESCE(lg.sort_order, 2147483647) ASC, g.created_at ASC
                     """,
@@ -3641,6 +3668,8 @@ def create_app() -> Flask:
                     (session["user_id"],),
                 )
             games = cur.fetchall()
+        if league_id:
+            games = [g2 for g2 in (games or []) if not _league_game_is_cross_division_non_external(g2)]
         now_dt = dt.datetime.now()
         is_league_admin = False
         if league_id:
@@ -3993,9 +4022,14 @@ def create_app() -> Flask:
             if not game and league_id:
                 cur.execute(
                     """
-                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, t1.is_external AS team1_ext, t2.is_external AS team2_ext
+                    SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, t1.is_external AS team1_ext, t2.is_external AS team2_ext,
+                           lg.division_name AS division_name,
+                           lt1.division_name AS team1_league_division_name,
+                           lt2.division_name AS team2_league_division_name
                     FROM league_games lg JOIN hky_games g ON lg.game_id=g.id
                       JOIN teams t1 ON g.team1_id=t1.id JOIN teams t2 ON g.team2_id=t2.id
+                      LEFT JOIN league_teams lt1 ON lt1.league_id=lg.league_id AND lt1.team_id=g.team1_id
+                      LEFT JOIN league_teams lt2 ON lt2.league_id=lg.league_id AND lt2.team_id=g.team2_id
                     WHERE g.id=%s AND lg.league_id=%s
                     """,
                     (game_id, league_id),
@@ -4004,6 +4038,9 @@ def create_app() -> Flask:
         if not game:
             flash("Not found", "error")
             return redirect(url_for("schedule"))
+        is_owner = int(game.get("user_id") or 0) == int(session["user_id"])
+        if league_id and not is_owner and _league_game_is_cross_division_non_external(game):
+            return ("Not found", 404)
         now_dt = dt.datetime.now()
         sdt = game.get("starts_at")
         started = False
@@ -4016,7 +4053,7 @@ def create_app() -> Flask:
         can_view_summary = bool(has_score or (sdt is None) or started)
         if not can_view_summary:
             return ("Not found", 404)
-        is_owner = int(game.get("user_id") or 0) == int(session["user_id"])
+        # is_owner already computed above
 
         # Authorization: editing requires ownership or league admin/owner.
         can_edit = bool(is_owner)
@@ -5227,6 +5264,22 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
     wins = losses = ties = gf = ga = 0
     swins = slosses = sties = sgf = sga = 0
 
+    def _is_cross_division_non_external_game(r: dict) -> bool:
+        """
+        Ignore TimeToScore cross-division games (e.g. 12AA vs 12A) when both teams have a known
+        non-External league division. External games (or unknown opponent division) are kept.
+        """
+        d1 = str(r.get("team1_league_division_name") or "").strip()
+        d2 = str(r.get("team2_league_division_name") or "").strip()
+        if not d1 or not d2:
+            return False
+        if d1.lower() == "external" or d2.lower() == "external":
+            return False
+        ld = str(r.get("league_division_name") or "").strip()
+        if ld.lower() == "external":
+            return False
+        return d1 != d2
+
     def _is_regular_game(r: dict) -> bool:
         # Only regular-season games should contribute to standings points/rankings.
         gt = str(r.get("game_type_name") or "").strip()
@@ -5240,6 +5293,8 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
         return True
 
     for r in rows:
+        if _is_cross_division_non_external_game(r):
+            continue
         t1 = int(r["team1_id"]) == team_id
         my_score = (
             int(r["team1_score"])
@@ -5909,10 +5964,11 @@ def sort_players_table_default(rows: list[dict[str, Any]]) -> list[dict[str, Any
     def _n(r: dict[str, Any], k: str) -> int:
         return _int0(r.get(k))
 
-    out.sort(key=lambda r: _n(r, "points"), reverse=True)
-    out.sort(key=lambda r: _n(r, "goals"), reverse=True)
-    out.sort(key=lambda r: _n(r, "assists"), reverse=True)
+    # Stable sort: apply the least significant key first and the most significant key last.
     out.sort(key=lambda r: str(r.get("name") or "").lower())
+    out.sort(key=lambda r: _n(r, "assists"), reverse=True)
+    out.sort(key=lambda r: _n(r, "goals"), reverse=True)
+    out.sort(key=lambda r: _n(r, "points"), reverse=True)
     return out
 
 
@@ -6028,6 +6084,22 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
         pid = int(r.get("player_id") if isinstance(r, dict) else r["player_id"])
         out[pid] = compute_player_display_stats(dict(r))
     return out
+
+
+def _league_game_is_cross_division_non_external(game_row: dict[str, Any]) -> bool:
+    """
+    Returns True if both teams have known, non-External league divisions and those divisions differ.
+    """
+    d1 = str(game_row.get("team1_league_division_name") or "").strip()
+    d2 = str(game_row.get("team2_league_division_name") or "").strip()
+    if not d1 or not d2:
+        return False
+    if d1.lower() == "external" or d2.lower() == "external":
+        return False
+    ld = str(game_row.get("division_name") or game_row.get("league_division_name") or "").strip()
+    if ld.lower() == "external":
+        return False
+    return d1 != d2
 
 
 def normalize_jersey_number(raw: Any) -> Optional[str]:
