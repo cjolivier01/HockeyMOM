@@ -91,3 +91,15 @@ def should_render_recent_player_stats_section_in_team_template():
     assert "table-nowrap" in html
     assert "<select" in html and "recent_n" in html
 
+
+def should_split_coaches_out_of_player_lists():
+    mod = _load_app_module()
+    players = [
+        {"id": 1, "name": "Head Coach A", "position": "HC"},
+        {"id": 2, "name": "Assistant Coach B", "position": "AC"},
+        {"id": 3, "name": "Skater C", "position": "F"},
+    ]
+    players_only, head_coaches, assistant_coaches = mod.split_players_and_coaches(players)
+    assert [p["name"] for p in head_coaches] == ["Head Coach A"]
+    assert [p["name"] for p in assistant_coaches] == ["Assistant Coach B"]
+    assert [p["name"] for p in players_only] == ["Skater C"]

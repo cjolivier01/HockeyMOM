@@ -10,9 +10,12 @@
   --danger: #d81b60; /* magenta */
   --warn: #ffc107;
   --border: #242835;
-	  --row-odd: #10141c;
-	  --row-even: #243147;
-	  --row-hover: #2b3a57;
+	  /* Table row palette: dark blue <-> lighter blue. */
+	  --row-odd: #18243a;
+	  --row-even: #2a3a5c;
+	  --row-hover: #364b77;
+	  --thead-bg: #142036;
+	  --thead-text: #8bbcff;
 	}
 
 * { box-sizing: border-box; }
@@ -71,7 +74,7 @@ table { width: 100%; border-collapse: collapse; background: var(--panel); border
 th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; }
 th:last-child, td:last-child { border-right: none; }
 tbody tr:last-child td { border-bottom: none; }
-thead th { background: #12151c; color: var(--muted); font-weight: 700; }
+thead th { background: var(--thead-bg); color: var(--thead-text); font-weight: 800; }
 tbody tr:nth-child(odd) { background: var(--row-odd); }
 tbody tr:nth-child(even) { background: var(--row-even); }
 	/* Row hover highlight (apply to cells so it doesn't conflict with sticky/frozen columns). */
@@ -104,7 +107,7 @@ td.cell-pre { white-space: pre-line !important; }
 
 /* Freeze left columns (JS sets left offsets; CSS provides layering + row-matched backgrounds) */
 th.sticky-col, td.sticky-col { position: sticky; left: 0; z-index: 3; }
-thead th.sticky-col { background: #12151c; z-index: 6; }
+thead th.sticky-col { background: var(--thead-bg); z-index: 6; }
 tbody tr:nth-child(odd) td.sticky-col { background: var(--row-odd); }
 tbody tr:nth-child(even) td.sticky-col { background: var(--row-even); }
 td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--border); }

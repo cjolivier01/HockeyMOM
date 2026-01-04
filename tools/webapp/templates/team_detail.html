@@ -13,6 +13,23 @@
   </div>
 </div>
 
+{% set has_coaches = (head_coaches is defined and head_coaches) or (assistant_coaches is defined and assistant_coaches) %}
+{% if has_coaches %}
+  <div class="grid" style="margin-top:1rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
+    <div class="card">
+      <h3 style="margin:0 0 .5rem 0;">Coaches</h3>
+      {% if head_coaches %}
+        <p class="muted" style="margin:.25rem 0 .25rem 0;">Head Coach</p>
+        <p style="margin:0">{{ head_coaches | map(attribute='name') | join(', ') }}</p>
+      {% endif %}
+      {% if assistant_coaches %}
+        <p class="muted" style="margin:.75rem 0 .25rem 0;">Assistant Coaches</p>
+        <p style="margin:0">{{ assistant_coaches | map(attribute='name') | join(', ') }}</p>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
 {% if schedule_games is defined %}
   <h3 style="margin-top:1.25rem;">Schedule</h3>
   <div class="card">

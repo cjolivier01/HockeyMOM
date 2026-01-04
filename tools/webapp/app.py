@@ -2602,6 +2602,7 @@ def create_app() -> Flask:
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute("SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC", (team_id,))
             players = cur.fetchall() or []
+        players_only, head_coaches, assistant_coaches = split_players_and_coaches(players or [])
         player_totals = aggregate_players_totals_league(g.db, team_id, int(league_id))
         tstats = compute_team_stats_league(g.db, team_id, int(league_id))
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
@@ -2633,17 +2634,19 @@ def create_app() -> Flask:
             )
             ps_rows = cur.fetchall() or []
 
-        player_stats_rows = build_player_stats_table_rows(players, player_totals)
+        player_stats_rows = build_player_stats_table_rows(players_only, player_totals)
         recent_totals = compute_recent_player_totals_from_rows(
             schedule_games=schedule_games, player_stats_rows=ps_rows, n=recent_n
         )
         recent_player_stats_rows = sort_player_stats_rows(
-            build_player_stats_table_rows(players, recent_totals), sort_key=recent_sort, sort_dir=recent_dir
+            build_player_stats_table_rows(players_only, recent_totals), sort_key=recent_sort, sort_dir=recent_dir
         )
         return render_template(
             "team_detail.html",
             team=team,
-            players=players,
+            players=players_only,
+            head_coaches=head_coaches,
+            assistant_coaches=assistant_coaches,
             player_stats_columns=PLAYER_STATS_DISPLAY_COLUMNS,
             player_stats_rows=player_stats_rows,
             recent_player_stats_columns=PLAYER_STATS_DISPLAY_COLUMNS,
@@ -2778,6 +2781,8 @@ def create_app() -> Flask:
             stats_rows = cur.fetchall() or []
             cur.execute("SELECT stats_json, updated_at FROM hky_game_stats WHERE game_id=%s", (game_id,))
             game_stats_row = cur.fetchone()
+        team1_players, _hc1, _ac1 = split_players_and_coaches(team1_players)
+        team2_players, _hc2, _ac2 = split_players_and_coaches(team2_players)
         stats_by_pid = {r["player_id"]: r for r in stats_rows}
         game_stats = None
         game_stats_updated_at = None
@@ -2987,6 +2992,7 @@ def create_app() -> Flask:
                     (team_id,),
                 )
             players = cur.fetchall()
+        players_only, head_coaches, assistant_coaches = split_players_and_coaches(players or [])
         if league_id:
             player_totals = aggregate_players_totals_league(g.db, team_id, int(league_id))
             tstats = compute_team_stats_league(g.db, team_id, int(league_id))
@@ -3043,17 +3049,19 @@ def create_app() -> Flask:
                 )
                 ps_rows = cur.fetchall() or []
 
-        player_stats_rows = build_player_stats_table_rows(players, player_totals)
+        player_stats_rows = build_player_stats_table_rows(players_only, player_totals)
         recent_totals = compute_recent_player_totals_from_rows(
             schedule_games=schedule_games, player_stats_rows=ps_rows, n=recent_n
         )
         recent_player_stats_rows = sort_player_stats_rows(
-            build_player_stats_table_rows(players, recent_totals), sort_key=recent_sort, sort_dir=recent_dir
+            build_player_stats_table_rows(players_only, recent_totals), sort_key=recent_sort, sort_dir=recent_dir
         )
         return render_template(
             "team_detail.html",
             team=team,
-            players=players,
+            players=players_only,
+            head_coaches=head_coaches,
+            assistant_coaches=assistant_coaches,
             player_stats_columns=PLAYER_STATS_DISPLAY_COLUMNS,
             player_stats_rows=player_stats_rows,
             recent_player_stats_columns=PLAYER_STATS_DISPLAY_COLUMNS,
@@ -3681,6 +3689,8 @@ def create_app() -> Flask:
             stats_rows = cur.fetchall()
             cur.execute("SELECT stats_json, updated_at FROM hky_game_stats WHERE game_id=%s", (game_id,))
             game_stats_row = cur.fetchone()
+        team1_players, _hc1, _ac1 = split_players_and_coaches(team1_players or [])
+        team2_players, _hc2, _ac2 = split_players_and_coaches(team2_players or [])
         stats_by_pid = {r["player_id"]: r for r in stats_rows}
 
         game_stats = None
@@ -4911,6 +4921,37 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     out["faceoff_pct"] = _rate_or_none(faceoff_wins, faceoff_attempts)
     out["goalie_sv_pct"] = _rate_or_none(goalie_saves, goalie_sa)
     return out
+
+
+def _classify_coach_position(pos: Any) -> Optional[str]:
+    """
+    Returns "HC" or "AC" if position indicates a coach; otherwise None.
+    """
+    p = str(pos or "").strip().upper()
+    if p in {"HC", "HEAD COACH"}:
+        return "HC"
+    if p in {"AC", "ASSISTANT COACH"}:
+        return "AC"
+    return None
+
+
+def split_players_and_coaches(players: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Separate coaches (HC/AC) from players so they don't appear in player stats lists.
+    Returns: (players_only, head_coaches, assistant_coaches)
+    """
+    players_only: list[dict[str, Any]] = []
+    head_coaches: list[dict[str, Any]] = []
+    assistant_coaches: list[dict[str, Any]] = []
+    for p in (players or []):
+        role = _classify_coach_position(p.get("position"))
+        if role == "HC":
+            head_coaches.append(p)
+        elif role == "AC":
+            assistant_coaches.append(p)
+        else:
+            players_only.append(p)
+    return players_only, head_coaches, assistant_coaches
 
 
 def _empty_player_display_stats(player_id: int) -> dict[str, Any]:
