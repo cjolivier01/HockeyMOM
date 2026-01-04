@@ -6,9 +6,9 @@ interfaces used across the stitching and tracking CLIs.
 @see @ref hmlib.video.ffmpeg "ffmpeg" for low-level FFmpeg helpers.
 """
 
+import contextlib
 import os
 import platform
-import subprocess
 import sys
 from fractions import Fraction
 from typing import Any, Dict, Literal, Optional, Tuple, Union
@@ -16,7 +16,6 @@ from typing import Any, Dict, Literal, Optional, Tuple, Union
 import cv2
 import numpy as np
 import torch
-import torchaudio
 import torchvision
 from torchaudio.io import StreamReader as StreamingMediaDecoder
 from torchaudio.io import StreamWriter as StreamingMediaEncoder
@@ -25,7 +24,7 @@ from typeguard import typechecked
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
-from hmlib.utils.gpu import StreamTensorBase
+from hmlib.utils.gpu import StreamTensorBase, wrap_tensor
 from hmlib.utils.image import make_channels_first, make_channels_last, resize_image
 from hmlib.video.ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
 from hmlib.video.py_nv_encoder import PyNvVideoEncoder
@@ -114,8 +113,12 @@ def _max_video_width(codec: str) -> int:
 
 
 class VideoStreamWriterInterface:
-    # TODO: Add the interface stubs
-    pass
+
+    def close(self) -> None:
+        raise NotImplementedError("close not implemented")
+
+    def isOpened(self) -> bool:
+        raise NotImplementedError("isOpened not implemented")
 
 
 def video_size(
@@ -246,6 +249,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         streaming_drop_frame_interval: int = 3,
         stream_fps: int = 15,
     ):
+        assert False, "Stop using VideoStreamWriter; use PyNvVideoEncoderWriter instead"
         self._filename = filename
         self._container_type = container_type
         # Always keep a float internally even if callers pass a Fraction
@@ -292,6 +296,8 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         self._batch_items = []
         self._in_flush = False
         self._bit_rate = bit_rate
+        import torchaudio
+
         self._codec_config = torchaudio.io.CodecConfig(
             bit_rate=bit_rate,
         )
@@ -427,7 +433,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         if flush_video_file and self._video_f is not None:
             self._video_f.flush()
 
-    def isOpened(self):
+    def isOpened(self) -> bool:
         return self._video_f is not None
 
     def open(self):
@@ -527,41 +533,45 @@ class GStreamerVideoReaderIterator:
 
 
 class PyNvVideoCodecIterator:
+
     def __init__(
         self,
         decoder,
         device: torch.device,
+        cuda_stream: torch.cuda.Stream,
         batch_size: int = 1,
     ):
         self._decoder = decoder
         self._batch_size = batch_size
         self._device = device
-        self.frames_delivered_count = 0
+        self._cuda_stream = cuda_stream
+        self.frames_delivered_count: int = 0
 
     def __next__(self):
-        frames = self._decoder.get_batch_frames(self._batch_size)
-        if not frames:
-            raise StopIteration()
+        with torch.cuda.stream(self._cuda_stream):
+            frames = self._decoder.get_batch_frames(self._batch_size)
+            if not frames:
+                raise StopIteration()
 
-        batch_tensors = []
-        for frame in frames:
-            planes = frame.cuda()
-            if planes is None:
-                continue
-            plane_tensors = [torch.as_tensor(p, device=self._device) for p in planes]
-            if len(plane_tensors) >= 3:
-                # RGB->BGR
-                tmp = plane_tensors[0]
-                plane_tensors[0] = plane_tensors[2]
-                plane_tensors[2] = tmp
-            tensor = torch.stack(plane_tensors, dim=0)
-            batch_tensors.append(tensor)
-            self.frames_delivered_count += 1
+            batch_tensors = []
+            for frame in frames:
+                planes = frame.cuda()
+                if planes is None:
+                    continue
+                plane_tensors = [torch.as_tensor(p, device=self._device) for p in planes]
+                if len(plane_tensors) >= 3:
+                    # RGB->BGR
+                    tmp = plane_tensors[0]
+                    plane_tensors[0] = plane_tensors[2]
+                    plane_tensors[2] = tmp
+                tensor = torch.stack(plane_tensors, dim=0)
+                batch_tensors.append(tensor)
 
-        if not batch_tensors:
-            raise StopIteration()
+            if not batch_tensors:
+                raise StopIteration()
 
-        return torch.stack(batch_tensors, dim=0)
+            self.frames_delivered_count += len(batch_tensors)
+            return wrap_tensor(torch.stack(batch_tensors, dim=0))
 
     def __iter__(self):
         return self
@@ -592,7 +602,9 @@ class CVVideoCaptureIterator:
 
     def __del__(self):
         if hasattr(self, "frames_delivered_count") and self.frames_delivered_count:
-            logger.info(f"CVVideoCaptureIterator delivered {self.frames_delivered_count} frames")
+            logger.info(
+                "CVVideoCaptureIterator delivered %d frames", self.frames_delivered_count
+            )
 
 
 class VideoReaderIterator:
@@ -702,6 +714,7 @@ class VideoStreamReader:
         codec: str = None,
         batch_size: int = 1,
         device: torch.device = None,
+        pynvc_simple_decoder: Optional[bool] = None,
     ):
         self._filename = filename
         self._type = type
@@ -720,6 +733,8 @@ class VideoStreamReader:
         self._torchaudio_stream = False
         self._gstreamer_stream = False
         self._frames_delivered_count = 0
+        self._cuda_stream: Optional[torch.cuda.Stream] = None
+        self._pynvc_simple_decoder = pynvc_simple_decoder
         self.open()
 
     @property
@@ -764,9 +779,11 @@ class VideoStreamReader:
                 timeout_ms=5000,
             )
         elif self._type == "pynvcodec":
+            assert self._cuda_stream is not None
             return PyNvVideoCodecIterator(
                 self._video_in,
                 device=self._device,
+                cuda_stream=self._cuda_stream,
                 batch_size=self._batch_size,
             )
         elif self._type == "ffmpeg":
@@ -791,10 +808,6 @@ class VideoStreamReader:
             # hw_accel = "cuda"
             decoder = _FOURCC_TO_CODEC[self._video_info.codec.upper()]
             hw_accel = str(self._device)
-            # decoder_options["gpu"] = str(self._device.index)
-            # format = "bgr24"
-            # format = "rgb24"
-            # format = "yuvj420p"
         self._video_in.add_basic_video_stream(
             frames_per_chunk=self._batch_size,
             stream_index=0,
@@ -830,12 +843,17 @@ class VideoStreamReader:
             assert frame_number is not None
             nvc = _load_pynvcodec()
             if isinstance(self._video_in, nvc.SimpleDecoder):
-                self._video_in.seek_to_index(int(frame_number))
+                self._video_in.seek_to_index(
+                    self._video_in.get_index_from_time_in_seconds(timestamp)
+                )
             else:
-                new_args = self._video_in_args.copy()
-                new_args["start_frame"] = int(frame_number)
-                self._video_in.end()
-                self._video_in = nvc.ThreadedDecoder(**new_args)
+                if frame_number:
+                    new_args = self._video_in_args.copy()
+                    new_args["start_frame"] = round(frame_number)
+                    self._video_in.end()
+                    torch.cuda.synchronize()
+                    self._video_in = nvc.ThreadedDecoder(**new_args)
+                    torch.cuda.synchronize()
         else:
             assert False
 
@@ -911,16 +929,20 @@ class VideoStreamReader:
                 )
             nvc = _load_pynvcodec()
             gpu_id = self._device.index if self._device.index is not None else 0
-            if False:
-                self._video_in = nvc.SimpleDecoder(
-                    self._filename,
+            if self._cuda_stream is None:
+                self._cuda_stream = torch.cuda.Stream(device=torch.device("cuda", index=gpu_id))
+            if self._pynvc_simple_decoder:
+                self._video_in_args: dict[str, Any] = dict(
+                    enc_file_path=self._filename,
                     gpu_id=gpu_id,
                     use_device_memory=True,
                     max_width=int(self._video_info.width),
                     max_height=int(self._video_info.height),
                     need_scanned_stream_metadata=0,
                     output_color_type=nvc.OutputColorType.RGBP,
+                    cuda_stream=self._cuda_stream.cuda_stream,
                 )
+                self._video_in = nvc.SimpleDecoder(**self._video_in_args)
             else:
                 self._video_in_args: dict[str, Any] = dict(
                     enc_file_path=self._filename,
@@ -931,6 +953,7 @@ class VideoStreamReader:
                     max_height=int(self._video_info.height),
                     need_scanned_stream_metadata=0,
                     output_color_type=nvc.OutputColorType.RGBP,
+                    cuda_stream=self._cuda_stream.cuda_stream,
                 )
                 self._video_in = nvc.ThreadedDecoder(**self._video_in_args)
         elif self._type == "ffmpeg":
@@ -1038,17 +1061,24 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
     def open(self):
         self._encoder.open()
 
-    def append(self, images: torch.Tensor):
-        assert images.device == self._device
-        self._encoder.write(images)
+    def append(self, images: torch.Tensor, **kwargs):
+        prof = self._profiler
+        ctx = (
+            prof.rf("video.nvenc_writer.append")
+            if getattr(prof, "enabled", False)
+            else contextlib.nullcontext()
+        )
+        with ctx:
+            assert images.device == self._device
+            self._encoder.write(images, **kwargs)
 
-        if images.ndim == 4:
-            self._frame_counter += int(images.shape[0])
-        else:
-            self._frame_counter += 1
+            if images.ndim == 4:
+                self._frame_counter += int(images.shape[0])
+            else:
+                self._frame_counter += 1
 
-    def write(self, images: torch.Tensor):
-        return self.append(images)
+    def write(self, images: torch.Tensor, **kwargs):
+        return self.append(images, **kwargs)
 
     def flush(self):
         # Flushing is handled in close() via encoder.EndEncode()/ffmpeg drain.

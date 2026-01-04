@@ -1,4 +1,5 @@
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
+#include "hockeymom/csrc/play_tracker/LogCapture.h"
 
 #include <cassert>
 #include <iostream>
@@ -66,7 +67,7 @@ BBox LivingBox::next_position() {
 
   new_box = new_box.normalize(/*reversible=*/false);
   if (new_box.empty()) {
-    std::cerr << "Empty box for next position!" << std::endl;
+    hm_log_error("Empty box for next position!");
   }
 
   // Constrain size
@@ -81,7 +82,8 @@ BBox LivingBox::next_position() {
   set_bbox(new_box);
 
   update_nonstop_delay();
-  update_stop_delays();
+  TranslatingBox::update_stop_delays();
+  ResizingBox::update_stop_delays();
   stop_translation_if_out_of_arena();
   clamp_to_arena();
 

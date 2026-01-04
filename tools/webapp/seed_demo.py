@@ -133,7 +133,7 @@ def add_random_stats(conn, game_id: int, team_id: int, user_id: int):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Seed demo data for HM WebApp hockey features")
+    ap = argparse.ArgumentParser(description="Seed demo data for HockeyMOM WebApp hockey features")
     ap.add_argument(
         "--config",
         default=os.environ.get("HM_DB_CONFIG")

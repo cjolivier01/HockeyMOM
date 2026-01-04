@@ -8,6 +8,7 @@ This file is kept in sync with `core.py` which adds runtime docstrings.
 
 from __future__ import annotations
 
+import enum
 from typing import Any, Optional, Sequence, Tuple
 
 import torch
@@ -84,6 +85,16 @@ class CudaStitchPano3U8:
 class CudaStitchPano3F32(CudaStitchPano3U8): ...
 class HmTrackerPredictionMode: ...  # enum-like
 
+class HmLogLevel(enum.Enum):
+    DEBUG: "HmLogLevel"
+    INFO: "HmLogLevel"
+    WARNING: "HmLogLevel"
+    ERROR: "HmLogLevel"
+
+class HmLogMessage:
+    level: HmLogLevel
+    message: str
+
 class HmTracker:
     def update(self, detections: torch.Tensor) -> Any: ...
 
@@ -91,6 +102,7 @@ class HmByteTrackConfig: ...
 class HmByteTracker(HmTracker): ...
 class HmByteTrackerCuda(HmTracker): ...
 class HmByteTrackerCudaStatic(HmTracker): ...
+class HmDcfTrackerCudaStatic(HmTracker): ...
 class PlayTrackerConfig: ...
 
 class PlayTracker:
@@ -101,6 +113,26 @@ class AllLivingBoxConfig: ...
 class LivingBox: ...
 class BBox: ...
 class GrowShrink: ...  # enum-like
+
+# AspenNet progress sampling helper (pybind11)
+class AspenGraphSampler:
+    def __init__(
+        self,
+        max_samples: int = ...,
+        min_interval_ms: int = ...,
+        max_interval_ms: int = ...,
+    ) -> None: ...
+    def configure_graph(
+        self,
+        names: Sequence[str],
+        degrees: Sequence[int],
+        edges: Sequence[Tuple[int, int]],
+    ) -> None: ...
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def enter_index(self, index: int) -> None: ...
+    def exit_index(self, index: int) -> None: ...
+    def pop_samples(self, max_items: int = ...) -> list[dict[str, Any]]: ...
 
 # Optional blender implementation
 class EnBlender(ImageBlender): ...  # may be None at runtime
@@ -127,11 +159,15 @@ __all__ = [
     "HmByteTracker",
     "HmByteTrackerCuda",
     "HmByteTrackerCudaStatic",
+    "HmDcfTrackerCudaStatic",
     "HmByteTrackConfig",
     "RemapperConfig",
     "HmTrackerPredictionMode",
+    "HmLogLevel",
+    "HmLogMessage",
     "StitchImageInfo",
     "EnBlender",
+    "AspenGraphSampler",
     "PlayTracker",
     "PlayTrackerConfig",
     "AllLivingBoxConfig",

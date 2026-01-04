@@ -1,4 +1,4 @@
-HM WebApp (Uploads + Run)
+HockeyMOM WebApp (Uploads + Run)
 =========================
 
 Overview
@@ -32,6 +32,35 @@ This will:
 - Install a systemd unit `hm-webapp.service`
 - Install an Nginx site proxying `http://127.0.0.1:8008` and restart Nginx
 
+Deploy to Google Cloud (smallest VM)
+------------------------------------
+This repo includes a helper that deploys the webapp + local MariaDB to a tiny Compute Engine VM (`e2-micro`) using the `gcloud` CLI.
+
+1) Install/auth `gcloud` (if needed):
+- https://cloud.google.com/sdk/docs/install
+- `gcloud init`
+- `gcloud auth login`
+
+2) Deploy:
+
+```
+python3 tools/webapp/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a
+```
+
+3) Delete everything created by the script:
+
+```
+python3 tools/webapp/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --delete
+```
+
+Redeploy (code-only)
+--------------------
+If you only changed `tools/webapp/app.py` / templates / static assets, you can do a fast redeploy that just copies files to the VM and restarts the service:
+
+```
+python3 tools/webapp/redeploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --instance hm-webapp
+```
+
 Uninstall
 ---------
 
@@ -47,6 +76,12 @@ Usage
 - Schedule: create games between one or two of your teams
   - If you select only one of your teams, enter an opponent name to auto-create an external team that is hidden from your team list by default
   - Edit a game to set scores and enter per-player stats (goals, assists, shots, PIM, +/-). Team standings are computed automatically from game results.
+
+Import Shift Spreadsheet Stats
+------------------------------
+To import the `stats/player_stats.csv` + `stats/game_stats.csv` outputs written by `scripts/parse_shift_spreadsheet.py` and view them per game/player/team:
+
+- See `tools/webapp/TUTORIAL_SHIFT_STATS.md`.
 
 Demo Data
 ---------
@@ -72,17 +107,15 @@ Example usage:
 ```
 python3 tools/webapp/import_time2score.py \
   --config /opt/hm-webapp/app/config.json \
-  --season 2024 \
-  --user-email demo@example.com \
-  --sync --stats
+  --source caha \
+  --season 0 \
+  --user-email demo@example.com
 ```
 
 Flags:
-- `--season`: season id (0 = current)
+- `--source`: `caha` (league=3) or `sharksice` (league=1)
+- `--season`: season id (0 = current/latest)
 - `--user-email`: user that will own imported teams/games (teams marked is_external=1)
-- `--sync`: scrape and cache seasons/divisions/teams/games before import
-- `--stats`: fetch box scores to fill missing scores if available
-- `--tts-db-dir`: directory to place the temporary sqlite file used by the scraper (default: `tools/webapp/instance/time2score_db`)
 - `--division`: filter to only divisions you want (repeatable). Accepts:
   - substring name match (e.g., `--division 12AA`) — case-insensitive
   - level only (e.g., `--division 12`) to include all conferences at that level
@@ -92,10 +125,27 @@ Flags:
 - `--game-id` / `--games-file`: import from explicit game ids (one per line)
 - `--limit`: cap number of games (useful for testing)
 - `--team`: filter to games that involve a team name containing this substring (repeatable)
-- `--logo-dir`: directory to save team logos downloaded from the team page; importer updates `teams.logo_path`
 - League grouping and sharing:
   - `--league-name` (default: `CAHA-<season>`), `--shared`, `--share-with <email>`
   - Adds records to `leagues`, `league_members`, `league_teams`, `league_games`
+- Non-destructive by default:
+  - `--replace` overwrites existing game scores and `player_stats`; otherwise importer only fills missing values.
+
+Import "Norcal"
+---------------
+To import CAHA/TimeToScore into a league named `Norcal`, use `import_time2score.py` with league flags:
+
+```
+python3 tools/webapp/import_time2score.py \
+  --config /opt/hm-webapp/app/config.json \
+  --source caha \
+  --season 0 \
+  --user-email demo@example.com \
+  --league-name Norcal \
+  --shared
+```
+
+Then in the web UI (Leagues page), mark the league as Public if you want it viewable without login.
 
 Reset Hockey Data
 -----------------

@@ -40,6 +40,7 @@ If you need details not covered here, inspect `hockeymom/src/PythonBindings.cpp`
 
 from ._hockeymom import (
     AllLivingBoxConfig,
+    AspenGraphSampler,
     BBox,
     BlenderConfig,
     CudaStitchPano3F32,
@@ -47,12 +48,15 @@ from ._hockeymom import (
     CudaStitchPanoF32,
     CudaStitchPanoU8,
     GrowShrink,
+    HmDcfTrackerCudaStatic,
     HmByteTrackConfig,
     HmByteTracker,
     HmByteTrackerCuda,
     HmByteTrackerCudaStatic,
     HmTracker,
     HmTrackerPredictionMode,
+    HmLogLevel,
+    HmLogMessage,
     ImageBlender,
     ImageBlenderMode,
     ImageRemapper,
@@ -89,15 +93,19 @@ __all__ = [
     "CudaStitchPano3U8",
     "CudaStitchPano3F32",
     "BlenderConfig",
+    "AspenGraphSampler",
     "ImageStitcher",
     "RemapImageInfo",
     "HmTracker",
     "HmByteTracker",
     "HmByteTrackerCuda",
     "HmByteTrackerCudaStatic",
+    "HmDcfTrackerCudaStatic",
     "HmByteTrackConfig",
     "RemapperConfig",
     "HmTrackerPredictionMode",
+    "HmLogLevel",
+    "HmLogMessage",
     "StitchImageInfo",
     "EnBlender",
     "PlayTracker",
@@ -283,6 +291,15 @@ _doc(
         device: Torch device string (default ``"cuda:0"``).
     """,
 )
+_doc(
+    HmDcfTrackerCudaStatic,
+    """Static-shape CUDA DCF tracker with optional ReID features.
+
+    Uses fixed-size buffers to avoid dynamic shapes and combines IoU with
+    per-track appearance templates (when provided) for matching. The interface
+    mirrors BYTETracker static mode (`track(data)` with padded inputs/outputs).
+    """,
+)
 
 _doc(
     PlayTrackerConfig,
@@ -304,6 +321,11 @@ _doc(
 _doc(
     BBox,
     """Axis‑aligned bounding box container (x1, y1, x2, y2[, score, id]).""",
+)
+
+_doc(
+    AspenGraphSampler,
+    """Background AspenNet sampler that captures plugin activity without the GIL.""",
 )
 
 _doc(

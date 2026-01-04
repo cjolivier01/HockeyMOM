@@ -3,6 +3,9 @@ from typing import Any, Dict, Optional
 import torch
 from mmengine.structures import InstanceData
 
+from hmlib.log import get_logger
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
+
 from .base import Plugin
 
 
@@ -53,6 +56,7 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             game_id=context.get("game_id"),
             original_clip_box=context.get("original_clip_box"),
             det_thresh=self._det_thresh,
+            max_detections_in_mask=self._max_detections_in_mask,
             draw=bool(draw),
         )
 
@@ -91,10 +95,9 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             if det_instances is None:
                 continue
 
-            det_bboxes = det_instances.bboxes
-            det_labels = det_instances.labels
-            det_scores = det_instances.scores
-            det_src_pose_idx = getattr(det_instances, "source_pose_index", None)
+            det_bboxes = unwrap_tensor(det_instances.bboxes)
+            det_labels = unwrap_tensor(det_instances.labels)
+            det_scores = unwrap_tensor(det_instances.scores)
 
             pd_input: Dict[str, Any] = {
                 "det_bboxes": det_bboxes,
@@ -108,117 +111,25 @@ class IceRinkSegmBoundariesPlugin(Plugin):
                 pd_input["original_images"] = original_images
 
             # Reuse the pipeline module's forward for pruning and optional drawing
-            out = self._segm.forward(pd_input)
+            out = self._segm(pd_input)
 
             new_bboxes = out["det_bboxes"]
             new_labels = out["labels"]
             new_scores = out["scores"]
 
-            # Optionally limit the number of detections that survive the rink mask.
-            # This keeps only the top scores within the mask and avoids wasting
-            # downstream static-detector capacity on low-score in-mask items.
-            if self._max_detections_in_mask is not None:
-                try:
-                    if isinstance(new_scores, torch.Tensor):
-                        scores_t = new_scores
-                    else:
-                        scores_t = torch.as_tensor(new_scores)
-                    total = int(scores_t.numel())
-                    if total > self._max_detections_in_mask:
-                        k = int(self._max_detections_in_mask)
-                        topk_idx = torch.topk(scores_t, k=k).indices
-                        # Sort indices to keep detections in score-descending but
-                        # stable order for downstream consumers.
-                        topk_idx, _ = torch.sort(topk_idx)
-                        if isinstance(new_bboxes, torch.Tensor):
-                            new_bboxes = new_bboxes.index_select(0, topk_idx)
-                        else:
-                            new_bboxes = torch.as_tensor(new_bboxes).index_select(0, topk_idx)
-                        if isinstance(new_labels, torch.Tensor):
-                            new_labels = new_labels.index_select(0, topk_idx)
-                        else:
-                            new_labels = torch.as_tensor(new_labels).index_select(0, topk_idx)
-                        if isinstance(new_scores, torch.Tensor):
-                            new_scores = new_scores.index_select(0, topk_idx)
-                        else:
-                            new_scores = scores_t.index_select(0, topk_idx)
-                except Exception:
-                    # If anything goes wrong, fall back to un-capped outputs.
-                    pass
-
-                # Try to propagate source pose indices through post-det filtering
-                new_src_pose_idx: Optional[torch.Tensor] = None
-                try:
-                    if det_src_pose_idx is not None:
-                        ob = det_bboxes
-                        nb = new_bboxes
-                        if not isinstance(ob, torch.Tensor):
-                            ob = torch.as_tensor(ob)
-                        if not isinstance(nb, torch.Tensor):
-                            nb = torch.as_tensor(nb)
-                        if ob.ndim == 1:
-                            ob = ob.reshape(-1, 4)
-                        if nb.ndim == 1:
-                            nb = nb.reshape(-1, 4)
-                        if len(nb) == len(ob):
-                            new_src_pose_idx = det_src_pose_idx
-                        else:
-                            new_src_pose_idx = torch.full(
-                                (len(nb),), -1, dtype=torch.int64, device=nb.device
-                            )
-                            if len(ob) and len(nb):
-                                # First try exact match with tolerance
-                                for j in range(len(nb)):
-                                    eq = (
-                                        torch.isclose(nb[j], ob).all(dim=1)
-                                        if len(ob)
-                                        else torch.zeros((0,), dtype=torch.bool)
-                                    )
-                                    match_idx = torch.nonzero(eq).reshape(-1)
-                                    if len(match_idx) == 1:
-                                        k = int(match_idx[0].item())
-                                        try:
-                                            new_src_pose_idx[j] = det_src_pose_idx[k]
-                                        except Exception:
-                                            pass
-                                # If unmatched remain, map by IoU best
-                                if (new_src_pose_idx < 0).any():
-                                    try:
-                                        from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
-                                    except Exception:
-                                        from hmlib.utils.utils import bbox_iou as _bbox_iou
-                                    iou = _bbox_iou(
-                                        nb.to(dtype=torch.float32),
-                                        ob.to(dtype=torch.float32),
-                                        x1y1x2y2=True,
-                                    )
-                                    best_iou, best_idx = torch.max(iou, dim=1)
-                                    for j in range(len(nb)):
-                                        if new_src_pose_idx[j] < 0 and best_iou[j] > 0:
-                                            try:
-                                                new_src_pose_idx[j] = int(
-                                                    det_src_pose_idx[int(best_idx[j].item())]
-                                                )
-                                            except Exception:
-                                                pass
-                except Exception:
-                    new_src_pose_idx = None
-
-                new_inst = InstanceData(
-                    bboxes=new_bboxes,
-                    labels=new_labels,
-                    scores=new_scores,
-                )
-                if new_src_pose_idx is not None:
-                    try:
-                        new_inst.source_pose_index = new_src_pose_idx.to(dtype=torch.int64)
-                    except Exception:
-                        pass
-                img_data_sample.pred_instances = new_inst
+            new_inst = InstanceData(
+                bboxes=wrap_tensor(new_bboxes),
+                labels=wrap_tensor(new_labels),
+                scores=wrap_tensor(new_scores),
+            )
+            num_detections = out.get("num_detections")
+            if num_detections is not None:
+                new_inst.set_metainfo({"num_detections": num_detections})
+            img_data_sample.pred_instances = new_inst
 
             # Update original_images if overlay updated
-            if "original_images" in out:
-                data["original_images"] = out["original_images"]
+            if draw_mask:
+                data["original_images"] = wrap_tensor(out["original_images"])
 
         return {"data": data}
 
@@ -297,7 +208,7 @@ class IceRinkSegmConfigPlugin(Plugin):
                     image=frame0,
                 )
             except Exception as ex:
-                print(ex)
+                get_logger(__name__).exception("Failed to configure ice rink mask: %s", ex)
                 self._rink_profile = None
         results = dict(data=data)
         if self._rink_profile is not None:

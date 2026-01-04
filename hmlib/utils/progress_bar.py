@@ -8,13 +8,14 @@ tools in :mod:`hmlib`.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import logging
 import shutil
 import sys
 import time
 from collections import OrderedDict
-from typing import Any, Callable, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -30,6 +31,18 @@ logging_out = sys.stdout
 
 # Shared rich console used for both progress bars and log output.
 RICH_CONSOLE = Console(file=progress_out, stderr=True)
+_CURSOR_SHOW = "\033[?25h"
+
+
+def _restore_cursor():
+    try:
+        progress_out.write(_CURSOR_SHOW)
+        progress_out.flush()
+    except Exception:
+        pass
+
+
+atexit.register(_restore_cursor)
 
 
 class FramesColumn(ProgressColumn):
@@ -64,10 +77,32 @@ class CallbackStreamHandler(logging.StreamHandler):
         self.callback = callback
 
     def emit(self, record):
-        # Use the handler's own formatter to format the record
-        message = self.format(record)
-        # Call the callback with the formatted message
+        try:
+            message = self.format(record)
+        except Exception:
+            message = record.getMessage()
         self.callback(message)
+
+
+class RichProgressFormatter(logging.Formatter):
+    """Format log records with rich markup for the progress log area."""
+
+    def __init__(self, datefmt: str | None = "%H:%M:%S"):
+        super().__init__(datefmt=datefmt)
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = record.getMessage()
+        time_str = self.formatTime(record, self.datefmt)
+        level = record.levelname
+        if record.levelno >= logging.ERROR:
+            style = "bold red"
+        elif record.levelno >= logging.WARNING:
+            style = "bold yellow"
+        elif record.levelno >= logging.INFO:
+            style = "bold cyan"
+        else:
+            style = "dim"
+        return f"[dim]{time_str}[/dim] [{style}]{level:>8}[/] {message}"
 
 
 class ScrollOutput:
@@ -121,11 +156,9 @@ class ScrollOutput:
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
 
-        # Create and add our custom handler
+        # Create and add our custom handler with rich-style formatting
         callback_handler = CallbackStreamHandler(self.write)
-        callback_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-        )
+        callback_handler.setFormatter(RichProgressFormatter())
         logger.addHandler(callback_handler)
         return self
 
@@ -173,6 +206,7 @@ class ProgressBar:
         scroll_output: Optional[ScrollOutput] = None,
         bar_length: Optional[int] = None,
         update_rate: int = 1,
+        title: Optional[str] = None,
         table_callback: Optional[Callable] = None,
         use_curses: bool = True,
     ):
@@ -186,6 +220,7 @@ class ProgressBar:
         self.table_callbacks: List[Callable] = []
         self.bar_length = bar_length
         self._use_curses_requested = use_curses  # Deprecated, no effect
+        self._title = title
         if not self.bar_length:
             self.terminal_width = _get_terminal_width()
             # Re-evaluate the terminal width periodically to handle resizes.
@@ -215,6 +250,9 @@ class ProgressBar:
         self._line_count: int = 0
         self._log_lines: List[str] = []
         self._log_max_lines: int = scroll_output.lines if scroll_output is not None else 11
+        self._extra_panel_callback: Optional[Callable[[], Any]] = None
+        self._extra_panel_title: Optional[str] = None
+        self._extra_panel_style: str = "white on grey19"
 
         if self.scroll_output is not None:
             # Route ScrollOutput lines into this ProgressBar's log buffer.
@@ -222,6 +260,14 @@ class ProgressBar:
 
     def add_table_callback(self, callback: Callable):
         self.table_callbacks.append(callback)
+
+    def set_extra_panel_callback(
+        self, callback: Optional[Callable[[], Any]], title: Optional[str] = None
+    ) -> None:
+        """Register an optional renderable callback for an extra UI panel."""
+        self._extra_panel_callback = callback
+        if title is not None:
+            self._extra_panel_title = title
 
     def set_iterator(self, iterator: Iterator[Any]) -> Iterator[Any]:
         self.iterator = iterator
@@ -283,19 +329,42 @@ class ProgressBar:
         log_table.add_column(justify="left")
         # Take the last N lines for display
         for line in self._log_lines[-self._log_max_lines :]:
-            log_table.add_row(line)
+            try:
+                rendered = Text.from_markup(line)
+            except Exception:
+                rendered = Text(str(line))
+            log_table.add_row(rendered)
         return log_table
 
     def _build_layout(self) -> Group:
         """Compose the status table, progress bar, and log area inside a single bordered panel."""
         status_table = self._build_table()
         log_table = self._build_log_table()
+        extra_panel = None
+        if self._extra_panel_callback is not None:
+            try:
+                extra_renderable = self._extra_panel_callback()
+            except Exception:
+                extra_renderable = Text("Extra panel unavailable", style="dim")
+            if extra_renderable is not None:
+                extra_panel = Panel(
+                    extra_renderable,
+                    border_style="black",
+                    style=self._extra_panel_style,
+                    padding=(0, 1),
+                    title=self._extra_panel_title,
+                )
 
+        title = None
+        if self._title:
+            title = Text(f" {self._title} ", style="yellow on dark_blue")
         status_panel = Panel(
             status_table,
             border_style="black",
             style="white on dark_blue",
             padding=(0, 1),
+            title=title,
+            title_align="center",
         )
         progress_panel = Panel(
             self._progress,
@@ -315,7 +384,11 @@ class ProgressBar:
         # Horizontal ASCII separators between sections
         sep = Rule(style="black")
 
-        body = Group(status_panel, sep, progress_panel, sep, log_panel)
+        sections = [status_panel, sep, progress_panel]
+        if extra_panel is not None:
+            sections.extend([sep, extra_panel])
+        sections.extend([sep, log_panel])
+        body = Group(*sections)
         outer = Panel(
             body,
             border_style="black",
@@ -413,6 +486,7 @@ class ProgressBar:
             except Exception:
                 pass
             self._rich_started = False
+        _restore_cursor()
 
     def refresh(self, final: bool = False):
         # Avoid starting the rich UI until after the warm-up threshold so
@@ -431,6 +505,218 @@ def convert_seconds_to_hms(total_seconds: Any) -> str:
 
     # Format the time in "HH:MM:SS" format
     return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+
+def build_aspen_graph_renderable(snapshot: Dict[str, Any]) -> Table:
+    """Build a rich renderable showing AspenNet graph activity and queue stats."""
+    table = Table.grid(expand=True, padding=(0, 1))
+    table.add_column(justify="left")
+    stats_parts = []
+    concurrency = snapshot.get("concurrency") or {}
+    if concurrency:
+        if concurrency.get("threaded"):
+            stats_parts.append(
+                f"Concurrent: {concurrency.get('current', 0)}/{concurrency.get('max', 0)}"
+            )
+        else:
+            stats_parts.append("Concurrent: serial")
+    queues = snapshot.get("queues")
+    if isinstance(queues, dict):
+        items = queues.get("items") or []
+        if items:
+            if len(items) <= 6:
+                parts = []
+                for item in items:
+                    label = item.get("label", "")
+                    current = item.get("current", 0)
+                    max_size = item.get("max")
+                    if isinstance(max_size, int) and max_size > 0:
+                        parts.append(f"{label}:{current}/{max_size}")
+                    else:
+                        parts.append(f"{label}:{current}")
+                stats_parts.append("Queues: " + " ".join(parts))
+            else:
+                total_current = queues.get("total_current", 0)
+                total_capacity = queues.get("total_capacity", None)
+                count = queues.get("count", len(items))
+                if isinstance(total_capacity, int):
+                    stats_parts.append(
+                        f"Queues: {total_current}/{total_capacity} (n={count})"
+                    )
+                else:
+                    stats_parts.append(f"Queues: {total_current} (n={count})")
+    elif concurrency:
+        if concurrency.get("threaded"):
+            stats_parts.append("Queues: pending")
+        else:
+            stats_parts.append("Queues: off")
+    if stats_parts:
+        table.add_row(Text(" | ".join(stats_parts), style="white"))
+
+    nodes = snapshot.get("nodes") or []
+    if not nodes:
+        table.add_row(Text("No AspenNet nodes", style="dim"))
+        return table
+
+    order = snapshot.get("order") or [node.get("name", "") for node in nodes]
+    order_index = {name: idx for idx, name in enumerate(order)}
+    node_queues = snapshot.get("node_queues") or {}
+
+    max_degree = int(snapshot.get("max_degree", 0))
+    levels: Dict[int, List[Dict[str, Any]]] = {}
+    node_degree: Dict[str, int] = {}
+    for node in nodes:
+        degree = int(node.get("degree", 0))
+        name = str(node.get("name", ""))
+        node_degree[name] = degree
+        levels.setdefault(degree, []).append(node)
+
+    for degree, level_nodes in levels.items():
+        level_nodes.sort(key=lambda n: order_index.get(str(n.get("name", "")), 0))
+        levels[degree] = level_nodes
+
+    max_nodes = max((len(level_nodes) for level_nodes in levels.values()), default=1)
+
+    label_info: Dict[str, Dict[str, Any]] = {}
+    max_label_len = 0
+    for node in nodes:
+        name = str(node.get("name", ""))
+        active = bool(node.get("active", False))
+        marker = "[#]" if active else "[ ]"
+        q_label = ""
+        q_info = node_queues.get(name)
+        if isinstance(q_info, dict):
+            current = q_info.get("current", 0)
+            max_size = q_info.get("max")
+            if isinstance(max_size, int) and max_size > 0:
+                q_label = f" q:{current}/{max_size}"
+            else:
+                q_label = f" q:{current}"
+        label = f"{marker} {name}{q_label}"
+        max_label_len = max(max_label_len, len(label))
+        label_info[name] = {"label": label, "active": active}
+
+    slot_padding = 2
+    slot_width = max_label_len + slot_padding
+    gap = 4
+    width = slot_width * max_nodes + gap * (max_nodes - 1 if max_nodes > 1 else 0)
+
+    def _spread_positions(count: int, slots: int) -> List[int]:
+        if count <= 0:
+            return []
+        if slots <= 1:
+            return [0] * count
+        if count == 1:
+            return [slots // 2]
+        positions: List[int] = []
+        last = -1
+        for idx in range(count):
+            pos = int(round(idx * (slots - 1) / (count - 1)))
+            if pos <= last:
+                pos = last + 1
+            positions.append(pos)
+            last = pos
+        if positions[-1] >= slots:
+            start = max(0, (slots - count) // 2)
+            positions = list(range(start, start + count))
+        return positions
+
+    level_layouts: Dict[int, List[Dict[str, Any]]] = {}
+    node_centers: Dict[str, int] = {}
+    for degree in range(max_degree + 1):
+        level_nodes = levels.get(degree, [])
+        if not level_nodes:
+            continue
+        slots = _spread_positions(len(level_nodes), max_nodes)
+        layouts = []
+        for node, slot in zip(level_nodes, slots):
+            name = str(node.get("name", ""))
+            info = label_info.get(name, {})
+            label = info.get("label", "")
+            active = bool(info.get("active", False))
+            slot_start = slot * (slot_width + gap)
+            offset = max(0, (slot_width - len(label)) // 2)
+            pos = slot_start + offset
+            center = pos + (len(label) // 2 if label else 0)
+            node_centers[name] = center
+            layouts.append(
+                {
+                    "name": name,
+                    "label": label,
+                    "active": active,
+                    "pos": pos,
+                }
+            )
+        level_layouts[degree] = layouts
+
+    edges = snapshot.get("edges") or []
+    edges_by_level: Dict[int, List[tuple]] = {}
+    for edge in edges:
+        if not isinstance(edge, (list, tuple)) or len(edge) != 2:
+            continue
+        src, dst = edge
+        src_name = str(src)
+        dst_name = str(dst)
+        src_degree = node_degree.get(src_name)
+        dst_degree = node_degree.get(dst_name)
+        if src_degree is None or dst_degree is None:
+            continue
+        if dst_degree == src_degree + 1:
+            edges_by_level.setdefault(src_degree, []).append((src_name, dst_name))
+
+    def _merge_char(existing: str, new_char: str) -> str:
+        if existing == " ":
+            return new_char
+        if existing == new_char:
+            return existing
+        if existing in "|-+" and new_char in "|-+":
+            return "+"
+        return existing
+
+    for degree in range(max_degree + 1):
+        layouts = level_layouts.get(degree, [])
+        if not layouts:
+            continue
+        row_chars = [" "] * width
+        label_spans = []
+        marker_spans = []
+        for entry in layouts:
+            label = entry["label"]
+            pos = entry["pos"]
+            active = entry["active"]
+            for idx, ch in enumerate(label):
+                if 0 <= pos + idx < width:
+                    row_chars[pos + idx] = ch
+            label_spans.append((pos, pos + len(label), active))
+            marker_spans.append((pos, pos + 3, active))
+        row_text = Text("".join(row_chars))
+        for start, end, active in label_spans:
+            row_text.stylize("bold white" if active else "dim", start, end)
+        for start, end, active in marker_spans:
+            row_text.stylize("bold green" if active else "dim", start, end)
+        table.add_row(row_text)
+
+        connectors = edges_by_level.get(degree, [])
+        if connectors:
+            conn_chars = [" "] * width
+            for src_name, dst_name in connectors:
+                x1 = node_centers.get(src_name)
+                x2 = node_centers.get(dst_name)
+                if x1 is None or x2 is None:
+                    continue
+                if x1 == x2:
+                    conn_chars[x1] = _merge_char(conn_chars[x1], "|")
+                    continue
+                start = min(x1, x2)
+                end = max(x1, x2)
+                conn_chars[start] = _merge_char(conn_chars[start], "+")
+                conn_chars[end] = _merge_char(conn_chars[end], "+")
+                for idx in range(start + 1, end):
+                    conn_chars[idx] = _merge_char(conn_chars[idx], "-")
+            conn_text = Text("".join(conn_chars))
+            conn_text.stylize("dim", 0, len(conn_chars))
+            table.add_row(conn_text)
+    return table
 
 
 def convert_hms_to_seconds(timestr: str) -> float:

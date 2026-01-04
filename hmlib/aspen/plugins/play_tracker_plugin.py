@@ -45,6 +45,7 @@ class PlayTrackerPlugin(Plugin):
         debug_play_tracker: bool = False,
         plot_moving_boxes: bool = False,
         plot_individual_player_tracking: bool = False,
+        plot_tracking_circles: bool = True,
         plot_boundaries: bool = False,
         plot_all_detections: Optional[float] = None,
         plot_trajectories: bool = False,
@@ -68,6 +69,7 @@ class PlayTrackerPlugin(Plugin):
         self._debug_play_tracker = bool(debug_play_tracker)
         self._plot_moving_boxes = bool(plot_moving_boxes)
         self._plot_individual_player_tracking = bool(plot_individual_player_tracking)
+        self._plot_tracking_circles = bool(plot_tracking_circles)
         self._plot_boundaries = bool(plot_boundaries)
         self._plot_all_detections = plot_all_detections
         self._plot_trajectories = bool(plot_trajectories)
@@ -205,6 +207,7 @@ class PlayTrackerPlugin(Plugin):
             debug_play_tracker=self._debug_play_tracker,
             plot_moving_boxes=self._plot_moving_boxes,
             plot_individual_player_tracking=self._plot_individual_player_tracking,
+            plot_tracking_circles=self._plot_tracking_circles,
             plot_boundaries=self._plot_boundaries,
             plot_all_detections=self._plot_all_detections,
             plot_trajectories=self._plot_trajectories,
@@ -256,6 +259,7 @@ class PlayTrackerPlugin(Plugin):
             "shared",
             "arena",
             "original_images",
+            "tracker_stream_token",
         }
 
     def output_keys(self) -> set[str]:
@@ -264,7 +268,6 @@ class PlayTrackerPlugin(Plugin):
                 "img",
                 "current_box",
                 "current_fast_box_list",
-                # "frame_ids",
                 "player_bottom_points",
                 "player_ids",
                 "play_box",

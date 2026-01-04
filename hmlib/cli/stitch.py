@@ -4,16 +4,20 @@ Experiments in stitching
 
 import argparse
 import contextlib
+import math
 import os
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
+import hmlib.transforms  # Register custom transforms for Aspen pipelines
+from hmlib.aspen import AspenNet
 from hmlib.config import get_clip_box
-from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
+from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
 from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.log import get_root_logger
 from hmlib.orientation import configure_game_videos
@@ -21,12 +25,12 @@ from hmlib.segm.ice_rink import main as ice_rink_main
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
-from hmlib.utils.gpu import GpuAllocator, StreamCheckpoint, StreamTensorBase
-from hmlib.utils.image import image_height, image_width
+from hmlib.utils.gpu import GpuAllocator, unwrap_tensor, wrap_tensor
+from hmlib.utils.image import image_height, image_width, resize_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
 from hmlib.video.ffmpeg import BasicVideoInfo
-from hmlib.video.video_out import VideoOutput
+from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 from hockeymom.core import show_cuda_tensor
 
 ROOT_DIR = os.getcwd()
@@ -36,7 +40,6 @@ logger = get_root_logger()
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
-    parser.add_argument("--num-workers", default=1, type=int, help="Number of stitching workers")
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs")
     parser.add_argument(
@@ -97,6 +100,8 @@ def stitch_videos(
     post_stitch_rotate_degrees: Optional[float] = None,
     args: Optional[argparse.Namespace] = None,
 ):
+    from hmlib.config import get_config, load_yaml_files_ordered, resolve_global_refs
+
     cuda_stream = torch.cuda.Stream(remapping_device)
     torch.cuda.synchronize()
     with torch.cuda.stream(cuda_stream):
@@ -146,47 +151,113 @@ def stitch_videos(
         }
 
         profiler = getattr(args, "profiler", None)
+        if args is not None:
+            setattr(args, "stitch_pto_project_file", str(pto_project_file))
 
-        data_loader = StitchDataset(
-            pto_project_file=pto_project_file,
-            videos=stitch_videos,
-            start_frame_number=start_frame_number,
-            max_frames=max_frames,
-            batch_size=batch_size,
-            num_workers=1,
-            max_input_queue_size=cache_size,
-            image_roi=(
-                get_clip_box(game_id=game_id, root_dir=ROOT_DIR) if not ignore_clip_box else None
-            ),
-            decoder_device=decoder_device,
-            blend_mode=blend_mode,
-            remapping_device=remapping_device,
-            dtype=dtype,
-            auto_adjust_exposure=auto_adjust_exposure,
-            minimize_blend=minimize_blend,
-            python_blender=python_blender,
-            post_stitch_rotate_degrees=post_stitch_rotate_degrees,
-            profiler=profiler,
-            # no_cuda_streams=args.no_cuda_streams,
-            no_cuda_streams=True,
-            async_mode=False,
-            max_blend_levels=getattr(args, "max_blend_levels", None),
+        base_cfg = get_config(game_id=game_id, resolve_globals=False)
+        aspen_cfg_all: Dict[str, Any] = load_yaml_files_ordered(
+            ["config/aspen/stitching.yaml"], base=base_cfg
         )
+        if args is not None:
+            hm_opts.apply_arg_config_overrides(aspen_cfg_all, args)
+            args.game_config = aspen_cfg_all
+        resolve_global_refs(aspen_cfg_all)
+        use_aspen_stitching = bool(
+            aspen_cfg_all.get("aspen", {}).get("stitching", {}).get("enabled", False)
+        )
+        if args is not None and getattr(args, "aspen_stitching", None) is not None:
+            use_aspen_stitching = bool(getattr(args, "aspen_stitching"))
+
+        if use_aspen_stitching:
+            frame_step_left = 1
+            frame_step_right = 1
+            if left_vid.fps > right_vid.fps:
+                int_ratio = int(left_vid.fps // right_vid.fps)
+                float_ratio = float(left_vid.fps / right_vid.fps)
+                if math.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
+                    frame_step_left = int_ratio
+            elif right_vid.fps > left_vid.fps:
+                int_ratio = int(right_vid.fps // left_vid.fps)
+                float_ratio = float(right_vid.fps / left_vid.fps)
+                if math.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
+                    frame_step_right = int_ratio
+
+            game_id_name = os.path.basename(str(dir_name))
+            left_loader = MOTLoadVideoWithOrig(
+                path=stitch_videos["left"]["files"],
+                game_id=game_id_name,
+                max_frames=max_frames,
+                batch_size=batch_size,
+                start_frame_number=start_frame_number + lfo,
+                original_image_only=True,
+                dtype=torch.uint8,
+                device=remapping_device,
+                decoder_device=decoder_device,
+                frame_step=frame_step_left,
+                no_cuda_streams=args.no_cuda_streams,
+                image_channel_adders=None,
+                checkerboard_input=args.checkerboard_input,
+                async_mode=not args.serial,
+            )
+            right_loader = MOTLoadVideoWithOrig(
+                path=stitch_videos["right"]["files"],
+                game_id=game_id_name,
+                max_frames=max_frames,
+                batch_size=batch_size,
+                start_frame_number=start_frame_number + rfo,
+                original_image_only=True,
+                dtype=torch.uint8,
+                device=remapping_device,
+                decoder_device=decoder_device,
+                frame_step=frame_step_right,
+                no_cuda_streams=args.no_cuda_streams,
+                image_channel_adders=None,
+                checkerboard_input=args.checkerboard_input,
+                async_mode=not args.serial,
+            )
+            data_loader = MultiDataLoaderWrapper(
+                dataloaders=[left_loader, right_loader],
+            )
+        else:
+            data_loader = StitchDataset(
+                pto_project_file=pto_project_file,
+                videos=stitch_videos,
+                start_frame_number=start_frame_number,
+                max_frames=max_frames,
+                batch_size=batch_size,
+                image_roi=(
+                    get_clip_box(game_id=game_id, root_dir=ROOT_DIR)
+                    if not ignore_clip_box
+                    else None
+                ),
+                decoder_device=decoder_device,
+                blend_mode=blend_mode,
+                remapping_device=remapping_device,
+                dtype=dtype,
+                auto_adjust_exposure=auto_adjust_exposure,
+                minimize_blend=minimize_blend,
+                python_blender=python_blender,
+                post_stitch_rotate_degrees=post_stitch_rotate_degrees,
+                profiler=profiler,
+                no_cuda_streams=args.no_cuda_streams,
+                max_blend_levels=args.max_blend_levels,
+            )
 
         data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)
 
         frame_count = 0
         dataset_delivery_fps = 0.0
 
-        use_progress_bar: bool = True
+        use_progress_bar: bool = not bool(getattr(args, "no_progress_bar", False))
         scroll_output: Optional[ScrollOutput] = None
 
         shower = None
-        if show:
+        if show and not use_aspen_stitching:
             shower = Shower(
                 label="stitched_image",
                 show_scaled=show_scaled,
                 cache_on_cpu=lowmem,
+                max_size=0,
             )
 
         if use_progress_bar and not configure_only:
@@ -205,7 +276,7 @@ def stitch_videos(
                     table_map["Stitch FPS"] = "warming up"
                     table_map["ETA"] = "--:--:--"
 
-            scroll_output = ScrollOutput()
+            scroll_output = ScrollOutput(lines=getattr(args, "progress_bar_lines", 11))
 
             scroll_output.register_logger(logger)
 
@@ -213,33 +284,48 @@ def stitch_videos(
                 total=total_frame_count,
                 iterator=data_loader_iter,
                 scroll_output=scroll_output,
-                update_rate=20,
+                update_rate=getattr(args, "print_interval", 20),
                 table_callback=_table_callback,
-                use_curses=True,
+                title=game_id,
+                use_curses=getattr(args, "curses_progress", False),
             )
             data_loader_iter = progress_bar
 
-        video_out = None
+        # Build AspenNet-based video-output pipeline for stitching.
+        # Load the stitching Aspen graph from YAML and wire in CLI-specific
+        # parameters (output path, skip-final-save, frame dumping).
+        aspen_graph_cfg: Dict[str, Any] = aspen_cfg_all.get("aspen", {}) or {}
+        plugins_cfg: Dict[str, Any] = aspen_graph_cfg.get("plugins", {}) or {}
+        video_out_spec: Dict[str, Any] = plugins_cfg.get("video_out", {}) or {}
+        video_out_params: Dict[str, Any] = video_out_spec.get("params", {}) or {}
+        if output_stitched_video_file:
+            video_out_params.setdefault("output_video_path", output_stitched_video_file)
+        else:
+            video_out_params.setdefault("output_video_path", "stitched_output.mkv")
+        video_out_spec["params"] = video_out_params
+        plugins_cfg["video_out"] = video_out_spec
+        aspen_graph_cfg["plugins"] = plugins_cfg
 
-        def _maybe_save_frame(frame_ids: torch.Tensor, frame: torch.Tensor) -> None:
-            nonlocal video_out
-            if output_stitched_video_file and video_out is None:
-                video_out = VideoOutput(
-                    output_video_path=output_stitched_video_file,
-                    output_frame_width=image_width(frame),
-                    output_frame_height=image_height(frame),
-                    fps=data_loader.fps,
-                    simple_save=True,
-                    skip_final_save=False,
-                    original_clip_box=None,
-                    progress_bar=progress_bar,
-                    cache_size=cache_size,
-                    no_cuda_streams=args.no_cuda_streams,
-                    device=encoder_device,
-                )
-            if video_out is not None:
-                # VideoOutput is a nn.Module; calling it writes frames synchronously.
-                video_out(dict(frame_ids=frame_ids, img=StreamCheckpoint(frame)))
+        # For stitching we want to preserve the full panorama resolution, so
+        # disable cropping in the camera pipeline by default.
+        cam_args = argparse.Namespace(
+            crop_output_image=False,
+            crop_play_box=False,
+        )
+        if args is not None:
+            # Thread through basic display flags so VideoOutPlugin can honor them.
+            setattr(cam_args, "show_image", bool(getattr(args, "show_image", False)))
+            setattr(cam_args, "show_scaled", getattr(args, "show_scaled", None))
+        aspen_shared: Dict[str, Any] = {"device": encoder_device, "cam_args": cam_args}
+        if profiler is not None:
+            aspen_shared["profiler"] = profiler
+        if args is not None:
+            aspen_shared["game_id"] = getattr(args, "game_id", None)
+            aspen_shared["game_config"] = getattr(args, "game_config", None)
+            aspen_shared["game_dir"] = dir_name
+        aspen_name = game_id or "stitch"
+        aspen_net = AspenNet(aspen_name, aspen_graph_cfg, shared=aspen_shared)
+        aspen_net = aspen_net.to(encoder_device)
 
         try:
             start = None
@@ -253,41 +339,71 @@ def stitch_videos(
                 ),
                 torch.no_grad(),
             ):
-                for i, stitched_image in enumerate(data_loader_iter):
+                for i, batch in enumerate(data_loader_iter):
                     if configure_only:
                         break
-                    if not output_stitched_video_file and isinstance(
-                        stitched_image, StreamTensorBase
-                    ):
-                        stitched_image._verbose = False
-                        stitched_image = stitched_image.get()
+                    if use_aspen_stitching:
+                        stitch_inputs = batch
+                        left_item = stitch_inputs[0] if isinstance(stitch_inputs, (list, tuple)) else None
+                        frame_ids = None
+                        if isinstance(left_item, dict):
+                            frame_ids = left_item.get("frame_ids")
+                            if frame_ids is None:
+                                frame_ids = left_item.get("ids")
+                        if frame_ids is None:
+                            frame_ids = torch.arange(i * batch_size, (i + 1) * batch_size)
+                        batch_size = int(frame_ids.shape[0]) if isinstance(frame_ids, torch.Tensor) else batch_size
 
-                    frame_ids = torch.arange(i * batch_size, (i + 1) * batch_size)
+                        context = {
+                            "stitch_inputs": stitch_inputs,
+                            "stitch_fps": data_loader.fps,
+                            "data": {"fps": data_loader.fps},
+                            "game_id": game_id,
+                        }
+                        aspen_net(context)
+                    else:
+                        stitched_image = unwrap_tensor(batch)
 
-                    cuda_stream.synchronize()
+                        if not args.skip_final_video_save:
+                            # Downscale oversized panoramas to stay within encoder
+                            # limits while preserving aspect ratio.
+                            width = int(image_width(stitched_image))
+                            height = int(image_height(stitched_image))
+                            if width > MAX_NEVC_VIDEO_WIDTH:
+                                scale = float(MAX_NEVC_VIDEO_WIDTH) / float(width)
+                                new_w = MAX_NEVC_VIDEO_WIDTH
+                                new_h = int(height * scale)
+                                # Ensure even dimensions for encoders
+                                if new_w % 2 != 0:
+                                    new_w -= 1
+                                if new_h % 2 != 0:
+                                    new_h -= 1
+                                stitched_image = resize_image(
+                                    stitched_image, new_width=new_w, new_height=new_h
+                                )
 
-                    _maybe_save_frame(frame_ids=frame_ids, frame=stitched_image)
+                        if shower is not None:
+                            shower.show(wrap_tensor(stitched_image), clone=False)
+
+                        # Execute the Aspen graph to handle camera cropping and
+                        # video encoding via VideoOutPlugin.
+                        context = {
+                            "img": wrap_tensor(stitched_image),
+                            "frame_ids": torch.arange(i * batch_size, (i + 1) * batch_size),
+                            "data": {"fps": data_loader.fps},
+                            "game_id": game_id,
+                        }
+                        aspen_net(context)
 
                     # Per-iteration profiler step for gated profiling windows
-                    if profiler.enabled:
+                    if profiler is not None and getattr(profiler, "enabled", False):
                         profiler.step()
-
-                    if shower is not None:
-                        if False and stitched_image.device.type == "cuda":
-                            for stitched_img in stitched_image:
-                                show_cuda_tensor(
-                                    "Stitched Image",
-                                    stitched_img.clamp(min=0, max=255).to(torch.uint8),
-                                    False,
-                                    None,
-                                )
-                        else:
-                            shower.show(stitched_image)
 
                     if i > 1:
                         dataset_timer.toc()
-                    if (i + 1) % 20 == 0:
-                        assert stitched_image.ndim == 4
+                    if (i + 1) % 50 == 0:
+                        if not use_aspen_stitching:
+                            assert stitched_image.ndim == 4
                         dataset_delivery_fps = batch_size / max(1e-5, dataset_timer.average_time)
                         logger.info(
                             "Dataset frame {} ({:.2f} fps)".format(
@@ -304,7 +420,8 @@ def stitch_videos(
                         start = time.time()
                     dataset_timer.tic()
 
-                    del stitched_image
+                    if not use_aspen_stitching:
+                        del stitched_image
 
                 if start is not None:
                     duration = time.time() - start
@@ -317,8 +434,10 @@ def stitch_videos(
             data_loader.close()
             if shower is not None:
                 shower.close()
-            if video_out is not None:
-                video_out.stop()
+            try:
+                aspen_net.finalize()
+            except Exception:
+                pass
     return lfo, rfo
 
 

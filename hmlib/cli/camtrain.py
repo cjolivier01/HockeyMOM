@@ -86,13 +86,19 @@ def main():
     for epoch in range(args.epochs):
         tr_loss, seen = train_one_epoch(model, train_loader, opt, device, limit_steps=limit_steps)
         va = eval_loss(model, val_loader, device, limit_steps=limit_steps)
-        logger.info(f"epoch {epoch+1}: train {tr_loss:.4f} val {va:.4f} seen={seen}")
+        logger.info(
+            "epoch %d: train %.4f val %.4f seen=%d",
+            epoch + 1,
+            tr_loss,
+            va,
+            seen,
+        )
         if va < best_val:
             best_val = va
             ckpt = pack_checkpoint(model, norm=ds.norm, window=args.window)
             os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
             torch.save(ckpt, args.out)
-            logger.info(f"Saved checkpoint to {args.out}")
+            logger.info("Saved checkpoint to %s", args.out)
 
 
 if __name__ == "__main__":

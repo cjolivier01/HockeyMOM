@@ -1,6 +1,6 @@
 import argparse
 import copy
-import logging
+import math
 import os
 import shutil
 
@@ -8,7 +8,7 @@ import shutil
 import traceback
 from collections import OrderedDict
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # We need this to get registered
 import torch
@@ -34,7 +34,7 @@ from hmlib.config import (
 from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
-from hmlib.datasets.dataset.stitching_dataloader2 import StitchDataset
+from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
 from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts
 
@@ -101,18 +101,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         action="store_true",
         help="Don't do any postprocessing (i.e. play tracking) after basic player tracking.",
     )
-    # parser.add_argument(
-    #     "--infer",
-    #     default=False,
-    #     action="store_true",
-    #     help="Run inference instead of validation",
-    # )
-    # parser.add_argument(
-    #     "--tracker",
-    #     default="mmtrack",
-    #     type=str,
-    #     help="Use tracker type [hm|fair|mixsort|micsort_oc|sort|ocsort|byte|deepsort|motdt]",
-    # )
     # Output video flag moved to hm_opts.parser
     parser.add_argument(
         "--speed",
@@ -148,12 +136,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
         type=str,
         help="rink name",
     )
-    # parser.add_argument(
-    #     "--camera",
-    #     default=None,
-    #     type=str,
-    #     help="Camera name",
-    # )
     parser.add_argument("--conf", default=0.01, type=float, help="test conf")
     parser.add_argument("--tsize", default=None, type=int, help="test img size")
     parser.add_argument(
@@ -197,7 +179,6 @@ def make_parser(parser: argparse.ArgumentParser = None):
     parser.add_argument(
         "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
     )
-    parser.add_argument("--no-crop", action="store_true", help="Don't crop output image")
     # Save frame dir moved to hm_opts.parser
     parser.add_argument(
         "--task",
@@ -294,6 +275,35 @@ def is_stitching(input_video: str) -> bool:
     return len(input_video_files) == 2 or os.path.isdir(input_video)
 
 
+class _StitchRotationController:
+    def __init__(self, game_config: Optional[Dict[str, Any]] = None) -> None:
+        self._config = game_config
+        self._value: Optional[float] = None
+
+    def get_post_stitch_rotate_degrees(self) -> Optional[float]:
+        if isinstance(self._config, dict):
+            try:
+                val = get_nested_value(self._config, "game.stitching.stitch-rotate-degrees", None)
+                if val is None:
+                    val = get_nested_value(self._config, "game.stitching.stitch_rotate_degrees", None)
+                if val is not None:
+                    return float(val)
+            except Exception:
+                pass
+        return self._value
+
+    def set_post_stitch_rotate_degrees(self, degrees: Optional[float]) -> None:
+        self._value = degrees
+        if isinstance(self._config, dict):
+            try:
+                set_nested_value(self._config, "game.stitching.stitch-rotate-degrees", degrees)
+            except Exception:
+                try:
+                    set_nested_value(self._config, "game.stitching.stitch_rotate_degrees", degrees)
+                except Exception:
+                    pass
+
+
 def _main(args, num_gpu):
     dataloader = None
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
@@ -339,15 +349,11 @@ def _main(args, num_gpu):
 
         # Derived camera args (former DefaultArguments)
         # Crop output image unless explicitly disabled via CLI.
-        args.crop_output_image = not getattr(args, "no_crop", False)
         # Prefer rink.tracking.cam_ignore_largest when CLI did not override.
         if not getattr(args, "cam_ignore_largest", False):
             args.cam_ignore_largest = get_nested_value(
                 game_config, "rink.tracking.cam_ignore_largest", True
             )
-        # CVAT export disables cropping and rink rotation.
-        if args.cvat_output:
-            args.crop_output_image = False
         # Map plotting convenience flag to per-frame tracking overlays.
         args.plot_individual_player_tracking = bool(getattr(args, "plot_tracking", False))
         if args.plot_individual_player_tracking:
@@ -425,7 +431,6 @@ def _main(args, num_gpu):
         if is_single_lowmem_gpu:
             print("Adjusting configuration for a single low-memory GPU environment...")
             args.cache_size = 0
-            args.stitch_cache_size = 0
             # args.batch_size = 1
 
         # This would be way too slow on CPU
@@ -438,15 +443,6 @@ def _main(args, num_gpu):
                 break
 
         data_pipeline = None
-
-        # if not args.exp_file:
-        #     args.exp_file = get_nested_value(game_config, "model.end_to_end.config")
-        #     args.exp_file = os.path.join(ROOT_DIR, args.exp_file)
-        # if not args.checkpoint:
-        #     args.checkpoint = get_nested_value(game_config, "model.end_to_end.checkpoint")
-        #     args.checkpoint = os.path.join(ROOT_DIR, args.checkpoint)
-
-        # Keep mmengine config path in args.exp_file; do not override --config list
 
         # Prefer unified Aspen config (namespaced under 'aspen') for model + pipeline
         aspen_cfg_for_pipeline = game_config.get("aspen") if isinstance(game_config, dict) else None
@@ -600,6 +596,39 @@ def _main(args, num_gpu):
                     pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf
+                # Tracker backend selection (HmTracker vs static CUDA ByteTrack)
+                tracker_backend = getattr(args, "tracker_backend", None)
+                if tracker_backend is not None and "tracker" in trunks_cfg:
+                    tracker_cfg = trunks_cfg.setdefault(
+                        "tracker",
+                        {
+                            "class": "hmlib.aspen.plugins.tracker_plugin.TrackerPlugin",
+                            "depends": ["detector", "ice_boundaries", "model_factory", "boundaries"],
+                            "params": {},
+                        },
+                    )
+                    tracker_params = tracker_cfg.setdefault("params", {}) or {}
+                    if tracker_backend == "hm":
+                        # Default HmTracker backend; clear any explicit overrides.
+                        tracker_params.pop("tracker_class", None)
+                        tracker_params.pop("tracker_kwargs", None)
+                    elif tracker_backend == "static_bytetrack":
+                        tracker_params["tracker_class"] = (
+                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        )
+                        tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
+                        max_det = getattr(args, "tracker_max_detections", 256)
+                        max_tracks = getattr(args, "tracker_max_tracks", 256)
+                        if max_det is not None:
+                            tracker_kwargs["max_detections"] = int(max_det)
+                        if max_tracks is not None:
+                            tracker_kwargs["max_tracks"] = int(max_tracks)
+                        tracker_device = getattr(args, "tracker_device", None)
+                        if tracker_device:
+                            tracker_kwargs["device"] = tracker_device
+                        tracker_params["tracker_kwargs"] = tracker_kwargs
+                    tracker_cfg["params"] = tracker_params
+                    trunks_cfg["tracker"] = tracker_cfg
                 args.aspen["plugins"] = trunks_cfg
             except Exception:
                 traceback.print_exc()
@@ -690,40 +719,6 @@ def _main(args, num_gpu):
             if hasattr(args, "game_config") and isinstance(args.game_config, dict):
                 args.game_config["initial_args"] = args.initial_args
 
-        pose_inferencer = None
-        # if args.multi_pose and not aspen_has_pose_factory:
-        #     from mmpose.apis.inferencers import MMPoseInferencer
-
-        #     if not args.pose_config:
-        #         args.pose_config = get_nested_value(game_config, "model.pose.config")
-        #     if not args.pose_checkpoint:
-        #         args.pose_checkpoint = get_nested_value(game_config, "model.pose.checkpoint")
-
-        #     args.pose_config = os.path.join(ROOT_DIR, args.pose_config)
-        #     pose_config = Config.fromfile(args.pose_config)
-
-        #     filter_args = dict(bbox_thr=0.2, nms_thr=0.3, pose_based_nms=False)
-        #     POSE2D_SPECIFIC_ARGS = dict(
-        #         yoloxpose=dict(bbox_thr=0.01, nms_thr=0.65, pose_based_nms=True),
-        #         rtmo=dict(bbox_thr=0.1, nms_thr=0.65, pose_based_nms=True),
-        #         rtmp=dict(kpt_thr=0.3, pose_based_nms=False, disable_norm_pose_2d=False),
-        #     )
-
-        #     # The default arguments for prediction filtering differ for top-down
-        #     # and bottom-up models. We assign the default arguments according to the
-        #     # selected pose2d model
-        #     for model_str in POSE2D_SPECIFIC_ARGS:
-        #         if model_str in args.pose_config:
-        #             filter_args.update(POSE2D_SPECIFIC_ARGS[model_str])
-        #             break
-
-        #     pose_inferencer = MMPoseInferencer(
-        #         pose2d=pose_config,
-        #         pose2d_weights=args.pose_checkpoint,
-        #         show_progress=False,
-        #     )
-        #     pose_inferencer.filter_args = filter_args
-
         if args.max_frames or args.max_time:
             if args.no_audio:
                 print("Disabling audio extraction due to max-frames/max-time limit")
@@ -732,6 +727,13 @@ def _main(args, num_gpu):
         postprocessor = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
+            aspen_stitching_cli = getattr(args, "aspen_stitching", None)
+            if aspen_stitching_cli is None and isinstance(aspen_cfg_for_pipeline, dict):
+                use_aspen_stitching = bool(
+                    get_nested_value(aspen_cfg_for_pipeline, "stitching.enabled", False)
+                )
+            else:
+                use_aspen_stitching = bool(aspen_stitching_cli)
             if is_stitching(args.input_video):
                 project_file_name = "hm_project.pto"
 
@@ -776,13 +778,6 @@ def _main(args, num_gpu):
                     left_frame_offset=args.lfo,
                     right_frame_offset=args.rfo,
                 )
-                # Create the stitcher data loader
-                # output_stitched_video_file = (
-                #     os.path.join(".", f"stitched_output-{args.game_id}.mkv")
-                #     if args.save_stitched
-                #     else None
-                # )
-
                 stitch_videos = {
                     "left": {
                         "files": game_videos["left"],
@@ -793,68 +788,134 @@ def _main(args, num_gpu):
                         "frame_offset": rfo,
                     },
                 }
-                stitch_cache_size = (
-                    args.cache_size if args.stitch_cache_size is None else args.stitch_cache_size
-                )
-                # Optional per-camera stitching color pipelines from Aspen config
-                left_stitch_pipeline_cfg = None
-                right_stitch_pipeline_cfg = None
-                if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
-                    left_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get("left_stitch_pipeline")
-                    right_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get("right_stitch_pipeline")
-                stitched_dataset = StitchDataset(
-                    videos=stitch_videos,
-                    pto_project_file=pto_project_file,
-                    start_frame_number=args.start_frame,
-                    max_frames=args.max_frames,
-                    max_input_queue_size=stitch_cache_size,
-                    image_roi=None,
-                    batch_size=args.batch_size,
-                    remapping_device=gpus["stitching"],
-                    decoder_device=(
-                        torch.device(args.decoder_device) if args.decoder_device else None
-                    ),
-                    blend_mode=opts.blend_mode,
-                    dtype=torch.float if not args.fp16_stitch else torch.half,
-                    auto_adjust_exposure=args.stitch_auto_adjust_exposure,
-                    python_blender=args.python_blender,
-                    minimize_blend=not args.no_minimize_blend,
-                    no_cuda_streams=args.no_cuda_streams,
-                    async_mode=not args.no_async_dataset,
-                    post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
-                    profiler=getattr(args, "profiler", None),
-                    config_ref=args.game_config,
-                    left_color_pipeline=left_stitch_pipeline_cfg,
-                    right_color_pipeline=right_stitch_pipeline_cfg,
-                    capture_rgb_stats=bool(getattr(args, "checkerboard_input", False)),
-                    checkerboard_input=args.checkerboard_input,
-                )
-                # Expose the StitchDataset instance so PlayTracker can control
-                # post-stitch rotation via the UI slider.
-                args.stitch_rotation_controller = stitched_dataset
-                # Create the MOT video data loader, passing it the
-                # stitching data loader as its image source
-                mot_dataloader = MOTLoadVideoWithOrig(
-                    path=None,
-                    game_id=dir_name,
-                    start_frame_number=args.start_frame,
-                    batch_size=1,
-                    embedded_data_loader=stitched_dataset,
-                    embedded_data_loader_cache_size=stitch_cache_size,
-                    data_pipeline=data_pipeline,
-                    dtype=torch.float if not args.fp16 else torch.half,
-                    device=gpus["stitching"],
-                    original_image_only=False,
-                    adjust_exposure=args.adjust_exposure,
-                    no_cuda_streams=args.no_cuda_streams,
-                    async_mode=not args.no_async_dataset,
-                    checkerboard_input=args.checkerboard_input,
-                )
-                try:
-                    mot_dataloader.set_profiler(getattr(args, "profiler", None))
-                except Exception:
-                    pass
-                dataloader.append_dataset("pano", mot_dataloader)
+                def _set_runtime_arg(name: str, value: Any) -> None:
+                    setattr(args, name, value)
+                    if hasattr(args, "initial_args") and isinstance(args.initial_args, dict):
+                        args.initial_args[name] = value
+                    if isinstance(args.game_config, dict):
+                        init_args = args.game_config.get("initial_args")
+                        if isinstance(init_args, dict):
+                            init_args[name] = value
+
+                _set_runtime_arg("stitch_pto_project_file", str(pto_project_file))
+                args.stitch_data_pipeline = data_pipeline
+
+                if use_aspen_stitching:
+                    # Enable the UI slider without a StitchDataset instance.
+                    args.stitch_rotation_controller = _StitchRotationController(args.game_config)
+
+                    frame_step_left = 1
+                    frame_step_right = 1
+                    if left_vid.fps > right_vid.fps:
+                        int_ratio = int(left_vid.fps // right_vid.fps)
+                        float_ratio = float(left_vid.fps / right_vid.fps)
+                        if math.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
+                            frame_step_left = int_ratio
+                    elif right_vid.fps > left_vid.fps:
+                        int_ratio = int(right_vid.fps // left_vid.fps)
+                        float_ratio = float(right_vid.fps / left_vid.fps)
+                        if math.isclose(float(int_ratio), float_ratio) and int_ratio != 1:
+                            frame_step_right = int_ratio
+
+                    game_id = os.path.basename(str(dir_name))
+                    left_loader = MOTLoadVideoWithOrig(
+                        path=game_videos["left"],
+                        game_id=game_id,
+                        max_frames=args.max_frames,
+                        batch_size=args.batch_size,
+                        start_frame_number=args.start_frame + lfo,
+                        original_image_only=True,
+                        dtype=torch.uint8,
+                        device=gpus["stitching"],
+                        decoder_device=(
+                            torch.device(args.decoder_device) if args.decoder_device else None
+                        ),
+                        frame_step=frame_step_left,
+                        no_cuda_streams=args.no_cuda_streams,
+                        image_channel_adders=None,
+                        checkerboard_input=args.checkerboard_input,
+                    )
+                    right_loader = MOTLoadVideoWithOrig(
+                        path=game_videos["right"],
+                        game_id=game_id,
+                        max_frames=args.max_frames,
+                        batch_size=args.batch_size,
+                        start_frame_number=args.start_frame + rfo,
+                        original_image_only=True,
+                        dtype=torch.uint8,
+                        device=gpus["stitching"],
+                        decoder_device=(
+                            torch.device(args.decoder_device) if args.decoder_device else None
+                        ),
+                        frame_step=frame_step_right,
+                        no_cuda_streams=args.no_cuda_streams,
+                        image_channel_adders=None,
+                        checkerboard_input=args.checkerboard_input,
+                    )
+                    stitch_inputs = MultiDataLoaderWrapper(
+                        dataloaders=[left_loader, right_loader],
+                    )
+                    dataloader.append_dataset("stitch_inputs", stitch_inputs)
+                else:
+                    # Optional per-camera stitching color pipelines from Aspen config
+                    left_stitch_pipeline_cfg = None
+                    right_stitch_pipeline_cfg = None
+                    if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
+                        left_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get(
+                            "left_stitch_pipeline"
+                        )
+                        right_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get(
+                            "right_stitch_pipeline"
+                        )
+                    stitched_dataset = StitchDataset(
+                        videos=stitch_videos,
+                        pto_project_file=pto_project_file,
+                        start_frame_number=args.start_frame,
+                        max_frames=args.max_frames,
+                        image_roi=None,
+                        batch_size=args.batch_size,
+                        remapping_device=gpus["stitching"],
+                        decoder_device=(
+                            torch.device(args.decoder_device) if args.decoder_device else None
+                        ),
+                        blend_mode=opts.blend_mode,
+                        dtype=torch.float if not args.fp16_stitch else torch.half,
+                        auto_adjust_exposure=args.stitch_auto_adjust_exposure,
+                        python_blender=args.python_blender,
+                        minimize_blend=not args.no_minimize_blend,
+                        no_cuda_streams=args.no_cuda_streams,
+                        post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
+                        profiler=getattr(args, "profiler", None),
+                        config_ref=args.game_config,
+                        left_color_pipeline=left_stitch_pipeline_cfg,
+                        right_color_pipeline=right_stitch_pipeline_cfg,
+                        capture_rgb_stats=bool(getattr(args, "checkerboard_input", False)),
+                        checkerboard_input=args.checkerboard_input,
+                    )
+                    # Expose the StitchDataset instance so PlayTracker can control
+                    # post-stitch rotation via the UI slider.
+                    args.stitch_rotation_controller = stitched_dataset
+                    # Create the MOT video data loader, passing it the
+                    # stitching data loader as its image source
+                    mot_dataloader = MOTLoadVideoWithOrig(
+                        path=None,
+                        game_id=dir_name,
+                        start_frame_number=args.start_frame,
+                        batch_size=1,  # This batch will contain one batch of whatever the stitcher's batch size is
+                        embedded_data_loader=stitched_dataset,
+                        data_pipeline=data_pipeline,
+                        dtype=torch.float if not args.fp16 else torch.half,
+                        device=gpus["stitching"],
+                        original_image_only=False,
+                        adjust_exposure=args.adjust_exposure,
+                        no_cuda_streams=args.no_cuda_streams,
+                        checkerboard_input=args.checkerboard_input,
+                    )
+                    try:
+                        mot_dataloader.set_profiler(getattr(args, "profiler", None))
+                    except Exception:
+                        pass
+                    dataloader.append_dataset("pano", mot_dataloader)
             else:
                 assert len(input_video_files) == 1
                 if os.path.isdir(input_video_files[0]):
@@ -940,6 +1001,7 @@ def _main(args, num_gpu):
                 scroll_output=ScrollOutput(lines=args.progress_bar_lines).register_logger(logger),
                 update_rate=args.print_interval,
                 table_map=table_map,
+                title=args.game_id,
                 use_curses=getattr(args, "curses_progress", False),
             )
         else:
@@ -969,55 +1031,6 @@ def _main(args, num_gpu):
                         video_out_pipeline = aspen_cfg_for_pipeline.get("video_out_pipeline")
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
-                    fixed_edge_rotation_angle = (
-                        get_nested_value(game_config, "rink.camera.fixed_edge_rotation_angle", None)
-                        if not args.no_rink_rotation
-                        else 0
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmPerspectiveRotation",
-                        dict(
-                            fixed_edge_rotation_angle=fixed_edge_rotation_angle,
-                            fixed_edge_rotation=(
-                                fixed_edge_rotation_angle is not None
-                                and fixed_edge_rotation_angle != 0
-                            ),
-                            pre_clip=args.crop_output_image,
-                            dtype=torch.float,
-                        ),
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmConfigureScoreboard",
-                        dict(
-                            game_id=args.game_id,
-                        ),
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmCropToVideoFrame",
-                        dict(
-                            crop_image=args.crop_output_image,
-                        ),
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmUnsharpMask",
-                        dict(
-                            enabled=args.unsharp_mask,
-                        ),
-                    )
-                    update_pipeline_item(
-                        video_out_pipeline,
-                        "HmImageOverlays",
-                        dict(
-                            frame_number=bool(args.plot_frame_number),
-                            frame_time=bool(args.plot_frame_time),
-                            overhead_rink=bool(args.plot_overhead_rink),
-                            device=gpus["encoder"],
-                        ),
-                    )
                 # Make video_out_pipeline available to Aspen plugins via args
                 args.video_out_pipeline = video_out_pipeline
             postprocessor = None
@@ -1029,7 +1042,6 @@ def _main(args, num_gpu):
 
             run_mmtrack(
                 model=model,
-                pose_inferencer=pose_inferencer,
                 config=vars(args),
                 device=main_device,
                 fp16=args.fp16,
@@ -1112,15 +1124,9 @@ def _main(args, num_gpu):
             print(f"Exception while shutting down: {ex}")
 
 
-def tensor_to_image(tensor: torch.Tensor):  ##
-    if torch.is_floating_point(tensor):
-        tensor = torch.clamp(tensor * 255, min=0, max=255).to(torch.uint8, non_blocking=True)
-    return tensor
-
-
 def setup_logging():
-    mm_logger = get_root_logger(level=logging.INFO)
-    mm_logger.setLevel(logging.INFO)
+    root_logger = get_root_logger()
+    root_logger.setLevel(20)
 
 
 def main():
@@ -1165,62 +1171,19 @@ def main():
         if merged_extra:
             game_config = recursive_update(game_config, merged_extra)
 
-    # Propagate CLI plotting/debug and related flags into the consolidated
-    # config before resolving GLOBAL.* references so Aspen plugins see the
-    # updated values via GLOBAL.*.
+    # Apply CLI-driven config overrides before resolving GLOBAL.* references so
+    # Aspen plugins see the updated values via GLOBAL.*.
     try:
-        # Helper: set plot.<key> from args.<attr> when truthy / non-None.
-        def _set_plot_from_arg(plot_key: str, arg_name: str, allow_false: bool = False):
-            if not hasattr(args, arg_name):
-                return
-            val = getattr(args, arg_name)
-            if isinstance(val, bool) and not val and not allow_false:
-                return
-            if val is None:
-                return
-            set_nested_value(game_config, f"plot.{plot_key}", val)
-
-        _set_plot_from_arg("debug_play_tracker", "debug_play_tracker")
-        _set_plot_from_arg("plot_moving_boxes", "plot_moving_boxes")
-        _set_plot_from_arg("plot_trajectories", "plot_trajectories")
-        _set_plot_from_arg("plot_jersey_numbers", "plot_jersey_numbers")
-        _set_plot_from_arg("plot_actions", "plot_actions")
-        _set_plot_from_arg("plot_pose", "plot_pose")
-        _set_plot_from_arg("plot_ice_mask", "plot_ice_mask")
-        _set_plot_from_arg("plot_all_detections", "plot_all_detections", allow_false=True)
-        # Skip-final-video-save: when explicitly enabled via CLI, override the
-        # Aspen VideoOutPlugin default so GLOBAL.aspen.video_out.skip_final_save
-        # resolves to True.
-        if getattr(args, "skip_final_video_save", None):
-            set_nested_value(game_config, "aspen.video_out.skip_final_save", True)
-        # Video encoder backend: when provided via CLI, override baseline.yaml
-        # aspen.video_out.encoder_backend so Aspen/VideoOutPlugin can configure
-        # PyNvVideoEncoder accordingly.
-        backend = getattr(args, "video_encoder_backend", None)
-        if backend:
-            set_nested_value(game_config, "aspen.video_out.encoder_backend", backend)
-        # Enable RGB stats checker when checkerboard-input debugging is active.
-        if getattr(args, "checkerboard_input", False):
-            set_nested_value(game_config, "debug.rgb_stats_check.enable", True)
-        # Treat --debug>=1 as enabling PlayTracker debug logging, equivalent
-        # to passing --debug-play-tracker.
-        try:
-            dbg_val = getattr(args, "debug", 0)
-            if isinstance(dbg_val, str):
-                dbg_val = int(dbg_val)
-        except Exception:
-            dbg_val = 0
-        if dbg_val and int(dbg_val) >= 1:
-            set_nested_value(game_config, "plot.debug_play_tracker", True)
-        # Convenience flag: --plot-tracking maps to individual tracking + boundaries.
-        if getattr(args, "plot_tracking", False):
-            set_nested_value(game_config, "plot.plot_individual_player_tracking", True)
-            set_nested_value(game_config, "plot.plot_boundaries", True)
+        hm_opts.apply_arg_config_overrides(game_config, args)
     except Exception:
-        # Plotting overrides are non-fatal; fall back to config defaults on error.
+        # Config overrides are non-fatal; fall back to config defaults on error.
         pass
 
-    game_config = resolve_global_refs(game_config)
+    # Let hm_opts apply --config-override before resolving GLOBAL.* refs.
+    args.game_config = game_config
+    args = hm_opts.init(args, parser)
+    game_config = resolve_global_refs(args.game_config)
+    args.game_config = game_config
 
     # Set up the task flags
     args.tracking = False
@@ -1230,7 +1193,6 @@ def main():
 
     game_config["initial_args"] = vars(args)
     args.game_config = game_config
-    args = hm_opts.init(args, parser)
 
     args = configure_model(config=args.game_config, args=args)
 
@@ -1293,3 +1255,4 @@ if __name__ == "__main__":
                     print(f" - {t}")
         except Exception:
             pass
+        raise SystemExit(1)

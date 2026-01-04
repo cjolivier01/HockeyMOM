@@ -1,45 +1,103 @@
 {% extends 'layout.html' %}
 {% block content %}
+{% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
-  <h2>Your Teams</h2>
+  <h2>{{ 'League Teams' if league_view else 'Your Teams' }}</h2>
   <div>
-    <a class="btn" href="/teams?all={{ 0 if include_external else 1 }}">{{ 'Hide' if include_external else 'Show' }} external</a>
-    <a class="btn primary" href="/teams/new" style="margin-left:.5rem">New team</a>
+    {% if league_view %}
+      <a class="btn" href="{{ base }}/schedule">Schedule</a>
+    {% endif %}
+    {% if not league_view %}
+      <a class="btn" href="/teams?all={{ 0 if include_external else 1 }}">{{ 'Hide' if include_external else 'Show' }} external</a>
+      <a class="btn primary" href="/teams/new" style="margin-left:.5rem">New team</a>
+    {% endif %}
   </div>
 </div>
 
-<table>
-  <thead>
-    <tr>
-      <th>Logo</th>
-      <th>Name</th>
-      <th>Record</th>
-      <th>GF/GA</th>
-      <th>Pts</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for t in teams %}
-    {% set s = stats.get(t['id'], {}) %}
+{% if league_view and divisions %}
+  {% for div in divisions %}
+    <h3 style="margin-top:1rem;">{{ div.name }}</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>GP</th>
+          <th>Record</th>
+          <th>GF/GA</th>
+          <th>Pts</th>
+          <th>Pts (Total)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in div.teams %}
+        {% set s = stats.get(t['id'], {}) %}
+        {% set gp = (s.get('wins',0)|int + s.get('losses',0)|int + s.get('ties',0)|int) %}
+          <tr>
+            <td>
+              <span style="display:inline-flex;align-items:center;gap:10px;">
+                <img src="{{ base }}/media/team_logo/{{ t['id'] }}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+                <a class="btn secondary" href="{{ base }}/teams/{{ t['id'] }}">{{ t['name'] }}</a>
+                {% if (not league_view) and t['is_external'] %}<span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}
+              </span>
+            </td>
+            <td>{{ gp }}</td>
+            <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
+            <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
+            <td>{{ s.get('points',0) }}</td>
+            <td>{{ s.get('points_total', s.get('points',0)) }}</td>
+            <td>
+              {% if not (public_league_id is defined) and t['user_id'] == current_user_id %}
+                <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="muted">No teams yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+{% else %}
+  <table>
+    <thead>
       <tr>
-        <td style="width:56px;">
-          {% if t['logo_path'] %}
-            <img src="/media/team_logo/{{ t['id'] }}" alt="logo" style="width:40px;height:40px;border-radius:6px;object-fit:cover;" />
-          {% else %}
-            <span class="muted">—</span>
-          {% endif %}
-        </td>
-        <td><a class="btn secondary" href="/teams/{{ t['id'] }}">{{ t['name'] }}</a>{% if t['is_external'] %} <span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}</td>
-        <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
-        <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
-        <td>{{ s.get('points',0) }}</td>
-        <td><a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a></td>
+        <th>Name</th>
+        <th>GP</th>
+        <th>Record</th>
+        <th>GF/GA</th>
+        <th>Pts</th>
+        <th>Pts (Total)</th>
+        <th></th>
       </tr>
-    {% else %}
-      <tr><td colspan="6" class="muted">No teams yet.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+    </thead>
+    <tbody>
+      {% for t in teams %}
+      {% set s = stats.get(t['id'], {}) %}
+      {% set gp = (s.get('wins',0)|int + s.get('losses',0)|int + s.get('ties',0)|int) %}
+        <tr>
+          <td>
+            <span style="display:inline-flex;align-items:center;gap:10px;">
+              <img src="{{ base }}/media/team_logo/{{ t['id'] }}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+              <a class="btn secondary" href="{{ base }}/teams/{{ t['id'] }}">{{ t['name'] }}</a>
+              {% if (not league_view) and t['is_external'] %}<span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}
+            </span>
+          </td>
+          <td>{{ gp }}</td>
+          <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
+          <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
+          <td>{{ s.get('points',0) }}</td>
+          <td>{{ s.get('points_total', s.get('points',0)) }}</td>
+          <td>
+            {% if not (public_league_id is defined) and t['user_id'] == current_user_id %}
+              <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted">No teams yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
 {% endblock %}
-

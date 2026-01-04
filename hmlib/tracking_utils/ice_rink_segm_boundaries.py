@@ -10,7 +10,7 @@ from .segm_boundaries import SegmBoundaries
 
 
 @PIPELINES.register_module()
-class IceRinkSegmConfig:
+class IceRinkSegmConfig(torch.nn.Module):
     def __init__(
         self,
         *args,
@@ -57,7 +57,7 @@ class IceRinkSegmConfig:
         return data
 
     def __call__(self, *args, **kwargs) -> Dict[str, Any]:
-        return self.forward(*args, **kwargs)
+        return super().__call__(*args, **kwargs)
 
     def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         if "rink_profile" not in data:
@@ -90,19 +90,18 @@ class IceRinkSegmBoundaries(SegmBoundaries):
         shape_label: str = "ori_shape",
         **kwargs,
     ):
-        max_detections_in_mask = kwargs.pop("max_detections_in_mask", None)
         super().__init__(
-            *args, original_clip_box=original_clip_box, det_thresh=det_thresh, draw=draw, **kwargs
+            *args,
+            original_clip_box=original_clip_box,
+            det_thresh=det_thresh,
+            max_detections_in_mask=kwargs.pop("max_detections_in_mask", None),
+            draw=draw,
+            **kwargs,
         )
         self._game_id = game_id
         # self._rink_profile = None
         self._device = device
         self._shape_label: str = shape_label
-        # Optional cap on detections that survive the rink mask.
-        # If set, only the top-K scores inside the mask are kept.
-        self._max_detections_in_mask: Optional[int] = (
-            int(max_detections_in_mask) if max_detections_in_mask is not None else None
-        )
 
     def forward(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         if self._segment_mask is None:
@@ -113,42 +112,5 @@ class IceRinkSegmBoundaries(SegmBoundaries):
                     centroid=self._rink_profile["centroid"],
                 )
         data = super().forward(data, **kwargs)
-
-        # Optionally limit the number of detections that survive the rink mask.
-        if self._max_detections_in_mask is not None:
-            try:
-                prune_list = data.get("prune_list")
-                if prune_list:
-                    # Heuristic: pick the first entry in prune_list whose name
-                    # suggests scores; default to literal 'scores'.
-                    score_key = None
-                    for key in prune_list:
-                        if "score" in key:
-                            score_key = key
-                            break
-                    if score_key is None:
-                        score_key = "scores"
-                    scores = data.get(score_key)
-                    if scores is not None:
-                        if isinstance(scores, torch.Tensor):
-                            scores_t = scores
-                        else:
-                            scores_t = torch.as_tensor(scores)
-                        total = int(scores_t.numel())
-                        if total > self._max_detections_in_mask:
-                            k = int(self._max_detections_in_mask)
-                            topk_idx = torch.topk(scores_t, k=k).indices
-                            topk_idx, _ = torch.sort(topk_idx)
-                            for name in prune_list:
-                                arr = data.get(name)
-                                if arr is None:
-                                    continue
-                                if isinstance(arr, torch.Tensor):
-                                    data[name] = arr.index_select(0, topk_idx)
-                                else:
-                                    data[name] = torch.as_tensor(arr).index_select(0, topk_idx)
-            except Exception:
-                # If anything goes wrong, fall back to un-capped outputs.
-                pass
 
         return data

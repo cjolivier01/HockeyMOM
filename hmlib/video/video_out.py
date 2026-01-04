@@ -45,20 +45,6 @@ def get_and_pop(map: Dict[str, Any], key: str) -> Any:
     return result
 
 
-# def slow_to_tensor(
-#     tensor: Union[torch.Tensor, StreamTensorBase], stream_wait: bool = True
-# ) -> torch.Tensor:
-#     """
-#     Give up on the stream and get the sync'd tensor
-#     """
-#     if isinstance(tensor, StreamTensorBase):
-#         tensor._verbose = True
-#         if stream_wait:
-#             return tensor.wait()
-#         return tensor.get()
-#     return tensor
-
-
 def get_best_codec(
     gpu_number: int, width: int, height: int, allow_scaling: bool = False
 ) -> Tuple[Literal["hevc_nvenc"] | Literal[True]] | Tuple[Literal["XVID"] | Literal[False]]:
@@ -67,27 +53,14 @@ def get_best_codec(
     if compute >= 7 and (width <= MAX_NEVC_VIDEO_WIDTH or allow_scaling):
         return "hevc_nvenc", True
         # return "h264_nvenc", True
+        # return "av1_nvenc", True
     elif compute >= 6 and width <= 4096:
         return "hevc_nvenc", True
         # return "h264_nvenc", True
+        # return "av1_nvenc", True
     else:
         return "XVID", False
     # return "XVID", False
-
-
-def tensor_ref(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:
-    if isinstance(tensor, StreamTensorBase):
-        return tensor.ref()
-    return tensor
-
-
-def tensor_checkpoint(
-    tensor: Union[torch.Tensor, StreamTensorBase],
-) -> Union[torch.Tensor, StreamTensorBase]:
-    if isinstance(tensor, StreamTensorBase):
-        tensor.new_checkpoint()
-        return tensor
-    return tensor
 
 
 def is_nearly_8k(width, height, size_tolerance=0.10, aspect_ratio_tolerance=0.01):
@@ -293,7 +266,12 @@ class VideoOutput(torch.nn.ModuleDict):
         self._show_image = bool(show_image)
         self._show_scaled = show_scaled
         self._shower = (
-            Shower(label="Video Out", show_scaled=self._show_scaled, max_size=cache_size)
+            Shower(
+                label="Video Out",
+                show_scaled=self._show_scaled,
+                max_size=cache_size,
+                profiler=self._prof,
+            )
             if self._show_image
             else None
         )
@@ -417,32 +395,35 @@ class VideoOutput(torch.nn.ModuleDict):
         assert int(output_frame_width) == image_w
         assert int(output_frame_height) == image_h
 
-        if isinstance(online_im, StreamTensorBase):
-            online_im.verbose = True
-            online_im = online_im.get()
+        online_im = unwrap_tensor(online_im, verbose=True)
 
         if self._mean_tracker is not None:
             self._mean_tracker(online_im)
 
         if self._show_image and self._shower is not None:
             for show_img in online_im:
-                self._shower.show(show_img.clone())
+                self._shower.show(show_img, clone=True)
 
         # torch.cuda.synchronize()
         # torch.cuda.current_stream(online_im.device).synchronize()
 
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
-                self._output_videos[self.VIDEO_DEFAULT].write(online_im)
+                self._output_videos[self.VIDEO_DEFAULT].write(
+                    online_im, frame_ids=context.get("frame_ids")
+                )
 
             if self.VIDEO_END_ZONES in self._output_videos:
                 ez_img = context.get("end_zone_img")
                 if ez_img is None:
                     ez_img = online_im
-                self._output_videos[self.VIDEO_END_ZONES].write(ez_img)
+                self._output_videos[self.VIDEO_END_ZONES].write(
+                    ez_img, frame_ids=context.get("frame_ids")
+                )
         else:
             # Sync the stream if skipping final save
-            online_im = wrap_tensor(online_im, verbose=True).get()
+            # online_im = wrap_tensor(online_im, verbose=True).get()
+            pass
 
         # Save frames as individual frames
         if self._save_frame_dir:
@@ -468,48 +449,50 @@ class VideoOutput(torch.nn.ModuleDict):
         @param results: Dict containing at least ``"img"`` and ``"frame_ids"``.
         @return: The updated ``results`` dict (for chaining if desired).
         """
-        # Step 1: Lazy initialization of device + codec
-        self._ensure_initialized(results)
+        with self._fctx:
+            # Step 1: Lazy initialization of device + codec
+            self._ensure_initialized(results)
 
-        # Step 2: Ensure underlying video streams are open
-        if not self._output_videos:
-            self.create_output_videos(results)
+            # Step 2: Ensure underlying video streams are open
+            if not self._output_videos:
+                self.create_output_videos(results)
 
-        # Step 3: Normalize image tensors onto the writer device
-        online_im = unwrap_tensor(results.get("img"))
+            # Step 3: Normalize image tensors onto the writer device
+            # online_im = unwrap_tensor(results.get("img"))
+            online_im = results["img"]
 
-        if isinstance(online_im, np.ndarray):
-            online_im = torch.from_numpy(online_im)
+            if isinstance(online_im, np.ndarray):
+                online_im = torch.from_numpy(online_im)
 
-        if online_im.ndim == 3:
-            # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
-            online_im = online_im.unsqueeze(0)
+            if online_im.ndim == 3:
+                # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
+                online_im = online_im.unsqueeze(0)
 
-        # online_im = self._make_visible_image(online_im)
+            # online_im = self._make_visible_image(online_im)
 
-        if not self._skip_final_save:
-            if self._device is not None:
-                # Move to writer device and ensure channels-last layout
-                if str(online_im.device) != str(self._device):
-                    online_im = online_im.to(self._device)
+            if not self._skip_final_save:
+                if self._device is not None:
+                    # Move to writer device and ensure channels-last layout
+                    if str(online_im.device) != str(self._device):
+                        online_im = unwrap_tensor(online_im).to(self._device)
 
-            # Optional final move to CPU for CPU-only writers
-            if (
-                online_im.device.type != "cpu"
-                and self._device is not None
-                and self._device.type == "cpu"
-            ):
-                online_im = online_im.to("cpu", non_blocking=True)
-                online_im = StreamCheckpoint(online_im)
+                # Optional final move to CPU for CPU-only writers
+                if (
+                    online_im.device.type != "cpu"
+                    and self._device is not None
+                    and self._device.type == "cpu"
+                ):
+                    online_im = online_im.to("cpu", non_blocking=True)
+                    online_im = wrap_tensor(online_im)
 
-            assert self._device is None or results["img"].device == self._device
+                assert self._device is None or results["img"].device == self._device
 
-        results["img"] = online_im
+            results["img"] = online_im
 
-        # Step 4: Persist frames to disk under profiling scopes
-        with self._sctx:
-            results = self._save_frame(results)
+            # Step 4: Persist frames to disk under profiling scopes
+            with self._sctx:
+                results = self._save_frame(results)
 
-        assert "img" not in results
+            assert "img" not in results
 
-        return results
+            return results

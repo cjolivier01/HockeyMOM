@@ -77,8 +77,10 @@ aspen:
     - type: HmConfigureScoreboard
     - type: HmCaptureScoreboard
     - type: HmPerspectiveRotation
-      pre_clip: true
+      pre_clip: GLOBAL.rink.camera.pre_clip
+      fixed_edge_rotation_angle: GLOBAL.rink.camera.fixed_edge_rotation_angle
     - type: HmCropToVideoFrame
+      crop_image: GLOBAL.rink.camera.crop_image
     - type: HmRenderScoreboard
       image_labels: [img, end_zone_img]
     - type: HmImageOverlays
@@ -87,41 +89,42 @@ aspen:
     - type: HmMakeVisibleImage
 
   plugins:
+    stitching:
+      class: hmlib.aspen.plugins.stitching_plugin.StitchingPlugin
+      depends: []
+      enabled: GLOBAL.aspen.stitching.enabled
+      params:
+        pto_project_file: GLOBAL.aspen.stitching.pto_project_file
+        dir_name: GLOBAL.aspen.stitching.dir_name
+        blend_mode: GLOBAL.aspen.stitching.blend_mode
+        max_blend_levels: GLOBAL.aspen.stitching.max_blend_levels
+        auto_adjust_exposure: GLOBAL.aspen.stitching.auto_adjust_exposure
+        python_blender: GLOBAL.aspen.stitching.python_blender
+        minimize_blend: GLOBAL.aspen.stitching.minimize_blend
+        dtype: GLOBAL.aspen.stitching.dtype
+        no_cuda_streams: GLOBAL.aspen.stitching.no_cuda_streams
+        post_stitch_rotate_degrees: GLOBAL.aspen.stitching.post_stitch_rotate_degrees
+        left_color_pipeline: GLOBAL.aspen.left_stitch_pipeline
+        right_color_pipeline: GLOBAL.aspen.right_stitch_pipeline
+        capture_rgb_stats: GLOBAL.aspen.stitching.capture_rgb_stats
+        max_output_width: GLOBAL.aspen.stitching.max_output_width
+
     image_prep:
       class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
-      depends: []
+      depends: [stitching]
       params: {}
-
-    model_factory:
-      class: hmlib.aspen.plugins.model_factory_plugin.ModelFactoryPlugin
-      depends: []
-      enabled: true
-      params:
-        model_class: hmlib.models.end_to_end_plugin.HmEndToEnd
-        # Pure YAML detector definition (converted from mmengine config)
-        # No detector/tracker coupling here; post_* pipelines not used for rink mask
-        post_tracking_pipeline:
-          - type: HmNumberClassifier
-            image_label: original_images
-            enabled: false
 
     detector_factory:
       class: hmlib.aspen.plugins.detector_factory_plugin.DetectorFactoryPlugin
       depends: []
       enabled: true
       params:
-        detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
-        # detector_yaml: hmlib/config/aspen/models/hm_crowdhuman_yolov8_m_1984_736.detector.yaml
+        # detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
+        detector_yaml: hmlib/config/aspen/models/hm_crowdhuman_yolov8_m_1984_736.detector.yaml
         data_preprocessor:
           type: TrackDataPreprocessor
           pad_size_divisor: 32
           use_det_processor: true
-
-    boundaries:
-      class: hmlib.aspen.plugins.boundaries_plugin.BoundariesPlugin
-      depends: [model_factory]
-      params:
-        plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
     detector:
       class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
@@ -131,7 +134,7 @@ aspen:
     save_detections:
       class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [detector]
-      enabled: false
+      enabled: true
       params: {}
 
     ice_config:
@@ -151,19 +154,23 @@ aspen:
 
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
-      depends: [detector, ice_boundaries, model_factory, boundaries]
-      # params:
+      depends: [detector, ice_boundaries]
+      params:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
         # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
+        # tracker_class: hockeymom.core.HmDcfTrackerCudaStatic  # NvDCF-style CUDA tracker (static shape + ReID)
+        # tracker_class: hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic  # Static-shape CUDA tracker (Python)
         # tracker_kwargs:
         #   device: cuda:0
         #   max_detections: 256
-        #   max_tracks: 100
+        #   max_tracks: 50
+        #   reid_feature_dim: 256
+        #   reid_weight: 0.5
 
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [tracker]
-      enabled: false
+      enabled: true
       params: {}
 
     # Optional camera dataframe load/save for camera.csv
@@ -183,25 +190,18 @@ aspen:
         model_path: null
         window: 8
 
-    # postprocess:
-    #   class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
-    #   depends: [tracker, camera_controller, ice_config]
-    #   enabled: true
-    #   params: {}
-
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
-      # Does this really need postprocess?
       depends: [
         tracker, 
         camera_controller, 
-        # postprocess,
       ]
       enabled: true
       params:
         debug_play_tracker: GLOBAL.plot.debug_play_tracker
         plot_moving_boxes: GLOBAL.plot.plot_moving_boxes
         plot_individual_player_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_tracking_circles: GLOBAL.plot.plot_tracking_circles
         plot_boundaries: GLOBAL.plot.plot_boundaries
         plot_all_detections: GLOBAL.plot.plot_all_detections
         plot_trajectories: GLOBAL.plot.plot_trajectories
@@ -212,15 +212,15 @@ aspen:
     save_camera:
       class: hmlib.aspen.plugins.save_plugins.SaveCameraPlugin
       depends: [play_tracker]
-      enabled: false
+      enabled: true
       params: {}
 
     apply_camera:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
-      depends: [play_tracker]
+      depends: [play_tracker, load_camera]
       enabled: true
       params: {
-        video_out_pipeline: GLOBAL.aspen.video_out_pipeline
+        video_out_pipeline: GLOBAL.aspen.video_out_pipeline,
       }
 
     rgb_stats_check:

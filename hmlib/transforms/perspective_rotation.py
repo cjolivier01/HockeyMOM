@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Union
+from typing import Tuple, Union
 
 import torch
 from mmengine.registry import TRANSFORMS
@@ -6,7 +6,7 @@ from mmengine.registry import TRANSFORMS
 from hmlib.bbox.box_functions import center, height, width
 from hmlib.utils.distributions import ImageHorizontalGaussianDistribution
 from hmlib.utils.gpu import StreamTensorBase
-from hmlib.utils.image import image_height, image_width, rotate_image, to_float_image
+from hmlib.utils.image import image_height, image_width, rotate_image_batch, to_float_image
 
 
 def _slow_to_tensor(tensor: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:
@@ -30,28 +30,17 @@ def image_wh(image: torch.Tensor):
 
 @TRANSFORMS.register_module()
 class HmPerspectiveRotation:
-    """Optional pre-rotation crop around a camera box.
-
-    When ``pre_clip`` is True, this transform crops a vertical strip centered on
-    the box center before rotating. The per-side crop radius defaults to the
-    rectangle's circumscribed-circle radius (``sqrt(w^2 + h^2) / 2``) optionally
-    scaled by ``crop_half_width_scale``. This is sufficient to contain the box
-    for any in-plane rotation angle; using ``fixed_crop_half_width=True`` caches
-    that radius from the first frame so the working image width stays constant.
-    """
 
     def __init__(
         self,
-        fixed_edge_rotation: bool = False,
+        enabled: bool = True,
         fixed_edge_rotation_angle: Union[float, Tuple[float, float]] = 0.0,
         dtype: torch.dtype = torch.float,
         pre_clip: bool = False,
         image_label: str = "img",
         bbox_label: str = "camera_box",
-        fixed_crop_half_width: bool = True,
-        crop_half_width_scale: float = 1.0,
     ):
-        self._fixed_edge_rotation = fixed_edge_rotation
+        self._enabled = enabled
         self._pre_clip = pre_clip
         self._dtype = dtype
         self._fixed_edge_rotation_angle = fixed_edge_rotation_angle
@@ -59,15 +48,9 @@ class HmPerspectiveRotation:
         self._bbox_label = bbox_label
         self._horizontal_image_gaussian_distribution = None
         self._zero_uint8 = None
-        self._crop_half_width: Optional[torch.Tensor] = None
-        self._image_width: Optional[int] = None
-        self._image_height: Optional[int] = None
-        self._fixed_crop_half_width = fixed_crop_half_width
-        self._crop_half_width_scale = float(crop_half_width_scale)
-        assert self._crop_half_width_scale >= 1.0
 
     def __call__(self, results):
-        if not self._fixed_edge_rotation or self._fixed_edge_rotation_angle == 0:
+        if not self._enabled or self._fixed_edge_rotation_angle == 0:
             return results
         online_im = results.pop(self._image_label)
         current_box = results.pop(self._bbox_label)
@@ -77,16 +60,11 @@ class HmPerspectiveRotation:
             non_blocking=True,
             dtype=self._dtype,
         )
-        src_image_width = int(image_width(online_im))
-        if self._image_width is None:
-            self._image_width = src_image_width
-        else:
-            # Expect a fixed source width across calls in a given pipeline.
-            assert src_image_width == self._image_width
+        src_image_width = image_width(online_im)
         rotated_images = []
         current_boxes = []
         for img, bbox in zip(online_im, current_box):
-            rotation_point = [int(i) for i in center(bbox)]
+            rotation_point = center(bbox)
             width_center = src_image_width / 2
             if rotation_point[0] < width_center:
                 mult = -1
@@ -106,7 +84,9 @@ class HmPerspectiveRotation:
                 else:
                     fixed_edge_rotation_angle = int(self._fixed_edge_rotation_angle[1])
 
-            angle = fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
+            angle = torch.ones((), dtype=torch.float, device=img.device) * (
+                fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
+            )
             angle *= mult
 
             # BEGIN PERFORMANCE HACK
@@ -126,19 +106,16 @@ class HmPerspectiveRotation:
             # END PERFORMANCE HACK
             #
 
-            img = rotate_image(
-                img=img,
+            img = rotate_image_batch(
+                img=img.unsqueeze(0),
                 angle=angle,
                 rotation_point=rotation_point,
-            )
+            ).squeeze(0)
             rotated_images.append(img)
             current_boxes.append(bbox)
         del online_im
-        # online_im = torch.stack(rotated_images)
-        current_box = torch.stack(current_boxes)
-        # results[self._image_label] = online_im
-        results[self._image_label] = rotated_images
-        results[self._bbox_label] = current_box
+        results[self._image_label] = torch.stack(rotated_images)
+        results[self._bbox_label] = torch.stack(current_boxes)
 
         return results
 
@@ -157,24 +134,10 @@ class HmPerspectiveRotation:
         bbox_c = center(current_box)
         assert bbox_w > 10  # Sanity
         assert bbox_h > 10  # Sanity
-        # make sure we're the expected (albeit arbitrary) channels-last
+        # make sure we're the expected (albeit arbitrary) channels first
         assert image.shape[-1] in [3, 4]
         img_wh = image_wh(image)
-
-        # Base half-width per side: radius of the rectangle's circumscribed circle,
-        # optionally scaled to retain additional margin.
-        base_half_width = torch.sqrt(torch.square(bbox_w) + torch.square(bbox_h)) / 2
-        base_half_width = base_half_width * self._crop_half_width_scale
-
-        if self._fixed_crop_half_width:
-            # Cache a fixed half-width (per side) from the first frame so the
-            # working image width remains constant across frames.
-            if self._crop_half_width is None:
-                self._crop_half_width = base_half_width.detach()
-            min_width_per_side = self._crop_half_width.to(device=current_box.device)
-        else:
-            min_width_per_side = base_half_width
-
+        min_width_per_side = torch.sqrt(torch.square(bbox_w) + torch.square(bbox_h)) / 2
         clip_left = torch.max(self._zero_uint8, bbox_c[0] - min_width_per_side).to(
             torch.int64, non_blocking=True
         )

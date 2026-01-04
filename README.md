@@ -78,7 +78,7 @@ Optionally, if you still use a game directory layout under `$HOME/Videos/<game-i
 
 ## Unified Configuration
 - HM configs (`hmlib/config/` camera/rink/game/model) and Aspen graph configs (`hmlib/config/aspen/`) can be combined.
-- Aspen YAMLs are nested under a top-level `aspen:` key (e.g., `aspen.trunks`, `aspen.inference_pipeline`, `aspen.video_out_pipeline`).
+- Aspen YAMLs are nested under a top-level `aspen:` key (e.g., `aspen.plugins`, `aspen.inference_pipeline`, `aspen.video_out_pipeline`).
 - The CLI merges multiple YAML files in order using `--config` (repeatable). Later files override earlier values and add new fields.
 - Backward-compat `--aspen-config` has been removed. Use `--config` exclusively.
 
@@ -99,17 +99,17 @@ game:
 aspen:
   inference_pipeline: [...]
   video_out_pipeline: [...]
-  trunks:
+  plugins:
     detector_factory: {...}
     tracker: {...}
 ```
 
 **AspenNet Execution Modes**
-- Normal (sequential): single thread runs trunks in topological order.
+- Normal (sequential): single thread runs plugins in topological order.
   
   ![AspenNet Normal](docs/images/aspennet-normal.svg)
 
-- Threaded + CUDA streams: each trunk executes in its own thread and CUDA stream; queues connect stages.
+- Threaded + CUDA streams: each plugin executes in its own thread and CUDA stream; queues connect stages.
   
   ![AspenNet Threaded (CUDA streams)](docs/images/aspennet-threaded-streams.svg)
 
@@ -130,12 +130,33 @@ aspen:
   - When trimming with timestamps, decode-side `-t` is used and overlay uses `shortest=1` to ensure exact clip duration.
 
 **Shift Spreadsheet Parser**
-- Script: `scripts/parse_shift_spreadsheet_ex.py`
-- Goal clips: fixed 20s window with 15s before and 5s after the goal.
-  - Constants: `GOAL_CLIP_PRE_S`, `GOAL_CLIP_POST_S` inside the script.
-- Event clip scripts (non-goal): enable `--blink-circle` by default.
-  - Generated scripts accept `--no-blink` to disable the blinking overlay while preserving other arguments.
-  - Player shift clips are unaffected (no blinking overlay added).
-- Times files location: all generated time window text files are written under a `times/` subdirectory inside the chosen output directory. Generated shell scripts reference `times/<file>.txt` accordingly.
-- Shell scripts location: generated shell scripts are written under a `scripts/` subdirectory. Event scripts are further organized by team (`scripts/<TeamTag>/...`). Player shift scripts live in the `scripts/` subdir of each team folder (or legacy output folder).
- - On-ice boundary rule: when a shift ends at the exact same scoreboard time as an event, the event counts for the player leaving the ice and not for the player entering at that time. Internally, membership uses an interval that excludes the shift-start boundary and includes the shift-end boundary.
+- Script: `scripts/parse_shift_spreadsheet.py`
+- Inputs:
+  - `--input` can be a single `.xls/.xlsx` file or a directory (it will auto-discover the primary shift sheet plus optional `*-long*` companion sheets).
+  - `--file-list` accepts one file/dir per line or `t2s=<game_id>[:HOME|AWAY][:game_label]` for a TimeToScore-only game (comments starting with `#` are ignored).
+- Goals (highest priority wins):
+  - `--goal` / `--goals-file`
+  - TimeToScore via `--t2s <game_id>[:HOME|AWAY][:game_label]` (or inferred from filenames like `game-54111.xlsx` where the trailing number is `>= 10000`), using `--home/--away` or `:HOME/:AWAY` if needed.
+  - `goals.xlsx` in the same directory as the input sheet (fallback when no TimeToScore id is in use).
+- Optional `*-long*` sheet support:
+  - Parses the leftmost per-period event table to add Shots/SOG/xG, Giveaways/Takeaways, and controlled entries/exits, plus generates event clip scripts and per-player SOG/goal highlight scripts.
+  - If the script can’t infer whether your team is Blue or White, provide `--dark` (Blue) or `--light` (White).
+- Privacy default:
+  - Shift counts and TOI are omitted from parent-facing stats outputs by default. Use `--shifts` to include them.
+  - Outputs (per game):
+  - Writes under `<outdir>/(per_player|event_log)/` for single-game runs, or `<outdir>/<label>/(per_player|event_log)/` for multi-game runs.
+  - Stats: `stats/player_stats.txt`, `stats/player_stats.csv`, `stats/player_stats.xlsx`, plus per-player `stats/*_stats.txt`.
+  - Game stats: `stats/game_stats.csv` and `stats/game_stats.xlsx` (team-level, no TOI; stats are rows with the game as the column header).
+  - Clip helpers (unless `--no-scripts`): `clip_events_<Event>_<Team>.sh`, `clip_goal_<player>.sh`, `clip_sog_<player>.sh`, and `clip_all.sh` (plus `clip_<player>.sh` for per-player shifts when `--shifts` is set).
+  - Timestamp windows: per-player shift `*_video_times.txt` / `*_scoreboard_times.txt` (only with `--shifts`), plus `events_*_video_times.txt`, `events_*_scoreboard_times.txt`, and `goals_for.txt` / `goals_against.txt` (events: 10s before / 5s after; goals: 20s before / 10s after). `*_times.txt` files are not written with `--no-scripts`.
+- Outputs (multi-game):
+  - Consolidated workbook: `<outdir>/player_stats_consolidated.xlsx` with a `Cumulative` sheet and per-game sheets.
+  - Consolidated CSV: `<outdir>/player_stats_consolidated.csv` (the `Cumulative` sheet).
+  - Consolidated game stats: `<outdir>/game_stats_consolidated.xlsx` and `<outdir>/game_stats_consolidated.csv` (stats as rows, games as columns).
+  - Long-sheet stats caveat: per-game averages for long-sheet-derived stats (Shots/SOG/xG/Giveaways/Takeaways, etc.) only count games where that stat exists, and the `... per Game` column headers include `(N)` to show the number of games in the denominator.
+  - Per-player season summaries in `<outdir>/cumulative_per_player/`.
+- Examples:
+  - Single game by stats directory:
+    - `python scripts/parse_shift_spreadsheet.py --input /home/colivier/Videos/sharks-12-1-r2/stats --outdir player_shifts`
+  - Season run from a list (files and/or directories):
+    - `python scripts/parse_shift_spreadsheet.py --file-list /mnt/ripper-data/Videos/game_list.txt --outdir season_stats`

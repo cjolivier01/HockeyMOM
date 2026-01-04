@@ -8,6 +8,8 @@ such as no season drop-down on the main stats page.
 from __future__ import annotations
 
 import io
+import logging
+import re
 from typing import Any
 
 import numpy as np
@@ -26,6 +28,9 @@ MAIN_STATS_URL = TIMETOSCORE_URL + "display-stats"
 # CAHA youth league id
 CAHA_LEAGUE = 3
 STAT_CLASS = 1  # youth
+
+
+logger = logging.getLogger(__name__)
 
 
 td_selectors = dict(
@@ -376,6 +381,27 @@ def scrape_season_divisions(season_id: int):
             table = table.parent
         if table is None:
             return None
+        # The "Division Player Stats" row is preceded by a "X Schedule" row which carries the actual division name.
+        # On the live site there are sometimes spacer rows in between, so we walk backwards to find the closest
+        # sibling row with a non-empty "… Schedule" label.
+        div_name = a_tag.get_text(strip=True) or f"Level {level} Conf {conf}"
+        try:
+            prev = row.find_previous_sibling("tr")
+            while prev is not None:
+                txt = prev.get_text(" ", strip=True).replace("\xa0", " ").strip()
+                if txt and txt.lower().endswith("schedule"):
+                    # e.g. "10U B West Schedule" -> "10 B West"
+                    txt = txt[:-8].strip()
+                    txt = re.sub(r"^(\d+)U\b", r"\1", txt).strip()
+                    div_name = txt or div_name
+                    break
+                if txt and div_name.lower() == "division player stats":
+                    # If the schedule label isn't present but we found any non-empty header text,
+                    # use it as a better fallback than "Division Player Stats".
+                    div_name = txt
+                prev = prev.find_previous_sibling("tr")
+        except Exception:
+            pass
         # Walk subsequent rows in this table until the next header row (with th)
         teams: list[dict[str, Any]] = []
         for sib in row.find_next_siblings():
@@ -401,7 +427,7 @@ def scrape_season_divisions(season_id: int):
         if not teams:
             return None
         return {
-            "name": a_tag.get_text(strip=True) or f"Level {level} Conf {conf}",
+            "name": div_name,
             "id": int(level) if level and level.isdigit() else 0,
             "conferenceId": int(conf) if conf and conf.isdigit() else 0,
             "seasonId": season_id,
@@ -504,6 +530,48 @@ def scrape_game_stats(game_id: int):
     return data
 
 
+def scrape_league_schedule(season_id: int) -> list[dict[str, Any]]:
+    """Scrape the CAHA league schedule page for a full season.
+
+    This page contains all games (including results/scores when available) and links to the game id.
+    Example: https://stats.caha.timetoscore.com/display-schedule.php?stat_class=1&league=3&season=31
+    """
+    params = {"league": str(CAHA_LEAGUE), "stat_class": str(STAT_CLASS)}
+    if season_id and season_id > 0:
+        params["season"] = str(season_id)
+    soup = util.get_html(TIMETOSCORE_URL + "display-schedule.php", params=params)
+    if not soup.table:
+        return []
+    try:
+        df = pd.read_html(io.StringIO(str(soup.table)), header=0, flavor="bs4")[0]
+    except Exception:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for _, r in df.iterrows():
+        d = r.to_dict()
+        # CAHA nests headers as "Game Results.*"; row 0 repeats the column titles ("Game", "Date", ...).
+        first = str(d.get("Game Results") or "").strip()
+        if first.lower() == "game":
+            continue
+        # Map into stable keys.
+        out: dict[str, Any] = {
+            "id": d.get("Game Results"),
+            "date": d.get("Game Results.1"),
+            "time": d.get("Game Results.2"),
+            "rink": d.get("Game Results.3"),
+            "league": d.get("Game Results.4"),
+            "level": d.get("Game Results.5"),
+            "away": d.get("Game Results.6"),
+            "awayGoals": d.get("Game Results.7"),
+            "home": d.get("Game Results.8"),
+            "homeGoals": d.get("Game Results.9"),
+            "type": d.get("Game Results.10"),
+        }
+        rows.append(out)
+    return rows
+
+
 def sync_seasons(db: Database):
     seasons = scrape_seasons()
     for name, season_id in seasons.items():
@@ -515,10 +583,10 @@ def sync_seasons(db: Database):
 def sync_divisions(db: Database, season: int):
     """Sync divisions from CAHA site."""
     divs = scrape_season_divisions(season_id=season)
-    print("Found %d divisions in season %s..." % (len(divs), season))
+    logger.info("Found %d divisions in season %s...", len(divs), season)
     for div in divs:
         db.add_division(division_id=div["id"], conference_id=div["conferenceId"], name=div["name"])
-        print("%s teams in %s" % (len(div["teams"]), div["name"]))
+        logger.info("%s teams in %s", len(div["teams"]), div["name"])
         for team in div["teams"]:
             team_id = team.pop("id")
             team_name = team.pop("name")
@@ -569,7 +637,7 @@ def get_team_or_unknown(
     try:
         team_id = get_team_id(db, team_name, season, division_id, conference_id)
     except ValueError as e:
-        print(e)
+        logger.warning("Unknown team '%s' in season %s: %s", team_name, season, e)
         db.add_season(season_id=-1, name="UNKNOWN")
         db.add_division(division_id=-1, conference_id=-1, name="UNKNOWN")
         team_id = -1
@@ -616,7 +684,7 @@ def sync_season_teams(db: Database, season: int):
     teams = db.list_teams("season_id = %d" % season)
     game_ids: set[int] = set()
     for team in teams:
-        print("Syncing %s season %d..." % (team["name"], season))
+        logger.info("Syncing %s season %d...", team["name"], season)
         team_info = get_team(season_id=season, team_id=team["team_id"])  # type: ignore[arg-type]
         games = team_info.pop("games", [])
         for game in games:
@@ -633,7 +701,7 @@ def sync_game_stats(db: Database):
             try:
                 stats = scrape_game_stats(game["game_id"])  # type: ignore[arg-type]
             except Exception as e:  # Broad skip; remote data may be missing
-                print(e)
+                logger.exception("Failed to scrape game stats: %s", e)
                 continue
             db.add_game_stats(game["game_id"], stats)  # type: ignore[arg-type]
 
@@ -647,7 +715,5 @@ def load_data(db: Database):
         sync_season_teams(db, season)
 
 
-DATABASE = Database()
-
 if __name__ == "__main__":
-    load_data(DATABASE)
+    load_data(Database())

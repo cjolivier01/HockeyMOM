@@ -1,4 +1,5 @@
 #include "hockeymom/csrc/play_tracker/TranslatingBox.h"
+#include "hockeymom/csrc/play_tracker/LogCapture.h"
 
 #include <cassert>
 #include <csignal>
@@ -77,8 +78,10 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
                    get_arena_edge_center_position_scale());
     } else {
       static size_t wayoff_count = 0;
-      std::cout << ++wayoff_count
-                << ": We are way off, ignoring any position scale\n";
+      ++wayoff_count;
+      hm_log_warning(
+          std::to_string(wayoff_count) +
+          ": We are way off, ignoring any position scale");
       constexpr FloatValue kEmergencyPanFixScaleConstraintRatio = 4.0;
       x_gaussian = kEmergencyPanFixScaleConstraintRatio;
     }
@@ -162,8 +165,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
           state_.current_speed_x /= kMaxSpeedDiffDirectionCutRateRatio;
         }
         if (config_.stop_translation_on_dir_change) {
-          total_diff.dx *= 0.25f; // soften abrupt direction reversals
-          accel_x = total_diff.dx;
+          accel_x = total_diff.dx * 0.25f; // soften abrupt direction reversals
         }
       }
     }
@@ -187,8 +189,7 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
           state_.current_speed_y /= kMaxSpeedDiffDirectionCutRateRatio;
         }
         if (config_.stop_translation_on_dir_change) {
-          total_diff.dy *= 0.25f;
-          accel_y = total_diff.dy;
+          accel_y = total_diff.dy * 0.25f;
         }
       }
     }
@@ -248,21 +249,17 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
     }
   }
 
-  // Preserve previous speeds for increase detection
-  const FloatValue prev_speed_x = state_.current_speed_x;
-  const FloatValue prev_speed_y = state_.current_speed_y;
-
   adjust_speed(accel_x, accel_y, /*scale_constraints=*/x_gaussian);
 
   // Time-to-destination speed limiting (per-axis)
-  auto limit_speed_ttg = [&](FloatValue& v, const FloatValue dist, const FloatValue prev_v) {
+  auto limit_speed_ttg = [&](FloatValue& v, const FloatValue dist) {
     if (config_.time_to_dest_speed_limit_frames > 0) {
       const FloatValue sgn = sign(dist);
       if (sgn != 0.0f) {
         const FloatValue new_sgn = sign(v);
-        const bool increasing = std::abs(v) > std::abs(prev_v);
-        if (new_sgn == sgn && increasing) {
-          const FloatValue limit = std::abs(dist) / static_cast<FloatValue>(config_.time_to_dest_speed_limit_frames);
+        if (new_sgn == sgn) {
+          const FloatValue limit = std::abs(dist) /
+              static_cast<FloatValue>(config_.time_to_dest_speed_limit_frames);
           // Clamp magnitude to at most limit
           const FloatValue vmax = limit;
           auto v1 = clamp(v, -vmax, vmax);
@@ -272,12 +269,20 @@ void TranslatingBox::set_destination(const BBox& dest_box) {
             //           << " frames.\n";
           }
           v = v1;
+          if (config_.time_to_dest_stop_speed_threshold > 0.0f) {
+            const FloatValue thresh = config_.time_to_dest_stop_speed_threshold;
+            if (std::abs(dist) <=
+                    thresh * static_cast<FloatValue>(config_.time_to_dest_speed_limit_frames) &&
+                std::abs(v) <= thresh) {
+              v = 0.0f;
+            }
+          }
         }
       }
     }
   };
-  limit_speed_ttg(state_.current_speed_x, total_diff.dx, prev_speed_x);
-  limit_speed_ttg(state_.current_speed_y, total_diff.dy, prev_speed_y);
+  limit_speed_ttg(state_.current_speed_x, total_diff.dx);
+  limit_speed_ttg(state_.current_speed_y, total_diff.dy);
 
   // Clamp overshoot during braking to avoid reversing direction
   if (state_.stop_delay_x && *state_.stop_delay_x != 0) {

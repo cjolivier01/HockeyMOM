@@ -18,6 +18,7 @@ from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first
+from hmlib.tracking_utils.utils import get_track_mask
 
 # Jersey-number-pipeline inspired torso crop parameters
 _PADDING = 5
@@ -142,7 +143,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
                             pass
                 self._legibility_model = leg_model.to(device=device).eval()
             except Exception as ex:
-                logger.info(f"Legibility model unavailable ({ex}); using identity.")
+                logger.info("Legibility model unavailable (%s); using identity.", ex)
                 self._legibility_model = _IdentityLegibility().to(device=device)
 
     def _ensure_parseq(self, device_str: str):
@@ -217,12 +218,17 @@ class KoshkinaJerseyNumberPlugin(Plugin):
                         )
                         missing, unexpected = model.load_state_dict(state, strict=False)
                         if missing:
-                            logger.info(f"PARSeq load: missing keys: {len(missing)}")
+                            logger.info(
+                                "PARSeq load: missing keys: %d", len(missing)
+                            )
                         if unexpected:
-                            logger.info(f"PARSeq load: unexpected keys: {len(unexpected)}")
+                            logger.info(
+                                "PARSeq load: unexpected keys: %d", len(unexpected)
+                            )
                     except Exception as ex_load:
                         logger.info(
-                            f"PARSeq load_state_dict failed ({ex_load}); proceeding with uninitialized model."
+                            "PARSeq load_state_dict failed (%s); proceeding with uninitialized model.",
+                            ex_load,
                         )
             if model is None:
                 # Use a default max_label_length compatible with typical PARSeq checkpoints
@@ -236,7 +242,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
         except Exception as ex:
             self._parseq_model = None
             self._str_transform = None
-            logger.error(f"Failed to initialize PARSeq STR ({ex}).")
+            logger.error("Failed to initialize PARSeq STR (%s).", ex)
 
     # ----------------------- Pose/ROI helpers -----------------------
     @staticmethod
@@ -390,7 +396,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
                 conf = [float(conf)]
             return str(label), [float(c) for c in conf]
         except Exception as ex:
-            logger.info(f"PARSeq decode failed: {ex}")
+            logger.info("PARSeq decode failed: %s", ex)
             return None
 
     # ----------------------- Aggregation -----------------------
@@ -458,9 +464,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
             pred_tracks: Optional[InstanceData] = getattr(
                 img_data_sample, "pred_track_instances", None
             )
-            if pred_tracks is None or (
-                hasattr(pred_tracks, "bboxes") and len(pred_tracks.bboxes) == 0
-            ):
+            if pred_tracks is None:
                 all_jersey_results.append([])
                 continue
 
@@ -469,6 +473,13 @@ class KoshkinaJerseyNumberPlugin(Plugin):
             if not isinstance(bboxes_xyxy, torch.Tensor):
                 bboxes_xyxy = torch.as_tensor(bboxes_xyxy, device=device)
             tracking_ids = pred_tracks.instances_id
+            track_mask = get_track_mask(pred_tracks)
+            if isinstance(track_mask, torch.Tensor):
+                bboxes_xyxy = bboxes_xyxy[track_mask]
+                tracking_ids = tracking_ids[track_mask]
+            if bboxes_xyxy.numel() == 0:
+                all_jersey_results.append([])
+                continue
 
             # Pose matching if requested
             pose_inst = None

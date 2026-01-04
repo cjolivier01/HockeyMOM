@@ -17,6 +17,8 @@ from hmlib.camera.camera_transformer import (
     unpack_checkpoint,
 )
 from hmlib.camera.clusters import ClusterMan
+from hmlib.tracking_utils.utils import get_track_mask
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 
 from .base import Plugin
 
@@ -95,6 +97,7 @@ class CameraControllerPlugin(Plugin):
         for frame_index in range(video_len):
             img_data_sample = track_data_sample[frame_index]
             inst: InstanceData = getattr(img_data_sample, "pred_track_instances", None)
+
             ori_shape = img_data_sample.metainfo.get("ori_shape")
             H = int(ori_shape[0]) if isinstance(ori_shape, (list, tuple)) else int(1080)
             W = int(ori_shape[1]) if isinstance(ori_shape, (list, tuple)) else int(1920)
@@ -111,9 +114,26 @@ class CameraControllerPlugin(Plugin):
                 setattr(img_data_sample, "pred_cam_box", box)
                 continue
 
-            det_tlbr = inst.bboxes
+            det_tlbr = unwrap_tensor(inst.bboxes)
+            inst.bboxes = wrap_tensor(det_tlbr)
+
             if not isinstance(det_tlbr, torch.Tensor):
                 det_tlbr = torch.as_tensor(det_tlbr)
+            track_mask = get_track_mask(inst)
+            if isinstance(track_mask, torch.Tensor):
+                det_tlbr = det_tlbr[track_mask]
+            if det_tlbr.numel() == 0:
+                h_px = H * 0.8
+                w_px = h_px * self._ar
+                cx, cy = W / 2.0, H / 2.0
+                box = torch.tensor(
+                    [cx - w_px / 2, cy - h_px / 2, cx + w_px / 2, cy + h_px / 2],
+                    dtype=torch.float32,
+                )
+                cam_boxes.append(box)
+                setattr(img_data_sample, "pred_cam_box", box)
+                continue
+
             # Convert to TLWH for features
             tlwh = det_tlbr.clone()
             tlwh[:, 2] = tlwh[:, 2] - tlwh[:, 0]
@@ -177,13 +197,17 @@ class CameraControllerPlugin(Plugin):
                 h_px = torch.clamp((bottom - top) * 1.4, min=H * 0.35, max=H * 0.95)
                 w_px = h_px * self._ar
                 box_out = make_box_at_center(c, w=w_px, h=h_px)
-                box_out = clamp_box(box_out, torch.tensor([0, 0, W, H], dtype=box_out.dtype))
+                if not hasattr(self, "_wh_box"):
+                    self._wh_box = torch.tensor([0, 0, W, H], dtype=box_out.dtype).to(
+                        device=box_out.device, non_blocking=True
+                    )
+                box_out = clamp_box(box_out, self._wh_box)
 
             cam_boxes.append(box_out)
-            setattr(img_data_sample, "pred_cam_box", box_out)
+            setattr(img_data_sample, "pred_cam_box", wrap_tensor(box_out))
 
         # Attach into the shared data dict so downstream postprocess can access
-        data["camera_boxes"] = cam_boxes
+        data["camera_boxes"] = wrap_tensor(torch.cat(cam_boxes))
         return {"data": data}
 
     def input_keys(self):

@@ -46,6 +46,13 @@ file(GLOB_RECURSE BYTETRACK_SOURCES
 
 list(APPEND SOURCES ${BYTETRACK_SOURCES})
 
+file(GLOB_RECURSE DCF_SOURCES
+        csrc/df/**.cpp
+        csrc/df/**.h
+)
+
+list(APPEND SOURCES ${DCF_SOURCES})
+
 # set(
 #   PROTO_FILES
 #   csrc/mblend/mblend.proto

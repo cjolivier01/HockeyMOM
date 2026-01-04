@@ -32,11 +32,14 @@ from hmlib.config import get_game_config_private, get_nested_value, save_private
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
-from hmlib.utils.gpu import StreamCheckpoint, StreamTensorBase
+from hmlib.tracking_utils.utils import get_track_mask
+from hmlib.ui import show_image
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig, BBox, PlayTrackerConfig
+from hockeymom.core import AllLivingBoxConfig, BBox, HmLogLevel
 from hockeymom.core import PlayTracker as CppPlayTracker
+from hockeymom.core import PlayTrackerConfig
 
 from .camera_transformer import (
     CameraNorm,
@@ -101,6 +104,7 @@ class PlayTracker(torch.nn.Module):
         track_ids: Optional[Union[str, List[int], Set[int]]] = None,
         debug_play_tracker: bool = False,
         plot_individual_player_tracking: bool = False,
+        plot_tracking_circles: bool = False,
         plot_boundaries: bool = False,
         plot_all_detections: Optional[float] = None,
         plot_trajectories: bool = False,
@@ -134,6 +138,7 @@ class PlayTracker(torch.nn.Module):
         @param debug_play_tracker: Enable per-frame debug logging.
         @param plot_moving_boxes: Enable ROI/mover overlay plotting.
         @param plot_individual_player_tracking: Enable per-player overlays.
+        @param plot_tracking_circles: Draw flat circles instead of tracking boxes.
         @param plot_boundaries: Enable rink boundary overlays.
         @param plot_all_detections: Score threshold for plotting all dets.
         @param plot_trajectories: Enable track trajectory overlays.
@@ -161,6 +166,7 @@ class PlayTracker(torch.nn.Module):
         self._plot_individual_player_tracking: bool = (
             bool(plot_individual_player_tracking) or debug_play_tracker
         )
+        self._plot_tracking_circles: bool = bool(plot_tracking_circles)
         self._plot_boundaries: bool = bool(plot_boundaries)
         self._plot_all_detections: Optional[float] = plot_all_detections
         self._cpp_boxes = cpp_boxes
@@ -348,12 +354,44 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.cancel_stop_hysteresis_frames = cancel_hyst
             current_roi_aspect_config.stop_delay_cooldown_frames = cooldown_frames
 
+            resize_stop_dir_delay = int(
+                self._initial_camera_value("resizing_stop_on_dir_change_delay")
+            )
+            resize_cancel_stop = bool(
+                self._initial_camera_value("resizing_cancel_stop_on_opposite_dir")
+            )
+            resize_cancel_hyst = int(
+                self._initial_camera_value("resizing_stop_cancel_hysteresis_frames")
+            )
+            resize_cooldown_frames = int(
+                self._initial_camera_value("resizing_stop_delay_cooldown_frames")
+            )
+            resize_ttg_frames = int(
+                self._require_camera_value("resizing_time_to_dest_speed_limit_frames")
+            )
+            for cfg in (current_roi_config, current_roi_aspect_config):
+                cfg.resizing_stop_on_dir_change_delay = resize_stop_dir_delay
+                cfg.resizing_cancel_stop_on_opposite_dir = resize_cancel_stop
+                cfg.resizing_stop_cancel_hysteresis_frames = resize_cancel_hyst
+                cfg.resizing_stop_delay_cooldown_frames = resize_cooldown_frames
+                cfg.resizing_time_to_dest_speed_limit_frames = int(
+                    resize_ttg_frames * self._hockey_mom.fps_speed_scale
+                )
+
             # FIXME: get this from config
             current_roi_aspect_config.dynamic_acceleration_scaling = 1.0
             current_roi_aspect_config.arena_angle_from_vertical = 30.0
 
             current_roi_aspect_config.arena_box = to_bbox(self.get_arena_box(), self._cpp_boxes)
             cam_cfg = self._camera_cfg()
+            ttg_stop_thresh = float(cam_cfg.get("time_to_dest_stop_speed_threshold", 0.0))
+            resize_ttg_stop_thresh = float(
+                cam_cfg.get("resizing_time_to_dest_stop_speed_threshold", 0.0)
+            )
+            current_roi_config.time_to_dest_stop_speed_threshold = ttg_stop_thresh
+            current_roi_aspect_config.time_to_dest_stop_speed_threshold = ttg_stop_thresh
+            for cfg in (current_roi_config, current_roi_aspect_config):
+                cfg.resizing_time_to_dest_stop_speed_threshold = resize_ttg_stop_thresh
             current_roi_aspect_config.sticky_size_ratio_to_frame_width = cam_cfg[
                 "sticky_size_ratio_to_frame_width"
             ]
@@ -444,6 +482,27 @@ class PlayTracker(torch.nn.Module):
             cancel_stop = bool(self._initial_camera_value("cancel_stop_on_opposite_dir"))
             cancel_hyst = int(self._initial_camera_value("stop_cancel_hysteresis_frames"))
             cooldown_frames = int(self._initial_camera_value("stop_delay_cooldown_frames"))
+            ttg_stop_thresh = float(
+                self._camera_cfg().get("time_to_dest_stop_speed_threshold", 0.0)
+            )
+            resize_stop_dir_delay = int(
+                self._initial_camera_value("resizing_stop_on_dir_change_delay")
+            )
+            resize_cancel_stop = bool(
+                self._initial_camera_value("resizing_cancel_stop_on_opposite_dir")
+            )
+            resize_cancel_hyst = int(
+                self._initial_camera_value("resizing_stop_cancel_hysteresis_frames")
+            )
+            resize_cooldown_frames = int(
+                self._initial_camera_value("resizing_stop_delay_cooldown_frames")
+            )
+            resize_ttg_frames = int(
+                self._require_camera_value("resizing_time_to_dest_speed_limit_frames") * speed_scale
+            )
+            resize_ttg_stop_thresh = float(
+                self._camera_cfg().get("resizing_time_to_dest_stop_speed_threshold", 0.0)
+            )
 
             self._current_roi: Union[MovingBox, PyLivingBox] = MovingBox(
                 label="Current ROI",
@@ -459,6 +518,14 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
                 stop_delay_cooldown_frames=cooldown_frames,
+                time_to_dest_stop_speed_threshold=ttg_stop_thresh,
+                resize_stop_on_dir_change=False,
+                resize_stop_on_dir_change_delay=resize_stop_dir_delay,
+                resize_cancel_stop_on_opposite_dir=resize_cancel_stop,
+                resize_stop_cancel_hysteresis_frames=resize_cancel_hyst,
+                resize_stop_delay_cooldown_frames=resize_cooldown_frames,
+                resize_time_to_dest_speed_limit_frames=resize_ttg_frames,
+                resize_time_to_dest_stop_speed_threshold=resize_ttg_stop_thresh,
                 color=(255, 128, 64),
                 thickness=5,
                 device=self._device,
@@ -482,6 +549,13 @@ class PlayTracker(torch.nn.Module):
                 stop_on_dir_change=True,
                 stop_on_dir_change_delay=stop_dir_delay,
                 cancel_stop_on_opposite_dir=cancel_stop,
+                resize_stop_on_dir_change=True,
+                resize_stop_on_dir_change_delay=resize_stop_dir_delay,
+                resize_cancel_stop_on_opposite_dir=resize_cancel_stop,
+                resize_stop_cancel_hysteresis_frames=resize_cancel_hyst,
+                resize_stop_delay_cooldown_frames=resize_cooldown_frames,
+                resize_time_to_dest_speed_limit_frames=resize_ttg_frames,
+                resize_time_to_dest_stop_speed_threshold=resize_ttg_stop_thresh,
                 sticky_translation=True,
                 sticky_size_ratio_to_frame_width=camera_cfg["sticky_size_ratio_to_frame_width"],
                 sticky_translation_gaussian_mult=camera_cfg["sticky_translation_gaussian_mult"],
@@ -500,6 +574,7 @@ class PlayTracker(torch.nn.Module):
                 time_to_dest_speed_limit_frames=int(
                     self._require_camera_value("time_to_dest_speed_limit_frames") * speed_scale
                 ),
+                time_to_dest_stop_speed_threshold=ttg_stop_thresh,
             )
 
         if self._camera_ui_enabled:
@@ -644,11 +719,7 @@ class PlayTracker(torch.nn.Module):
     def forward(self, results: Dict[str, Any]):
         track_data_sample = results["data_samples"]
 
-        original_images = results.pop("original_images")
-
-        if isinstance(original_images, StreamTensorBase):
-            original_images._verbose = True
-            original_images = original_images.get()
+        original_images = unwrap_tensor(results.pop("original_images"))
 
         # Figure out what device this image should be on
         image_device = self._device
@@ -674,30 +745,30 @@ class PlayTracker(torch.nn.Module):
         del original_images
 
         debug = self._debug_play_tracker
+
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             scalar_frame_id = video_data_sample.frame_id
             frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
-            # det_count = (
-            #     len(video_data_sample.pred_instances.bboxes)
-            #     if hasattr(video_data_sample, "pred_instances")
-            #     and hasattr(video_data_sample.pred_instances, "bboxes")
-            #     else -1
-            # )
-            online_tlwhs = batch_tlbrs_to_tlwhs(video_data_sample.pred_track_instances.bboxes)
-            online_ids = video_data_sample.pred_track_instances.instances_id
 
-            if True:
+            track_inst = video_data_sample.pred_track_instances
+
+            # Ensure any tracker outputs that may have been produced on a
+            # different CUDA stream are synchronized with the current stream.
+            ids = track_inst.instances_id
+
+            online_tlwhs = batch_tlbrs_to_tlwhs(unwrap_tensor(track_inst.bboxes))
+            online_ids = unwrap_tensor(ids)
+            track_mask = get_track_mask(track_inst)
+
+            if False:
                 # goes a few fps faster when async if this is on CPU
                 frame_id = frame_id.cpu()
                 online_tlwhs = online_tlwhs.cpu()
                 online_ids = online_ids.cpu()
-
-            # if debug:
-            #     try:
-            #         n = int(len(online_ids))
-            #     except Exception:
-            #         n = -1
-            #     logger.info(f"PlayTracker frame {int(scalar_frame_id)}: det={det_count} tracks={n}")
+                if isinstance(track_mask, torch.Tensor):
+                    track_mask = track_mask.cpu()
+                    online_tlwhs = online_tlwhs[track_mask]
+                    online_ids = online_ids[track_mask]
 
             self.process_jerseys_info(
                 frame_index=frame_index, frame_id=scalar_frame_id, data=results
@@ -738,10 +809,33 @@ class PlayTracker(torch.nn.Module):
 
             if self._playtracker is not None:
                 assert not use_transformer, "Cannot use transformer with C++ PlayTracker"
-                online_bboxes = [BBox(*b) for b in video_data_sample.pred_track_instances.bboxes]
-                playtracker_results = self._playtracker.forward(
-                    online_ids.cpu().tolist(), online_bboxes
-                )
+                tracking_ids: List[int] = []
+                online_bboxes: List[BBox] = []
+                for tid, bbox in zip(
+                    online_ids.cpu().tolist(), video_data_sample.pred_track_instances.bboxes
+                ):
+                    if tid < 0:
+                        # Invalid ID
+                        continue
+                    tracking_ids.append(tid)
+                    online_bboxes.append(BBox(*bbox))
+                playtracker_results = self._playtracker.forward(tracking_ids, online_bboxes)
+                for msg in getattr(playtracker_results, "log_messages", []):
+                    try:
+                        text = msg.message
+                        level = msg.level
+                    except Exception:
+                        continue
+                    if level == HmLogLevel.DEBUG:
+                        logger.debug(text)
+                    elif level == HmLogLevel.INFO:
+                        logger.info(text)
+                    elif level == HmLogLevel.WARNING:
+                        logger.warning(text)
+                    elif level == HmLogLevel.ERROR:
+                        logger.error(text)
+                    else:
+                        logger.info(text)
 
                 if playtracker_results.largest_tracking_bbox is not None:
                     largest_bbox = from_bbox(playtracker_results.largest_tracking_bbox.bbox)
@@ -1002,6 +1096,7 @@ class PlayTracker(torch.nn.Module):
                     line_thickness=2,
                     ignore_tracking_ids=vis_ignored_tracking_ids,
                     ignored_color=(0, 0, 0),
+                    draw_tracking_circles=self._plot_tracking_circles,
                 )
                 # logger.info(f"Tracking {len(online_ids)} players...")
                 if largest_bbox is not None and vis_ignored_tracking_ids is None:
@@ -1157,9 +1252,9 @@ class PlayTracker(torch.nn.Module):
             assert online_im.device == image_device
             online_images.append(make_channels_last(online_im))
 
-        results["frame_ids"] = torch.stack(frame_ids_list)
-        results["current_box"] = torch.stack(current_box_list)
-        results["current_fast_box_list"] = torch.stack(current_fast_box_list)
+        results["frame_ids"] = wrap_tensor(torch.stack(frame_ids_list))
+        results["current_box"] = wrap_tensor(torch.stack(current_box_list))
+        results["current_fast_box_list"] = wrap_tensor(torch.stack(current_fast_box_list))
         # Attach per-frame player bottom points and ids for downstream overlays
         results["player_bottom_points"] = player_bottom_points_list
         results["player_ids"] = player_ids_list
@@ -1168,9 +1263,12 @@ class PlayTracker(torch.nn.Module):
         # print(f"FAST: {current_fast_box_list}")
         # print(f"CURRENT: {current_box_list}")
 
+        # for img in online_images:
+        #     show_image("Play Tracker", img, wait=False, scale=0.25)
+
         # We want to track if it's slow
         img = torch.stack(online_images)
-        img = StreamCheckpoint(img)
+        img = wrap_tensor(img)
         img._verbose = True
         results["img"] = img
 
@@ -1887,6 +1985,11 @@ class PlayTracker(torch.nn.Module):
             "stop_cancel_hysteresis_frames",
             "stop_delay_cooldown_frames",
             "time_to_dest_speed_limit_frames",
+            "resizing_stop_on_dir_change_delay",
+            "resizing_cancel_stop_on_opposite_dir",
+            "resizing_stop_cancel_hysteresis_frames",
+            "resizing_stop_delay_cooldown_frames",
+            "resizing_time_to_dest_speed_limit_frames",
             "sticky_size_ratio_to_frame_width",
             "sticky_translation_gaussian_mult",
             "unsticky_translation_size_ratio",
@@ -2121,4 +2224,5 @@ class PlayTracker(torch.nn.Module):
         #
         # END Breakway detection
         #
+        return current_box, online_im
         return current_box, online_im

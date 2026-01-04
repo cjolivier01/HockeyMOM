@@ -16,6 +16,7 @@ import torch
 from torch.utils.data import Dataset
 
 from hmlib.log import logger
+from hmlib.utils.gpu import unwrap_tensor
 
 
 class HmDataFrameBase:
@@ -73,6 +74,7 @@ class HmDataFrameBase:
     @staticmethod
     def _make_array(t: Union[np.ndarray, torch.Tensor, List[Any], Tuple[Any, ...]]) -> np.ndarray:
         """Convert tensors (including sequences of tensors) to CPU numpy arrays."""
+        t = unwrap_tensor(t)
         if isinstance(t, torch.Tensor):
             return t.detach().cpu().numpy()
         if isinstance(t, (list, tuple)):
@@ -87,6 +89,14 @@ class HmDataFrameBase:
                     converted.append(item)
             return np.asarray(converted)
         return t
+
+    @staticmethod
+    def get_ndarray(obj, name: str, dflt: np.ndarray) -> np.ndarray:
+        """Convert various types to numpy ndarray."""
+        t = getattr(obj, name)
+        if t is None:
+            return dflt
+        return HmDataFrameBase._make_array(t)
 
     def has_input_data(self):
         return self.input_file is not None
@@ -104,7 +114,7 @@ class HmDataFrameBase:
                 mode = "a" if not self.first_write else "w"
                 data.to_csv(output_path, mode=mode, header=header, index=False)
                 self._dataframe_list = []
-                logger.info(f"Data saved successfully to {output_path}.")
+                logger.info("Data saved successfully to %s.", output_path)
             else:
                 logger.info("No data available to save.")
 
@@ -229,4 +239,5 @@ def find_latest_dataframe_file(
     if not candidates:
         return None
     candidates.sort(key=lambda item: item[0], reverse=True)
+    return str(candidates[0][1])
     return str(candidates[0][1])

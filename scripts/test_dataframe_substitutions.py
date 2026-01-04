@@ -10,12 +10,12 @@ import tempfile
 from typing import List
 
 import torch
-
 from mmengine.structures import InstanceData
 
 
 def _make_detection_df(path: str):
     from mmdet.structures import DetDataSample
+
     from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 
     df = DetectionDataFrame(output_file=path, input_batch_size=1)
@@ -32,6 +32,7 @@ def _make_detection_df(path: str):
 
 def _make_tracking_df(path: str):
     from mmdet.structures import DetDataSample
+
     from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
     df = TrackingDataFrame(output_file=path, input_batch_size=1)
@@ -125,10 +126,10 @@ def main():
     det, trk, pose, act = build_csvs(workdir)
 
     # Programmatic verification: read back samples
-    from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
-    from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
-    from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
     from hmlib.tracking_utils.action_dataframe import ActionDataFrame
+    from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
+    from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
+    from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 
     print("Programmatic checks:")
     rd_det = DetectionDataFrame(input_file=det, input_batch_size=1)
@@ -185,7 +186,6 @@ def main():
         f"--game-id={args.game_id}",
         f"--config={args.config}",
         "--no-wide-start",
-        "--no-crop",
         "--skip-final-video-save",
         f"--input-video={video}",
         "--no-save-video",

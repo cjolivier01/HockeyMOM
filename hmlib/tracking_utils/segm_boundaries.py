@@ -1,3 +1,4 @@
+import contextlib
 import time
 from typing import List, Optional, Union
 
@@ -7,7 +8,7 @@ import torch
 import hmlib.vis.pt_visualization as ptv
 from hmlib.builder import PIPELINES
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
-from hmlib.utils.gpu import StreamTensorBase
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hmlib.utils.image import image_height, image_width, make_channels_first
 
 
@@ -19,6 +20,7 @@ class SegmBoundaries:
         centroid: Optional[torch.Tensor] = None,
         original_clip_box: Optional[Union[torch.Tensor, List[int]]] = None,
         det_thresh: float = 0.05,
+        max_detections_in_mask: Optional[int] = None,
         draw: bool = False,
         raise_bbox_center_by_height_ratio: float = -0.2,  # FIXME: used to be 0.1, Jr Gulls Game 1 Hack
         lower_bbox_bottom_by_height_ratio: float = 0.1,
@@ -30,10 +32,13 @@ class SegmBoundaries:
             original_clip_box = torch.tensor(original_clip_box, dtype=torch.int64)
         self._original_clip_box = original_clip_box
         self.det_thresh = det_thresh
-        self._passes = 0
+        self._iter_num = 0
         self._duration = 0
         self._raise_bbox_center_by_height_ratio = raise_bbox_center_by_height_ratio
         self._lower_bbox_bottom_by_height_ratio = lower_bbox_bottom_by_height_ratio
+        self._max_detections_in_mask: Optional[int] = (
+            int(max_detections_in_mask) if max_detections_in_mask is not None else None
+        )
         self._normalization_scale: float | None = None
         self._draw = draw
         # shape (3, 1, 1) so it broadcasts over (C, H, W)
@@ -155,7 +160,8 @@ class SegmBoundaries:
         # Choose center vs bottom points based on centroid
         y_threshold = self._centroid[1]
         if isinstance(y_threshold, torch.Tensor) and y_threshold.numel() == 1:
-            y_threshold = y_threshold.item()
+            if y_threshold.device.type != "cuda":
+                y_threshold = float(y_threshold)
         points = select_points(
             y_threshold=y_threshold,
             points_when_above=all_bottoms,
@@ -192,8 +198,33 @@ class SegmBoundaries:
         keep_mask = valid_points & mask_values
         return keep_mask
 
+    def _apply_keep_mask(self, tensor: torch.Tensor, keep_mask: torch.Tensor) -> torch.Tensor:
+        if tensor.ndim == 0 or tensor.shape[0] != keep_mask.shape[0]:
+            return tensor
+        mask = keep_mask
+        if mask.device != tensor.device:
+            mask = mask.to(device=tensor.device, non_blocking=True)
+        if mask.dtype != torch.bool:
+            mask = mask.to(dtype=torch.bool)
+        if tensor.ndim > 1:
+            mask = mask.view(-1, *([1] * (tensor.ndim - 1)))
+        if tensor.dtype == torch.bool:
+            return tensor & mask
+        return tensor * mask.to(dtype=tensor.dtype)
+
     def __call__(self, *args, **kwargs):
-        return self.forward(*args, **kwargs)
+        self._iter_num += 1
+        # do_trace = self._iter_num == 4
+        # if do_trace:
+        #     pass
+        # from cuda_stacktrace import CudaStackTracer
+
+        # with CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace):
+        with contextlib.nullcontext():
+            results = self.forward(*args, **kwargs)
+        # if do_trace:
+        #     pass
+        return results
 
     def forward(self, data, **kwargs):
         if self._segment_mask is None:
@@ -219,6 +250,8 @@ class SegmBoundaries:
         start = time.time()
         prune_list = data["prune_list"]
         bbox_tensors = data[prune_list[0]]
+        if isinstance(bbox_tensors, StreamTensorBase):
+            bbox_tensors = unwrap_tensor(bbox_tensors)
 
         if bbox_tensors.shape[1] == 6:
             # Tracking box (index + tlbr + score)
@@ -231,17 +264,116 @@ class SegmBoundaries:
             bboxes = bbox_tensors
         else:
             assert False
-        keep_indexes = self.prune_items_index(batch_item_bboxes=bboxes)
-        for name in prune_list:
-            data[name] = data[name][keep_indexes]
+        keep_mask = self.prune_items_index(batch_item_bboxes=bboxes)
+        if not isinstance(keep_mask, torch.Tensor):
+            keep_mask = torch.as_tensor(keep_mask)
+        if keep_mask.dtype != torch.bool:
+            keep_mask = keep_mask.to(dtype=torch.bool)
+        keep_count = keep_mask.to(dtype=torch.long).sum()
+
+        if self._max_detections_in_mask is not None:
+            max_items = max(int(self._max_detections_in_mask), 0)
+            N = int(keep_mask.shape[0])
+            score_key = None
+            for key in prune_list:
+                if "score" in key:
+                    score_key = key
+                    break
+            if score_key is None and "scores" in data:
+                score_key = "scores"
+            scores_t: Optional[torch.Tensor] = None
+            if score_key is not None:
+                scores_val = data.get(score_key)
+                if isinstance(scores_val, StreamTensorBase):
+                    scores_val = unwrap_tensor(scores_val)
+                if isinstance(scores_val, torch.Tensor) and scores_val.shape[0] == N:
+                    scores_t = scores_val
+                    if scores_t.device != keep_mask.device:
+                        scores_t = scores_t.to(device=keep_mask.device, non_blocking=True)
+
+            if N and max_items > 0:
+                if scores_t is not None:
+                    if not torch.is_floating_point(scores_t):
+                        scores_t = scores_t.to(dtype=torch.float32)
+                    priority = scores_t.clone()
+                    priority = priority.masked_fill(~keep_mask, float("-inf"))
+                    k = min(max_items, N)
+                    order = torch.topk(priority, k=k).indices
+                else:
+                    idx = torch.arange(N, device=keep_mask.device)
+                    order_key = torch.where(keep_mask, idx, idx + N)
+                    order = torch.argsort(order_key)
+                    if max_items < N:
+                        order = order[:max_items]
+            else:
+                order = keep_mask.new_empty((0,), dtype=torch.long)
+
+            num_valid = keep_count.clamp(max=max_items)
+            data["num_detections"] = num_valid
+            valid_mask = None
+            if max_items > 0:
+                valid_mask = torch.arange(max_items, device=keep_mask.device) < num_valid
+
+            for name in prune_list:
+                value = data.get(name)
+                if value is None:
+                    continue
+                if isinstance(value, StreamTensorBase):
+                    tensor = unwrap_tensor(value)
+                else:
+                    tensor = value
+                if not isinstance(tensor, torch.Tensor):
+                    continue
+                if tensor.ndim == 0 or tensor.shape[0] != N:
+                    data[name] = tensor
+                    continue
+                sel_order = order
+                if sel_order.device != tensor.device:
+                    sel_order = sel_order.to(device=tensor.device, non_blocking=True)
+                if sel_order.numel():
+                    selected = tensor.index_select(0, sel_order)
+                else:
+                    selected = tensor[:0]
+                if selected.shape[0] < max_items:
+                    padded = selected.new_zeros((max_items, *selected.shape[1:]))
+                    if selected.numel():
+                        padded[: selected.shape[0]].copy_(selected)
+                    selected = padded
+                if valid_mask is not None:
+                    mask = valid_mask
+                    if mask.device != selected.device:
+                        mask = mask.to(device=selected.device, non_blocking=True)
+                    selected = self._apply_keep_mask(selected, mask)
+                data[name] = selected
+        else:
+            if torch.is_tensor(keep_mask) and keep_mask.device.type == "cuda":
+                # Avoid dynamic boolean indexing on CUDA which can trigger stream syncs.
+                for name in prune_list:
+                    value = data.get(name)
+                    if value is None:
+                        continue
+                    if isinstance(value, StreamTensorBase):
+                        tensor = unwrap_tensor(value)
+                    else:
+                        tensor = value
+                    if not isinstance(tensor, torch.Tensor):
+                        continue
+                    data[name] = self._apply_keep_mask(tensor, keep_mask)
+            else:
+                for name in prune_list:
+                    data[name] = data[name][keep_mask]
 
         self._duration += time.time() - start
-        self._passes += 1
-        if self._passes % 50 == 0:
-            fps = self._passes / self._duration
+        if self._iter_num % 50 == 0:
+            fps = self._iter_num / self._duration
             if fps < 50:
-                print(f"Segment Boundary pruning speed: {self._passes/self._duration} fps")
-            self._passes = 0
+                from hmlib.log import get_logger
+
+                get_logger(__name__).info(
+                    "Segment Boundary pruning speed: %f fps",
+                    self._iter_num / self._duration,
+                )
+            self._iter_num = 0
             self._duration = 0
         return data
 

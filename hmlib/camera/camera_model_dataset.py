@@ -36,7 +36,7 @@ class CameraPanZoomDataset(Dataset):
         super().__init__()
         self.window = int(window)
         self.tracks = pd.read_csv(tracking_csv, header=None)
-        # Support older/simpler tracking CSVs with 11 columns and new ones with action columns (14)
+        # Support legacy tracking CSVs with a PoseIndex column (11/14) and current ones (10/13).
         base_cols = [
             "Frame",
             "ID",
@@ -48,10 +48,17 @@ class CameraPanZoomDataset(Dataset):
             "Labels",
             "Visibility",
             "JerseyInfo",
-            "PoseIndex",
         ]
         extra_cols = ["ActionLabel", "ActionScore", "ActionIndex"]
-        if self.tracks.shape[1] >= len(base_cols) + len(extra_cols):
+        legacy_cols = base_cols + ["PoseIndex"]
+        if self.tracks.shape[1] >= len(legacy_cols) + len(extra_cols):
+            self.tracks = self.tracks.iloc[:, : len(legacy_cols) + len(extra_cols)]
+            self.tracks.columns = legacy_cols + extra_cols
+            self.tracks = self.tracks.drop(columns=["PoseIndex"])
+        elif self.tracks.shape[1] == len(legacy_cols):
+            self.tracks.columns = legacy_cols
+            self.tracks = self.tracks.drop(columns=["PoseIndex"])
+        elif self.tracks.shape[1] >= len(base_cols) + len(extra_cols):
             self.tracks = self.tracks.iloc[:, : len(base_cols) + len(extra_cols)]
             self.tracks.columns = base_cols + extra_cols
         elif self.tracks.shape[1] == len(base_cols):

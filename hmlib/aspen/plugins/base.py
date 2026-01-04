@@ -17,6 +17,8 @@ class Plugin(torch.nn.Module):
         super().__init__()
         self.enabled = enabled
         self._profiler: Optional[Any] = None
+        self._iter_num: int = 0
+        self.cuda_stacktrace_iter_num: Optional[bool] = None
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -52,6 +54,23 @@ class Plugin(torch.nn.Module):
     def is_output(self) -> bool:
         """Return True if this plugin is considered a graph output node."""
         return False
+
+    def _cuda_stack_tracer_context(self):
+        if not self.enabled or self.cuda_stacktrace_iter_num is None:
+            return nullcontext()
+        if self.cuda_stacktrace_iter_num == self._iter_num:
+            # Import here lazily to avoid binding to libcupti and therefore blocking PyTorch cuda profiling
+            # when not actually stack tracing
+            from cuda_stacktrace import CudaStackTracer
+
+            return CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=True)
+        return nullcontext()
+
+    def __call__(self, *args, **kwargs) -> Any:
+        with self._cuda_stack_tracer_context():
+            results = super().__call__(*args, **kwargs)
+        self._iter_num += 1
+        return results
 
 
 class DeleteKey:

@@ -122,6 +122,23 @@ struct ResizingConfig {
   FloatValue max_width{0.0};
   FloatValue max_height{0.0};
   bool stop_resizing_on_dir_change{true};
+  // When >0, instead of damping the input on a direction change,
+  // initiate a per-axis stop over this many frames, ignoring new inputs
+  // on that axis while decelerating to zero.
+  IntValue resizing_stop_on_dir_change_delay{0};
+  // If true, while a resize stop-delay is active on an axis,
+  // cancel that stop-delay immediately if the input direction flips
+  // opposite to the direction that originally triggered the stop.
+  bool resizing_cancel_stop_on_opposite_dir{false};
+  // Hysteresis for cancel-on-opposite during resize braking (consecutive frames)
+  IntValue resizing_stop_cancel_hysteresis_frames{0};
+  // Cooldown after a resize stop-delay finishes or is canceled before a new one can start
+  IntValue resizing_stop_delay_cooldown_frames{0};
+  // When increasing size toward destination, cap the speed so that
+  // time-to-go along that axis is at least this many frames. 0 disables.
+  IntValue resizing_time_to_dest_speed_limit_frames{10};
+  // When time-to-dest limiting is active, snap to zero if speed drops below this
+  FloatValue resizing_time_to_dest_stop_speed_threshold{0.0};
   bool sticky_sizing{false};
   //
   // Sticky sizing thresholds
@@ -182,6 +199,8 @@ struct TranslatingBoxConfig {
   // When increasing speed toward destination, cap the speed so that
   // time-to-go along that axis is at least this many frames. 0 disables.
   IntValue time_to_dest_speed_limit_frames{10};
+  // When time-to-dest limiting is active, snap to zero if speed drops below this
+  FloatValue time_to_dest_stop_speed_threshold{0.0};
 };
 
 struct LivingBoxConfig {

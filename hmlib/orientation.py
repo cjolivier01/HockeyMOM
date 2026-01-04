@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
+from hmlib.log import get_logger
 from hmlib.config import (
     get_game_config_private,
     get_game_dir,
@@ -42,6 +43,9 @@ RIGHT_FILE_PATTERN: str = r"right.mp4"
 VideoChapter = Dict[Union[int, str], Any]
 VideosDictKey = Union[int, str]
 VideosDict = Dict[VideosDictKey, VideoChapter]
+
+
+logger = get_logger(__name__)
 
 
 def gopro_get_video_and_chapter(filename: Path) -> Tuple[int, int]:
@@ -221,7 +225,7 @@ def get_available_videos(dir_name: str, prune: bool = False) -> VideosDict:
         if prune:
             videos_dict, discarded_videos = prune_chapters(videos=videos_dict)
             if discarded_videos:
-                print(f"Discarding videos: {discarded_videos}")
+                logger.info("Discarding videos: %s", discarded_videos)
         if videos_dict:
             return videos_dict
 
@@ -241,7 +245,7 @@ def get_available_videos(dir_name: str, prune: bool = False) -> VideosDict:
     if prune:
         videos_dict, discarded_videos = prune_chapters(videos=videos_dict)
         if discarded_videos:
-            print(f"Discarding videos: {discarded_videos}")
+            logger.info("Discarding videos: %s", discarded_videos)
     return videos_dict
 
 
@@ -371,7 +375,7 @@ def get_game_videos_analysis(
                 assert key.startswith(orientation)
         else:
             new_dict[orientation] = value
-        print(f"{key} orientation: {orientation}")
+        logger.info("%s orientation: %s", key, orientation)
     videos_dict.update(new_dict)
     return videos_dict
 
@@ -456,7 +460,7 @@ def _main(args: argparse.Namespace):
         inference_scale=getattr(args, "ice_rink_inference_scale", None),
     )
     # videos_dict = get_game_videos_analysis(game_id=game_id)
-    print(results)
+    logger.info("Configured game videos: %s", results)
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -475,4 +479,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    print("Done.")
+    logger.info("Done.")

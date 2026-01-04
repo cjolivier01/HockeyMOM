@@ -3,13 +3,16 @@ from __future__ import annotations
 import contextlib
 import os
 import subprocess
+import threading
+from collections import deque
 from fractions import Fraction
 from pathlib import Path
-from typing import IO, Any, Optional, Union
+from typing import IO, Any, List, Optional, Union
 
 import torch
 from typeguard import typechecked
 
+from hmlib.video.ffmpeg import build_ffmpeg_output_handler, iter_ffmpeg_output_lines
 from hockeymom import bgr_to_i420_cuda
 
 try:
@@ -77,6 +80,7 @@ class PyNvVideoEncoder:
         bitrate: Optional[int] = None,
         use_pyav: Optional[bool] = None,
         profiler: Optional[Any] = None,
+        ffmpeg_output_handler: Optional[Any] = None,
     ) -> None:
         if nvc is None:
             raise ImportError(
@@ -90,6 +94,7 @@ class PyNvVideoEncoder:
         self.fps = float(fps)
         self.codec = codec.lower()
         self.preset = preset.upper()
+        self.last_frame_id: Optional[int] = None
 
         if device is None:
             device = torch.device("cuda", 0)
@@ -105,6 +110,7 @@ class PyNvVideoEncoder:
         self.bitrate = int(bitrate) if bitrate is not None else None
         # Optional HmProfiler instance injected by callers.
         self._profiler: Optional[Any] = profiler
+        self._ffmpeg_output_handler = ffmpeg_output_handler
 
         backend_env = os.environ.get("HM_VIDEO_ENCODER_BACKEND", "").lower()
         backend: str
@@ -120,9 +126,6 @@ class PyNvVideoEncoder:
             backend = "raw"
 
         self._backend: str = backend
-        # Legacy flag preserved for existing call sites that only distinguish
-        # between PyAV and non-PyAV backends.
-        self._use_pyav: bool = self._backend == "pyav"
 
         if self.width % 2 or self.height % 2:
             raise ValueError("Width and height must be even for YUV420 encoding.")
@@ -137,6 +140,21 @@ class PyNvVideoEncoder:
         self._frame_duration_units: Optional[int] = None
         self._bitstream_path: Optional[Path] = None
         self._bitstream_file: Optional[IO[bytes]] = None
+        self._bgr_to_i420_cuda: Optional[torch.Tensor] = (
+            self._profiler.rf("bgr_to_i420_cuda")
+            if (self._profiler is not None and self._profiler.enabled)
+            else contextlib.nullcontext()
+        )
+        self._bgr_contiguous_1: Optional[torch.Tensor] = (
+            self._profiler.rf("bgr_contig_1")
+            if (self._profiler is not None and self._profiler.enabled)
+            else contextlib.nullcontext()
+        )
+        self._bgr_contiguous_2: Optional[torch.Tensor] = (
+            self._profiler.rf("bgr_contig_2_dlpack")
+            if (self._profiler is not None and self._profiler.enabled)
+            else contextlib.nullcontext()
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -148,8 +166,8 @@ class PyNvVideoEncoder:
             return
 
         self._encoder = self._create_encoder()
-        if self._use_pyav:
-            self._open_pyav_container()
+        if self._backend == "pyav":
+            self._open_bitstream_file()
         elif self._backend == "ffmpeg":
             self._ffmpeg_proc = self._spawn_ffmpeg()
         elif self._backend == "raw":
@@ -158,7 +176,9 @@ class PyNvVideoEncoder:
             raise ValueError(f"Unsupported NVENC encoder backend: {self._backend}")
         self._opened = True
 
-    def write(self, frames: torch.Tensor) -> None:
+    def write(
+        self, frames: torch.Tensor, frame_ids: Union[int, torch.Tensor, List[int], None] = None
+    ) -> None:
         """
         Encode one or more BGR frames and append them to the output stream.
 
@@ -177,6 +197,21 @@ class PyNvVideoEncoder:
         if self._encoder is None:
             raise RuntimeError("Encoder is not properly initialized.")
 
+        if frame_ids is not None:
+            # In all likelihood, frame_ids as a tensor have been completed on its
+            # stream for some time
+            if isinstance(frame_ids, torch.Tensor):
+                frame_ids = frame_ids.tolist()
+            frame_count = len(frame_ids)
+            assert frame_count == len(frames)
+            if self.last_frame_id is not None:
+                expected_frame_id = self.last_frame_id + 1
+                if frame_ids[0] != expected_frame_id:
+                    raise ValueError(
+                        f"Non-consecutive frame_id: expected {expected_frame_id}, got {frame_ids}"
+                    )
+            self.last_frame_id = frame_ids[-1]
+
         batch = self._normalize_frames(frames)
         prof = self._profiler
         batch_ctx = (
@@ -185,6 +220,7 @@ class PyNvVideoEncoder:
             else contextlib.nullcontext()
         )
         with batch_ctx:
+            current_stream = torch.cuda.current_stream(batch.device)
             for frame in batch:
                 frame_ctx = (
                     prof.rf("video.nvenc.encode_frame")  # type: ignore[union-attr]
@@ -193,17 +229,17 @@ class PyNvVideoEncoder:
                 )
                 with frame_ctx:
                     yuv420 = self._bgr_to_yuv420(frame)
+                    # Synchronize the stream before sending it to NVENC.
+                    # current_stream.synchronize()
+
                     # yuv420 is a 2D CUDA tensor with shape [H*3/2, W], uint8.
                     bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
                     self._frames_in_current_bitstream += 1
                     if bitstream:
-                        if self._use_pyav:
-                            self._mux_packet_pyav(bitstream)
-                            self._frames_in_current_bitstream = 0
-                        elif self._backend == "raw":
+                        if self._backend in {"pyav", "raw"}:
                             if self._bitstream_file is None:
                                 raise RuntimeError(
-                                    "Raw bitstream backend is selected but bitstream file is not open."
+                                    "Bitstream backend is selected but bitstream file is not open."
                                 )
                             self._bitstream_file.write(bytearray(bitstream))
                         else:
@@ -239,27 +275,25 @@ class PyNvVideoEncoder:
             # Flush encoder
             bitstream = self._encoder.EndEncode()  # type: ignore[union-attr]
             if bitstream:
-                if self._use_pyav:
-                    self._mux_packet_pyav(bitstream)
-                elif self._backend == "raw":
+                if self._backend in {"pyav", "raw"}:
                     if self._bitstream_file is None:
                         raise RuntimeError(
-                            "Raw bitstream backend is selected but bitstream file is not open."
+                            "Bitstream backend is selected but bitstream file is not open."
                         )
                     self._bitstream_file.write(bytearray(bitstream))
                 elif self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
                     self._ffmpeg_proc.stdin.write(bytearray(bitstream))
 
-        if self._use_pyav:
-            if self._av_container is not None:
-                self._av_container.close()
-        elif self._backend == "raw":
-            if self._bitstream_file is not None:
+        if self._backend in {"pyav", "raw"}:
+            if self._bitstream_path is not None:
+                if self._backend == "pyav":
+                    self._mux_bitstream_file_with_pyav(self._bitstream_path)
+                elif self._backend == "raw":
+                    self._mux_bitstream_file_with_ffmpeg(self._bitstream_path)
                 self._bitstream_file.close()
                 self._bitstream_file = None
-            if self._bitstream_path is not None:
-                self._mux_bitstream_file_with_ffmpeg(self._bitstream_path)
         else:
+            assert self._bitstream_file is None
             if self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
                 # Close ffmpeg stdin and wait for it to finish writing the container
                 self._ffmpeg_proc.stdin.close()
@@ -289,6 +323,13 @@ class PyNvVideoEncoder:
             "fps": str(self.fps),
             "gpu_id": str(self.gpu_id),
         }
+
+        # For the raw elementary bitstream backend, request a finite GOP
+        # length so NVENC inserts regular IDR keyframes. A 2-second GOP
+        # (e.g., 60 at 30 fps) is a common high-quality setting.
+        if self._backend == "raw" and self.fps > 0:
+            gop = max(1, int(round(self.fps * 2.0)))
+            config["gop"] = str(gop)
 
         if self.cuda_context is not None:
             config["cudacontext"] = int(self.cuda_context)
@@ -327,6 +368,20 @@ class PyNvVideoEncoder:
             return ".ivf"
         raise ValueError(f"Unsupported codec for bitstream extension: {self.codec}")
 
+    def _container_format(self) -> Optional[str]:
+        """Return an ffmpeg muxer name based on the output file extension."""
+        suffix = self.output_path.suffix.lower()
+        if not suffix:
+            return None
+        mapping = {
+            ".mp4": "mp4",
+            ".m4v": "mp4",
+            ".mov": "mov",
+            ".mkv": "matroska",
+            ".webm": "webm",
+        }
+        return mapping.get(suffix)
+
     def _open_bitstream_file(self) -> None:
         """
         Open the raw elementary bitstream sidecar file for writing.
@@ -345,6 +400,8 @@ class PyNvVideoEncoder:
         bitstream_path.parent.mkdir(parents=True, exist_ok=True)
         self._bitstream_path = bitstream_path
         self._bitstream_file = open(bitstream_path, "wb")
+        if self._bitstream_file is None:
+            raise RuntimeError(f"Failed to open bitstream file for writing: {bitstream_path}")
 
     def _mux_bitstream_file_with_ffmpeg(self, bitstream_path: Path) -> None:
         """
@@ -361,47 +418,171 @@ class PyNvVideoEncoder:
             )
 
         stream_format = self._bitstream_format()
+        expected_duration = None
+        try:
+            if self.fps > 0 and self._frames_in_current_bitstream > 0:
+                expected_duration = float(self._frames_in_current_bitstream) / float(self.fps)
+        except Exception:
+            expected_duration = None
+        muxer = self._container_format()
 
         cmd = [
             ffmpeg,
             "-y",
+            "-hide_banner",
             "-loglevel",
-            "error",
+            "warning",
+            "-progress",
+            "pipe:2",
+            "-nostats",
             "-fflags",
             "+genpts",
             "-r",
             str(self.fps),
-            "-f",
-            stream_format,
+            # "-f",
+            # stream_format,
             "-i",
             str(bitstream_path),
             "-c:v",
             "copy",
             "-vsync",
             "cfr",
-            "-f",
-            "mp4",
-            str(self.output_path),
         ]
+        if muxer:
+            cmd += ["-f", muxer]
+        cmd.append(str(self.output_path))
 
+        output_handler = build_ffmpeg_output_handler(
+            self._ffmpeg_output_handler,
+            total_seconds=expected_duration,
+            label="ffmpeg mux",
+        )
+        stdout_lines = deque(maxlen=200)
+        stderr_lines = deque(maxlen=200)
+
+        def _reader(stream, stream_name: str, sink: deque) -> None:
+            try:
+                for line in iter_ffmpeg_output_lines(stream):
+                    sink.append(line)
+                    output_handler.handle_line(line, stream_name)
+            except Exception:
+                pass
+            finally:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+        proc = None
+        returncode: Optional[int] = None
         try:
-            proc = subprocess.run(
+            print("Muxing the raw bitstream with ffmpeg, this may take a moment...")
+            proc = subprocess.Popen(
                 cmd,
-                check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
             )
-        except subprocess.CalledProcessError as exc:
-            stderr_output = exc.stderr.decode("utf-8", errors="ignore") if exc.stderr else ""
-            raise RuntimeError(
-                "ffmpeg muxer failed while writing NVENC bitstream container. "
-                "Check codec/format settings, input bitstream, and disk space. "
-                f"(returncode={exc.returncode}, stderr={stderr_output!r})"
-            ) from exc
+            threads = []
+            if proc.stdout is not None:
+                t_out = threading.Thread(
+                    target=_reader,
+                    args=(proc.stdout, "stdout", stdout_lines),
+                    daemon=True,
+                )
+                t_out.start()
+                threads.append(t_out)
+            if proc.stderr is not None:
+                t_err = threading.Thread(
+                    target=_reader,
+                    args=(proc.stderr, "stderr", stderr_lines),
+                    daemon=True,
+                )
+                t_err.start()
+                threads.append(t_err)
+            returncode = proc.wait()
+            for thread in threads:
+                thread.join()
+            if returncode != 0:
+                stderr_output = "\n".join(stderr_lines)
+                stdout_output = "\n".join(stdout_lines)
+                raise RuntimeError(
+                    "ffmpeg muxer failed while writing NVENC bitstream container. "
+                    "Check codec/format settings, input bitstream, and disk space. "
+                    f"(returncode={returncode}, stderr={stderr_output!r}, stdout={stdout_output!r})"
+                )
         finally:
-            # Ensure any child process resources are reaped even on success.
-            if "proc" in locals() and isinstance(proc, subprocess.CompletedProcess):
-                pass
+            output_handler.close(returncode)
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=1.0)
+                except Exception:
+                    pass
+
+    def _mux_bitstream_file_with_pyav(self, bitstream_path: Path) -> None:
+        """
+        Remux the raw elementary bitstream into a container using PyAV.
+
+        This avoids depending on an external ffmpeg binary while still using
+        FFmpeg's demuxer/muxer logic via libavformat.
+        """
+        from fractions import Fraction
+
+        import av
+
+        stream_format = self._bitstream_format()
+        input_options = {"framerate": str(self.fps)}
+
+        try:
+            input_container = av.open(
+                str(bitstream_path),
+                mode="r",
+                format=stream_format,
+                options=input_options,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"PyAV failed to open bitstream file for remuxing: {bitstream_path}"
+            ) from exc
+
+        try:
+            if not input_container.streams.video:
+                raise RuntimeError(f"No video stream found while remuxing {bitstream_path}")
+            input_stream = input_container.streams.video[0]
+
+            output_container = av.open(str(self.output_path), mode="w")
+            try:
+                fps = Fraction(int(round(self.fps * 1001)), 1001)
+                codec_name = input_stream.codec_context.name
+                output_stream = output_container.add_stream(codec_name, rate=fps)
+                output_stream.width = self.width
+                output_stream.height = self.height
+                output_stream.pix_fmt = "yuv420p"
+                output_stream.time_base = Fraction(1, 90000)
+                if input_stream.codec_context.extradata:
+                    output_stream.codec_context.extradata = input_stream.codec_context.extradata
+
+                output_container.start_encoding()
+                tb = output_stream.time_base
+                ticks_per_frame = int(round((Fraction(1, 1) / fps) / tb))
+                ticks_per_frame = max(ticks_per_frame, 1)
+                next_pts = 0
+                for packet in input_container.demux(input_stream):
+                    if packet is None or packet.size == 0:
+                        continue
+                    packet.stream = output_stream
+                    packet.time_base = tb
+                    packet.pts = next_pts
+                    packet.dts = next_pts
+                    packet.duration = ticks_per_frame
+                    next_pts += ticks_per_frame
+                    output_container.mux(packet)
+            finally:
+                output_container.close()
+        finally:
+            input_container.close()
 
     def _spawn_ffmpeg(self) -> subprocess.Popen[bytes]:
         """
@@ -544,7 +725,8 @@ class PyNvVideoEncoder:
             max_val = frames.max()
             if float(max_val) <= 1.0:
                 frames = frames * 255.0
-            frames = frames.clamp(0, 255).to(torch.uint8)
+            frames.clamp_(0, 255)
+            frames = frames.to(torch.uint8)
         elif frames.dtype != torch.uint8:
             frames = frames.to(torch.uint8)
 
@@ -568,18 +750,22 @@ class PyNvVideoEncoder:
 
         if frame.device != self.device:
             frame = frame.to(self.device, non_blocking=True)
-        if frame.dtype != torch.uint8:
-            frame = frame.clamp(0, 255).to(torch.uint8)
 
-        frame = frame.contiguous()
+        if frame.dtype != torch.uint8:
+            frame.clamp_(0, 255)
+            frame = frame.to(torch.uint8)
+
+        with self._bgr_contiguous_1:
+            frame = frame.contiguous()
 
         # Delegate BGR -> I420 conversion to jetson-utils via hockeymom binding.
-        yuv420 = bgr_to_i420_cuda(frame)
+        with self._bgr_to_i420_cuda:
+            yuv420 = bgr_to_i420_cuda(frame)
 
         if yuv420.dim() != 2 or yuv420.size(0) != h * 3 // 2 or yuv420.size(1) != w:
             raise RuntimeError(
                 "bgr_to_i420_cuda returned unexpected shape "
                 f"{tuple(yuv420.shape)} for input {h}x{w}"
             )
-
-        return _DLPackFrame(yuv420.contiguous())
+        with self._bgr_contiguous_2:
+            return _DLPackFrame(yuv420.contiguous())

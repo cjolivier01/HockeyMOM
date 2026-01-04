@@ -118,13 +118,23 @@ class SidebandQueue:
         self._warn_after_default = warn_after
         self._repeat_warn_default = repeat_warn
         self._max_size = max_size
+        self._closed = False
 
-    def put(self, obj: Any):
-        warn_after = self._warn_after_default
-        repeat_warn = self._repeat_warn_default
+    def put(
+        self,
+        obj: Any,
+        block: bool = True,
+        timeout: Optional[float] = None,
+        warn_after: Optional[float] = None,
+        repeat_warn: Optional[bool] = None,
+    ):
+        warn_after = self._warn_after_default if warn_after is None else warn_after
+        repeat_warn = self._repeat_warn_default if repeat_warn is None else repeat_warn
 
         if self._max_size == -1:
             with self._lock:
+                if self._closed:
+                    raise ValueError("SidebandQueue is closed")
                 ctr = self._counter
                 self._counter += 1
                 assert ctr not in self._map
@@ -132,12 +142,27 @@ class SidebandQueue:
             self._q.put(ctr)
             return
 
-        start: Optional[float] = None
+        if not block:
+            with self._not_full:
+                if self._closed:
+                    raise ValueError("SidebandQueue is closed")
+                if len(self._map) >= self._max_size:
+                    raise queue.Full
+                ctr = self._counter
+                self._counter += 1
+                assert ctr not in self._map
+                self._map[ctr] = obj
+            self._q.put(ctr)
+            return
+
+        start: Optional[float] = time.time() if timeout is not None else None
         warned = False
         ctr: Optional[int] = None
 
         while ctr is None:
             with self._not_full:
+                if self._closed:
+                    raise ValueError("SidebandQueue is closed")
                 if len(self._map) < self._max_size:
                     ctr = self._counter
                     self._counter += 1
@@ -145,16 +170,23 @@ class SidebandQueue:
                     self._map[ctr] = obj
                     break
 
-                if warn_after is None:
-                    if start is None:
-                        start = time.time()
-                    self._not_full.wait()
-                    continue
+                if timeout is not None:
+                    elapsed = time.time() - start if start is not None else 0.0
+                    remaining = timeout - elapsed
+                    if remaining <= 0:
+                        raise queue.Full
+                    wait_for = remaining if warn_after is None else min(remaining, warn_after)
+                    notified = self._not_full.wait(timeout=wait_for)
+                else:
+                    if warn_after is None:
+                        self._not_full.wait()
+                        notified = True
+                    else:
+                        if start is None:
+                            start = time.time()
+                        notified = self._not_full.wait(timeout=warn_after)
 
-                if start is None:
-                    start = time.time()
-                notified = self._not_full.wait(timeout=warn_after)
-                if (not notified) and ((not warned) or repeat_warn):
+                if warn_after is not None and (not notified) and ((not warned) or repeat_warn):
                     print(
                         f"Warning: SidebandQueue '{self._name}' waiting >= {warn_after:.2f}s for free slot",
                         file=sys.stderr,
@@ -240,10 +272,11 @@ class SidebandQueue:
                             f"SidebandQueue '{self._name}' resumed after waiting {total_wait:.2f}s",
                             file=sys.stderr,
                         )
+                        warned = False
                     return val
                 except queue.Empty:
                     # segment timed out without getting an item
-                    if (not warned) or repeat_warn:
+                    if ((not warned) or repeat_warn) and seg_timeout >= warn_after:
                         print(
                             f"Warning: SidebandQueue '{self._name}' waiting >= {seg_timeout:.2f}s for item",
                             file=sys.stderr,
@@ -256,6 +289,11 @@ class SidebandQueue:
 
     def qsize(self):
         return len(self._map)
+
+    def close(self) -> None:
+        with self._not_full:
+            self._closed = True
+            self._not_full.notify_all()
 
 
 class IterableQueue:

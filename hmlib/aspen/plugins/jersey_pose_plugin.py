@@ -16,6 +16,7 @@ from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.ui import show_image  # noqa: F401 (for debugging
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
+from hmlib.tracking_utils.utils import get_track_mask
 
 
 def _to_tensor(x: Any) -> torch.Tensor:
@@ -169,6 +170,9 @@ class JerseyNumberFromPosePlugin(Plugin):
             bboxes_xyxy = pred_tracks.bboxes
             if not isinstance(bboxes_xyxy, torch.Tensor):
                 bboxes_xyxy = torch.as_tensor(bboxes_xyxy)
+            track_mask = get_track_mask(pred_tracks)
+            if isinstance(track_mask, torch.Tensor):
+                bboxes_xyxy = bboxes_xyxy[track_mask]
             if bboxes_xyxy.numel() == 0:
                 all_jersey_results.append([])
                 continue
@@ -193,6 +197,8 @@ class JerseyNumberFromPosePlugin(Plugin):
             jersey_results: List[TrackJerseyInfo] = []
             seen_ids = set()
             tracking_ids = pred_tracks.instances_id
+            if isinstance(track_mask, torch.Tensor):
+                tracking_ids = tracking_ids[track_mask]
             for text, x, y, w, score in text_and_centers:
                 bbox_idx = int(get_original_bbox_index_from_tiled_image(index_map, y=y, x=x))
                 if bbox_idx < 0 or bbox_idx >= len(tracking_ids):

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>HM WebApp</title>
+  <title>HockeyMOM</title>
   <link rel="stylesheet" href="/static/styles.css" />
   {% block head %}{% endblock %}
 </head>
@@ -12,9 +12,10 @@
     <div class="nav-wrap">
       <a class="brand" href="/">
         <span class="brand-badge"></span>
-        <span class="brand-title">HM</span>
+        <span class="brand-title">HockeyMOM</span>
       </a>
       <nav class="nav-links">
+        <a href="/public/leagues">Public Leagues</a>
         {% if session.get('user_id') %}
           <a href="/games">Jobs: Upload</a>
           <a href="/teams">Teams</a>
@@ -49,5 +50,149 @@
     {% endfor %}
     {% block content %}{% endblock %}
   </div>
+  <script>
+    (function() {
+      function parseTimeToSeconds(s) {
+        s = (s || "").trim();
+        if (!s) return null;
+        var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+        if (!m) return null;
+        var a = parseInt(m[1], 10);
+        var b = parseInt(m[2], 10);
+        var c = m[3] ? parseInt(m[3], 10) : null;
+        if (c === null) return a * 60 + b; // mm:ss
+        return a * 3600 + b * 60 + c; // h:mm:ss
+      }
+
+      function inferType(values) {
+        var seen = 0;
+        var allNum = true;
+        var allTime = true;
+        var allDate = true;
+        for (var i = 0; i < values.length; i++) {
+          var v = (values[i] || "").trim();
+          if (!v) continue;
+          seen++;
+
+          var t = parseTimeToSeconds(v);
+          if (t === null) allTime = false;
+
+          var n = Number(v.replace(/[, ]+/g, ""));
+          if (!isFinite(n) || v.match(/[a-zA-Z]/)) allNum = false;
+
+          var d = Date.parse(v);
+          if (!isFinite(d)) allDate = false;
+
+          if (seen >= 25) break;
+        }
+        if (seen === 0) return "text";
+        if (allTime) return "time";
+        if (allNum) return "num";
+        if (allDate) return "date";
+        return "text";
+      }
+
+      function getCellText(cell) {
+        if (!cell) return "";
+        return (cell.innerText || cell.textContent || "").trim();
+      }
+
+      function setupTable(table) {
+        if (!table) return;
+        var thead = table.tHead;
+        var tbody = table.tBodies && table.tBodies[0];
+        if (!thead || !tbody) return;
+        var headers = thead.rows[0] ? Array.from(thead.rows[0].cells) : [];
+        if (!headers.length) return;
+
+        headers.forEach(function(th, colIdx) {
+          th.addEventListener("click", function() {
+            var rows = Array.from(tbody.rows);
+            if (!rows.length) return;
+
+            headers.forEach(function(h) { h.classList.remove("sorted-asc", "sorted-desc"); });
+            var asc = !(th.dataset.sortDir === "asc");
+            th.dataset.sortDir = asc ? "asc" : "desc";
+            th.classList.add(asc ? "sorted-asc" : "sorted-desc");
+
+            var sample = rows.map(function(r) { return getCellText(r.cells[colIdx]); });
+            var type = inferType(sample);
+
+            var mapped = rows.map(function(r, idx) {
+              var txt = getCellText(r.cells[colIdx]);
+              var key = txt;
+              if (type === "time") {
+                var t = parseTimeToSeconds(txt);
+                key = (t === null ? Number.POSITIVE_INFINITY : t);
+              } else if (type === "num") {
+                var n = Number(txt.replace(/[, ]+/g, ""));
+                key = isFinite(n) ? n : Number.POSITIVE_INFINITY;
+              } else if (type === "date") {
+                var d = Date.parse(txt);
+                key = isFinite(d) ? d : Number.POSITIVE_INFINITY;
+              } else {
+                key = txt.toLowerCase();
+              }
+              return { row: r, idx: idx, key: key, txt: txt };
+            });
+
+            mapped.sort(function(a, b) {
+              if (a.key < b.key) return asc ? -1 : 1;
+              if (a.key > b.key) return asc ? 1 : -1;
+              return a.idx - b.idx;
+            });
+
+            mapped.forEach(function(m) { tbody.appendChild(m.row); });
+          });
+        });
+      }
+
+      function setupFrozenColumns(table) {
+        if (!table) return;
+        var n = parseInt(table.getAttribute("data-freeze-cols") || "0", 10);
+        if (!n || n <= 0) return;
+        var rows = [];
+        if (table.tHead && table.tHead.rows) rows = rows.concat(Array.from(table.tHead.rows));
+        if (table.tBodies) rows = rows.concat(Array.from(table.tBodies).flatMap(function(tb){ return Array.from(tb.rows); }));
+        if (!rows.length) return;
+
+        // Measure widths from header row (fallback to first body row).
+        var refRow = (table.tHead && table.tHead.rows && table.tHead.rows[0]) ? table.tHead.rows[0] : (table.tBodies[0] && table.tBodies[0].rows[0]);
+        if (!refRow) return;
+        var refCells = Array.from(refRow.cells);
+        var widths = [];
+        for (var i = 0; i < Math.min(n, refCells.length); i++) {
+          widths.push(refCells[i].getBoundingClientRect().width);
+        }
+        // Compute left offsets.
+        var lefts = [];
+        var acc = 0;
+        for (var j = 0; j < widths.length; j++) {
+          lefts.push(acc);
+          acc += widths[j];
+        }
+
+        rows.forEach(function(r) {
+          var cells = Array.from(r.cells);
+          for (var c = 0; c < Math.min(n, cells.length); c++) {
+            cells[c].classList.add("sticky-col");
+            cells[c].style.left = lefts[c] + "px";
+            // Ensure sticky cells are above non-sticky cells.
+            cells[c].style.zIndex = (r.parentElement && r.parentElement.tagName === "THEAD") ? (10 + (n - c)) : (5 + (n - c));
+          }
+        });
+      }
+
+      function init() {
+        document.querySelectorAll("table[data-sortable='1']").forEach(function(t) { setupTable(t); });
+        document.querySelectorAll("table[data-freeze-cols]").forEach(function(t) { setupFrozenColumns(t); });
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
+  </script>
 </body>
 </html>

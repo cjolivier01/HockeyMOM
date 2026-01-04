@@ -12,6 +12,7 @@ from hmlib.tracking_utils.action_dataframe import ActionDataFrame
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
+from hmlib.tracking_utils.utils import get_track_mask
 
 from .base import Plugin
 
@@ -25,6 +26,29 @@ def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
     if isinstance(shared, dict):
         return shared.get(key)
     return None
+
+
+def _apply_track_mask(inst, tids, tlbr, scores, labels):
+    mask = get_track_mask(inst)
+    if isinstance(mask, torch.Tensor):
+        mask_np = mask.detach().cpu().numpy()
+        if isinstance(tids, torch.Tensor):
+            tids = tids[mask]
+        else:
+            tids = np.asarray(tids)[mask_np]
+        if isinstance(tlbr, torch.Tensor):
+            tlbr = tlbr[mask]
+        else:
+            tlbr = np.asarray(tlbr)[mask_np]
+        if isinstance(scores, torch.Tensor):
+            scores = scores[mask]
+        else:
+            scores = np.asarray(scores)[mask_np]
+        if isinstance(labels, torch.Tensor):
+            labels = labels[mask]
+        else:
+            labels = np.asarray(labels)[mask_np]
+    return tids, tlbr, scores, labels
 
 
 class SavePluginBase(Plugin):
@@ -104,7 +128,6 @@ class SaveDetectionsPlugin(SavePluginBase):
                         scores=np.empty((0,), dtype=np.float32),
                         labels=np.empty((0,), dtype=np.int64),
                         bboxes=np.empty((0, 4), dtype=np.float32),
-                        pose_indices=np.empty((0,), dtype=np.int64),
                     )
                 continue
             # Determine frame id
@@ -119,14 +142,12 @@ class SaveDetectionsPlugin(SavePluginBase):
 
             try:
                 df.add_frame_sample(frame_id=int(fid), data_sample=img_data_sample)
-            except Exception:
-                pose_indices = getattr(inst, "source_pose_index", None)
+            except Exception as ex:
                 df.add_frame_records(
                     frame_id=int(fid),
                     scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
                     labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
                     bboxes=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
-                    pose_indices=pose_indices,
                 )
 
         return {"detection_dataframe": df}
@@ -157,14 +178,11 @@ class SaveTrackingPlugin(SavePluginBase):
     def __init__(
         self,
         enabled: bool = True,
-        pose_iou_thresh: float = 0.3,
         work_dir_key: str = "work_dir",
         output_filename: str = "tracking.csv",
         write_interval: int = 100,
     ):
         super().__init__(enabled=enabled)
-        # Default fallback IoU threshold if we must infer mapping
-        self._pose_iou_thresh = float(pose_iou_thresh)
         self._work_dir_key = work_dir_key
         self._output_filename = output_filename
         self._write_interval = write_interval
@@ -197,7 +215,6 @@ class SaveTrackingPlugin(SavePluginBase):
         jersey_results_all = data.get("jersey_results") or context.get("jersey_results")
         action_results_all = data.get("action_results") or context.get("action_results")
         frame_id0: int = int(context.get("frame_id", -1))
-        pose_results_all = data.get("pose_results")  # mirrored by PoseToDetPlugin
 
         track_samples = data.get("data_samples")
         if track_samples is None:
@@ -210,57 +227,6 @@ class SaveTrackingPlugin(SavePluginBase):
 
         video_len = len(track_data_sample)
 
-        def _extract_pose_bboxes(pose_item: Any):
-            # Borrow the logic from PoseToDetPlugin for deriving bboxes
-            try:
-                preds = pose_item.get("predictions")
-            except Exception:
-                preds = None
-            if not isinstance(preds, list) or not preds:
-                return torch.empty((0, 4), dtype=torch.float32)
-            ds = preds[0]
-            inst = getattr(ds, "pred_instances", None)
-
-            # Helper to ensure (N,4) xyxy
-            def _to_bboxes_2d(x):
-                if not isinstance(x, torch.Tensor):
-                    x = torch.as_tensor(x)
-                if x.ndim == 1:
-                    if x.numel() == 0:
-                        return x.reshape(0, 4)
-                    x = x.unsqueeze(0)
-                if x.size(-1) > 4:
-                    x = x[..., :4]
-                return x.to(dtype=torch.float32)
-
-            # Prefer explicit bboxes
-            if inst is not None and hasattr(inst, "bboxes"):
-                try:
-                    return _to_bboxes_2d(inst.bboxes)
-                except Exception:
-                    pass
-            # Fallback: compute from keypoints
-            kpts = None
-            if inst is not None and hasattr(inst, "keypoints"):
-                kpts = inst.keypoints
-            elif isinstance(ds, dict) and "keypoints" in ds:
-                kpts = ds["keypoints"]
-            if isinstance(kpts, torch.Tensor) and kpts.ndim >= 3 and kpts.shape[-1] >= 2:
-                x = kpts[..., 0]
-                y = kpts[..., 1]
-                x1 = torch.min(x, dim=1).values
-                y1 = torch.min(y, dim=1).values
-                x2 = torch.max(x, dim=1).values
-                y2 = torch.max(y, dim=1).values
-                return torch.stack([x1, y1, x2, y2], dim=1).to(dtype=torch.float32)
-            return torch.empty((0, 4), dtype=torch.float32)
-
-        # IoU util expects xyxy if flag set
-        try:
-            from hmlib.tracking_utils.utils import bbox_iou as _bbox_iou
-        except Exception:
-            from hmlib.utils.utils import bbox_iou as _bbox_iou
-
         for i in range(video_len):
             img_data_sample = track_data_sample[i]
             inst = getattr(img_data_sample, "pred_track_instances", None)
@@ -271,7 +237,6 @@ class SaveTrackingPlugin(SavePluginBase):
                         frame_id=frame_id0 + i,
                         data_sample=img_data_sample,
                         jersey_info=None,
-                        pose_indices=None,
                         action_info=None,
                     )
                 except Exception:
@@ -282,7 +247,6 @@ class SaveTrackingPlugin(SavePluginBase):
                         scores=np.empty((0,), dtype=np.float32),
                         labels=np.empty((0,), dtype=np.int64),
                         jersey_info=None,
-                        pose_indices=np.empty((0,), dtype=np.int64),
                     )
                 continue
             jersey_results = (
@@ -296,53 +260,26 @@ class SaveTrackingPlugin(SavePluginBase):
                 else None
             )
 
-            # Prefer direct propagation if tracker attached source indices
-            pose_indices = getattr(inst, "source_pose_index", None)
-            if pose_indices is None:
-                # Fallback: infer by IoU if pose results exist in context
-                try:
-                    if isinstance(pose_results_all, list) and i < len(pose_results_all):
-                        track_bboxes = getattr(inst, "bboxes", None)
-                        if track_bboxes is not None:
-                            tb = track_bboxes
-                            if not isinstance(tb, torch.Tensor):
-                                tb = torch.as_tensor(tb)
-                            if tb.ndim == 1:
-                                if tb.numel() == 0:
-                                    tb = tb.reshape(0, 4)
-                                else:
-                                    tb = tb.unsqueeze(0)
-                            tb = tb.to(dtype=torch.float32)
-                            pb = _extract_pose_bboxes(pose_results_all[i])
-                            if pb is not None and len(pb) and len(tb):
-                                iou = _bbox_iou(tb, pb, x1y1x2y2=True)  # (Nt, Np)
-                                best_iou, best_idx = torch.max(iou, dim=1)
-                                pose_indices = torch.where(
-                                    best_iou >= self._pose_iou_thresh,
-                                    best_idx.to(dtype=torch.int64),
-                                    torch.full_like(best_idx, fill_value=-1, dtype=torch.int64),
-                                )
-                            else:
-                                pose_indices = torch.full((len(tb),), -1, dtype=torch.int64)
-                except Exception:
-                    pose_indices = None
             try:
                 df.add_frame_sample(
                     frame_id=frame_id0 + i,
                     data_sample=img_data_sample,
                     jersey_info=jersey_results,
-                    pose_indices=pose_indices,
                     action_info=action_results,
                 )
             except Exception:
+                tids = getattr(inst, "instances_id", np.empty((0,), dtype=np.int64))
+                tlbr = getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32))
+                scores = getattr(inst, "scores", np.empty((0,), dtype=np.float32))
+                labels = getattr(inst, "labels", np.empty((0,), dtype=np.int64))
+                tids, tlbr, scores, labels = _apply_track_mask(inst, tids, tlbr, scores, labels)
                 df.add_frame_records(
                     frame_id=frame_id0 + i,
-                    tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
-                    tlbr=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
-                    scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
-                    labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
+                    tracking_ids=tids,
+                    tlbr=tlbr,
+                    scores=scores,
+                    labels=labels,
                     jersey_info=jersey_results,
-                    pose_indices=pose_indices,
                     action_info=action_results,
                 )
         return {"tracking_dataframe": df}
@@ -550,14 +487,18 @@ class SaveActionsPlugin(SavePluginBase):
             actions = action_results_all[i] if i < len(action_results_all) else None
             # Update tracking with action columns if tracking df present
             if df is not None:
+                tids = getattr(inst, "instances_id", np.empty((0,), dtype=np.int64))
+                tlbr = getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32))
+                scores = getattr(inst, "scores", np.empty((0,), dtype=np.float32))
+                labels = getattr(inst, "labels", np.empty((0,), dtype=np.int64))
+                tids, tlbr, scores, labels = _apply_track_mask(inst, tids, tlbr, scores, labels)
                 df.add_frame_records(
                     frame_id=frame_id0 + i,
-                    tracking_ids=getattr(inst, "instances_id", np.empty((0,), dtype=np.int64)),
-                    tlbr=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
-                    scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
-                    labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
+                    tracking_ids=tids,
+                    tlbr=tlbr,
+                    scores=scores,
+                    labels=labels,
                     jersey_info=None,
-                    pose_indices=getattr(inst, "source_pose_index", None),
                     action_info=actions,
                 )
             # Optionally write dedicated action dataframe

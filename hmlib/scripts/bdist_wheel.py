@@ -3,6 +3,11 @@ import argparse
 import glob
 import os
 import shutil
+import logging
+
+logger = logging.getLogger(__name__)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
 
 def find_wheel(name: str):
@@ -33,7 +38,7 @@ def find_wheel(name: str):
 def main(name: str):
     wheel_path = find_wheel(name=name)
     if not wheel_path:
-        print("Error: Could not find wheel file")
+        logger.error("Error: Could not find wheel file")
         return 1
 
     # Get workspace root
@@ -49,7 +54,7 @@ def main(name: str):
     shutil.copy2(wheel_path, dest_path)
     os.chmod(dest_path, 0o644)
     # Remove execute flag
-    print(f"Installed {wheel_name} to {dist_dir}/")
+    logger.info("Installed %s to %s/", wheel_name, dist_dir)
     return 0
 
 

@@ -1,16 +1,81 @@
 {% extends 'layout.html' %}
 {% block content %}
-<h2>Edit Game</h2>
+{% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
+{% set can_edit_game = can_edit|default(false) %}
+{% set edit_mode = edit_mode|default(false) %}
+{% set back_href = back_url if back_url is defined else (base ~ '/schedule') %}
+{% set return_to_q = ('&return_to=' ~ (return_to|urlencode)) if (return_to is defined and return_to) else '' %}
+{% set return_to_first_q = ('?return_to=' ~ (return_to|urlencode)) if (return_to is defined and return_to) else '' %}
+
+<h2>Game Summary</h2>
+
 <div class="card">
-  <form method="post">
-    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-      <div>
-        <h3 style="margin-top:0">{{ game['team1_name'] }}</h3>
+  <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <img src="{{ base }}/media/team_logo/{{ game['team1_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
+        <strong>{{ game['team1_name'] }}</strong>
+        <span class="muted">vs</span>
+        <img src="{{ base }}/media/team_logo/{{ game['team2_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
+        <strong>{{ game['team2_name'] }}</strong>
       </div>
-      <div>
-        <h3 style="margin-top:0">{{ game['team2_name'] }}</h3>
+      <div class="muted" style="margin-top:.5rem;">
+        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_date }}</span>
+        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_time }}</span>
+        {% if game.get('location') %}<span> | {{ game['location'] }}</span>{% endif %}
+      </div>
+      <div style="margin-top:.5rem;font-size:1.1rem;">
+        {% if game.get('team1_score') is not none and game.get('team2_score') is not none %}
+          <strong>{{ game['team1_score'] }} - {{ game['team2_score'] }}</strong>
+        {% else %}
+          <span class="muted">Score: —</span>
+        {% endif %}
+        {% if game.get('is_final') %}<span class="muted"> (Final)</span>{% endif %}
       </div>
     </div>
+    <div style="display:flex;align-items:center;gap:.5rem;">
+      {% if public_league_id is not defined %}
+        {% if can_edit_game and not edit_mode %}
+          <a class="btn primary" href="/hky/games/{{ game['id'] }}?edit=1{{ return_to_q }}">Edit</a>
+        {% endif %}
+        {% if edit_mode %}
+          <a class="btn" href="/hky/games/{{ game['id'] }}{{ return_to_first_q }}">Cancel</a>
+        {% endif %}
+      {% endif %}
+      <a class="btn" href="{{ back_href }}">Back</a>
+    </div>
+  </div>
+</div>
+
+{% if game_stats %}
+  <div class="card" style="margin-top:1rem;">
+    <h3 style="margin-top:0">Imported Game Stats</h3>
+    <p class="muted" style="margin-top:0">
+      Source: {{ game_stats.get('_label','') }}
+      {% if game_stats_updated_at %} | Updated: {{ game_stats_updated_at }}{% endif %}
+    </p>
+    <div class="table-scroll">
+      <table class="table-grid table-sortable" data-sortable="1">
+        <thead><tr><th>Stat</th><th>Value</th></tr></thead>
+        <tbody>
+          {% for k, v in game_stats.items() %}
+            {% if k != '_label' %}
+              <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+
+<div class="card">
+  {% if edit_mode and public_league_id is not defined %}
+    <form method="post" action="/hky/games/{{ game['id'] }}?edit=1{{ return_to_q }}">
+  {% endif %}
+
+  {% if edit_mode and public_league_id is not defined %}
+    <h3 style="margin-top:0">Game Details</h3>
     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
       <div class="form-row">
         <label class="muted">Team 1 Score</label>
@@ -34,64 +99,177 @@
     <div class="form-row">
       <label><input type="checkbox" name="is_final" {% if game['is_final'] %}checked{% endif %}> Final</label>
     </div>
+  {% endif %}
 
-    <h3>Player Stats</h3>
-    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+  <h3>Rosters</h3>
+  <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+    {% for team_key, players in [('team1', team1_roster), ('team2', team2_roster)] %}
+      {% set is_team1 = (team_key == 'team1') %}
+      {% set team_name = game['team1_name'] if is_team1 else game['team2_name'] %}
+      {% set team_id = game['team1_id'] if is_team1 else game['team2_id'] %}
       <div>
-        <h4>{{ game['team1_name'] }}</h4>
-        <table>
-          <thead>
-            <tr><th>#</th><th>Name</th><th>G</th><th>A</th><th>S</th><th>PIM</th><th>+/-</th></tr>
-          </thead>
-          <tbody>
-            {% for p in team1_players %}
-              {% set s = stats_by_pid.get(p['id'], {}) %}
-              <tr>
-                <td>{{ p['jersey_number'] or '' }}</td>
-                <td>{{ p['name'] }}</td>
-                <td><input type="number" name="ps_goals_{{ p['id'] }}" value="{{ s.get('goals','') }}" min="0" style="width:80px"></td>
-                <td><input type="number" name="ps_assists_{{ p['id'] }}" value="{{ s.get('assists','') }}" min="0" style="width:80px"></td>
-                <td><input type="number" name="ps_shots_{{ p['id'] }}" value="{{ s.get('shots','') }}" min="0" style="width:80px"></td>
-                <td><input type="number" name="ps_pim_{{ p['id'] }}" value="{{ s.get('pim','') }}" min="0" style="width:80px"></td>
-                <td><input type="number" name="ps_plusminus_{{ p['id'] }}" value="{{ s.get('plus_minus','') }}" style="width:80px"></td>
-              </tr>
-            {% else %}
-              <tr><td colspan="7" class="muted">No players</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <h4 style="display:flex;align-items:center;gap:8px;">
+          <img src="{{ base }}/media/team_logo/{{ team_id }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+          <span>{{ team_name }}</span>
+        </h4>
+        <div class="table-scroll">
+          <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+            <thead><tr><th>#</th><th>Name</th><th>Pos</th></tr></thead>
+            <tbody>
+              {% for p in players %}
+                <tr>
+                  <td>{{ p['jersey_number'] or '' }}</td>
+                  <td>{{ p['name'] }}</td>
+                  <td>{{ p.get('position') or '' }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="3" class="muted">No players</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
-      <div>
-        <h4>{{ game['team2_name'] }}</h4>
-        <table>
-          <thead>
-            <tr><th>#</th><th>Name</th><th>G</th><th>A</th><th>S</th><th>PIM</th><th>+/-</th></tr>
-          </thead>
-          <tbody>
-            {% for p in team2_players %}
-              {% set s = stats_by_pid.get(p['id'], {}) %}
-              <tr>
-                <td>{{ p['jersey_number'] or '' }}</td>
-                <td>{{ p['name'] }}</td>
-                <td><input type="number" name="ps_goals_{{ p['id'] }}" value="{{ s.get('goals','') }}" min="0" style="width:80px"></td>
-                <td><input type="number" name="ps_assists_{{ p['id'] }}" value="{{ s.get('assists','') }}" min="0" style="width:80px"></td>
-                <td><input type="number" name="ps_shots_{{ p['id'] }}" value="{{ s.get('shots','') }}" min="0" style="width:80px"></td>
-                <td><input type="number" name="ps_pim_{{ p['id'] }}" value="{{ s.get('pim','') }}" min="0" style="width:80px"></td>
-                <td><input type="number" name="ps_plusminus_{{ p['id'] }}" value="{{ s.get('plus_minus','') }}" style="width:80px"></td>
-              </tr>
-            {% else %}
-              <tr><td colspan="7" class="muted">No players</td></tr>
+    {% endfor %}
+  </div>
+
+  <h3 style="margin-top:1rem;">Player Stats</h3>
+  {% if player_stats_import_meta %}
+    <p class="muted" style="margin-top:0;">Imported Player Stats</p>
+  {% endif %}
+  {% if player_stats_import_meta %}
+    <p class="muted" style="margin-top:0;">
+      {% if player_stats_import_meta.get('source_label') %}Source: {{ player_stats_import_meta.get('source_label') }}{% endif %}
+      {% if player_stats_import_meta.get('updated_at') %} | Updated: {{ player_stats_import_meta.get('updated_at') }}{% endif %}
+    </p>
+  {% endif %}
+  {% if player_stats_import_warning %}
+    <p class="muted" style="margin-top:0;">Warning: {{ player_stats_import_warning }}</p>
+  {% endif %}
+  {% for team_key, players in [('team1', team1_players), ('team2', team2_players)] %}
+    {% set is_team1 = (team_key == 'team1') %}
+    {% set team_name = game['team1_name'] if is_team1 else game['team2_name'] %}
+    {% set team_id = game['team1_id'] if is_team1 else game['team2_id'] %}
+    <h4 style="display:flex;align-items:center;gap:8px;margin-top:0.75rem;">
+      <img src="{{ base }}/media/team_logo/{{ team_id }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+      <span>{{ team_name }}</span>
+    </h4>
+    <div class="table-scroll">
+      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+        <thead>
+          <tr>
+            <th>#</th><th>Name</th>
+            {% for c in (game_player_stats_columns or []) %}
+              <th>{{ c.get('label') }}</th>
             {% endfor %}
-          </tbody>
-        </table>
-      </div>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in players %}
+            {% set s = stats_by_pid.get(p['id'], {}) %}
+            <tr>
+              <td>{{ p['jersey_number'] or '' }}</td>
+              <td>{{ p['name'] }}</td>
+              {% set row_cells = (player_stats_cells_by_pid or {}).get(p['id'], {}) %}
+              {% set row_conf = (player_stats_cell_conflicts_by_pid or {}).get(p['id'], {}) %}
+              {% for c in (game_player_stats_columns or []) %}
+                {% set cid = c.get('id') %}
+                {% if edit_mode and public_league_id is not defined and cid in ['goals','assists','shots','pim','plus_minus'] %}
+                  {% if cid == 'goals' %}
+                    <td><input type="number" name="ps_goals_{{ p['id'] }}" value="{{ s.get('goals','') }}" min="0" style="width:70px"></td>
+                  {% elif cid == 'assists' %}
+                    <td><input type="number" name="ps_assists_{{ p['id'] }}" value="{{ s.get('assists','') }}" min="0" style="width:70px"></td>
+                  {% elif cid == 'shots' %}
+                    <td><input type="number" name="ps_shots_{{ p['id'] }}" value="{{ s.get('shots','') }}" min="0" style="width:70px"></td>
+                  {% elif cid == 'pim' %}
+                    <td><input type="number" name="ps_pim_{{ p['id'] }}" value="{{ s.get('pim','') }}" min="0" style="width:70px"></td>
+                  {% elif cid == 'plus_minus' %}
+                    <td><input type="number" name="ps_plusminus_{{ p['id'] }}" value="{{ s.get('plus_minus','') }}" style="width:70px"></td>
+                  {% endif %}
+                {% else %}
+                  <td {% if row_conf.get(cid) %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells.get(cid,'') }}</td>
+                {% endif %}
+              {% endfor %}
+            </tr>
+          {% else %}
+            <tr><td colspan="{{ 2 + (game_player_stats_columns|length) }}" class="muted">No players</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+  {% endfor %}
 
-    <div style="margin-top:1rem;">
+  {% if edit_mode and public_league_id is not defined %}
+    <div style="margin-top:.75rem;">
       <button class="btn primary" type="submit">Save</button>
-      <a class="btn" href="/schedule">Back</a>
     </div>
-  </form>
+    </form>
+
+    {% if can_edit_game %}
+      <div style="margin-top:1rem;">
+        <h3 style="margin:0 0 .25rem 0;">Import Shift Spreadsheet Stats</h3>
+        <p class="muted" style="margin-top:0">
+          Upload <code>stats/player_stats.csv</code> and optionally <code>stats/game_stats.csv</code> from
+          <code>scripts/parse_shift_spreadsheet.py</code>.
+        </p>
+        <form method="post" action="/hky/games/{{ game['id'] }}/import_shift_stats{{ return_to_first_q }}" enctype="multipart/form-data">
+          <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-row">
+              <label class="muted">player_stats.csv</label>
+              <input type="file" name="player_stats_csv" accept=".csv" required>
+            </div>
+            <div class="form-row">
+              <label class="muted">game_stats.csv (optional)</label>
+              <input type="file" name="game_stats_csv" accept=".csv">
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:1rem;">
+            <button class="btn" type="submit">Import stats</button>
+            {% if game.get('stats_imported_at') %}
+              <span class="muted">Last import: {{ game['stats_imported_at'] }}</span>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+    {% endif %}
+  {% endif %}
+</div>
+
+<div class="card" style="margin-top:1rem;">
+  <h3 style="margin-top:0;">Game Events</h3>
+  {% if events_meta %}
+    <p class="muted" style="margin-top:0;">
+      {% if events_meta.get('source_label') %}Source: {{ events_meta.get('source_label') }}{% endif %}
+      {% if events_meta.get('updated_at') %} | Updated: {{ events_meta.get('updated_at') }}{% endif %}
+      {% if events_meta.get('count') is not none %} | Rows: {{ events_meta.get('count') }}{% endif %}
+    </p>
+  {% endif %}
+  {% if events_rows and events_headers %}
+    <div class="table-scroll table-scroll-y">
+      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
+        <thead>
+          <tr>
+            {% for h in events_headers %}
+              <th>{{ h }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in events_rows %}
+            <tr>
+              {% for h in events_headers %}
+                {% if h == 'On-Ice Players' or h == 'On-Ice Players (PM)' %}
+                  <td class="cell-pre">{{ r.get(h,'')|replace(',', '\n') }}</td>
+                {% else %}
+                  <td>{{ r.get(h,'') }}</td>
+                {% endif %}
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No game events uploaded yet.</p>
+  {% endif %}
 </div>
 {% endblock %}
-

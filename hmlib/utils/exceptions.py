@@ -11,6 +11,8 @@ import ctypes
 import threading
 import time
 
+from hmlib.log import get_logger
+
 
 def get_main_thread_id():
     """Return the identifier of the Python main thread."""
@@ -45,15 +47,17 @@ if __name__ == "__main__":
         main_thread_id = threading.main_thread().ident
         raise_exception_in_thread(main_thread_id, KeyboardInterrupt)
 
+    logger = get_logger(__name__)
+
     # Main thread function
     def main():
-        print("Main thread started")
+        logger.info("Main thread started")
         try:
             while True:
                 time.sleep(1)  # Simulate main thread workload
-                print("Main thread is running")
+                logger.info("Main thread is running")
         except KeyboardInterrupt:
-            print("KeyboardInterrupt caught in main thread!")
+            logger.info("KeyboardInterrupt caught in main thread!")
 
     # Start the worker thread
     worker_thread = threading.Thread(target=worker)

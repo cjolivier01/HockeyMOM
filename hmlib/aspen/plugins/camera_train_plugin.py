@@ -99,11 +99,16 @@ class CameraTrainPlugin(Plugin):
         for epoch in range(self._epochs):
             tr = _epoch(train_loader, True)
             va = _epoch(val_loader, False)
-            logger.info(f"CameraTrainPlugin epoch {epoch+1}: train {tr:.4f} val {va:.4f}")
+            logger.info(
+                "CameraTrainPlugin epoch %d: train %.4f val %.4f",
+                epoch + 1,
+                tr,
+                va,
+            )
             if va < best_val:
                 best_val = va
                 ckpt = pack_checkpoint(model, norm=ds.norm, window=self._window)
                 os.makedirs(os.path.dirname(self._out) or ".", exist_ok=True)
                 torch.save(ckpt, self._out)
-                logger.info(f"Saved camera transformer checkpoint to {self._out}")
+                logger.info("Saved camera transformer checkpoint to %s", self._out)
         return {"camera_model_path": self._out}

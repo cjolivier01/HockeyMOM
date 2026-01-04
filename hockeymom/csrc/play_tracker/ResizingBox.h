@@ -11,6 +11,21 @@ struct ResizingState {
   bool size_is_frozen{false};
   FloatValue current_speed_w{0.0};
   FloatValue current_speed_h{0.0};
+  // Per-axis stop-on-direction-change braking for resizing
+  std::optional<IntValue> stop_delay_w{0};
+  IntValue stop_delay_w_counter{0};
+  FloatValue stop_decel_w{0.0};
+  FloatValue stop_trigger_dir_w{0.0};
+  IntValue cancel_opp_w_count{0};
+  IntValue cooldown_w_counter{0};
+  std::optional<IntValue> stop_delay_h{0};
+  IntValue stop_delay_h_counter{0};
+  FloatValue stop_decel_h{0.0};
+  FloatValue stop_trigger_dir_h{0.0};
+  IntValue cancel_opp_h_count{0};
+  IntValue cooldown_h_counter{0};
+  bool canceled_stop_w{false};
+  bool canceled_stop_h{false};
 };
 
 class ResizingBox : virtual public IBasicLivingBox {
@@ -32,6 +47,9 @@ class ResizingBox : virtual public IBasicLivingBox {
   WHDims get_min_allowed_width_height() const;
 
   void clamp_size_scaled();
+
+  // After new position is set, adjust per-axis resize stop delays
+  void update_stop_delays();
 
  private:
   void set_destination_size(

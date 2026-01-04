@@ -1,12 +1,65 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+import logging
+from collections import OrderedDict
+from collections.abc import Mapping as MappingABC
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
 
 import yaml
 
 from hmlib.config import get_game_config_private, get_nested_value, set_nested_value
+
+logger = logging.getLogger(__name__)
+
+
+_SKIP_CONFIG_VALUE = object()
+_MISSING_ARG = object()
+
+
+def _get_arg_value(args: Any, name: str) -> Any:
+    if isinstance(args, dict):
+        return args.get(name, _MISSING_ARG)
+    return getattr(args, name, _MISSING_ARG)
+
+
+def _has_nested_key(dct: Dict[str, Any], key_str: str) -> bool:
+    cur: Any = dct
+    for key in key_str.split("."):
+        if not isinstance(cur, dict) or key not in cur:
+            return False
+        cur = cur[key]
+    return True
+
+
+def _coerce_aspen_queue_size(value: Any) -> Any:
+    try:
+        return max(1, int(value))
+    except Exception:
+        return _SKIP_CONFIG_VALUE
+
+
+def _coerce_aspen_max_concurrent(value: Any) -> Any:
+    try:
+        return max(1, int(value))
+    except Exception:
+        return _SKIP_CONFIG_VALUE
+
+
+def _debug_to_play_tracker(value: Any) -> Any:
+    try:
+        if isinstance(value, str):
+            value = int(value)
+        return True if int(value) >= 1 else _SKIP_CONFIG_VALUE
+    except Exception:
+        return _SKIP_CONFIG_VALUE
+
+
+def _get_disable_progress_bar() -> bool:
+    import os
+
+    return bool(os.environ.get("SLURM_JOBID", ""))
 
 
 def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
@@ -74,6 +127,12 @@ class hm_opts(object):
             default=None,
             type=int,
             help="Crop to play area only",
+        )
+        parser.add_argument(
+            "--no-crop",
+            dest="no_crop",
+            action="store_true",
+            help="Disable camera/output cropping in the video pipeline",
         )
         parser.add_argument(
             "--end-zones",
@@ -205,7 +264,15 @@ class hm_opts(object):
         #
         plot = parser.add_argument_group("Visualization & Plotting")
         plot.add_argument(
-            "--plot-tracking", action="store_true", help="Plot individual tracking boxes"
+            "--plot-tracking",
+            action="store_true",
+            help="Plot individual tracking overlays (circles by default)",
+        )
+        plot.add_argument(
+            "--no-plot-tracking-circles",
+            dest="no_plot_tracking_circles",
+            action="store_true",
+            help="Disable tracking circles and draw bounding boxes instead.",
         )
         plot.add_argument("--plot-ice-mask", action="store_true", help="Plot the ice mask")
         plot.add_argument(
@@ -552,6 +619,51 @@ class hm_opts(object):
             action="store_true",
             help="Force re-exporting ONNX for pose even if the file already exists",
         )
+        #
+        # Tracker options
+        #
+        tracker = parser.add_argument_group("Tracker")
+        tracker.add_argument(
+            "--tracker-backend",
+            dest="tracker_backend",
+            type=str,
+            choices=["hm", "static_bytetrack"],
+            default=None,
+            help=(
+                "Select tracking backend: 'hm' (default, HmTracker) or "
+                "'static_bytetrack' (CUDA static ByteTrack with fixed max_detections/max_tracks)."
+            ),
+        )
+        tracker.add_argument(
+            "--tracker-max-detections",
+            dest="tracker_max_detections",
+            type=int,
+            default=256,
+            help=(
+                "Maximum detections per frame passed to the static ByteTrack tracker "
+                "when --tracker-backend=static_bytetrack is used."
+            ),
+        )
+        tracker.add_argument(
+            "--tracker-max-tracks",
+            dest="tracker_max_tracks",
+            type=int,
+            default=256,
+            help=(
+                "Maximum active tracks maintained by the static ByteTrack tracker "
+                "when --tracker-backend=static_bytetrack is used."
+            ),
+        )
+        tracker.add_argument(
+            "--tracker-device",
+            dest="tracker_device",
+            type=str,
+            default=None,
+            help=(
+                "Optional device string for the static ByteTrack tracker "
+                "(e.g., 'cuda:0'); defaults to the main detection device."
+            ),
+        )
         parser.add_argument(
             "--deterministic",
             default=0,
@@ -616,12 +728,33 @@ class hm_opts(object):
             help="Disable threaded Aspen pipeline mode",
         )
         parser.set_defaults(aspen_threaded=None)
+        aspen_graph_group = parser.add_mutually_exclusive_group()
+        aspen_graph_group.add_argument(
+            "--aspen-thread-graph",
+            dest="aspen_thread_graph",
+            action="store_true",
+            help="Run threaded Aspen plugins in graph scheduling mode",
+        )
+        aspen_graph_group.add_argument(
+            "--no-aspen-thread-graph",
+            dest="aspen_thread_graph",
+            action="store_false",
+            help="Use linear scheduling for threaded Aspen plugins",
+        )
+        parser.set_defaults(aspen_thread_graph=None)
         parser.add_argument(
             "--aspen-thread-queue-size",
             dest="aspen_thread_queue_size",
             type=int,
             default=None,
             help="Queue size between threaded Aspen plugins (defaults to 1)",
+        )
+        parser.add_argument(
+            "--aspen-max-concurrent",
+            dest="aspen_max_concurrent",
+            type=int,
+            default=None,
+            help="Max concurrent frames in threaded Aspen pipeline (defaults to 3)",
         )
         aspen_stream_group = parser.add_mutually_exclusive_group()
         aspen_stream_group.add_argument(
@@ -637,12 +770,48 @@ class hm_opts(object):
             help="Disable per-trunk CUDA streams in threaded Aspen mode",
         )
         parser.set_defaults(aspen_thread_cuda_streams=None)
-        parser.add_argument(
-            "--stitch-cache-size",
-            type=int,
-            default=None,
-            help="cache size for GPU stitching async operations",
+        aspen_stitch_group = parser.add_mutually_exclusive_group()
+        aspen_stitch_group.add_argument(
+            "--aspen-stitching",
+            dest="aspen_stitching",
+            action="store_true",
+            help="Enable Aspen stitching plugin for multi-camera inputs",
         )
+        aspen_stitch_group.add_argument(
+            "--no-aspen-stitching",
+            dest="aspen_stitching",
+            action="store_false",
+            help="Disable Aspen stitching plugin",
+        )
+        parser.set_defaults(aspen_stitching=None)
+        profile_group = parser.add_mutually_exclusive_group()
+        profile_group.add_argument(
+            "--display-plugin-profile",
+            dest="display_plugin_profile",
+            action="store_true",
+            help="Show per-plugin timing percentages in the progress table",
+        )
+        profile_group.add_argument(
+            "--no-display-plugin-profile",
+            dest="display_plugin_profile",
+            action="store_false",
+            help="Hide per-plugin timing percentages in the progress table",
+        )
+        parser.set_defaults(display_plugin_profile=None)
+        graph_display_group = parser.add_mutually_exclusive_group()
+        graph_display_group.add_argument(
+            "--display-aspen-graph",
+            dest="display_aspen_graph",
+            action="store_true",
+            help="Show AspenNet graph activity in the progress UI",
+        )
+        graph_display_group.add_argument(
+            "--no-display-aspen-graph",
+            dest="display_aspen_graph",
+            action="store_false",
+            help="Hide AspenNet graph activity in the progress UI",
+        )
+        parser.set_defaults(display_aspen_graph=None)
         parser.add_argument(
             "--fp16",
             default=False,
@@ -899,6 +1068,7 @@ class hm_opts(object):
             "--no-progress-bar",
             action="store_true",
             help="Don't use the progress bar",
+            default=_get_disable_progress_bar(),
         )
         parser.add_argument(
             "--curses-progress",
@@ -909,7 +1079,7 @@ class hm_opts(object):
         parser.add_argument(
             "--progress-bar-lines",
             type=int,
-            default=4,
+            default=11,
             help="Number of logging lines in the progrsss bar",
         )
         parser.add_argument(
@@ -1093,13 +1263,131 @@ class hm_opts(object):
         "model.tracker",
         "debug",
     ]
+    ARG_TO_CONFIG_MAP: Mapping[str, Union[str, Sequence[str]]] = OrderedDict(
+        [
+            ("aspen_threaded", ["aspen.pipeline.threaded", "aspen.threaded_trunks"]),
+            ("aspen_thread_queue_size", "aspen.pipeline.queue_size"),
+            ("aspen_max_concurrent", "aspen.pipeline.max_concurrent"),
+            ("aspen_thread_cuda_streams", "aspen.pipeline.cuda_streams"),
+            ("aspen_thread_graph", "aspen.pipeline.graph"),
+            ("display_plugin_profile", "aspen.pipeline.display_plugin_profile"),
+            ("display_aspen_graph", "aspen.pipeline.display_graph"),
+            ("aspen_stitching", "aspen.stitching.enabled"),
+            ("blend_mode", "aspen.stitching.blend_mode"),
+            ("max_blend_levels", "aspen.stitching.max_blend_levels"),
+            ("stitch_auto_adjust_exposure", "aspen.stitching.auto_adjust_exposure"),
+            ("python_blender", "aspen.stitching.python_blender"),
+            ("no_minimize_blend", "aspen.stitching.minimize_blend"),
+            ("no_cuda_streams", "aspen.stitching.no_cuda_streams"),
+            ("stitch_rotate_degrees", "aspen.stitching.post_stitch_rotate_degrees"),
+            ("fp16_stitch", "aspen.stitching.dtype"),
+            ("stitch_pto_project_file", "aspen.stitching.pto_project_file"),
+            (
+                "skip_final_video_save",
+                [
+                    "aspen.video_out.skip_final_save",
+                    "aspen.plugins.video_out.params.skip_final_save",
+                ],
+            ),
+            ("video_encoder_backend", "aspen.video_out.encoder_backend"),
+            ("output_file", "aspen.plugins.video_out.params.output_video_path"),
+            ("save_frame_dir", "aspen.plugins.video_out.params.save_frame_dir"),
+            ("checkerboard_input", ["debug.rgb_stats_check.enable", "aspen.stitching.capture_rgb_stats"]),
+            ("debug_play_tracker", "plot.debug_play_tracker"),
+            ("plot_moving_boxes", "plot.plot_moving_boxes"),
+            ("plot_trajectories", "plot.plot_trajectories"),
+            ("plot_jersey_numbers", "plot.plot_jersey_numbers"),
+            ("plot_actions", "plot.plot_actions"),
+            ("plot_pose", "plot.plot_pose"),
+            ("plot_ice_mask", "plot.plot_ice_mask"),
+            ("plot_all_detections", "plot.plot_all_detections"),
+            (
+                "plot_tracking",
+                ["plot.plot_individual_player_tracking", "plot.plot_boundaries"],
+            ),
+            ("no_plot_tracking_circles", "plot.plot_tracking_circles"),
+            ("debug", "plot.debug_play_tracker"),
+        ]
+    )
+    ARG_VALUE_MAP: Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]] = {
+        "aspen_threaded": bool,
+        "aspen_thread_queue_size": _coerce_aspen_queue_size,
+        "aspen_max_concurrent": _coerce_aspen_max_concurrent,
+        "aspen_thread_cuda_streams": bool,
+        "aspen_thread_graph": bool,
+        "display_plugin_profile": bool,
+        "display_aspen_graph": bool,
+        "aspen_stitching": bool,
+        "stitch_auto_adjust_exposure": bool,
+        "python_blender": bool,
+        "no_minimize_blend": {True: False},
+        "no_cuda_streams": bool,
+        "fp16_stitch": {True: "float16"},
+        "skip_final_video_save": {True: True},
+        "checkerboard_input": {True: True},
+        "debug_play_tracker": {True: True},
+        "plot_moving_boxes": {True: True},
+        "plot_trajectories": {True: True},
+        "plot_jersey_numbers": {True: True},
+        "plot_actions": {True: True},
+        "plot_pose": {True: True},
+        "plot_ice_mask": {True: True},
+        "plot_tracking": {True: True},
+        "no_plot_tracking_circles": {True: False},
+        "debug": _debug_to_play_tracker,
+    }
+    ARG_SETDEFAULT = {"output_file", "save_frame_dir"}
+
+    @staticmethod
+    def apply_arg_config_overrides(
+        config: Dict[str, Any],
+        args: Any,
+        arg_to_config: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
+        value_map: Optional[Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]]] = None,
+        setdefault_args: Optional[Sequence[str]] = None,
+    ) -> bool:
+        """Apply CLI-ish overrides to a config dict using dot-path mappings."""
+        if not isinstance(config, dict) or args is None:
+            return False
+        arg_to_config = arg_to_config or hm_opts.ARG_TO_CONFIG_MAP
+        value_map = value_map or hm_opts.ARG_VALUE_MAP
+        setdefault_set = set(setdefault_args or hm_opts.ARG_SETDEFAULT)
+        changed = False
+        for arg_name, cfg_paths in arg_to_config.items():
+            raw_value = _get_arg_value(args, arg_name)
+            if raw_value is _MISSING_ARG or raw_value is None:
+                continue
+            mapper = value_map.get(arg_name)
+            mapped_value = raw_value
+            if mapper is not None:
+                try:
+                    if isinstance(mapper, MappingABC):
+                        if raw_value not in mapper:
+                            continue
+                        mapped_value = mapper[raw_value]
+                    else:
+                        mapped_value = mapper(raw_value)
+                    if mapped_value is _SKIP_CONFIG_VALUE:
+                        continue
+                except Exception:
+                    logger.warning("Invalid config override for %s: %r", arg_name, raw_value)
+                    continue
+            if isinstance(cfg_paths, str):
+                paths = [cfg_paths]
+            else:
+                paths = list(cfg_paths)
+            for path in paths:
+                if arg_name in setdefault_set and _has_nested_key(config, path):
+                    continue
+                set_nested_value(config, path, mapped_value)
+                changed = True
+        return changed
 
     @staticmethod
     def init(opt, parser: Optional[argparse.ArgumentParser] = None):
         # Normalize some conflicting arguments
         if opt.serial:
             opt.cache_size = 0
-            opt.stitch_cache_size = 0
             opt.no_async_dataset = True
 
         if opt.show_scaled:
@@ -1236,6 +1524,88 @@ class hm_opts(object):
                         game_cfg,
                         "rink.camera.time_to_dest_speed_limit_frames",
                         int(opt.time_to_dest_speed_limit_frames),
+                    )
+            except Exception:
+                pass
+            # resizing stop_on_dir_change_delay
+            try:
+                if (
+                    _cli_spec("resizing_stop_on_dir_change_delay")
+                    or get_nested_value(
+                        game_cfg, "rink.camera.resizing_stop_on_dir_change_delay", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_stop_on_dir_change_delay",
+                        int(opt.resizing_stop_on_dir_change_delay),
+                    )
+            except Exception:
+                pass
+            # resizing cancel_stop_on_opposite_dir (store as bool in YAML)
+            try:
+                if (
+                    _cli_spec("resizing_cancel_stop_on_opposite_dir")
+                    or get_nested_value(
+                        game_cfg, "rink.camera.resizing_cancel_stop_on_opposite_dir", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_cancel_stop_on_opposite_dir",
+                        bool(int(opt.resizing_cancel_stop_on_opposite_dir)),
+                    )
+            except Exception:
+                pass
+            # resizing cancel hysteresis frames
+            try:
+                if (
+                    _cli_spec("resizing_stop_cancel_hysteresis_frames")
+                    or get_nested_value(
+                        game_cfg, "rink.camera.resizing_stop_cancel_hysteresis_frames", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_stop_cancel_hysteresis_frames",
+                        int(opt.resizing_stop_cancel_hysteresis_frames),
+                    )
+            except Exception:
+                pass
+            # resizing stop delay cooldown frames
+            try:
+                if (
+                    _cli_spec("resizing_stop_delay_cooldown_frames")
+                    or get_nested_value(
+                        game_cfg, "rink.camera.resizing_stop_delay_cooldown_frames", None
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_stop_delay_cooldown_frames",
+                        int(opt.resizing_stop_delay_cooldown_frames),
+                    )
+            except Exception:
+                pass
+            # resizing time to dest speed limit frames
+            try:
+                if (
+                    _cli_spec("resizing_time_to_dest_speed_limit_frames")
+                    or get_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_time_to_dest_speed_limit_frames",
+                        None,
+                    )
+                    is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.resizing_time_to_dest_speed_limit_frames",
+                        int(opt.resizing_time_to_dest_speed_limit_frames),
                     )
             except Exception:
                 pass

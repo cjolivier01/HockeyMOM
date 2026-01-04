@@ -75,6 +75,45 @@ def plot_circle(
     )
 
 
+def plot_ellipse(
+    image: Union[torch.Tensor, np.ndarray],
+    center: Tuple[int, int],
+    axes: Tuple[int, int],
+    color: Tuple[int, int, int],
+    thickness: int = 1,
+) -> Union[torch.Tensor, np.ndarray]:
+    if isinstance(image, StreamTensorBase):
+        image = image.get()
+    if isinstance(image, np.ndarray):
+        image = to_cv2(image)
+        cv2.ellipse(
+            image,
+            center=(int(center[0]), int(center[1])),
+            axes=(int(axes[0]), int(axes[1])),
+            angle=0.0,
+            startAngle=0,
+            endAngle=360,
+            color=normalize_color(image, color),
+            thickness=thickness,
+            lineType=cv2.LINE_4,
+        )
+        return image
+    fill = False
+    if thickness < 0:
+        thickness = int(max(axes))
+        fill = True
+    return ptv.draw_ellipse_axes(
+        image=image,
+        center_x=center[0],
+        center_y=center[1],
+        radius_x=int(axes[0]),
+        radius_y=int(axes[1]),
+        color=normalize_color(image, color),
+        thickness=thickness,
+        fill=fill,
+    )
+
+
 def plot_rectangle(
     img,
     box: List[int],
@@ -422,6 +461,9 @@ def plot_tracking(
     print_track_id: bool = True,
     ignore_tracking_ids: Set[int] = None,
     ignored_color: Optional[Tuple[int, int, int]] = None,
+    draw_tracking_circles: bool = True,
+    circle_flatten_ratio: float = 0.35,
+    circle_radius_scale: float = 0.5,
 ):
     if ignore_tracking_ids is None:
         ignore_tracking_ids = set()
@@ -452,27 +494,46 @@ def plot_tracking(
 
     for i, tlwh in enumerate(tlwhs):
         x1, y1, w, h = tlwh
-        intbox = tuple(map(int, (x1, y1, x1 + w, y1 + h)))
+        x1f = float(x1)
+        y1f = float(y1)
+        wf = float(w)
+        hf = float(h)
+        intbox = tuple(map(int, (x1f, y1f, x1f + wf, y1f + hf)))
         obj_id = int(obj_ids[i])
         color = box_color if box_color is not None else get_color(abs(obj_id))
+        norm_color = normalize_color(im, color)
 
-        if obj_id in ignore_tracking_ids:
-            im = plot_rectangle(
-                im,
-                box=intbox,
-                color=ignored_color,
-                thickness=1,
-                label="IGNORED",
-            )
-        else:
-            im = plot_rectangle(
-                im,
-                box=intbox,
-                color=normalize_color(im, color),
-                thickness=line_thickness,
-            )
-
-            if print_track_id:
+        if draw_tracking_circles:
+            center_x = int(x1f + 0.5 * wf)
+            radius_x = max(1, int(round(abs(wf) * circle_radius_scale)))
+            radius_y = max(1, int(round(radius_x * circle_flatten_ratio)))
+            ground_offset = max(1, int(round(hf * 0.1 + abs(wf) * 0.05)))
+            center_y = int(y1f + hf - ground_offset)
+            circle_thickness = 2
+            circle_color = norm_color
+            if obj_id in ignore_tracking_ids:
+                circle_color = (
+                    normalize_color(im, ignored_color) if ignored_color is not None else norm_color
+                )
+            if radius_x > 0 and radius_y > 0:
+                im = plot_ellipse(
+                    im,
+                    center=(center_x, center_y),
+                    axes=(radius_x, radius_y),
+                    color=circle_color,
+                    thickness=circle_thickness,
+                )
+            if obj_id in ignore_tracking_ids:
+                im = my_put_text(
+                    im,
+                    "IGNORED",
+                    (intbox[0], intbox[1] + text_offset),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    text_scale,
+                    (0, 0, 128),
+                    thickness=text_thickness,
+                )
+            elif print_track_id:
                 id_text = "{}".format(int(obj_id))
                 if ids2 is not None:
                     id_text = id_text + ", {}".format(int(ids2[i]))
@@ -485,6 +546,36 @@ def plot_tracking(
                     (0, 0, 255),
                     thickness=text_thickness,
                 )
+        else:
+            if obj_id in ignore_tracking_ids:
+                im = plot_rectangle(
+                    im,
+                    box=intbox,
+                    color=ignored_color,
+                    thickness=1,
+                    label="IGNORED",
+                )
+            else:
+                im = plot_rectangle(
+                    im,
+                    box=intbox,
+                    color=norm_color,
+                    thickness=line_thickness,
+                )
+
+                if print_track_id:
+                    id_text = "{}".format(int(obj_id))
+                    if ids2 is not None:
+                        id_text = id_text + ", {}".format(int(ids2[i]))
+                    im = my_put_text(
+                        im,
+                        id_text,
+                        (intbox[0], intbox[1] + text_offset),
+                        cv2.FONT_HERSHEY_PLAIN,
+                        text_scale,
+                        (0, 0, 255),
+                        thickness=text_thickness,
+                    )
         if speeds:
             speed = speeds[i]
             if not np.isnan(speed):

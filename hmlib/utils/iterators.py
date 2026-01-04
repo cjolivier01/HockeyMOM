@@ -1,5 +1,5 @@
 import time
-from threading import Thread
+from threading import Lock, Thread
 from typing import Optional
 
 from .containers import create_queue
@@ -24,6 +24,10 @@ class SimpleCachedIterator:
         self._pre_callback_fn = pre_callback_fn
         self._eof_reached = False
         self._stopped = False
+        self._cache_size = cache_size
+        self._cache_primed: bool = False
+        self._prime_cache_lock = Lock()
+        self._sentinel = object()
 
         if cache_size:
             self._q = create_queue(mp=False, name="SimpleCachedIterator" if name is None else name)
@@ -31,25 +35,31 @@ class SimpleCachedIterator:
             self._q = None
             return
 
-        for _ in range(cache_size):
-            try:
-                item = next(self._iterator)
-                if self._pre_callback_fn is not None:
-                    item = self._pre_callback_fn(item)
-                self._q.put(item)
-            except StopIteration:
-                self._eof_reached = True
-                self._q.put(None)
-                break
+    def _prime_cache(self):
+        if not self._cache_size or self._cache_primed:
+            return
+        with self._prime_cache_lock:
+            if self._cache_primed:
+                return
+            self._cache_primed = True
+            for _ in range(self._cache_size):
+                try:
+                    item = next(self._iterator)
+                    if self._pre_callback_fn is not None:
+                        item = self._pre_callback_fn(item)
+                    self._q.put(item)
+                except StopIteration:
+                    self._eof_reached = True
+                    self._q.put(self._sentinel)
+                    break
 
     def __iter__(self):
         return self
 
     def __next__(self):
+        self._prime_cache()
         if self._q is None:
             result_item = next(self._iterator)
-            if result_item is None:
-                raise StopIteration
             if self._pre_callback_fn is not None:
                 result_item = self._pre_callback_fn(result_item)
             return result_item
@@ -58,7 +68,7 @@ class SimpleCachedIterator:
             raise StopIteration
 
         result_item = self._q.get()
-        if result_item is None:
+        if result_item is self._sentinel:
             self._stopped = True
             raise StopIteration
         if isinstance(result_item, Exception):
@@ -68,18 +78,16 @@ class SimpleCachedIterator:
         try:
             if not self._eof_reached:
                 cached_item = next(self._iterator)
-                if cached_item is None:
-                    raise StopIteration
                 if self._pre_callback_fn is not None:
                     cached_item = self._pre_callback_fn(cached_item)
                 self._q.put(cached_item)
         except StopIteration:
             self._eof_reached = True
-            self._q.put(None)
+            self._q.put(self._sentinel)
         except Exception as ex:
             self._eof_reached = True
             self._q.put(ex)
-            self._q.put(None)
+            self._q.put(self._sentinel)
 
         return result_item
 
@@ -118,13 +126,21 @@ class ThreadedCachedIterator:
         self._pull_thread = Thread(target=self._pull_worker, name=self._name)
         self._pull_thread.daemon = True
 
-        for _ in range(self._cache_size):
-            self._pull_queue_to_worker.put("ok")
-
+        self._cache_primed: bool = False
+        self._prime_cache_lock = Lock()
         self._pull_thread.start()
+
+    def _prime_cache(self):
+        with self._prime_cache_lock:
+            if self._cache_primed:
+                return
+            self._cache_primed = True
+            for _ in range(self._cache_size):
+                self._pull_queue_to_worker.put("ok")
 
     def _pull_worker(self):
         try:
+            self._prime_cache()
             while True:
                 msg = self._pull_queue_to_worker.get()
                 if msg is None:

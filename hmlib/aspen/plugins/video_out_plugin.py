@@ -100,11 +100,11 @@ class VideoOutPlugin(Plugin):
         #   2. CLI/config-derived path on cam_args.output_video_path
         #   3. Fallback to <work_dir>/tracking_output.mkv
         out_path = self._out_path
-        if not out_path:
+        if not out_path or "/" not in out_path:
             candidate = getattr(cam_args, "output_video_path", None)
             if not candidate:
                 work_dir = context.get("work_dir") or os.path.join(os.getcwd(), "output_workdirs")
-                candidate = os.path.join(str(work_dir), "tracking_output.mkv")
+                candidate = os.path.join(str(work_dir), out_path or "tracking_output.mkv")
             out_path = candidate
         self._out_path = out_path
 
@@ -129,10 +129,13 @@ class VideoOutPlugin(Plugin):
         if fps is None:
             fps = 30.0
 
+        bit_rate = getattr(cam_args, "output_video_bit_rate", None)
+        if bit_rate is None:
+            bit_rate = int(55e6)
         self._vo = VideoOutput(
             output_video_path=out_path,
             fps=fps,
-            bit_rate=getattr(cam_args, "output_video_bit_rate", int(55e6)),
+            bit_rate=bit_rate,
             save_frame_dir=self._save_dir,
             name="TRACKING",
             skip_final_save=self._skip_final_save,

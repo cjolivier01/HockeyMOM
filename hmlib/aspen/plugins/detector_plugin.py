@@ -1,12 +1,14 @@
+import contextlib
 from contextlib import nullcontext
 from typing import Any, Dict
 
 import torch
 
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
+from hmlib.utils.image import make_channels_first
+
 from .base import Plugin
 from .detector_factory_plugin import _strip_static_padding
-from hmlib.utils.gpu import wrap_tensor, unwrap_tensor
-from hmlib.utils.image import make_channels_first
 
 
 class DetectorInferencePlugin(Plugin):
@@ -25,6 +27,22 @@ class DetectorInferencePlugin(Plugin):
 
     def __init__(self, enabled: bool = True):
         super().__init__(enabled=enabled)
+
+    def __call__(self, *args, **kwargs) -> Any:
+        self._iter_num += 1
+        do_trace = self._iter_num == 4
+        if do_trace:
+            pass
+        from cuda_stacktrace import CudaStackTracer
+
+        with (
+            CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace),
+            contextlib.nullcontext(),
+        ):
+            results = super().__call__(*args, **kwargs)
+        if do_trace:
+            pass
+        return results
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -84,18 +102,16 @@ class DetectorInferencePlugin(Plugin):
                 img_data_sample = track_data_sample[frame_id]
                 # Ensure frame_id metainfo is present for downstream postprocessing
                 fid = img_data_sample.metainfo.get("img_id")
-                try:
-                    if isinstance(fid, torch.Tensor):
-                        fid = fid.reshape([1])[0].item()
-                    if fid is None:
-                        fid = frame_id
-                except Exception:
-                    fid = frame_id
-                img_data_sample.set_metainfo({"frame_id": int(fid)})
+                img_data_sample.set_metainfo(
+                    {
+                        "frame_id": fid,
+                    }
+                )
                 batch_data_samples.append(img_data_sample)
 
             with amp_ctx:
-                det_results = detector.predict(batch_inputs, batch_data_samples)
+                det_results = detector.predict(batch_inputs / 255.0, batch_data_samples)
+                # det_results = detector.predict(batch_inputs, batch_data_samples)
 
             assert (
                 isinstance(det_results, (list, tuple)) and len(det_results) == video_len

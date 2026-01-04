@@ -3,22 +3,9 @@ import subprocess
 import sys
 import tempfile
 
-import pytest
 
-
-def _which(binname: str) -> bool:
-    from shutil import which
-
-    return which(binname) is not None
-
-
-@pytest.mark.skipif(
-    not _which("ffmpeg"), reason="ffmpeg not available for synthetic video generation"
-)
 def should_cli_load_tracking_smoke_runs():
-    torch = pytest.importorskip("torch")
-    pytest.importorskip("mmdet.structures")
-    pytest.importorskip("mmpose.structures")
+    import torch
 
     from mmengine.structures import InstanceData
     from mmdet.structures import DetDataSample

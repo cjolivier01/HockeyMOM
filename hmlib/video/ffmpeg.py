@@ -14,12 +14,31 @@ import re
 import signal
 import subprocess
 import traceback
-from typing import List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 import cv2
 import numpy as np
 
+from hmlib.log import get_logger
 from hmlib.utils.utils import classinstancememoize
+from hmlib.utils.progress_bar import RICH_CONSOLE
+
+try:
+    from rich.progress import (
+        BarColumn,
+        Progress as RichProgress,
+        ProgressColumn,
+        TextColumn,
+        TimeRemainingColumn,
+    )
+    from rich.text import Text
+except Exception:  # pragma: no cover - optional dependency during import
+    BarColumn = None  # type: ignore[assignment]
+    RichProgress = None  # type: ignore[assignment]
+    ProgressColumn = object  # type: ignore[assignment]
+    TextColumn = None  # type: ignore[assignment]
+    TimeRemainingColumn = None  # type: ignore[assignment]
+    Text = None  # type: ignore[assignment]
 
 libc = ctypes.CDLL("libc.so.6")
 
@@ -102,8 +121,10 @@ class BasicVideoInfo:
                     raise AssertionError(f"Unable to get video stream from file: {video_file}")
                 elif len(probe.video) > 1:
                     # DJI camera has other weird streams, so just warn and use the first one
-                    print(
-                        f"Found too many ({len(probe.video)}) video streams in file: {video_file}, using the first one only"
+                    get_logger(__name__).warning(
+                        "Found too many (%d) video streams in file: %s; using the first one only",
+                        len(probe.video),
+                        video_file,
                     )
                     # raise AssertionError(
                     #     f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
@@ -180,24 +201,324 @@ def duration_to_seconds(duration_str):
     return total_seconds
 
 
+_FFMPEG_TIME_RE = re.compile(r"(?P<h>\d+):(?P<m>\d+):(?P<s>\d+(?:\.\d+)?)")
+_FFMPEG_KV_RE = re.compile(r"(\w+)=\s*([^\s]+)")
+
+
+def parse_ffmpeg_timecode(value: str) -> Optional[float]:
+    if value is None:
+        return None
+    match = _FFMPEG_TIME_RE.search(str(value))
+    if not match:
+        return None
+    try:
+        hours = int(match.group("h"))
+        minutes = int(match.group("m"))
+        seconds = float(match.group("s"))
+    except Exception:
+        return None
+    return hours * 3600 + minutes * 60 + seconds
+
+
+class FfmpegOutputParser:
+    """Parse ffmpeg stderr/stdout output into progress updates."""
+
+    def __init__(self, total_seconds: Optional[float] = None) -> None:
+        self.total_seconds = total_seconds
+        self.last_time_seconds: Optional[float] = None
+        self.last_speed: Optional[float] = None
+        self.last_fps: Optional[float] = None
+        self.last_frame: Optional[int] = None
+        self.last_bitrate: Optional[str] = None
+        self.last_size: Optional[str] = None
+        self._progress_fields: Dict[str, str] = {}
+
+    def _parse_speed(self, value: str) -> Optional[float]:
+        if value is None:
+            return None
+        sval = str(value).strip()
+        if sval.endswith("x"):
+            sval = sval[:-1]
+        try:
+            return float(sval)
+        except Exception:
+            return None
+
+    def _parse_numeric(self, value: str, cast: Callable[[str], Any]) -> Optional[Any]:
+        if value is None:
+            return None
+        try:
+            return cast(str(value).strip())
+        except Exception:
+            return None
+
+    def _build_event(self, fields: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        time_val = (
+            fields.get("time")
+            or fields.get("out_time")
+            or fields.get("out_time_ms")
+            or fields.get("out_time_us")
+        )
+        time_seconds = None
+        if time_val is not None:
+            if "out_time_us" in fields:
+                time_seconds = self._parse_numeric(fields["out_time_us"], int)
+                if time_seconds is not None:
+                    time_seconds = float(time_seconds) / 1e6
+            elif "out_time_ms" in fields:
+                time_seconds = self._parse_numeric(fields["out_time_ms"], int)
+                if time_seconds is not None:
+                    time_seconds = float(time_seconds) / 1e3
+            else:
+                time_seconds = parse_ffmpeg_timecode(time_val)
+        if time_seconds is None:
+            return None
+
+        self.last_time_seconds = time_seconds
+        self.last_speed = self._parse_speed(fields.get("speed", ""))
+        self.last_fps = self._parse_numeric(fields.get("fps", ""), float)
+        self.last_frame = self._parse_numeric(fields.get("frame", ""), int)
+        self.last_bitrate = fields.get("bitrate")
+        self.last_size = fields.get("size") or fields.get("total_size")
+
+        return {
+            "time_seconds": time_seconds,
+            "total_seconds": self.total_seconds,
+            "speed": self.last_speed,
+            "fps": self.last_fps,
+            "frame": self.last_frame,
+            "bitrate": self.last_bitrate,
+            "size": self.last_size,
+        }
+
+    def parse_line(self, line: str) -> Optional[Dict[str, Any]]:
+        if not line:
+            return None
+        if "Duration:" in line:
+            dur = parse_ffmpeg_timecode(line)
+            if dur is not None and (self.total_seconds is None or self.total_seconds <= 0):
+                self.total_seconds = dur
+        stripped = line.strip()
+        if not stripped:
+            return None
+
+        # ffmpeg -progress output: key=value lines ending with progress=continue/end
+        if stripped.count("=") == 1 and " " not in stripped.split("=", 1)[0]:
+            key, val = stripped.split("=", 1)
+            key = key.strip()
+            val = val.strip()
+            if key:
+                self._progress_fields[key] = val
+                if key == "progress":
+                    fields = dict(self._progress_fields)
+                    self._progress_fields = {}
+                    return self._build_event(fields)
+            return None
+
+        # ffmpeg stats line: "frame=... fps=... time=... bitrate=... speed=..."
+        kvs = {m.group(1): m.group(2) for m in _FFMPEG_KV_RE.finditer(stripped)}
+        if not kvs:
+            return None
+        return self._build_event(kvs)
+
+
+class FfmpegOutputHandler:
+    """Base class for ffmpeg stdout/stderr filtering."""
+
+    def handle_line(self, line: str, stream: str = "stderr") -> None:
+        raise NotImplementedError
+
+    def close(self, returncode: Optional[int] = None) -> None:
+        return
+
+
+class CallbackFfmpegOutputHandler(FfmpegOutputHandler):
+    def __init__(self, callback: Callable[[str, str], None]) -> None:
+        self._callback = callback
+
+    def handle_line(self, line: str, stream: str = "stderr") -> None:
+        self._callback(line, stream)
+
+
+class _HandleLineAdapter(FfmpegOutputHandler):
+    def __init__(self, handler: object) -> None:
+        self._handler = handler
+
+    def handle_line(self, line: str, stream: str = "stderr") -> None:
+        self._handler.handle_line(line, stream)  # type: ignore[attr-defined]
+
+    def close(self, returncode: Optional[int] = None) -> None:
+        if hasattr(self._handler, "close"):
+            try:
+                self._handler.close(returncode)  # type: ignore[call-arg]
+            except Exception:
+                pass
+
+
+class _FfmpegStatsColumn(ProgressColumn):
+    def __init__(self, parser: FfmpegOutputParser) -> None:
+        super().__init__()
+        self._parser = parser
+
+    def render(self, task) -> "Text":  # type: ignore[override]
+        parts: List[str] = []
+        if self._parser.last_speed is not None:
+            parts.append(f"{self._parser.last_speed:.2f}x")
+        if self._parser.last_fps is not None:
+            parts.append(f"{self._parser.last_fps:.1f} fps")
+        if self._parser.last_bitrate:
+            parts.append(self._parser.last_bitrate)
+        text = " ".join(parts)
+        if Text is None:
+            return text  # type: ignore[return-value]
+        return Text(text, style="dim")
+
+
+class RichFfmpegProgressHandler(FfmpegOutputHandler):
+    """Default ffmpeg output handler that renders a rich progress bar."""
+
+    def __init__(
+        self,
+        total_seconds: Optional[float] = None,
+        label: str = "ffmpeg",
+        logger=None,
+    ) -> None:
+        self._parser = FfmpegOutputParser(total_seconds=total_seconds)
+        self._label = label
+        self._logger = logger or get_logger(__name__)
+        self._progress: Optional["RichProgress"] = None
+        self._task_id: Optional[int] = None
+        self._started = False
+        self._lock = None
+
+    def _ensure_started(self) -> None:
+        if self._started:
+            return
+        if RichProgress is None or BarColumn is None or TextColumn is None or TimeRemainingColumn is None:
+            return
+        self._progress = RichProgress(
+            TextColumn("{task.description}"),
+            BarColumn(),
+            TextColumn("{task.percentage:>3.0f}%"),
+            _FfmpegStatsColumn(self._parser),
+            TimeRemainingColumn(),
+            console=RICH_CONSOLE,
+            transient=True,
+        )
+        self._progress.start()
+        self._task_id = self._progress.add_task(self._label, total=self._parser.total_seconds)
+        self._started = True
+        if self._lock is None:
+            import threading
+
+            self._lock = threading.Lock()
+
+    def _log_non_progress(self, line: str) -> None:
+        lowered = line.lower()
+        if "error" in lowered:
+            self._logger.error("ffmpeg: %s", line)
+        elif "warning" in lowered:
+            self._logger.warning("ffmpeg: %s", line)
+
+    def handle_line(self, line: str, stream: str = "stderr") -> None:
+        if not line:
+            return
+        if self._lock is None:
+            import threading
+
+            self._lock = threading.Lock()
+        with self._lock:
+            event = self._parser.parse_line(line)
+            if event is None:
+                self._log_non_progress(line)
+                return
+            self._ensure_started()
+            if not self._started or self._progress is None or self._task_id is None:
+                return
+            total = event.get("total_seconds")
+            if total is not None and (self._progress.tasks[self._task_id].total in (None, 0)):
+                self._progress.update(self._task_id, total=total)
+            if event.get("time_seconds") is not None:
+                self._progress.update(self._task_id, completed=event["time_seconds"])
+
+    def close(self, returncode: Optional[int] = None) -> None:
+        if not self._started or self._progress is None or self._task_id is None:
+            return
+        if returncode == 0 and self._parser.total_seconds:
+            self._progress.update(self._task_id, completed=self._parser.total_seconds)
+        self._progress.stop()
+        self._started = False
+
+
+def build_ffmpeg_output_handler(
+    handler: Optional[object],
+    total_seconds: Optional[float] = None,
+    label: str = "ffmpeg",
+    logger=None,
+) -> FfmpegOutputHandler:
+    if handler is None:
+        return RichFfmpegProgressHandler(total_seconds=total_seconds, label=label, logger=logger)
+    if isinstance(handler, FfmpegOutputHandler):
+        return handler
+    if hasattr(handler, "handle_line"):
+        return _HandleLineAdapter(handler)
+    if callable(handler):
+        return CallbackFfmpegOutputHandler(handler)  # type: ignore[arg-type]
+    return RichFfmpegProgressHandler(total_seconds=total_seconds, label=label, logger=logger)
+
+
+def iter_ffmpeg_output_lines(stream) -> Iterator[str]:
+    """Yield lines from an ffmpeg stream, splitting on \\r and \\n."""
+    if stream is None:
+        return
+    buffer = ""
+    while True:
+        chunk = stream.read(4096)
+        if not chunk:
+            break
+        buffer += chunk
+        while True:
+            idx_r = buffer.find("\r")
+            idx_n = buffer.find("\n")
+            if idx_r == -1 and idx_n == -1:
+                break
+            if idx_r == -1:
+                idx = idx_n
+            elif idx_n == -1:
+                idx = idx_r
+            else:
+                idx = idx_r if idx_r < idx_n else idx_n
+            line = buffer[:idx]
+            buffer = buffer[idx + 1 :]
+            if line:
+                yield line
+    if buffer:
+        yield buffer
+
+
 def print_ffmpeg_info():
     from torchio.utils import ffmpeg_utils
 
-    print("Library versions:")
-    print(ffmpeg_utils.get_versions())
-    print("\nBuild config:")
-    print(ffmpeg_utils.get_build_config())
-    print("\nDecoders:")
-    print([k for k in ffmpeg_utils.get_video_decoders().keys() if "cuvid" in k])
-    print("\nEncoders:")
-    print([k for k in ffmpeg_utils.get_video_encoders().keys() if "nvenc" in k])
+    logger = get_logger(__name__)
+    logger.info("Library versions: %s", ffmpeg_utils.get_versions())
+    logger.info("Build config: %s", ffmpeg_utils.get_build_config())
+    logger.info(
+        "Cuvid decoders: %s",
+        [k for k in ffmpeg_utils.get_video_decoders().keys() if "cuvid" in k],
+    )
+    logger.info(
+        "Nvenc encoders: %s",
+        [k for k in ffmpeg_utils.get_video_encoders().keys() if "nvenc" in k],
+    )
 
 
 def copy_audio(original_video: str, soundless_video: str, final_audio_video: str):
     # attach audio to new video
-    cmd_str = f"ffmpeg -i {original_video} -i {soundless_video} -c:v copy -c:a copy "
-    f"-strict experimental -map 1:v:0 -map 0:a:0 -shortest {final_audio_video}"
-    print(cmd_str)
+    cmd_str = (
+        f"ffmpeg -i {original_video} -i {soundless_video} -c:v copy -c:a copy "
+        f"-strict experimental -map 1:v:0 -map 0:a:0 -shortest {final_audio_video}"
+    )
+    get_logger(__name__).info("Running ffmpeg command: %s", cmd_str)
     os.system(cmd_str)
 
 

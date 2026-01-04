@@ -1,4 +1,14 @@
 #include <ATen/ATen.h>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <random>
+#include <stdexcept>
+#include <thread>
+#include <vector>
 #include <c10/cuda/CUDAGuard.h> // for CUDAStreamGuard
 #include <c10/cuda/CUDAStream.h>
 #include <torch/extension.h>
@@ -12,6 +22,7 @@
 #include "hockeymom/csrc/bytetrack/BYTETrackerCuda.h"
 #include "hockeymom/csrc/bytetrack/BYTETrackerCudaStatic.h"
 #include "hockeymom/csrc/bytetrack/HmTracker.h"
+#include "hockeymom/csrc/df/DfTrackerCudaStatic.h"
 #include "hockeymom/csrc/kmeans/kmeans.h"
 #include "hockeymom/csrc/play_tracker/BoxUtils.h"
 #include "hockeymom/csrc/play_tracker/LivingBoxImpl.h"
@@ -51,6 +62,157 @@ struct BlenderConfig {
   bool lazy_init{false};
   std::string interpolation;
   std::string device = std::string("cpu");
+};
+
+class AspenGraphSampler {
+ public:
+  AspenGraphSampler(size_t max_samples, int min_interval_ms, int max_interval_ms)
+      : max_samples_(max_samples),
+        min_interval_ms_(min_interval_ms),
+        max_interval_ms_(max_interval_ms),
+        rng_(std::random_device{}()) {
+    if (max_samples_ == 0) {
+      max_samples_ = 1;
+    }
+    if (min_interval_ms_ < 1) {
+      min_interval_ms_ = 1;
+    }
+    if (max_interval_ms_ < min_interval_ms_) {
+      max_interval_ms_ = min_interval_ms_;
+    }
+  }
+
+  ~AspenGraphSampler() { stop(); }
+
+  void configure_graph(
+      const std::vector<std::string>& names,
+      const std::vector<int>& degrees,
+      const std::vector<std::pair<int, int>>& edges) {
+    if (running_.load(std::memory_order_relaxed)) {
+      throw std::runtime_error("AspenGraphSampler configure_graph while running");
+    }
+    names_ = names;
+    degrees_ = degrees;
+    edges_ = edges;
+    active_count_size_ = names_.size();
+    if (active_count_size_ == 0) {
+      active_counts_.reset();
+      return;
+    }
+    active_counts_ = std::make_unique<std::atomic<int>[]>(active_count_size_);
+    for (size_t i = 0; i < active_count_size_; ++i) {
+      active_counts_[i].store(0, std::memory_order_relaxed);
+    }
+  }
+
+  void start() {
+    bool expected = false;
+    if (!running_.compare_exchange_strong(expected, true)) {
+      return;
+    }
+    worker_ = std::thread(&AspenGraphSampler::run, this);
+  }
+
+  void stop() {
+    if (!running_.exchange(false)) {
+      return;
+    }
+    if (worker_.joinable()) {
+      worker_.join();
+    }
+  }
+
+  void enter_index(int idx) {
+    if (idx < 0 || static_cast<size_t>(idx) >= active_count_size_) {
+      return;
+    }
+    active_counts_[idx].fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void exit_index(int idx) {
+    if (idx < 0 || static_cast<size_t>(idx) >= active_count_size_) {
+      return;
+    }
+    int prev = active_counts_[idx].fetch_sub(1, std::memory_order_relaxed);
+    if (prev <= 0) {
+      active_counts_[idx].store(0, std::memory_order_relaxed);
+    }
+  }
+
+  py::list pop_samples(size_t max_items) {
+    std::deque<Sample> out;
+    {
+      std::lock_guard<std::mutex> lock(samples_mu_);
+      if (samples_.empty()) {
+        return py::list();
+      }
+      size_t count = std::min(max_items, samples_.size());
+      auto start = samples_.size() - count;
+      for (size_t i = start; i < samples_.size(); ++i) {
+        out.push_back(samples_[i]);
+      }
+      samples_.clear();
+    }
+    py::list result;
+    for (const auto& sample : out) {
+      py::dict entry;
+      entry["timestamp"] = sample.timestamp;
+      py::list active;
+      for (auto value : sample.active) {
+        active.append(static_cast<bool>(value));
+      }
+      entry["active"] = active;
+      result.append(entry);
+    }
+    return result;
+  }
+
+ private:
+  struct Sample {
+    double timestamp{0.0};
+    std::vector<uint8_t> active;
+  };
+
+  void run() {
+    std::uniform_int_distribution<int> dist(min_interval_ms_, max_interval_ms_);
+    while (running_.load(std::memory_order_relaxed)) {
+      int sleep_ms = dist(rng_);
+      std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+      if (!running_.load(std::memory_order_relaxed)) {
+        break;
+      }
+      Sample sample;
+      sample.timestamp =
+          std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+              .count();
+      sample.active.resize(active_count_size_);
+      for (size_t i = 0; i < active_count_size_; ++i) {
+        sample.active[i] =
+            active_counts_[i].load(std::memory_order_relaxed) > 0 ? 1 : 0;
+      }
+      {
+        std::lock_guard<std::mutex> lock(samples_mu_);
+        samples_.push_back(std::move(sample));
+        while (samples_.size() > max_samples_) {
+          samples_.pop_front();
+        }
+      }
+    }
+  }
+
+  [[maybe_unused]] std::vector<std::string> names_;
+  [[maybe_unused]] std::vector<int> degrees_;
+  [[maybe_unused]] std::vector<std::pair<int, int>> edges_;
+  std::unique_ptr<std::atomic<int>[]> active_counts_;
+  size_t active_count_size_{0};
+  std::atomic<bool> running_{false};
+  std::thread worker_;
+  std::mutex samples_mu_;
+  std::deque<Sample> samples_;
+  size_t max_samples_;
+  int min_interval_ms_;
+  int max_interval_ms_;
+  std::mt19937 rng_;
 };
 
 using hm::pano::cuda::CudaStitchPano;
@@ -954,6 +1116,61 @@ void init_tracking(::pybind11::module_& m) {
           "max_tracks",
           &hm::tracker::BYTETrackerCudaStatic::max_tracks);
 
+  py::class_<
+      hm::tracker::DfTrackerCudaStatic,
+      std::shared_ptr<hm::tracker::DfTrackerCudaStatic>>(m, "HmDcfTrackerCudaStatic")
+      .def(
+          py::init([](hm::tracker::ByteTrackConfig config,
+                      int64_t max_detections,
+                      int64_t max_tracks,
+                      int64_t reid_feature_dim,
+                      float iou_weight,
+                      float reid_weight,
+                      float box_momentum,
+                      float reid_momentum,
+                      float min_similarity,
+                      float lost_track_cost,
+                      const std::string& device) {
+            return std::make_shared<hm::tracker::DfTrackerCudaStatic>(
+                std::move(config),
+                max_detections,
+                max_tracks,
+                reid_feature_dim,
+                iou_weight,
+                reid_weight,
+                box_momentum,
+                reid_momentum,
+                min_similarity,
+                lost_track_cost,
+                c10::Device(device));
+          }),
+          py::arg("config") = hm::tracker::ByteTrackConfig(),
+          py::arg("max_detections") = 256,
+          py::arg("max_tracks") = 256,
+          py::arg("reid_feature_dim") = 256,
+          py::arg("iou_weight") = 0.5f,
+          py::arg("reid_weight") = 0.5f,
+          py::arg("box_momentum") = 0.6f,
+          py::arg("reid_momentum") = 0.2f,
+          py::arg("min_similarity") = -1.0f,
+          py::arg("lost_track_cost") = 0.05f,
+          py::arg("device") = std::string("cuda:0"))
+      .def("num_tracks", &hm::tracker::DfTrackerCudaStatic::num_tracks)
+      .def(
+          "track",
+          &hm::tracker::DfTrackerCudaStatic::track,
+          py::arg("data"),
+          py::call_guard<py::gil_scoped_release>())
+      .def_property_readonly(
+          "max_detections",
+          &hm::tracker::DfTrackerCudaStatic::max_detections)
+      .def_property_readonly(
+          "max_tracks",
+          &hm::tracker::DfTrackerCudaStatic::max_tracks)
+      .def_property_readonly(
+          "reid_feature_dim",
+          &hm::tracker::DfTrackerCudaStatic::reid_feature_dim);
+
   /**
    *  _    _        _______              _
    * | |  | |      |__   __|            | |
@@ -1075,6 +1292,24 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "stop_resizing_on_dir_change",
           &ResizingConfig::stop_resizing_on_dir_change)
+      .def_readwrite(
+          "resizing_stop_on_dir_change_delay",
+          &ResizingConfig::resizing_stop_on_dir_change_delay)
+      .def_readwrite(
+          "resizing_cancel_stop_on_opposite_dir",
+          &ResizingConfig::resizing_cancel_stop_on_opposite_dir)
+      .def_readwrite(
+          "resizing_stop_cancel_hysteresis_frames",
+          &ResizingConfig::resizing_stop_cancel_hysteresis_frames)
+      .def_readwrite(
+          "resizing_stop_delay_cooldown_frames",
+          &ResizingConfig::resizing_stop_delay_cooldown_frames)
+      .def_readwrite(
+          "resizing_time_to_dest_speed_limit_frames",
+          &ResizingConfig::resizing_time_to_dest_speed_limit_frames)
+      .def_readwrite(
+          "resizing_time_to_dest_stop_speed_threshold",
+          &ResizingConfig::resizing_time_to_dest_stop_speed_threshold)
       .def_readwrite("sticky_sizing", &ResizingConfig::sticky_sizing)
       .def_readwrite(
           "size_ratio_thresh_grow_dw",
@@ -1093,7 +1328,22 @@ void init_living_boxes(::pybind11::module_& m) {
       .def(py::init<>())
       .def_readonly("size_is_frozen", &ResizingState::size_is_frozen)
       .def_readonly("current_speed_w", &ResizingState::current_speed_w)
-      .def_readonly("current_speed_h", &ResizingState::current_speed_h);
+      .def_readonly("current_speed_h", &ResizingState::current_speed_h)
+      // Resize stop-on-direction-change braking state
+      .def_readonly("stop_delay_w", &ResizingState::stop_delay_w)
+      .def_readonly("stop_delay_w_counter", &ResizingState::stop_delay_w_counter)
+      .def_readonly("stop_decel_w", &ResizingState::stop_decel_w)
+      .def_readonly("stop_trigger_dir_w", &ResizingState::stop_trigger_dir_w)
+      .def_readonly("cancel_opp_w_count", &ResizingState::cancel_opp_w_count)
+      .def_readonly("cooldown_w_counter", &ResizingState::cooldown_w_counter)
+      .def_readonly("stop_delay_h", &ResizingState::stop_delay_h)
+      .def_readonly("stop_delay_h_counter", &ResizingState::stop_delay_h_counter)
+      .def_readonly("stop_decel_h", &ResizingState::stop_decel_h)
+      .def_readonly("stop_trigger_dir_h", &ResizingState::stop_trigger_dir_h)
+      .def_readonly("cancel_opp_h_count", &ResizingState::cancel_opp_h_count)
+      .def_readonly("cooldown_h_counter", &ResizingState::cooldown_h_counter)
+      .def_readonly("canceled_stop_w", &ResizingState::canceled_stop_w)
+      .def_readonly("canceled_stop_h", &ResizingState::canceled_stop_h);
 
   py::class_<TranslatingBoxConfig>(m, "TranslatingBoxConfig")
       .def(py::init<>())
@@ -1119,6 +1369,9 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readwrite(
           "time_to_dest_speed_limit_frames",
           &TranslatingBoxConfig::time_to_dest_speed_limit_frames)
+      .def_readwrite(
+          "time_to_dest_stop_speed_threshold",
+          &TranslatingBoxConfig::time_to_dest_stop_speed_threshold)
       .def_readwrite(
           "dynamic_acceleration_scaling",
           &TranslatingBoxConfig::dynamic_acceleration_scaling)
@@ -1339,6 +1592,18 @@ void init_play_tracker(::pybind11::module_& m) {
       .def_readwrite("tracking_id", &Track::tracking_id)
       .def_readwrite("bbox", &Track::bbox);
 
+  py::enum_<HmLogLevel>(m, "HmLogLevel")
+      .value("DEBUG", HmLogLevel::kDebug)
+      .value("INFO", HmLogLevel::kInfo)
+      .value("WARNING", HmLogLevel::kWarning)
+      .value("ERROR", HmLogLevel::kError)
+      .export_values();
+
+  py::class_<HmLogMessage>(m, "HmLogMessage")
+      .def(py::init<>())
+      .def_readwrite("level", &HmLogMessage::level)
+      .def_readwrite("message", &HmLogMessage::message);
+
   py::class_<PlayDetectorConfig>(m, "PlayDetectorConfig")
       .def(py::init<>())
       .def_readwrite("fps_speed_scale", &PlayDetectorConfig::fps_speed_scale)
@@ -1402,7 +1667,8 @@ void init_play_tracker(::pybind11::module_& m) {
           "leftmost_tracking_bbox", &PlayTrackerResults::leftmost_tracking_bbox)
       .def_readonly(
           "rightmost_tracking_bbox",
-          &PlayTrackerResults::rightmost_tracking_bbox);
+          &PlayTrackerResults::rightmost_tracking_bbox)
+      .def_readonly("log_messages", &PlayTrackerResults::log_messages);
 
   py::class_<PlayTracker, std::shared_ptr<PlayTracker>>(m, "PlayTracker")
       .def(
@@ -1415,6 +1681,7 @@ void init_play_tracker(::pybind11::module_& m) {
           &PlayTracker::forward,
           py::arg("tracking_ids"),
           py::arg("tracking_boxes"),
+          py::arg("debug_to_stdout") = false,
           py::call_guard<py::gil_scoped_release>())
       .def("get_live_box", &PlayTracker::get_live_box, py::arg("index"))
       .def("set_bboxes", &PlayTracker::set_bboxes, py::arg("bboxes"))
@@ -1640,6 +1907,40 @@ void init_cuda_pano(::pybind11::module_& m) {
   atexit.attr("register")(py::cpp_function(&hm::on_python_exit));
 }
 
+void init_aspen_graph_sampler(::pybind11::module_& m) {
+  py::class_<hm::AspenGraphSampler>(m, "AspenGraphSampler")
+      .def(
+          py::init<size_t, int, int>(),
+          py::arg("max_samples") = 24,
+          py::arg("min_interval_ms") = 12,
+          py::arg("max_interval_ms") = 40)
+      .def(
+          "configure_graph",
+          &hm::AspenGraphSampler::configure_graph,
+          py::arg("names"),
+          py::arg("degrees"),
+          py::arg("edges"))
+      .def(
+          "start",
+          &hm::AspenGraphSampler::start,
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "stop",
+          &hm::AspenGraphSampler::stop,
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "enter_index",
+          &hm::AspenGraphSampler::enter_index,
+          py::arg("index"),
+          py::call_guard<py::gil_scoped_release>())
+      .def(
+          "exit_index",
+          &hm::AspenGraphSampler::exit_index,
+          py::arg("index"),
+          py::call_guard<py::gil_scoped_release>())
+      .def("pop_samples", &hm::AspenGraphSampler::pop_samples, py::arg("max_items") = 1);
+}
+
 PYBIND11_MODULE(_hockeymom, m) {
   init_stitching(m);
   init_tracking(m);
@@ -1647,4 +1948,5 @@ PYBIND11_MODULE(_hockeymom, m) {
   init_living_boxes(m);
   init_play_tracker(m);
   init_cuda_pano<float4>(m);
+  init_aspen_graph_sampler(m);
 }

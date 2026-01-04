@@ -72,7 +72,7 @@ class GpuAllocator:
 
         self._all_gpu_info = get_gpu_capabilities()
         for i, gpu_info in enumerate(self._all_gpu_info):
-            print(f"GPU {i}: {gpu_info['name']}")
+            logger.info("GPU %d: %s", i, gpu_info["name"])
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
         return self._all_gpu_info[index]
@@ -259,7 +259,9 @@ class StreamTensorX(StreamTensorBase):
         self._event = None
         self._stream = None
 
-    def _ensure_ready_for_stream(self, target_stream: Optional[torch.cuda.Stream]) -> torch.Tensor:
+    def _ensure_ready_for_stream(
+        self, target_stream: Optional[torch.cuda.Stream], clear: bool = False
+    ) -> torch.Tensor:
         if self._tensor.device.type != "cuda":
             return self._tensor
         if self._event is None:
@@ -267,7 +269,8 @@ class StreamTensorX(StreamTensorBase):
         if target_stream is None:
             target_stream = torch.cuda.current_stream(self._tensor.device)
         target_stream.wait_event(self._event)
-        self._clear_tracking()
+        if clear:
+            self._clear_tracking()
         return self._tensor
 
     def _ensure_ready_blocking(self) -> torch.Tensor:
@@ -413,10 +416,13 @@ def unwrap_tensor(
     tensor: Union[torch.Tensor, StreamTensorBase],
     current_stream: Optional[torch.cuda.Stream] = None,
     verbose: Optional[bool] = None,
+    get: bool = False,
 ) -> torch.Tensor:
     if isinstance(tensor, StreamTensorBase):
         if verbose is not None:
             tensor.verbose = verbose
+        if get:
+            return tensor.get()
         return tensor.wait(current_stream)
     return tensor
 
@@ -427,9 +433,7 @@ def wrap_tensor(
     if not tensor.is_cuda:
         return tensor
     if isinstance(tensor, StreamTensorBase):
-        tensor.checkpoint()
-        tensor.verbose = verbose
-        return tensor
+        tensor = unwrap_tensor(tensor)
     return StreamTensorX(tensor)
 
 
@@ -655,7 +659,7 @@ def select_gpus(
             if device.type != "cuda":
                 continue
             name = gpu_allocator[device.index]["name"]
-            print(f"{k} device: {device} ({name})")
+            logger.info("%s device: %s (%s)", k, device, name)
 
     return gpus, gpu_allocator.is_single_lowmem_gpu(), gpu_allocator
 

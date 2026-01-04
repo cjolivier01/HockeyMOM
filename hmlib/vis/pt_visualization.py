@@ -523,6 +523,83 @@ def draw_circle(
     return _finalize_image_after_drawing(work_image, was_channels_last, batched)
 
 
+def draw_ellipse_axes(
+    image: torch.Tensor,
+    center_x: float,
+    center_y: float,
+    radius_x: float,
+    radius_y: float,
+    color: Union[torch.Tensor, Tuple[int, int, int]],
+    thickness: int = 1,
+    fill: bool = False,
+) -> torch.Tensor:
+    """Draw an ellipse or disk using vectorized GPU-friendly operations."""
+
+    if radius_x <= 0 or radius_y <= 0:
+        return image
+
+    thickness_int = max(1, int(thickness))
+
+    work_image, was_channels_last, batched = _prepare_image_for_drawing(image)
+    if work_image.shape[0] != 1:
+        raise ValueError("draw_ellipse_axes expects an image tensor or a batch of size 1")
+
+    radius_x_float = float(radius_x)
+    radius_y_float = float(radius_y)
+    effective_thickness = 0.0 if fill else float(thickness_int)
+
+    color_tensor = _color_to_broadcast_tensor(color, work_image)
+
+    target = work_image[0]
+    _, height, width = target.shape
+    device = target.device
+
+    x_min = math.floor(center_x - radius_x_float - effective_thickness)
+    x_max = math.ceil(center_x + radius_x_float + effective_thickness) + 1
+    y_min = math.floor(center_y - radius_y_float - effective_thickness)
+    y_max = math.ceil(center_y + radius_y_float + effective_thickness) + 1
+
+    x_min_clamped = max(0, x_min)
+    y_min_clamped = max(0, y_min)
+    x_max_clamped = min(width, x_max)
+    y_max_clamped = min(height, y_max)
+
+    if x_min_clamped >= x_max_clamped or y_min_clamped >= y_max_clamped:
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
+
+    xs = torch.arange(x_min_clamped, x_max_clamped, device=device, dtype=torch.float32)
+    ys = torch.arange(y_min_clamped, y_max_clamped, device=device, dtype=torch.float32)
+    ys_grid, xs_grid = torch.meshgrid(ys, xs, indexing="ij")
+
+    norm = ((xs_grid - float(center_x)) / radius_x_float) ** 2 + (
+        (ys_grid - float(center_y)) / radius_y_float
+    ) ** 2
+
+    if fill:
+        mask = norm <= 1.0
+    else:
+        inner_rx = max(0.0, radius_x_float - float(thickness_int))
+        inner_ry = max(0.0, radius_y_float - float(thickness_int))
+        if inner_rx <= 0.0 or inner_ry <= 0.0:
+            mask = norm <= 1.0
+        else:
+            inner_norm = ((xs_grid - float(center_x)) / inner_rx) ** 2 + (
+                (ys_grid - float(center_y)) / inner_ry
+            ) ** 2
+            mask = (norm <= 1.0) & (inner_norm >= 1.0)
+
+    if not mask.any():
+        return _finalize_image_after_drawing(work_image, was_channels_last, batched)
+
+    region = work_image[:, :, y_min_clamped:y_max_clamped, x_min_clamped:x_max_clamped]
+    mask_expanded = mask.unsqueeze(0).unsqueeze(0).expand_as(region)
+    color_expanded = color_tensor.expand_as(region)
+
+    region.copy_(torch.where(mask_expanded, color_expanded, region))
+
+    return _finalize_image_after_drawing(work_image, was_channels_last, batched)
+
+
 def draw_ellipse(self, frame, bbox, color, track_id=None, team=None):
     y2 = int(bbox[3])
     x_center = (int(bbox[0]) + int(bbox[2])) // 2

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "hockeymom/csrc/play_tracker/LivingBox.h"
+#include "hockeymom/csrc/play_tracker/LogCapture.h"
 #include "hockeymom/csrc/play_tracker/PlayDetector.h"
 
 #include <array>
@@ -51,6 +52,7 @@ struct PlayTrackerResults {
   std::optional<Track> largest_tracking_bbox;
   std::optional<Track> leftmost_tracking_bbox;
   std::optional<Track> rightmost_tracking_bbox;
+  std::vector<HmLogMessage> log_messages;
 };
 
 class PlayTracker : public IBreakawayAdjuster {
@@ -68,7 +70,8 @@ class PlayTracker : public IBreakawayAdjuster {
 
   PlayTrackerResults forward(
       std::vector<size_t>& tracking_ids,
-      std::vector<BBox>& tracking_boxes);
+      std::vector<BBox>& tracking_boxes,
+      bool debug_to_stdout = false);
 
   void set_bboxes(const std::vector<BBox>& bboxes);
   // TODO: this can be done via living box's get_size_scale()

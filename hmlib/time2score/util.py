@@ -2,7 +2,9 @@
 
 import datetime
 import json
+import logging
 import os
+import re
 from urllib import parse
 
 import bs4
@@ -19,16 +21,92 @@ HEADERS = {
 CACHE = False
 
 
+logger = logging.getLogger(__name__)
+
+
 def get_value_from_link(url: str, key: str):
     query = parse.urlsplit(url).query
     query_map = dict(parse.parse_qsl(query))
     return query_map.get(key)
 
 
+_MONTHS = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
+
+
+def infer_season_year_for_date_str(
+    date_str: str,
+    *,
+    season_start_month: int = 10,
+    season_end_month: int = 6,
+    reference_dt: datetime.datetime | None = None,
+) -> int:
+    """Infer the year for a season that spans across calendar years.
+
+    For youth hockey leagues, a "season" often spans roughly Oct-Jun.
+
+    The intent here is that when a page only includes month/day (no year),
+    we can infer the correct year relative to the current "active season":
+      - Oct-Dec => season start year
+      - Jan-Jun => following year
+      - Jul-Sep (off-season/preseason) => season start year
+    """
+    ref = reference_dt or datetime.datetime.now()
+    # Determine which season we're "in" relative to the reference date.
+    # Example with season_start_month=10 and season_end_month=6:
+    #   - In Jan-Jun 2026: active season started Oct 2025 (start_year=2025)
+    #   - In Oct-Dec 2026: active season started Oct 2026 (start_year=2026)
+    #   - In Jul-Sep 2026: treat as last season (start_year=2025)
+    ref_y = int(ref.year)
+    ref_m = int(ref.month)
+    start_m = int(season_start_month)
+    end_m = int(season_end_month)
+    if start_m < 1 or start_m > 12 or end_m < 1 or end_m > 12:
+        season_start_year = ref_y
+    else:
+        if ref_m >= start_m:
+            season_start_year = ref_y
+        elif ref_m <= end_m:
+            season_start_year = ref_y - 1
+        else:
+            # Off-season months between end_m and start_m.
+            season_start_year = ref_y - 1
+
+    s = str(date_str or "")
+    m = re.search(r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b", s, flags=re.IGNORECASE)
+    if not m:
+        return int(ref.year)
+    month = _MONTHS.get(m.group(1).lower()[:3])
+    if not month:
+        return int(ref.year)
+    if start_m < 1 or start_m > 12 or end_m < 1 or end_m > 12:
+        return int(ref.year)
+    if month >= start_m:
+        return int(season_start_year)
+    if month <= end_m:
+        return int(season_start_year) + 1
+    # Off-season / preseason months: keep in season start year.
+    return int(season_start_year)
+
+
 def parse_game_time(date_str, time_str, year=None):
     time_str = time_str.replace("12 Noon", "12:00 PM")
     if year is None:
-        year = str(datetime.datetime.now().year)
+        year = str(infer_season_year_for_date_str(str(date_str or "")))
+    else:
+        year = str(year)
     return datetime.datetime.strptime(
         year + " " + date_str + " " + time_str, "%Y %a %b %d %I:%M %p"
     )
@@ -37,8 +115,9 @@ def parse_game_time(date_str, time_str, year=None):
 def get_html(url: str, params: dict[str, str] | None = None, log=False):
     """Read HTML from a given URL."""
     if log:
-        print("Reading HTML from %s (%s)..." % (url, params))
-    html = requests.get(url, params=params, headers=HEADERS)
+        logger.info("Reading HTML from %s (%s)...", url, params)
+    timeout_s = float(os.environ.get("HM_T2S_HTTP_TIMEOUT", "30"))
+    html = requests.get(url, params=params, headers=HEADERS, timeout=timeout_s)
     return bs4.BeautifulSoup(html.text, "html5lib")
 
 
@@ -65,16 +144,16 @@ def cache_json(
                 age = datetime.datetime.now() - modify_time
                 if max_age is not None and age < max_age:
                     with open(path, "r") as cachehandle:
-                        print("using cached result from '%s'" % path)
+                        logger.info("Using cached result from '%s'", path)
                         return json.load(cachehandle)
                 else:
-                    print("cache is stale. Reloading...")
+                    logger.info("Cache is stale. Reloading...")
 
             # execute the function with all arguments passed
             res = fn(*args, **kwargs)
             # write to cache file
             with open(path, "w") as cachehandle:
-                print("saving result to cache '%s'" % path)
+                logger.info("Saving result to cache '%s'", path)
                 json.dump(res, cachehandle)
             return res
 

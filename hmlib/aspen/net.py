@@ -6,8 +6,8 @@ topological order while sharing a mutable context dictionary.
 
 import contextlib
 import importlib
-import logging
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -20,10 +20,11 @@ import networkx as nx
 import torch
 
 from hmlib.aspen.plugins.base import Plugin
+from hmlib.log import get_logger
 from hmlib.utils.containers import SidebandQueue as Queue
 from hmlib.utils.containers import create_queue
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -33,7 +34,40 @@ class _Node:
     depends: List[str]
     params: Dict[str, Any]
     module: torch.nn.Module
+    graph_degree: Optional[int] = None
     stream: torch.cuda.Stream = None  # type: ignore[assignment]
+
+
+@dataclass
+class _WorkItem:
+    seq: int
+    context: Dict[str, Any]
+
+
+@dataclass
+class _GraphNodeState:
+    queue: Queue
+    next_seq: int
+    ready: Dict[int, _WorkItem]
+    lock: threading.Lock
+
+
+@dataclass
+class _GraphContextState:
+    item: _WorkItem
+    remaining_deps: List[int]
+    remaining_nodes: int
+
+
+class _ExceptionWrapper:
+    __slots__ = ("exc", "tb")
+
+    def __init__(self, exc: BaseException):
+        self.exc = exc
+        self.tb = exc.__traceback__
+
+    def reraise(self) -> None:
+        raise self.exc.with_traceback(self.tb)
 
 
 class AspenNet(torch.nn.Module):
@@ -53,7 +87,7 @@ class AspenNet(torch.nn.Module):
         graph_cfg: Dict[str, Any],
         shared: Optional[Dict[str, Any]] = None,
         minimal_context: bool = False,
-        max_concurrent: int = 3,
+        max_concurrent: int = 2,
         verbose: bool = False,
         validate_output_keys_each_time: bool = False,
     ):
@@ -65,13 +99,24 @@ class AspenNet(torch.nn.Module):
         self._verbose = verbose
         self.shared: Dict[str, Any] = shared or {}
         self.nodes: List[_Node] = []
+        self.node_map: Dict[str, _Node] = {}
         self.max_concurrent: int = max_concurrent
         self.num_concurrent: int = 0
         self._thread_error: Optional[BaseException] = None
+        self._stop_token: Optional[object] = None
+        self._timing_lock = threading.Lock()
+        self._last_timing: Optional[Dict[str, Any]] = None
+        self._progress_state_enabled: bool = False
+        self._progress_state_lock: Optional[threading.Lock] = None
+        self._progress_active_counts: Dict[str, int] = {}
+        self._progress_sampler: Optional[Any] = None
+        self._progress_sampler_index: Dict[str, int] = {}
+        self._progress_last_sample_active: Optional[List[int]] = None
         # Track which plugins have already had their output_keys() contract validated.
         self._output_keys_validated: Set[str] = set()
         # NetworkX DiGraph storing the plugins graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
+        self.max_graph_degree: int = 0
         self.minimal_context = bool(
             minimal_context
             or (isinstance(graph_cfg, dict) and graph_cfg.get("minimal_context", False))
@@ -85,6 +130,16 @@ class AspenNet(torch.nn.Module):
         if threaded_flag is None and isinstance(graph_cfg, dict):
             threaded_flag = graph_cfg.get("threaded_trunks", False)
         self.threaded_trunks: bool = bool(threaded_flag)
+        graph_mode_flag = pipeline_cfg.get("graph", None)
+        if graph_mode_flag is None:
+            graph_mode_flag = pipeline_cfg.get("graph_mode", None)
+        if isinstance(graph_mode_flag, str):
+            mode = graph_mode_flag.strip().lower()
+            if mode in ("true", "1", "yes", "graph", "dag", "parallel"):
+                graph_mode_flag = True
+            elif mode in ("false", "0", "no", "linear", "pipeline", "serial"):
+                graph_mode_flag = False
+        self.thread_graph_mode: bool = bool(graph_mode_flag)
         output_check_flag = pipeline_cfg.get("check_output_keys_each_time", None)
         if output_check_flag is None and isinstance(graph_cfg, dict):
             output_check_flag = graph_cfg.get("check_output_keys_each_time", None)
@@ -98,8 +153,17 @@ class AspenNet(torch.nn.Module):
             raise ValueError(
                 f"AspenNet pipeline queue_size must be an integer, got {queue_size_cfg!r}"
             ) from exc
+        max_concurrent_cfg = pipeline_cfg.get("max_concurrent", None)
+        if max_concurrent_cfg is not None:
+            try:
+                self.max_concurrent = max(1, int(max_concurrent_cfg))
+            except Exception as exc:
+                raise ValueError(
+                    "AspenNet pipeline max_concurrent must be an integer, "
+                    f"got {max_concurrent_cfg!r}"
+                ) from exc
         cuda_streams_flag = pipeline_cfg.get("cuda_streams", True)
-        self.thread_cuda_streams: bool = bool(cuda_streams_flag)
+        self.thread_cuda_streams: bool = bool(cuda_streams_flag) or self.thread_graph_mode
 
         # Accept a dict with a required {plugins: {...}} mapping.
         plugins = graph_cfg.get("plugins") if isinstance(graph_cfg, dict) else None
@@ -110,7 +174,7 @@ class AspenNet(torch.nn.Module):
         self._profiler = self.shared.get("profiler", None)
 
         self._build_nodes(plugins)
-        self._build_graph(plugins)
+        self._build_graph()
         self.exec_order = self._toposort()
         self.training: bool = False
         self._iter_num: int = 0
@@ -173,8 +237,10 @@ class AspenNet(torch.nn.Module):
             )
             setattr(self, f"trunk_{name}", module)
             self.nodes.append(node)
+            assert node.name not in self.node_map, f"Duplicate plugin name: {node.name}"
+            self.node_map[node.name] = node
 
-    def _build_graph(self, plugins: Dict[str, Any]):
+    def _build_graph(self):
         # Add all nodes with attributes
         for node in self.nodes:
             self.graph.add_node(
@@ -197,6 +263,24 @@ class AspenNet(torch.nn.Module):
         if unknown_deps:
             details = ", ".join(f"{k}: {v}" for k, v in unknown_deps.items())
             raise ValueError(f"Unknown dependencies referenced in plugins: {details}")
+
+        self.set_graph_degree(self.graph)
+
+    def set_graph_degree(self, G: nx.DiGraph) -> None:
+        if not nx.is_directed_acyclic_graph(G):
+            raise ValueError("Graph must be a DAG")
+
+        for n in G.nodes:
+            node = self.node_map[n]
+            node.graph_degree = 0 if G.in_degree(n) == 0 else None
+
+        for n in nx.topological_sort(G):
+            node = self.node_map[n]
+            if node.graph_degree is None:
+                node.graph_degree = (
+                    max(self.node_map[p].graph_degree for p in G.predecessors(n)) + 1
+                )
+                self.max_graph_degree = max(self.max_graph_degree, node.graph_degree)
 
     @staticmethod
     def _instantiate(cls_path: str, params: Dict[str, Any]) -> torch.nn.Module:
@@ -238,14 +322,15 @@ class AspenNet(torch.nn.Module):
             return self._forward_threaded(context)
         grad_ctx = torch.enable_grad() if self.training else torch.no_grad()
         with grad_ctx:
-            do_trace: bool = True and self._iter_num == 10
-            if do_trace:
-                pass
+            # do_trace: bool = True and self._iter_num == 10
+            # if do_trace:
+            #     pass
             for node in self.exec_order:
                 self._execute_node(node, context)
-            if do_trace:
-                pass
+            # if do_trace:
+            #     pass
         self._iter_num += 1
+        self._finalize_timing(context)
         return context
 
     # region graph export/visualization
@@ -359,6 +444,18 @@ class AspenNet(torch.nn.Module):
         except Exception:
             return False
 
+    def stop_progress_graph(self) -> None:
+        """Stop the progress graph sampler thread if active."""
+        sampler = self._progress_sampler
+        if sampler is None:
+            return
+        try:
+            sampler.stop()
+        except Exception:
+            logger.exception("AspenNet progress sampler stop failed")
+        self._progress_sampler = None
+        self._progress_last_sample_active = None
+
     def finalize(self) -> None:
         """Invoke ``finalize`` on all plugins if they provide it."""
         for node in self.nodes:
@@ -368,6 +465,7 @@ class AspenNet(torch.nn.Module):
                     finalize_fn()
                 except Exception:
                     logger.exception("Aspen plugin %s finalize failed", node.name)
+        self.stop_progress_graph()
 
     # endregion
 
@@ -386,6 +484,9 @@ class AspenNet(torch.nn.Module):
         plugin = node.module
         subctx = self._make_subcontext(plugin, context) if self.minimal_context else context
         name = f"aspen.plugin.{node.name}"
+        start_time = None
+        if context.get("_aspen_timing_enabled"):
+            start_time = time.perf_counter()
         if self._verbose:
             print(f"AspenNet: Executing plugin '{node.name}' with class '{node.cls_path}'")
         if isinstance(plugin, Plugin):
@@ -394,8 +495,32 @@ class AspenNet(torch.nn.Module):
             prof_ctx = self._profiler.rf(name)
         else:
             prof_ctx = contextlib.nullcontext()
-        with prof_ctx:
-            out = plugin(subctx) or {}
+        if self._progress_state_enabled:
+            sampler = self._progress_sampler
+            if sampler is not None:
+                idx = self._progress_sampler_index.get(node.name)
+                try:
+                    if idx is not None:
+                        sampler.enter_index(idx)
+                    with prof_ctx:
+                        out = plugin(subctx) or {}
+                finally:
+                    if idx is not None:
+                        sampler.exit_index(idx)
+            else:
+                entered = self._progress_enter(node.name)
+                try:
+                    with prof_ctx:
+                        out = plugin(subctx) or {}
+                finally:
+                    if entered:
+                        self._progress_exit(node.name)
+        else:
+            with prof_ctx:
+                out = plugin(subctx) or {}
+        if start_time is not None:
+            end_time = time.perf_counter()
+            self._record_timing(context, node.name, start_time, end_time)
 
         declared = set(getattr(plugin, "output_keys", lambda: set())())
         returned_keys = set(out.keys())
@@ -430,6 +555,201 @@ class AspenNet(torch.nn.Module):
 
         context["plugins"][node.name] = {k: out[k] for k in out.keys()}
 
+    def _record_timing(self, context: Dict[str, Any], name: str, start: float, end: float) -> None:
+        if not context.get("_aspen_timing_enabled"):
+            return
+        with self._timing_lock:
+            timing = context.setdefault(
+                "_aspen_timing", {"plugins": {}, "start": None, "end": None}
+            )
+            plugin_entry = timing["plugins"].setdefault(name, {})
+            plugin_entry["start"] = start
+            plugin_entry["end"] = end
+            plugin_entry["duration"] = float(end - start)
+            timing_start = timing.get("start")
+            timing_end = timing.get("end")
+            timing["start"] = start if timing_start is None else min(timing_start, start)
+            timing["end"] = end if timing_end is None else max(timing_end, end)
+
+    def _finalize_timing(self, context: Dict[str, Any]) -> None:
+        if not context.get("_aspen_timing_enabled"):
+            return
+        timing = context.get("_aspen_timing")
+        if not isinstance(timing, dict):
+            return
+        start = timing.get("start")
+        end = timing.get("end")
+        if start is None or end is None:
+            return
+        total = max(1e-9, float(end - start))
+        plugins = timing.get("plugins", {})
+        summary = {
+            "total": total,
+            "plugins": {name: float(info.get("duration", 0.0)) for name, info in plugins.items()},
+        }
+        with self._timing_lock:
+            self._last_timing = summary
+
+    def get_last_timing(self) -> Optional[Dict[str, Any]]:
+        with self._timing_lock:
+            if self._last_timing is None:
+                return None
+            return dict(self._last_timing)
+
+    def enable_progress_graph(self) -> None:
+        """Enable lightweight graph state tracking for progress UI rendering."""
+        if self._progress_state_enabled:
+            return
+        self._progress_state_enabled = True
+        self._progress_last_sample_active = None
+        try:
+            from hockeymom._hockeymom import AspenGraphSampler  # type: ignore
+
+            sampler = AspenGraphSampler(max_samples=24, min_interval_ms=12, max_interval_ms=40)
+            names = [node.name for node in self.exec_order]
+            degrees = [node.graph_degree if node.graph_degree is not None else 0 for node in self.exec_order]
+            self._progress_sampler_index = {name: idx for idx, name in enumerate(names)}
+            edges = [
+                (self._progress_sampler_index[u], self._progress_sampler_index[v])
+                for u, v in self.graph.edges()
+                if u in self._progress_sampler_index and v in self._progress_sampler_index
+            ]
+            sampler.configure_graph(names, degrees, edges)
+            sampler.start()
+            self._progress_sampler = sampler
+            return
+        except Exception:
+            logger.exception("AspenNet progress sampler init failed; falling back to Python state")
+            self._progress_sampler = None
+            self._progress_sampler_index = {}
+        self._progress_state_lock = threading.Lock()
+        self._progress_active_counts = {node.name: 0 for node in self.exec_order}
+
+    def _progress_enter(self, name: str) -> bool:
+        if not self._progress_state_enabled:
+            return False
+        lock = self._progress_state_lock
+        if lock is None:
+            return False
+        with lock:
+            self._progress_active_counts[name] = self._progress_active_counts.get(name, 0) + 1
+        return True
+
+    def _progress_exit(self, name: str) -> None:
+        if not self._progress_state_enabled:
+            return
+        lock = self._progress_state_lock
+        if lock is None:
+            return
+        with lock:
+            current = self._progress_active_counts.get(name, 0)
+            if current > 0:
+                self._progress_active_counts[name] = current - 1
+
+    def get_progress_snapshot(self) -> Optional[Dict[str, Any]]:
+        """Return a snapshot of graph activity and queue state for UI rendering."""
+        if not self._progress_state_enabled:
+            return None
+        lock = self._progress_state_lock
+        active_flags: Optional[List[int]] = None
+        if self._progress_sampler is not None:
+            try:
+                samples = self._progress_sampler.pop_samples(1)
+            except Exception:
+                samples = []
+            if samples:
+                sample = samples[-1]
+                active_flags = list(sample.get("active", []))
+                self._progress_last_sample_active = active_flags
+            else:
+                active_flags = self._progress_last_sample_active
+        active_counts: Dict[str, int] = {}
+        if lock is not None:
+            with lock:
+                active_counts = dict(self._progress_active_counts)
+        nodes = []
+        for idx, node in enumerate(self.exec_order):
+            degree = node.graph_degree if node.graph_degree is not None else 0
+            if active_flags is not None and idx < len(active_flags):
+                active = bool(active_flags[idx])
+            else:
+                active = bool(active_counts.get(node.name, 0) > 0)
+            nodes.append(
+                {
+                    "name": node.name,
+                    "degree": int(degree),
+                    "active": active,
+                }
+            )
+        edges = list(self.graph.edges())
+        node_queues: Dict[str, Dict[str, Any]] = {}
+        queue_info = None
+        queues = None
+        labels: List[str] = []
+        if self.threaded_trunks:
+            if self.thread_graph_mode and hasattr(self, "graph_queues"):
+                queues = list(self.graph_queues)
+                labels = [node.name for node in self.exec_order]
+                for node, q in zip(self.exec_order, queues):
+                    try:
+                        current = q.qsize()
+                    except Exception:
+                        current = 0
+                    max_size = getattr(q, "_max_size", None)
+                    node_queues[node.name] = {"current": int(current), "max": max_size}
+            elif hasattr(self, "queues"):
+                queues = list(self.queues)
+                labels = [node.name for node in self.exec_order]
+                if len(queues) > len(labels):
+                    labels.append("out")
+                for idx, node in enumerate(self.exec_order):
+                    if idx >= len(queues):
+                        break
+                    q = queues[idx]
+                    try:
+                        current = q.qsize()
+                    except Exception:
+                        current = 0
+                    max_size = getattr(q, "_max_size", None)
+                    node_queues[node.name] = {"current": int(current), "max": max_size}
+        if queues:
+            items = []
+            total_current = 0
+            total_capacity = 0
+            capacity_known = True
+            for label, q in zip(labels, queues):
+                try:
+                    current = q.qsize()
+                except Exception:
+                    current = 0
+                max_size = getattr(q, "_max_size", None)
+                items.append({"label": label, "current": int(current), "max": max_size})
+                total_current += int(current)
+                if isinstance(max_size, int) and max_size > 0:
+                    total_capacity += max_size
+                else:
+                    capacity_known = False
+            queue_info = {
+                "items": items,
+                "total_current": total_current,
+                "total_capacity": total_capacity if capacity_known else None,
+                "count": len(items),
+            }
+        concurrency = {
+            "current": int(self.num_concurrent) if self.threaded_trunks else 1,
+            "max": int(self.max_concurrent) if self.threaded_trunks else 1,
+            "threaded": bool(self.threaded_trunks),
+        }
+        return {
+            "nodes": nodes,
+            "max_degree": int(self.max_graph_degree),
+            "queues": queue_info,
+            "concurrency": concurrency,
+            "edges": edges,
+            "node_queues": node_queues,
+            "order": [node.name for node in self.exec_order],
+        }
+
     def _make_subcontext(self, plugin: torch.nn.Module, context: Dict[str, Any]) -> Dict[str, Any]:
         req_keys = set(getattr(plugin, "input_keys", lambda: set())())
         if not req_keys:
@@ -443,19 +763,189 @@ class AspenNet(torch.nn.Module):
         return subctx
 
     def _forward_threaded(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        if self.thread_graph_mode:
+            return self._forward_threaded_graph(context)
+        return self._forward_threaded_linear(context)
+
+    def _graph_enqueue_ready(self, node_index: int, item: _WorkItem) -> None:
+        if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+            return
+        state = self._graph_node_state[node_index]
+        with state.lock:
+            if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+                return
+            state.ready[item.seq] = item
+            self._graph_drain_ready_locked(state)
+
+    def _graph_drain_ready_locked(self, state: _GraphNodeState) -> None:
+        # Enqueue only contiguous sequences to preserve per-node ordering.
+        while True:
+            next_item = state.ready.get(state.next_seq)
+            if next_item is None:
+                break
+            try:
+                state.queue.put(next_item, block=False)
+            except (queue.Full, ValueError):
+                break
+            del state.ready[state.next_seq]
+            state.next_seq += 1
+
+    def _graph_mark_complete(self, node_index: int, item: _WorkItem) -> None:
+        if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+            return
+        ready_children: List[int] = []
+        finalize_ctx = None
+        with self._graph_lock:
+            if self._graph_stop_event.is_set():
+                return
+            state = self._graph_contexts.get(item.seq)
+            if state is None:
+                return
+            for child_index in self._graph_children[node_index]:
+                state.remaining_deps[child_index] -= 1
+                if state.remaining_deps[child_index] == 0:
+                    ready_children.append(child_index)
+            state.remaining_nodes -= 1
+            if state.remaining_nodes == 0:
+                del self._graph_contexts[item.seq]
+                if self.num_concurrent > 0:
+                    self.num_concurrent -= 1
+                finalize_ctx = state.item.context
+        for child_index in ready_children:
+            self._graph_enqueue_ready(child_index, item)
+        if finalize_ctx is not None:
+            self._finalize_timing(finalize_ctx)
+
+    def _graph_request_stop(self) -> None:
+        stop_event = getattr(self, "_graph_stop_event", None)
+        if stop_event is None:
+            return
+        stop_event.set()
+        stop_token = self._stop_token
+        if stop_token is None:
+            stop_token = object()
+            self._stop_token = stop_token
+        queues = getattr(self, "graph_queues", None)
+        if queues is None:
+            return
+        for q in queues:
+            try:
+                q.put(stop_token, block=False)
+            except (queue.Full, ValueError):
+                continue
+
+    def _graph_worker(self, index: int, node: _Node) -> None:
+        in_queue = self.graph_queues[index]
+        stop_token = self._stop_token
+        state = self._graph_node_state[index]
+        try:
+            while True:
+                try:
+                    item = in_queue.get(timeout=0.1)
+                except queue.Empty:
+                    if (
+                        getattr(self, "_graph_stop_event", None) is not None
+                        and self._graph_stop_event.is_set()
+                    ):
+                        break
+                    continue
+                if item is stop_token:
+                    break
+                if isinstance(item, _ExceptionWrapper):
+                    self._thread_error = item
+                    self._graph_request_stop()
+                    break
+                if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+                    break
+                with state.lock:
+                    self._graph_drain_ready_locked(state)
+                grad_ctx = torch.enable_grad() if self.training else torch.no_grad()
+                try:
+                    with grad_ctx:
+                        self._execute_with_stream(node, item.context)
+                    self._graph_mark_complete(index, item)
+                except BaseException as exc:
+                    wrapper = _ExceptionWrapper(exc)
+                    self._thread_error = wrapper
+                    self._graph_request_stop()
+                    break
+        finally:
+            print(f"AspenNet: Thread for plugin '{node.name}' exiting.")
+
+    def _init_threaded_graph(self) -> None:
+        self.initialized = True
+        stop_token = self._stop_token or object()
+        self._stop_token = stop_token
+        self._graph_stop_event = threading.Event()
+        self._graph_lock = threading.Lock()
+        self._graph_seq = 0
+        self._graph_contexts = {}
+        self._graph_node_index = {node.name: idx for idx, node in enumerate(self.exec_order)}
+        self._graph_children = [[] for _ in self.exec_order]
+        self._graph_indegree = [0 for _ in self.exec_order]
+        for parent, child in self.graph.edges():
+            parent_idx = self._graph_node_index[parent]
+            child_idx = self._graph_node_index[child]
+            self._graph_children[parent_idx].append(child_idx)
+            self._graph_indegree[child_idx] += 1
+        self._graph_roots = [
+            idx for idx, count in enumerate(self._graph_indegree) if count == 0
+        ]
+        self.graph_queues = [
+            create_queue(
+                mp=False,
+                name=f"Aspen-{node.name}",
+                max_size=self.thread_queue_size,
+                warn_after=5.0,
+            )
+            for node in self.exec_order
+        ]
+        self._graph_node_state = [
+            _GraphNodeState(
+                queue=self.graph_queues[idx],
+                next_seq=0,
+                ready={},
+                lock=threading.Lock(),
+            )
+            for idx in range(len(self.exec_order))
+        ]
+        self.threads = []
+        for idx, node in enumerate(self.exec_order):
+            thread = threading.Thread(
+                target=self._graph_worker, args=(idx, node), daemon=True, name=node.name
+            )
+            thread.start()
+            self.threads.append(thread)
+
+    def _forward_threaded_graph(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.initialized:
+            self._init_threaded_graph()
+        while self.num_concurrent >= self.max_concurrent:
+            self._maybe_reraise_thread_error()
+            time.sleep(0.01)
+        self._maybe_reraise_thread_error()
+        roots = []
+        with self._graph_lock:
+            seq = self._graph_seq
+            self._graph_seq += 1
+            item = _WorkItem(seq=seq, context=context)
+            state = _GraphContextState(
+                item=item,
+                remaining_deps=list(self._graph_indegree),
+                remaining_nodes=len(self.exec_order),
+            )
+            self._graph_contexts[seq] = state
+            self.num_concurrent += 1
+            roots = list(self._graph_roots)
+        for idx in roots:
+            self._graph_enqueue_ready(idx, item)
+        return None
+
+    def _forward_threaded_linear(self, context: Dict[str, Any]) -> Dict[str, Any]:
         if not self.initialized:
             self.initialized = True
-            stop_token = object()
-
-            class _ExceptionWrapper:
-                __slots__ = ("exc", "tb")
-
-                def __init__(self, exc: BaseException):
-                    self.exc = exc
-                    self.tb = exc.__traceback__
-
-                def reraise(self) -> None:
-                    raise self.exc.with_traceback(self.tb)
+            stop_token = self._stop_token or object()
+            self._stop_token = stop_token
 
             def make_grad_ctx():
                 return torch.enable_grad() if self.training else torch.no_grad()
@@ -467,8 +957,6 @@ class AspenNet(torch.nn.Module):
                 try:
                     while True:
                         item = in_queue.get()
-                        if is_last:
-                            pass
                         if item is stop_token:
                             out_queue.put(stop_token)
                             break
@@ -483,6 +971,7 @@ class AspenNet(torch.nn.Module):
                             if not is_last:
                                 out_queue.put(item)
                             else:
+                                self._finalize_timing(item)
                                 assert self.num_concurrent > 0
                                 self.num_concurrent -= 1
                         except BaseException as exc:
@@ -514,37 +1003,58 @@ class AspenNet(torch.nn.Module):
                 )
                 thread.start()
                 self.threads.append(thread)
-
-            # queues[0].put(context)
-            # result = queues[-1].get()
-            # try:
-            #     if isinstance(result, _ExceptionWrapper):
-            #         result.reraise()
-            #     return result
-            # finally:
-            #     if threads:
-            #         queues[0].put(stop_token)
-            #     for thread in threads:
-            #         thread.join()
         while self.num_concurrent >= self.max_concurrent:
+            self._maybe_reraise_thread_error()
             time.sleep(0.01)
-        self.queues[0].put(context)
+        while True:
+            self._maybe_reraise_thread_error()
+            try:
+                self.queues[0].put(context, block=False)
+                break
+            except queue.Full:
+                time.sleep(0.01)
         self.num_concurrent += 1
         return None
 
     def stop(self, wait: bool = True) -> None:
         """Stop all threaded plugins and join their threads."""
-        if not self.threaded_trunks or not hasattr(self, "queues"):
+        if not self.threaded_trunks:
+            self.stop_progress_graph()
             return
-        stop_token = object()
-        for _ in self.exec_order:
-            self.queues[0].put(stop_token)
+        stop_token = self._stop_token or object()
+        self._stop_token = stop_token
+        if self.thread_graph_mode:
+            if not hasattr(self, "graph_queues"):
+                self.stop_progress_graph()
+                return
+            self._graph_request_stop()
+            for thread in self.threads:
+                if wait and thread.is_alive():
+                    thread.join()
+            for q in self.graph_queues:
+                q.close()
+            del self.graph_queues
+            self.stop_progress_graph()
+            return
+        if not hasattr(self, "queues"):
+            self.stop_progress_graph()
+            return
+        if wait:
+            for _ in self.exec_order:
+                self.queues[0].put(stop_token)
+        else:
+            for _ in self.exec_order:
+                try:
+                    self.queues[0].put(stop_token, block=False)
+                except queue.Full:
+                    break
         for thread in self.threads:
             if wait and thread.is_alive():
                 thread.join()
         for q in self.queues:
             q.close()
         del self.queues
+        self.stop_progress_graph()
 
     def _execute_with_stream(self, node: _Node, context: Dict[str, Any]) -> None:
         use_cuda_stream = (
@@ -553,19 +1063,28 @@ class AspenNet(torch.nn.Module):
         if use_cuda_stream:
             if node.stream is None:
                 device = self._infer_device(context)
+                # Arbitrarily make normal priority 10
+                # Smaller/neg numbers are higher priority
+                priority: int = self.max_graph_degree + 1
+                if node.graph_degree is not None:
+                    priority -= node.graph_degree
                 node.stream = torch.cuda.Stream(
                     device=device,
+                    priority=priority,
                 )
+                print(f"Created stream for plugin {node.name} with priority {priority}")
             # Ensure plugins that fetch context["cuda_stream"] see the stream actually running them.
             prev_stream = context.get("cuda_stream")
-            has_prev_stream = "cuda_stream" in context
+            if prev_stream is None:
+                prev_stream = torch.cuda.current_stream(device=node.stream.device)
+            if prev_stream is not None:
+                node.stream.wait_stream(prev_stream)
             context["cuda_stream"] = node.stream
             try:
                 with torch.cuda.stream(node.stream):
                     self._execute_node(node, context)
-                # node.stream.synchronize()
             finally:
-                if has_prev_stream:
+                if prev_stream is not None:
                     context["cuda_stream"] = prev_stream
                 else:
                     context.pop("cuda_stream", None)

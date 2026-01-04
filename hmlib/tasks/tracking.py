@@ -1,26 +1,31 @@
 import contextlib
+import time
 import traceback
 from collections import OrderedDict
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
 # AspenNet graph runner
 from hmlib.aspen import AspenNet
-from hmlib.config import get_game_dir
+from hmlib.config import get_game_dir, get_nested_value
 from hmlib.datasets.dataframe import find_latest_dataframe_file
+from hmlib.hm_opts import hm_opts
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import cuda_stream_scope
 from hmlib.utils.image import make_channels_first
 from hmlib.utils.iterators import CachedIterator
-from hmlib.utils.progress_bar import ProgressBar, convert_seconds_to_hms
+from hmlib.utils.progress_bar import (
+    ProgressBar,
+    build_aspen_graph_renderable,
+    convert_seconds_to_hms,
+)
 
 
 def run_mmtrack(
     model,
-    pose_inferencer,
     config: Dict[str, Any],
     dataloader,
     postprocessor,
@@ -68,6 +73,20 @@ def run_mmtrack(
             last_frame_id = None
             max_tracking_id = 0
 
+            display_opt = config.get("display_plugin_profile")
+            if display_opt is None:
+                display_opt = get_nested_value(config, "aspen.pipeline.display_plugin_profile", None)
+            display_plugin_profile = bool(display_opt)
+            graph_opt = config.get("display_aspen_graph")
+            if graph_opt is None:
+                graph_opt = get_nested_value(config, "aspen.pipeline.display_graph", None)
+            display_aspen_graph = bool(graph_opt)
+
+            last_aspen_timing: Optional[Dict[str, Any]] = None
+            last_dataloader_time: Optional[float] = None
+            plugin_names: List[str] = []
+            plugin_display_names: List[str] = []
+
             if progress_bar is not None:
                 dataloader_iterator = progress_bar.set_iterator(dataloader_iterator)
 
@@ -75,6 +94,9 @@ def run_mmtrack(
                 # The progress table
                 #
                 def _table_callback(table_map: OrderedDict[Any, Any]):
+                    for key in list(table_map.keys()):
+                        if str(key).startswith("Pct "):
+                            del table_map[key]
                     duration_processed_in_seconds = (
                         number_of_batches_processed * batch_size / dataloader.fps
                     )
@@ -99,6 +121,29 @@ def run_mmtrack(
                         )
                         table_map["Track count"] = str(nr_tracks)
                         table_map["Track IDs"] = str(int(max_tracking_id))
+                    if display_plugin_profile and last_aspen_timing is not None:
+                        plugin_times = last_aspen_timing.get("plugins", {})
+                        total_time = float(last_aspen_timing.get("total", 0.0) or 0.0)
+                        if last_dataloader_time is not None:
+                            total_time += float(last_dataloader_time)
+                        if total_time > 0.0:
+                            dl_pct = (
+                                100.0 * float(last_dataloader_time) / total_time
+                                if last_dataloader_time is not None
+                                else None
+                            )
+                            if dl_pct is not None and dl_pct >= 1.0:
+                                table_map["Pct dataloader"] = f"{dl_pct:.1f}%"
+                            ordered_plugins = plugin_display_names or plugin_names or list(
+                                plugin_times.keys()
+                            )
+                            for name in ordered_plugins:
+                                if name not in plugin_times:
+                                    continue
+                                pct = 100.0 * float(plugin_times[name]) / total_time
+                                if pct < 1.0:
+                                    continue
+                                table_map[f"Pct {name}"] = f"{pct:.1f}%"
 
                 # Add that table-maker to the progress bar
                 progress_bar.add_table_callback(_table_callback)
@@ -129,36 +174,16 @@ def run_mmtrack(
 
             # Build AspenNet if a config is provided under config['aspen']
             aspen_cfg: Optional[Dict[str, Any]] = None
+            initial_args = config.get("initial_args", {}) or {}
             cfg_aspen = config.get("aspen")
             if isinstance(cfg_aspen, dict):
-                aspen_cfg = dict(cfg_aspen)
+                if initial_args:
+                    hm_opts.apply_arg_config_overrides(config, initial_args)
+                aspen_cfg = dict(config.get("aspen") or {})
             if aspen_cfg:
                 trunks_cfg = aspen_cfg.get("plugins", {}) or {}
-                initial_args = config.get("initial_args", {}) or {}
 
                 aspen_cfg["plugins"] = trunks_cfg
-
-                pipeline_cfg = dict(aspen_cfg.get("pipeline", {}) or {})
-                pipeline_modified = bool(pipeline_cfg)
-                threaded_cli = initial_args.get("aspen_threaded")
-                if threaded_cli is not None:
-                    threaded_bool = bool(threaded_cli)
-                    pipeline_cfg["threaded"] = threaded_bool
-                    aspen_cfg["threaded_trunks"] = threaded_bool
-                    pipeline_modified = True
-                queue_cli = initial_args.get("aspen_thread_queue_size")
-                if queue_cli is not None:
-                    try:
-                        pipeline_cfg["queue_size"] = max(1, int(queue_cli))
-                        pipeline_modified = True
-                    except Exception:
-                        logger.warning("Invalid Aspen queue size override: %r", queue_cli)
-                stream_cli = initial_args.get("aspen_thread_cuda_streams")
-                if stream_cli is not None:
-                    pipeline_cfg["cuda_streams"] = bool(stream_cli)
-                    pipeline_modified = True
-                if pipeline_modified:
-                    aspen_cfg["pipeline"] = pipeline_cfg
 
                 # Apply camera controller CLI overrides if present
                 if "camera_controller" in trunks_cfg:
@@ -236,7 +261,6 @@ def run_mmtrack(
                         pp["enabled"] = False
                 shared = dict(
                     model=model,
-                    pose_inferencer=pose_inferencer,
                     postprocessor=postprocessor,
                     fp16=fp16,
                     device=device,
@@ -269,29 +293,107 @@ def run_mmtrack(
                 aspen_name = aspen_cfg.get("name") or config.get("game_id") or "aspen"
                 aspen_net = AspenNet(aspen_name, aspen_cfg, shared=shared)
                 aspen_net = aspen_net.to(device)
+                if display_plugin_profile:
+                    plugin_names = [node.name for node in aspen_net.exec_order]
+                    plugin_display_names = []
+                    for node in aspen_net.exec_order:
+                        module = node.module
+                        if getattr(module, "enabled", True) is False:
+                            continue
+                        if module.__class__.__name__ == "_NoOpPlugin":
+                            continue
+                        plugin_display_names.append(node.name)
+                if display_aspen_graph and progress_bar is not None:
+                    aspen_net.enable_progress_graph()
+
+                    def _aspen_graph_panel():
+                        snapshot = aspen_net.get_progress_snapshot()
+                        if snapshot is None:
+                            return None
+                        return build_aspen_graph_renderable(snapshot)
+
+                    progress_bar.set_extra_panel_callback(_aspen_graph_panel, title="AspenNet")
             # Optional torch profiler context spanning the run
             prof_ctx = profiler if getattr(profiler, "enabled", False) else contextlib.nullcontext()
             with prof_ctx:
-                for cur_iter, dataset_results in enumerate(dataloader_iterator):
-                    data_item = dataset_results.pop("pano")
-                    original_images = data_item.pop("original_images")
-                    info_imgs = data_item["img_info"]
-                    ids = data_item["ids"]
-
-                    if fps:
-                        data_item["fps"] = fps
-                    with torch.no_grad():
-                        frame_id = info_imgs["frame_id"]
-
-                    batch_size = original_images.shape[0]
-
-                    if last_frame_id is None:
-                        last_frame_id = int(frame_id)
+                def _extract_stitch_ids(stitch_inputs: Any) -> Tuple[Optional[torch.Tensor], int]:
+                    if isinstance(stitch_inputs, dict):
+                        left = stitch_inputs.get("left")
                     else:
-                        assert int(frame_id) == last_frame_id + batch_size
-                        last_frame_id = int(frame_id)
+                        left = stitch_inputs[0] if stitch_inputs else None
+                    if left is None:
+                        return None, 0
+                    ids_val = left.get("frame_ids")
+                    if ids_val is None:
+                        ids_val = left.get("ids")
+                    if ids_val is None:
+                        ids_val = left.get("img_id")
+                    if isinstance(ids_val, (list, tuple)):
+                        ids_val = torch.tensor(ids_val, dtype=torch.int64)
+                    if isinstance(ids_val, torch.Tensor) and ids_val.is_cuda:
+                        ids_val = ids_val.detach().cpu()
+                    if isinstance(ids_val, torch.Tensor):
+                        return ids_val, int(ids_val.shape[0])
+                    if ids_val is not None:
+                        try:
+                            return torch.tensor(list(ids_val), dtype=torch.int64), len(ids_val)
+                        except Exception:
+                            pass
+                    img = left.get("img")
+                    if isinstance(img, torch.Tensor):
+                        return None, int(img.shape[0]) if img.ndim == 4 else 1
+                    return None, 0
 
-                    batch_size = original_images.shape[0]
+                cur_iter = 0
+                while True:
+                    dataloader_start = time.perf_counter() if display_plugin_profile else None
+                    try:
+                        dataset_results = next(dataloader_iterator)
+                    except StopIteration:
+                        break
+                    if display_plugin_profile:
+                        last_dataloader_time = (
+                            time.perf_counter() - dataloader_start
+                            if dataloader_start is not None
+                            else None
+                        )
+                    data_item = None
+                    original_images = None
+                    info_imgs = None
+                    ids = None
+                    frame_id = None
+                    batch_size = 0
+                    stitch_inputs = None
+
+                    if "pano" in dataset_results:
+                        data_item = dataset_results.pop("pano")
+                        original_images = data_item.pop("original_images")
+                        info_imgs = data_item["img_info"]
+                        ids = data_item["ids"]
+                        if fps:
+                            data_item["fps"] = fps
+                        with torch.no_grad():
+                            frame_id = info_imgs["frame_id"]
+                        batch_size = original_images.shape[0]
+                    elif "stitch_inputs" in dataset_results:
+                        stitch_inputs = dataset_results.pop("stitch_inputs")
+                        ids, batch_size = _extract_stitch_ids(stitch_inputs)
+                        if isinstance(ids, torch.Tensor) and ids.numel():
+                            frame_id = int(ids[0].item())
+                        elif ids is not None:
+                            try:
+                                frame_id = int(ids[0])
+                            except Exception:
+                                frame_id = None
+                    else:
+                        raise RuntimeError("Dataset results missing expected 'pano' or 'stitch_inputs'")
+
+                    if frame_id is not None and batch_size:
+                        if last_frame_id is None:
+                            last_frame_id = int(frame_id)
+                        else:
+                            assert int(frame_id) == last_frame_id + batch_size
+                            last_frame_id = int(frame_id)
 
                     if detect_timer is None:
                         detect_timer = Timer()
@@ -300,16 +402,31 @@ def run_mmtrack(
                         # Execute the configured DAG
                         # Prepare per-iteration context
                         iter_context: Dict[str, Any] = dict(
-                            original_images=make_channels_first(original_images),
-                            data=data_item,
-                            ids=ids,
-                            info_imgs=info_imgs,
-                            frame_id=int(frame_id),
                             device=device,
                             cuda_stream=cuda_stream,
                             detect_timer=detect_timer,
                             mean_tracker=mean_tracker,
                         )
+                        if display_plugin_profile and progress_bar is not None:
+                            iter_context["_aspen_timing_enabled"] = True
+                        if stitch_inputs is not None:
+                            iter_context.update(
+                                stitch_inputs=stitch_inputs,
+                                stitch_data_pipeline=config.get("stitch_data_pipeline"),
+                                stitch_fps=fps,
+                            )
+                            if fps:
+                                iter_context.setdefault("data", {})["fps"] = fps
+                        else:
+                            iter_context.update(
+                                original_images=make_channels_first(original_images),
+                                data=data_item,
+                                ids=ids,
+                                info_imgs=info_imgs,
+                                frame_id=int(frame_id),
+                            )
+                        if frame_id is not None and "frame_id" not in iter_context:
+                            iter_context["frame_id"] = int(frame_id)
                         # Merge shared into context for plugins convenience
                         iter_context.update(aspen_net.shared)
                         if dataset_results:
@@ -323,10 +440,26 @@ def run_mmtrack(
 
                         # Async AspenNet returns None from forward()
                         if out_context is not None:
+                            if display_plugin_profile:
+                                last_aspen_timing = aspen_net.get_last_timing()
                             # Update stats for progress bar
-                            nr_tracks = int(out_context.get("nr_tracks", 0))
+                            nr_tracks = out_context.get("nr_tracks", 0)
+                            if isinstance(nr_tracks, torch.Tensor):
+                                try:
+                                    nr_tracks = int(nr_tracks.reshape(-1)[0].item())
+                                except Exception:
+                                    nr_tracks = 0
+                            else:
+                                nr_tracks = int(nr_tracks)
                             max_tracking_id = out_context.get("max_tracking_id", 0)
-                            if not isinstance(max_tracking_id, (int, float)):
+                            if isinstance(max_tracking_id, torch.Tensor):
+                                try:
+                                    max_tracking_id = int(max_tracking_id.reshape(-1)[0].item())
+                                except Exception:
+                                    max_tracking_id = 0
+                        elif display_plugin_profile:
+                            last_aspen_timing = aspen_net.get_last_timing()
+                        elif not isinstance(max_tracking_id, (int, float)):
                                 try:
                                     max_tracking_id = int(max_tracking_id)
                                 except Exception:
@@ -362,6 +495,7 @@ def run_mmtrack(
                         wraparound_timer.toc()
 
                     number_of_batches_processed += 1
+                    cur_iter += 1
                     # Per-iteration profiler step for per-iter export if enabled
                     if getattr(profiler, "enabled", False):
                         profiler.step()

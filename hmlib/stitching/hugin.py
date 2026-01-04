@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 import torch
 
+from hmlib.log import get_logger
 from hmlib.stitching.control_points import calculate_control_points
 
 _CONTROL_POINTS_LINE = "# control points"
@@ -200,7 +201,7 @@ def configure_control_points(
         line = f"c n0 N1 x{_to_hugin_decimal(point0[0])} y{_to_hugin_decimal(point0[1])} X{_to_hugin_decimal(point1[0])} Y{_to_hugin_decimal(point1[1])} t0"
         pto_file.append(line)
     save_pto_file(file_path=project_file_path, data=pto_file)
-    print("Done with control points")
+    get_logger(__name__).info("Done with control points")
 
 
 def parse_pto_transformations(lines: List[str]) -> List[Dict[str, Any]]:
@@ -315,7 +316,7 @@ def apply_homography(image_path: str, H: np.ndarray) -> None:
     image: np.ndarray = cv2.imread(image_path)
 
     if image is None:
-        print(f"Error: Unable to load image {image_path}")
+        get_logger(__name__).error("Error: Unable to load image %s", image_path)
         return
 
     height, width = image.shape[:2]
@@ -327,7 +328,7 @@ def apply_homography(image_path: str, H: np.ndarray) -> None:
     image_path = Path(image_path)
     output_path = str(image_path.parent / f"transformed_{image_path.name}")
     cv2.imwrite(output_path, transformed_image)
-    print(f"Transformed image saved as {output_path}")
+    get_logger(__name__).info("Transformed image saved as %s", output_path)
 
     # Display the image
     cv2.imshow("Warped Image", transformed_image)
@@ -341,7 +342,7 @@ def apply_homography_with_size_compute(image_path: str, H: np.ndarray) -> None:
     image = cv2.imread(str(image_path))
 
     if image is None:
-        print(f"Error: Unable to load image {image_path}")
+        get_logger(__name__).error("Error: Unable to load image %s", image_path)
         return
 
     # Compute the ideal output size
@@ -356,7 +357,7 @@ def apply_homography_with_size_compute(image_path: str, H: np.ndarray) -> None:
     # Save the result
     output_path = image_path.parent / f"transformed_{image_path.name}"
     cv2.imwrite(str(output_path), transformed_image)
-    print(f"Transformed image saved as {output_path}")
+    get_logger(__name__).info("Transformed image saved as %s", output_path)
 
     # Display the image
     cv2.imshow("Warped Image", transformed_image)
@@ -403,7 +404,7 @@ if __name__ == "__main__":
     # content = parse_pto_content(lines)
     # params = parse_pto_transformations(lines)
     # H = compute_homography(params[0])
-    print(H)
+    get_logger(__name__).info("Homography:\n%s", H)
 
     # # Compute the ideal output size
     apply_homography(f"{os.environ['HOME']}/Videos/pdp/GX010087.png", H)

@@ -1,9 +1,10 @@
 from typing import Any, Dict, List, Optional, Set
 
-import numpy as np
 import torch
 
-from hmlib.utils.gpu import StreamTensorBase
+from hmlib.tracking_utils.utils import get_track_mask
+from hmlib.ui import show_image
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 
 from .base import Plugin
@@ -36,15 +37,8 @@ class PosePlugin(Plugin):
             return {}
 
         data: Dict[str, Any] = context["data"]
-        original_images = data.get("original_images")
-        if isinstance(original_images, StreamTensorBase):
-            original_images = original_images.wait()
-            data["original_images"] = original_images
-        if original_images is None:
-            return {}
-        if not isinstance(original_images, torch.Tensor):
-            original_images = torch.as_tensor(original_images)
-            data["original_images"] = original_images
+        original_images = unwrap_tensor(data["original_images"])
+        drawn_original_images: list[torch.Tensor] = []
 
         track_data_sample = self._get_track_data_sample(data.get("data_samples"))
         frame_count = None
@@ -53,10 +47,17 @@ class PosePlugin(Plugin):
         elif hasattr(original_images, "__len__"):
             frame_count = len(original_images)
 
+        for vs in track_data_sample.video_data_samples:
+            pred_track_instances = getattr(vs, "pred_track_instances", None)
+            if pred_track_instances is not None:
+                pred_track_instances.bboxes = unwrap_tensor(pred_track_instances.bboxes)
+                pred_track_instances.instances_id = unwrap_tensor(pred_track_instances.instances_id)
+                pred_track_instances.labels = unwrap_tensor(pred_track_instances.labels)
+                pred_track_instances.scores = unwrap_tensor(pred_track_instances.scores)
+            else:
+                assert False, "No pred_track_instances found in video_data_samples"
+
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
-        # for i, bxs in enumerate(per_frame_bboxes):
-        #     if bxs.device != original_images.device:
-        #         per_frame_bboxes[i] = bxs.to(device=original_images.device, non_blocking=True)
 
         det_imgs_tensor = data.get("img")
         if isinstance(det_imgs_tensor, StreamTensorBase):
@@ -137,10 +138,6 @@ class PosePlugin(Plugin):
             pipeline = pose_impl.pipeline
             collate_fn = pose_impl.collate_fn
             dataset_meta = getattr(model, "dataset_meta", {}) or {}
-            try:
-                from mmpose.structures import merge_data_samples
-            except Exception:
-                merge_data_samples = None
 
             def _build_empty_predictions() -> List[Any]:
                 try:
@@ -161,10 +158,10 @@ class PosePlugin(Plugin):
                     empty_frame_indices.add(i)
                     continue
 
-                b_cpu = bxs.detach().cpu()
-                b_np = np.ascontiguousarray(b_cpu.numpy())
-
-                for bbox in b_np:
+                # Keep bboxes on GPU and feed them directly to the MMPose
+                # pipeline as torch tensors to avoid host synchronization.
+                for j in range(bxs.shape[0]):
+                    bbox = bxs[j]
                     inst: Dict[str, Any] = {
                         "img": img,
                         # "img_path": str(i).rjust(10, "0") + ".jpg",
@@ -172,57 +169,44 @@ class PosePlugin(Plugin):
                         "hm_frame_index": i,
                     }
                     inst.update(dataset_meta)
-                    inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
-                    inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
-                    # inst["bbox"] = bbox[None, :4].to(torch.float32)
-                    # inst["bbox_score"] = bbox[4:5].to(torch.float32)
+                    inst["bbox"] = bbox[None, :4].to(dtype=torch.float32)
+                    inst["bbox_score"] = bbox[4:5].to(dtype=torch.float32)
                     batched_data_infos.append(pipeline(inst))
                     frame_batch_indices.append(i)
-
-                # img_cpu = img.detach().cpu()
-                # img_np = np.ascontiguousarray(img_cpu.numpy())
-                # b_cpu = bxs.detach().cpu()
-                # b_np = np.ascontiguousarray(b_cpu.numpy())
-
-                # for bbox in b_np:
-                #     inst: Dict[str, Any] = {
-                #         "img": img_np,
-                #         "img_path": str(i).rjust(10, "0") + ".jpg",
-                #         "hm_frame_index": i,
-                #     }
-                #     inst.update(dataset_meta)
-                #     inst["bbox"] = bbox[None, :4].astype(np.float32, copy=True)
-                #     inst["bbox_score"] = bbox[4:5].astype(np.float32, copy=True)
-                #     batched_data_infos.append(pipeline(inst))
-                #     frame_batch_indices.append(i)
 
             frame_predictions: List[Optional[List[Any]]] = [None] * len(inputs)
 
             if batched_data_infos:
                 proc_inputs = collate_fn(batched_data_infos)
                 preds: Optional[List[Any]] = None
-                # Prefer TensorRT runner if available, else ONNX
-                trt_runner = getattr(
-                    getattr(context.get("pose_inferencer"), "_hm_trt_runner", None),
-                    "forward",
-                    None,
-                )
-                if callable(trt_runner):
+                tried_runner = None
+                pose_runner = getattr(context.get("pose_inferencer"), "_hm_pose_runner", None)
+                pose_forward = getattr(pose_runner, "forward", None)
+                if callable(pose_forward):
+                    tried_runner = pose_runner
                     try:
-                        pr = trt_runner(proc_inputs)
+                        pr = pose_forward(proc_inputs)
                         if isinstance(pr, (list, tuple)):
                             preds = list(pr)
                     except Exception:
                         preds = None
                 if preds is None:
-                    onnx_runner = getattr(
-                        getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None),
-                        "forward",
-                        None,
-                    )
-                    if callable(onnx_runner):
+                    # Prefer TensorRT runner if available, else ONNX
+                    trt_runner = getattr(context.get("pose_inferencer"), "_hm_trt_runner", None)
+                    trt_forward = getattr(trt_runner, "forward", None)
+                    if callable(trt_forward) and trt_runner is not tried_runner:
                         try:
-                            pr = onnx_runner(proc_inputs)
+                            pr = trt_forward(proc_inputs)
+                            if isinstance(pr, (list, tuple)):
+                                preds = list(pr)
+                        except Exception:
+                            preds = None
+                if preds is None:
+                    onnx_runner = getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None)
+                    onnx_forward = getattr(onnx_runner, "forward", None)
+                    if callable(onnx_forward) and onnx_runner is not tried_runner:
+                        try:
+                            pr = onnx_forward(proc_inputs)
                             if isinstance(pr, (list, tuple)):
                                 preds = list(pr)
                         except Exception:
@@ -251,13 +235,12 @@ class PosePlugin(Plugin):
                                 frame_idx = meta.get("hm_frame_index")  # type: ignore[attr-defined]
                             except Exception:
                                 frame_idx = None
-                        if isinstance(frame_idx, np.ndarray):
-                            if frame_idx.size == 1:
-                                frame_idx = int(frame_idx.reshape(-1)[0])
-                            else:
-                                frame_idx = None
-                        elif frame_idx is not None:
-                            frame_idx = int(frame_idx)
+
+                        # Prefer plain Python integers for frame indices to
+                        # avoid synchronizing CUDA tensors with the host.
+                        if not isinstance(frame_idx, int):
+                            frame_idx = None
+
                         if frame_idx is None:
                             frame_idx = next(batch_index_iter, None)
                         if frame_idx is None or frame_idx < 0 or frame_idx >= len(inputs):
@@ -273,10 +256,27 @@ class PosePlugin(Plugin):
                 predictions = frame_predictions[idx]
                 if predictions is None:
                     predictions = []
-                elif predictions and merge_data_samples is not None:
+                elif predictions:
+                    # Merge per-bbox PoseDataSample objects into a single
+                    # frame-level sample without touching heatmaps to keep
+                    # everything on the GPU and avoid NumPy round-trips.
                     try:
-                        predictions = [merge_data_samples(predictions)]
+                        from mmengine.structures import InstanceData
+                        from mmpose.structures import PoseDataSample
+
+                        first = predictions[0]
+                        merged = PoseDataSample(metainfo=getattr(first, "metainfo", {}))
+                        if hasattr(first, "gt_instances"):
+                            merged.gt_instances = InstanceData.cat(
+                                [p.gt_instances for p in predictions if hasattr(p, "gt_instances")]
+                            )
+                        if hasattr(first, "pred_instances"):
+                            merged.pred_instances = InstanceData.cat(
+                                [p.pred_instances for p in predictions if hasattr(p, "pred_instances")]
+                            )
+                        predictions = [merged]
                     except Exception:
+                        # Fall back to unmerged list if anything goes wrong.
                         pass
                 all_pose_results.append({"predictions": predictions})
 
@@ -287,24 +287,26 @@ class PosePlugin(Plugin):
             if show and getattr(pose_inferencer, "inferencer", None) is not None:
                 vis = pose_inferencer.inferencer.visualizer
                 if vis is not None:
-                    for img, pose_result in zip(original_images, all_pose_results):
+                    for i, (img, pose_result) in enumerate(zip(original_images, all_pose_results)):
                         data_sample = pose_result.get("predictions", [])
                         if not data_sample:
                             continue
                         try:
-                            vis.add_datasample(
+                            img = vis.add_datasample(
                                 name="pose results",
                                 image=img,
                                 data_sample=data_sample[0],
                                 clone_image=False,
                                 draw_gt=False,
                                 draw_bbox=False,
-                                show_kpt_idx=True,
+                                show_kpt_idx=False,
                                 kpt_thr=kpt_thr if kpt_thr is not None else 0.3,
                             )
+                            original_images[i] = img
                             # show_image("pose", img, wait=False)
                         except Exception:
                             pass
+                    drawn_original_images.append(img)
         else:
             # Fallback: let MMPose handle detection internally
             for pose_results in pose_inferencer(
@@ -331,11 +333,16 @@ class PosePlugin(Plugin):
                             clone_image=False,
                             draw_gt=False,
                             draw_bbox=False,
+                            show_kpt_idx=False,
                         )
                         # show_image("pose", img, wait=False)
 
         pose_results = all_pose_results
         data["pose_results"] = pose_results
+        if drawn_original_images:
+            original_images = torch.stack(drawn_original_images)
+            # show_image("original_images", original_images, wait=False)
+            data["original_images"] = wrap_tensor(original_images)
         return {"data": data}
 
     @staticmethod
@@ -390,6 +397,10 @@ class PosePlugin(Plugin):
                 score_tensor = torch.as_tensor(
                     score_tensor, dtype=torch.float32, device=box_tensor.device
                 )
+            track_mask = get_track_mask(inst)
+            if isinstance(track_mask, torch.Tensor):
+                box_tensor = box_tensor[track_mask]
+                score_tensor = score_tensor[track_mask]
             if score_tensor.ndim == 0:
                 score_tensor = score_tensor.unsqueeze(0)
             if score_tensor.shape[0] != box_tensor.shape[0]:
@@ -432,15 +443,12 @@ class PosePlugin(Plugin):
                 break
         if scale_val is None:
             return None
-        scale_tensor = torch.as_tensor(scale_val, dtype=torch.float32, device=device).flatten()
+        assert isinstance(scale_val, torch.Tensor)
+        scale_tensor = scale_val.to(device=device, dtype=torch.float32)
         if scale_tensor.numel() == 1:
             scale_tensor = scale_tensor.repeat(4)
         elif scale_tensor.numel() == 2:
-            scale_tensor = torch.tensor(
-                [scale_tensor[0], scale_tensor[1], scale_tensor[0], scale_tensor[1]],
-                dtype=torch.float32,
-                device=device,
-            )
+            scale_tensor = scale_tensor.repeat(2)
         elif scale_tensor.numel() != 4:
             return None
         return scale_tensor
@@ -467,7 +475,7 @@ class PosePlugin(Plugin):
             if boxes.numel() == 0:
                 scaled.append(boxes)
                 continue
-            s = scale.to(dtype=boxes.dtype)
+            s = scale.to(device=boxes.device, dtype=boxes.dtype)
             new_boxes = boxes.clone()
             new_boxes[:, 0] *= s[0]
             new_boxes[:, 1] *= s[1]

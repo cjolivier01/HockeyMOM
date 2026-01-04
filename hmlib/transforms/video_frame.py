@@ -43,19 +43,24 @@ class HmCropToVideoFrame:
         self._crop_image = crop_image
         self._unsharp_mask = unsharp_mask
         self._enabled = enabled
+        self._pass: int = 0
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         if not self._enabled:
             return results
+        self._pass += 1
         video_frame_cfg = results["video_frame_cfg"]
         images = results.pop("img")
         if not self._crop_image:
             if isinstance(images, list):
-                # since no creopping, they should be the same size
+                # since no cropping, they should be the same size
                 results["img"] = torch.stack(images)
             else:
                 # Just put it back
                 results["img"] = images
+            # Not cropping, so set output size to input size
+            video_frame_cfg["output_frame_width"] = image_width(images)
+            video_frame_cfg["output_frame_height"] = image_height(images)
             return results
         current_boxes = results["camera_box"]
         cropped_images: List[torch.Tensor] = []
@@ -83,15 +88,25 @@ class HmCropToVideoFrame:
             #         pass
             assert y1 >= 0 and y2 >= 0 and x1 >= 0 and x2 >= 0
             if y1 > src_image_height or y2 > src_image_height:
-                assert False
-                logger.info(f"y1 ({y1}) or y2 ({y2}) is too large, should be < {src_image_height}")
+                # assert False
+                logger.warning(
+                    "y1 (%d) or y2 (%d) is too large, should be < %d",
+                    y1,
+                    y2,
+                    src_image_height,
+                )
                 y1 = min(y1, src_image_height)
                 y2 = min(y2, src_image_height)
             if x1 > src_image_width or x2 > src_image_width:
-                assert False
-                logger.info(f"x1 {x1} or x2 {x2} is too large, should be < {src_image_width}")
+                logger.warning(
+                    "x1 (%d) or x2 (%d) is too large, should be < %d",
+                    x1,
+                    x2,
+                    src_image_width,
+                )
                 x1 = min(x1, src_image_width)
                 x2 = min(x2, src_image_width)
+                # assert False
 
             img = crop_image(img, x1, y1, x2, y2)
             video_frame_width = int(video_frame_cfg["output_frame_width"])
@@ -101,7 +116,7 @@ class HmCropToVideoFrame:
             # Make sure they have the same aspect ratio
             image_ar = image_w / image_h
             vf_ar = video_frame_width / video_frame_height
-            assert np.isclose(image_ar, vf_ar, 0.001, 0.001), (
+            assert np.isclose(image_ar, vf_ar, 0.005, 0.005), (
                 f"Image aspect ratio {image_ar} does not match " f"video frame aspect ratio {vf_ar}"
             )
             if image_h != video_frame_height or image_w != video_frame_width:

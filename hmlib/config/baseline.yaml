@@ -27,6 +27,7 @@ plot:
   debug_play_tracker: false
   plot_moving_boxes: false
   plot_individual_player_tracking: false
+  plot_tracking_circles: true
   plot_boundaries: false
   plot_all_detections: null
   plot_trajectories: false
@@ -40,6 +41,16 @@ plot:
 # Aspen / video output defaults
 #
 aspen:
+  # AspenNet execution settings (serial vs threaded).
+  # Modes:
+  #   - serial: threaded=false
+  #   - threaded: threaded=true, graph=false
+  #   - thread-graph: threaded=true, graph=true
+  pipeline:
+    threaded: true
+    graph: true
+    queue_size: 2
+    cuda_streams: true
   video_out:
     # Whether to skip final container flush/save in VideoOutput.
     # CLI flag --skip-final-video-save overrides this when provided.
@@ -53,6 +64,35 @@ aspen:
     #              and invoke ffmpeg once at close() to mux into the container
     # The CLI flag --video-encoder-backend overrides this when provided.
     encoder_backend: "auto"
+  stitching:
+    # Controlled by --aspen-stitching / --no-aspen-stitching.
+    enabled: true
+    pto_project_file: null
+    dir_name: null
+    blend_mode: "laplacian"
+    max_blend_levels: null
+    auto_adjust_exposure: true
+    python_blender: false
+    minimize_blend: true
+    dtype: "float32"
+    no_cuda_streams: false
+    post_stitch_rotate_degrees: null
+    capture_rgb_stats: false
+    max_output_width: 8192
+  left_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      config_paths:
+        - [game, stitching, left, color]
+        - [game, stitching, left]
+      refresh_from_config: true
+  right_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      config_paths:
+        - [game, stitching, right, color]
+        - [game, stitching, right]
+      refresh_from_config: true
 
 #
 # Rink config
@@ -109,10 +149,13 @@ rink:
     #
     # Rink-related tracking config
     #
-    fixed_edge_scaling_factor: 0.8
     fixed_edge_rotation_angle: 10
-    follower_box_scale_width: 1.25
-    follower_box_scale_height: 1.25
+    # Ratio of height and width for the "destination" box based upon what the "fast box" size is.
+    # Making this ratio larger makes the destination box larger, which makes the camera less zoomed in
+    follower_box_scale_width: 1.5
+    follower_box_scale_height: 1.5
+    crop_image: true
+    pre_clip: true
     max_speed_ratio_x: 1.0
     max_speed_ratio_y: 1.0
     max_accel_ratio_x: 1.0
@@ -137,7 +180,25 @@ rink:
     stop_delay_cooldown_frames: 2
     # When increasing speed toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
-    time_to_dest_speed_limit_frames: 20
+    time_to_dest_speed_limit_frames: 30
+    # When time-to-dest limiting is active, snap to zero below this speed (px/frame)
+    time_to_dest_stop_speed_threshold: 0.25
+
+    # Resizing direction-change braking (size dampening)
+    # Frames to brake to a stop on resize direction change
+    resizing_stop_on_dir_change_delay: 10
+    # Cancel resizing brake when inputs flip opposite (true/false)
+    resizing_cancel_stop_on_opposite_dir: true
+    # Consecutive opposite-direction frames required to cancel resize braking
+    resizing_stop_cancel_hysteresis_frames: 2
+    # Cooldown frames after a resize stop-delay finishes/cancels before another can start
+    resizing_stop_delay_cooldown_frames: 2
+    # When increasing size toward destination, enforce a minimum number of frames
+    # to reach the target along that axis (0 disables)
+    resizing_time_to_dest_speed_limit_frames: 20
+    # When resize time-to-dest limiting is active, snap to zero below this speed (px/frame)
+    resizing_time_to_dest_stop_speed_threshold: 0.25
+
 
     # Sticky translation
     sticky_size_ratio_to_frame_width: 10.0
@@ -229,17 +290,17 @@ model:
     # ^ the above checkpoint, but on Google drive (pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth)
     # checkpoint_remote: https://drive.google.com/file/d/1WgJ-u2aL1Yv6VNXF5w-0DtsxCCDXAEe7/view?usp=drive_link
   
-  detection:
+#  detection:
     # config: config/models/hm2/hm_crowdhuman_yolox_s_2240x800.py
     # checkpoint: /mnt/data/pretrained/mmdetection/yolox_s_8x8_300e_coco_1312x480_80e_ch_2240x800_1e_with_detector_prefix.pth
     # checkpoint: https://github.com/cjolivier01/HockeyMOM/releases/download/v0.0.1/yolox_s_8x8_300e_coco_1312x480_80e_ch_2240x800_1e_with_detector_prefix.pth
     
     # config: /mnt/monster-data/colivier/src/hm/openmm/rundir/work_dirs/yolov8_m_syncbn_fast_8xb16-500e_coco/hm_crowdhuman_yolov8_m_1984_736.py
     # checkpoint: https://download.openmmlab.com/mmyolo/v0/yolov8/yolov8_m_syncbn_fast_8xb16-500e_coco/yolov8_m_syncbn_fast_8xb16-500e_coco_20230115_192200-c22e560a.pth
-  pose:
-    config: config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
-    # checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
-    checkpoint: https://github.com/cjolivier01/HockeyMOM/releases/download/v0.0.1/rtmpose-m_8xb64-crowdpose_harpe-256x192_best_PCK_epoch_1178.pth
+  # pose:
+  #   config: config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
+  #   # checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
+  #   checkpoint: https://github.com/cjolivier01/HockeyMOM/releases/download/v0.0.1/rtmpose-m_8xb64-crowdpose_harpe-256x192_best_PCK_epoch_1178.pth
     
 
     # RTMPOSE

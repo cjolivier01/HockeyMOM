@@ -1,5 +1,5 @@
 /* Simple modern UI inspired by Hudl aesthetics (no branding assets) */
-:root {
+	:root {
   --bg: #0f1115;
   --panel: #171a21;
   --text: #e6e8ec;
@@ -10,7 +10,17 @@
   --danger: #d81b60; /* magenta */
   --warn: #ffc107;
   --border: #242835;
-}
+
+	  /* Tables: white background + gray zebra striping. */
+	  --table-bg: #ffffff;
+	  --table-text: #111827;
+	  --table-border: #d0d7de;
+	  --row-odd: #f3f4f6;
+	  --row-even: #e5e7eb;
+	  --row-hover: #dbeafe; /* subtle light-blue highlight */
+	  --thead-bg: #f8fafc;
+	  --thead-text: #1f2937;
+	}
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -37,7 +47,7 @@ body {
 .nav-links a { color: var(--muted); text-decoration: none; margin-left: 1rem; font-weight: 600; }
 .nav-links a:hover { color: var(--text); }
 
-.container { max-width: 1100px; margin: 0 auto; padding: 1.25rem; }
+.container { max-width: 1500px; margin: 0 auto; padding: 1.25rem; }
 .hero { padding: 3rem 0 2rem; text-align: center; }
 .hero h1 { font-size: 2.1rem; margin: 0 0 .5rem; }
 .hero p { color: var(--muted); margin: 0 0 1rem; }
@@ -47,6 +57,16 @@ body {
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #101114; }
 .btn.secondary { background: #1c212c; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #101114; }
+
+/* In tables (white background), render "secondary" buttons as slightly darker than the row background. */
+table a.btn.secondary, table button.btn.secondary {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.14);
+  color: var(--table-text);
+}
+table a.btn.secondary:hover, table button.btn.secondary:hover {
+  background: rgba(0, 0, 0, 0.09);
+}
 
 .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
@@ -64,10 +84,47 @@ button { cursor: pointer; }
 .flash.error { background: #31161a; border: 1px solid #4a1a22; color: #ffb3be; }
 .flash.success { background: #14291d; border: 1px solid #1f3b2a; color: #abf5c0; }
 
-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--border); text-align: left; }
-thead th { background: #12151c; color: var(--muted); font-weight: 700; }
-tbody tr:hover { background: #151924; }
+table { width: 100%; border-collapse: collapse; background: var(--table-bg); color: var(--table-text); border: 1px solid var(--table-border); border-radius: 12px; overflow: hidden; }
+th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--table-border); border-right: 1px solid var(--table-border); text-align: left; }
+th:last-child, td:last-child { border-right: none; }
+tbody tr:last-child td { border-bottom: none; }
+thead th { background: var(--thead-bg); color: var(--thead-text); font-weight: 800; }
+tbody tr:nth-child(odd) { background: var(--row-odd); }
+tbody tr:nth-child(even) { background: var(--row-even); }
+	/* Row hover highlight (apply to cells so it doesn't conflict with sticky/frozen columns). */
+	tbody tr:hover td { background: var(--row-hover); }
+	tbody tr:hover td.sticky-col { background: var(--row-hover); }
+
+/* Keep date/time fields readable and non-wrapping */
+td, th { vertical-align: top; }
+td { overflow-wrap: anywhere; }
+td.nowrap, th.nowrap { white-space: nowrap; }
+
+/* Utility: prevent column text wrapping for wide tables (use with overflow-x:auto wrappers). */
+.table-nowrap { width: max-content; min-width: 100%; }
+.table-nowrap th, .table-nowrap td { white-space: nowrap; }
+
+/* Horizontal scroll wrapper for wide tables */
+.table-scroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+
+/* Scrollable viewport for very tall tables (e.g., game events). */
+.table-scroll-y { overflow-y: auto; max-height: 50vh; }
+.table-scroll-y thead th { position: sticky; top: 0; z-index: 4; }
+
+/* Sortable tables */
+.table-sortable th { cursor: pointer; user-select: none; }
+.table-sortable th.sorted-asc::after { content: " ▲"; font-size: .85em; color: var(--muted); }
+.table-sortable th.sorted-desc::after { content: " ▼"; font-size: .85em; color: var(--muted); }
+
+/* Allow newline rendering inside specific cells even in nowrap tables */
+td.cell-pre { white-space: pre-line !important; }
+
+/* Freeze left columns (JS sets left offsets; CSS provides layering + row-matched backgrounds) */
+th.sticky-col, td.sticky-col { position: sticky; left: 0; z-index: 3; }
+thead th.sticky-col { background: var(--thead-bg); z-index: 6; }
+tbody tr:nth-child(odd) td.sticky-col { background: var(--row-odd); }
+tbody tr:nth-child(even) td.sticky-col { background: var(--row-even); }
+td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 
 .status-badge { display: inline-block; padding: .2rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 800; }
 .status-COMPLETED { background: rgba(40,167,69,.15); color: #7bdfa1; border: 1px solid rgba(40,167,69,.3); }

@@ -1,7 +1,9 @@
 cython
+importlib-metadata
 rich
 av
 PyNvVideoCodec
+html5lib
 typeguard
 flask
 terminaltables
@@ -30,6 +32,7 @@ opencv-contrib-python
 cameratransform
 tifffile
 scikit-build
+bs4
 scikit-learn
 kornia
 pandas
@@ -43,4 +46,3 @@ ffmpegio
 pyquaternion
 ./external/fast_pytorch_kmeans
 ./external/pt_autograph
-

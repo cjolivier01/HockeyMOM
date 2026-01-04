@@ -7,8 +7,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Plugin
 from hmlib.utils.nms import DetectorNMS
+
+from .base import Plugin
 
 
 def _strip_static_padding(instances: InstanceData, strip: bool) -> InstanceData:
@@ -231,7 +232,11 @@ class DetectorFactoryPlugin(Plugin):
                         )
                     except Exception as ex:
                         # Fall back to next option if TRT init fails
-                        print(f"Failed to initialize TensorRT detector wrapper: {ex}")
+                        from hmlib.log import get_logger
+
+                        get_logger(__name__).warning(
+                            "Failed to initialize TensorRT detector wrapper: %s", ex
+                        )
                         self._trt_wrapper = None
                 if self._trt_wrapper is not None:
                     detector_model = self._trt_wrapper
@@ -260,7 +265,11 @@ class DetectorFactoryPlugin(Plugin):
                             )
                         except Exception as ex:
                             # Fall back to PyTorch if ONNX init fails
-                            print(f"Failed to initialize ONNX detector wrapper: {ex}")
+                            from hmlib.log import get_logger
+
+                            get_logger(__name__).warning(
+                                "Failed to initialize ONNX detector wrapper: %s", ex
+                            )
                             self._onnx_wrapper = None
                     if self._onnx_wrapper is not None:
                         detector_model = self._onnx_wrapper
@@ -765,7 +774,9 @@ class _TrtDetectorWrapper(_ProfilerMixin):
             except Exception:
                 pass
         # Build
-        print("Building TensorRT engine for detector backbone+neck...")
+        from hmlib.log import get_logger
+
+        get_logger(__name__).info("Building TensorRT engine for detector backbone+neck...")
         with torch.inference_mode():
             if self.int8:
                 # If INT8 calibration is requested, require a calibration dataset; defer build until available
@@ -782,7 +793,9 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         max_workspace_size=1 << 30,
                     )
                 except Exception as ex:
-                    print(f"INT8 build failed, falling back to FP16/FP32: {ex}")
+                    get_logger(__name__).warning(
+                        "INT8 build failed, falling back to FP16/FP32: %s", ex
+                    )
                     # Fallback: try fp16 if requested else fp32
                     sample = torch.randn(*shape, device=dev, dtype=dtype)
                     trt_mod = torch2trt.torch2trt(
@@ -806,9 +819,11 @@ class _TrtDetectorWrapper(_ProfilerMixin):
             import torch as _torch
 
             _torch.save(trt_mod.state_dict(), self.engine_path)
-            print(f"Saved TensorRT engine to {self.engine_path}")
+            get_logger(__name__).info("Saved TensorRT engine to %s", self.engine_path)
         except Exception:
-            print(f"Failed to save TensorRT engine to {self.engine_path}")
+            get_logger(__name__).warning(
+                "Failed to save TensorRT engine to %s", self.engine_path
+            )
         self._trt_module = trt_mod
 
     def _preprocess(self, x: torch.Tensor) -> torch.Tensor:
@@ -873,7 +888,17 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         feats = [torch.as_tensor(feats)]
                 with torch.inference_mode():
                     with self._profile_scope("head"):
-                        cls_scores, bbox_preds, objectnesses = self.model.bbox_head(tuple(feats))
+                        bbox_head_results = self.model.bbox_head(tuple(feats))
+                        objectnesses = None
+                        if len(bbox_head_results) == 3:
+                            cls_scores, bbox_preds, objectnesses = bbox_head_results
+                        elif len(bbox_head_results) == 2:
+                            cls_scores, bbox_preds = bbox_head_results
+                        else:
+                            raise RuntimeError(
+                                "Unexpected number of outputs from bbox_head: "
+                                f"{len(bbox_head_results)}"
+                            )
                         # Decode boxes and scores but skip the built-in NMS,
                         # so that we can apply TensorRT batched NMS instead.
                         result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(

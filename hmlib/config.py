@@ -18,6 +18,7 @@ import yaml
 
 import hmlib
 from hmlib.bbox.box_functions import scale_bbox_with_constraints
+from hmlib.log import get_logger
 
 GAME_DIR_BASE: str = os.path.join(os.environ["HOME"], "Videos")
 ROOT_DIR: str = os.path.dirname(os.path.abspath(hmlib.__file__))
@@ -94,7 +95,9 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
                     yaml_content = recursive_update(merge_into_config, yaml_content)
                 return yaml_content
             except yaml.YAMLError as exc:
-                print(exc)
+                get_logger(__name__).exception(
+                    "Failed to parse YAML config %s: %s", yaml_file_path, exc
+                )
                 raise
     return {} if not merge_into_config else merge_into_config
 
@@ -179,7 +182,7 @@ def save_private_config(game_id: str, data: Dict[str, Any], verbose: bool = True
     with open(yaml_file_path, "w") as file:
         yaml.dump(data, stream=file, sort_keys=False)
     if verbose:
-        print(f"Saved private config to {yaml_file_path}")
+        get_logger(__name__).info("Saved private config to %s", yaml_file_path)
 
 
 def save_game_config(game_id: str, data: dict, root_dir: Optional[str] = None):

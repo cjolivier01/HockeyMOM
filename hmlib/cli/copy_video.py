@@ -3,9 +3,11 @@ For performance reasons, experiments in streaming and pipelining a simple copy
 """
 
 import argparse
+import contextlib
 import os
 import time
-from typing import List, Union
+from collections import OrderedDict
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -13,19 +15,27 @@ import torch
 from hmlib.config import get_game_dir
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.hm_opts import hm_opts
+from hmlib.log import get_logger
 from hmlib.orientation import configure_game_videos
 from hmlib.tracking_utils.timer import Timer
-from hmlib.ui import show_image
-from hmlib.utils.gpu import GpuAllocator, StreamTensorBase, cuda_stream_scope
+from hmlib.ui import Shower
+from hmlib.utils.gpu import GpuAllocator, cuda_stream_scope, wrap_tensor, unwrap_tensor
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
+from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_seconds_to_hms
 from hmlib.utils.utils import calc_combined_fps
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
-from hmlib.video.video_stream import VideoStreamWriter
+from hmlib.video.video_stream import (
+    VideoStreamWriterInterface,
+    create_output_video_stream,
+    time_to_frame,
+)
 
 ROOT_DIR = os.getcwd()
+
+logger = get_logger(__name__)
 
 
 def make_parser():
@@ -57,6 +67,12 @@ def make_parser():
         default=1,
         type=int,
         help="Number of splits",
+    )
+    parser.add_argument(
+        "--async-mode",
+        default=1,
+        type=int,
+        help="Whether to load video frames asynchronously 0|1",
     )
     parser.add_argument(
         "--start-frame-number",
@@ -118,169 +134,277 @@ def copy_video(
     max_frames: int = 0,
     no_cuda_streams: bool = False,
     async_mode: bool = True,
+    profiler: Any = None,
 ):
-    if isinstance(video_file, list):
-        video_file = ",".join(video_file)
-    video_info = BasicVideoInfo(video_file)
+    main_stream = torch.cuda.Stream(device=device) if "cuda" in str(device) else None
+    with cuda_stream_scope(main_stream):
+        if isinstance(video_file, list):
+            video_file = ",".join(video_file)
+        video_info = BasicVideoInfo(video_file)
 
-    dataloader = MOTLoadVideoWithOrig(
-        path=video_file,
-        original_image_only=True,
-        start_frame_number=start_frame_number,
-        batch_size=batch_size,
-        max_frames=max_frames,
-        device=device,
-        decoder_device=device,
-        dtype=dtype,
-        no_cuda_streams=no_cuda_streams,
-        async_mode=async_mode,
-    )
+        dataloader = MOTLoadVideoWithOrig(
+            path=video_file,
+            original_image_only=True,
+            start_frame_number=start_frame_number,
+            batch_size=batch_size,
+            max_frames=max_frames,
+            device=device,
+            decoder_device=device,
+            dtype=dtype,
+            no_cuda_streams=no_cuda_streams or not async_mode,
+            async_mode=async_mode,
+        )
+        if profiler is not None and hasattr(dataloader, "set_profiler"):
+            dataloader.set_profiler(profiler)
 
-    split_number: int = 1
-    split_frames = get_frame_split_points(len(dataloader), num_splits=num_splits)
-    next_split_frame = split_frames[split_number - 1] if split_frames else float("inf")
+        split_number: int = 1
+        split_frames = get_frame_split_points(len(dataloader), num_splits=num_splits)
+        next_split_frame = split_frames[split_number - 1] if split_frames else float("inf")
+        video_frame_cfg: Dict[str, Any] = dict()
 
-    main_stream = None
-    # main_stream = torch.cuda.Stream(device=device)
+        def _open_output_video(path: str) -> Union[VideoStreamWriterInterface, VideoOutput]:
+            with cuda_stream_scope(main_stream):
+                if not path:
+                    return None
+                if not use_video_out:
+                    video_out = create_output_video_stream(
+                        filename=path,
+                        fps=video_info.fps,
+                        width=video_info.width,
+                        height=video_info.height,
+                        codec="hevc_nvenc",
+                        device=device,
+                        bit_rate=video_info.bit_rate,
+                        batch_size=batch_size,
+                        profiler=profiler,
+                    )
+                    video_out.open()
+                else:
+                    video_frame_cfg["output_frame_width"] = video_info.width
+                    video_frame_cfg["output_frame_height"] = video_info.height
+                    video_out = VideoOutput(
+                        name="VideoOutput",
+                        output_video_path=path,
+                        fps=video_info.fps,
+                        skip_final_save=skip_final_video_save,
+                        fourcc="auto",
+                        device=output_device,
+                        profiler=profiler,
+                        show_image=show,
+                        bit_rate=video_info.bit_rate,
+                        cache_size=0,
+                        show_scaled=None if isinstance(show, bool) else show,
+                    )
+                return video_out
 
-    def _open_output_video(path: str) -> Union[VideoStreamWriter, VideoOutput]:
-        with cuda_stream_scope(main_stream):
-            if not path:
+        def _output_file_name(split_number: int) -> str:
+            if not output_video:
                 return None
-            if not use_video_out:
-                video_out = VideoStreamWriter(
-                    filename=path,
-                    width=video_info.width,
-                    height=video_info.height,
-                    codec="hevc_nvenc",
-                    batch_size=1,
-                    fps=video_info.fps,
-                    device=device,
-                    cache_size=queue_size,
-                    container_type="matroska",
-                )
-                video_out.open()
-            else:
-                video_out = VideoOutput(
-                    name="VideoOutput",
-                    output_video_path=path,
-                    output_frame_width=video_info.width,
-                    output_frame_height=video_info.height,
-                    fps=video_info.fps,
-                    skip_final_save=skip_final_video_save,
-                    fourcc="auto",
-                    device=output_device,
-                )
-            return video_out
+            return (
+                output_video
+                if num_splits <= 1
+                else str(add_suffix_to_filename(output_video, f"-{split_number}"))
+            )
 
-    def _output_file_name(split_number: int) -> str:
-        if not output_video:
-            return None
-        return (
-            output_video
-            if num_splits <= 1
-            else str(add_suffix_to_filename(output_video, f"-{split_number}"))
+        video_out = _open_output_video(_output_file_name(split_number))
+        if video_out is None:
+            logger.info("Not saving the output video (no output path configured).")
+
+        v_iter = CachedIterator(
+            iterator=iter(dataloader),
+            cache_size=queue_size,
         )
 
-    video_out = _open_output_video(_output_file_name(split_number))
-    if video_out is None:
-        print("No saving the output video.")
-
-    v_iter = CachedIterator(
-        iterator=iter(dataloader),
-        cache_size=queue_size,
-    )
-
-    with cuda_stream_scope(main_stream):
         io_timer = Timer()
         get_timer = Timer()
         batch_count = 0
         processed_frame_count: int = 0
+        progress_bar: Optional[ProgressBar] = None
+        scroll_output: Optional[ScrollOutput] = None
+        total_frames = int(video_info.frame_count) if video_info.frame_count else 0
+        if max_frames:
+            try:
+                max_frames_int = int(max_frames)
+                total_frames = min(total_frames, max_frames_int) if total_frames else max_frames_int
+            except Exception:
+                pass
+        batch_size_hint = max(1, int(getattr(dataloader, "batch_size", batch_size) or 1))
+        total_batches = (
+            int((total_frames + batch_size_hint - 1) // batch_size_hint) if total_frames else 0
+        )
+        start_time = time.time()
+        last_batch_size = batch_size_hint
+        if total_batches > 0:
+            scroll_output = ScrollOutput(lines=4)
+            scroll_output.register_logger(logger)
+            # table_map: OrderedDict[str, str] = OrderedDict()
+
+            def _table_callback(table_map: OrderedDict[str, str]):
+                processed = processed_frame_count
+                if total_frames:
+                    table_map["Frames"] = f"{processed}/{total_frames}"
+                else:
+                    table_map["Frames"] = str(processed)
+                elapsed = time.time() - start_time
+                if elapsed > 0 and processed > 0:
+                    overall_fps = processed / elapsed
+                    table_map["Total FPS"] = f"{overall_fps:.2f}"
+                else:
+                    overall_fps = 0.0
+                    table_map["Total FPS"] = "warming up"
+                io_fps = (
+                    last_batch_size * 1.0 / max(1e-5, io_timer.average_time)
+                    if io_timer.calls
+                    else 0.0
+                )
+                get_fps = (
+                    last_batch_size * 1.0 / max(1e-5, get_timer.average_time)
+                    if get_timer.calls
+                    else 0.0
+                )
+                table_map["IO FPS"] = f"{io_fps:.2f}" if io_fps > 0 else "--"
+                table_map["get() FPS"] = f"{get_fps:.2f}" if get_fps > 0 else "--"
+                if io_fps > 0 and get_fps > 0:
+                    table_map["Combined FPS"] = f"{calc_combined_fps([io_fps, get_fps]):.2f}"
+                else:
+                    table_map["Combined FPS"] = "--"
+                if total_frames and overall_fps > 0:
+                    remaining = max(0, total_frames - processed)
+                    table_map["ETA"] = convert_seconds_to_hms(remaining / overall_fps)
+                else:
+                    table_map["ETA"] = "--:--:--"
+
+            progress_bar = ProgressBar(
+                total=total_batches,
+                iterator=v_iter,
+                scroll_output=scroll_output,
+                update_rate=250,
+                table_callback=_table_callback,
+                use_curses=True,
+            )
+            v_iter = progress_bar
         frame_id = start_frame_number
         frame_ids = list()
         for i in range(batch_size):
             frame_ids.append(i)
         frame_ids = torch.tensor(frame_ids, dtype=torch.int64, device=device)
         frame_ids = frame_ids + frame_id
+        shower = (
+            Shower(
+                "copy_video",
+                show_scaled=None if isinstance(show, bool) else show,
+                profiler=profiler,
+            )
+            if (show and not use_video_out)
+            # if show
+            else None
+        )
+        prof = profiler
+        prof_enabled = bool(prof is not None and getattr(prof, "enabled", False))
+        run_ctx = prof if prof_enabled else contextlib.nullcontext()
         try:
-            while True:
-                all_fps = []
-                io_timer.tic()
-                source_tensor, _, _, _, frame_ids = next(v_iter)
-                io_timer.toc()
+            with run_ctx:
+                while True:
+                    iter_ctx = (
+                        prof.rf("copy_video.iter") if prof_enabled else contextlib.nullcontext()
+                    )
+                    with iter_ctx:
+                        all_fps = []
+                        io_timer.tic()
+                        inputs: Dict[str, Any] = next(v_iter)
+                        io_timer.toc()
 
-                # torch.cuda.synchronize()
+                        source_tensor = inputs["img"]
+                        frame_id = inputs["frame_ids"]
 
-                get_timer.tic()
-                if isinstance(source_tensor, StreamTensorBase):
-                    source_tensor = source_tensor.get()
-                get_timer.toc()
+                        get_timer.tic()
+                        source_tensor = unwrap_tensor(source_tensor)
+                        get_timer.toc()
 
-                batch_size = 1 if source_tensor.ndim == 3 else source_tensor.shape[0]
-
-                if show:
-                    show_image("copying frame", img=source_tensor, wait=False)
-
-                if video_out is not None:
-                    if not use_video_out:
-                        if processed_frame_count >= next_split_frame:
-                            if split_number >= len(split_frames):
-                                next_split_frame = float("inf")
-                            else:
-                                next_split_frame = split_frames[split_number]
-                            split_number += 1
-                            torch.cuda.synchronize()
-                            time.sleep(2)
-                            video_out.close()
-                            video_out = _open_output_video(_output_file_name(split_number))
+                        batch_size = 1 if source_tensor.ndim == 3 else source_tensor.shape[0]
+                        last_batch_size = int(batch_size)
 
                         if torch.is_floating_point(source_tensor):
-                            source_tensor = source_tensor.clamp(0, 255).to(
-                                torch.uint8, non_blocking=True
-                            )
-                        torch.cuda.synchronize()
-                        # Raw VideoStreamWriter path (non-VideoOutput) keeps append().
-                        video_out.append(source_tensor)
-                    else:
-                        # For VideoOutput, call the module directly to trigger forward().
-                        video_out(
-                            {
-                                "frame_id": frame_ids,
-                                "img": source_tensor,
-                                "current_box": torch.tensor(
-                                    [0, 0, image_width(source_tensor), image_height(source_tensor)],
-                                    dtype=torch.float,
-                                ),
-                            }
-                        )
-                else:
-                    # Synchronize the stream so that we report realistic frame rates
-                    if source_tensor.device.type == "cuda":
-                        torch.cuda.current_stream(source_tensor.device).synchronize()
+                            source_tensor.clamp_(0, 255)
+                            source_tensor = source_tensor.to(torch.uint8, non_blocking=True)
 
-                batch_count += 1
-                processed_frame_count += batch_size
+                        if shower:
+                            shower.show(img=source_tensor)
 
-                if batch_count % 50 == 0:
-                    fps = batch_size * 1.0 / max(1e-5, io_timer.average_time)
-                    all_fps.append(fps)
-                    print("IO:        {:.2f} fps".format(fps))
-                    fps = batch_size * 1.0 / max(1e-5, get_timer.average_time)
-                    all_fps.append(fps)
-                    print("get():     {:.2f} fps".format(fps))
-                    if True and batch_count % 50 == 0:
-                        io_timer = Timer()
-                        get_timer = Timer()
-                    print(f"Combined fps: {calc_combined_fps(all_fps):.2f}")
+                        if video_out is not None:
+                            if not use_video_out:
+                                if processed_frame_count >= next_split_frame:
+                                    if split_number >= len(split_frames):
+                                        next_split_frame = float("inf")
+                                    else:
+                                        next_split_frame = split_frames[split_number]
+                                    split_number += 1
+                                    time.sleep(2)
+                                    video_out.close()
+                                    video_out = _open_output_video(
+                                        _output_file_name(split_number)
+                                    )
+
+                                # Raw VideoStreamWriter path (non-VideoOutput) keeps append().
+                                video_out.append(source_tensor)
+                            else:
+                                # For VideoOutput, call the module directly to trigger forward().
+                                if shower:
+                                    shower.show(img=source_tensor)
+                                video_out(
+                                    {
+                                        "frame_id": frame_ids,
+                                        "img": wrap_tensor(source_tensor),
+                                        "current_box": torch.tensor(
+                                            [
+                                                0,
+                                                0,
+                                                image_width(source_tensor),
+                                                image_height(source_tensor),
+                                            ],
+                                            dtype=torch.float,
+                                        ),
+                                        "video_frame_cfg": video_frame_cfg,
+                                    }
+                                )
+                        else:
+                            # Synchronize the stream so that we report realistic frame rates
+                            if source_tensor.device.type == "cuda":
+                                torch.cuda.current_stream(source_tensor.device).synchronize()
+
+                        batch_count += 1
+                        processed_frame_count += batch_size
+
+                        if batch_count % 50 == 0:
+                            fps = batch_size * 1.0 / max(1e-5, io_timer.average_time)
+                            all_fps.append(fps)
+                            logger.info("IO:        %.2f fps", fps)
+                            fps = batch_size * 1.0 / max(1e-5, get_timer.average_time)
+                            all_fps.append(fps)
+                            logger.info("get():     %.2f fps", fps)
+                            if True and batch_count % 50 == 0:
+                                io_timer = Timer()
+                                get_timer = Timer()
+                            logger.info("Combined fps: %.2f", calc_combined_fps(all_fps))
+                    if prof_enabled:
+                        prof.step()
         except StopIteration:
-            print("Done.")
+            logger.info("Done.")
         finally:
+            if progress_bar is not None:
+                progress_bar.close()
             if video_out is not None:
-                if isinstance(video_out, VideoStreamWriter):
+                if isinstance(video_out, VideoStreamWriterInterface):
                     time.sleep(2)
                     video_out.close()
                 else:
                     video_out.stop()
+            if shower is not None:
+                shower.close()
+            try:
+                dataloader.close()
+            except Exception:
+                logger.exception("Failed closing dataloader")
 
 
 #
@@ -310,7 +434,35 @@ def main():
             video_files = file_dict["left"]
         elif "right" in file_dict:
             video_files = file_dict["right"]
+    else:
+        video_files = args.input_video
+    if args.show_scaled:
+        args.show_image = args.show_scaled
+    if (getattr(args, "max_frames", None) in (None, 0)) and getattr(args, "max_time", None):
+        try:
+            info_path = ",".join(video_files) if isinstance(video_files, list) else video_files
+            vid_info = BasicVideoInfo(info_path)
+            if vid_info.fps and vid_info.fps > 0:
+                args.max_frames = time_to_frame(time_str=args.max_time, fps=vid_info.fps)
+                logger.info(
+                    "Limiting processing to %s seconds -> %d frames (fps=%.3f)",
+                    args.max_time,
+                    args.max_frames,
+                    vid_info.fps,
+                )
+        except Exception as exc:
+            logger.warning("Failed converting max-time to frames: %s", exc)
+    profiler = None
+    try:
+        from hmlib.utils.profiler import build_profiler_from_args
 
+        results_folder = os.path.join(".", "output_workdirs", args.game_id or "copy_video")
+        os.makedirs(results_folder, exist_ok=True)
+        default_prof_dir = os.path.join(results_folder, "profiler")
+        profiler = build_profiler_from_args(args, save_dir_fallback=default_prof_dir)
+    except Exception:
+        profiler = None
+    setattr(args, "profiler", profiler)
     with torch.no_grad():
         copy_video(
             video_file=video_files,
@@ -327,10 +479,11 @@ def main():
             num_splits=args.num_splits,
             max_frames=args.max_frames,
             no_cuda_streams=getattr(args, "no_cuda_streams", False),
-            async_mode=getattr(args, "async_mode", True),
+            async_mode=args.async_mode,
+            profiler=profiler,
         )
 
 
 if __name__ == "__main__":
     main()
-    print("Done.")
+    logger.info("Done.")

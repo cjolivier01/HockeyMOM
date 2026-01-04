@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -6,6 +7,7 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.datasets.dataframe import HmDataFrameBase
+from hmlib.utils.gpu import unwrap_tensor
 
 try:  # Prefer vendored OpenMMLab structures
     from mmdet.structures import DetDataSample
@@ -28,9 +30,47 @@ class DetectionDataFrame(HmDataFrameBase):
             "BBox_Y2",
             "Scores",
             "Labels",
-            "PoseIndex",
         ]
         super().__init__(*args, fields=fields, **kwargs)
+
+    def read_data(self) -> None:
+        """Read detection CSVs supporting both legacy and current schemas."""
+        if not self.input_file:
+            return
+        from hmlib.log import logger
+
+        if not os.path.exists(self.input_file):
+            logger.error("Could not open dataframe file: %s", self.input_file)
+            self.data = None
+            return
+
+        df = pd.read_csv(self.input_file, header=None)
+        n = int(df.shape[1])
+        cols = [
+            "Frame",
+            "BBox_X1",
+            "BBox_Y1",
+            "BBox_X2",
+            "BBox_Y2",
+            "Scores",
+            "Labels",
+        ]
+        if n == len(cols) + 1:
+            # Legacy: + PoseIndex
+            df.columns = cols + ["PoseIndex"]
+            df = df.drop(columns=["PoseIndex"])
+        elif n >= len(cols):
+            # Current (or future): ignore extras
+            extra = [f"Extra{i}" for i in range(max(0, n - len(cols)))]
+            df.columns = cols + extra
+            df = df[cols]
+        else:
+            # Pad missing columns
+            for _ in range(len(cols) - n):
+                df[df.shape[1]] = np.nan
+            df.columns = cols
+
+        self.data = df.reindex(columns=self.fields)
 
     @staticmethod
     def _make_array(t: Union[np.ndarray, torch.Tensor, List[Any], Tuple[Any, ...]]) -> np.ndarray:
@@ -55,16 +95,9 @@ class DetectionDataFrame(HmDataFrameBase):
         scores: np.ndarray,
         labels: np.ndarray,
         bboxes: np.ndarray,
-        pose_indices: np.ndarray | None = None,
     ):
         frame_id = int(frame_id)
         bboxes = self._make_array(bboxes)
-        if pose_indices is None:
-            pose_indices = -np.ones((len(bboxes),), dtype=np.int64)
-        else:
-            # Normalize pose indices to a CPU int64 numpy array.
-            pose_indices = self._make_array(pose_indices)
-            pose_indices = np.asarray(pose_indices, dtype=np.int64)
         new_record = pd.DataFrame(
             {
                 "Frame": [frame_id for _ in range(len(bboxes))],
@@ -74,7 +107,6 @@ class DetectionDataFrame(HmDataFrameBase):
                 "BBox_Y2": bboxes[:, 3],
                 "Scores": self._make_array(scores),
                 "Labels": self._make_array(labels),
-                "PoseIndex": pose_indices,
             }
         )
         self._dataframe_list.append(new_record)
@@ -103,15 +135,13 @@ class DetectionDataFrame(HmDataFrameBase):
                 scores=np.empty((0,), dtype=np.float32),
                 labels=np.empty((0,), dtype=np.int64),
                 bboxes=np.empty((0, 4), dtype=np.float32),
-                pose_indices=None,
             )
             return
         self.add_frame_records(
             frame_id=int(frame_id),
-            scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
-            labels=getattr(inst, "labels", np.empty((0,), dtype=np.int64)),
-            bboxes=getattr(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
-            pose_indices=getattr(inst, "source_pose_index", None),
+            scores=self.get_ndarray(inst, "scores", np.empty((0,), dtype=np.float32)),
+            labels=self.get_ndarray(inst, "labels", np.empty((0,), dtype=np.int64)),
+            bboxes=self.get_ndarray(inst, "bboxes", np.empty((0, 4), dtype=np.float32)),
         )
 
     def get_data_by_frame(self, frame_number: int):
@@ -119,7 +149,9 @@ class DetectionDataFrame(HmDataFrameBase):
         if self.data is not None and not self.data.empty:
             return self.data[self.data["Frame"] == frame_number]
         else:
-            print("No data loaded.")
+            from hmlib.log import get_logger
+
+            get_logger(__name__).warning("No data loaded.")
             return None
 
     def _to_outgoing_array(self, array: np.ndarray) -> np.ndarray:
@@ -140,14 +172,10 @@ class DetectionDataFrame(HmDataFrameBase):
         scores = frame_data["Scores"].to_numpy()
         labels = frame_data["Labels"].to_numpy()
         bboxes = frame_data[["BBox_X1", "BBox_Y1", "BBox_X2", "BBox_Y2"]].to_numpy()
-        pose_indices = (
-            frame_data["PoseIndex"].to_numpy() if "PoseIndex" in frame_data.columns else None
-        )
         return dict(
             scores=self._to_outgoing_array(scores),
             labels=self._to_outgoing_array(labels),
             bboxes=self._to_outgoing_array(bboxes),
-            pose_indices=pose_indices,
         )
 
     def get_sample_by_frame(self, frame_id: int) -> Optional[_DetDataSample]:
@@ -162,12 +190,6 @@ class DetectionDataFrame(HmDataFrameBase):
         inst.scores = torch.as_tensor(rec.get("scores", np.empty((0,), dtype=np.float32)))
         inst.labels = torch.as_tensor(rec.get("labels", np.empty((0,), dtype=np.int64)))
         inst.bboxes = torch.as_tensor(rec.get("bboxes", np.empty((0, 4), dtype=np.float32)))
-        pose_idx = rec.get("pose_indices", None)
-        if pose_idx is not None:
-            try:
-                inst.source_pose_index = torch.as_tensor(pose_idx, dtype=torch.long)
-            except Exception:
-                pass
         if DetDataSample is not None:
             ds = DetDataSample()
             ds.pred_instances = inst

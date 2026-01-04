@@ -14,6 +14,7 @@ from hmlib.camera.camera_dataframe import CameraTrackingDataFrame
 from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
+from hmlib.tracking_utils.utils import get_track_mask
 
 from .base import Plugin
 
@@ -262,15 +263,33 @@ class LoadTrackingPlugin(Plugin):
                     )
             img_data_sample.pred_track_instances = inst
             try:
-                img_data_sample.set_metainfo({"nr_tracks": len(inst.instances_id)})
+                track_mask = get_track_mask(inst)
+                if isinstance(track_mask, torch.Tensor):
+                    track_count = int(track_mask.sum().item())
+                else:
+                    track_count = len(inst.instances_id)
+                img_data_sample.set_metainfo({"nr_tracks": track_count})
                 img_data_sample.set_metainfo({"frame_id": int(fid)})
             except Exception:
                 pass
 
-            active_track_count = max(active_track_count, len(inst.instances_id))
-            if len(inst.instances_id):
-                max_id = int(torch.max(inst.instances_id))
-                max_tracking_id = max(max_tracking_id, max_id)
+            track_mask = get_track_mask(inst)
+            if isinstance(track_mask, torch.Tensor):
+                track_count = int(track_mask.sum().item())
+                active_track_count = max(active_track_count, track_count)
+                if track_count:
+                    ids = inst.instances_id
+                    if isinstance(ids, torch.Tensor):
+                        ids = ids[track_mask]
+                        max_id = int(torch.max(ids).item()) if ids.numel() else 0
+                    else:
+                        max_id = int(np.max(np.asarray(ids))) if len(ids) else 0
+                    max_tracking_id = max(max_tracking_id, max_id)
+            else:
+                active_track_count = max(active_track_count, len(inst.instances_id))
+                if len(inst.instances_id):
+                    max_id = int(torch.max(inst.instances_id))
+                    max_tracking_id = max(max_tracking_id, max_id)
 
         return {
             "data": data,
