@@ -34,6 +34,11 @@ def main():
     ap.add_argument("--db-host", default="127.0.0.1")
     ap.add_argument("--db-port", type=int, default=3306)
     ap.add_argument("--python-bin", default="", help="Python interpreter to run the app")
+    ap.add_argument(
+        "--import-token",
+        default="",
+        help="If set, require this bearer token for /api/import/* endpoints (send via Authorization: Bearer ...).",
+    )
     args = ap.parse_args()
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -151,6 +156,17 @@ FLUSH PRIVILEGES;
         "email": {"from": os.environ.get("HM_FROM_EMAIL", "")},
     }
     config_json = app_dir / "config.json"
+    if args.import_token:
+        cfg["import_token"] = args.import_token
+    else:
+        # Preserve existing token on redeploy unless explicitly overridden.
+        try:
+            if config_json.exists():
+                prev = json.loads(config_json.read_text(encoding="utf-8"))
+                if prev.get("import_token"):
+                    cfg["import_token"] = prev["import_token"]
+        except Exception:
+            pass
     config_json.write_text(json.dumps(cfg, indent=2))
     subprocess.check_call(["sudo", "chown", f"{args.user}:{args.user}", str(config_json)])
     subprocess.check_call(["sudo", "chmod", "600", str(config_json)])

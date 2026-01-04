@@ -18,6 +18,7 @@
       <thead>
         <tr>
           <th>Name</th>
+          <th>GP</th>
           <th>Record</th>
           <th>GF/GA</th>
           <th>Pts</th>
@@ -27,6 +28,7 @@
       <tbody>
         {% for t in div.teams %}
         {% set s = stats.get(t['id'], {}) %}
+        {% set gp = (s.get('wins',0)|int + s.get('losses',0)|int + s.get('ties',0)|int) %}
           <tr>
             <td>
               <span style="display:inline-flex;align-items:center;gap:10px;">
@@ -35,6 +37,7 @@
                 {% if (not league_view) and t['is_external'] %}<span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}
               </span>
             </td>
+            <td>{{ gp }}</td>
             <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
             <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
             <td>{{ s.get('points',0) }}</td>
@@ -55,6 +58,7 @@
     <thead>
       <tr>
         <th>Name</th>
+        <th>GP</th>
         <th>Record</th>
         <th>GF/GA</th>
         <th>Pts</th>
@@ -64,6 +68,7 @@
     <tbody>
       {% for t in teams %}
       {% set s = stats.get(t['id'], {}) %}
+      {% set gp = (s.get('wins',0)|int + s.get('losses',0)|int + s.get('ties',0)|int) %}
         <tr>
           <td>
             <span style="display:inline-flex;align-items:center;gap:10px;">
@@ -72,6 +77,7 @@
               {% if (not league_view) and t['is_external'] %}<span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}
             </span>
           </td>
+          <td>{{ gp }}</td>
           <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
           <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
           <td>{{ s.get('points',0) }}</td>

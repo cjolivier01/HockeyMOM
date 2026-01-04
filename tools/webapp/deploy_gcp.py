@@ -337,6 +337,8 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
         "--db-pass",
         args.db_pass,
     ]
+    if args.import_token:
+        install_cmd += ["--import-token", args.import_token]
     _gcloud(
         [
             "compute",
@@ -461,6 +463,11 @@ def main() -> int:
     ap.add_argument("--db-name", default="hm_app_db")
     ap.add_argument("--db-user", default="hmapp")
     ap.add_argument("--db-pass", default="hmapp_pass")
+    ap.add_argument(
+        "--import-token",
+        default="",
+        help="If set, require this bearer token for /api/import/* endpoints (send via Authorization: Bearer ...).",
+    )
 
     ap.add_argument("--enable-https", action="store_true", help="Enable HTTPS via certbot (requires DNS pointing at VM).")
     ap.add_argument("--domains", default="", help="Comma-separated domains for the cert, e.g. example.com,www.example.com")

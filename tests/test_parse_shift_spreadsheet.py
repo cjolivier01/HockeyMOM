@@ -895,6 +895,18 @@ def should_build_webapp_logo_payload_from_meta_path_and_base64(tmp_path: Path, c
     assert fields3.get("away_logo_content_type") == "image/png"
 
 
+def should_parse_webapp_starts_at_from_meta_date_and_starts_at(capsys):
+    assert pss._starts_at_from_meta({"date": "2026-01-04"}) == "2026-01-04 00:00:00"
+    assert pss._starts_at_from_meta({"date": "1/4/2026"}) == "2026-01-04 00:00:00"
+    assert pss._starts_at_from_meta({"starts_at": "2026-01-04T13:05:09"}) == "2026-01-04 13:05:09"
+    assert pss._starts_at_from_meta({"starts_at": "2026-01-04"}) == "2026-01-04 00:00:00"
+
+    bad = pss._starts_at_from_meta({"date": "nope"}, warn_label="x")
+    assert bad is None
+    err = capsys.readouterr().err
+    assert "could not parse date" in err
+
+
 if __name__ == "__main__":
     # Make `bazel test //tests:test_parse_shift_spreadsheet` run pytest collection.
     raise SystemExit(

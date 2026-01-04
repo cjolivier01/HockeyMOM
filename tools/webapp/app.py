@@ -846,7 +846,9 @@ def create_app() -> Flask:
                 supplied = auth.split(" ", 1)[1].strip()
             if not supplied:
                 supplied = request.headers.get("X-HM-Import-Token") or request.args.get("token")
-            if supplied != required:
+            supplied = (supplied or "").strip()
+            required = (required or "").strip()
+            if not supplied or not secrets.compare_digest(supplied, required):
                 return jsonify({"ok": False, "error": "unauthorized"}), 401
             return None
 
@@ -929,13 +931,18 @@ def create_app() -> Flask:
             t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
             t = " ".join(t.split())
             t = re.sub(r"\s*\(\s*external\s*\)\s*$", "", t, flags=re.IGNORECASE).strip()
-            return t
+            # Case/punctuation-insensitive matching to avoid duplicate teams.
+            t = t.casefold()
+            t = re.sub(r"[^0-9a-z]+", " ", t)
+            return " ".join(t.split())
 
         nm = _norm_team_name(name or "")
         if not nm:
             nm = "UNKNOWN"
         with g.db.cursor() as cur:
-            cur.execute("SELECT id FROM teams WHERE user_id=%s AND name=%s", (owner_user_id, nm))
+            # Keep the stored team name as-is; only use normalization for matching.
+            raw_name = str(name or "").strip()
+            cur.execute("SELECT id FROM teams WHERE user_id=%s AND name=%s", (owner_user_id, raw_name))
             row = cur.fetchone()
             if row:
                 return int(row[0])
@@ -947,7 +954,7 @@ def create_app() -> Flask:
                     return int(tid)
             cur.execute(
                 "INSERT INTO teams(user_id, name, is_external, created_at) VALUES(%s,%s,%s,%s)",
-                (owner_user_id, nm, 1, dt.datetime.now().isoformat()),
+                (owner_user_id, raw_name or "UNKNOWN", 1, dt.datetime.now().isoformat()),
             )
             if commit:
                 g.db.commit()
@@ -1648,6 +1655,34 @@ def create_app() -> Flask:
 
         results: list[dict[str, Any]] = []
         try:
+            def _clean_division_name(dn: Any) -> Optional[str]:
+                s = str(dn or "").strip()
+                if not s:
+                    return None
+                if s.lower() == "external":
+                    return None
+                return s
+
+            def _league_team_div_meta(lid: int, tid: int) -> tuple[Optional[str], Optional[int], Optional[int]]:
+                with g.db.cursor() as cur:
+                    cur.execute(
+                        "SELECT division_name, division_id, conference_id FROM league_teams WHERE league_id=%s AND team_id=%s",
+                        (int(lid), int(tid)),
+                    )
+                    r = cur.fetchone()
+                if not r:
+                    return None, None, None
+                dn = _clean_division_name(r[0])
+                try:
+                    did = int(r[1]) if r[1] is not None else None
+                except Exception:
+                    did = None
+                try:
+                    cid = int(r[2]) if r[2] is not None else None
+                except Exception:
+                    cid = None
+                return dn, did, cid
+
             for idx, game in enumerate(games):
                 if not isinstance(game, dict):
                     raise ValueError(f"games[{idx}] must be an object")
@@ -1658,9 +1693,9 @@ def create_app() -> Flask:
 
                 game_replace = bool(game.get("replace", replace))
 
-                division_name = str(game.get("division_name") or "").strip() or None
-                home_division_name = str(game.get("home_division_name") or division_name or "").strip() or None
-                away_division_name = str(game.get("away_division_name") or division_name or "").strip() or None
+                division_name = _clean_division_name(game.get("division_name"))
+                home_division_name = _clean_division_name(game.get("home_division_name") or division_name)
+                away_division_name = _clean_division_name(game.get("away_division_name") or division_name)
                 try:
                     division_id = int(game.get("division_id")) if game.get("division_id") is not None else None
                 except Exception:
@@ -1775,12 +1810,29 @@ def create_app() -> Flask:
                     notes_json_fields=notes_fields,
                     commit=False,
                 )
+
+                effective_div_name = division_name or home_division_name or away_division_name
+                effective_div_id = division_id or home_division_id or away_division_id
+                effective_conf_id = conference_id or home_conference_id or away_conference_id
+                if not effective_div_name:
+                    # If importer sends "External" (or no division), keep the game in the team's real division
+                    # when the team already exists in the league.
+                    t1_dn, t1_did, t1_cid = _league_team_div_meta(int(league_id), int(team1_id))
+                    t2_dn, t2_did, t2_cid = _league_team_div_meta(int(league_id), int(team2_id))
+                    if t1_dn:
+                        effective_div_name = t1_dn
+                        effective_div_id = effective_div_id or t1_did
+                        effective_conf_id = effective_conf_id or t1_cid
+                    elif t2_dn:
+                        effective_div_name = t2_dn
+                        effective_div_id = effective_div_id or t2_did
+                        effective_conf_id = effective_conf_id or t2_cid
                 _map_game_to_league_for_import(
                     league_id,
                     gid,
-                    division_name=division_name or home_division_name or away_division_name,
-                    division_id=division_id or home_division_id or away_division_id,
-                    conference_id=conference_id or home_conference_id or away_conference_id,
+                    division_name=effective_div_name,
+                    division_id=effective_div_id,
+                    conference_id=effective_conf_id,
                     commit=False,
                 )
 
@@ -1939,7 +1991,12 @@ def create_app() -> Flask:
                 t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
                 t = " ".join(t.split())
                 t = re.sub(r"\s*\(\s*external\s*\)\s*$", "", t, flags=re.IGNORECASE).strip()
-                return t
+                # Many TimeToScore imports use a disambiguating "(Division)" suffix.
+                # Strip a trailing parenthetical block for matching purposes so uploads that omit it still match.
+                t = re.sub(r"\s*\([^)]*\)\s*$", "", t).strip()
+                t = t.casefold()
+                t = re.sub(r"[^0-9a-z]+", " ", t)
+                return " ".join(t.split())
 
             def _find_team_in_league_by_name(league_id_i: int, name: str) -> Optional[dict[str, Any]]:
                 nm = _norm_team_name_for_match(name)
@@ -1955,9 +2012,22 @@ def create_app() -> Flask:
                         (int(league_id_i),),
                     )
                     rows = cur.fetchall() or []
-                for r in rows:
-                    if _norm_team_name_for_match(str(r.get("team_name") or "")) == nm:
-                        return r
+                matches = [r for r in rows if _norm_team_name_for_match(str(r.get("team_name") or "")) == nm]
+                if not matches:
+                    return None
+                if len(matches) == 1:
+                    return matches[0]
+                # Disambiguate by requested division if provided (and not External), otherwise by any existing match's division.
+                want_div = str(payload.get("division_name") or "").strip()
+                if want_div and want_div.lower() != "external":
+                    by_div = [m for m in matches if str(m.get("division_name") or "").strip() == want_div]
+                    if len(by_div) == 1:
+                        return by_div[0]
+                for m in matches:
+                    dn = str(m.get("division_name") or "").strip()
+                    if dn:
+                        return m
+                return matches[0]
                 return None
 
             try:
@@ -2036,14 +2106,10 @@ def create_app() -> Flask:
                 team1_id = int(match_home["team_id"]) if match_home else _ensure_external_team_for_import(owner_user_id_for_create, home_team_name, commit=False)
                 team2_id = int(match_away["team_id"]) if match_away else _ensure_external_team_for_import(owner_user_id_for_create, away_team_name, commit=False)
 
-                def _pick_division_name() -> str:
-                    for m in (match_home, match_away):
-                        dn = str((m or {}).get("division_name") or "").strip()
-                        if dn and dn.lower() != "external":
-                            return dn
-                    return str(division_name or "").strip() or "External"
-
-                division_name_effective = _pick_division_name()
+                # External games created from shift spreadsheets should be mapped to the provided division
+                # (default: "External"), even when one side matches an existing league team.
+                game_division_name = str(division_name or "").strip() or "External"
+                new_team_division_name = game_division_name
 
                 # Optional team icons for external games (do not overwrite unless replace).
                 _ensure_team_logo_for_import(
@@ -2094,22 +2160,24 @@ def create_app() -> Flask:
                     notes_json_fields={"external_game_key": external_game_key},
                     commit=False,
                 )
-                _map_team_to_league_for_import(
-                    int(league_id_i),
-                    team1_id,
-                    division_name=division_name_effective if match_home else (division_name or "External"),
-                    commit=False,
-                )
-                _map_team_to_league_for_import(
-                    int(league_id_i),
-                    team2_id,
-                    division_name=division_name_effective if match_away else (division_name or "External"),
-                    commit=False,
-                )
+                if not match_home:
+                    _map_team_to_league_for_import(
+                        int(league_id_i),
+                        team1_id,
+                        division_name=new_team_division_name,
+                        commit=False,
+                    )
+                if not match_away:
+                    _map_team_to_league_for_import(
+                        int(league_id_i),
+                        team2_id,
+                        division_name=new_team_division_name,
+                        commit=False,
+                    )
                 _map_game_to_league_for_import(
                     int(league_id_i),
                     int(resolved_game_id),
-                    division_name=division_name_effective,
+                    division_name=game_division_name,
                     sort_order=sort_order,
                     commit=False,
                 )
@@ -2728,7 +2796,7 @@ def create_app() -> Flask:
             )
             ps_rows = cur.fetchall() or []
 
-        player_stats_rows = build_player_stats_table_rows(players_only, player_totals)
+        player_stats_rows = sort_players_table_default(build_player_stats_table_rows(players_only, player_totals))
         recent_totals = compute_recent_player_totals_from_rows(
             schedule_games=schedule_games, player_stats_rows=ps_rows, n=recent_n
         )
@@ -3143,7 +3211,7 @@ def create_app() -> Flask:
                 )
                 ps_rows = cur.fetchall() or []
 
-        player_stats_rows = build_player_stats_table_rows(players_only, player_totals)
+        player_stats_rows = sort_players_table_default(build_player_stats_table_rows(players_only, player_totals))
         recent_totals = compute_recent_player_totals_from_rows(
             schedule_games=schedule_games, player_stats_rows=ps_rows, n=recent_n
         )
@@ -5256,6 +5324,26 @@ def sort_player_stats_rows(
         return (-pts_v, str(r.get("name") or "").lower())
 
     return sorted(list(rows or []), key=lambda r: (_val(r), _tiebreak(r)), reverse=reverse)
+
+
+def sort_players_table_default(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Default stable sort order for the team-page Players table:
+      - name ascending
+      - assists descending
+      - goals descending
+      - points descending
+    """
+    out = list(rows or [])
+
+    def _n(r: dict[str, Any], k: str) -> int:
+        return _int0(r.get(k))
+
+    out.sort(key=lambda r: _n(r, "points"), reverse=True)
+    out.sort(key=lambda r: _n(r, "goals"), reverse=True)
+    out.sort(key=lambda r: _n(r, "assists"), reverse=True)
+    out.sort(key=lambda r: str(r.get("name") or "").lower())
+    return out
 
 
 def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:

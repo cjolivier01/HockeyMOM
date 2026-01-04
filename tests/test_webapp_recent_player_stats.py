@@ -103,3 +103,22 @@ def should_split_coaches_out_of_player_lists():
     assert [p["name"] for p in head_coaches] == ["Head Coach A"]
     assert [p["name"] for p in assistant_coaches] == ["Assistant Coach B"]
     assert [p["name"] for p in players_only] == ["Skater C"]
+
+
+def should_default_sort_players_table_by_name_then_assists_goals_points():
+    mod = _load_app_module()
+    rows = [
+        {"name": "Bob", "assists": 1, "goals": 0, "points": 1},
+        {"name": "Alice", "assists": 1, "goals": 2, "points": 3},
+        {"name": "Alice", "assists": 2, "goals": 0, "points": 2},
+        {"name": "Alice", "assists": 2, "goals": 1, "points": 3},
+        {"name": "Bob", "assists": 0, "goals": 5, "points": 5},
+    ]
+    out = mod.sort_players_table_default(rows)
+    assert [r["name"] for r in out[:3]] == ["Alice", "Alice", "Alice"]
+    # For same name: assists desc, then goals desc, then points desc.
+    assert [(r["assists"], r["goals"], r["points"]) for r in out if r["name"] == "Alice"] == [
+        (2, 1, 3),
+        (2, 0, 2),
+        (1, 2, 3),
+    ]

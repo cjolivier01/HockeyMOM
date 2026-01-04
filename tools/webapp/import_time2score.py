@@ -749,6 +749,35 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
             return int(cur.lastrowid)
 
     results: list[dict[str, Any]] = []
+
+    def _clean_division_name(dn: Any) -> Optional[str]:
+        s = str(dn or "").strip()
+        if not s:
+            return None
+        if s.lower() == "external":
+            return None
+        return s
+
+    def _league_team_div_meta(team_id: int) -> tuple[Optional[str], Optional[int], Optional[int]]:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT division_name, division_id, conference_id FROM league_teams WHERE league_id=%s AND team_id=%s",
+                (int(league_id), int(team_id)),
+            )
+            r = cur.fetchone()
+        if not r:
+            return None, None, None
+        dn = _clean_division_name(r[0])
+        try:
+            did = int(r[1]) if r[1] is not None else None
+        except Exception:
+            did = None
+        try:
+            cid = int(r[2]) if r[2] is not None else None
+        except Exception:
+            cid = None
+        return dn, did, cid
+
     for game in games:
         if not isinstance(game, dict):
             continue
@@ -791,16 +820,19 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
             except Exception:
                 return None
 
-        division_name = str(game.get("division_name") or "").strip() or None
+        division_name = _clean_division_name(game.get("division_name"))
         division_id = _int_or_none(game.get("division_id"))
         conference_id = _int_or_none(game.get("conference_id"))
         sort_order = _int_or_none(game.get("sort_order"))
+
+        home_div_name = _clean_division_name(game.get("home_division_name")) or division_name
+        away_div_name = _clean_division_name(game.get("away_division_name")) or division_name
 
         map_team_to_league_with_division(
             conn,
             league_id=league_id,
             team_id=team1_id,
-            division_name=str(game.get("home_division_name") or "").strip() or division_name,
+            division_name=home_div_name,
             division_id=_int_or_none(game.get("home_division_id")) or division_id,
             conference_id=_int_or_none(game.get("home_conference_id")) or conference_id,
         )
@@ -808,17 +840,33 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
             conn,
             league_id=league_id,
             team_id=team2_id,
-            division_name=str(game.get("away_division_name") or "").strip() or division_name,
+            division_name=away_div_name,
             division_id=_int_or_none(game.get("away_division_id")) or division_id,
             conference_id=_int_or_none(game.get("away_conference_id")) or conference_id,
         )
+
+        effective_div_name = division_name or home_div_name or away_div_name
+        effective_div_id = division_id or _int_or_none(game.get("home_division_id")) or _int_or_none(game.get("away_division_id"))
+        effective_conf_id = conference_id or _int_or_none(game.get("home_conference_id")) or _int_or_none(game.get("away_conference_id"))
+        if not effective_div_name:
+            t1_dn, t1_did, t1_cid = _league_team_div_meta(int(team1_id))
+            t2_dn, t2_did, t2_cid = _league_team_div_meta(int(team2_id))
+            if t1_dn:
+                effective_div_name = t1_dn
+                effective_div_id = effective_div_id or t1_did
+                effective_conf_id = effective_conf_id or t1_cid
+            elif t2_dn:
+                effective_div_name = t2_dn
+                effective_div_id = effective_div_id or t2_did
+                effective_conf_id = effective_conf_id or t2_cid
+
         map_game_to_league_with_division(
             conn,
             league_id=league_id,
             game_id=gid,
-            division_name=division_name,
-            division_id=division_id,
-            conference_id=conference_id,
+            division_name=effective_div_name,
+            division_id=effective_div_id,
+            conference_id=effective_conf_id,
             sort_order=sort_order,
         )
 
@@ -981,8 +1029,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     ap.add_argument(
         "--api-token",
+        "--import-token",
+        dest="api_token",
         default=None,
-        help="Optional import token for REST API auth (sent as X-HM-Import-Token).",
+        help="Optional import token for REST API auth (sent as Authorization: Bearer ... and X-HM-Import-Token).",
     )
     ap.add_argument(
         "--api-batch-size",
@@ -1213,7 +1263,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     api_base = str(args.api_url or "").rstrip("/")
     api_headers: dict[str, str] = {}
     if rest_mode and args.api_token:
-        api_headers["X-HM-Import-Token"] = str(args.api_token)
+        tok = str(args.api_token).strip()
+        if tok:
+            api_headers["Authorization"] = f"Bearer {tok}"
+            api_headers["X-HM-Import-Token"] = tok
     api_batch_size = max(1, int(args.api_batch_size or 1))
 
     def _post_batch() -> None:

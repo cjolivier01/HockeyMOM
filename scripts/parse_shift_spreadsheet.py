@@ -345,6 +345,74 @@ def _load_logo_fields_from_meta(
     return out_all
 
 
+def _starts_at_from_meta(meta: Dict[str, str], *, warn_label: str = "") -> Optional[str]:
+    """
+    Resolve an external game's starts_at timestamp from metadata.
+
+    Supported keys:
+      - starts_at=<datetime string> (passed through after light normalization)
+      - date=<YYYY-MM-DD> (converted to 'YYYY-MM-DD 00:00:00')
+
+    This is only used for external games (the webapp does not update starts_at on existing games).
+    """
+
+    def _warn(msg: str) -> None:
+        if not msg:
+            return
+        prefix = f"[warning]{' [' + warn_label + ']' if warn_label else ''}"
+        print(f"{prefix} {msg}", file=sys.stderr)
+
+    def _fmt_dt(dt_obj: datetime.datetime) -> str:
+        return dt_obj.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _parse_date_only(s: str) -> Optional[str]:
+        ss = s.strip()
+        if not ss:
+            return None
+        try:
+            d = datetime.date.fromisoformat(ss)
+            return f"{d.isoformat()} 00:00:00"
+        except Exception:
+            pass
+        m = re.match(r"^\s*(\d{1,2})/(\d{1,2})/(\d{2,4})\s*$", ss)
+        if m:
+            mm = int(m.group(1))
+            dd = int(m.group(2))
+            yy = int(m.group(3))
+            if yy < 100:
+                yy = 2000 + yy
+            try:
+                d2 = datetime.date(yy, mm, dd)
+                return f"{d2.isoformat()} 00:00:00"
+            except Exception:
+                return None
+        return None
+
+    starts_at_raw = str(meta.get("starts_at") or "").strip()
+    if starts_at_raw:
+        # Normalize ISO-ish strings to a SQL-friendly format when possible.
+        ss = starts_at_raw.replace("T", " ").strip()
+        try:
+            # Accept full ISO datetime; allow seconds to be omitted.
+            dt_obj = datetime.datetime.fromisoformat(ss)
+            return _fmt_dt(dt_obj)
+        except Exception:
+            # If user gives a bare date in starts_at, treat it as date-only.
+            parsed = _parse_date_only(ss)
+            if parsed:
+                return parsed
+            # Otherwise pass through (webapp may still accept it).
+            return starts_at_raw
+
+    date_raw = str(meta.get("date") or "").strip()
+    if date_raw:
+        parsed2 = _parse_date_only(date_raw)
+        if parsed2:
+            return parsed2
+        _warn(f"could not parse date={date_raw!r} (expected YYYY-MM-DD or M/D/YYYY); ignoring")
+    return None
+
+
 def _normalize_header_label(label: str) -> str:
     """Normalize header label for comparison (case/spacing/punctuation insensitive)."""
     return re.sub(r"[^a-z0-9]+", "", label.lower())
@@ -7048,7 +7116,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Path to a text file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
         "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
         "You can append ':HOME' or ':AWAY' per line. "
-        "You can also append metadata like '|key=value' (e.g. owner_email/league/home_team/away_team/division/home_logo/away_logo) for webapp upload. "
+        "You can also append metadata like '|key=value' (e.g. owner_email/league/home_team/away_team/division/date/home_logo/away_logo) for webapp upload. "
         "Lines may also be 't2s=<game_id>[:HOME|AWAY][:game_label]' to process a TimeToScore-only game with no spreadsheets.",
     )
     p.add_argument(
@@ -7150,7 +7218,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--webapp-token",
         type=str,
         default=None,
-        help="Optional import token for webapp REST upload (sent as X-HM-Import-Token).",
+        help="Optional import token for webapp REST upload (sent as Authorization: Bearer ... and X-HM-Import-Token).",
+    )
+    p.add_argument(
+        "--import-token",
+        type=str,
+        default=None,
+        help="Alias for --webapp-token.",
     )
     p.add_argument(
         "--webapp-replace",
@@ -7194,6 +7268,7 @@ def _upload_shift_package_to_webapp(
     team_side: Optional[str] = None,
     home_team_name: Optional[str] = None,
     away_team_name: Optional[str] = None,
+    starts_at: Optional[str] = None,
     home_logo_b64: Optional[str] = None,
     home_logo_content_type: Optional[str] = None,
     away_logo_b64: Optional[str] = None,
@@ -7242,6 +7317,8 @@ def _upload_shift_package_to_webapp(
         payload["home_team_name"] = str(home_team_name)
     if away_team_name:
         payload["away_team_name"] = str(away_team_name)
+    if starts_at:
+        payload["starts_at"] = str(starts_at)
     if home_logo_b64:
         payload["home_logo_b64"] = str(home_logo_b64)
     if home_logo_content_type:
@@ -7254,7 +7331,10 @@ def _upload_shift_package_to_webapp(
         payload["create_missing_players"] = True
     headers: Dict[str, str] = {}
     if webapp_token:
-        headers["X-HM-Import-Token"] = str(webapp_token)
+        tok = str(webapp_token).strip()
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+            headers["X-HM-Import-Token"] = tok
 
     base = str(webapp_url or "").rstrip("/")
     r = requests.post(
@@ -7861,9 +7941,14 @@ def main() -> None:
 
             owner_email = _meta("owner_email") or (str(getattr(args, "webapp_owner_email", "") or "").strip() or None)
             league_name = _meta("league", "league_name") or (str(getattr(args, "webapp_league_name", "") or "").strip() or None)
-            division_name = _meta("division", "division_name") or (
-                str(getattr(args, "webapp_division_name", "") or "").strip() or None
-            )
+            # For T2S-linked games, division is already known from the TimeToScore import,
+            # so do not default to "External" (which can cause incorrect mappings).
+            if t2s_id is not None:
+                division_name = _meta("division", "division_name") or None
+            else:
+                division_name = _meta("division", "division_name") or (
+                    str(getattr(args, "webapp_division_name", "") or "").strip() or None
+                )
             sort_order = int(idx)
             team_side = str(side_to_use or "").strip().lower() or None
             # If this is a non-TimeToScore game and side isn't specified, treat the "for" team as home for now.
@@ -7879,6 +7964,7 @@ def main() -> None:
             except Exception:
                 file_list_base_dir = None
             logo_fields = _load_logo_fields_from_meta(meta, base_dir=file_list_base_dir, warn_label=str(label or ""))
+            starts_at = _starts_at_from_meta(meta, warn_label=str(label or ""))
 
             try:
                 print(f"[webapp] Uploading {idx + 1}/{len(groups)}: {label}")
@@ -7889,7 +7975,9 @@ def main() -> None:
                 if t2s_id is not None:
                     _upload_shift_package_to_webapp(
                         webapp_url=str(getattr(args, "webapp_url", "") or "").strip() or "http://127.0.0.1:8008",
-                        webapp_token=(getattr(args, "webapp_token", None) or None),
+                        webapp_token=(
+                            getattr(args, "webapp_token", None) or getattr(args, "import_token", None) or None
+                        ),
                         t2s_game_id=int(t2s_id),
                         external_game_key=None,
                         label=str(label or ""),
@@ -7900,6 +7988,7 @@ def main() -> None:
                         division_name=division_name,
                         sort_order=sort_order,
                         team_side=team_side,
+                        starts_at=starts_at,
                         home_logo_b64=logo_fields.get("home_logo_b64"),
                         home_logo_content_type=logo_fields.get("home_logo_content_type"),
                         away_logo_b64=logo_fields.get("away_logo_b64"),
@@ -7930,7 +8019,9 @@ def main() -> None:
                         _upload_shift_package_to_webapp(
                             webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
                             or "http://127.0.0.1:8008",
-                            webapp_token=(getattr(args, "webapp_token", None) or None),
+                            webapp_token=(
+                                getattr(args, "webapp_token", None) or getattr(args, "import_token", None) or None
+                            ),
                             t2s_game_id=None,
                             external_game_key=str(label or ""),
                             label=str(label or ""),
@@ -7943,6 +8034,7 @@ def main() -> None:
                             team_side=team_side,
                             home_team_name=external_home,
                             away_team_name=external_away,
+                            starts_at=starts_at,
                             home_logo_b64=logo_fields.get("home_logo_b64"),
                             home_logo_content_type=logo_fields.get("home_logo_content_type"),
                             away_logo_b64=logo_fields.get("away_logo_b64"),

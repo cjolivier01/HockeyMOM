@@ -53,6 +53,14 @@ python3 tools/webapp/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a
 python3 tools/webapp/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --delete
 ```
 
+Redeploy (code-only)
+--------------------
+If you only changed `tools/webapp/app.py` / templates / static assets, you can do a fast redeploy that just copies files to the VM and restarts the service:
+
+```
+python3 tools/webapp/redeploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --instance hm-webapp
+```
+
 Uninstall
 ---------
 

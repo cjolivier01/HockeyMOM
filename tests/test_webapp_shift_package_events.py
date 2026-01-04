@@ -825,6 +825,138 @@ def should_reuse_existing_league_team_by_name_and_preserve_division(client_and_d
     # Team A's division mapping stays intact (not overwritten to External).
     after_div = next((lt for lt in db.league_teams if int(lt["league_id"]) == 2 and int(lt["team_id"]) == 101), None)
     assert after_div and str(after_div["division_name"]) == "10 B West"
-    # Game should be mapped under the same division, not "External".
+    # External game should be mapped under "External" division.
     lg = next((lg for lg in db.league_games if int(lg["league_id"]) == 2 and int(lg["game_id"]) == gid), None)
-    assert lg and str(lg.get("division_name") or "") == "10 B West"
+    assert lg and str(lg.get("division_name") or "") == "External"
+    # New opponent team is mapped under External.
+    opp = next((lt for lt in db.league_teams if int(lt["league_id"]) == 2 and int(lt["team_id"]) != 101), None)
+    assert opp and str(opp.get("division_name") or "") == "External"
+
+
+def should_match_league_team_names_case_and_punctuation_insensitive(client_and_db):
+    client, db = client_and_db
+    db.users_by_email["owner@example.com"] = {"id": 10, "email": "owner@example.com", "name": "Owner"}
+
+    # Pre-create a league and a team with a stable "real" division.
+    db.leagues[2] = {"id": 2, "name": "Norcal", "is_public": 1, "owner_user_id": 10, "is_shared": 0}
+    db.league_id_by_name["Norcal"] = 2
+    sj_id = int(db._next_id["teams"])
+    db._next_id["teams"] += 1
+    db.teams[sj_id] = {"id": sj_id, "user_id": 10, "name": "San Jose Jr Sharks 12AA-1", "is_external": 0, "logo_path": None}
+    db.team_id_by_user_name[(10, "San Jose Jr Sharks 12AA-1")] = sj_id
+    db.league_teams.append(
+        {"league_id": 2, "team_id": sj_id, "division_name": "12AA", "division_id": 0, "conference_id": 0}
+    )
+
+    before_team_count = len(db.teams)
+    r = client.post(
+        "/api/import/hockey/shift_package",
+        json={
+            "external_game_key": "tourny-2",
+            "owner_email": "owner@example.com",
+            "league_name": "Norcal",
+            "team_side": "home",
+            # Intentionally different case, punctuation, and dash style.
+            "home_team_name": "SAN JOSE JR. SHARKS 12AA–1",
+            "away_team_name": "Opponent X",
+            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
+        },
+        headers={"X-HM-Import-Token": "sekret"},
+    )
+    assert r.status_code == 200
+    out = r.get_json()
+    assert out["ok"] is True
+
+    # No duplicate for the existing league team; only the opponent is added.
+    assert len(db.teams) == before_team_count + 1
+    # Existing division mapping stays intact; external game itself is mapped to External.
+    after_div = next((lt for lt in db.league_teams if int(lt["league_id"]) == 2 and int(lt["team_id"]) == sj_id), None)
+    assert after_div and str(after_div["division_name"]) == "12AA"
+    gid = int(out["game_id"])
+    lg = next((lg for lg in db.league_games if int(lg["league_id"]) == 2 and int(lg["game_id"]) == gid), None)
+    assert lg and str(lg.get("division_name") or "") == "External"
+
+
+def should_not_create_duplicate_external_teams_for_name_variants(client_and_db):
+    client, db = client_and_db
+    db.users_by_email["owner@example.com"] = {"id": 10, "email": "owner@example.com", "name": "Owner"}
+
+    before_team_count = len(db.teams)
+
+    r1 = client.post(
+        "/api/import/hockey/shift_package",
+        json={
+            "external_game_key": "tourny-a",
+            "owner_email": "owner@example.com",
+            "league_name": "Norcal",
+            "team_side": "home",
+            "home_team_name": "Team A",
+            "away_team_name": "Arizona Coyotes 12AA",
+            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
+        },
+        headers={"X-HM-Import-Token": "sekret"},
+    )
+    assert r1.status_code == 200
+    assert r1.get_json()["ok"] is True
+    assert len(db.teams) == before_team_count + 1
+
+    r2 = client.post(
+        "/api/import/hockey/shift_package",
+        json={
+            "external_game_key": "tourny-b",
+            "owner_email": "owner@example.com",
+            "league_name": "Norcal",
+            "team_side": "home",
+            "home_team_name": "Team A",
+            # Different case should match the existing created team.
+            "away_team_name": "ARIZONA COYOTES 12AA",
+            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
+        },
+        headers={"X-HM-Import-Token": "sekret"},
+    )
+    assert r2.status_code == 200
+    assert r2.get_json()["ok"] is True
+    # Still only one Arizona Coyotes team.
+    assert len(db.teams) == before_team_count + 1
+
+
+def should_match_team_names_even_when_db_has_division_suffix_parens(client_and_db):
+    client, db = client_and_db
+    db.users_by_email["owner@example.com"] = {"id": 10, "email": "owner@example.com", "name": "Owner"}
+
+    # Pre-create a league and a team where the DB name includes the disambiguating "(Division)" suffix.
+    db.leagues[2] = {"id": 2, "name": "Norcal", "is_public": 1, "owner_user_id": 10, "is_shared": 0}
+    db.league_id_by_name["Norcal"] = 2
+    tid = int(db._next_id["teams"])
+    db._next_id["teams"] += 1
+    db.teams[tid] = {"id": tid, "user_id": 10, "name": "Team A (12AA)", "is_external": 0, "logo_path": None}
+    db.team_id_by_user_name[(10, "Team A (12AA)")] = tid
+    db.league_teams.append({"league_id": 2, "team_id": tid, "division_name": "12AA", "division_id": 0, "conference_id": 0})
+
+    before_team_count = len(db.teams)
+    r = client.post(
+        "/api/import/hockey/shift_package",
+        json={
+            "external_game_key": "tourny-parens",
+            "owner_email": "owner@example.com",
+            "league_name": "Norcal",
+            "team_side": "home",
+            # Upload omits the suffix, but should still match the league team.
+            "home_team_name": "Team A",
+            "away_team_name": "Opponent X",
+            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
+        },
+        headers={"X-HM-Import-Token": "sekret"},
+    )
+    assert r.status_code == 200
+    out = r.get_json()
+    assert out["ok"] is True
+    gid = int(out["game_id"])
+
+    # No duplicate Team A created; only the opponent is new.
+    assert len(db.teams) == before_team_count + 1
+    # Opponent is mapped to External because this is an external game upload.
+    opp_lt = next((lt for lt in db.league_teams if int(lt["league_id"]) == 2 and int(lt["team_id"]) != tid), None)
+    assert opp_lt and str(opp_lt.get("division_name") or "") == "External"
+    lg = next((lg for lg in db.league_games if int(lg["league_id"]) == 2 and int(lg["game_id"]) == gid), None)
+    assert lg and str(lg.get("division_name") or "") == "External"

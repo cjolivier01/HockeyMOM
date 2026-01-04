@@ -473,6 +473,17 @@ class FakeCursor:
                     rec["assists"] = assists
             return 1
 
+        if q == "SELECT division_name, division_id, conference_id FROM league_teams WHERE league_id=%s AND team_id=%s":
+            league_id, team_id = int(p[0]), int(p[1])
+            meta = self._conn.league_teams_meta.get((league_id, team_id))
+            if not meta:
+                self._rows = []
+                return 1
+            self._rows = [
+                as_row_tuple(meta.get("division_name"), meta.get("division_id"), meta.get("conference_id"))
+            ]
+            return 1
+
         # Shared league visibility queries (used by /leagues and context processor)
         if "FROM leagues l WHERE l.is_shared=1 OR l.owner_user_id=%s" in q:
             user_id = int(p[-2]) if len(p) >= 2 else 0
@@ -857,6 +868,79 @@ def should_update_player_roster_fields_without_replace(client_and_db, monkeypatc
     _post(client, "/api/import/hockey/game", payload2, token="sekret")
     assert db.players_by_id[alice_pid]["jersey_number"] == "12"
     assert db.players_by_id[alice_pid]["position"] == "F"
+
+
+def should_not_map_games_or_teams_into_external_when_division_is_external_but_team_exists(client_and_db, monkeypatch):
+    client, db = client_and_db
+    monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
+
+    payload1 = {
+        "league_name": "Norcal",
+        "shared": True,
+        "replace": False,
+        "owner_email": "owner@example.com",
+        "source": "timetoscore",
+        "external_key": "caha:77",
+        "games": [
+            {
+                "home_name": "San Jose Jr Sharks 12AA-1",
+                "away_name": "Arizona Coyotes 12AA",
+                "starts_at": "2026-01-01 10:00:00",
+                "location": "Rink 1",
+                "home_score": 1,
+                "away_score": 2,
+                "timetoscore_game_id": 2001,
+                "season_id": 77,
+                "division_name": "12AA",
+                "home_division_name": "12AA",
+                "away_division_name": "12AA",
+            }
+        ],
+    }
+    r1 = _post(client, "/api/import/hockey/games_batch", payload1, token="sekret")
+    assert r1.status_code == 200
+    assert r1.get_json()["ok"] is True
+    league_id = int(r1.get_json()["league_id"])
+    assert len(db.teams_by_id) == 2
+
+    # Second import: same teams, but division is incorrectly "External".
+    payload2 = {
+        "league_name": "Norcal",
+        "shared": True,
+        "replace": False,
+        "owner_email": "owner@example.com",
+        "source": "timetoscore",
+        "external_key": "caha:77",
+        "games": [
+            {
+                "home_name": "San Jose Jr Sharks 12AA-1",
+                "away_name": "Arizona Coyotes 12AA",
+                "starts_at": "2026-01-02 10:00:00",
+                "location": "Rink 1",
+                "home_score": 3,
+                "away_score": 4,
+                "timetoscore_game_id": 2002,
+                "season_id": 77,
+                "division_name": "External",
+                "home_division_name": "External",
+                "away_division_name": "External",
+            }
+        ],
+    }
+    r2 = _post(client, "/api/import/hockey/games_batch", payload2, token="sekret")
+    assert r2.status_code == 200
+    assert r2.get_json()["ok"] is True
+
+    # Still no duplicate teams.
+    assert len(db.teams_by_id) == 2
+
+    # The second game is still mapped into the real division, not External.
+    gid2 = max(db.hky_games_by_id.keys())
+    assert db.league_games_meta[(league_id, gid2)]["division_name"] == "12AA"
+    # Team mappings remain in the real division.
+    team_ids = sorted(db.teams_by_id.keys())
+    assert db.league_teams_meta[(league_id, team_ids[0])]["division_name"] == "12AA"
+    assert db.league_teams_meta[(league_id, team_ids[1])]["division_name"] == "12AA"
 
 
 def should_import_games_batch_and_match_individual_imports(monkeypatch):
