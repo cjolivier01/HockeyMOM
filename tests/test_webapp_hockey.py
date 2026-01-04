@@ -142,6 +142,33 @@ def should_merge_imported_and_db_game_player_stats():
     assert cell_conf2[1]["goals"] is True
 
 
+def should_compute_game_points_and_hide_blank_columns_in_game_player_stats_table():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    players = [
+        {"id": 1, "team_id": 10, "name": "Skater One", "jersey_number": "9", "position": "F"},
+        {"id": 2, "team_id": 10, "name": "Skater Two", "jersey_number": "8", "position": "F"},
+    ]
+    stats_by_pid = {
+        1: {"goals": 1, "assists": 2},
+        2: {"goals": 0, "assists": 1},
+    }
+    imported_csv = "Jersey #,Player,Goals,Assists,Unused Blank\n9,Skater One,1,2,\n8,Skater Two,0,1,\n"
+
+    cols, cell_text_by_pid, _cell_conf_by_pid, warn = mod.build_game_player_stats_table(
+        players=players, stats_by_pid=stats_by_pid, imported_csv_text=imported_csv
+    )
+    assert warn is None
+    col_labels = [str(c.get("label")) for c in cols]
+    assert "P" in col_labels
+    # Column with all blanks is removed.
+    assert "Unused Blank" not in col_labels
+    assert cell_text_by_pid[1]["points"] == "3"
+    assert cell_text_by_pid[2]["points"] == "1"
+
+
 def should_build_game_player_stats_table_preserves_unknown_imported_columns():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"

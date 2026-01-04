@@ -131,6 +131,9 @@
 
   <h3 style="margin-top:1rem;">Player Stats</h3>
   {% if player_stats_import_meta %}
+    <p class="muted" style="margin-top:0;">Imported Player Stats</p>
+  {% endif %}
+  {% if player_stats_import_meta %}
     <p class="muted" style="margin-top:0;">
       {% if player_stats_import_meta.get('source_label') %}Source: {{ player_stats_import_meta.get('source_label') }}{% endif %}
       {% if player_stats_import_meta.get('updated_at') %} | Updated: {{ player_stats_import_meta.get('updated_at') }}{% endif %}

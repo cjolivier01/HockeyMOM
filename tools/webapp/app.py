@@ -5018,9 +5018,14 @@ def to_csv_text(headers: list[str], rows: list[dict[str, str]]) -> str:
 
 
 def sanitize_player_stats_csv_for_storage(player_stats_csv: str) -> str:
-    # Store the full CSV so the game page can display the same columns as
-    # scripts/parse_shift_spreadsheet.py generates (including shift/TOI fields).
+    """
+    Sanitize game-level player_stats CSV before storage.
+
+    We intentionally drop shift/ice-time and "per game"/"per shift" derived columns so they never
+    appear in the web UI and don't accidentally get used for downstream calculations.
+    """
     headers, rows = parse_events_csv(player_stats_csv)
+    headers, rows = filter_single_game_player_stats_csv(headers, rows)
     return to_csv_text(headers, rows)
 
 
@@ -5469,6 +5474,7 @@ OT_ONLY_PLAYER_STATS_KEYS: frozenset[str] = frozenset({"ot_goals", "ot_assists"}
 GAME_PLAYER_STATS_COLUMNS: tuple[dict[str, Any], ...] = (
     {"id": "goals", "label": "G", "keys": ("goals",)},
     {"id": "assists", "label": "A", "keys": ("assists",)},
+    {"id": "points", "label": "P", "keys": ("goals", "assists"), "op": "sum"},
     {"id": "gt_goals", "label": "GT Goals", "keys": ("gt_goals",)},
     {"id": "gw_goals", "label": "GW Goals", "keys": ("gw_goals",)},
     {"id": "ot_goals", "label": "OT Goals", "keys": ("ot_goals",)},
@@ -5498,6 +5504,9 @@ _PLAYER_STATS_IDENTITY_HEADERS: frozenset[str] = frozenset(
 )
 
 _PLAYER_STATS_HEADER_TO_DB_KEY: dict[str, str] = {
+    # Common short headers
+    "g": "goals",
+    "a": "assists",
     "goals": "goals",
     "assists": "assists",
     "shots": "shots",
@@ -5693,6 +5702,34 @@ def _build_game_player_stats_table_from_imported_csv(
             if all(_is_zero_or_blank_stat(_parse_int_from_cell_text(v)) for v in vals):
                 continue
         visible.append(col)
+
+    # Add derived Points column (Goals + Assists) when those columns exist.
+    goals_col_id = next((str(c["id"]) for c in visible if str(c.get("db_key") or "") == "goals"), None)
+    assists_col_id = next((str(c["id"]) for c in visible if str(c.get("db_key") or "") == "assists"), None)
+    if goals_col_id and assists_col_id:
+        points_id = "points"
+        if any(str(c.get("id")) == points_id for c in visible):
+            points_id = "points_2"
+
+        for pid in all_pids:
+            g_txt = str(cell_text_by_pid.get(pid, {}).get(goals_col_id, "") or "")
+            a_txt = str(cell_text_by_pid.get(pid, {}).get(assists_col_id, "") or "")
+            any_part = bool(g_txt.strip() or a_txt.strip())
+            if any_part:
+                pts = _parse_int_from_cell_text(g_txt) + _parse_int_from_cell_text(a_txt)
+                cell_text_by_pid[pid][points_id] = str(int(pts))
+            else:
+                cell_text_by_pid[pid][points_id] = ""
+            cell_conf_by_pid[pid][points_id] = bool(
+                cell_conf_by_pid.get(pid, {}).get(goals_col_id) or cell_conf_by_pid.get(pid, {}).get(assists_col_id)
+            )
+
+        pts_vals = [cell_text_by_pid.get(pid, {}).get(points_id, "") for pid in all_pids]
+        if not all(_is_blank_stat(v) or str(v).strip() == "" for v in pts_vals):
+            insert_at = next((i + 1 for i, c in enumerate(visible) if str(c.get("id")) == assists_col_id), None)
+            if insert_at is None:
+                insert_at = 0
+            visible.insert(int(insert_at), {"id": points_id, "label": "P", "header": "P", "db_key": None})
 
     # Rebuild cell dicts to only include visible columns.
     vis_ids = {str(c["id"]) for c in visible}
@@ -6080,20 +6117,41 @@ def build_game_player_stats_table(
         for col in visible_columns:
             col_id = str(col.get("id"))
             keys = [str(k) for k in (col.get("keys") or ())]
+            op = str(col.get("op") or "").strip().lower()
             parts = [merged_disp[pid].get(k, "") for k in keys]
             any_part = any(str(p).strip() for p in parts)
             if len(keys) == 1:
                 out_text[col_id] = parts[0] if parts else ""
                 out_conf[col_id] = bool(keys and merged_conf[pid].get(keys[0]))
             else:
-                if any_part:
-                    filled = [p if str(p).strip() else "0" for p in parts]
-                    out_text[col_id] = " / ".join(filled)
+                if op == "sum":
+                    if any_part:
+                        out_text[col_id] = str(sum(_int0(merged_vals[pid].get(k)) for k in keys))
+                    else:
+                        out_text[col_id] = ""
+                    out_conf[col_id] = any(bool(merged_conf[pid].get(k)) for k in keys)
                 else:
-                    out_text[col_id] = ""
-                out_conf[col_id] = any(bool(merged_conf[pid].get(k)) for k in keys)
+                    if any_part:
+                        filled = [p if str(p).strip() else "0" for p in parts]
+                        out_text[col_id] = " / ".join(filled)
+                    else:
+                        out_text[col_id] = ""
+                    out_conf[col_id] = any(bool(merged_conf[pid].get(k)) for k in keys)
         cell_text_by_pid[pid] = out_text
         cell_conflict_by_pid[pid] = out_conf
+
+    # Hide any columns that are entirely blank.
+    filtered_cols: list[dict[str, Any]] = []
+    for col in visible_columns:
+        cid = str(col.get("id"))
+        vals = [str(cell_text_by_pid.get(pid, {}).get(cid, "") or "") for pid in all_pids]
+        if all(_is_blank_stat(v) or v.strip() == "" for v in vals):
+            continue
+        filtered_cols.append(col)
+    visible_columns = filtered_cols
+    vis_ids = {str(c.get("id")) for c in visible_columns}
+    cell_text_by_pid = {pid: {k: v for k, v in row.items() if k in vis_ids} for pid, row in cell_text_by_pid.items()}
+    cell_conflict_by_pid = {pid: {k: v for k, v in row.items() if k in vis_ids} for pid, row in cell_conflict_by_pid.items()}
 
     return visible_columns, cell_text_by_pid, cell_conflict_by_pid, imported_warning
 
