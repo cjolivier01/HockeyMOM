@@ -26,6 +26,11 @@ from dataclasses import dataclass
 
 
 DEFAULT_ACCOUNT_EMAIL = "cjolivier01@gmail.com"
+GCLOUD_FALLBACKS = (
+    "/snap/google-cloud-sdk/current/bin/gcloud",
+    "/snap/google-cloud-sdk/632/bin/gcloud",
+)
+GCLOUD_BIN = "gcloud"
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,33 @@ class GcpNames:
     instance: str
     firewall_rule: str
     network_tag: str
+
+
+def _resolve_gcloud_bin() -> str:
+    def _works(path: str) -> bool:
+        try:
+            cp = subprocess.run([path, "--version"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except Exception:
+            return False
+        if cp.returncode != 0:
+            return False
+        return "Google Cloud SDK" in (cp.stdout or "") or "Google Cloud SDK" in (cp.stderr or "")
+
+    gcloud = shutil.which("gcloud")
+    if gcloud and _works(gcloud):
+        return gcloud
+    for p in GCLOUD_FALLBACKS:
+        if p and shutil.which(p) is not None and _works(p):
+            return p
+        if p and shutil.os.path.exists(p) and _works(p):
+            return p
+    raise RuntimeError(
+        "Missing a working `gcloud` CLI. Install it first:\n"
+        "  https://cloud.google.com/sdk/docs/install\n"
+        "Then run:\n"
+        "  gcloud init\n"
+        "  gcloud auth login\n"
+    )
 
 
 def _run(cmd: list[str], *, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -47,29 +79,21 @@ def _run(cmd: list[str], *, capture: bool = False, check: bool = True) -> subpro
 
 
 def _gcloud(cmd: list[str], *, project: str | None, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
-    base = ["gcloud", "--quiet"]
+    base = [GCLOUD_BIN, "--quiet"]
     if project:
         base += ["--project", project]
     return _run(base + cmd, capture=capture, check=check)
 
 
 def _require_gcloud() -> None:
-    if shutil.which("gcloud"):
-        return
-    raise RuntimeError(
-        "Missing `gcloud` CLI. Install it first:\n"
-        "  https://cloud.google.com/sdk/docs/install\n"
-        "Then run:\n"
-        "  gcloud init\n"
-        "  gcloud auth login\n"
-        "  gcloud auth application-default login\n"
-    )
+    # Resolved during module init (main).
+    return
 
 
 def _default_project() -> str | None:
     # `gcloud config get-value project` prints "(unset)" if unset.
     try:
-        p = _run(["gcloud", "config", "get-value", "project"], capture=True, check=True).stdout.strip()
+        p = _run([GCLOUD_BIN, "config", "get-value", "project"], capture=True, check=True).stdout.strip()
     except Exception:
         return None
     if not p or p == "(unset)":
@@ -80,7 +104,7 @@ def _default_project() -> str | None:
 def _active_account() -> str | None:
     try:
         out = _run(
-            ["gcloud", "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
+            [GCLOUD_BIN, "auth", "list", "--filter=status:ACTIVE", "--format=value(account)"],
             capture=True,
             check=True,
         ).stdout.strip()
@@ -169,6 +193,7 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
     _gcloud(["services", "enable", "compute.googleapis.com"], project=project, check=False)
 
     if not _resource_exists(project, ["compute", "firewall-rules", "describe", names.firewall_rule]):
+        allowed = f"tcp:80,tcp:{args.app_port}"
         print(f"Creating firewall rule {names.firewall_rule!r} (tcp:80)...")
         _gcloud(
             [
@@ -179,7 +204,7 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
                 "--network",
                 args.network,
                 "--allow",
-                "tcp:80",
+                allowed,
                 "--direction",
                 "INGRESS",
                 "--source-ranges",
@@ -187,7 +212,7 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
                 "--target-tags",
                 names.network_tag,
                 "--description",
-                "Allow inbound HTTP to hm webapp VM",
+                f"Allow inbound hm-webapp ports ({allowed})",
             ],
             project=project,
             check=True,
@@ -272,6 +297,8 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
         server_name,
         "--port",
         str(args.app_port),
+        "--bind-address",
+        args.bind_address,
         "--db-name",
         args.db_name,
         "--db-user",
@@ -331,6 +358,11 @@ def _delete(args: argparse.Namespace, names: GcpNames) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Deploy tools/webapp to Google Cloud (smallest GCE instance).")
+    ap.add_argument(
+        "--gcloud",
+        default="",
+        help="Path to gcloud binary (optional). If unset, auto-detects and may fall back to snap locations.",
+    )
     ap.add_argument("--project", default=None, help="GCP project id (defaults to `gcloud config get-value project`).")
     ap.add_argument("--account-email", default=DEFAULT_ACCOUNT_EMAIL, help="GCP account email (best-effort select).")
     ap.add_argument("--name", default="hm-webapp", help="Resource name prefix (instance/firewall).")
@@ -343,6 +375,11 @@ def main() -> int:
 
     ap.add_argument("--watch-root", default="/data/incoming", help="Upload/watch directory.")
     ap.add_argument("--app-port", type=int, default=8008, help="Local gunicorn port (nginx listens on 80).")
+    ap.add_argument(
+        "--bind-address",
+        default="0.0.0.0",
+        help="Address to bind the app port on the VM (default: 0.0.0.0 for public access).",
+    )
     ap.add_argument(
         "--server-name",
         default="AUTO",
@@ -357,6 +394,11 @@ def main() -> int:
     ap.add_argument("--delete", action="store_true", help="Delete the created resources instead of deploying.")
     args = ap.parse_args()
 
+    global GCLOUD_BIN
+    if args.gcloud:
+        GCLOUD_BIN = args.gcloud
+    else:
+        GCLOUD_BIN = _resolve_gcloud_bin()
     _require_gcloud()
 
     project = args.project or _default_project()

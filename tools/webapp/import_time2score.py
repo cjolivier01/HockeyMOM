@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import base64
 import json
 import os
 import sys
@@ -916,6 +917,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     posted = 0
     api_games_batch: list[dict[str, Any]] = []
     logo_url_cache: dict[int, Optional[str]] = {}
+    logo_b64_cache: dict[int, Optional[str]] = {}
+    logo_ct_cache: dict[int, Optional[str]] = {}
+    sent_logo_ids: set[int] = set()
     cleaned_team_ids: set[int] = set()
     started = time.time()
     last_heartbeat = started
@@ -1016,9 +1020,58 @@ def main(argv: Optional[list[str]] = None) -> int:
                 logo_url_cache[tid_i] = u
                 return u
 
+            def _logo_b64_and_type(tts_id: Optional[int]) -> tuple[Optional[str], Optional[str]]:
+                # When importing via REST, embed logo bytes because the deployed webapp venv may not include `requests`.
+                if args.no_import_logos or tts_id is None:
+                    return None, None
+                tid_i = int(tts_id)
+                if tid_i in logo_b64_cache:
+                    return logo_b64_cache[tid_i], logo_ct_cache.get(tid_i)
+
+                url = _logo_url(tid_i)
+                if not url:
+                    logo_b64_cache[tid_i] = None
+                    logo_ct_cache[tid_i] = None
+                    return None, None
+
+                try:
+                    data, content_type = _download_logo_bytes(url)
+                except Exception:
+                    logo_b64_cache[tid_i] = None
+                    logo_ct_cache[tid_i] = None
+                    return None, None
+
+                try:
+                    b64 = base64.b64encode(data).decode("ascii")
+                except Exception:
+                    b64 = None
+                logo_b64_cache[tid_i] = b64
+                logo_ct_cache[tid_i] = content_type
+                return b64, content_type
+
             game_div_name = home_div_name or fb_division_name
             game_div_id = home_div_id if home_div_id is not None else fb_division_id
             game_conf_id = home_conf_id if home_conf_id is not None else fb_conference_id
+
+            home_logo_url = _logo_url(home_tts_id)
+            away_logo_url = _logo_url(away_tts_id)
+            home_logo_b64 = None
+            home_logo_ct = None
+            away_logo_b64 = None
+            away_logo_ct = None
+            if not args.no_import_logos:
+                if home_tts_id is not None:
+                    tid_i = int(home_tts_id)
+                    if bool(args.replace) or tid_i not in sent_logo_ids:
+                        home_logo_b64, home_logo_ct = _logo_b64_and_type(tid_i)
+                        if home_logo_b64:
+                            sent_logo_ids.add(tid_i)
+                if away_tts_id is not None:
+                    tid_i = int(away_tts_id)
+                    if bool(args.replace) or tid_i not in sent_logo_ids:
+                        away_logo_b64, away_logo_ct = _logo_b64_and_type(tid_i)
+                        if away_logo_b64:
+                            sent_logo_ids.add(tid_i)
 
             api_games_batch.append(
                 {
@@ -1039,8 +1092,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "away_score": t2_score,
                     "timetoscore_game_id": int(gid),
                     "season_id": int(season_id),
-                    "home_logo_url": _logo_url(home_tts_id),
-                    "away_logo_url": _logo_url(away_tts_id),
+                    "home_logo_url": home_logo_url,
+                    "away_logo_url": away_logo_url,
+                    "home_logo_b64": home_logo_b64,
+                    "home_logo_content_type": home_logo_ct,
+                    "away_logo_b64": away_logo_b64,
+                    "away_logo_content_type": away_logo_ct,
                     "home_roster": list(tts_norm.extract_roster(stats, "home")),
                     "away_roster": list(tts_norm.extract_roster(stats, "away")),
                     "player_stats": [

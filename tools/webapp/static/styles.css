@@ -67,7 +67,9 @@ button { cursor: pointer; }
 .flash.success { background: #14291d; border: 1px solid #1f3b2a; color: #abf5c0; }
 
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--border); text-align: left; }
+th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; }
+th:last-child, td:last-child { border-right: none; }
+tbody tr:last-child td { border-bottom: none; }
 thead th { background: #12151c; color: var(--muted); font-weight: 700; }
 tbody tr:nth-child(odd) { background: var(--row-odd); }
 tbody tr:nth-child(even) { background: var(--row-even); }
@@ -81,6 +83,28 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 /* Utility: prevent column text wrapping for wide tables (use with overflow-x:auto wrappers). */
 .table-nowrap { width: max-content; min-width: 100%; }
 .table-nowrap th, .table-nowrap td { white-space: nowrap; }
+
+/* Horizontal scroll wrapper for wide tables */
+.table-scroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+
+/* Scrollable viewport for very tall tables (e.g., game events). */
+.table-scroll-y { overflow-y: auto; max-height: 50vh; }
+.table-scroll-y thead th { position: sticky; top: 0; z-index: 4; }
+
+/* Sortable tables */
+.table-sortable th { cursor: pointer; user-select: none; }
+.table-sortable th.sorted-asc::after { content: " ▲"; font-size: .85em; color: var(--muted); }
+.table-sortable th.sorted-desc::after { content: " ▼"; font-size: .85em; color: var(--muted); }
+
+/* Allow newline rendering inside specific cells even in nowrap tables */
+td.cell-pre { white-space: pre-line !important; }
+
+/* Freeze left columns (JS sets left offsets; CSS provides layering + row-matched backgrounds) */
+th.sticky-col, td.sticky-col { position: sticky; left: 0; z-index: 3; }
+thead th.sticky-col { background: #12151c; z-index: 6; }
+tbody tr:nth-child(odd) td.sticky-col { background: var(--row-odd); }
+tbody tr:nth-child(even) td.sticky-col { background: var(--row-even); }
+td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--border); }
 
 .status-badge { display: inline-block; padding: .2rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 800; }
 .status-COMPLETED { background: rgba(40,167,69,.15); color: #7bdfa1; border: 1px solid rgba(40,167,69,.3); }

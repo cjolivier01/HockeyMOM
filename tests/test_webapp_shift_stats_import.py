@@ -16,12 +16,12 @@ def should_parse_shift_spreadsheet_player_stats_csv():
     mod = _load_app_module()
 
     csv_text = (
-        "Player,GP,Goals,Assists,Shots,SOG,xG,Giveaways,Takeaways,"
+        "Jersey #,Player,GP,Goals,Assists,Shots,SOG,xG,Giveaways,Takeaways,"
         "Controlled Entry For (On-Ice),Controlled Entry Against (On-Ice),"
         "Controlled Exit For (On-Ice),Controlled Exit Against (On-Ice),"
         "Plus Minus,GF Counted,GA Counted,Shifts,TOI Total,Average Shift,Median Shift,Longest Shift,Shortest Shift,"
         "Period 1 TOI,Period 1 Shifts,Period 1 GF,Period 1 GA,TOI Total (Video)\n"
-        '" 8 Adam Ro",1,1,2,5,4,3,0,1,2,3,4,5,1,1,0,10,12:34,0:45,0:42,1:10,0:10,4:10,3,1,0,12:00\n'
+        "8,Adam Ro,1,1,2,5,4,3,0,1,2,3,4,5,1,1,0,10,12:34,0:45,0:42,1:10,0:10,4:10,3,1,0,12:00\n"
     )
 
     rows = mod.parse_shift_stats_player_stats_csv(csv_text)
@@ -75,7 +75,7 @@ def should_parse_shift_spreadsheet_otg_ota_columns():
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
 
-    csv_text = 'Player,OT Goals,OT Assists\n" 8 Adam Ro",1,2\n'
+    csv_text = "Jersey #,Player,OT Goals,OT Assists\n8,Adam Ro,1,2\n"
     rows = mod.parse_shift_stats_player_stats_csv(csv_text)
     assert len(rows) == 1
     r = rows[0]
@@ -88,7 +88,7 @@ def should_parse_shift_spreadsheet_turnovers_forced_sums_into_giveaways():
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
 
-    csv_text = 'Player,Turnovers (forced),Giveaways,Takeaways\n" 8 Adam Ro",3,2,1\n'
+    csv_text = "Jersey #,Player,Turnovers (forced),Giveaways,Takeaways\n8,Adam Ro,3,2,1\n"
     rows = mod.parse_shift_stats_player_stats_csv(csv_text)
     assert len(rows) == 1
     r = rows[0]

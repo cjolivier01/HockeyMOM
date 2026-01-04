@@ -51,8 +51,8 @@
       Source: {{ game_stats.get('_label','') }}
       {% if game_stats_updated_at %} | Updated: {{ game_stats_updated_at }}{% endif %}
     </p>
-    <div style="overflow-x:auto;">
-      <table>
+    <div class="table-scroll">
+      <table class="table-grid table-sortable" data-sortable="1">
         <thead><tr><th>Stat</th><th>Value</th></tr></thead>
         <tbody>
           {% for k, v in game_stats.items() %}
@@ -109,8 +109,8 @@
           <img src="{{ base }}/media/team_logo/{{ team_id }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
           <span>{{ team_name }}</span>
         </h4>
-        <div style="overflow-x:auto;">
-          <table class="table-nowrap">
+        <div class="table-scroll">
+          <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
             <thead><tr><th>#</th><th>Name</th><th>Pos</th></tr></thead>
             <tbody>
               {% for p in players %}
@@ -129,6 +129,37 @@
     {% endfor %}
   </div>
 
+  {% if imported_player_stats_rows and imported_player_stats_headers %}
+    <h3 style="margin-top:1rem;">Imported Player Stats</h3>
+    {% if imported_player_stats_meta %}
+      <p class="muted" style="margin-top:0;">
+        {% if imported_player_stats_meta.get('source_label') %}Source: {{ imported_player_stats_meta.get('source_label') }}{% endif %}
+        {% if imported_player_stats_meta.get('updated_at') %} | Updated: {{ imported_player_stats_meta.get('updated_at') }}{% endif %}
+        {% if imported_player_stats_meta.get('count') is not none %} | Rows: {{ imported_player_stats_meta.get('count') }}{% endif %}
+      </p>
+    {% endif %}
+    <div class="table-scroll">
+      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
+        <thead>
+          <tr>
+            {% for h in imported_player_stats_headers %}
+              <th>{{ h }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in imported_player_stats_rows %}
+            <tr>
+              {% for h in imported_player_stats_headers %}
+                <td>{{ r.get(h,'') }}</td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
   <h3 style="margin-top:1rem;">Player Stats</h3>
   {% for team_key, players in [('team1', team1_players), ('team2', team2_players)] %}
     {% set is_team1 = (team_key == 'team1') %}
@@ -138,8 +169,8 @@
       <img src="{{ base }}/media/team_logo/{{ team_id }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
       <span>{{ team_name }}</span>
     </h4>
-    <div style="overflow-x:auto;">
-      <table class="table-nowrap">
+    <div class="table-scroll">
+      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
         <thead>
           <tr>
             <th>#</th><th>Name</th><th>Pos</th>
@@ -229,8 +260,8 @@
     </p>
   {% endif %}
   {% if events_rows and events_headers %}
-    <div style="overflow-x:auto;">
-      <table class="table-nowrap">
+    <div class="table-scroll table-scroll-y">
+      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="3">
         <thead>
           <tr>
             {% for h in events_headers %}
@@ -242,7 +273,11 @@
           {% for r in events_rows %}
             <tr>
               {% for h in events_headers %}
-                <td>{{ r.get(h,'') }}</td>
+                {% if h == 'On-Ice Players' or h == 'On-Ice Players (PM)' %}
+                  <td class="cell-pre">{{ r.get(h,'')|replace(',', '\n') }}</td>
+                {% else %}
+                  <td>{{ r.get(h,'') }}</td>
+                {% endif %}
               {% endfor %}
             </tr>
           {% endfor %}

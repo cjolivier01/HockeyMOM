@@ -49,16 +49,40 @@ _MONTHS = {
 def infer_season_year_for_date_str(
     date_str: str,
     *,
-    season_start_month: int = 9,
+    season_start_month: int = 10,
+    season_end_month: int = 6,
     reference_dt: datetime.datetime | None = None,
 ) -> int:
     """Infer the year for a season that spans across calendar years.
 
-    Hockey seasons commonly start in September; games in Sep-Dec belong to the
-    season start year, and Jan-Jun belong to the following year.
+    For youth hockey leagues, a "season" often spans roughly Oct-Jun.
+
+    The intent here is that when a page only includes month/day (no year),
+    we can infer the correct year relative to the current "active season":
+      - Oct-Dec => season start year
+      - Jan-Jun => following year
+      - Jul-Sep (off-season/preseason) => season start year
     """
     ref = reference_dt or datetime.datetime.now()
-    season_start_year = int(ref.year) if int(ref.month) >= int(season_start_month) else int(ref.year) - 1
+    # Determine which season we're "in" relative to the reference date.
+    # Example with season_start_month=10 and season_end_month=6:
+    #   - In Jan-Jun 2026: active season started Oct 2025 (start_year=2025)
+    #   - In Oct-Dec 2026: active season started Oct 2026 (start_year=2026)
+    #   - In Jul-Sep 2026: treat as last season (start_year=2025)
+    ref_y = int(ref.year)
+    ref_m = int(ref.month)
+    start_m = int(season_start_month)
+    end_m = int(season_end_month)
+    if start_m < 1 or start_m > 12 or end_m < 1 or end_m > 12:
+        season_start_year = ref_y
+    else:
+        if ref_m >= start_m:
+            season_start_year = ref_y
+        elif ref_m <= end_m:
+            season_start_year = ref_y - 1
+        else:
+            # Off-season months between end_m and start_m.
+            season_start_year = ref_y - 1
 
     s = str(date_str or "")
     m = re.search(r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b", s, flags=re.IGNORECASE)
@@ -67,7 +91,14 @@ def infer_season_year_for_date_str(
     month = _MONTHS.get(m.group(1).lower()[:3])
     if not month:
         return int(ref.year)
-    return int(season_start_year) if int(month) >= int(season_start_month) else int(season_start_year) + 1
+    if start_m < 1 or start_m > 12 or end_m < 1 or end_m > 12:
+        return int(ref.year)
+    if month >= start_m:
+        return int(season_start_year)
+    if month <= end_m:
+        return int(season_start_year) + 1
+    # Off-season / preseason months: keep in season start year.
+    return int(season_start_year)
 
 
 def parse_game_time(date_str, time_str, year=None):

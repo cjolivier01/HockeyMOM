@@ -52,6 +52,7 @@ class FakeConn:
         self.player_period_stats: list[dict[str, Any]] = []
         self.hky_game_stats: dict[int, dict[str, Any]] = {}
         self.hky_game_events: dict[int, dict[str, Any]] = {}
+        self.hky_game_player_stats_csv: dict[int, dict[str, Any]] = {}
 
     def cursor(self, cursorclass: Any = None):
         return FakeCursor(self, dict_mode=cursorclass is not None)
@@ -125,6 +126,12 @@ class FakeCursor:
             self._rows = [t(ev.get("events_csv"))] if ev else []
             return 1
 
+        if q == "SELECT player_stats_csv FROM hky_game_player_stats_csv WHERE game_id=%s":
+            gid = int(p[0])
+            ps = self._conn.hky_game_player_stats_csv.get(gid)
+            self._rows = [t(ps.get("player_stats_csv"))] if ps else []
+            return 1
+
         if q.startswith("INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at) VALUES"):
             gid, events_csv, source_label, updated_at = p
             gid = int(gid)
@@ -134,6 +141,68 @@ class FakeCursor:
                 "source_label": source_label,
                 "updated_at": updated_at,
             }
+            return 1
+
+        if q.startswith(
+            "INSERT INTO hky_game_player_stats_csv(game_id, player_stats_csv, source_label, updated_at) VALUES"
+        ):
+            gid, csv_text, source_label, updated_at = p
+            gid_i = int(gid)
+            if "ON DUPLICATE KEY UPDATE" in q:
+                self._conn.hky_game_player_stats_csv[gid_i] = {
+                    "player_stats_csv": str(csv_text),
+                    "source_label": source_label,
+                    "updated_at": updated_at,
+                }
+            else:
+                if gid_i not in self._conn.hky_game_player_stats_csv:
+                    self._conn.hky_game_player_stats_csv[gid_i] = {
+                        "player_stats_csv": str(csv_text),
+                        "source_label": source_label,
+                        "updated_at": updated_at,
+                    }
+            return 1
+
+        if q.startswith("INSERT INTO player_stats(") and "ON DUPLICATE KEY UPDATE" in q:
+            cols_part = q.split("INSERT INTO player_stats(", 1)[1].split(") VALUES", 1)[0]
+            cols = [c.strip() for c in cols_part.split(",") if c.strip()]
+            row = dict(zip(cols, p))
+            gid = int(row["game_id"])
+            pid = int(row["player_id"])
+            existing = None
+            for r in self._conn.player_stats:
+                if int(r["game_id"]) == gid and int(r["player_id"]) == pid:
+                    existing = r
+                    break
+            if existing is None:
+                self._conn.player_stats.append(dict(row))
+            else:
+                for k, v in row.items():
+                    if k in {"user_id", "team_id", "game_id", "player_id"}:
+                        existing[k] = v
+                    else:
+                        if v is not None:
+                            existing[k] = v
+            return 1
+
+        if q.startswith("INSERT INTO player_period_stats("):
+            cols_part = q.split("INSERT INTO player_period_stats(", 1)[1].split(") VALUES", 1)[0]
+            cols = [c.strip() for c in cols_part.split(",") if c.strip()]
+            row = dict(zip(cols, p))
+            gid = int(row["game_id"])
+            pid = int(row["player_id"])
+            per = int(row["period"])
+            existing = None
+            for r in self._conn.player_period_stats:
+                if int(r["game_id"]) == gid and int(r["player_id"]) == pid and int(r["period"]) == per:
+                    existing = r
+                    break
+            if existing is None:
+                self._conn.player_period_stats.append(dict(row))
+            else:
+                for k, v in row.items():
+                    if v is not None:
+                        existing[k] = v
             return 1
 
         if q.startswith("INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at) VALUES") and "ON DUPLICATE KEY UPDATE" in q:
@@ -194,6 +263,12 @@ class FakeCursor:
             self._rows = [d(ev)] if ev else []
             return 1
 
+        if q == "SELECT player_stats_csv, source_label, updated_at FROM hky_game_player_stats_csv WHERE game_id=%s":
+            gid = int(p[0])
+            ps = self._conn.hky_game_player_stats_csv.get(gid)
+            self._rows = [d(ps)] if ps else []
+            return 1
+
         raise AssertionError(f"Unhandled SQL: {q!r} params={p!r}")
 
     def fetchone(self) -> Any:
@@ -227,7 +302,7 @@ def client_and_db(monkeypatch):
 
 def should_store_events_via_shift_package_and_render_public_game_page(client_and_db):
     client, db = client_and_db
-    events1 = "Period,Time,Team,Event,Player\n1,13:45,Blue,Shot,#9 Alice\n"
+    events1 = "Period,Time,Team,Event,Player,On-Ice Players\n1,13:45,Blue,Shot,#9 Alice,\"Alice,Bob\"\n"
     assert "\n" in events1
     r = client.post(
         "/api/import/hockey/shift_package",
@@ -243,6 +318,10 @@ def should_store_events_via_shift_package_and_render_public_game_page(client_and
     assert "Game Events" in html
     assert "Shot" in html
     assert "#9 Alice" in html
+    assert 'data-sortable="1"' in html
+    assert 'class="cell-pre"' in html
+    assert 'data-freeze-cols="3"' in html
+    assert "table-scroll-y" in html
 
 
 def should_not_overwrite_events_without_replace(client_and_db):
@@ -272,3 +351,20 @@ def should_not_overwrite_events_without_replace(client_and_db):
     )
     assert r3.status_code == 200
     assert db.hky_game_events[1001]["events_csv"] == events2
+
+
+def should_store_player_stats_csv_via_shift_package_and_render_public_game_page(client_and_db):
+    client, db = client_and_db
+    player_stats_csv = "Player,Goals,Assists,Average Shift\n9 Alice,1,0,0:45\n"
+    r = client.post(
+        "/api/import/hockey/shift_package",
+        json={"timetoscore_game_id": 123, "player_stats_csv": player_stats_csv, "source_label": "unit-test"},
+        headers={"X-HM-Import-Token": "sekret"},
+    )
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+    assert db.hky_game_player_stats_csv[1001]["player_stats_csv"] == player_stats_csv
+
+    html = client.get("/public/leagues/1/hky/games/1001").get_data(as_text=True)
+    assert "Imported Player Stats" in html
+    assert "Average Shift" in html

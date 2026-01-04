@@ -3246,8 +3246,9 @@ def _write_all_events_summary(
                 pj = player_rows_by_event.get(key, {"players": set(), "jerseys": set()})
                 attrib_players = sorted([str(x) for x in pj.get("players", set()) if x], key=_player_sort_key)
                 attrib_jerseys = sorted([int(x) for x in pj.get("jerseys", set()) if isinstance(x, int)])
-                on_ice = _on_ice_players(period, gs_i) if (gs_i is not None and period > 0) else []
-                on_ice_pm = _on_ice_players_pm(period, gs_i) if (gs_i is not None and period > 0) else []
+                # For event tables, we treat on-ice membership using the same boundary
+                # rule as plus/minus (i.e., skip events exactly at shift-start).
+                on_ice = _on_ice_players_pm(period, gs_i) if (gs_i is not None and period > 0) else []
 
                 event_id += 1
                 rows.append(
@@ -3266,7 +3267,6 @@ def _write_all_events_summary(
                         "Attributed Players": ",".join(_format_player_name_with_jersey(x) for x in attrib_players),
                         "Attributed Jerseys": ",".join(str(j) for j in attrib_jerseys),
                         "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
-                        "On-Ice Players (PM)": ",".join(_format_player_name_with_jersey(x) for x in on_ice_pm),
                     }
                 )
 
@@ -3276,8 +3276,7 @@ def _write_all_events_summary(
         gs_i = int(getattr(ev, "t_sec", 0) or 0)
         vs_i = _map_sb_to_video(period, gs_i)
         team_rel = "For" if getattr(ev, "kind", None) == "GF" else ("Against" if getattr(ev, "kind", None) == "GA" else "")
-        on_ice = _on_ice_players(period, gs_i) if period > 0 else []
-        on_ice_pm = _on_ice_players_pm(period, gs_i) if period > 0 else []
+        on_ice = _on_ice_players_pm(period, gs_i) if period > 0 else []
 
         # Goal scorer row (if known).
         scorer = getattr(ev, "scorer", None)
@@ -3299,7 +3298,6 @@ def _write_all_events_summary(
                     "Attributed Players": "",
                     "Attributed Jerseys": str(scorer),
                     "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
-                    "On-Ice Players (PM)": ",".join(_format_player_name_with_jersey(x) for x in on_ice_pm),
                 }
             )
         # Assist rows (if any).
@@ -3323,7 +3321,6 @@ def _write_all_events_summary(
                     "Attributed Players": "",
                     "Attributed Jerseys": str(ast),
                     "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
-                    "On-Ice Players (PM)": ",".join(_format_player_name_with_jersey(x) for x in on_ice_pm),
                 }
             )
 
@@ -3360,7 +3357,6 @@ def _write_all_events_summary(
         "Attributed Players",
         "Attributed Jerseys",
         "On-Ice Players",
-        "On-Ice Players (PM)",
     ]
     df = pd.DataFrame([{c: r.get(c, "") for c in cols} for r in rows], columns=cols)
     df.to_csv(stats_dir / "all_events_summary.csv", index=False)
@@ -3377,7 +3373,6 @@ def _write_all_events_summary(
             "Attributed Players",
             "Attributed Jerseys",
             "On-Ice Players",
-            "On-Ice Players (PM)",
         ],
     )
 
@@ -3474,6 +3469,7 @@ def _build_stats_dataframe(
     sort_for_cumulative: bool = False,
     *,
     include_shifts_in_stats: bool,
+    include_per_game_columns: bool = True,
 ) -> Tuple[pd.DataFrame, List[str]]:
     def _has_any_value(key: str) -> bool:
         for r in stats_table_rows:
@@ -3554,6 +3550,9 @@ def _build_stats_dataframe(
         if include_shifts_in_stats
         else []
     )
+    if not include_per_game_columns:
+        summary_cols = [c for c in summary_cols if c != "ppg" and "_per_game" not in c]
+        sb_cols = [c for c in sb_cols if "_per_game" not in c]
     video_cols = ["video_toi_total"] if include_shifts_in_stats else []
     period_toi_cols = (
         [f"P{p}_toi" for p in periods if _has_any_value(f"P{p}_toi")] if include_shifts_in_stats else []
@@ -3784,6 +3783,7 @@ def _write_player_stats_text_and_csv(
         all_periods_seen,
         sort_for_cumulative=False,
         include_shifts_in_stats=include_shifts_in_stats,
+        include_per_game_columns=False,
     )
     # Pretty-print player identity for display tables: separate jersey + name.
     if "player" in df.columns and "jersey" not in df.columns:
@@ -6406,9 +6406,9 @@ def process_sheet(
                         per_player_goal_events[player_key]["ga_on_ice"].append(ev)
 
         scoring_counts = goal_assist_counts.get(player_key, {"goals": 0, "assists": 0})
-        points_val = scoring_counts.get("goals", 0) + scoring_counts.get("assists", 0)
-        # Per-game points-per-game (PPG) for this single game.
-        ppg_val = float(points_val)
+        goals_cnt = int(scoring_counts.get("goals", 0) or 0)
+        assists_cnt = int(scoring_counts.get("assists", 0) or 0)
+        points_val = goals_cnt + assists_cnt
         # Overtime scoring (OT period is period 4; OT2 -> 5, etc.).
         ot_goals_cnt = 0
         ot_assists_cnt = 0
@@ -6458,10 +6458,11 @@ def process_sheet(
         stats_lines = []
         stats_lines.append(f"Player: {_display_player_name(player_key)}")
         stats_lines.append("Games Played (GP): 1")
-        stats_lines.append(f"Goals: {scoring_counts.get('goals', 0)}")
-        stats_lines.append(f"Assists: {scoring_counts.get('assists', 0)}")
+        stats_lines.append(f"Goals: {goals_cnt}")
+        stats_lines.append(f"Assists: {assists_cnt}")
+        stats_lines.append(f"OT Goals: {ot_goals_cnt}")
+        stats_lines.append(f"OT Assists: {ot_assists_cnt}")
         stats_lines.append(f"Points (G+A): {points_val}")
-        stats_lines.append(f"PPG (points per game): {ppg_val:.1f}")
         if include_shifts_in_stats:
             shifts_cnt = 0
             try:
@@ -6579,15 +6580,13 @@ def process_sheet(
 
         row_map: Dict[str, str] = {
             "player": player_key,
-            "goals": str(scoring_counts.get("goals", 0)),
-            "assists": str(scoring_counts.get("assists", 0)),
+            "goals": str(goals_cnt),
+            "assists": str(assists_cnt),
             "ot_goals": str(ot_goals_cnt),
             "ot_assists": str(ot_assists_cnt),
             "points": str(points_val),
             "gp": "1",
-            "ppg": f"{ppg_val:.1f}",
             "plus_minus": str(plus_minus),
-            "plus_minus_per_game": str(plus_minus),
         }
         if include_shifts_in_stats:
             shifts_cnt_row = 0
@@ -6596,15 +6595,13 @@ def process_sheet(
             except Exception:
                 shifts_cnt_row = 0
             row_map["shifts"] = str(shifts_cnt_row)
-            row_map["shifts_per_game"] = str(shifts_cnt_row)
             row_map["sb_toi_total"] = str(shift_summary.get("toi_total", "0:00"))
-            row_map["sb_toi_per_game"] = str(shift_summary.get("toi_total", "0:00"))
             row_map["sb_avg"] = str(shift_summary.get("toi_avg", "0:00"))
             row_map["sb_median"] = str(shift_summary.get("toi_median", "0:00"))
             row_map["sb_longest"] = str(shift_summary.get("toi_longest", "0:00"))
             row_map["sb_shortest"] = str(shift_summary.get("toi_shortest", "0:00"))
-            row_map["goals_per_shift"] = _fmt_per_shift(scoring_counts.get("goals", 0), shifts_cnt_row)
-            row_map["assists_per_shift"] = _fmt_per_shift(scoring_counts.get("assists", 0), shifts_cnt_row)
+            row_map["goals_per_shift"] = _fmt_per_shift(goals_cnt, shifts_cnt_row)
+            row_map["assists_per_shift"] = _fmt_per_shift(assists_cnt, shifts_cnt_row)
             row_map["points_per_shift"] = _fmt_per_shift(points_val, shifts_cnt_row)
         # Event counts (from event logs / long sheets), per game.
         if event_log_context is not None:
@@ -6618,117 +6615,92 @@ def process_sheet(
         created_turnovers_cnt = int(ev_counts.get("CreatedTurnover", 0) or 0)
         giveaways_cnt = int(ev_counts.get("Giveaway", 0) or 0)
         takeaways_cnt = int(ev_counts.get("Takeaway", 0) or 0)
-
         if has_player_shots:
             row_map["shots"] = str(shots_cnt)
-            row_map["shots_per_game"] = str(shots_cnt)
             if include_shifts_in_stats:
                 row_map["shots_per_shift"] = _fmt_per_shift(shots_cnt, shifts_cnt_row)
         else:
             row_map["shots"] = ""
-            row_map["shots_per_game"] = ""
             if include_shifts_in_stats:
                 row_map["shots_per_shift"] = ""
 
         if has_player_sog:
             row_map["sog"] = str(sog_cnt)
-            row_map["sog_per_game"] = str(sog_cnt)
             if include_shifts_in_stats:
                 row_map["sog_per_shift"] = _fmt_per_shift(sog_cnt, shifts_cnt_row)
         else:
             row_map["sog"] = ""
-            row_map["sog_per_game"] = ""
             if include_shifts_in_stats:
                 row_map["sog_per_shift"] = ""
 
         if has_player_expected_goals:
             row_map["expected_goals"] = str(expected_goals_cnt)
-            row_map["expected_goals_per_game"] = str(expected_goals_cnt)
             if include_shifts_in_stats:
                 row_map["expected_goals_per_shift"] = _fmt_per_shift(expected_goals_cnt, shifts_cnt_row)
         else:
             row_map["expected_goals"] = ""
-            row_map["expected_goals_per_game"] = ""
             if include_shifts_in_stats:
                 row_map["expected_goals_per_shift"] = ""
 
         if has_player_expected_goals and has_player_sog:
-            row_map["expected_goals_per_sog"] = (
-                f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
-            )
+            row_map["expected_goals_per_sog"] = f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
         else:
             row_map["expected_goals_per_sog"] = ""
 
         if has_player_turnovers_forced:
             row_map["turnovers_forced"] = str(turnovers_forced_cnt)
-            row_map["turnovers_forced_per_game"] = str(turnovers_forced_cnt)
             if include_shifts_in_stats:
                 row_map["turnovers_forced_per_shift"] = _fmt_per_shift(turnovers_forced_cnt, shifts_cnt_row)
         else:
             row_map["turnovers_forced"] = ""
-            row_map["turnovers_forced_per_game"] = ""
             if include_shifts_in_stats:
                 row_map["turnovers_forced_per_shift"] = ""
 
         if has_player_created_turnovers:
             row_map["created_turnovers"] = str(created_turnovers_cnt)
-            row_map["created_turnovers_per_game"] = str(created_turnovers_cnt)
             if include_shifts_in_stats:
                 row_map["created_turnovers_per_shift"] = _fmt_per_shift(created_turnovers_cnt, shifts_cnt_row)
         else:
             row_map["created_turnovers"] = ""
-            row_map["created_turnovers_per_game"] = ""
             if include_shifts_in_stats:
                 row_map["created_turnovers_per_shift"] = ""
 
         if has_player_giveaways:
             row_map["giveaways"] = str(giveaways_cnt)
-            row_map["giveaways_per_game"] = str(giveaways_cnt)
             if include_shifts_in_stats:
                 row_map["giveaways_per_shift"] = _fmt_per_shift(giveaways_cnt, shifts_cnt_row)
         else:
             row_map["giveaways"] = ""
-            row_map["giveaways_per_game"] = ""
             if include_shifts_in_stats:
                 row_map["giveaways_per_shift"] = ""
 
         if has_player_takeaways:
             row_map["takeaways"] = str(takeaways_cnt)
-            row_map["takeaways_per_game"] = str(takeaways_cnt)
             if include_shifts_in_stats:
                 row_map["takeaways_per_shift"] = _fmt_per_shift(takeaways_cnt, shifts_cnt_row)
         else:
             row_map["takeaways"] = ""
-            row_map["takeaways_per_game"] = ""
             if include_shifts_in_stats:
                 row_map["takeaways_per_shift"] = ""
 
         if has_controlled_entry_events:
             row_map["controlled_entry_for"] = str(on_ice["controlled_entry_for"])
-            row_map["controlled_entry_for_per_game"] = str(on_ice["controlled_entry_for"])
             row_map["controlled_entry_against"] = str(on_ice["controlled_entry_against"])
-            row_map["controlled_entry_against_per_game"] = str(on_ice["controlled_entry_against"])
             if include_shifts_in_stats:
-                row_map["controlled_entry_for_per_shift"] = _fmt_per_shift(
-                    on_ice["controlled_entry_for"], shifts_cnt_row
-                )
+                row_map["controlled_entry_for_per_shift"] = _fmt_per_shift(on_ice["controlled_entry_for"], shifts_cnt_row)
                 row_map["controlled_entry_against_per_shift"] = _fmt_per_shift(
                     on_ice["controlled_entry_against"], shifts_cnt_row
                 )
         else:
             row_map["controlled_entry_for"] = ""
-            row_map["controlled_entry_for_per_game"] = ""
             row_map["controlled_entry_against"] = ""
-            row_map["controlled_entry_against_per_game"] = ""
             if include_shifts_in_stats:
                 row_map["controlled_entry_for_per_shift"] = ""
                 row_map["controlled_entry_against_per_shift"] = ""
 
         if has_controlled_exit_events:
             row_map["controlled_exit_for"] = str(on_ice["controlled_exit_for"])
-            row_map["controlled_exit_for_per_game"] = str(on_ice["controlled_exit_for"])
             row_map["controlled_exit_against"] = str(on_ice["controlled_exit_against"])
-            row_map["controlled_exit_against_per_game"] = str(on_ice["controlled_exit_against"])
             if include_shifts_in_stats:
                 row_map["controlled_exit_for_per_shift"] = _fmt_per_shift(on_ice["controlled_exit_for"], shifts_cnt_row)
                 row_map["controlled_exit_against_per_shift"] = _fmt_per_shift(
@@ -6736,17 +6708,13 @@ def process_sheet(
                 )
         else:
             row_map["controlled_exit_for"] = ""
-            row_map["controlled_exit_for_per_game"] = ""
             row_map["controlled_exit_against"] = ""
-            row_map["controlled_exit_against_per_game"] = ""
             if include_shifts_in_stats:
                 row_map["controlled_exit_for_per_shift"] = ""
                 row_map["controlled_exit_against_per_shift"] = ""
 
         row_map["gf_counted"] = str(len(counted_gf))
-        row_map["gf_per_game"] = str(len(counted_gf))
         row_map["ga_counted"] = str(len(counted_ga))
-        row_map["ga_per_game"] = str(len(counted_ga))
         if include_shifts_in_stats:
             row_map["gf_per_shift"] = _fmt_per_shift(len(counted_gf), shifts_cnt_row)
             row_map["ga_per_shift"] = _fmt_per_shift(len(counted_ga), shifts_cnt_row)
@@ -6965,7 +6933,6 @@ def process_t2s_only_game(
             lines.append(f"OT Goals: {ot_goals_cnt}")
             lines.append(f"OT Assists: {ot_assists_cnt}")
             lines.append(f"Points (G+A): {points_val}")
-            lines.append(f"PPG (points per game): {ppg_val:.1f}")
             goals_list = ev_map.get("goals") or []
             assists_list = ev_map.get("assists") or []
             if goals_list:
@@ -7776,6 +7743,7 @@ def main() -> None:
             agg_periods,
             sort_for_cumulative=True,
             include_shifts_in_stats=include_shifts_in_stats,
+            include_per_game_columns=True,
         )
         sheets: List[Tuple[str, pd.DataFrame]] = [("Cumulative", agg_df)]
         has_t2s = any(r.get("t2s_id") is not None for r in results)
@@ -7802,6 +7770,7 @@ def main() -> None:
                 r["periods"],
                 sort_for_cumulative=False,
                 include_shifts_in_stats=include_shifts_in_stats,
+                include_per_game_columns=False,
             )
             sheets.append((r["label"], df))
         consolidated_path = base_outdir / "player_stats_consolidated.xlsx"

@@ -1,6 +1,8 @@
 import importlib.util
 import os
+import sys
 from typing import Any, Optional
+from pathlib import Path
 
 import pytest
 
@@ -221,6 +223,22 @@ class FakeCursor:
             if conference_id is not None:
                 prev["conference_id"] = int(conference_id)
             self._conn.league_games_meta[key] = prev
+            return 1
+
+        # Team logos (REST import)
+        if q == "SELECT logo_path FROM teams WHERE id=%s":
+            team_id = int(p[0])
+            team = self._conn.teams_by_id.get(team_id)
+            if team:
+                self._rows = [as_row_dict({"logo_path": team.get("logo_path")})] if self._dict_mode else [as_row_tuple(team.get("logo_path"))]
+            return 1
+
+        if q == "UPDATE teams SET logo_path=%s, updated_at=%s WHERE id=%s":
+            logo_path, updated_at, team_id = p
+            team_id = int(team_id)
+            if team_id in self._conn.teams_by_id:
+                self._conn.teams_by_id[team_id]["logo_path"] = str(logo_path)
+                self._conn.teams_by_id[team_id]["updated_at"] = updated_at
             return 1
 
         # Teams
@@ -937,3 +955,172 @@ def should_import_games_batch_and_match_individual_imports(monkeypatch):
         )
     )
     assert snap_batch == snap_individual
+
+
+def should_import_team_logos_from_urls_in_games_batch(tmp_path, monkeypatch):
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
+
+    mod = _load_app_module()
+    monkeypatch.setattr(mod, "pymysql", _DummyPyMySQL(), raising=False)
+    monkeypatch.setattr(mod, "INSTANCE_DIR", tmp_path, raising=False)
+
+    # Dummy requests module to ensure headers are passed and to provide bytes.
+    class _Resp:
+        def __init__(self, content: bytes, headers: dict[str, str]) -> None:
+            self.content = content
+            self.headers = headers
+
+        def raise_for_status(self) -> None:
+            return None
+
+    got: dict[str, Any] = {}
+
+    class _Requests:
+        @staticmethod
+        def get(url: str, timeout=None, headers=None):  # noqa: ANN001
+            got["url"] = url
+            got["timeout"] = timeout
+            got["headers"] = dict(headers or {})
+            return _Resp(b"PNGDATA", {"Content-Type": "image/png"})
+
+    monkeypatch.setitem(sys.modules, "requests", _Requests)
+
+    current_db = [FakeConn()]
+    monkeypatch.setattr(mod, "get_db", lambda: current_db[0])
+
+    app = mod.create_app()
+    app.testing = True
+    client = app.test_client()
+
+    batch_payload = {
+        "league_name": "Norcal",
+        "shared": True,
+        "replace": False,
+        "owner_email": "owner@example.com",
+        "source": "timetoscore",
+        "external_key": "caha:77",
+        "games": [
+            {
+                "home_name": "Home A",
+                "away_name": "Away A",
+                "starts_at": "2026-01-01 10:00:00",
+                "location": "Rink 1",
+                "home_score": 1,
+                "away_score": 2,
+                "timetoscore_game_id": 1001,
+                "season_id": 77,
+                "home_logo_url": "https://stats.caha.timetoscore.com/logo.png",
+                "away_logo_url": "https://stats.caha.timetoscore.com/logo2.png",
+                "home_roster": [],
+                "away_roster": [],
+                "player_stats": [],
+                "home_division_name": "10 B West",
+                "away_division_name": "10 B West",
+            }
+        ],
+    }
+    r = _post(client, "/api/import/hockey/games_batch", batch_payload, token="sekret")
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    # REST importer should set a reasonable User-Agent for hotlink-protected hosts.
+    assert got["headers"].get("User-Agent") == "Mozilla/5.0"
+    assert "Referer" in got["headers"]
+
+    db = current_db[0]
+    # Teams were created; their logo_path should be set and file should exist.
+    assert len(db.teams_by_id) == 2
+    for team in db.teams_by_id.values():
+        logo_path = str(team.get("logo_path") or "")
+        assert logo_path
+        assert tmp_path in Path(logo_path).resolve().parents
+        assert Path(logo_path).exists()
+        assert Path(logo_path).read_bytes() == b"PNGDATA"
+
+
+def should_import_team_logos_from_b64_in_games_batch_without_requests(tmp_path, monkeypatch):
+    import base64
+
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
+
+    mod = _load_app_module()
+    monkeypatch.setattr(mod, "pymysql", _DummyPyMySQL(), raising=False)
+    monkeypatch.setattr(mod, "INSTANCE_DIR", tmp_path, raising=False)
+
+    # Ensure server doesn't need `requests` for this path.
+    monkeypatch.setitem(sys.modules, "requests", None)
+
+    current_db = [FakeConn()]
+    monkeypatch.setattr(mod, "get_db", lambda: current_db[0])
+
+    app = mod.create_app()
+    app.testing = True
+    client = app.test_client()
+
+    png_bytes = b"\x89PNG\r\n\x1a\nFAKE"
+    b64 = base64.b64encode(png_bytes).decode("ascii")
+
+    batch_payload = {
+        "league_name": "Norcal",
+        "shared": True,
+        "replace": True,
+        "owner_email": "owner@example.com",
+        "source": "timetoscore",
+        "external_key": "caha:77",
+        "games": [
+            {
+                "home_name": "Home A",
+                "away_name": "Away A",
+                "starts_at": "2026-01-01 10:00:00",
+                "location": "Rink 1",
+                "home_score": 1,
+                "away_score": 2,
+                "timetoscore_game_id": 1001,
+                "season_id": 77,
+                "home_logo_b64": b64,
+                "home_logo_content_type": "image/png",
+                "away_logo_b64": b64,
+                "away_logo_content_type": "image/png",
+                "home_roster": [],
+                "away_roster": [],
+                "player_stats": [],
+                "home_division_name": "10 B West",
+                "away_division_name": "10 B West",
+            }
+        ],
+    }
+    r = _post(client, "/api/import/hockey/games_batch", batch_payload, token="sekret")
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+
+    db = current_db[0]
+    assert len(db.teams_by_id) == 2
+    for team in db.teams_by_id.values():
+        logo_path = str(team.get("logo_path") or "")
+        assert logo_path
+        p = Path(logo_path)
+        assert p.exists()
+        assert p.read_bytes() == png_bytes
+
+
+def should_filter_single_game_player_stats_csv_drops_per_game_columns():
+    mod = _load_app_module()
+    headers = ["Jersey", "Player", "Goals", "Shots per Game", "TOI per Game", "PPG", "Shots per Shift"]
+    rows = [
+        {
+            "Jersey": "12",
+            "Player": "Alice",
+            "Goals": "1",
+            "Shots per Game": "2.0",
+            "TOI per Game": "10:00",
+            "PPG": "1.0",
+            "Shots per Shift": "0.10",
+        }
+    ]
+    kept_headers, kept_rows = mod.filter_single_game_player_stats_csv(headers, rows)
+    assert kept_headers == ["Jersey", "Player", "Goals", "Shots per Shift"]
+    assert kept_rows == [{"Jersey": "12", "Player": "Alice", "Goals": "1", "Shots per Shift": "0.10"}]

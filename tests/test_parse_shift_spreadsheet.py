@@ -229,6 +229,60 @@ def should_parse_long_left_event_table_goal_xg_and_turnovers():
     assert any(e.event_type == "ControlledEntry" and e.team == "Blue" and not e.jerseys for e in events)
 
 
+def should_build_stats_dataframe_omits_per_game_columns_for_single_game():
+    rows = [
+        {
+            "player": "12_Alice",
+            "gp": "1",
+            "goals": "1",
+            "assists": "0",
+            "points": "1",
+            "ppg": "1.0",
+            "shots": "2",
+            "shots_per_game": "2.0",
+            "sb_toi_total": "10:00",
+            "sb_toi_per_game": "10:00",
+            "shifts": "20",
+            "shifts_per_game": "20.0",
+        }
+    ]
+    df, cols = pss._build_stats_dataframe(
+        rows,
+        [1],
+        include_shifts_in_stats=True,
+        include_per_game_columns=False,
+    )
+    assert "ppg" not in cols
+    assert "sb_toi_per_game" not in cols
+    assert "shifts_per_game" not in cols
+    assert not any("_per_game" in c for c in cols)
+
+
+def should_write_player_stats_csv_omits_per_game_columns_for_single_game(tmp_path: Path):
+    stats_dir = tmp_path / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {
+            "player": "12_Alice",
+            "gp": "1",
+            "goals": "1",
+            "assists": "0",
+            "points": "1",
+            "ppg": "1.0",
+            "shots": "2",
+            "shots_per_game": "2.0",
+            "sb_toi_total": "10:00",
+            "sb_toi_per_game": "10:00",
+            "shifts": "20",
+            "shifts_per_game": "20.0",
+        }
+    ]
+    pss._write_player_stats_text_and_csv(stats_dir, rows, [1], include_shifts_in_stats=True)
+    out = pd.read_csv(stats_dir / "player_stats.csv")
+    assert not any("per Game" in str(c) for c in out.columns)
+    assert "PPG" not in out.columns
+
+
 def should_infer_focus_team_from_long_sheet_by_roster_overlap():
     jerseys_by_team = {"Blue": {12, 34, 56}, "White": {14, 91}}
     assert pss._infer_focus_team_from_long_sheet({"12", "34"}, jerseys_by_team) == "Blue"

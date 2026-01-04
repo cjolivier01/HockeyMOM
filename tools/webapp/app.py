@@ -1165,8 +1165,18 @@ def create_app() -> Flask:
         except Exception:
             return
 
+        headers: dict[str, str] = {"User-Agent": "Mozilla/5.0"}
         try:
-            resp = requests.get(url, timeout=(10, 30))
+            from urllib.parse import urlparse
+
+            u = urlparse(url)
+            if u.scheme and u.netloc:
+                headers["Referer"] = f"{u.scheme}://{u.netloc}/"
+        except Exception:
+            pass
+
+        try:
+            resp = requests.get(url, timeout=(10, 30), headers=headers)
             resp.raise_for_status()
             data = resp.content
             ctype = str(resp.headers.get("Content-Type") or "")
@@ -1211,6 +1221,86 @@ def create_app() -> Flask:
                 g.db.commit()
         except Exception:
             return
+
+    def _ensure_team_logo_for_import(
+        *,
+        team_id: int,
+        logo_b64: Optional[str],
+        logo_content_type: Optional[str],
+        logo_url: Optional[str],
+        replace: bool,
+        commit: bool = True,
+    ) -> None:
+        # Respect "replace": if a logo already exists, don't overwrite unless requested.
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT logo_path FROM teams WHERE id=%s", (int(team_id),))
+            row = cur.fetchone()
+            if row and row.get("logo_path") and not replace:
+                return
+
+        b64_s = str(logo_b64 or "").strip()
+        if b64_s:
+            try:
+                import base64
+
+                data = base64.b64decode(b64_s.encode("ascii"), validate=False)
+            except Exception:
+                data = b""
+
+            # Basic size guardrail.
+            if not data or len(data) > 5 * 1024 * 1024:
+                return
+
+            ctype = str(logo_content_type or "").strip()
+            ext = None
+            ctype_l = ctype.lower()
+            if "png" in ctype_l:
+                ext = ".png"
+            elif "jpeg" in ctype_l or "jpg" in ctype_l:
+                ext = ".jpg"
+            elif "gif" in ctype_l:
+                ext = ".gif"
+            elif "webp" in ctype_l:
+                ext = ".webp"
+            elif "svg" in ctype_l:
+                ext = ".svg"
+            if ext is None:
+                # Fall back to guessing from URL, then default to png.
+                url = str(logo_url or "").strip()
+                for cand in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+                    if url.lower().split("?", 1)[0].endswith(cand):
+                        ext = cand
+                        break
+            if ext is None:
+                ext = ".png"
+
+            try:
+                logo_dir = INSTANCE_DIR / "uploads" / "team_logos"
+                logo_dir.mkdir(parents=True, exist_ok=True)
+                dest = logo_dir / f"import_team{int(team_id)}{ext}"
+                dest.write_bytes(data)
+                try:
+                    os.chmod(dest, 0o644)
+                except Exception:
+                    pass
+                with g.db.cursor() as cur:
+                    cur.execute(
+                        "UPDATE teams SET logo_path=%s, updated_at=%s WHERE id=%s",
+                        (str(dest), dt.datetime.now().isoformat(), int(team_id)),
+                    )
+                if commit:
+                    g.db.commit()
+                return
+            except Exception:
+                return
+
+        # Fallback: fetch from URL if the server has `requests` installed.
+        _ensure_team_logo_from_url_for_import(
+            team_id=int(team_id),
+            logo_url=logo_url,
+            replace=replace,
+            commit=commit,
+        )
 
     @app.post("/api/import/hockey/ensure_league")
     def api_import_ensure_league():
@@ -1310,13 +1400,17 @@ def create_app() -> Flask:
             division_id=away_division_id,
             conference_id=away_conference_id,
         )
-        _ensure_team_logo_from_url_for_import(
+        _ensure_team_logo_for_import(
             team_id=int(team1_id),
+            logo_b64=game.get("home_logo_b64") or game.get("team1_logo_b64"),
+            logo_content_type=game.get("home_logo_content_type") or game.get("team1_logo_content_type"),
             logo_url=game.get("home_logo_url") or game.get("team1_logo_url"),
             replace=replace,
         )
-        _ensure_team_logo_from_url_for_import(
+        _ensure_team_logo_for_import(
             team_id=int(team2_id),
+            logo_b64=game.get("away_logo_b64") or game.get("team2_logo_b64"),
+            logo_content_type=game.get("away_logo_content_type") or game.get("team2_logo_content_type"),
             logo_url=game.get("away_logo_url") or game.get("team2_logo_url"),
             replace=replace,
         )
@@ -1548,14 +1642,18 @@ def create_app() -> Flask:
                     conference_id=away_conference_id,
                     commit=False,
                 )
-                _ensure_team_logo_from_url_for_import(
+                _ensure_team_logo_for_import(
                     team_id=int(team1_id),
+                    logo_b64=game.get("home_logo_b64") or game.get("team1_logo_b64"),
+                    logo_content_type=game.get("home_logo_content_type") or game.get("team1_logo_content_type"),
                     logo_url=game.get("home_logo_url") or game.get("team1_logo_url"),
                     replace=game_replace,
                     commit=False,
                 )
-                _ensure_team_logo_from_url_for_import(
+                _ensure_team_logo_for_import(
                     team_id=int(team2_id),
+                    logo_b64=game.get("away_logo_b64") or game.get("team2_logo_b64"),
+                    logo_content_type=game.get("away_logo_content_type") or game.get("team2_logo_content_type"),
                     logo_url=game.get("away_logo_url") or game.get("team2_logo_url"),
                     replace=game_replace,
                     commit=False,
@@ -1806,8 +1904,8 @@ def create_app() -> Flask:
                             VALUES(%s,%s,%s,%s)
                             ON DUPLICATE KEY UPDATE events_csv=VALUES(events_csv), source_label=VALUES(source_label), updated_at=VALUES(updated_at)
                             """,
-                            (resolved_game_id, events_csv, source_label, dt.datetime.now().isoformat()),
-                        )
+                                (resolved_game_id, events_csv, source_label, dt.datetime.now().isoformat()),
+                            )
                     else:
                         cur.execute(
                             "SELECT events_csv FROM hky_game_events WHERE game_id=%s",
@@ -1820,6 +1918,31 @@ def create_app() -> Flask:
                                 VALUES(%s,%s,%s,%s)
                                 """,
                                 (resolved_game_id, events_csv, source_label, dt.datetime.now().isoformat()),
+                            )
+
+                if isinstance(player_stats_csv, str) and player_stats_csv.strip():
+                    # Persist the raw player_stats.csv for full-fidelity UI rendering.
+                    if replace:
+                        cur.execute(
+                            """
+                            INSERT INTO hky_game_player_stats_csv(game_id, player_stats_csv, source_label, updated_at)
+                            VALUES(%s,%s,%s,%s)
+                            ON DUPLICATE KEY UPDATE player_stats_csv=VALUES(player_stats_csv), source_label=VALUES(source_label), updated_at=VALUES(updated_at)
+                            """,
+                            (resolved_game_id, player_stats_csv, source_label, dt.datetime.now().isoformat()),
+                        )
+                    else:
+                        cur.execute(
+                            "SELECT player_stats_csv FROM hky_game_player_stats_csv WHERE game_id=%s",
+                            (resolved_game_id,),
+                        )
+                        if not cur.fetchone():
+                            cur.execute(
+                                """
+                                INSERT INTO hky_game_player_stats_csv(game_id, player_stats_csv, source_label, updated_at)
+                                VALUES(%s,%s,%s,%s)
+                                """,
+                                (resolved_game_id, player_stats_csv, source_label, dt.datetime.now().isoformat()),
                             )
 
                 if isinstance(game_stats_csv, str) and game_stats_csv.strip():
@@ -2387,6 +2510,31 @@ def create_app() -> Flask:
                 }
         except Exception:
             events_headers, events_rows, events_meta = [], [], None
+
+        imported_player_stats_headers: list[str] = []
+        imported_player_stats_rows: list[dict[str, str]] = []
+        imported_player_stats_meta: Optional[dict[str, Any]] = None
+        try:
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    "SELECT player_stats_csv, source_label, updated_at FROM hky_game_player_stats_csv WHERE game_id=%s",
+                    (game_id,),
+                )
+                prow = cur.fetchone()
+            if prow and str(prow.get("player_stats_csv") or "").strip():
+                imported_player_stats_headers, imported_player_stats_rows = parse_events_csv(
+                    str(prow.get("player_stats_csv") or "")
+                )
+                imported_player_stats_headers, imported_player_stats_rows = filter_single_game_player_stats_csv(
+                    imported_player_stats_headers, imported_player_stats_rows
+                )
+                imported_player_stats_meta = {
+                    "source_label": prow.get("source_label"),
+                    "updated_at": prow.get("updated_at"),
+                    "count": len(imported_player_stats_rows),
+                }
+        except Exception:
+            imported_player_stats_headers, imported_player_stats_rows, imported_player_stats_meta = [], [], None
         return render_template(
             "hky_game_detail.html",
             game=game,
@@ -2403,6 +2551,9 @@ def create_app() -> Flask:
             events_headers=events_headers,
             events_rows=events_rows,
             events_meta=events_meta,
+            imported_player_stats_headers=imported_player_stats_headers,
+            imported_player_stats_rows=imported_player_stats_rows,
+            imported_player_stats_meta=imported_player_stats_meta,
         )
 
     @app.get("/leagues/<int:league_id>/members")
@@ -3013,6 +3164,18 @@ def create_app() -> Flask:
         unmatched: list[str] = []
 
         with g.db.cursor() as cur:
+            # Persist the raw player_stats.csv for full-fidelity UI rendering.
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO hky_game_player_stats_csv(game_id, player_stats_csv, source_label, updated_at)
+                    VALUES(%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE player_stats_csv=VALUES(player_stats_csv), source_label=VALUES(source_label), updated_at=VALUES(updated_at)
+                    """,
+                    (game_id, ps_text, "upload_form", dt.datetime.now().isoformat()),
+                )
+            except Exception:
+                pass
             for row in parsed_rows:
                 jersey_norm = row.get("jersey_number")
                 name_norm = row.get("name_norm") or ""
@@ -3243,6 +3406,28 @@ def create_app() -> Flask:
         except Exception:
             events_headers, events_rows, events_meta = [], [], None
 
+        imported_player_stats_headers: list[str] = []
+        imported_player_stats_rows: list[dict[str, str]] = []
+        imported_player_stats_meta: Optional[dict[str, Any]] = None
+        try:
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    "SELECT player_stats_csv, source_label, updated_at FROM hky_game_player_stats_csv WHERE game_id=%s",
+                    (game_id,),
+                )
+                prow = cur.fetchone()
+            if prow and str(prow.get("player_stats_csv") or "").strip():
+                imported_player_stats_headers, imported_player_stats_rows = parse_events_csv(
+                    str(prow.get("player_stats_csv") or "")
+                )
+                imported_player_stats_meta = {
+                    "source_label": prow.get("source_label"),
+                    "updated_at": prow.get("updated_at"),
+                    "count": len(imported_player_stats_rows),
+                }
+        except Exception:
+            imported_player_stats_headers, imported_player_stats_rows, imported_player_stats_meta = [], [], None
+
         if request.method == "POST" and not edit_mode:
             flash("You do not have permission to edit this game in the selected league.", "error")
             return redirect(url_for("hky_game_detail", game_id=game_id))
@@ -3363,6 +3548,9 @@ def create_app() -> Flask:
             events_headers=events_headers,
             events_rows=events_rows,
             events_meta=events_meta,
+            imported_player_stats_headers=imported_player_stats_headers,
+            imported_player_stats_rows=imported_player_stats_rows,
+            imported_player_stats_meta=imported_player_stats_meta,
         )
 
     @app.route("/game_types", methods=["GET", "POST"])
@@ -3742,6 +3930,19 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
+
+        # Raw per-game player stats CSV (e.g., stats/player_stats.csv from scripts/parse_shift_spreadsheet.py)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hky_game_player_stats_csv (
+              game_id INT PRIMARY KEY,
+              player_stats_csv MEDIUMTEXT NULL,
+              source_label VARCHAR(255) NULL,
+              updated_at DATETIME NULL,
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
         # League mappings (created after dependent tables)
         cur.execute(
             """
@@ -4022,6 +4223,25 @@ def parse_events_csv(events_csv: str) -> tuple[list[str], list[dict[str, str]]]:
     return headers, rows
 
 
+def filter_single_game_player_stats_csv(
+    headers: list[str], rows: list[dict[str, str]]
+) -> tuple[list[str], list[dict[str, str]]]:
+    """
+    Single-game player stats tables should not include any per-game normalized columns
+    (e.g., 'Shots per Game', 'TOI per Game', 'PPG') because they are redundant for a
+    one-game view and make the table unnecessarily wide.
+    """
+
+    def _drop_header(h: str) -> bool:
+        key = str(h or "").strip().lower()
+        return key == "ppg" or "per game" in key
+
+    kept_headers = [h for h in headers if not _drop_header(h)]
+    kept_set = set(kept_headers)
+    kept_rows = [{h: r.get(h, "") for h in kept_headers} for r in (rows or [])]
+    return kept_headers, kept_rows
+
+
 def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:
     curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, "cursors", None)) else None  # type: ignore
     with db_conn.cursor(curtype) if curtype else db_conn.cursor() as cur:
@@ -4293,13 +4513,27 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for raw_row in reader:
         row = {k.strip(): v for k, v in (raw_row or {}).items() if k}
-        player_label = (row.get("Player") or "").strip()
-        jersey_norm = None
-        name_part = player_label
-        m = re.match(r"^\s*(\d+)\s+(.*)$", player_label)
-        if m:
-            jersey_norm = normalize_jersey_number(m.group(1))
-            name_part = m.group(2).strip()
+        player_name = (row.get("Player") or "").strip()
+
+        # Newer outputs write jersey and name as separate columns.
+        jersey_raw = (
+            row.get("Jersey #")
+            or row.get("Jersey")
+            or row.get("Jersey No")
+            or row.get("Jersey Number")
+            or ""
+        )
+        jersey_norm = normalize_jersey_number(jersey_raw) if str(jersey_raw).strip() else None
+
+        # Back-compat: older outputs encoded jersey in the Player field (e.g. " 8 Adam Ro").
+        name_part = player_name
+        if jersey_norm is None:
+            m = re.match(r"^\s*(\d+)\s+(.*)$", player_name)
+            if m:
+                jersey_norm = normalize_jersey_number(m.group(1))
+                name_part = m.group(2).strip()
+
+        player_label = f"{jersey_norm} {name_part}".strip() if jersey_norm else name_part
         name_norm = normalize_player_name(name_part)
 
         giveaways_unforced = _int_or_none(row.get("Giveaways"))
@@ -4326,7 +4560,7 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             "gw_goals": _int_or_none(row.get("GW Goals")),
             "ot_goals": _int_or_none(row.get("OT Goals")),
             "ot_assists": _int_or_none(row.get("OT Assists")),
-            "plus_minus": _int_or_none(row.get("Plus Minus")),
+            "plus_minus": _int_or_none(row.get("Plus Minus") or row.get("Goal +/-")),
             "gf_counted": _int_or_none(row.get("GF Counted")),
             "ga_counted": _int_or_none(row.get("GA Counted")),
             "shifts": _int_or_none(row.get("Shifts")),
