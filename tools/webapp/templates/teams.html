@@ -14,19 +14,22 @@
   </div>
 </div>
 
-{% if league_view and divisions %}
-  {% for div in divisions %}
-    <h3 style="margin-top:1rem;">{{ div.name }}</h3>
-    <table>
+  {% if league_view and divisions %}
+    {% for div in divisions %}
+      <h3 style="margin-top:1rem;">{{ div.name }}</h3>
+    <table class="table-no-scroll-mobile">
       <thead>
         <tr>
           <th>Name</th>
           <th>GP</th>
-          <th>Record</th>
-          <th>GF/GA</th>
+          <th class="col-hide-sm">Record</th>
+          <th class="col-hide-sm">GF/GA</th>
           <th>Pts</th>
           <th>Pts (Total)</th>
-          <th></th>
+          {% if league_view %}
+            <th class="col-hide-sm">Rating</th>
+          {% endif %}
+          <th class="col-hide-sm"></th>
         </tr>
       </thead>
       <tbody>
@@ -42,33 +45,50 @@
               </span>
             </td>
             <td>{{ gp }}</td>
-            <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
-            <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
+            <td class="col-hide-sm">{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
+            <td class="col-hide-sm">{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
             <td>{{ s.get('points',0) }}</td>
             <td>{{ s.get('points_total', s.get('points',0)) }}</td>
-            <td>
-              {% if not (public_league_id is defined) and t['user_id'] == current_user_id %}
+            {% if league_view %}
+              <td class="col-hide-sm">
+                {% if t.get('mhr_rating') is not none %}
+                  {{ '%.2f'|format(t.get('mhr_rating')) }}
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+            {% endif %}
+            <td class="col-hide-sm">
+              {% if is_league_admin|default(false) %}
+                <form method="post" action="/leagues/{{ session.get('league_id') }}/teams/{{ t['id'] }}/recalc_mhr_rating" style="display:inline;">
+                  <button class="btn" type="submit">Recalc Rating</button>
+                </form>
+              {% endif %}
+              {% if not (public_league_id is defined) and (not league_view) and t['user_id'] == current_user_id %}
                 <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
               {% endif %}
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="5" class="muted">No teams yet.</td></tr>
+          <tr><td colspan="{% if league_view %}8{% else %}7{% endif %}" class="muted">No teams yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   {% endfor %}
 {% else %}
-  <table>
+  <table class="table-no-scroll-mobile">
     <thead>
       <tr>
         <th>Name</th>
         <th>GP</th>
-        <th>Record</th>
-        <th>GF/GA</th>
+        <th class="col-hide-sm">Record</th>
+        <th class="col-hide-sm">GF/GA</th>
         <th>Pts</th>
         <th>Pts (Total)</th>
-        <th></th>
+        {% if league_view %}
+          <th class="col-hide-sm">Rating</th>
+        {% endif %}
+        <th class="col-hide-sm"></th>
       </tr>
     </thead>
     <tbody>
@@ -84,18 +104,32 @@
             </span>
           </td>
           <td>{{ gp }}</td>
-          <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
-          <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
+          <td class="col-hide-sm">{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
+          <td class="col-hide-sm">{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
           <td>{{ s.get('points',0) }}</td>
           <td>{{ s.get('points_total', s.get('points',0)) }}</td>
-          <td>
-            {% if not (public_league_id is defined) and t['user_id'] == current_user_id %}
+          {% if league_view %}
+            <td class="col-hide-sm">
+              {% if t.get('mhr_rating') is not none %}
+                {{ '%.2f'|format(t.get('mhr_rating')) }}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          {% endif %}
+          <td class="col-hide-sm">
+            {% if is_league_admin|default(false) and league_view %}
+              <form method="post" action="/leagues/{{ session.get('league_id') }}/teams/{{ t['id'] }}/recalc_mhr_rating" style="display:inline;">
+                <button class="btn" type="submit">Recalc Rating</button>
+              </form>
+            {% endif %}
+            {% if not (public_league_id is defined) and (not league_view) and t['user_id'] == current_user_id %}
               <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
             {% endif %}
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="5" class="muted">No teams yet.</td></tr>
+        <tr><td colspan="{% if league_view %}8{% else %}7{% endif %}" class="muted">No teams yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -15,6 +15,11 @@
   <div>
     <h2 style="margin:0">{{ team['name'] }}</h2>
     {% if team['is_external'] %}<p class="muted" style="margin:.25rem 0 0">External team</p>{% endif %}
+    {% if is_league_admin|default(false) and public_league_id is not defined %}
+      <form method="post" action="/leagues/{{ session.get('league_id') }}/teams/{{ team['id'] }}/recalc_mhr_rating" style="margin-top:.5rem;">
+        <button class="btn" type="submit">Recalc MHR-like Rating</button>
+      </form>
+    {% endif %}
   </div>
 </div>
 
@@ -40,19 +45,20 @@
   <div class="card">
     {% set show_division = (schedule_games and schedule_games[0].get('division_name') is not none) %}
     <div style="overflow-x:auto;">
-      <table>
-        <thead>
-          <tr>
-            {% if show_division %}<th>Division</th>{% endif %}
-            <th class="nowrap">Date</th>
-            <th class="nowrap">Time</th>
-            <th>Matchup</th>
-            <th>Type</th>
-            <th>Location</th>
-            <th>Score</th>
-            <th></th>
-          </tr>
-        </thead>
+          <table>
+            <thead>
+              <tr>
+                {% if show_division %}<th>Division</th>{% endif %}
+                <th class="nowrap">Date</th>
+                <th class="nowrap">Time</th>
+                <th>Matchup</th>
+                <th>Type</th>
+                <th>Location</th>
+                <th>Score</th>
+                <th>Video</th>
+                <th></th>
+              </tr>
+            </thead>
         <tbody>
           {% for g in schedule_games %}
             <tr>
@@ -104,6 +110,13 @@
                 {% endif %}
               </td>
               <td>
+                {% if g.get('game_video_url') %}
+                  <a href="{{ g.get('game_video_url') }}" target="_blank" rel="noopener noreferrer">Video</a>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+              <td>
                 {% if g.get('can_view_summary', True) %}
                   {% if public_league_id is defined %}
                     <a class="btn" href="{{ game_href }}">View</a>
@@ -116,7 +129,7 @@
               </td>
             </tr>
           {% else %}
-            <tr><td colspan="{{ 8 if show_division else 7 }}" class="muted">No games yet.</td></tr>
+            <tr><td colspan="{{ 9 if show_division else 8 }}" class="muted">No games yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>

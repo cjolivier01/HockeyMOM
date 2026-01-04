@@ -156,3 +156,16 @@ def should_hide_view_links_for_future_unplayed_games_but_allow_unknown_date_game
     html = client.get("/schedule").get_data(as_text=True)
     assert 'href="/hky/games/123"' not in html
     assert 'href="/hky/games/124?return_to=/schedule"' in html
+
+
+def should_sort_schedule_games_by_time_within_date(monkeypatch):
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    mod = _load_app_module()
+
+    games = [
+        {"id": 1, "starts_at": "2026-01-01 15:00:00", "sort_order": 200, "created_at": "2026-01-01 00:00:00"},
+        {"id": 2, "starts_at": "2026-01-01 09:00:00", "sort_order": 100, "created_at": "2026-01-01 00:00:00"},
+    ]
+    out = mod.sort_games_schedule_order(games)
+    assert [g["id"] for g in out] == [2, 1]

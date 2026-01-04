@@ -186,6 +186,80 @@
       function init() {
         document.querySelectorAll("table[data-sortable='1']").forEach(function(t) { setupTable(t); });
         document.querySelectorAll("table[data-freeze-cols]").forEach(function(t) { setupFrozenColumns(t); });
+
+        // On mobile, scale down tables explicitly marked as non-scrollable so they fit
+        // horizontally without wrapping.
+        (function() {
+          function isMobile() {
+            return window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
+          }
+
+          function ensureWrap(table) {
+            if (!table || !table.parentElement) return null;
+            if (table.parentElement && table.parentElement.classList && table.parentElement.classList.contains("table-fit-wrap")) {
+              return table.parentElement;
+            }
+            var wrap = document.createElement("div");
+            wrap.className = "table-fit-wrap";
+            table.parentNode.insertBefore(wrap, table);
+            wrap.appendChild(table);
+            return wrap;
+          }
+
+          function resetFit(table, wrap) {
+            if (!table || !wrap) return;
+            wrap.style.position = "";
+            wrap.style.overflowX = "";
+            wrap.style.overflowY = "";
+            wrap.style.height = "";
+            table.style.position = "";
+            table.style.left = "";
+            table.style.top = "";
+            table.style.transformOrigin = "";
+            table.style.transform = "";
+          }
+
+          function applyFit(table, wrap) {
+            if (!table || !wrap) return;
+            // Clear old fit first so measurements are stable.
+            resetFit(table, wrap);
+            var avail = wrap.clientWidth || 0;
+            var needed = table.scrollWidth || 0;
+            if (!avail || !needed) return;
+            var scale = avail / needed;
+            if (scale >= 0.999) return;
+            var h = table.offsetHeight || 0;
+            wrap.style.position = "relative";
+            wrap.style.overflowX = "hidden";
+            wrap.style.overflowY = "hidden";
+            wrap.style.height = (h * scale) + "px";
+            table.style.position = "absolute";
+            table.style.left = "0";
+            table.style.top = "0";
+            table.style.transformOrigin = "top left";
+            table.style.transform = "scale(" + scale + ")";
+          }
+
+          var raf = null;
+          function run() {
+            if (raf) window.cancelAnimationFrame(raf);
+            raf = window.requestAnimationFrame(function() {
+              var mobile = isMobile();
+              document.querySelectorAll("table.table-no-scroll-mobile").forEach(function(t) {
+                var wrap = ensureWrap(t);
+                if (!wrap) return;
+                if (!mobile) {
+                  resetFit(t, wrap);
+                } else {
+                  applyFit(t, wrap);
+                }
+              });
+            });
+          }
+
+          run();
+          window.addEventListener("resize", run);
+        })();
       }
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", init);

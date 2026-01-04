@@ -59,6 +59,7 @@
       <th>Type</th>
       <th>Location</th>
       <th>Score</th>
+      <th>Video</th>
       <th></th>
     </tr>
   </thead>
@@ -111,6 +112,13 @@
       <td>{{ g['location'] or '' }}</td>
       <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td>
+        {% if g.get('game_video_url') %}
+          <a href="{{ g.get('game_video_url') }}" target="_blank" rel="noopener noreferrer">Video</a>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      <td>
         {% if g.get('can_view_summary') %}
           {% if public_league_id is defined %}
             <a class="btn" href="{{ game_href }}">View</a>
@@ -127,7 +135,7 @@
       </td>
       </tr>
     {% else %}
-      <tr><td colspan="{% if league_view %}8{% else %}7{% endif %}" class="muted">No games yet.</td></tr>
+      <tr><td colspan="{% if league_view %}9{% else %}8{% endif %}" class="muted">No games yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>

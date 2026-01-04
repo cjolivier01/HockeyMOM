@@ -73,6 +73,7 @@ def main():
     print("Copying webapp code...")
     subprocess.check_call(["sudo", "mkdir", "-p", str(app_dir)])
     _do_copy(repo_root / "tools/webapp/app.py", app_dir / "app.py")
+    _do_copy(repo_root / "tools/webapp/hockey_rankings.py", app_dir / "hockey_rankings.py")
     subprocess.check_call(["sudo", "mkdir", "-p", str(templates_dir)])
     for t in (repo_root / "tools/webapp/templates").glob("*.html"):
         _do_copy(t, templates_dir / t.name)

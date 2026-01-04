@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import sys
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -36,6 +37,39 @@ INSTANCE_DIR = BASE_DIR / "instance"
 CONFIG_PATH = BASE_DIR / "config.json"
 
 WATCH_ROOT = os.environ.get("HM_WATCH_ROOT", "/data/incoming")
+
+# Allow importing sibling modules (e.g., hockey_rankings.py) when app.py is loaded via file path in tests.
+_base_dir_str = str(BASE_DIR)
+if _base_dir_str not in sys.path:
+    sys.path.insert(0, _base_dir_str)
+
+from hockey_rankings import GameScore, compute_mhr_like_ratings  # noqa: E402
+
+
+def to_dt(value: Any) -> Optional[dt.datetime]:
+    """
+    Parse a datetime from a DB value or string.
+    Accepts:
+      - datetime objects
+      - 'YYYY-MM-DD HH:MM:SS'
+      - 'YYYY-MM-DDTHH:MM[:SS]'
+    """
+    if value is None:
+        return None
+    if isinstance(value, dt.datetime):
+        return value
+    s = str(value).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+        try:
+            return dt.datetime.strptime(s, fmt)
+        except Exception:
+            continue
+    try:
+        return dt.datetime.fromisoformat(s)
+    except Exception:
+        return None
 
 
 def _load_or_create_app_secret() -> str:
@@ -100,22 +134,7 @@ def create_app() -> Flask:
         return format_seconds_to_mmss_or_hhmmss(seconds)
 
     def _to_dt(value: Any) -> Optional[dt.datetime]:
-        if value is None:
-            return None
-        if isinstance(value, dt.datetime):
-            return value
-        s = str(value).strip()
-        if not s:
-            return None
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
-            try:
-                return dt.datetime.strptime(s, fmt)
-            except Exception:
-                continue
-        try:
-            return dt.datetime.fromisoformat(s)
-        except Exception:
-            return None
+        return to_dt(value)
 
     @app.template_filter("fmt_date")
     def _fmt_date(value: Any) -> str:
@@ -758,11 +777,18 @@ def create_app() -> Flask:
             return r
         include_external = request.args.get("all", "0") == "1"
         league_id = session.get("league_id")
+        is_league_admin = False
+        if league_id:
+            try:
+                is_league_admin = bool(_is_league_admin(int(league_id), int(session["user_id"])))
+            except Exception:
+                is_league_admin = False
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             if league_id:
                 cur.execute(
                     """
-                    SELECT t.*, lt.division_name, lt.division_id, lt.conference_id
+                    SELECT t.*, lt.division_name, lt.division_id, lt.conference_id,
+                           lt.mhr_rating, lt.mhr_agd, lt.mhr_sched, lt.mhr_games, lt.mhr_updated_at
                     FROM league_teams lt JOIN teams t ON lt.team_id=t.id
                     WHERE lt.league_id=%s
                     """,
@@ -799,7 +825,28 @@ def create_app() -> Flask:
             include_external=include_external,
             league_view=bool(league_id),
             current_user_id=int(session["user_id"]),
+            is_league_admin=is_league_admin,
         )
+
+    @app.post("/leagues/<int:league_id>/teams/<int:team_id>/recalc_mhr_rating")
+    def league_team_recalc_mhr_rating(league_id: int, team_id: int):
+        r = require_login()
+        if r:
+            return r
+        if not _is_league_admin(int(league_id), int(session["user_id"])):
+            flash("Not authorized", "error")
+            return redirect(url_for("teams"))
+        # Recompute for the entire league (ratings depend on opponents), then return.
+        try:
+            recompute_league_mhr_ratings(g.db, int(league_id))
+            flash("MHR-like ratings recalculated", "success")
+        except Exception as e:  # noqa: BLE001
+            try:
+                g.db.rollback()
+            except Exception:
+                pass
+            flash(f"Failed to recalculate ratings: {e}", "error")
+        return redirect(url_for("teams"))
 
     @app.get("/leagues")
     def leagues_index():
@@ -1035,6 +1082,58 @@ def create_app() -> Flask:
         except Exception:
             pass
         return existing
+
+    def _extract_game_video_url_from_notes(notes: Optional[str]) -> Optional[str]:
+        s = str(notes or "").strip()
+        if not s:
+            return None
+        try:
+            d = json.loads(s)
+            if isinstance(d, dict):
+                for k in ("game_video_url", "game_video", "video_url"):
+                    v = d.get(k)
+                    if v is not None and str(v).strip():
+                        return str(v).strip()
+        except Exception:
+            pass
+        m = re.search(r"(?:^|[\\s|,;])game_video_url\\s*=\\s*([^\\s|,;]+)", s, flags=re.IGNORECASE)
+        if m:
+            return str(m.group(1)).strip()
+        m = re.search(r"(?:^|[\\s|,;])game_video\\s*=\\s*([^\\s|,;]+)", s, flags=re.IGNORECASE)
+        if m:
+            return str(m.group(1)).strip()
+        return None
+
+    def _update_game_video_url_note(game_id: int, video_url: str, *, replace: bool, commit: bool = True) -> None:
+        url = _sanitize_http_url(video_url)
+        if not url:
+            return
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute("SELECT notes FROM hky_games WHERE id=%s", (int(game_id),))
+            row = cur.fetchone()
+        existing = str((row or {}).get("notes") or "").strip()
+        existing_url = _extract_game_video_url_from_notes(existing)
+        if existing_url and not replace:
+            return
+        new_notes: str
+        try:
+            d = json.loads(existing) if existing else {}
+            if isinstance(d, dict):
+                d["game_video_url"] = url
+                new_notes = json.dumps(d, sort_keys=True)
+            else:
+                raise ValueError("notes not dict")
+        except Exception:
+            # Preserve non-JSON notes (used by older importers for token matching).
+            suffix = f" game_video_url={url}"
+            if existing and suffix.strip() in existing:
+                new_notes = existing
+            else:
+                new_notes = (existing + "\n" + suffix.strip()).strip() if existing else suffix.strip()
+        with g.db.cursor() as cur:
+            cur.execute("UPDATE hky_games SET notes=%s, updated_at=%s WHERE id=%s", (new_notes, dt.datetime.now().isoformat(), int(game_id)))
+            if commit:
+                g.db.commit()
 
     def _upsert_game_for_import(
         *,
@@ -2302,6 +2401,17 @@ def create_app() -> Flask:
         game_stats_csv = payload.get("game_stats_csv")
         events_csv = payload.get("events_csv")
         source_label = str(payload.get("source_label") or "").strip() or None
+        game_video_url = (
+            payload.get("game_video_url")
+            or payload.get("game_video")
+            or payload.get("video_url")
+        )
+
+        if isinstance(game_video_url, str) and game_video_url.strip():
+            try:
+                _update_game_video_url_note(int(resolved_game_id), str(game_video_url), replace=replace, commit=False)
+            except Exception:
+                pass
 
         # Optional league mapping / ordering updates for existing games.
         if league_id_payload is not None or league_name:
@@ -2846,7 +2956,8 @@ def create_app() -> Flask:
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 """
-                SELECT t.*, lt.division_name, lt.division_id, lt.conference_id
+                SELECT t.*, lt.division_name, lt.division_id, lt.conference_id,
+                       lt.mhr_rating, lt.mhr_agd, lt.mhr_sched, lt.mhr_games, lt.mhr_updated_at
                 FROM league_teams lt JOIN teams t ON lt.team_id=t.id
                 WHERE lt.league_id=%s
                 """,
@@ -2871,6 +2982,7 @@ def create_app() -> Flask:
             league_view=True,
             current_user_id=-1,
             public_league_id=int(league_id),
+            is_league_admin=False,
         )
 
     @app.get("/public/leagues/<int:league_id>/teams/<int:team_id>")
@@ -2936,28 +3048,33 @@ def create_app() -> Flask:
                         started = False
                 has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
                 g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
+                try:
+                    g2["game_video_url"] = _sanitize_http_url(_extract_game_video_url_from_notes(g2.get("notes")))
+                except Exception:
+                    g2["game_video_url"] = None
+            schedule_games = sort_games_schedule_order(schedule_games or [])
 
         cols_sql = ", ".join([f"ps.{c}" for c in PLAYER_STATS_SUM_KEYS])
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 f"""
-	                SELECT ps.player_id, ps.game_id, {cols_sql}
-	                FROM league_games lg
-	                  JOIN hky_games g ON lg.game_id=g.id
-	                  JOIN player_stats ps ON lg.game_id=ps.game_id
-	                  LEFT JOIN league_teams lt_self ON lt_self.league_id=lg.league_id AND lt_self.team_id=ps.team_id
-	                  LEFT JOIN league_teams lt_opp ON lt_opp.league_id=lg.league_id AND lt_opp.team_id=(
-	                       CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
-	                  )
-	                WHERE lg.league_id=%s AND ps.team_id=%s
-	                  AND (
-	                    LOWER(COALESCE(lg.division_name,''))='external'
-	                    OR lt_opp.division_name IS NULL
-	                    OR LOWER(COALESCE(lt_opp.division_name,''))='external'
-	                    OR lt_self.division_name IS NULL
-	                    OR lt_self.division_name=lt_opp.division_name
-	                  )
-	                """,
+		                SELECT ps.player_id, ps.game_id, {cols_sql}
+		                FROM league_games lg
+		                  JOIN hky_games g ON lg.game_id=g.id
+		                  JOIN player_stats ps ON lg.game_id=ps.game_id
+		                  LEFT JOIN league_teams lt_self ON lt_self.league_id=lg.league_id AND lt_self.team_id=ps.team_id
+		                  LEFT JOIN league_teams lt_opp ON lt_opp.league_id=lg.league_id AND lt_opp.team_id=(
+		                       CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
+		                  )
+		                WHERE lg.league_id=%s AND ps.team_id=%s
+		                  AND (
+		                    LOWER(COALESCE(lg.division_name,''))='external'
+		                    OR lt_opp.division_name IS NULL
+		                    OR LOWER(COALESCE(lt_opp.division_name,''))='external'
+		                    OR lt_self.division_name IS NULL
+		                    OR lt_self.division_name=lt_opp.division_name
+		                  )
+		                """,
                 (int(league_id), team_id),
             )
             ps_rows = cur.fetchall() or []
@@ -3070,6 +3187,10 @@ def create_app() -> Flask:
         games = [g2 for g2 in (games or []) if not _league_game_is_cross_division_non_external(g2)]
         now_dt = dt.datetime.now()
         for g2 in games or []:
+            try:
+                g2["game_video_url"] = _sanitize_http_url(_extract_game_video_url_from_notes(g2.get("notes")))
+            except Exception:
+                g2["game_video_url"] = None
             sdt = g2.get("starts_at")
             started = False
             if sdt is not None:
@@ -3082,6 +3203,7 @@ def create_app() -> Flask:
             # If starts_at is missing (common for imported games), allow viewing.
             g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
             g2["can_edit"] = False
+        games = sort_games_schedule_order(games or [])
         return render_template(
             "schedule.html",
             games=games,
@@ -3354,6 +3476,12 @@ def create_app() -> Flask:
         recent_sort = str(request.args.get("recent_sort") or "points").strip() or "points"
         recent_dir = str(request.args.get("recent_dir") or "desc").strip().lower() or "desc"
         league_id = session.get("league_id")
+        is_league_admin = False
+        if league_id:
+            try:
+                is_league_admin = bool(_is_league_admin(int(league_id), int(session["user_id"])))
+            except Exception:
+                is_league_admin = False
         team = get_team(team_id, session["user_id"])
         editable = bool(team)
         if not team and league_id:
@@ -3421,7 +3549,11 @@ def create_app() -> Flask:
                         started = False
                 has_score = (g2.get("team1_score") is not None) or (g2.get("team2_score") is not None) or bool(g2.get("is_final"))
                 g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
-
+                try:
+                    g2["game_video_url"] = _sanitize_http_url(_extract_game_video_url_from_notes(g2.get("notes")))
+                except Exception:
+                    g2["game_video_url"] = None
+            schedule_games = sort_games_schedule_order(schedule_games or [])
             cols_sql = ", ".join([f"ps.{c}" for c in PLAYER_STATS_SUM_KEYS])
             with g.db.cursor(pymysql.cursors.DictCursor) as cur:
                 cur.execute(
@@ -3510,6 +3642,7 @@ def create_app() -> Flask:
             tstats=tstats,
             schedule_games=schedule_games,
             editable=editable,
+            is_league_admin=is_league_admin,
         )
 
     @app.route("/teams/<int:team_id>/edit", methods=["GET", "POST"])
@@ -3750,11 +3883,16 @@ def create_app() -> Flask:
             # Hide game pages for future scheduled games that have not started and have no score yet.
             # If starts_at is missing (common for imported games), allow viewing.
             g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
+            try:
+                g2["game_video_url"] = _sanitize_http_url(_extract_game_video_url_from_notes(g2.get("notes")))
+            except Exception:
+                g2["game_video_url"] = None
             # Editing is gated to owners or league admins; UI still defaults to read-only unless Edit is clicked.
             try:
                 g2["can_edit"] = bool(int(g2.get("user_id") or 0) == int(session["user_id"]) or is_league_admin)
             except Exception:
                 g2["can_edit"] = bool(is_league_admin)
+        games = sort_games_schedule_order(games or [])
         return render_template(
             "schedule.html",
             games=games,
@@ -4777,6 +4915,11 @@ def init_db():
               division_name VARCHAR(255) NULL,
               division_id INT NULL,
               conference_id INT NULL,
+              mhr_rating DOUBLE NULL,
+              mhr_agd DOUBLE NULL,
+              mhr_sched DOUBLE NULL,
+              mhr_games INT NULL,
+              mhr_updated_at DATETIME NULL,
               UNIQUE KEY uniq_league_team (league_id, team_id),
               INDEX(league_id), INDEX(team_id),
               FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -4819,6 +4962,25 @@ def init_db():
                         cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
                     except Exception:
                         pass
+        # Extend league_teams with rating fields (older installs)
+        for col_ddl in [
+            "mhr_rating DOUBLE NULL",
+            "mhr_agd DOUBLE NULL",
+            "mhr_sched DOUBLE NULL",
+            "mhr_games INT NULL",
+            "mhr_updated_at DATETIME NULL",
+        ]:
+            col = col_ddl.split(" ", 1)[0]
+            try:
+                cur.execute("SHOW COLUMNS FROM league_teams LIKE %s", (col,))
+                exists = cur.fetchone()
+                if not exists:
+                    cur.execute(f"ALTER TABLE league_teams ADD COLUMN {col_ddl}")
+            except Exception:
+                try:
+                    cur.execute(f"ALTER TABLE league_teams ADD COLUMN {col_ddl}")
+                except Exception:
+                    pass
         # Add league_games.sort_order if missing (older installs)
         try:
             cur.execute("SHOW COLUMNS FROM league_games LIKE %s", ("sort_order",))
@@ -5058,6 +5220,151 @@ def _safe_return_to_url(value: Optional[str], *, default: str) -> str:
     if s.startswith("//"):
         return str(default)
     return s
+
+
+def _sanitize_http_url(value: Optional[str]) -> Optional[str]:
+    """
+    Allow only http(s) URLs for external links (prevents javascript: etc).
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    sl = s.lower()
+    if sl.startswith("http://") or sl.startswith("https://"):
+        return s
+    return None
+
+
+def sort_games_schedule_order(games: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Stable schedule ordering:
+      - games with known start datetime first
+      - then by start date
+      - then by start time
+      - then league sort_order (if present)
+      - then created_at
+    """
+
+    def _int_or_big(v: Any) -> int:
+        try:
+            return int(v)
+        except Exception:
+            return 2147483647
+
+    def _key(idx_game: tuple[int, dict[str, Any]]) -> tuple[Any, ...]:
+        idx, g = idx_game
+        sdt = to_dt(g.get("starts_at"))
+        has_dt = sdt is not None
+        # Put unknown starts_at at the end but keep a deterministic order using sort_order/created_at.
+        dt_key = sdt if sdt else dt.datetime.max
+        so = _int_or_big(g.get("sort_order"))
+        created = to_dt(g.get("created_at")) or dt.datetime.max
+        return (0 if has_dt else 1, dt_key.date(), dt_key.time(), so, created, idx)
+
+    return [g for _idx, g in sorted(list(enumerate(games or [])), key=_key)]
+
+
+def _league_game_is_cross_division_non_external_row(
+    game_division_name: Optional[str],
+    team1_division_name: Optional[str],
+    team2_division_name: Optional[str],
+) -> bool:
+    """
+    True when both teams have known, non-External league divisions and they differ.
+    """
+    d1 = str(team1_division_name or "").strip()
+    d2 = str(team2_division_name or "").strip()
+    if not d1 or not d2:
+        return False
+    if d1.lower() == "external" or d2.lower() == "external":
+        return False
+    return d1 != d2
+
+
+def recompute_league_mhr_ratings(db_conn, league_id: int, *, max_goal_diff: int = 7, min_games: int = 5) -> dict[int, dict[str, Any]]:
+    """
+    Recompute and persist MyHockeyRankings-like ratings for teams in a league.
+    Stores values on `league_teams` as:
+      - mhr_rating (NULL if games < min_games)
+      - mhr_agd, mhr_sched, mhr_games, mhr_updated_at
+    """
+    with db_conn.cursor(pymysql.cursors.DictCursor) as cur:
+        cur.execute("SELECT team_id FROM league_teams WHERE league_id=%s", (int(league_id),))
+        league_team_ids = sorted({int(r["team_id"]) for r in (cur.fetchall() or []) if r.get("team_id") is not None})
+
+        cur.execute(
+            """
+            SELECT g.team1_id, g.team2_id, g.team1_score, g.team2_score,
+                   lg.division_name AS game_division_name,
+                   lt1.division_name AS team1_league_division_name,
+                   lt2.division_name AS team2_league_division_name
+            FROM league_games lg
+              JOIN hky_games g ON lg.game_id=g.id
+              LEFT JOIN league_teams lt1 ON lt1.league_id=lg.league_id AND lt1.team_id=g.team1_id
+              LEFT JOIN league_teams lt2 ON lt2.league_id=lg.league_id AND lt2.team_id=g.team2_id
+            WHERE lg.league_id=%s
+              AND g.team1_score IS NOT NULL
+              AND g.team2_score IS NOT NULL
+            """,
+            (int(league_id),),
+        )
+        rows = cur.fetchall() or []
+
+    games: list[GameScore] = []
+    for r in rows:
+        try:
+            if _league_game_is_cross_division_non_external_row(
+                r.get("game_division_name"),
+                r.get("team1_league_division_name"),
+                r.get("team2_league_division_name"),
+            ):
+                continue
+            games.append(
+                GameScore(
+                    team1_id=int(r["team1_id"]),
+                    team2_id=int(r["team2_id"]),
+                    team1_score=int(r["team1_score"]),
+                    team2_score=int(r["team2_score"]),
+                )
+            )
+        except Exception:
+            continue
+
+    computed = compute_mhr_like_ratings(
+        games=games,
+        max_goal_diff=int(max_goal_diff),
+        min_games_for_rating=int(min_games),
+    )
+
+    now_s = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Persist for all league teams (set NULL when unknown/insufficient).
+    with db_conn.cursor() as cur:
+        for tid in league_team_ids:
+            row = computed.get(int(tid)) or {}
+            rating = row.get("rating")
+            agd = row.get("agd")
+            sched = row.get("sched")
+            games_n = row.get("games")
+            cur.execute(
+                """
+                UPDATE league_teams
+                SET mhr_rating=%s, mhr_agd=%s, mhr_sched=%s, mhr_games=%s, mhr_updated_at=%s
+                WHERE league_id=%s AND team_id=%s
+                """,
+                (
+                    float(rating) if rating is not None else None,
+                    float(agd) if agd is not None else None,
+                    float(sched) if sched is not None else None,
+                    int(games_n) if games_n is not None else 0,
+                    now_s,
+                    int(league_id),
+                    int(tid),
+                ),
+            )
+    db_conn.commit()
+    return computed
 
 
 def parse_events_csv(events_csv: str) -> tuple[list[str], list[dict[str, str]]]:
