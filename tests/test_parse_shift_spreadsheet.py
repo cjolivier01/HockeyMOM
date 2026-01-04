@@ -251,10 +251,12 @@ def should_build_stats_dataframe_omits_per_game_columns_for_single_game():
         [1],
         include_shifts_in_stats=True,
         include_per_game_columns=False,
+        include_gp_column=False,
     )
     assert "ppg" not in cols
     assert "sb_toi_per_game" not in cols
     assert "shifts_per_game" not in cols
+    assert "gp" not in cols
     assert not any("_per_game" in c for c in cols)
 
 
@@ -281,6 +283,7 @@ def should_write_player_stats_csv_omits_per_game_columns_for_single_game(tmp_pat
     out = pd.read_csv(stats_dir / "player_stats.csv")
     assert not any("per Game" in str(c) for c in out.columns)
     assert "PPG" not in out.columns
+    assert "GP" not in out.columns
 
 
 def should_infer_focus_team_from_long_sheet_by_roster_overlap():
@@ -390,6 +393,8 @@ def should_write_all_events_summary_without_shifts_when_requested(tmp_path: Path
     assert events_path.exists()
     txt = events_path.read_text(encoding="utf-8")
     assert "Event Type" in txt
+    assert "Event Type Raw" not in txt
+    assert txt.splitlines()[0].split(",")[0].strip() == "Event Type"
 
     outdir2 = tmp_path / "out_sheet2"
     final_outdir2, *_rest2 = pss.process_sheet(

@@ -175,7 +175,7 @@
           <tr>
             <th>#</th><th>Name</th><th>Pos</th>
             <th>G</th><th>A</th><th>S</th><th>PIM</th><th>+/-</th>
-            <th>Sh</th><th>SOG</th><th>xG</th><th>CE (F/A)</th><th>CX (F/A)</th><th>G/T</th><th>GF/GA</th>
+            <th>SOG</th><th>xG</th><th>CE (F/A)</th><th>CX (F/A)</th><th>G/T</th><th>GF/GA</th>
           </tr>
         </thead>
         <tbody>
@@ -198,7 +198,6 @@
                 <td>{{ s.get('pim') if s.get('pim') is not none else '' }}</td>
                 <td>{{ s.get('plus_minus') if s.get('plus_minus') is not none else '' }}</td>
               {% endif %}
-              <td>{{ s.get('shifts') or '' }}</td>
               <td>{{ s.get('sog') or '' }}</td>
               <td>{{ s.get('expected_goals') or '' }}</td>
               <td>{{ (s.get('controlled_entry_for') or 0) }} / {{ (s.get('controlled_entry_against') or 0) }}</td>
@@ -261,7 +260,7 @@
   {% endif %}
   {% if events_rows and events_headers %}
     <div class="table-scroll table-scroll-y">
-      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="3">
+      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
         <thead>
           <tr>
             {% for h in events_headers %}

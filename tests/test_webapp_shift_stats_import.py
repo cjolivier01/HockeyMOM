@@ -34,16 +34,8 @@ def should_parse_shift_spreadsheet_player_stats_csv():
     assert r["stats"]["shots"] == 5
     assert r["stats"]["sog"] == 4
     assert r["stats"]["expected_goals"] == 3
-    assert r["stats"]["toi_seconds"] == 12 * 60 + 34
-    assert r["stats"]["video_toi_seconds"] == 12 * 60
-    assert r["stats"]["sb_avg_shift_seconds"] == 45
-    assert r["stats"]["sb_median_shift_seconds"] == 42
-    assert r["stats"]["sb_longest_shift_seconds"] == 70
-    assert r["stats"]["sb_shortest_shift_seconds"] == 10
 
     p1 = r["period_stats"][1]
-    assert p1["toi_seconds"] == 4 * 60 + 10
-    assert p1["shifts"] == 3
     assert p1["gf"] == 1
     assert p1["ga"] == 0
 

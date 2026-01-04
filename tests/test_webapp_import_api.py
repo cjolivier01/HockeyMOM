@@ -1109,18 +1109,54 @@ def should_import_team_logos_from_b64_in_games_batch_without_requests(tmp_path, 
 
 def should_filter_single_game_player_stats_csv_drops_per_game_columns():
     mod = _load_app_module()
-    headers = ["Jersey", "Player", "Goals", "Shots per Game", "TOI per Game", "PPG", "Shots per Shift"]
+    headers = [
+        "Jersey",
+        "Player",
+        "GP",
+        "Goals",
+        "Shots per Game",
+        "TOI per Game",
+        "PPG",
+        "Shots per Shift",
+        "Shifts",
+        "TOI Total",
+        "Average Shift",
+    ]
     rows = [
         {
             "Jersey": "12",
             "Player": "Alice",
+            "GP": "1",
             "Goals": "1",
             "Shots per Game": "2.0",
             "TOI per Game": "10:00",
             "PPG": "1.0",
             "Shots per Shift": "0.10",
+            "Shifts": "12",
+            "TOI Total": "12:34",
+            "Average Shift": "0:45",
         }
     ]
     kept_headers, kept_rows = mod.filter_single_game_player_stats_csv(headers, rows)
-    assert kept_headers == ["Jersey", "Player", "Goals", "Shots per Shift"]
-    assert kept_rows == [{"Jersey": "12", "Player": "Alice", "Goals": "1", "Shots per Shift": "0.10"}]
+    assert kept_headers == ["Jersey", "Player", "Goals"]
+    assert kept_rows == [{"Jersey": "12", "Player": "Alice", "Goals": "1"}]
+
+
+def should_normalize_game_events_csv_moves_event_type_first_and_drops_raw():
+    mod = _load_app_module()
+    headers = ["Event ID", "Source", "Event Type", "Event Type Raw", "Team Rel"]
+    rows = [{"Event ID": "1", "Source": "long", "Event Type": "Shot", "Event Type Raw": "Shot", "Team Rel": "For"}]
+    out_headers, out_rows = mod.normalize_game_events_csv(headers, rows)
+    assert out_headers[0] == "Event Type"
+    assert "Event Type Raw" not in out_headers
+    assert out_rows == [{"Event Type": "Shot", "Event ID": "1", "Source": "long", "Team Rel": "For"}]
+
+
+def should_normalize_game_events_csv_renames_event_to_event_type():
+    mod = _load_app_module()
+    headers = ["Period", "Time", "Team", "Event", "Player"]
+    rows = [{"Period": "1", "Time": "13:45", "Team": "Blue", "Event": "Shot", "Player": "#9"}]
+    out_headers, out_rows = mod.normalize_game_events_csv(headers, rows)
+    assert out_headers[0] == "Event Type"
+    assert "Event" not in out_headers
+    assert out_rows == [{"Event Type": "Shot", "Period": "1", "Time": "13:45", "Team": "Blue", "Player": "#9"}]

@@ -108,11 +108,11 @@
   <div style="overflow-x:auto;">
     <table>
       <thead>
-        <tr><th>#</th><th>Name</th><th>Pos</th><th>G</th><th>A</th><th>P</th><th>S</th><th>SOG</th><th>xG</th><th>Sh</th><th>+/-</th><th>PIM</th><th></th></tr>
+        <tr><th>#</th><th>Name</th><th>Pos</th><th>G</th><th>A</th><th>P</th><th>S</th><th>SOG</th><th>xG</th><th>+/-</th><th>PIM</th><th></th></tr>
       </thead>
       <tbody>
         {% for p in players %}
-          {% set agg = player_totals.get(p['id'], {'goals':0,'assists':0,'points':0,'shots':0,'sog':0,'expected_goals':0,'shifts':0,'plus_minus':0,'pim':0}) %}
+          {% set agg = player_totals.get(p['id'], {'goals':0,'assists':0,'points':0,'shots':0,'sog':0,'expected_goals':0,'plus_minus':0,'pim':0}) %}
           <tr>
             <td>{{ p['jersey_number'] or '' }}</td>
             <td>{{ p['name'] }}</td>
@@ -123,7 +123,6 @@
             <td>{{ agg['shots'] }}</td>
             <td>{{ agg['sog'] }}</td>
             <td>{{ agg['expected_goals'] }}</td>
-            <td>{{ agg['shifts'] }}</td>
             <td>{{ agg['plus_minus'] }}</td>
             <td>{{ agg['pim'] }}</td>
             <td>
@@ -136,7 +135,7 @@
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="14" class="muted">No players yet.</td></tr>
+          <tr><td colspan="13" class="muted">No players yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

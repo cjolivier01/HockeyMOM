@@ -1921,6 +1921,10 @@ def create_app() -> Flask:
                             )
 
                 if isinstance(player_stats_csv, str) and player_stats_csv.strip():
+                    try:
+                        player_stats_csv = sanitize_player_stats_csv_for_storage(player_stats_csv)
+                    except Exception:
+                        pass
                     # Persist the raw player_stats.csv for full-fidelity UI rendering.
                     if replace:
                         cur.execute(
@@ -1951,6 +1955,7 @@ def create_app() -> Flask:
                     except Exception:
                         game_stats = None
                     if game_stats is not None:
+                        game_stats = filter_game_stats_for_display(game_stats)
                         cur.execute(
                             """
                             INSERT INTO hky_game_stats(game_id, stats_json, updated_at)
@@ -1962,6 +1967,19 @@ def create_app() -> Flask:
 
                 if isinstance(player_stats_csv, str) and player_stats_csv.strip():
                     parsed_rows = parse_shift_stats_player_stats_csv(player_stats_csv)
+                    if replace:
+                        # Ensure shift/time-derived stats are not stored when replacing.
+                        cur.execute(
+                            """
+                            UPDATE player_stats
+                            SET toi_seconds=NULL, shifts=NULL, video_toi_seconds=NULL,
+                                sb_avg_shift_seconds=NULL, sb_median_shift_seconds=NULL,
+                                sb_longest_shift_seconds=NULL, sb_shortest_shift_seconds=NULL
+                            WHERE game_id=%s
+                            """,
+                            (resolved_game_id,),
+                        )
+                        cur.execute("DELETE FROM player_period_stats WHERE game_id=%s", (resolved_game_id,))
                     for row in parsed_rows:
                         jersey_norm = row.get("jersey_number")
                         name_norm = row.get("name_norm") or ""
@@ -1988,7 +2006,6 @@ def create_app() -> Flask:
                             "assists",
                             "shots",
                             "plus_minus",
-                            "toi_seconds",
                             "sog",
                             "expected_goals",
                             "giveaways",
@@ -2001,14 +2018,8 @@ def create_app() -> Flask:
                             "gw_goals",
                             "ot_goals",
                             "ot_assists",
-                            "shifts",
                             "gf_counted",
                             "ga_counted",
-                            "video_toi_seconds",
-                            "sb_avg_shift_seconds",
-                            "sb_median_shift_seconds",
-                            "sb_longest_shift_seconds",
-                            "sb_shortest_shift_seconds",
                         ]
                         placeholders = ",".join(["%s"] * len(cols))
                         update_clause = ", ".join([f"{c}=COALESCE(VALUES({c}), {c})" for c in cols])
@@ -2022,27 +2033,6 @@ def create_app() -> Flask:
                             params,
                         )
 
-                        for per, per_stats in (row.get("period_stats") or {}).items():
-                            cur.execute(
-                                """
-                                INSERT INTO player_period_stats(game_id, player_id, period, toi_seconds, shifts, gf, ga)
-                                VALUES(%s,%s,%s,%s,%s,%s,%s)
-                                ON DUPLICATE KEY UPDATE
-                                  toi_seconds=COALESCE(VALUES(toi_seconds), toi_seconds),
-                                  shifts=COALESCE(VALUES(shifts), shifts),
-                                  gf=COALESCE(VALUES(gf), gf),
-                                  ga=COALESCE(VALUES(ga), ga)
-                                """,
-                                (
-                                    resolved_game_id,
-                                    pid,
-                                    int(per),
-                                    per_stats.get("toi_seconds"),
-                                    per_stats.get("shifts"),
-                                    per_stats.get("gf"),
-                                    per_stats.get("ga"),
-                                ),
-                            )
                         imported += 1
 
                 if player_stats_csv or game_stats_csv or events_csv:
@@ -2466,11 +2456,6 @@ def create_app() -> Flask:
             stats_rows = cur.fetchall() or []
             cur.execute("SELECT stats_json, updated_at FROM hky_game_stats WHERE game_id=%s", (game_id,))
             game_stats_row = cur.fetchone()
-            cur.execute(
-                "SELECT player_id, period, toi_seconds, shifts, gf, ga FROM player_period_stats WHERE game_id=%s",
-                (game_id,),
-            )
-            period_rows = cur.fetchall() or []
         stats_by_pid = {r["player_id"]: r for r in stats_rows}
         game_stats = None
         game_stats_updated_at = None
@@ -2480,16 +2465,8 @@ def create_app() -> Flask:
                 game_stats_updated_at = game_stats_row.get("updated_at")
         except Exception:
             game_stats = None
+        game_stats = filter_game_stats_for_display(game_stats)
         period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
-        for r in period_rows:
-            pid = int(r["player_id"])
-            period = int(r["period"])
-            period_stats_by_pid.setdefault(pid, {})[period] = {
-                "toi_seconds": r.get("toi_seconds"),
-                "shifts": r.get("shifts"),
-                "gf": r.get("gf"),
-                "ga": r.get("ga"),
-            }
 
         events_headers: list[str] = []
         events_rows: list[dict[str, str]] = []
@@ -2503,6 +2480,7 @@ def create_app() -> Flask:
                 erow = cur.fetchone()
             if erow and str(erow.get("events_csv") or "").strip():
                 events_headers, events_rows = parse_events_csv(str(erow.get("events_csv") or ""))
+                events_headers, events_rows = normalize_game_events_csv(events_headers, events_rows)
                 events_meta = {
                     "source_label": erow.get("source_label"),
                     "updated_at": erow.get("updated_at"),
@@ -3166,13 +3144,14 @@ def create_app() -> Flask:
         with g.db.cursor() as cur:
             # Persist the raw player_stats.csv for full-fidelity UI rendering.
             try:
+                ps_text_sanitized = sanitize_player_stats_csv_for_storage(ps_text)
                 cur.execute(
                     """
                     INSERT INTO hky_game_player_stats_csv(game_id, player_stats_csv, source_label, updated_at)
                     VALUES(%s,%s,%s,%s)
                     ON DUPLICATE KEY UPDATE player_stats_csv=VALUES(player_stats_csv), source_label=VALUES(source_label), updated_at=VALUES(updated_at)
                     """,
-                    (game_id, ps_text, "upload_form", dt.datetime.now().isoformat()),
+                    (game_id, ps_text_sanitized, "upload_form", dt.datetime.now().isoformat()),
                 )
             except Exception:
                 pass
@@ -3203,7 +3182,6 @@ def create_app() -> Flask:
                     "assists",
                     "shots",
                     "plus_minus",
-                    "toi_seconds",
                     "sog",
                     "expected_goals",
                     "giveaways",
@@ -3216,14 +3194,8 @@ def create_app() -> Flask:
                     "gw_goals",
                     "ot_goals",
                     "ot_assists",
-                    "shifts",
                     "gf_counted",
                     "ga_counted",
-                    "video_toi_seconds",
-                    "sb_avg_shift_seconds",
-                    "sb_median_shift_seconds",
-                    "sb_longest_shift_seconds",
-                    "sb_shortest_shift_seconds",
                 ]
                 placeholders = ",".join(["%s"] * len(cols))
                 update_clause = ", ".join([f"{c}=COALESCE(VALUES({c}), {c})" for c in cols])
@@ -3237,32 +3209,10 @@ def create_app() -> Flask:
                     params,
                 )
 
-                # Upsert per-period stats (optional)
-                for per, per_stats in (row.get("period_stats") or {}).items():
-                    cur.execute(
-                        """
-                        INSERT INTO player_period_stats(game_id, player_id, period, toi_seconds, shifts, gf, ga)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s)
-                        ON DUPLICATE KEY UPDATE
-                          toi_seconds=COALESCE(VALUES(toi_seconds), toi_seconds),
-                          shifts=COALESCE(VALUES(shifts), shifts),
-                          gf=COALESCE(VALUES(gf), gf),
-                          ga=COALESCE(VALUES(ga), ga)
-                        """,
-                        (
-                            game_id,
-                            pid,
-                            int(per),
-                            per_stats.get("toi_seconds"),
-                            per_stats.get("shifts"),
-                            per_stats.get("gf"),
-                            per_stats.get("ga"),
-                        ),
-                    )
-
                 imported += 1
 
             if game_stats is not None:
+                game_stats = filter_game_stats_for_display(game_stats)
                 cur.execute(
                     """
                     INSERT INTO hky_game_stats(game_id, stats_json, updated_at)
@@ -3370,21 +3320,8 @@ def create_app() -> Flask:
         except Exception:
             game_stats = None
 
+        game_stats = filter_game_stats_for_display(game_stats)
         period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
-        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute(
-                "SELECT player_id, period, toi_seconds, shifts, gf, ga FROM player_period_stats WHERE game_id=%s",
-                (game_id,),
-            )
-            for r in cur.fetchall():
-                pid = int(r["player_id"])
-                period = int(r["period"])
-                period_stats_by_pid.setdefault(pid, {})[period] = {
-                    "toi_seconds": r.get("toi_seconds"),
-                    "shifts": r.get("shifts"),
-                    "gf": r.get("gf"),
-                    "ga": r.get("ga"),
-                }
 
         events_headers: list[str] = []
         events_rows: list[dict[str, str]] = []
@@ -4223,6 +4160,23 @@ def parse_events_csv(events_csv: str) -> tuple[list[str], list[dict[str, str]]]:
     return headers, rows
 
 
+def to_csv_text(headers: list[str], rows: list[dict[str, str]]) -> str:
+    if not headers:
+        return ""
+    out = io.StringIO()
+    w = csv.DictWriter(out, fieldnames=headers, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    for r in rows or []:
+        w.writerow({h: ("" if (r.get(h) is None) else str(r.get(h))) for h in headers})
+    return out.getvalue()
+
+
+def sanitize_player_stats_csv_for_storage(player_stats_csv: str) -> str:
+    headers, rows = parse_events_csv(player_stats_csv)
+    headers, rows = filter_single_game_player_stats_csv(headers, rows)
+    return to_csv_text(headers, rows)
+
+
 def filter_single_game_player_stats_csv(
     headers: list[str], rows: list[dict[str, str]]
 ) -> tuple[list[str], list[dict[str, str]]]:
@@ -4234,12 +4188,94 @@ def filter_single_game_player_stats_csv(
 
     def _drop_header(h: str) -> bool:
         key = str(h or "").strip().lower()
-        return key == "ppg" or "per game" in key
+        if key in {"ppg", "gp"}:
+            return True
+        if "per game" in key:
+            return True
+        # Remove all shift/time related fields from the webapp UI.
+        if "toi" in key or "ice time" in key:
+            return True
+        if "shift" in key or "per shift" in key:
+            return True
+        return False
 
     kept_headers = [h for h in headers if not _drop_header(h)]
     kept_set = set(kept_headers)
     kept_rows = [{h: r.get(h, "") for h in kept_headers} for r in (rows or [])]
     return kept_headers, kept_rows
+
+
+def normalize_game_events_csv(headers: list[str], rows: list[dict[str, str]]) -> tuple[list[str], list[dict[str, str]]]:
+    """
+    Normalize the event table for display:
+      - Ensure 'Event Type' is the leftmost column
+      - Drop redundant 'Event Type Raw' (historical) if present
+    """
+
+    def _is_event_type_raw(h: str) -> bool:
+        return str(h or "").strip().lower() in {"event type raw", "event_type_raw"}
+
+    # Remove raw header if present.
+    filtered_headers = [h for h in (headers or []) if not _is_event_type_raw(h)]
+    filtered_rows = [{h: r.get(h, "") for h in filtered_headers} for r in (rows or [])]
+
+    # Prefer explicit "Event Type"; fall back to "Event" (common legacy schema).
+    event_header = None
+    for h in filtered_headers:
+        if str(h).strip().lower() == "event type":
+            event_header = h
+            break
+    if event_header is None:
+        for h in filtered_headers:
+            if str(h).strip().lower() == "event":
+                event_header = h
+                break
+
+    if event_header is None:
+        return filtered_headers, filtered_rows
+
+    # If the CSV uses "Event", rename it to "Event Type" for display.
+    if str(event_header).strip().lower() == "event":
+        renamed_headers: list[str] = []
+        for h in filtered_headers:
+            if h == event_header:
+                renamed_headers.append("Event Type")
+            else:
+                renamed_headers.append(h)
+        renamed_rows: list[dict[str, str]] = []
+        for r in filtered_rows:
+            out: dict[str, str] = {}
+            for h in filtered_headers:
+                if h == event_header:
+                    out["Event Type"] = r.get(h, "")
+                else:
+                    out[h] = r.get(h, "")
+            renamed_rows.append(out)
+        filtered_headers, filtered_rows = renamed_headers, renamed_rows
+        event_header = "Event Type"
+
+    reordered_headers = [event_header] + [h for h in filtered_headers if h != event_header]
+    reordered_rows = [{h: r.get(h, "") for h in reordered_headers} for r in filtered_rows]
+    return reordered_headers, reordered_rows
+
+
+def filter_game_stats_for_display(game_stats: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    if not game_stats:
+        return game_stats
+
+    def _drop_key(k: str) -> bool:
+        kk = str(k or "").strip().lower()
+        if not kk or kk == "_label":
+            return False
+        # No shift/ice-time related stats in the webapp.
+        return ("toi" in kk) or ("ice time" in kk) or ("shift" in kk)
+
+    out: dict[str, Any] = {}
+    for k, v in (game_stats or {}).items():
+        if _drop_key(str(k)):
+            continue
+        out[k] = v
+    return out
 
 
 def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:
@@ -4332,54 +4368,48 @@ def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
     with db_conn.cursor(curtype) if curtype else db_conn.cursor() as cur:
         cur.execute(
             """
-            SELECT player_id,
-                   COALESCE(SUM(goals),0) AS goals,
-                   COALESCE(SUM(assists),0) AS assists,
-                   COALESCE(SUM(pim),0) AS pim,
-                   COALESCE(SUM(shots),0) AS shots,
-                   COALESCE(SUM(sog),0) AS sog,
-                   COALESCE(SUM(expected_goals),0) AS expected_goals,
-                   COALESCE(SUM(giveaways),0) AS giveaways,
-                   COALESCE(SUM(takeaways),0) AS takeaways,
-                   COALESCE(SUM(controlled_entry_for),0) AS controlled_entry_for,
-                   COALESCE(SUM(controlled_entry_against),0) AS controlled_entry_against,
-                   COALESCE(SUM(controlled_exit_for),0) AS controlled_exit_for,
-                   COALESCE(SUM(controlled_exit_against),0) AS controlled_exit_against,
-                   COALESCE(SUM(plus_minus),0) AS plus_minus,
-                   COALESCE(SUM(toi_seconds),0) AS toi_seconds,
-                   COALESCE(SUM(video_toi_seconds),0) AS video_toi_seconds,
-                   COALESCE(SUM(shifts),0) AS shifts,
-                   COALESCE(SUM(gf_counted),0) AS gf_counted,
-                   COALESCE(SUM(ga_counted),0) AS ga_counted
-            FROM player_stats WHERE team_id=%s AND user_id=%s
-            GROUP BY player_id
+	            SELECT player_id,
+	                   COALESCE(SUM(goals),0) AS goals,
+	                   COALESCE(SUM(assists),0) AS assists,
+	                   COALESCE(SUM(pim),0) AS pim,
+	                   COALESCE(SUM(shots),0) AS shots,
+	                   COALESCE(SUM(sog),0) AS sog,
+	                   COALESCE(SUM(expected_goals),0) AS expected_goals,
+	                   COALESCE(SUM(giveaways),0) AS giveaways,
+	                   COALESCE(SUM(takeaways),0) AS takeaways,
+	                   COALESCE(SUM(controlled_entry_for),0) AS controlled_entry_for,
+	                   COALESCE(SUM(controlled_entry_against),0) AS controlled_entry_against,
+	                   COALESCE(SUM(controlled_exit_for),0) AS controlled_exit_for,
+	                   COALESCE(SUM(controlled_exit_against),0) AS controlled_exit_against,
+	                   COALESCE(SUM(plus_minus),0) AS plus_minus,
+	                   COALESCE(SUM(gf_counted),0) AS gf_counted,
+	                   COALESCE(SUM(ga_counted),0) AS ga_counted
+	            FROM player_stats WHERE team_id=%s AND user_id=%s
+	            GROUP BY player_id
             """,
             (team_id, user_id),
         )
         rows = cur.fetchall()
     out = {}
     for r in rows:
-        out[int(r["player_id"])] = {
-            "goals": int(r["goals"] or 0),
-            "assists": int(r["assists"] or 0),
-            "points": int(r["goals"] or 0) + int(r["assists"] or 0),
-            "shots": int(r["shots"] or 0),
-            "sog": int(r.get("sog") or 0),
-            "expected_goals": int(r.get("expected_goals") or 0),
+	        out[int(r["player_id"])] = {
+	            "goals": int(r["goals"] or 0),
+	            "assists": int(r["assists"] or 0),
+	            "points": int(r["goals"] or 0) + int(r["assists"] or 0),
+	            "shots": int(r["shots"] or 0),
+	            "sog": int(r.get("sog") or 0),
+	            "expected_goals": int(r.get("expected_goals") or 0),
             "giveaways": int(r.get("giveaways") or 0),
             "takeaways": int(r.get("takeaways") or 0),
             "controlled_entry_for": int(r.get("controlled_entry_for") or 0),
             "controlled_entry_against": int(r.get("controlled_entry_against") or 0),
-            "controlled_exit_for": int(r.get("controlled_exit_for") or 0),
-            "controlled_exit_against": int(r.get("controlled_exit_against") or 0),
-            "plus_minus": int(r.get("plus_minus") or 0),
-            "toi_seconds": int(r.get("toi_seconds") or 0),
-            "video_toi_seconds": int(r.get("video_toi_seconds") or 0),
-            "shifts": int(r.get("shifts") or 0),
-            "gf_counted": int(r.get("gf_counted") or 0),
-            "ga_counted": int(r.get("ga_counted") or 0),
-            "pim": int(r["pim"] or 0),
-        }
+	            "controlled_exit_for": int(r.get("controlled_exit_for") or 0),
+	            "controlled_exit_against": int(r.get("controlled_exit_against") or 0),
+	            "plus_minus": int(r.get("plus_minus") or 0),
+	            "gf_counted": int(r.get("gf_counted") or 0),
+	            "ga_counted": int(r.get("ga_counted") or 0),
+	            "pim": int(r["pim"] or 0),
+	        }
     return out
 
 
@@ -4388,35 +4418,32 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
     with db_conn.cursor(curtype) if curtype else db_conn.cursor() as cur:
         cur.execute(
             """
-            SELECT ps.player_id,
-                   COALESCE(SUM(ps.goals),0) AS goals,
-                   COALESCE(SUM(ps.assists),0) AS assists,
-                   COALESCE(SUM(ps.pim),0) AS pim,
-                   COALESCE(SUM(ps.shots),0) AS shots,
-                   COALESCE(SUM(ps.sog),0) AS sog,
-                   COALESCE(SUM(ps.expected_goals),0) AS expected_goals,
-                   COALESCE(SUM(ps.giveaways),0) AS giveaways,
-                   COALESCE(SUM(ps.takeaways),0) AS takeaways,
-                   COALESCE(SUM(ps.controlled_entry_for),0) AS controlled_entry_for,
-                   COALESCE(SUM(ps.controlled_entry_against),0) AS controlled_entry_against,
-                   COALESCE(SUM(ps.controlled_exit_for),0) AS controlled_exit_for,
-                   COALESCE(SUM(ps.controlled_exit_against),0) AS controlled_exit_against,
-                   COALESCE(SUM(ps.plus_minus),0) AS plus_minus,
-                   COALESCE(SUM(ps.toi_seconds),0) AS toi_seconds,
-                   COALESCE(SUM(ps.video_toi_seconds),0) AS video_toi_seconds,
-                   COALESCE(SUM(ps.shifts),0) AS shifts,
-                   COALESCE(SUM(ps.gf_counted),0) AS gf_counted,
-                   COALESCE(SUM(ps.ga_counted),0) AS ga_counted
-            FROM league_games lg JOIN player_stats ps ON lg.game_id=ps.game_id
-            WHERE lg.league_id=%s AND ps.team_id=%s
-            GROUP BY ps.player_id
+	            SELECT ps.player_id,
+	                   COALESCE(SUM(ps.goals),0) AS goals,
+	                   COALESCE(SUM(ps.assists),0) AS assists,
+	                   COALESCE(SUM(ps.pim),0) AS pim,
+	                   COALESCE(SUM(ps.shots),0) AS shots,
+	                   COALESCE(SUM(ps.sog),0) AS sog,
+	                   COALESCE(SUM(ps.expected_goals),0) AS expected_goals,
+	                   COALESCE(SUM(ps.giveaways),0) AS giveaways,
+	                   COALESCE(SUM(ps.takeaways),0) AS takeaways,
+	                   COALESCE(SUM(ps.controlled_entry_for),0) AS controlled_entry_for,
+	                   COALESCE(SUM(ps.controlled_entry_against),0) AS controlled_entry_against,
+	                   COALESCE(SUM(ps.controlled_exit_for),0) AS controlled_exit_for,
+	                   COALESCE(SUM(ps.controlled_exit_against),0) AS controlled_exit_against,
+	                   COALESCE(SUM(ps.plus_minus),0) AS plus_minus,
+	                   COALESCE(SUM(ps.gf_counted),0) AS gf_counted,
+	                   COALESCE(SUM(ps.ga_counted),0) AS ga_counted
+	            FROM league_games lg JOIN player_stats ps ON lg.game_id=ps.game_id
+	            WHERE lg.league_id=%s AND ps.team_id=%s
+	            GROUP BY ps.player_id
             """,
             (league_id, team_id),
         )
         rows = cur.fetchall()
     out = {}
     for r in rows:
-        out[int(r["player_id"])] = {
+	        out[int(r["player_id"])] = {
             "goals": int(r["goals"] or 0),
             "assists": int(r["assists"] or 0),
             "points": int(r["goals"] or 0) + int(r["assists"] or 0),
@@ -4427,16 +4454,13 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
             "takeaways": int(r.get("takeaways") or 0),
             "controlled_entry_for": int(r.get("controlled_entry_for") or 0),
             "controlled_entry_against": int(r.get("controlled_entry_against") or 0),
-            "controlled_exit_for": int(r.get("controlled_exit_for") or 0),
-            "controlled_exit_against": int(r.get("controlled_exit_against") or 0),
-            "plus_minus": int(r.get("plus_minus") or 0),
-            "toi_seconds": int(r.get("toi_seconds") or 0),
-            "video_toi_seconds": int(r.get("video_toi_seconds") or 0),
-            "shifts": int(r.get("shifts") or 0),
-            "gf_counted": int(r.get("gf_counted") or 0),
-            "ga_counted": int(r.get("ga_counted") or 0),
-            "pim": int(r["pim"] or 0),
-        }
+	            "controlled_exit_for": int(r.get("controlled_exit_for") or 0),
+	            "controlled_exit_against": int(r.get("controlled_exit_against") or 0),
+	            "plus_minus": int(r.get("plus_minus") or 0),
+	            "gf_counted": int(r.get("gf_counted") or 0),
+	            "ga_counted": int(r.get("ga_counted") or 0),
+	            "pim": int(r["pim"] or 0),
+	        }
     return out
 
 
@@ -4563,29 +4587,12 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             "plus_minus": _int_or_none(row.get("Plus Minus") or row.get("Goal +/-")),
             "gf_counted": _int_or_none(row.get("GF Counted")),
             "ga_counted": _int_or_none(row.get("GA Counted")),
-            "shifts": _int_or_none(row.get("Shifts")),
-            "toi_seconds": parse_duration_seconds(row.get("TOI Total")),
-            "video_toi_seconds": parse_duration_seconds(row.get("TOI Total (Video)")),
-            "sb_avg_shift_seconds": parse_duration_seconds(row.get("Average Shift")),
-            "sb_median_shift_seconds": parse_duration_seconds(row.get("Median Shift")),
-            "sb_longest_shift_seconds": parse_duration_seconds(row.get("Longest Shift")),
-            "sb_shortest_shift_seconds": parse_duration_seconds(row.get("Shortest Shift")),
         }
 
-        # Period stats: Period {n} TOI/Shifts/GF/GA
+        # Period stats: Period {n} GF/GA
         period_stats: dict[int, dict[str, Any]] = {}
         for k, v in row.items():
             if not k:
-                continue
-            m = re.match(r"^Period\s+(\d+)\s+TOI$", k)
-            if m:
-                per = int(m.group(1))
-                period_stats.setdefault(per, {})["toi_seconds"] = parse_duration_seconds(v)
-                continue
-            m = re.match(r"^Period\s+(\d+)\s+Shifts$", k)
-            if m:
-                per = int(m.group(1))
-                period_stats.setdefault(per, {})["shifts"] = _int_or_none(v)
                 continue
             m = re.match(r"^Period\s+(\d+)\s+GF$", k)
             if m:

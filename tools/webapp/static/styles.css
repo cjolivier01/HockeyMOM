@@ -1,5 +1,5 @@
 /* Simple modern UI inspired by Hudl aesthetics (no branding assets) */
-:root {
+	:root {
   --bg: #0f1115;
   --panel: #171a21;
   --text: #e6e8ec;
@@ -10,9 +10,10 @@
   --danger: #d81b60; /* magenta */
   --warn: #ffc107;
   --border: #242835;
-  --row-odd: #10141c;
-  --row-even: #243147;
-}
+	  --row-odd: #10141c;
+	  --row-even: #243147;
+	  --row-hover: #2b3a57;
+	}
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -73,7 +74,9 @@ tbody tr:last-child td { border-bottom: none; }
 thead th { background: #12151c; color: var(--muted); font-weight: 700; }
 tbody tr:nth-child(odd) { background: var(--row-odd); }
 tbody tr:nth-child(even) { background: var(--row-even); }
-tbody tr:hover { background: #151924; }
+	/* Row hover highlight (apply to cells so it doesn't conflict with sticky/frozen columns). */
+	tbody tr:hover td { background: var(--row-hover); }
+	tbody tr:hover td.sticky-col { background: var(--row-hover); }
 
 /* Keep date/time fields readable and non-wrapping */
 td, th { vertical-align: top; }

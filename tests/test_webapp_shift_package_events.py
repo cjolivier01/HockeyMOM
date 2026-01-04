@@ -318,9 +318,10 @@ def should_store_events_via_shift_package_and_render_public_game_page(client_and
     assert "Game Events" in html
     assert "Shot" in html
     assert "#9 Alice" in html
+    assert "Event Type" in html
     assert 'data-sortable="1"' in html
     assert 'class="cell-pre"' in html
-    assert 'data-freeze-cols="3"' in html
+    assert 'data-freeze-cols="1"' in html
     assert "table-scroll-y" in html
 
 
@@ -355,7 +356,7 @@ def should_not_overwrite_events_without_replace(client_and_db):
 
 def should_store_player_stats_csv_via_shift_package_and_render_public_game_page(client_and_db):
     client, db = client_and_db
-    player_stats_csv = "Player,Goals,Assists,Average Shift\n9 Alice,1,0,0:45\n"
+    player_stats_csv = "Player,Goals,Assists,Average Shift,Shifts,TOI Total\n9 Alice,1,0,0:45,12,12:34\n"
     r = client.post(
         "/api/import/hockey/shift_package",
         json={"timetoscore_game_id": 123, "player_stats_csv": player_stats_csv, "source_label": "unit-test"},
@@ -363,8 +364,13 @@ def should_store_player_stats_csv_via_shift_package_and_render_public_game_page(
     )
     assert r.status_code == 200
     assert r.get_json()["ok"] is True
-    assert db.hky_game_player_stats_csv[1001]["player_stats_csv"] == player_stats_csv
+    # Webapp sanitizes stored CSV to remove shift/ice-time fields.
+    assert "Average Shift" not in db.hky_game_player_stats_csv[1001]["player_stats_csv"]
+    assert "Shifts" not in db.hky_game_player_stats_csv[1001]["player_stats_csv"]
+    assert "TOI Total" not in db.hky_game_player_stats_csv[1001]["player_stats_csv"]
 
     html = client.get("/public/leagues/1/hky/games/1001").get_data(as_text=True)
     assert "Imported Player Stats" in html
-    assert "Average Shift" in html
+    assert "Average Shift" not in html
+    assert "Shifts" not in html
+    assert "TOI Total" not in html

@@ -3256,7 +3256,6 @@ def _write_all_events_summary(
                         "Event ID": event_id,
                         "Source": "long",
                         "Event Type": _display_event_type(str(etype)),
-                        "Event Type Raw": str(etype),
                         "Team Raw": str(team),
                         "Team Rel": _team_label(team, event_type=str(etype)),
                         "Period": period if period > 0 else "",
@@ -3287,7 +3286,6 @@ def _write_all_events_summary(
                     "Event ID": event_id,
                     "Source": "goals",
                     "Event Type": "Goal",
-                    "Event Type Raw": "Goal",
                     "Team Raw": "",
                     "Team Rel": team_rel,
                     "Period": period if period > 0 else "",
@@ -3310,7 +3308,6 @@ def _write_all_events_summary(
                     "Event ID": event_id,
                     "Source": "goals",
                     "Event Type": "Assist",
-                    "Event Type Raw": "Assist",
                     "Team Raw": "",
                     "Team Rel": team_rel,
                     "Period": period if period > 0 else "",
@@ -3343,10 +3340,9 @@ def _write_all_events_summary(
     rows.sort(key=_sort_key)
 
     cols = [
+        "Event Type",
         "Event ID",
         "Source",
-        "Event Type",
-        "Event Type Raw",
         "Team Raw",
         "Team Rel",
         "Period",
@@ -3367,7 +3363,6 @@ def _write_all_events_summary(
         title="All Events",
         text_columns=[
             "Event Type",
-            "Event Type Raw",
             "Team Raw",
             "Team Rel",
             "Attributed Players",
@@ -3470,6 +3465,7 @@ def _build_stats_dataframe(
     *,
     include_shifts_in_stats: bool,
     include_per_game_columns: bool = True,
+    include_gp_column: bool = True,
 ) -> Tuple[pd.DataFrame, List[str]]:
     def _has_any_value(key: str) -> bool:
         for r in stats_table_rows:
@@ -3553,6 +3549,8 @@ def _build_stats_dataframe(
     if not include_per_game_columns:
         summary_cols = [c for c in summary_cols if c != "ppg" and "_per_game" not in c]
         sb_cols = [c for c in sb_cols if "_per_game" not in c]
+    if not include_gp_column:
+        summary_cols = [c for c in summary_cols if c != "gp"]
     video_cols = ["video_toi_total"] if include_shifts_in_stats else []
     period_toi_cols = (
         [f"P{p}_toi" for p in periods if _has_any_value(f"P{p}_toi")] if include_shifts_in_stats else []
@@ -3784,6 +3782,7 @@ def _write_player_stats_text_and_csv(
         sort_for_cumulative=False,
         include_shifts_in_stats=include_shifts_in_stats,
         include_per_game_columns=False,
+        include_gp_column=False,
     )
     # Pretty-print player identity for display tables: separate jersey + name.
     if "player" in df.columns and "jersey" not in df.columns:
@@ -6457,7 +6456,6 @@ def process_sheet(
 
         stats_lines = []
         stats_lines.append(f"Player: {_display_player_name(player_key)}")
-        stats_lines.append("Games Played (GP): 1")
         stats_lines.append(f"Goals: {goals_cnt}")
         stats_lines.append(f"Assists: {assists_cnt}")
         stats_lines.append(f"OT Goals: {ot_goals_cnt}")
@@ -7744,6 +7742,7 @@ def main() -> None:
             sort_for_cumulative=True,
             include_shifts_in_stats=include_shifts_in_stats,
             include_per_game_columns=True,
+            include_gp_column=True,
         )
         sheets: List[Tuple[str, pd.DataFrame]] = [("Cumulative", agg_df)]
         has_t2s = any(r.get("t2s_id") is not None for r in results)
@@ -7771,6 +7770,7 @@ def main() -> None:
                 sort_for_cumulative=False,
                 include_shifts_in_stats=include_shifts_in_stats,
                 include_per_game_columns=False,
+                include_gp_column=False,
             )
             sheets.append((r["label"], df))
         consolidated_path = base_outdir / "player_stats_consolidated.xlsx"
