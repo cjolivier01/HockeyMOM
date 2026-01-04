@@ -32,7 +32,9 @@ class FakeConn:
             11: {"id": 11, "team1_id": 1, "team2_id": 2, "team1_score": 3, "team2_score": 3, "is_final": 1},
             12: {"id": 12, "team1_id": 1, "team2_id": 3, "team1_score": 2, "team2_score": 1, "is_final": 1},
         }
-        self.teams = {1: {"id": 1, "is_external": 0}, 2: {"id": 2, "is_external": 0}, 3: {"id": 3, "is_external": 0}}
+        # Note: webapp uses teams.is_external for "not owned by user" and is often 1 for imported teams,
+        # so cross-division filtering must not treat is_external=1 as "External division".
+        self.teams = {1: {"id": 1, "is_external": 0}, 2: {"id": 2, "is_external": 1}, 3: {"id": 3, "is_external": 0}}
         # league_teams division mapping: opponent team 2 is in different division.
         self.league_teams = [
             {"league_id": 99, "team_id": 1, "division_name": "12AA"},
@@ -79,7 +81,6 @@ class FakeCursor:
 
             league_id, team_id = int(p[0]), int(p[1])
             div_by_team = {int(r["team_id"]): str(r.get("division_name") or "") for r in self._conn.league_teams if int(r["league_id"]) == league_id}
-            ext_by_team = {int(tid): int(t.get("is_external") or 0) for tid, t in self._conn.teams.items()}
             div_by_game = {int(r["game_id"]): str(r.get("division_name") or "") for r in self._conn.league_games if int(r["league_id"]) == league_id}
 
             def include_game(game_id: int) -> bool:
@@ -87,8 +88,6 @@ class FakeCursor:
                 opp_id = int(g["team2_id"]) if int(g["team1_id"]) == team_id else int(g["team1_id"])
                 lg_div = str(div_by_game.get(int(game_id), "") or "")
                 if lg_div.strip().lower() == "external":
-                    return True
-                if int(ext_by_team.get(opp_id, 0)) == 1:
                     return True
                 opp_div = div_by_team.get(opp_id)
                 if opp_div is None or str(opp_div).strip() == "":
@@ -147,4 +146,3 @@ def should_ignore_cross_division_non_external_games_in_league_player_totals():
     assert p100["gp"] == 2
     assert p100["goals"] == 2  # game 11 goals only
     assert p100["assists"] == 3  # game 11 (1) + game 12 (2)
-

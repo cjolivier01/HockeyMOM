@@ -4,8 +4,10 @@ set -euo pipefail
 WEBAPP_URL="${WEBAPP_URL:-http://127.0.0.1:8008}"
 WEB_ACCESS_KEY="${WEB_ACCESS_KEY:-}"
 
-# Authorization: Bearer u57LatsYtQ7rwlpx-84JQmR9v5psYOhEj7y4Zu6TB-Y
-# WEB_ACCESS_KEY="--import-token=u57LatsYtQ7rwlpx-84JQmR9v5psYOhEj7y4Zu6TB-Y"
+# If your server requires an import token, set one of:
+#   export HM_WEBAPP_IMPORT_TOKEN="...secret..."
+#   export WEB_ACCESS_KEY="--import-token=...secret..."
+# (Local dev defaults typically do not require a token.)
 
 # ./p tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com
 # ./p tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com --division 6:0

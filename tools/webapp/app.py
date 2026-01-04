@@ -2905,13 +2905,9 @@ def create_app() -> Flask:
 	                  LEFT JOIN league_teams lt_opp ON lt_opp.league_id=lg.league_id AND lt_opp.team_id=(
 	                       CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
 	                  )
-	                  LEFT JOIN teams opp_t ON opp_t.id=(
-	                       CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
-	                  )
 	                WHERE lg.league_id=%s AND ps.team_id=%s
 	                  AND (
 	                    LOWER(COALESCE(lg.division_name,''))='external'
-	                    OR COALESCE(opp_t.is_external,0)=1
 	                    OR lt_opp.division_name IS NULL
 	                    OR LOWER(COALESCE(lt_opp.division_name,''))='external'
 	                    OR lt_self.division_name IS NULL
@@ -3369,13 +3365,9 @@ def create_app() -> Flask:
 	                      LEFT JOIN league_teams lt_opp ON lt_opp.league_id=lg.league_id AND lt_opp.team_id=(
 	                           CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
 	                      )
-	                      LEFT JOIN teams opp_t ON opp_t.id=(
-	                           CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
-	                      )
 	                    WHERE lg.league_id=%s AND ps.team_id=%s
 	                      AND (
 	                        LOWER(COALESCE(lg.division_name,''))='external'
-	                        OR COALESCE(opp_t.is_external,0)=1
 	                        OR lt_opp.division_name IS NULL
 	                        OR LOWER(COALESCE(lt_opp.division_name,''))='external'
 	                        OR lt_self.division_name IS NULL
@@ -6062,13 +6054,9 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
 	              LEFT JOIN league_teams lt_opp ON lt_opp.league_id=lg.league_id AND lt_opp.team_id=(
 	                   CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
 	              )
-	              LEFT JOIN teams opp_t ON opp_t.id=(
-	                   CASE WHEN g.team1_id=ps.team_id THEN g.team2_id ELSE g.team1_id END
-	              )
 	            WHERE lg.league_id=%s AND ps.team_id=%s
 	              AND (
 	                LOWER(COALESCE(lg.division_name,''))='external'
-	                OR COALESCE(opp_t.is_external,0)=1
 	                OR lt_opp.division_name IS NULL
 	                OR LOWER(COALESCE(lt_opp.division_name,''))='external'
 	                OR lt_self.division_name IS NULL
