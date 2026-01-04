@@ -194,6 +194,9 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
 
     if not _resource_exists(project, ["compute", "firewall-rules", "describe", names.firewall_rule]):
         allowed = f"tcp:80,tcp:{args.app_port}"
+        if args.enable_https:
+            allowed = f"{allowed},tcp:443"
+        firewall_created = True
         print(f"Creating firewall rule {names.firewall_rule!r} (tcp:80)...")
         _gcloud(
             [
@@ -218,7 +221,35 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
             check=True,
         )
     else:
+        firewall_created = False
         print(f"Firewall rule {names.firewall_rule!r} already exists; skipping.")
+
+    if args.enable_https and not firewall_created:
+        https_rule = f"{args.name}-allow-https"
+        if not _resource_exists(project, ["compute", "firewall-rules", "describe", https_rule]):
+            # Separate rule so existing deployments can enable HTTPS later without changing the main rule.
+            _gcloud(
+                [
+                    "compute",
+                    "firewall-rules",
+                    "create",
+                    https_rule,
+                    "--network",
+                    args.network,
+                    "--allow",
+                    "tcp:443",
+                    "--direction",
+                    "INGRESS",
+                    "--source-ranges",
+                    "0.0.0.0/0",
+                    "--target-tags",
+                    names.network_tag,
+                    "--description",
+                    "Allow inbound HTTPS to hm webapp VM",
+                ],
+                project=project,
+                check=True,
+            )
 
     if not _resource_exists(project, ["compute", "instances", "describe", names.instance, "--zone", zone]):
         print(f"Creating instance {names.instance!r} in {zone!r} ({args.machine_type})...")
@@ -320,6 +351,42 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
         check=True,
     )
 
+    if args.enable_https:
+        if not args.domains:
+            raise RuntimeError("--enable-https requires --domains (e.g. --domains jrsharks2013.org,www.jrsharks2013.org)")
+        if not args.https_email:
+            raise RuntimeError("--enable-https requires --https-email")
+        domains = [d.strip() for d in args.domains.split(",") if d.strip()]
+        if not domains:
+            raise RuntimeError("--domains must not be empty")
+        server_names = " ".join(domains)
+        certbot_cmd = (
+            "set -euo pipefail; "
+            f"sudo sed -i 's/^\\s*server_name .*;/    server_name {server_names};/' /etc/nginx/sites-available/hm-webapp; "
+            "sudo nginx -t; sudo systemctl reload nginx; "
+            "sudo apt-get update -y; "
+            "sudo apt-get install -y certbot python3-certbot-nginx; "
+            f"sudo certbot --nginx -n --agree-tos --email {shlex.quote(args.https_email)} "
+            + " ".join([f"-d {shlex.quote(d)}" for d in domains])
+            + " --redirect; "
+            "sudo nginx -t; sudo systemctl reload nginx; "
+            "sudo systemctl enable --now certbot.timer || true"
+        )
+        print(f"Enabling HTTPS for: {', '.join(domains)}")
+        _gcloud(
+            [
+                "compute",
+                "ssh",
+                names.instance,
+                "--zone",
+                zone,
+                "--command",
+                certbot_cmd,
+            ],
+            project=project,
+            check=True,
+        )
+
     ip = _instance_external_ip(project, names.instance, zone)
     if ip:
         print("")
@@ -352,6 +419,11 @@ def _delete(args: argparse.Namespace, names: GcpNames) -> None:
         _gcloud(["compute", "firewall-rules", "delete", names.firewall_rule], project=project, check=True)
     else:
         print(f"Firewall rule {names.firewall_rule!r} not found; skipping.")
+
+    https_rule = f"{args.name}-allow-https"
+    if _resource_exists(project, ["compute", "firewall-rules", "describe", https_rule]):
+        print(f"Deleting firewall rule {https_rule!r}...")
+        _gcloud(["compute", "firewall-rules", "delete", https_rule], project=project, check=True)
 
     print("Delete complete.")
 
@@ -389,6 +461,10 @@ def main() -> int:
     ap.add_argument("--db-name", default="hm_app_db")
     ap.add_argument("--db-user", default="hmapp")
     ap.add_argument("--db-pass", default="hmapp_pass")
+
+    ap.add_argument("--enable-https", action="store_true", help="Enable HTTPS via certbot (requires DNS pointing at VM).")
+    ap.add_argument("--domains", default="", help="Comma-separated domains for the cert, e.g. example.com,www.example.com")
+    ap.add_argument("--https-email", default="", help="Email address for Let's Encrypt registration.")
 
     ap.add_argument("--ssh-timeout-s", type=int, default=300, help="Seconds to wait for SSH readiness.")
     ap.add_argument("--delete", action="store_true", help="Delete the created resources instead of deploying.")
