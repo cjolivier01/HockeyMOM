@@ -1,6 +1,9 @@
 {% extends 'layout.html' %}
 {% block content %}
 {% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
+<div style="margin-bottom:.75rem;">
+  <a class="btn" href="#" onclick="history.back(); return false;">Back</a>
+</div>
 <div style="display:flex;align-items:center;gap:1rem;">
   {% if team['logo_path'] %}
     <img src="{{ base }}/media/team_logo/{{ team['id'] }}" alt="logo" style="width:150px;height:150px;border-radius:14px;object-fit:cover;border:1px solid var(--border);" />
@@ -120,7 +123,47 @@
   </div>
 </div>
 
-<h3>Players</h3>
+{% if roster_players is defined %}
+  <h3 style="margin-top:1.25rem;">Roster</h3>
+  <div class="card">
+    <div class="table-scroll">
+      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Pos</th>
+            {% if editable %}<th></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in (roster_players or []) %}
+            <tr>
+              <td>{{ p.get('jersey_number') or '' }}</td>
+              <td>{{ p.get('name') or '' }}</td>
+              <td>{{ p.get('position') or '' }}</td>
+              {% if editable %}
+                <td>
+                  <a class="btn" href="/teams/{{ team['id'] }}/players/{{ p.get('id') }}/edit">Edit</a>
+                  <form style="display:inline" method="post" action="/teams/{{ team['id'] }}/players/{{ p.get('id') }}/delete" onsubmit="return confirm('Delete player?');">
+                    <button class="btn danger" type="submit">Delete</button>
+                  </form>
+                </td>
+              {% endif %}
+            </tr>
+          {% else %}
+            <tr><td colspan="{{ 3 + (1 if editable else 0) }}" class="muted">No players yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if editable %}
+      <p><a class="btn primary" href="/teams/{{ team['id'] }}/players/new">Add player</a></p>
+    {% endif %}
+  </div>
+{% endif %}
+
+<h3>Player Stats (Skaters)</h3>
 <div class="card">
   <div class="table-scroll">
     <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
@@ -132,7 +175,6 @@
           {% for key, label in (player_stats_columns or []) %}
             <th>{{ label }}</th>
           {% endfor %}
-          {% if editable %}<th></th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -144,24 +186,13 @@
             {% for key, label in (player_stats_columns or []) %}
               <td>{{ r.get(key)|fmt_stat }}</td>
             {% endfor %}
-            {% if editable %}
-              <td>
-                <a class="btn" href="/teams/{{ team['id'] }}/players/{{ r.get('player_id') }}/edit">Edit</a>
-                <form style="display:inline" method="post" action="/teams/{{ team['id'] }}/players/{{ r.get('player_id') }}/delete" onsubmit="return confirm('Delete player?');">
-                  <button class="btn danger" type="submit">Delete</button>
-                </form>
-              </td>
-            {% endif %}
           </tr>
         {% else %}
-          <tr><td colspan="{{ 3 + (player_stats_columns|length) + (1 if editable else 0) }}" class="muted">No players yet.</td></tr>
+          <tr><td colspan="{{ 3 + (player_stats_columns|length) }}" class="muted">No player stats yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {% if editable %}
-    <p><a class="btn primary" href="/teams/{{ team['id'] }}/players/new">Add player</a></p>
-  {% endif %}
 </div>
 
 <h3 style="margin-top:1.25rem;">Recent Player Stats  -- Are They On a Roll?</h3>

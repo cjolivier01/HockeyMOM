@@ -100,7 +100,7 @@
 
   <h3>Rosters</h3>
   <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-    {% for team_key, players in [('team1', team1_players), ('team2', team2_players)] %}
+    {% for team_key, players in [('team1', team1_roster), ('team2', team2_roster)] %}
       {% set is_team1 = (team_key == 'team1') %}
       {% set team_name = game['team1_name'] if is_team1 else game['team2_name'] %}
       {% set team_id = game['team1_id'] if is_team1 else game['team2_id'] %}
@@ -129,38 +129,16 @@
     {% endfor %}
   </div>
 
-  {% if imported_player_stats_rows and imported_player_stats_headers %}
-    <h3 style="margin-top:1rem;">Imported Player Stats</h3>
-    {% if imported_player_stats_meta %}
-      <p class="muted" style="margin-top:0;">
-        {% if imported_player_stats_meta.get('source_label') %}Source: {{ imported_player_stats_meta.get('source_label') }}{% endif %}
-        {% if imported_player_stats_meta.get('updated_at') %} | Updated: {{ imported_player_stats_meta.get('updated_at') }}{% endif %}
-        {% if imported_player_stats_meta.get('count') is not none %} | Rows: {{ imported_player_stats_meta.get('count') }}{% endif %}
-      </p>
-    {% endif %}
-    <div class="table-scroll">
-      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
-        <thead>
-          <tr>
-            {% for h in imported_player_stats_headers %}
-              <th>{{ h }}</th>
-            {% endfor %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in imported_player_stats_rows %}
-            <tr>
-              {% for h in imported_player_stats_headers %}
-                <td>{{ r.get(h,'') }}</td>
-              {% endfor %}
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% endif %}
-
   <h3 style="margin-top:1rem;">Player Stats</h3>
+  {% if player_stats_import_meta %}
+    <p class="muted" style="margin-top:0;">
+      {% if player_stats_import_meta.get('source_label') %}Source: {{ player_stats_import_meta.get('source_label') }}{% endif %}
+      {% if player_stats_import_meta.get('updated_at') %} | Updated: {{ player_stats_import_meta.get('updated_at') }}{% endif %}
+    </p>
+  {% endif %}
+  {% if player_stats_import_warning %}
+    <p class="muted" style="margin-top:0;">Warning: {{ player_stats_import_warning }}</p>
+  {% endif %}
   {% for team_key, players in [('team1', team1_players), ('team2', team2_players)] %}
     {% set is_team1 = (team_key == 'team1') %}
     {% set team_name = game['team1_name'] if is_team1 else game['team2_name'] %}
@@ -173,9 +151,10 @@
       <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
         <thead>
           <tr>
-            <th>#</th><th>Name</th><th>Pos</th>
-            <th>G</th><th>A</th><th>S</th><th>PIM</th><th>+/-</th>
-            <th>SOG</th><th>xG</th><th>CE (F/A)</th><th>CX (F/A)</th><th>G/T</th><th>GF/GA</th>
+            <th>#</th><th>Name</th>
+            {% for c in (game_player_stats_columns or []) %}
+              <th>{{ c.get('label') }}</th>
+            {% endfor %}
           </tr>
         </thead>
         <tbody>
@@ -184,29 +163,29 @@
             <tr>
               <td>{{ p['jersey_number'] or '' }}</td>
               <td>{{ p['name'] }}</td>
-              <td>{{ p.get('position') or '' }}</td>
-              {% if edit_mode and public_league_id is not defined %}
-                <td><input type="number" name="ps_goals_{{ p['id'] }}" value="{{ s.get('goals','') }}" min="0" style="width:70px"></td>
-                <td><input type="number" name="ps_assists_{{ p['id'] }}" value="{{ s.get('assists','') }}" min="0" style="width:70px"></td>
-                <td><input type="number" name="ps_shots_{{ p['id'] }}" value="{{ s.get('shots','') }}" min="0" style="width:70px"></td>
-                <td><input type="number" name="ps_pim_{{ p['id'] }}" value="{{ s.get('pim','') }}" min="0" style="width:70px"></td>
-                <td><input type="number" name="ps_plusminus_{{ p['id'] }}" value="{{ s.get('plus_minus','') }}" style="width:70px"></td>
-              {% else %}
-                <td>{{ s.get('goals') if s.get('goals') is not none else '' }}</td>
-                <td>{{ s.get('assists') if s.get('assists') is not none else '' }}</td>
-                <td>{{ s.get('shots') if s.get('shots') is not none else '' }}</td>
-                <td>{{ s.get('pim') if s.get('pim') is not none else '' }}</td>
-                <td>{{ s.get('plus_minus') if s.get('plus_minus') is not none else '' }}</td>
-              {% endif %}
-              <td>{{ s.get('sog') or '' }}</td>
-              <td>{{ s.get('expected_goals') or '' }}</td>
-              <td>{{ (s.get('controlled_entry_for') or 0) }} / {{ (s.get('controlled_entry_against') or 0) }}</td>
-              <td>{{ (s.get('controlled_exit_for') or 0) }} / {{ (s.get('controlled_exit_against') or 0) }}</td>
-              <td>{{ (s.get('giveaways') or 0) }} / {{ (s.get('takeaways') or 0) }}</td>
-              <td>{{ (s.get('gf_counted') or 0) }} / {{ (s.get('ga_counted') or 0) }}</td>
+              {% set row_cells = (player_stats_cells_by_pid or {}).get(p['id'], {}) %}
+              {% set row_conf = (player_stats_cell_conflicts_by_pid or {}).get(p['id'], {}) %}
+              {% for c in (game_player_stats_columns or []) %}
+                {% set cid = c.get('id') %}
+                {% if edit_mode and public_league_id is not defined and cid in ['goals','assists','shots','pim','plus_minus'] %}
+                  {% if cid == 'goals' %}
+                    <td><input type="number" name="ps_goals_{{ p['id'] }}" value="{{ s.get('goals','') }}" min="0" style="width:70px"></td>
+                  {% elif cid == 'assists' %}
+                    <td><input type="number" name="ps_assists_{{ p['id'] }}" value="{{ s.get('assists','') }}" min="0" style="width:70px"></td>
+                  {% elif cid == 'shots' %}
+                    <td><input type="number" name="ps_shots_{{ p['id'] }}" value="{{ s.get('shots','') }}" min="0" style="width:70px"></td>
+                  {% elif cid == 'pim' %}
+                    <td><input type="number" name="ps_pim_{{ p['id'] }}" value="{{ s.get('pim','') }}" min="0" style="width:70px"></td>
+                  {% elif cid == 'plus_minus' %}
+                    <td><input type="number" name="ps_plusminus_{{ p['id'] }}" value="{{ s.get('plus_minus','') }}" style="width:70px"></td>
+                  {% endif %}
+                {% else %}
+                  <td {% if row_conf.get(cid) %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells.get(cid,'') }}</td>
+                {% endif %}
+              {% endfor %}
             </tr>
           {% else %}
-            <tr><td colspan="15" class="muted">No players</td></tr>
+            <tr><td colspan="{{ 2 + (game_player_stats_columns|length) }}" class="muted">No players</td></tr>
           {% endfor %}
         </tbody>
       </table>

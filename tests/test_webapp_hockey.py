@@ -47,6 +47,82 @@ def should_parse_date_formats():
     assert f(None) is None
 
 
+def should_split_roster_separates_coaches_and_goalies():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    players = [
+        {"id": 1, "name": "Skater A", "jersey_number": "8", "position": "F"},
+        {"id": 2, "name": "Goalie", "jersey_number": "1", "position": "G"},
+        {"id": 3, "name": "Head Coach", "jersey_number": "", "position": "HC"},
+        {"id": 4, "name": "Asst Coach", "jersey_number": "", "position": "AC"},
+        {"id": 5, "name": "HC Jane Doe", "jersey_number": "", "position": ""},
+        {"id": 6, "name": "AC John Doe", "jersey_number": "", "position": None},
+    ]
+    skaters, goalies, hcs, acs = mod.split_roster(players)
+    assert [p["name"] for p in skaters] == ["Skater A"]
+    assert [p["name"] for p in goalies] == ["Goalie"]
+    assert [p["name"] for p in hcs] == ["Head Coach", "HC Jane Doe"]
+    assert [p["name"] for p in acs] == ["Asst Coach", "AC John Doe"]
+
+
+def should_hide_ot_and_blank_only_team_stat_columns():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    cols = (
+        ("gp", "GP"),
+        ("ot_goals", "OT Goals"),
+        ("ot_assists", "OT Assists"),
+        ("faceoff_pct", "Faceoff %"),
+    )
+    rows = [
+        {"gp": 2, "ot_goals": 0, "ot_assists": 0, "faceoff_pct": None},
+        {"gp": 1, "ot_goals": 0, "ot_assists": 0, "faceoff_pct": ""},
+    ]
+    kept = mod.filter_player_stats_display_columns_for_rows(cols, rows)
+    assert kept == (("gp", "GP"),)
+
+
+def should_merge_imported_and_db_game_player_stats():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    players = [
+        {"id": 1, "team_id": 10, "name": "Ethan L Olivier", "jersey_number": "1", "position": "F"},
+        {"id": 2, "team_id": 20, "name": "Other Skater", "jersey_number": "5", "position": "F"},
+    ]
+    stats_by_pid = {
+        1: {"goals": 0, "assists": None, "shots": None, "plus_minus": None},
+        2: {"goals": 1, "assists": 0, "shots": 2, "plus_minus": -1},
+    }
+    imported_csv = (
+        "Jersey #,Player,Goals,Assists,Shots,PIM,Plus Minus,SOG,xG\n"
+        "1,Ethan L Olivier,2,1,4,0,0,3,1\n"
+    )
+
+    cols, cell_text_by_pid, cell_conf_by_pid, warn = mod.build_game_player_stats_table(
+        players=players, stats_by_pid=stats_by_pid, imported_csv_text=imported_csv
+    )
+    assert warn is None
+    col_ids = [c["id"] for c in cols]
+    assert "goals" in col_ids
+    assert cell_text_by_pid[1]["goals"] == "2"
+    assert cell_conf_by_pid[1]["goals"] is False
+    assert cell_text_by_pid[2]["goals"] == "1"
+
+    # Real conflict (non-zero vs non-zero) shows "a/b" and marks conflict.
+    stats_by_pid[1]["goals"] = 1
+    _cols2, cell_text2, cell_conf2, _warn2 = mod.build_game_player_stats_table(
+        players=players, stats_by_pid=stats_by_pid, imported_csv_text=imported_csv
+    )
+    assert cell_text2[1]["goals"] == "1/2"
+    assert cell_conf2[1]["goals"] is True
+
+
 def should_compute_team_stats_from_rows():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
