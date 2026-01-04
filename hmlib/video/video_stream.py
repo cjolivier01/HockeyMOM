@@ -566,11 +566,11 @@ class PyNvVideoCodecIterator:
                     plane_tensors[2] = tmp
                 tensor = torch.stack(plane_tensors, dim=0)
                 batch_tensors.append(tensor)
-                self.frames_delivered_count += len(frames)
 
             if not batch_tensors:
                 raise StopIteration()
 
+            self.frames_delivered_count += len(batch_tensors)
             return wrap_tensor(torch.stack(batch_tensors, dim=0))
 
     def __iter__(self):
