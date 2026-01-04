@@ -2,14 +2,16 @@
 {% block content %}
 <h2>Leagues</h2>
 
-{% set active_league = None %}
+{# Jinja scoping note: assignments inside loops do not reliably escape; use namespace. #}
+{% set ns = namespace(active_league=None) %}
 {% if selected_league_id and leagues %}
   {% for L in leagues %}
     {% if L.id == selected_league_id %}
-      {% set active_league = L %}
+      {% set ns.active_league = L %}
     {% endif %}
   {% endfor %}
 {% endif %}
+{% set active_league = ns.active_league %}
 
 {% if active_league and active_league.is_admin %}
   <div class="card" style="margin-bottom:1rem;">

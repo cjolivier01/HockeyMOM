@@ -54,8 +54,10 @@ def should_scale_ratings_to_0_99_9_top_is_99_9():
     }
     scaled = mod.scale_ratings_to_0_99_9(out)
     assert scaled[3]["rating"] == 99.9
-    assert scaled[1]["rating"] == 0.0
-    assert scaled[2]["rating"] > 0.0 and scaled[2]["rating"] < 99.9
+    # Shift-only normalization preserves differences (up to rounding).
+    assert scaled[2]["rating"] == 89.9
+    assert scaled[1]["rating"] == 84.9
+    assert round(scaled[3]["rating"] - scaled[2]["rating"], 2) == 10.0
     assert scaled[4]["rating"] is None
 
 

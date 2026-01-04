@@ -141,8 +141,12 @@ def compute_mhr_like_ratings(
 
 def scale_ratings_to_0_99_9(results: dict[int, dict[str, Any]], *, key: str = "rating") -> dict[int, dict[str, Any]]:
     """
-    Return a shallow-copied results dict with `key` (default: "rating") scaled to [0, 99.9],
+    Return a shallow-copied results dict with `key` shifted into a non-negative range
     with the top rated team being exactly 99.9.
+
+    Important: MyHockeyRankings documents that rating *differences* correspond to the expected
+    goal differential between teams. To preserve that property, we only APPLY A CONSTANT SHIFT
+    (no min/max rescaling). We clamp at 0.0 only if necessary.
 
     Teams whose `key` is None are left as None.
     """
@@ -165,20 +169,19 @@ def scale_ratings_to_0_99_9(results: dict[int, dict[str, Any]], *, key: str = "r
     if not rated:
         return {int(tid): dict(row) for tid, row in results.items()}
 
-    vals = [v for _tid, v in rated]
-    vmin = min(vals)
-    vmax = max(vals)
+    vmax = max(v for _tid, v in rated)
+    offset = 99.9 - float(vmax)
 
-    def _scale(v: float) -> float:
-        if vmax <= vmin + 1e-12:
-            return 99.9
-        x = (float(v) - float(vmin)) / (float(vmax) - float(vmin))
-        x = max(0.0, min(1.0, x))
-        return round(99.9 * x, 2)
+    def _shift(v: float) -> float:
+        # Preserve differences: v_new - u_new == v - u (unless clamped at 0).
+        out_v = float(v) + float(offset)
+        if out_v < 0.0:
+            out_v = 0.0
+        return round(out_v, 2)
 
     out: dict[int, dict[str, Any]] = {int(tid): dict(row) for tid, row in results.items()}
     for tid, v in rated:
-        out[int(tid)][key] = _scale(float(v))
+        out[int(tid)][key] = _shift(float(v))
     return out
 
 
