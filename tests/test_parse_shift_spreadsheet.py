@@ -749,6 +749,53 @@ def should_write_empty_pair_on_ice_consolidated_files(tmp_path: Path):
     assert (tmp_path / "pair_on_ice_consolidated.xlsx").exists()
 
 
+def should_error_when_upload_webapp_missing_required_args(tmp_path: Path, monkeypatch):
+    # Fail-fast CLI validation: upload mode requires owner + league args.
+    xlsx_path = tmp_path / "game-123.xlsx"
+    xlsx_path.write_text("dummy", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "parse_shift_spreadsheet.py",
+            "--input",
+            str(xlsx_path),
+            "--upload-webapp",
+        ],
+    )
+    with pytest.raises(SystemExit) as e:
+        pss.main()
+    assert int(getattr(e.value, "code", 0) or 0) == 2
+
+
+def should_error_when_upload_webapp_external_game_missing_team_names(tmp_path: Path, monkeypatch):
+    # External games (no T2S id) require home_team/away_team metadata (via file-list '|key=value').
+    xlsx_path = tmp_path / "chicago-4.xlsx"
+    xlsx_path.write_text("dummy", encoding="utf-8")
+
+    file_list = tmp_path / "games.txt"
+    file_list.write_text(str(xlsx_path) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "parse_shift_spreadsheet.py",
+            "--file-list",
+            str(file_list),
+            "--upload-webapp",
+            "--webapp-owner-email",
+            "owner@example.com",
+            "--webapp-league-name",
+            "Norcal",
+        ],
+    )
+    with pytest.raises(SystemExit) as e:
+        pss.main()
+    assert int(getattr(e.value, "code", 0) or 0) == 2
+
+
 if __name__ == "__main__":
     # Make `bazel test //tests:test_parse_shift_spreadsheet` run pytest collection.
     raise SystemExit(

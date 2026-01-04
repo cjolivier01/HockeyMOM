@@ -990,14 +990,47 @@ def create_app() -> Flask:
                 if row:
                     gid = int(row["id"])
             if gid is None and notes_json_fields.get("timetoscore_game_id") is not None:
-                token = f'\"timetoscore_game_id\":{int(notes_json_fields["timetoscore_game_id"])}'
-                cur.execute(
-                    "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND notes LIKE %s",
-                    (owner_user_id, f"%{token}%"),
-                )
-                row = cur.fetchone()
-                if row:
-                    gid = int(row["id"])
+                try:
+                    tts_int = int(notes_json_fields["timetoscore_game_id"])
+                except Exception:
+                    tts_int = None
+                if tts_int is not None:
+                    row = None
+                    for token in (
+                        f"\"timetoscore_game_id\":{tts_int}",
+                        f"\"timetoscore_game_id\": {tts_int}",
+                    ):
+                        cur.execute(
+                            "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND notes LIKE %s",
+                            (owner_user_id, f"%{token}%"),
+                        )
+                        row = cur.fetchone()
+                        if row:
+                            break
+                    if row:
+                        gid = int(row["id"])
+
+            if gid is None and notes_json_fields.get("external_game_key"):
+                ext = str(notes_json_fields.get("external_game_key") or "").strip()
+                if ext:
+                    try:
+                        ext_json = json.dumps(ext)
+                    except Exception:
+                        ext_json = f"\"{ext}\""
+                    row = None
+                    for token in (
+                        f"\"external_game_key\":{ext_json}",
+                        f"\"external_game_key\": {ext_json}",
+                    ):
+                        cur.execute(
+                            "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND notes LIKE %s",
+                            (owner_user_id, f"%{token}%"),
+                        )
+                        row = cur.fetchone()
+                        if row:
+                            break
+                    if row:
+                        gid = int(row["id"])
 
             if gid is None:
                 notes = json.dumps(notes_json_fields, sort_keys=True)
@@ -1120,27 +1153,23 @@ def create_app() -> Flask:
         division_name: Optional[str] = None,
         division_id: Optional[int] = None,
         conference_id: Optional[int] = None,
+        sort_order: Optional[int] = None,
         commit: bool = True,
     ) -> None:
         dn = (division_name or "").strip() or None
         with g.db.cursor() as cur:
-            if dn is None and division_id is None and conference_id is None:
-                cur.execute(
-                    "INSERT IGNORE INTO league_games(league_id, game_id) VALUES(%s,%s)",
-                    (league_id, game_id),
-                )
-            else:
-                cur.execute(
-                    """
-                    INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id)
-                    VALUES(%s,%s,%s,%s,%s)
-                    ON DUPLICATE KEY UPDATE
-                      division_name=COALESCE(VALUES(division_name), division_name),
-                      division_id=COALESCE(VALUES(division_id), division_id),
-                      conference_id=COALESCE(VALUES(conference_id), conference_id)
-                    """,
-                    (league_id, game_id, dn, division_id, conference_id),
-                )
+            cur.execute(
+                """
+                INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id, sort_order)
+                VALUES(%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE
+                  division_name=COALESCE(VALUES(division_name), division_name),
+                  division_id=COALESCE(VALUES(division_id), division_id),
+                  conference_id=COALESCE(VALUES(conference_id), conference_id),
+                  sort_order=COALESCE(VALUES(sort_order), sort_order)
+                """,
+                (league_id, game_id, dn, division_id, conference_id, sort_order),
+            )
             if commit:
                 g.db.commit()
 
@@ -1813,6 +1842,21 @@ def create_app() -> Flask:
 
         game_id = payload.get("game_id")
         tts_game_id = payload.get("timetoscore_game_id")
+        external_game_key = str(payload.get("external_game_key") or "").strip() or None
+        team_side = str(payload.get("team_side") or "").strip().lower() or None
+        if team_side not in {None, "", "home", "away"}:
+            return jsonify({"ok": False, "error": "team_side must be 'home' or 'away'"}), 400
+        create_missing_players = bool(payload.get("create_missing_players", False))
+        owner_email = str(payload.get("owner_email") or "").strip().lower() or None
+        league_id_payload = payload.get("league_id")
+        league_name = str(payload.get("league_name") or "").strip() or None
+        division_name = str(payload.get("division_name") or "").strip() or None
+        sort_order_payload = payload.get("sort_order")
+        sort_order: Optional[int] = None
+        try:
+            sort_order = int(sort_order_payload) if sort_order_payload is not None else None
+        except Exception:
+            sort_order = None
         resolved_game_id: Optional[int] = None
         try:
             resolved_game_id = int(game_id) if game_id is not None else None
@@ -1825,19 +1869,178 @@ def create_app() -> Flask:
             except Exception:
                 tts_int = None
             if tts_int is not None:
-                token_json = f'\"timetoscore_game_id\":{int(tts_int)}'
+                token_json_nospace = f"\"timetoscore_game_id\":{int(tts_int)}"
+                token_json_space = f"\"timetoscore_game_id\": {int(tts_int)}"
                 token_plain = f"game_id={int(tts_int)}"
                 with g.db.cursor() as cur:
-                    cur.execute("SELECT id FROM hky_games WHERE notes LIKE %s LIMIT 1", (f"%{token_json}%",))
+                    cur.execute("SELECT id FROM hky_games WHERE notes LIKE %s LIMIT 1", (f"%{token_json_nospace}%",))
                     r = cur.fetchone()
+                    if not r:
+                        cur.execute("SELECT id FROM hky_games WHERE notes LIKE %s LIMIT 1", (f"%{token_json_space}%",))
+                        r = cur.fetchone()
                     if not r:
                         cur.execute("SELECT id FROM hky_games WHERE notes LIKE %s LIMIT 1", (f"%{token_plain}%",))
                         r = cur.fetchone()
                 if r:
                     resolved_game_id = int(r[0])
 
+        # External game flow: allow creating / matching games not in TimeToScore.
+        if resolved_game_id is None and external_game_key and owner_email:
+            owner_user_id_for_create = _ensure_user_for_import(owner_email)
+            try:
+                ext_json = json.dumps(external_game_key)
+            except Exception:
+                ext_json = f"\"{external_game_key}\""
+            tokens = [
+                f"\"external_game_key\":{ext_json}",
+                f"\"external_game_key\": {ext_json}",
+            ]
+            with g.db.cursor() as cur:
+                r = None
+                for token in tokens:
+                    cur.execute(
+                        "SELECT id FROM hky_games WHERE user_id=%s AND notes LIKE %s LIMIT 1",
+                        (owner_user_id_for_create, f"%{token}%"),
+                    )
+                    r = cur.fetchone()
+                    if r:
+                        break
+            if r:
+                resolved_game_id = int(r[0])
+            else:
+                home_team_name = str(payload.get("home_team_name") or "").strip()
+                away_team_name = str(payload.get("away_team_name") or "").strip()
+                if not home_team_name or not away_team_name:
+                    return (
+                        jsonify(
+                            {
+                                "ok": False,
+                                "error": "home_team_name and away_team_name are required to create an external game",
+                            }
+                        ),
+                        400,
+                    )
+
+                league_id_i: Optional[int] = None
+                try:
+                    league_id_i = int(league_id_payload) if league_id_payload is not None else None
+                except Exception:
+                    league_id_i = None
+                if league_id_i is None:
+                    if not league_name:
+                        return (
+                            jsonify(
+                                {
+                                    "ok": False,
+                                    "error": "league_id or league_name is required to create an external game",
+                                }
+                            ),
+                            400,
+                        )
+                    with g.db.cursor() as cur:
+                        cur.execute("SELECT id FROM leagues WHERE name=%s", (league_name,))
+                        lr = cur.fetchone()
+                        if lr:
+                            league_id_i = int(lr[0])
+                        else:
+                            cur.execute(
+                                "INSERT INTO leagues(name, owner_user_id, is_shared, is_public, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                                (
+                                    league_name,
+                                    owner_user_id_for_create,
+                                    0,
+                                    0,
+                                    "shift_package",
+                                    None,
+                                    dt.datetime.now().isoformat(),
+                                ),
+                            )
+                            league_id_i = int(cur.lastrowid)
+
+                team1_id = _ensure_external_team_for_import(owner_user_id_for_create, home_team_name, commit=False)
+                team2_id = _ensure_external_team_for_import(owner_user_id_for_create, away_team_name, commit=False)
+
+                # Optional team icons for external games (do not overwrite unless replace).
+                _ensure_team_logo_for_import(
+                    team_id=team1_id,
+                    logo_b64=payload.get("home_logo_b64"),
+                    logo_content_type=payload.get("home_logo_content_type"),
+                    logo_url=payload.get("home_logo_url"),
+                    replace=replace,
+                    commit=False,
+                )
+                _ensure_team_logo_for_import(
+                    team_id=team2_id,
+                    logo_b64=payload.get("away_logo_b64"),
+                    logo_content_type=payload.get("away_logo_content_type"),
+                    logo_url=payload.get("away_logo_url"),
+                    replace=replace,
+                    commit=False,
+                )
+
+                # Infer score from game_stats.csv if provided; Goals For/Against refer to the uploaded side.
+                team1_score = None
+                team2_score = None
+                try:
+                    parsed_gs = parse_shift_stats_game_stats_csv(str(payload.get("game_stats_csv") or ""))
+                    gf = parsed_gs.get("Goals For")
+                    ga = parsed_gs.get("Goals Against")
+                    gf_i = int(gf) if gf not in (None, "") else None
+                    ga_i = int(ga) if ga not in (None, "") else None
+                    if gf_i is not None and ga_i is not None and team_side in {"home", "away"}:
+                        if team_side == "home":
+                            team1_score, team2_score = gf_i, ga_i
+                        else:
+                            team1_score, team2_score = ga_i, gf_i
+                except Exception:
+                    team1_score, team2_score = None, None
+
+                starts_at = str(payload.get("starts_at") or "").strip() or None
+                location = str(payload.get("location") or "").strip() or None
+                resolved_game_id = _upsert_game_for_import(
+                    owner_user_id=owner_user_id_for_create,
+                    team1_id=team1_id,
+                    team2_id=team2_id,
+                    starts_at=starts_at,
+                    location=location,
+                    team1_score=team1_score,
+                    team2_score=team2_score,
+                    replace=replace,
+                    notes_json_fields={"external_game_key": external_game_key},
+                    commit=False,
+                )
+                _map_team_to_league_for_import(
+                    int(league_id_i),
+                    team1_id,
+                    division_name=division_name or "External",
+                    commit=False,
+                )
+                _map_team_to_league_for_import(
+                    int(league_id_i),
+                    team2_id,
+                    division_name=division_name or "External",
+                    commit=False,
+                )
+                _map_game_to_league_for_import(
+                    int(league_id_i),
+                    int(resolved_game_id),
+                    division_name=division_name or "External",
+                    sort_order=sort_order,
+                    commit=False,
+                )
+                g.db.commit()
+                create_missing_players = True
+
         if resolved_game_id is None:
-            return jsonify({"ok": False, "error": "game_id or timetoscore_game_id is required"}), 400
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "game_id, timetoscore_game_id, or external_game_key+owner_email+league_name+home_team_name+away_team_name is required",
+                    }
+                ),
+                400,
+            )
 
         # Load game + teams
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
@@ -1854,6 +2057,30 @@ def create_app() -> Flask:
         game_stats_csv = payload.get("game_stats_csv")
         events_csv = payload.get("events_csv")
         source_label = str(payload.get("source_label") or "").strip() or None
+
+        # Optional league mapping / ordering updates for existing games.
+        if league_id_payload is not None or league_name:
+            league_id_i: Optional[int] = None
+            try:
+                league_id_i = int(league_id_payload) if league_id_payload is not None else None
+            except Exception:
+                league_id_i = None
+            if league_id_i is None and league_name:
+                with g.db.cursor() as cur:
+                    cur.execute("SELECT id FROM leagues WHERE name=%s", (league_name,))
+                    lr = cur.fetchone()
+                    if lr:
+                        league_id_i = int(lr[0])
+            if league_id_i is not None:
+                _map_team_to_league_for_import(int(league_id_i), team1_id, division_name=division_name, commit=False)
+                _map_team_to_league_for_import(int(league_id_i), team2_id, division_name=division_name, commit=False)
+                _map_game_to_league_for_import(
+                    int(league_id_i),
+                    int(resolved_game_id),
+                    division_name=division_name,
+                    sort_order=sort_order,
+                    commit=False,
+                )
 
         imported = 0
         unmatched: list[str] = []
@@ -1985,8 +2212,29 @@ def create_app() -> Flask:
                         name_norm = row.get("name_norm") or ""
                         pid = _resolve_player_id(jersey_norm, name_norm)
                         if pid is None:
-                            unmatched.append(row.get("player_label") or "")
-                            continue
+                            if create_missing_players and team_side in {"home", "away"}:
+                                target_team_id = team1_id if team_side == "home" else team2_id
+                                disp = str(row.get("display_name") or "").strip()
+                                if not disp:
+                                    disp = str(row.get("player_label") or "").strip()
+                                    m = re.match(r"^\s*\d+\s+(.*)$", disp)
+                                    if m:
+                                        disp = str(m.group(1) or "").strip()
+                                if disp:
+                                    try:
+                                        pid = _ensure_player_for_import(
+                                            owner_user_id,
+                                            int(target_team_id),
+                                            disp,
+                                            str(jersey_norm or "").strip() or None,
+                                            None,
+                                            commit=False,
+                                        )
+                                    except Exception:
+                                        pid = None
+                            if pid is None:
+                                unmatched.append(row.get("player_label") or "")
+                                continue
                         # Determine team_id for this player
                         team_id = None
                         for t_players in players_by_team.values():
@@ -1997,8 +2245,11 @@ def create_app() -> Flask:
                             if team_id is not None:
                                 break
                         if team_id is None:
-                            unmatched.append(row.get("player_label") or "")
-                            continue
+                            if create_missing_players and team_side in {"home", "away"}:
+                                team_id = team1_id if team_side == "home" else team2_id
+                            else:
+                                unmatched.append(row.get("player_label") or "")
+                                continue
 
                         stats = row.get("stats") or {}
                         cols = [
@@ -2319,7 +2570,7 @@ def create_app() -> Flask:
                   JOIN teams t2 ON g.team2_id=t2.id
                   LEFT JOIN game_types gt ON g.game_type_id=gt.id
                 WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
-                ORDER BY (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                ORDER BY COALESCE(lg.sort_order, 2147483647) ASC, (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
                 """,
                 (int(league_id), team_id, team_id),
             )
@@ -2400,7 +2651,7 @@ def create_app() -> Flask:
                   JOIN teams t2 ON g.team2_id=t2.id
                   LEFT JOIN game_types gt ON g.game_type_id=gt.id
                 WHERE {' AND '.join(where)}
-                ORDER BY (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                ORDER BY COALESCE(lg.sort_order, 2147483647) ASC, (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
                 """,
                 tuple(params),
             )
@@ -2672,7 +2923,7 @@ def create_app() -> Flask:
                       JOIN teams t2 ON g.team2_id=t2.id
                       LEFT JOIN game_types gt ON g.game_type_id=gt.id
                     WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
-                    ORDER BY (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                    ORDER BY COALESCE(lg.sort_order, 2147483647) ASC, (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
                     """,
                     (int(league_id), team_id, team_id),
                 )
@@ -2899,7 +3150,7 @@ def create_app() -> Flask:
                       JOIN teams t2 ON g.team2_id=t2.id
                       LEFT JOIN game_types gt ON g.game_type_id=gt.id
                     WHERE {' AND '.join(where)}
-                    ORDER BY (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
+                    ORDER BY COALESCE(lg.sort_order, 2147483647) ASC, (g.starts_at IS NULL) ASC, COALESCE(g.starts_at, g.created_at) ASC
                     """,
                     tuple(params),
                 )
@@ -3906,6 +4157,7 @@ def init_db():
               division_name VARCHAR(255) NULL,
               division_id INT NULL,
               conference_id INT NULL,
+              sort_order INT NULL,
               UNIQUE KEY uniq_league_game (league_id, game_id),
               INDEX(league_id), INDEX(game_id),
               FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -3931,6 +4183,17 @@ def init_db():
                         cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
                     except Exception:
                         pass
+        # Add league_games.sort_order if missing (older installs)
+        try:
+            cur.execute("SHOW COLUMNS FROM league_games LIKE %s", ("sort_order",))
+            exists = cur.fetchone()
+            if not exists:
+                cur.execute("ALTER TABLE league_games ADD COLUMN sort_order INT NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE league_games ADD COLUMN sort_order INT NULL")
+            except Exception:
+                pass
     db.commit()
     # Seed default game types if empty
     with db.cursor() as cur:

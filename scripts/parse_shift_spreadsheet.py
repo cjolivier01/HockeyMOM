@@ -1017,6 +1017,7 @@ class InputEntry:
     side: Optional[str]
     t2s_id: Optional[int] = None
     label: Optional[str] = None
+    meta: dict[str, str] = field(default_factory=dict)
 
 
 def _parse_t2s_spec(token: Any) -> Optional[Tuple[int, Optional[str], Optional[str]]]:
@@ -6885,6 +6886,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Path to a text file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
         "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
         "You can append ':HOME' or ':AWAY' per line. "
+        "You can also append metadata like '|key=value' (e.g. owner_email/league/home_team/away_team/division) for webapp upload. "
         "Lines may also be 't2s=<game_id>[:HOME|AWAY][:game_label]' to process a TimeToScore-only game with no spreadsheets.",
     )
     p.add_argument(
@@ -6993,6 +6995,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="For --upload-webapp: overwrite existing stats/events for the game (server-side).",
     )
+    p.add_argument(
+        "--webapp-owner-email",
+        type=str,
+        default=None,
+        help="Owner email for creating/mapping external games when uploading to the webapp.",
+    )
+    p.add_argument(
+        "--webapp-league-name",
+        type=str,
+        default=None,
+        help="League name for mapping/creating games when uploading to the webapp (required for external games).",
+    )
+    p.add_argument(
+        "--webapp-division-name",
+        type=str,
+        default=None,
+        help="Division name to use for external games when uploading to the webapp (default: External).",
+    )
     return p
 
 
@@ -7000,10 +7020,19 @@ def _upload_shift_package_to_webapp(
     *,
     webapp_url: str,
     webapp_token: Optional[str],
-    t2s_game_id: int,
+    t2s_game_id: Optional[int],
+    external_game_key: Optional[str],
     label: str,
     stats_dir: Path,
     replace: bool,
+    owner_email: Optional[str] = None,
+    league_name: Optional[str] = None,
+    division_name: Optional[str] = None,
+    sort_order: Optional[int] = None,
+    team_side: Optional[str] = None,
+    home_team_name: Optional[str] = None,
+    away_team_name: Optional[str] = None,
+    create_missing_players: bool = False,
 ) -> None:
     try:
         import requests  # type: ignore
@@ -7022,14 +7051,33 @@ def _upload_shift_package_to_webapp(
     game_stats_csv = _read_text(stats_dir / "game_stats.csv")
     events_csv = _read_text(stats_dir / "all_events_summary.csv")
 
-    payload = {
-        "timetoscore_game_id": int(t2s_game_id),
+    payload: Dict[str, Any] = {
         "player_stats_csv": player_stats_csv,
         "game_stats_csv": game_stats_csv,
         "events_csv": events_csv,
         "source_label": f"parse_shift_spreadsheet:{label}",
         "replace": bool(replace),
     }
+    if t2s_game_id is not None:
+        payload["timetoscore_game_id"] = int(t2s_game_id)
+    if external_game_key:
+        payload["external_game_key"] = str(external_game_key)
+    if owner_email:
+        payload["owner_email"] = str(owner_email)
+    if league_name:
+        payload["league_name"] = str(league_name)
+    if division_name:
+        payload["division_name"] = str(division_name)
+    if sort_order is not None:
+        payload["sort_order"] = int(sort_order)
+    if team_side in {"home", "away"}:
+        payload["team_side"] = str(team_side)
+    if home_team_name:
+        payload["home_team_name"] = str(home_team_name)
+    if away_team_name:
+        payload["away_team_name"] = str(away_team_name)
+    if create_missing_players:
+        payload["create_missing_players"] = True
     headers: Dict[str, str] = {}
     if webapp_token:
         headers["X-HM-Import-Token"] = str(webapp_token)
@@ -7047,9 +7095,15 @@ def _upload_shift_package_to_webapp(
         raise RuntimeError(str(out))
     unmatched = out.get("unmatched") or []
     if unmatched:
-        print(f"[webapp] Uploaded shift package for t2s={t2s_game_id} ({label}) with unmatched: {unmatched}")
+        if t2s_game_id is not None:
+            print(f"[webapp] Uploaded shift package for t2s={t2s_game_id} ({label}) with unmatched: {unmatched}")
+        else:
+            print(f"[webapp] Uploaded shift package for external={external_game_key} ({label}) with unmatched: {unmatched}")
     else:
-        print(f"[webapp] Uploaded shift package for t2s={t2s_game_id} ({label})")
+        if t2s_game_id is not None:
+            print(f"[webapp] Uploaded shift package for t2s={t2s_game_id} ({label})")
+        else:
+            print(f"[webapp] Uploaded shift package for external={external_game_key} ({label})")
 
 
 def main() -> None:
@@ -7088,26 +7142,50 @@ def main() -> None:
                     line = line.lstrip("\ufeff")
                     if not line or line.startswith("#"):
                         continue
-                    t2s_only = _parse_t2s_only_token(line)
+                    parts = [p.strip() for p in str(line).split("|") if p.strip()]
+                    token = parts[0] if parts else ""
+                    meta: dict[str, str] = {}
+                    for seg in parts[1:]:
+                        if "=" not in seg:
+                            continue
+                        k, v = seg.split("=", 1)
+                        kk = str(k or "").strip().lower()
+                        vv = str(v or "").strip()
+                        if kk:
+                            meta[kk] = vv
+
+                    t2s_only = _parse_t2s_only_token(token)
                     if t2s_only is not None:
                         t2s_id, side, label = t2s_only
                         input_entries.append(
-                            InputEntry(path=None, side=side, t2s_id=t2s_id, label=label)
+                            InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta)
                         )
                         continue
-                    p, side = _parse_input_token(line, base_dir=base_dir)
-                    input_entries.append(InputEntry(path=p, side=side))
+                    p, side = _parse_input_token(token, base_dir=base_dir)
+                    input_entries.append(InputEntry(path=p, side=side, meta=meta))
         except Exception as e:
             print(f"Error reading --file-list: {e}", file=sys.stderr)
             sys.exit(2)
     for tok in args.inputs or []:
-        t2s_only = _parse_t2s_only_token(tok)
+        parts = [p.strip() for p in str(tok).split("|") if p.strip()]
+        token = parts[0] if parts else ""
+        meta: dict[str, str] = {}
+        for seg in parts[1:]:
+            if "=" not in seg:
+                continue
+            k, v = seg.split("=", 1)
+            kk = str(k or "").strip().lower()
+            vv = str(v or "").strip()
+            if kk:
+                meta[kk] = vv
+
+        t2s_only = _parse_t2s_only_token(token)
         if t2s_only is not None:
             t2s_id, side, label = t2s_only
-            input_entries.append(InputEntry(path=None, side=side, t2s_id=t2s_id, label=label))
+            input_entries.append(InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta))
             continue
-        p, side = _parse_input_token(tok)
-        input_entries.append(InputEntry(path=p, side=side))
+        p, side = _parse_input_token(token)
+        input_entries.append(InputEntry(path=p, side=side, meta=meta))
 
     if not input_entries:
         # Allow a TimeToScore-only run by specifying just `--t2s`.
@@ -7135,9 +7213,9 @@ def main() -> None:
                 print(f"Error expanding directory input {pp}: {e}", file=sys.stderr)
                 sys.exit(2)
             for fp in discovered:
-                expanded_entries.append(InputEntry(path=fp, side=entry.side))
+                expanded_entries.append(InputEntry(path=fp, side=entry.side, meta=dict(entry.meta or {})))
         else:
-            expanded_entries.append(InputEntry(path=pp, side=entry.side))
+            expanded_entries.append(InputEntry(path=pp, side=entry.side, meta=dict(entry.meta or {})))
     input_entries = expanded_entries
 
     base_outdir = args.outdir.expanduser()
@@ -7166,6 +7244,7 @@ def main() -> None:
                     "side": None,
                     "order": order_idx,
                     "t2s_id_only": int(entry.t2s_id),
+                    "meta": {},
                 },
             )
         else:
@@ -7183,7 +7262,7 @@ def main() -> None:
             display_label_to_key.setdefault(label, label)
             g = groups_by_label.setdefault(
                 label,
-                {"label": label, "primary": None, "long_paths": [], "side": None, "order": order_idx},
+                {"label": label, "primary": None, "long_paths": [], "side": None, "order": order_idx, "meta": {}},
             )
         if g.get("side") is None:
             g["side"] = side
@@ -7193,6 +7272,23 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(2)
+
+        meta = getattr(entry, "meta", None) or {}
+        if meta:
+            gm = g.get("meta") or {}
+            for k, v in meta.items():
+                kk = str(k or "").strip().lower()
+                vv = str(v or "").strip()
+                if not kk or not vv:
+                    continue
+                if kk in gm and str(gm[kk]) != vv:
+                    print(
+                        f"Error: conflicting metadata for '{g.get('label')}' key '{kk}': {gm[kk]!r} vs {vv!r}",
+                        file=sys.stderr,
+                    )
+                    sys.exit(2)
+                gm[kk] = vv
+            g["meta"] = gm
 
         if entry.path is None:
             continue
@@ -7210,7 +7306,54 @@ def main() -> None:
     results: List[Dict[str, Any]] = []
     upload_ok = 0
     upload_failed = 0
-    upload_skipped_no_t2s = 0
+    upload_skipped_external_missing_meta = 0
+
+    # Webapp upload arg validation (fail fast; don't silently skip uploads).
+    default_webapp_url = "http://127.0.0.1:8008"
+    if str(getattr(args, "webapp_url", "") or "").strip() != default_webapp_url and not getattr(
+        args, "upload_webapp", False
+    ):
+        print("Error: --webapp-url requires --upload-webapp.", file=sys.stderr)
+        sys.exit(2)
+
+    if getattr(args, "upload_webapp", False):
+        owner_email_req = str(getattr(args, "webapp_owner_email", "") or "").strip()
+        league_name_req = str(getattr(args, "webapp_league_name", "") or "").strip()
+        if not owner_email_req:
+            print("Error: --upload-webapp requires --webapp-owner-email.", file=sys.stderr)
+            sys.exit(2)
+        if not league_name_req:
+            print("Error: --upload-webapp requires --webapp-league-name.", file=sys.stderr)
+            sys.exit(2)
+
+        missing_external_meta: list[str] = []
+        for gg in groups:
+            t2s_only_id = gg.get("t2s_id_only")
+            if t2s_only_id is not None:
+                continue
+            primary = gg.get("primary")
+            t2s_id_inferred = _infer_t2s_from_filename(Path(primary)) if primary else None
+            if t2s_id_inferred is not None:
+                continue
+            meta = dict(gg.get("meta") or {})
+
+            def _m(*keys: str) -> Optional[str]:
+                for k in keys:
+                    v = meta.get(str(k).strip().lower())
+                    if v is not None and str(v).strip():
+                        return str(v).strip()
+                return None
+
+            if not (_m("home_team", "home_team_name", "home") and _m("away_team", "away_team_name", "away")):
+                missing_external_meta.append(str(gg.get("label") or gg.get("primary") or "UNKNOWN"))
+        if missing_external_meta:
+            print(
+                "Error: --upload-webapp external games require per-game metadata for team names.\n"
+                "Add `|home_team=...|away_team=...` to the corresponding lines in --file-list for:\n"
+                f"  - " + "\n  - ".join(missing_external_meta),
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     if t2s_arg_id is not None and len(groups) > 1:
         print(
@@ -7314,6 +7457,8 @@ def main() -> None:
                     "pair_on_ice": [],
                     "sheet_path": None,
                     "video_path": None,
+                    "side": str(side_override or "") or None,
+                    "meta": dict(g.get("meta") or {}),
                 }
             )
             try:
@@ -7501,6 +7646,8 @@ def main() -> None:
                 "pair_on_ice": pair_on_ice_rows,
                 "sheet_path": in_path,
                 "video_path": video_path,
+                "side": str(side_to_use or "") or None,
+                "meta": dict(g.get("meta") or {}),
             }
         )
         try:
@@ -7509,32 +7656,109 @@ def main() -> None:
             print("✅ Done.")
 
         if getattr(args, "upload_webapp", False):
-            if t2s_id is None:
-                upload_skipped_no_t2s += 1
-            else:
-                try:
+            meta = dict(g.get("meta") or {})
+
+            def _meta(*keys: str) -> Optional[str]:
+                for k in keys:
+                    v = meta.get(str(k).strip().lower())
+                    if v is not None and str(v).strip():
+                        return str(v).strip()
+                return None
+
+            owner_email = _meta("owner_email") or (str(getattr(args, "webapp_owner_email", "") or "").strip() or None)
+            league_name = _meta("league", "league_name") or (str(getattr(args, "webapp_league_name", "") or "").strip() or None)
+            division_name = _meta("division", "division_name") or (
+                str(getattr(args, "webapp_division_name", "") or "").strip() or None
+            )
+            sort_order = int(idx)
+            team_side = str(side_to_use or "").strip().lower() or None
+            # If this is a non-TimeToScore game and side isn't specified, treat the "for" team as home for now.
+            # TODO: infer home/away robustly from spreadsheet metadata when available.
+            if team_side not in {"home", "away"}:
+                team_side = "home"
+
+            external_home = _meta("home_team", "home_team_name", "home")
+            external_away = _meta("away_team", "away_team_name", "away")
+
+            try:
+                print(f"[webapp] Uploading {idx + 1}/{len(groups)}: {label}")
+            except Exception:
+                pass
+
+            try:
+                if t2s_id is not None:
                     _upload_shift_package_to_webapp(
                         webapp_url=str(getattr(args, "webapp_url", "") or "").strip() or "http://127.0.0.1:8008",
                         webapp_token=(getattr(args, "webapp_token", None) or None),
                         t2s_game_id=int(t2s_id),
+                        external_game_key=None,
                         label=str(label or ""),
                         stats_dir=(final_outdir / "stats"),
                         replace=bool(getattr(args, "webapp_replace", False)),
+                        owner_email=owner_email,
+                        league_name=league_name,
+                        division_name=division_name,
+                        sort_order=sort_order,
+                        team_side=team_side,
+                        create_missing_players=False,
                     )
                     upload_ok += 1
-                except Exception as e:  # noqa: BLE001
-                    upload_failed += 1
+                else:
+                    if not (owner_email and league_name and external_home and external_away):
+                        upload_skipped_external_missing_meta += 1
+                        missing = []
+                        if not owner_email:
+                            missing.append("owner_email")
+                        if not league_name:
+                            missing.append("league")
+                        if not external_home:
+                            missing.append("home_team")
+                        if not external_away:
+                            missing.append("away_team")
+                        try:
+                            print(
+                                f"[webapp] Skipping external game '{label}': missing {', '.join(missing)} (add |key=value in --file-list).",
+                                file=sys.stderr,
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        _upload_shift_package_to_webapp(
+                            webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
+                            or "http://127.0.0.1:8008",
+                            webapp_token=(getattr(args, "webapp_token", None) or None),
+                            t2s_game_id=None,
+                            external_game_key=str(label or ""),
+                            label=str(label or ""),
+                            stats_dir=(final_outdir / "stats"),
+                            replace=bool(getattr(args, "webapp_replace", False)),
+                            owner_email=owner_email,
+                            league_name=league_name,
+                            division_name=division_name or "External",
+                            sort_order=sort_order,
+                            team_side=team_side,
+                            home_team_name=external_home,
+                            away_team_name=external_away,
+                            create_missing_players=True,
+                        )
+                        upload_ok += 1
+            except Exception as e:  # noqa: BLE001
+                upload_failed += 1
+                if t2s_id is not None:
                     print(f"[webapp] Upload failed for t2s={t2s_id} ({label}): {e}", file=sys.stderr)
+                else:
+                    print(f"[webapp] Upload failed for external={label} ({label}): {e}", file=sys.stderr)
 
     if getattr(args, "upload_webapp", False):
-        print(f"[webapp] Upload summary: ok={upload_ok} failed={upload_failed} missing_t2s_id={upload_skipped_no_t2s}")
-        if upload_ok == 0:
+        print(
+            f"[webapp] Upload summary: ok={upload_ok} failed={upload_failed} skipped_external_missing_meta={upload_skipped_external_missing_meta}"
+        )
+        if upload_ok == 0 and upload_skipped_external_missing_meta > 0:
             print(
-                "[webapp] No games were uploaded. Ensure each game has a TimeToScore id (e.g. file-list lines like "
-                "'t2s=<game_id>:HOME|AWAY[:label]' or filenames like 'game-<id>.xlsx').",
+                "[webapp] External games were skipped because metadata was missing. Add file-list metadata like "
+                "'|owner_email=you@example.com|league=Norcal|home_team=...|away_team=...' for non-TimeToScore games.",
                 file=sys.stderr,
             )
-            sys.exit(2)
 
     if multiple_inputs:
         agg_rows, agg_periods, per_game_denoms = _aggregate_stats_rows(

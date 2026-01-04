@@ -127,6 +127,7 @@ def ensure_league_schema(conn) -> None:
               division_name VARCHAR(255) NULL,
               division_id INT NULL,
               conference_id INT NULL,
+              sort_order INT NULL,
               UNIQUE KEY uniq_league_game (league_id, game_id),
               INDEX(league_id), INDEX(game_id),
               FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -140,6 +141,7 @@ def ensure_league_schema(conn) -> None:
                 "division_name VARCHAR(255) NULL",
                 "division_id INT NULL",
                 "conference_id INT NULL",
+                "sort_order INT NULL",
             ]:
                 col = col_ddl.split(" ", 1)[0]
                 try:
@@ -238,14 +240,15 @@ def map_game_to_league(conn, league_id: int, game_id: int) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id)
-            VALUES(%s,%s,%s,%s,%s)
+            INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id, sort_order)
+            VALUES(%s,%s,%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE
               division_name=COALESCE(VALUES(division_name), division_name),
               division_id=COALESCE(VALUES(division_id), division_id),
-              conference_id=COALESCE(VALUES(conference_id), conference_id)
+              conference_id=COALESCE(VALUES(conference_id), conference_id),
+              sort_order=COALESCE(VALUES(sort_order), sort_order)
             """,
-            (league_id, game_id, None, None, None),
+            (league_id, game_id, None, None, None, None),
         )
     conn.commit()
 
@@ -258,19 +261,21 @@ def map_game_to_league_with_division(
     division_name: Optional[str],
     division_id: Optional[int],
     conference_id: Optional[int],
+    sort_order: Optional[int] = None,
 ) -> None:
     dn = (division_name or "").strip() or None
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id)
-            VALUES(%s,%s,%s,%s,%s)
+            INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id, sort_order)
+            VALUES(%s,%s,%s,%s,%s,%s)
             ON DUPLICATE KEY UPDATE
               division_name=COALESCE(VALUES(division_name), division_name),
               division_id=COALESCE(VALUES(division_id), division_id),
-              conference_id=COALESCE(VALUES(conference_id), conference_id)
+              conference_id=COALESCE(VALUES(conference_id), conference_id),
+              sort_order=COALESCE(VALUES(sort_order), sort_order)
             """,
-            (league_id, game_id, dn, division_id, conference_id),
+            (league_id, game_id, dn, division_id, conference_id, sort_order),
         )
     conn.commit()
 
@@ -473,112 +478,148 @@ def upsert_hky_game(
     replace: bool,
     notes: Optional[str] = None,
     timetoscore_game_id: Optional[int] = None,
+    timetoscore_season_id: Optional[int] = None,
+    timetoscore_source: Optional[str] = None,
 ) -> int:
+    # Standardize notes with JSON like the webapp import API, but keep backward
+    # compatibility for matching older token formats.
+    notes_json_fields: dict[str, Any] = {}
+    if timetoscore_game_id is not None:
+        notes_json_fields["timetoscore_game_id"] = int(timetoscore_game_id)
+    if timetoscore_season_id is not None:
+        notes_json_fields["timetoscore_season_id"] = int(timetoscore_season_id)
+    if timetoscore_source:
+        notes_json_fields["timetoscore_source"] = str(timetoscore_source)
+    if notes and str(notes).strip():
+        # If caller passed JSON already, merge it; otherwise preserve as raw string under "notes_raw".
+        try:
+            parsed = json.loads(str(notes))
+            if isinstance(parsed, dict):
+                notes_json_fields.update(parsed)
+            else:
+                notes_json_fields["notes_raw"] = str(notes)
+        except Exception:
+            notes_json_fields["notes_raw"] = str(notes)
+
+    def _merge_notes(existing: Optional[str], new_fields: dict[str, Any]) -> str:
+        if not existing:
+            return json.dumps(new_fields, sort_keys=True)
+        try:
+            cur = json.loads(existing)
+            if isinstance(cur, dict):
+                cur.update(new_fields)
+                return json.dumps(cur, sort_keys=True)
+        except Exception:
+            pass
+        return existing
+
     with conn.cursor() as cur:
-        if timetoscore_game_id is not None:
-            # Prefer matching by external (TimeToScore) id so we can correct starts_at even if an earlier import
-            # used the wrong year inference.
-            token = f"game_id={int(timetoscore_game_id)}"
+        gid: Optional[int] = None
+        if starts_at:
             cur.execute(
-                """
-                SELECT id, team1_score, team2_score
-                FROM hky_games
-                WHERE user_id=%s AND notes LIKE %s
-                LIMIT 1
-                """,
-                (user_id, f"%{token}%"),
+                "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND team1_id=%s AND team2_id=%s AND starts_at=%s",
+                (user_id, team1_id, team2_id, starts_at),
             )
             row = cur.fetchone()
             if row:
-                gid, old1, old2 = int(row[0]), row[1], row[2]
-                new1 = team1_score if (replace or old1 is None) else old1
-                new2 = team2_score if (replace or old2 is None) else old2
-                cur.execute(
-                    """
-                    UPDATE hky_games
-                    SET starts_at=COALESCE(%s, starts_at),
-                        location=COALESCE(%s, location),
-                        team1_score=%s,
-                        team2_score=%s,
-                        is_final=%s,
-                        notes=COALESCE(%s, notes),
-                        updated_at=%s
-                    WHERE id=%s
-                    """,
-                    (
-                        starts_at,
-                        location,
-                        new1,
-                        new2,
-                        1 if (new1 is not None and new2 is not None) else 0,
-                        notes,
-                        dt.datetime.now().isoformat(),
-                        gid,
-                    ),
-                )
-                conn.commit()
-                return gid
+                gid = int(row[0])
 
-        cur.execute(
-            """
-            SELECT id, team1_score, team2_score
-            FROM hky_games
-            WHERE user_id=%s AND team1_id=%s AND team2_id=%s AND starts_at <=> %s
-            LIMIT 1
-            """,
-            (user_id, team1_id, team2_id, starts_at),
-        )
-        row = cur.fetchone()
-        if row:
-            gid, old1, old2 = int(row[0]), row[1], row[2]
-            new1 = team1_score if (replace or old1 is None) else old1
-            new2 = team2_score if (replace or old2 is None) else old2
+        if gid is None and timetoscore_game_id is not None:
+            tts_int = int(timetoscore_game_id)
+            token_plain = f"game_id={tts_int}"
+            token_json_nospace = f"\"timetoscore_game_id\":{tts_int}"
+            token_json_space = f"\"timetoscore_game_id\": {tts_int}"
+            for token in (token_json_nospace, token_json_space, token_plain):
+                cur.execute(
+                    "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND notes LIKE %s",
+                    (user_id, f"%{token}%"),
+                )
+                row = cur.fetchone()
+                if row:
+                    gid = int(row[0])
+                    break
+
+        if gid is None:
+            merged_notes = json.dumps(notes_json_fields, sort_keys=True) if notes_json_fields else (notes or None)
+            cur.execute(
+                """
+                INSERT INTO hky_games(user_id, team1_id, team2_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    user_id,
+                    team1_id,
+                    team2_id,
+                    starts_at,
+                    location,
+                    team1_score,
+                    team2_score,
+                    1 if (team1_score is not None and team2_score is not None) else 0,
+                    merged_notes,
+                    dt.datetime.now().isoformat(),
+                    dt.datetime.now().isoformat(),
+                ),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+        cur.execute("SELECT notes, team1_score, team2_score FROM hky_games WHERE id=%s", (gid,))
+        row2 = cur.fetchone()
+        existing_notes = row2[0] if row2 else None
+        merged_notes = _merge_notes(existing_notes, notes_json_fields) if notes_json_fields else (existing_notes or "")
+
+        if replace:
             cur.execute(
                 """
                 UPDATE hky_games
                 SET location=COALESCE(%s, location),
                     team1_score=%s,
                     team2_score=%s,
-                    is_final=%s,
-                    notes=COALESCE(%s, notes),
+                    is_final=CASE WHEN %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
+                    notes=%s,
+                    stats_imported_at=%s,
                     updated_at=%s
                 WHERE id=%s
                 """,
                 (
                     location,
-                    new1,
-                    new2,
-                    1 if (new1 is not None and new2 is not None) else 0,
-                    notes,
+                    team1_score,
+                    team2_score,
+                    team1_score,
+                    team2_score,
+                    merged_notes,
+                    dt.datetime.now().isoformat(),
                     dt.datetime.now().isoformat(),
                     gid,
                 ),
             )
-            conn.commit()
-            return gid
-
-        cur.execute(
-            """
-            INSERT INTO hky_games(user_id, team1_id, team2_id, game_type_id, starts_at, location,
-                                  team1_score, team2_score, is_final, notes, created_at)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                user_id,
-                team1_id,
-                team2_id,
-                None,
-                starts_at,
-                location,
-                team1_score,
-                team2_score,
-                1 if (team1_score is not None and team2_score is not None) else 0,
-                notes,
-                dt.datetime.now().isoformat(),
-            ),
-        )
+        else:
+            cur.execute(
+                """
+                UPDATE hky_games
+                SET location=COALESCE(%s, location),
+                    team1_score=COALESCE(team1_score, %s),
+                    team2_score=COALESCE(team2_score, %s),
+                    is_final=CASE WHEN team1_score IS NULL AND team2_score IS NULL AND %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
+                    notes=%s,
+                    stats_imported_at=%s,
+                    updated_at=%s
+                WHERE id=%s
+                """,
+                (
+                    location,
+                    team1_score,
+                    team2_score,
+                    team1_score,
+                    team2_score,
+                    merged_notes,
+                    dt.datetime.now().isoformat(),
+                    dt.datetime.now().isoformat(),
+                    gid,
+                ),
+            )
         conn.commit()
-        return int(cur.lastrowid)
+        return gid
 
 
 def ensure_player(
@@ -607,6 +648,251 @@ def ensure_player(
         )
         conn.commit()
         return int(cur.lastrowid)
+
+
+def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Apply the same payload shape used by the webapp REST endpoint
+    `/api/import/hockey/games_batch` directly to a DB connection.
+
+    This is primarily used for regression testing equivalence between direct DB
+    import and REST import.
+    """
+    league_name = str(payload.get("league_name") or "").strip()
+    if not league_name:
+        raise ValueError("league_name is required")
+    shared = bool(payload.get("shared", False))
+    replace = bool(payload.get("replace", False))
+    owner_email = str(payload.get("owner_email") or "").strip().lower()
+    owner_name = str(payload.get("owner_name") or owner_email).strip()
+    source = str(payload.get("source") or "").strip() or None
+    external_key = str(payload.get("external_key") or "").strip() or None
+    games = payload.get("games") or []
+    if not isinstance(games, list):
+        raise ValueError("games must be a list")
+
+    # Best-effort: the deployed webapp DB already has these tables; in unit tests
+    # we use a fake DB that doesn't implement DDL queries.
+    try:
+        ensure_defaults(conn)
+    except Exception:
+        pass
+    try:
+        ensure_league_schema(conn)
+    except Exception:
+        pass
+
+    # Ensure owner user exists (mirror webapp import behavior; do not require create-user flags here).
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM users WHERE email=%s", (owner_email,))
+        r = cur.fetchone()
+        if r:
+            owner_user_id = int(r[0])
+        else:
+            # Deterministic placeholder hash; caller can update later.
+            cur.execute(
+                "INSERT INTO users(email, password_hash, name, created_at) VALUES(%s,%s,%s,%s)",
+                (owner_email, "imported", owner_name or owner_email, dt.datetime.now().isoformat()),
+            )
+            conn.commit()
+            owner_user_id = int(cur.lastrowid)
+
+    # Ensure league exists.
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, is_shared FROM leagues WHERE name=%s", (league_name,))
+        row = cur.fetchone()
+        if row:
+            league_id = int(row[0])
+            want_shared = 1 if shared else 0
+            if int(row[1]) != want_shared:
+                cur.execute(
+                    "UPDATE leagues SET is_shared=%s, updated_at=%s WHERE id=%s",
+                    (want_shared, dt.datetime.now().isoformat(), league_id),
+                )
+                conn.commit()
+        else:
+            cur.execute(
+                "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
+                (league_name, owner_user_id, 1 if shared else 0, source, external_key, dt.datetime.now().isoformat()),
+            )
+            conn.commit()
+            league_id = int(cur.lastrowid)
+
+    ensure_league_member(conn, league_id, owner_user_id, role="admin")
+
+    def _ensure_player_for_import(
+        team_id: int, name: str, jersey_number: Optional[str], position: Optional[str]
+    ) -> int:
+        nm = (name or "").strip()
+        if not nm:
+            raise ValueError("player name is required")
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
+                (owner_user_id, team_id, nm),
+            )
+            row = cur.fetchone()
+            if row:
+                pid = int(row[0])
+                if jersey_number or position:
+                    cur.execute(
+                        "UPDATE players SET jersey_number=COALESCE(%s, jersey_number), position=COALESCE(%s, position), updated_at=%s WHERE id=%s",
+                        (jersey_number, position, dt.datetime.now().isoformat(), pid),
+                    )
+                    conn.commit()
+                return pid
+            cur.execute(
+                "INSERT INTO players(user_id, team_id, name, jersey_number, position, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
+                (owner_user_id, team_id, nm, jersey_number, position, dt.datetime.now().isoformat()),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+    results: list[dict[str, Any]] = []
+    for game in games:
+        if not isinstance(game, dict):
+            continue
+        home_name = str(game.get("home_name") or "").strip()
+        away_name = str(game.get("away_name") or "").strip()
+        if not home_name or not away_name:
+            continue
+
+        team1_id = ensure_team(conn, owner_user_id, home_name, is_external=True)
+        team2_id = ensure_team(conn, owner_user_id, away_name, is_external=True)
+
+        starts_at = str(game.get("starts_at") or "").strip() or None
+        location = str(game.get("location") or "").strip() or None
+        team1_score = int(game["home_score"]) if game.get("home_score") is not None else None
+        team2_score = int(game["away_score"]) if game.get("away_score") is not None else None
+
+        tts_game_id = int(game["timetoscore_game_id"]) if game.get("timetoscore_game_id") is not None else None
+        season_id = int(game["season_id"]) if game.get("season_id") is not None else None
+
+        gid = upsert_hky_game(
+            conn,
+            user_id=owner_user_id,
+            team1_id=team1_id,
+            team2_id=team2_id,
+            starts_at=starts_at,
+            location=location,
+            team1_score=team1_score,
+            team2_score=team2_score,
+            replace=replace,
+            notes=None,
+            timetoscore_game_id=tts_game_id,
+            timetoscore_season_id=season_id,
+            timetoscore_source=source,
+        )
+
+        # Map teams/games to league with division metadata (best-effort).
+        def _int_or_none(x: Any) -> Optional[int]:
+            try:
+                return int(x) if x is not None else None
+            except Exception:
+                return None
+
+        division_name = str(game.get("division_name") or "").strip() or None
+        division_id = _int_or_none(game.get("division_id"))
+        conference_id = _int_or_none(game.get("conference_id"))
+        sort_order = _int_or_none(game.get("sort_order"))
+
+        map_team_to_league_with_division(
+            conn,
+            league_id=league_id,
+            team_id=team1_id,
+            division_name=str(game.get("home_division_name") or "").strip() or division_name,
+            division_id=_int_or_none(game.get("home_division_id")) or division_id,
+            conference_id=_int_or_none(game.get("home_conference_id")) or conference_id,
+        )
+        map_team_to_league_with_division(
+            conn,
+            league_id=league_id,
+            team_id=team2_id,
+            division_name=str(game.get("away_division_name") or "").strip() or division_name,
+            division_id=_int_or_none(game.get("away_division_id")) or division_id,
+            conference_id=_int_or_none(game.get("away_conference_id")) or conference_id,
+        )
+        map_game_to_league_with_division(
+            conn,
+            league_id=league_id,
+            game_id=gid,
+            division_name=division_name,
+            division_id=division_id,
+            conference_id=conference_id,
+            sort_order=sort_order,
+        )
+
+        # Rosters (optional).
+        for side_key, tid in (("home", team1_id), ("away", team2_id)):
+            roster = game.get(f"{side_key}_roster") or []
+            if not isinstance(roster, list):
+                continue
+            for row in roster:
+                if not isinstance(row, dict):
+                    continue
+                nm = str(row.get("name") or "").strip()
+                if not nm:
+                    continue
+                jersey = str(row.get("number") or "").strip() or None
+                pos = str(row.get("position") or "").strip() or None
+                _ensure_player_for_import(int(tid), nm, jersey, pos)
+
+        # Minimal goals/assists stats.
+        stats_rows = game.get("player_stats") or []
+        if isinstance(stats_rows, list):
+            for srow in stats_rows:
+                if not isinstance(srow, dict):
+                    continue
+                pname = str(srow.get("name") or "").strip()
+                if not pname:
+                    continue
+                goals = int(srow.get("goals") or 0)
+                assists = int(srow.get("assists") or 0)
+                if goals == 0 and assists == 0:
+                    continue
+
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
+                        (owner_user_id, team1_id, pname),
+                    )
+                    r1 = cur.fetchone()
+                    cur.execute(
+                        "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
+                        (owner_user_id, team2_id, pname),
+                    )
+                    r2 = cur.fetchone()
+                team_ref = team1_id
+                pid = int(r1[0]) if r1 else (int(r2[0]) if r2 else None)
+                if r2 and not r1:
+                    team_ref = team2_id
+                if pid is None:
+                    pid = _ensure_player_for_import(int(team_ref), pname, None, None)
+
+                with conn.cursor() as cur:
+                    if replace:
+                        cur.execute(
+                            """
+                            INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
+                            VALUES(%s,%s,%s,%s,%s,%s)
+                            ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists)
+                            """,
+                            (owner_user_id, team_ref, gid, pid, goals, assists),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
+                            VALUES(%s,%s,%s,%s,%s,%s)
+                            ON DUPLICATE KEY UPDATE goals=COALESCE(goals, VALUES(goals)), assists=COALESCE(assists, VALUES(assists))
+                            """,
+                            (owner_user_id, team_ref, gid, pid, goals, assists),
+                        )
+                conn.commit()
+
+        results.append({"game_id": int(gid), "team1_id": int(team1_id), "team2_id": int(team2_id)})
+
+    return {"ok": True, "league_id": int(league_id), "owner_user_id": int(owner_user_id), "imported": len(results), "results": results}
 
 
 def parse_starts_at(source: str, *, stats: dict[str, Any], fallback: Optional[dict[str, Any]]) -> Optional[str]:

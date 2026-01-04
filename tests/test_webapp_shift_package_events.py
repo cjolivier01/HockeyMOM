@@ -21,10 +21,16 @@ class _DummyPyMySQL:
 
 class FakeConn:
     def __init__(self) -> None:
+        self._next_id = {"users": 11, "leagues": 2, "teams": 103, "players": 503, "hky_games": 1002}
+        self.users_by_email: dict[str, dict[str, Any]] = {}
         self.leagues = {1: {"id": 1, "name": "Public League", "is_public": 1, "owner_user_id": 10, "is_shared": 0}}
+        self.league_id_by_name = {str(v["name"]): int(k) for k, v in self.leagues.items()}
         self.teams = {
             101: {"id": 101, "user_id": 10, "name": "Team A", "is_external": 1, "logo_path": None},
             102: {"id": 102, "user_id": 10, "name": "Team B", "is_external": 1, "logo_path": None},
+        }
+        self.team_id_by_user_name = {
+            (int(v["user_id"]), str(v["name"])): int(k) for k, v in self.teams.items()
         }
         self.hky_games = {
             1001: {
@@ -43,11 +49,13 @@ class FakeConn:
                 "stats_imported_at": None,
             }
         }
-        self.league_games = [{"league_id": 1, "game_id": 1001, "division_name": "10 A"}]
+        self.league_games = [{"league_id": 1, "game_id": 1001, "division_name": "10 A", "sort_order": None}]
+        self.league_teams: list[dict[str, Any]] = []
         self.players = [
             {"id": 501, "team_id": 101, "name": "Alice", "jersey_number": "9"},
             {"id": 502, "team_id": 102, "name": "Bob", "jersey_number": "12"},
         ]
+        self.player_id_by_user_team_name: dict[tuple[int, int, str], int] = {}
         self.player_stats: list[dict[str, Any]] = []
         self.player_period_stats: list[dict[str, Any]] = []
         self.hky_game_stats: dict[int, dict[str, Any]] = {}
@@ -73,6 +81,7 @@ class FakeCursor:
         self._dict_mode = dict_mode
         self._rows: list[Any] = []
         self._idx = 0
+        self.lastrowid: int = 0
 
     def __enter__(self):
         return self
@@ -99,6 +108,129 @@ class FakeCursor:
                 self._rows = [d({"id": league["id"], "name": league["name"]})]
             return 1
 
+        if q == "SELECT id FROM users WHERE email=%s":
+            email = str(p[0]).strip().lower()
+            u = self._conn.users_by_email.get(email)
+            self._rows = [t(int(u["id"]))] if u else []
+            return 1
+
+        if q.startswith("INSERT INTO users(email, password_hash, name, created_at) VALUES"):
+            email, _pw, name, created_at = p
+            email = str(email).strip().lower()
+            existing = self._conn.users_by_email.get(email)
+            if existing:
+                self.lastrowid = int(existing["id"])
+                return 1
+            uid = int(self._conn._next_id["users"])
+            self._conn._next_id["users"] += 1
+            self._conn.users_by_email[email] = {"id": uid, "email": email, "name": name, "created_at": created_at}
+            self.lastrowid = uid
+            return 1
+
+        if q == "SELECT id FROM leagues WHERE name=%s":
+            name = str(p[0]).strip()
+            lid = self._conn.league_id_by_name.get(name)
+            self._rows = [t(int(lid))] if lid is not None else []
+            return 1
+
+        if q.startswith(
+            "INSERT INTO leagues(name, owner_user_id, is_shared, is_public, source, external_key, created_at) VALUES"
+        ):
+            name, owner_user_id, is_shared, is_public, source, external_key, created_at = p
+            name = str(name).strip()
+            existing = self._conn.league_id_by_name.get(name)
+            if existing is not None:
+                self.lastrowid = int(existing)
+                return 1
+            lid = int(self._conn._next_id["leagues"])
+            self._conn._next_id["leagues"] += 1
+            self._conn.league_id_by_name[name] = lid
+            self._conn.leagues[lid] = {
+                "id": lid,
+                "name": name,
+                "owner_user_id": int(owner_user_id),
+                "is_shared": int(is_shared),
+                "is_public": int(is_public),
+                "source": source,
+                "external_key": external_key,
+                "created_at": created_at,
+            }
+            self.lastrowid = lid
+            return 1
+
+        if q == "SELECT id FROM teams WHERE user_id=%s AND name=%s":
+            user_id, name = int(p[0]), str(p[1])
+            tid = self._conn.team_id_by_user_name.get((user_id, name))
+            self._rows = [t(int(tid))] if tid is not None else []
+            return 1
+
+        if q == "SELECT logo_path FROM teams WHERE id=%s":
+            team_id = int(p[0])
+            team = self._conn.teams.get(team_id)
+            if team:
+                self._rows = [d({"logo_path": team.get("logo_path")})] if self._dict_mode else [t(team.get("logo_path"))]
+            return 1
+
+        if q == "UPDATE teams SET logo_path=%s, updated_at=%s WHERE id=%s":
+            logo_path, _updated_at, team_id = p
+            team_id = int(team_id)
+            if team_id in self._conn.teams:
+                self._conn.teams[team_id]["logo_path"] = str(logo_path)
+            return 1
+
+        if q.startswith("INSERT INTO teams(user_id, name, is_external, created_at) VALUES"):
+            user_id, name, is_external, created_at = p
+            user_id = int(user_id)
+            name = str(name)
+            existing = self._conn.team_id_by_user_name.get((user_id, name))
+            if existing is not None:
+                self.lastrowid = int(existing)
+                return 1
+            tid = int(self._conn._next_id["teams"])
+            self._conn._next_id["teams"] += 1
+            self._conn.team_id_by_user_name[(user_id, name)] = tid
+            self._conn.teams[tid] = {
+                "id": tid,
+                "user_id": user_id,
+                "name": name,
+                "is_external": int(is_external),
+                "logo_path": None,
+                "created_at": created_at,
+            }
+            self.lastrowid = tid
+            return 1
+
+        if q.startswith(
+            "INSERT INTO league_teams(league_id, team_id, division_name, division_id, conference_id) VALUES"
+        ):
+            league_id, team_id, division_name, division_id, conference_id = p
+            self._conn.league_teams.append(
+                {
+                    "league_id": int(league_id),
+                    "team_id": int(team_id),
+                    "division_name": division_name,
+                    "division_id": division_id,
+                    "conference_id": conference_id,
+                }
+            )
+            return 1
+
+        if q.startswith(
+            "INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id, sort_order) VALUES"
+        ):
+            league_id, game_id, division_name, division_id, conference_id, sort_order = p
+            self._conn.league_games.append(
+                {
+                    "league_id": int(league_id),
+                    "game_id": int(game_id),
+                    "division_name": division_name,
+                    "division_id": division_id,
+                    "conference_id": conference_id,
+                    "sort_order": int(sort_order) if sort_order is not None else None,
+                }
+            )
+            return 1
+
         if "SELECT id FROM hky_games WHERE notes LIKE %s LIMIT 1" in q:
             token = str(p[0])
             for gid, g in self._conn.hky_games.items():
@@ -106,6 +238,111 @@ class FakeCursor:
                     self._rows = [t(int(gid))]
                     return 1
             self._rows = []
+            return 1
+
+        if q == "SELECT id FROM hky_games WHERE user_id=%s AND notes LIKE %s LIMIT 1":
+            user_id, token = int(p[0]), str(p[1])
+            for gid, g in self._conn.hky_games.items():
+                if int(g.get("user_id") or 0) != user_id:
+                    continue
+                if token.strip("%") in str(g.get("notes") or ""):
+                    self._rows = [t(int(gid))]
+                    return 1
+            self._rows = []
+            return 1
+
+        if q == "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND notes LIKE %s":
+            user_id, token = int(p[0]), str(p[1])
+            for gid, g in self._conn.hky_games.items():
+                if int(g.get("user_id") or 0) != user_id:
+                    continue
+                if token.strip("%") in str(g.get("notes") or ""):
+                    row = {
+                        "id": int(gid),
+                        "notes": g.get("notes"),
+                        "team1_score": g.get("team1_score"),
+                        "team2_score": g.get("team2_score"),
+                    }
+                    self._rows = [d(row)]
+                    return 1
+            self._rows = []
+            return 1
+
+        if q.startswith(
+            "INSERT INTO hky_games(user_id, team1_id, team2_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at) VALUES"
+        ):
+            (
+                user_id,
+                team1_id,
+                team2_id,
+                starts_at,
+                location,
+                team1_score,
+                team2_score,
+                is_final,
+                notes,
+                stats_imported_at,
+                created_at,
+            ) = p
+            gid = int(self._conn._next_id["hky_games"])
+            self._conn._next_id["hky_games"] += 1
+            self._conn.hky_games[gid] = {
+                "id": gid,
+                "user_id": int(user_id),
+                "team1_id": int(team1_id),
+                "team2_id": int(team2_id),
+                "starts_at": starts_at,
+                "location": location,
+                "team1_score": team1_score,
+                "team2_score": team2_score,
+                "is_final": int(is_final),
+                "notes": notes,
+                "created_at": created_at,
+                "updated_at": None,
+                "stats_imported_at": stats_imported_at,
+            }
+            self.lastrowid = gid
+            return 1
+
+        if q == "SELECT notes, team1_score, team2_score FROM hky_games WHERE id=%s":
+            gid = int(p[0])
+            g = self._conn.hky_games.get(gid)
+            if g:
+                self._rows = [d({"notes": g.get("notes"), "team1_score": g.get("team1_score"), "team2_score": g.get("team2_score")})]
+            return 1
+
+        if q == "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s":
+            user_id, team_id, name = int(p[0]), int(p[1]), str(p[2])
+            pid = self._conn.player_id_by_user_team_name.get((user_id, team_id, name))
+            self._rows = [t(int(pid))] if pid is not None else []
+            return 1
+
+        if q.startswith(
+            "INSERT INTO players(user_id, team_id, name, jersey_number, position, created_at) VALUES"
+        ):
+            user_id, team_id, name, jersey_number, position, created_at = p
+            user_id = int(user_id)
+            team_id = int(team_id)
+            name = str(name)
+            existing = self._conn.player_id_by_user_team_name.get((user_id, team_id, name))
+            if existing is not None:
+                self.lastrowid = int(existing)
+                return 1
+            pid = int(self._conn._next_id["players"])
+            self._conn._next_id["players"] += 1
+            self._conn.player_id_by_user_team_name[(user_id, team_id, name)] = pid
+            self._conn.players.append({"id": pid, "team_id": team_id, "name": name, "jersey_number": jersey_number})
+            self.lastrowid = pid
+            return 1
+
+        if q.startswith("UPDATE players SET jersey_number=COALESCE(%s, jersey_number)"):
+            jersey_number, _position, _updated_at, pid = p
+            pid = int(pid)
+            for pl in self._conn.players:
+                if int(pl["id"]) == pid:
+                    if jersey_number is not None:
+                        pl["jersey_number"] = jersey_number
+                    break
             return 1
 
         if q == "SELECT * FROM hky_games WHERE id=%s":
@@ -139,6 +376,16 @@ class FakeCursor:
                 "game_id": gid,
                 "events_csv": str(events_csv),
                 "source_label": source_label,
+                "updated_at": updated_at,
+            }
+            return 1
+
+        if q.startswith("INSERT INTO hky_game_stats(game_id, stats_json, updated_at) VALUES"):
+            gid, stats_json, updated_at = p
+            gid = int(gid)
+            self._conn.hky_game_stats[gid] = {
+                "game_id": gid,
+                "stats_json": str(stats_json),
                 "updated_at": updated_at,
             }
             return 1
@@ -325,6 +572,26 @@ def should_store_events_via_shift_package_and_render_public_game_page(client_and
     assert "table-scroll-y" in html
 
 
+def should_find_existing_game_when_notes_are_legacy_game_id_token(client_and_db):
+    client, db = client_and_db
+    # Simulate an older direct-DB importer which stored a plain token in notes.
+    db.hky_games[1001]["notes"] = "game_id=123"
+    before_game_count = len(db.hky_games)
+
+    events1 = "Period,Time,Team,Event\n1,00:10,Blue,Goal\n"
+    r = client.post(
+        "/api/import/hockey/shift_package",
+        json={"timetoscore_game_id": 123, "events_csv": events1, "replace": False},
+        headers={"X-HM-Import-Token": "sekret"},
+    )
+    assert r.status_code == 200
+    out = r.get_json()
+    assert out["ok"] is True
+    assert int(out["game_id"]) == 1001
+    assert len(db.hky_games) == before_game_count
+    assert db.hky_game_events[1001]["events_csv"] == events1
+
+
 def should_not_overwrite_events_without_replace(client_and_db):
     client, db = client_and_db
     events1 = "Period,Time,Team,Event\n1,00:10,Blue,Goal\n"
@@ -374,3 +641,47 @@ def should_store_player_stats_csv_via_shift_package_and_render_public_game_page(
     assert "Average Shift" not in html
     assert "Shifts" not in html
     assert "TOI Total" not in html
+
+
+def should_create_external_game_via_shift_package_and_map_to_league(client_and_db):
+    client, db = client_and_db
+    # Pre-create a user matching the existing teams/games ownership (user_id=10).
+    db.users_by_email["owner@example.com"] = {"id": 10, "email": "owner@example.com", "name": "Owner"}
+
+    player_stats_csv = "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n"
+    game_stats_csv = "Stat,chicago-4\nGoals For,2\nGoals Against,1\n"
+    events_csv = "Period,Time,Team,Event Type\n1,12:00,Home,Shot\n"
+
+    r = client.post(
+        "/api/import/hockey/shift_package",
+        json={
+            "external_game_key": "chicago-4",
+            "owner_email": "owner@example.com",
+            "league_name": "Norcal",
+            "division_name": "External",
+            "sort_order": 7,
+            "team_side": "home",
+            "home_team_name": "Team A",
+            "away_team_name": "Opponent X",
+            "player_stats_csv": player_stats_csv,
+            "game_stats_csv": game_stats_csv,
+            "events_csv": events_csv,
+            "replace": False,
+        },
+        headers={"X-HM-Import-Token": "sekret"},
+    )
+    assert r.status_code == 200
+    out = r.get_json()
+    assert out["ok"] is True
+    gid = int(out["game_id"])
+    assert gid in db.hky_games
+    assert "external_game_key" in str(db.hky_games[gid].get("notes") or "")
+    assert db.hky_games[gid]["team1_score"] == 2
+    assert db.hky_games[gid]["team2_score"] == 1
+
+    assert db.league_id_by_name["Norcal"] >= 2
+    assert any(int(lg["game_id"]) == gid and lg.get("sort_order") == 7 for lg in db.league_games)
+
+    # Missing player is created and stats are inserted.
+    assert any(str(p.get("name")) == "Charlie" and str(p.get("jersey_number")) == "13" for p in db.players)
+    assert any(int(ps.get("game_id")) == gid for ps in db.player_stats)

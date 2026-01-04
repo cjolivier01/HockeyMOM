@@ -8,6 +8,8 @@ import pytest
 
 
 def _load_app_module():
+    os.environ.setdefault("HM_WEBAPP_SKIP_DB_INIT", "1")
+    os.environ.setdefault("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
     spec = importlib.util.spec_from_file_location("webapp_app", "tools/webapp/app.py")
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -201,20 +203,21 @@ class FakeCursor:
             key = (int(league_id), int(game_id))
             self._conn.league_games.add(key)
             self._conn.league_games_meta.setdefault(
-                key, {"division_name": None, "division_id": None, "conference_id": None}
+                key, {"division_name": None, "division_id": None, "conference_id": None, "sort_order": None}
             )
             return 1
 
         if q.startswith(
-            "INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id) VALUES"
+            "INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id, sort_order) VALUES"
         ):
-            league_id, game_id, division_name, division_id, conference_id = p
+            league_id, game_id, division_name, division_id, conference_id, sort_order = p
             key = (int(league_id), int(game_id))
             self._conn.league_games.add(key)
             prev = self._conn.league_games_meta.get(key) or {
                 "division_name": None,
                 "division_id": None,
                 "conference_id": None,
+                "sort_order": None,
             }
             if division_name is not None and str(division_name).strip():
                 prev["division_name"] = str(division_name).strip()
@@ -222,6 +225,8 @@ class FakeCursor:
                 prev["division_id"] = int(division_id)
             if conference_id is not None:
                 prev["conference_id"] = int(conference_id)
+            if sort_order is not None:
+                prev["sort_order"] = int(sort_order)
             self._conn.league_games_meta[key] = prev
             return 1
 
