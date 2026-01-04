@@ -10,12 +10,16 @@
   --danger: #d81b60; /* magenta */
   --warn: #ffc107;
   --border: #242835;
-	  /* Table row palette: dark blue <-> lighter blue. */
-	  --row-odd: #18243a;
-	  --row-even: #2a3a5c;
-	  --row-hover: #364b77;
-	  --thead-bg: #142036;
-	  --thead-text: #8bbcff;
+
+	  /* Tables: white background + gray zebra striping. */
+	  --table-bg: #ffffff;
+	  --table-text: #111827;
+	  --table-border: #d0d7de;
+	  --row-odd: #f3f4f6;
+	  --row-even: #e5e7eb;
+	  --row-hover: #dbeafe; /* subtle light-blue highlight */
+	  --thead-bg: #f8fafc;
+	  --thead-text: #1f2937;
 	}
 
 * { box-sizing: border-box; }
@@ -70,8 +74,8 @@ button { cursor: pointer; }
 .flash.error { background: #31161a; border: 1px solid #4a1a22; color: #ffb3be; }
 .flash.success { background: #14291d; border: 1px solid #1f3b2a; color: #abf5c0; }
 
-table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; }
+table { width: 100%; border-collapse: collapse; background: var(--table-bg); color: var(--table-text); border: 1px solid var(--table-border); border-radius: 12px; overflow: hidden; }
+th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--table-border); border-right: 1px solid var(--table-border); text-align: left; }
 th:last-child, td:last-child { border-right: none; }
 tbody tr:last-child td { border-bottom: none; }
 thead th { background: var(--thead-bg); color: var(--thead-text); font-weight: 800; }
@@ -110,7 +114,7 @@ th.sticky-col, td.sticky-col { position: sticky; left: 0; z-index: 3; }
 thead th.sticky-col { background: var(--thead-bg); z-index: 6; }
 tbody tr:nth-child(odd) td.sticky-col { background: var(--row-odd); }
 tbody tr:nth-child(even) td.sticky-col { background: var(--row-even); }
-td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--border); }
+td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 
 .status-badge { display: inline-block; padding: .2rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 800; }
 .status-COMPLETED { background: rgba(40,167,69,.15); color: #7bdfa1; border: 1px solid rgba(40,167,69,.3); }
