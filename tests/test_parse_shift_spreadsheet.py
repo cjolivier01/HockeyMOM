@@ -533,7 +533,7 @@ def should_compute_pair_on_ice_player_goal_assist_and_collaboration_counts():
     assert b_a["assists_collab_with_teammate"] == 1  # Bob assisted Alice's goal
 
 
-def should_aggregate_per_shift_rates_use_shift_games_only():
+def should_not_compute_per_shift_rates():
     shift_game_rows = [
         {
             "player": "1_A",
@@ -568,14 +568,11 @@ def should_aggregate_per_shift_rates_use_shift_games_only():
     assert row["goals"] == "3"
     assert row["assists"] == "1"
 
-    # Per-shift rates only use games that have shift times.
-    assert row["goals_per_shift"] == "0.20"
-    assert row["assists_per_shift"] == "0.10"
-    assert row["points_per_shift"] == "0.30"
-    assert row["shots_per_shift"] == "0.50"
+    # Per-shift rates are intentionally not computed.
+    assert not any("per_shift" in k for k in row.keys())
 
 
-def should_only_include_per_shift_columns_when_shifts_enabled():
+def should_not_include_per_shift_columns_even_when_shifts_enabled():
     rows = [{"player": "1_Ethan", "gp": "1", "goals": "1", "assists": "0", "points": "1", "ppg": "1.0"}]
     _df0, cols0 = pss._build_stats_dataframe(rows, [1], include_shifts_in_stats=False)
     assert "goals_per_shift" not in cols0
@@ -593,8 +590,8 @@ def should_only_include_per_shift_columns_when_shifts_enabled():
         }
     ]
     _df1, cols1 = pss._build_stats_dataframe(rows2, [1], include_shifts_in_stats=True)
-    assert "goals_per_shift" in cols1
-    assert "shots_per_shift" in cols1
+    assert "goals_per_shift" not in cols1
+    assert "shots_per_shift" not in cols1
 
 
 def should_place_plus_minus_columns_right_after_ppg():
@@ -612,22 +609,18 @@ def should_place_plus_minus_columns_right_after_ppg():
             "gf_per_game": "1.0",
             "ga_counted": "2",
             "ga_per_game": "1.0",
-            "gf_per_shift": "0.10",
-            "ga_per_shift": "0.10",
             "shots": "1",
         }
     ]
     _df, cols = pss._build_stats_dataframe(rows, [1], include_shifts_in_stats=True)
     i = cols.index("ppg")
-    assert cols[i + 1 : i + 9] == [
+    assert cols[i + 1 : i + 7] == [
         "plus_minus",
         "plus_minus_per_game",
         "gf_counted",
         "gf_per_game",
         "ga_counted",
         "ga_per_game",
-        "gf_per_shift",
-        "ga_per_shift",
     ]
 
 

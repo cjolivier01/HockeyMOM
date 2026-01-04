@@ -3489,8 +3489,6 @@ def _build_stats_dataframe(
         "ga_counted",
         "ga_per_game",
     ]
-    if include_shifts_in_stats:
-        summary_cols += ["gf_per_shift", "ga_per_shift"]
 
     summary_cols += [
         "shots",
@@ -3525,20 +3523,6 @@ def _build_stats_dataframe(
         summary_cols += [
             "shifts",
             "shifts_per_game",
-            "goals_per_shift",
-            "assists_per_shift",
-            "points_per_shift",
-            "shots_per_shift",
-            "sog_per_shift",
-            "expected_goals_per_shift",
-            "turnovers_forced_per_shift",
-            "created_turnovers_per_shift",
-            "giveaways_per_shift",
-            "takeaways_per_shift",
-            "controlled_entry_for_per_shift",
-            "controlled_entry_against_per_shift",
-            "controlled_exit_for_per_shift",
-            "controlled_exit_against_per_shift",
         ]
 
     sb_cols = (
@@ -3613,46 +3597,32 @@ def _display_col_name(key: str) -> str:
         "player": "Player",
         "gp": "GP",
         "goals": "Goals",
-        "goals_per_shift": "Goals per Shift",
         "assists": "Assists",
-        "assists_per_shift": "Assists per Shift",
         "points": "Points",
         "ppg": "PPG",
-        "points_per_shift": "Points per Shift",
         "shots": "Shots",
         "shots_per_game": "Shots per Game",
-        "shots_per_shift": "Shots per Shift",
         "sog": "SOG",
         "sog_per_game": "SOG per Game",
-        "sog_per_shift": "SOG per Shift",
         "expected_goals": "xG",
         "expected_goals_per_game": "xG per Game",
-        "expected_goals_per_shift": "xG per Shift",
         "expected_goals_per_sog": "xG per SOG",
         "turnovers_forced": "Turnovers (forced)",
         "turnovers_forced_per_game": "Turnovers (forced) per Game",
-        "turnovers_forced_per_shift": "Turnovers (forced) per Shift",
         "created_turnovers": "Created Turnovers",
         "created_turnovers_per_game": "Created Turnovers per Game",
-        "created_turnovers_per_shift": "Created Turnovers per Shift",
         "giveaways": "Giveaways",
         "giveaways_per_game": "Giveaways per Game",
-        "giveaways_per_shift": "Giveaways per Shift",
         "takeaways": "Takeaways",
         "takeaways_per_game": "Takeaways per Game",
-        "takeaways_per_shift": "Takeaways per Shift",
         "controlled_entry_for": "Controlled Entry For (On-Ice)",
         "controlled_entry_for_per_game": "Controlled Entry For (On-Ice) per Game",
-        "controlled_entry_for_per_shift": "Controlled Entry For (On-Ice) per Shift",
         "controlled_entry_against": "Controlled Entry Against (On-Ice)",
         "controlled_entry_against_per_game": "Controlled Entry Against (On-Ice) per Game",
-        "controlled_entry_against_per_shift": "Controlled Entry Against (On-Ice) per Shift",
         "controlled_exit_for": "Controlled Exit For (On-Ice)",
         "controlled_exit_for_per_game": "Controlled Exit For (On-Ice) per Game",
-        "controlled_exit_for_per_shift": "Controlled Exit For (On-Ice) per Shift",
         "controlled_exit_against": "Controlled Exit Against (On-Ice)",
         "controlled_exit_against_per_game": "Controlled Exit Against (On-Ice) per Game",
-        "controlled_exit_against_per_shift": "Controlled Exit Against (On-Ice) per Shift",
         "gt_goals": "GT Goals",
         "gw_goals": "GW Goals",
         "ot_goals": "OT Goals",
@@ -3663,10 +3633,8 @@ def _display_col_name(key: str) -> str:
         "plus_minus_per_game": "Goal +/- per Game",
         "gf_counted": "GF Counted",
         "gf_per_game": "GF per Game",
-        "gf_per_shift": "GF per Shift",
         "ga_counted": "GA Counted",
         "ga_per_game": "GA per Game",
-        "ga_per_shift": "GA per Shift",
         "sb_toi_total": "TOI Total",
         "sb_toi_per_game": "TOI per Game",
         "sb_avg": "Average Shift",
@@ -4342,8 +4310,6 @@ def _aggregate_stats_rows(
                 "player": player,
                 "goals": 0,
                 "assists": 0,
-                "goals_shift": 0,
-                "assists_shift": 0,
                 "ot_goals": 0,
                 "ot_assists": 0,
                 "shots": 0,
@@ -4362,24 +4328,10 @@ def _aggregate_stats_rows(
                 "plus_minus": 0,
                 "gf_counted": 0,
                 "ga_counted": 0,
-                "gf_counted_shift": 0,
-                "ga_counted_shift": 0,
                 "sb_toi_total_sec": 0,
                 "video_toi_total_sec": 0,
                 "sb_longest_sec": 0,
                 "sb_shortest_sec": None,
-                # Per-shift denominators (sum of shifts across games where the stat is available).
-                "shots_shifts_denom": 0,
-                "sog_shifts_denom": 0,
-                "expected_goals_shifts_denom": 0,
-                "turnovers_forced_shifts_denom": 0,
-                "created_turnovers_shifts_denom": 0,
-                "giveaways_shifts_denom": 0,
-                "takeaways_shifts_denom": 0,
-                "controlled_entry_for_shifts_denom": 0,
-                "controlled_entry_against_shifts_denom": 0,
-                "controlled_exit_for_shifts_denom": 0,
-                "controlled_exit_against_shifts_denom": 0,
             }
         return agg[player]
 
@@ -4421,35 +4373,7 @@ def _aggregate_stats_rows(
             dest["gf_counted"] += int(str(row.get("gf_counted", 0) or 0))
             dest["ga_counted"] += int(str(row.get("ga_counted", 0) or 0))
 
-            # Per-shift numerators should only use games where shift times exist.
-            if has_shift_sheet:
-                dest["goals_shift"] += int(str(row.get("goals", 0) or 0))
-                dest["assists_shift"] += int(str(row.get("assists", 0) or 0))
-                dest["gf_counted_shift"] += int(str(row.get("gf_counted", 0) or 0))
-                dest["ga_counted_shift"] += int(str(row.get("ga_counted", 0) or 0))
-
-                # Per-shift denominators are stat-specific: only include shifts from games
-                # where that stat is actually present (e.g., long sheets existed).
-                def _has_stat(key: str) -> bool:
-                    return str(row.get(key, "") or "").strip() != ""
-
-                if shifts_i > 0:
-                    for k in [
-                        "shots",
-                        "sog",
-                        "expected_goals",
-                        "turnovers_forced",
-                        "created_turnovers",
-                        "giveaways",
-                        "takeaways",
-                        "controlled_entry_for",
-                        "controlled_entry_against",
-                        "controlled_exit_for",
-                        "controlled_exit_against",
-                    ]:
-                        if _has_stat(k):
-                            denom_key = f"{k}_shifts_denom"
-                            dest[denom_key] = int(dest.get(denom_key, 0) or 0) + shifts_i
+            # Per-shift rates are intentionally not computed (too small/noisy).
 
             dest["sb_toi_total_sec"] += _duration_to_seconds(row.get("sb_toi_total", ""))
             dest["video_toi_total_sec"] += _duration_to_seconds(row.get("video_toi_total", ""))
@@ -4481,9 +4405,6 @@ def _aggregate_stats_rows(
         avg_sec = int(total_sec / shifts) if shifts else 0
         total_goals = data["goals"]
         total_assists = data["assists"]
-        goals_shift = data.get("goals_shift", 0) or 0
-        assists_shift = data.get("assists_shift", 0) or 0
-        points_shift = goals_shift + assists_shift
         total_ot_goals = data.get("ot_goals", 0) or 0
         total_ot_assists = data.get("ot_assists", 0) or 0
         total_points = total_goals + total_assists
@@ -4569,9 +4490,6 @@ def _aggregate_stats_rows(
             ),
             "shifts": str(shifts),
             "shifts_per_game": f"{(shifts / gp):.1f}" if gp > 0 else "",
-            "goals_per_shift": _fmt_per_shift(goals_shift, shifts),
-            "assists_per_shift": _fmt_per_shift(assists_shift, shifts),
-            "points_per_shift": _fmt_per_shift(points_shift, shifts),
             "plus_minus": str(data["plus_minus"]),
             "plus_minus_per_game": (
                 f"{(data['plus_minus'] / gp):.1f}" if gp > 0 else ""
@@ -4580,8 +4498,6 @@ def _aggregate_stats_rows(
             "gf_per_game": f"{(data['gf_counted'] / gp):.1f}" if gp > 0 else "",
             "ga_counted": str(data["ga_counted"]),
             "ga_per_game": f"{(data['ga_counted'] / gp):.1f}" if gp > 0 else "",
-            "gf_per_shift": _fmt_per_shift(int(data.get("gf_counted_shift", 0) or 0), shifts),
-            "ga_per_shift": _fmt_per_shift(int(data.get("ga_counted_shift", 0) or 0), shifts),
             "sb_toi_total": _format_duration(total_sec),
             "sb_toi_per_game": (
                 _format_duration(int(total_sec / gp)) if gp > 0 and total_sec > 0 else ""
@@ -4595,32 +4511,6 @@ def _aggregate_stats_rows(
             "video_toi_total": _format_duration(data["video_toi_total_sec"]),
         }
 
-        # Stat-specific per-shift rates (only over games where the stat exists).
-        row["shots_per_shift"] = _fmt_per_shift(total_shots, int(data.get("shots_shifts_denom", 0) or 0))
-        row["sog_per_shift"] = _fmt_per_shift(total_sog, int(data.get("sog_shifts_denom", 0) or 0))
-        row["expected_goals_per_shift"] = _fmt_per_shift(
-            total_expected_goals, int(data.get("expected_goals_shifts_denom", 0) or 0)
-        )
-        row["turnovers_forced_per_shift"] = _fmt_per_shift(
-            total_turnovers_forced, int(data.get("turnovers_forced_shifts_denom", 0) or 0)
-        )
-        row["created_turnovers_per_shift"] = _fmt_per_shift(
-            total_created_turnovers, int(data.get("created_turnovers_shifts_denom", 0) or 0)
-        )
-        row["giveaways_per_shift"] = _fmt_per_shift(total_giveaways, int(data.get("giveaways_shifts_denom", 0) or 0))
-        row["takeaways_per_shift"] = _fmt_per_shift(total_takeaways, int(data.get("takeaways_shifts_denom", 0) or 0))
-        row["controlled_entry_for_per_shift"] = _fmt_per_shift(
-            total_ce_for, int(data.get("controlled_entry_for_shifts_denom", 0) or 0)
-        )
-        row["controlled_entry_against_per_shift"] = _fmt_per_shift(
-            total_ce_against, int(data.get("controlled_entry_against_shifts_denom", 0) or 0)
-        )
-        row["controlled_exit_for_per_shift"] = _fmt_per_shift(
-            total_cx_for, int(data.get("controlled_exit_for_shifts_denom", 0) or 0)
-        )
-        row["controlled_exit_against_per_shift"] = _fmt_per_shift(
-            total_cx_against, int(data.get("controlled_exit_against_shifts_denom", 0) or 0)
-        )
         for p in sorted(all_periods):
             toi_key = f"P{p}_toi"
             shift_key = f"P{p}_shifts"
@@ -6462,23 +6352,12 @@ def process_sheet(
         stats_lines.append(f"OT Assists: {ot_assists_cnt}")
         stats_lines.append(f"Points (G+A): {points_val}")
         if include_shifts_in_stats:
-            shifts_cnt = 0
-            try:
-                shifts_cnt = int(str(shift_summary.get("num_shifts", "0") or 0))
-            except Exception:
-                shifts_cnt = 0
             stats_lines.append(f"Shifts (scoreboard): {shift_summary.get('num_shifts', '0')}")
             stats_lines.append(f"TOI total (scoreboard): {shift_summary.get('toi_total', '0:00')}")
             stats_lines.append(f"Avg shift: {shift_summary.get('toi_avg', '0:00')}")
             stats_lines.append(f"Median shift: {shift_summary.get('toi_median', '0:00')}")
             stats_lines.append(f"Longest shift: {shift_summary.get('toi_longest', '0:00')}")
             stats_lines.append(f"Shortest shift: {shift_summary.get('toi_shortest', '0:00')}")
-            if shifts_cnt > 0:
-                stats_lines.append(f"Goals per shift: {_fmt_per_shift(scoring_counts.get('goals', 0), shifts_cnt)}")
-                stats_lines.append(
-                    f"Assists per shift: {_fmt_per_shift(scoring_counts.get('assists', 0), shifts_cnt)}"
-                )
-                stats_lines.append(f"Points per shift: {_fmt_per_shift(points_val, shifts_cnt)}")
             if per_period_toi_map:
                 stats_lines.append("Per-period TOI (scoreboard):")
                 for period in sorted(per_period_toi_map.keys()):
@@ -6598,9 +6477,6 @@ def process_sheet(
             row_map["sb_median"] = str(shift_summary.get("toi_median", "0:00"))
             row_map["sb_longest"] = str(shift_summary.get("toi_longest", "0:00"))
             row_map["sb_shortest"] = str(shift_summary.get("toi_shortest", "0:00"))
-            row_map["goals_per_shift"] = _fmt_per_shift(goals_cnt, shifts_cnt_row)
-            row_map["assists_per_shift"] = _fmt_per_shift(assists_cnt, shifts_cnt_row)
-            row_map["points_per_shift"] = _fmt_per_shift(points_val, shifts_cnt_row)
         # Event counts (from event logs / long sheets), per game.
         if event_log_context is not None:
             ev_counts = (event_log_context.event_counts_by_player or {}).get(player_key, {})
@@ -6615,30 +6491,18 @@ def process_sheet(
         takeaways_cnt = int(ev_counts.get("Takeaway", 0) or 0)
         if has_player_shots:
             row_map["shots"] = str(shots_cnt)
-            if include_shifts_in_stats:
-                row_map["shots_per_shift"] = _fmt_per_shift(shots_cnt, shifts_cnt_row)
         else:
             row_map["shots"] = ""
-            if include_shifts_in_stats:
-                row_map["shots_per_shift"] = ""
 
         if has_player_sog:
             row_map["sog"] = str(sog_cnt)
-            if include_shifts_in_stats:
-                row_map["sog_per_shift"] = _fmt_per_shift(sog_cnt, shifts_cnt_row)
         else:
             row_map["sog"] = ""
-            if include_shifts_in_stats:
-                row_map["sog_per_shift"] = ""
 
         if has_player_expected_goals:
             row_map["expected_goals"] = str(expected_goals_cnt)
-            if include_shifts_in_stats:
-                row_map["expected_goals_per_shift"] = _fmt_per_shift(expected_goals_cnt, shifts_cnt_row)
         else:
             row_map["expected_goals"] = ""
-            if include_shifts_in_stats:
-                row_map["expected_goals_per_shift"] = ""
 
         if has_player_expected_goals and has_player_sog:
             row_map["expected_goals_per_sog"] = f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
@@ -6647,75 +6511,40 @@ def process_sheet(
 
         if has_player_turnovers_forced:
             row_map["turnovers_forced"] = str(turnovers_forced_cnt)
-            if include_shifts_in_stats:
-                row_map["turnovers_forced_per_shift"] = _fmt_per_shift(turnovers_forced_cnt, shifts_cnt_row)
         else:
             row_map["turnovers_forced"] = ""
-            if include_shifts_in_stats:
-                row_map["turnovers_forced_per_shift"] = ""
 
         if has_player_created_turnovers:
             row_map["created_turnovers"] = str(created_turnovers_cnt)
-            if include_shifts_in_stats:
-                row_map["created_turnovers_per_shift"] = _fmt_per_shift(created_turnovers_cnt, shifts_cnt_row)
         else:
             row_map["created_turnovers"] = ""
-            if include_shifts_in_stats:
-                row_map["created_turnovers_per_shift"] = ""
 
         if has_player_giveaways:
             row_map["giveaways"] = str(giveaways_cnt)
-            if include_shifts_in_stats:
-                row_map["giveaways_per_shift"] = _fmt_per_shift(giveaways_cnt, shifts_cnt_row)
         else:
             row_map["giveaways"] = ""
-            if include_shifts_in_stats:
-                row_map["giveaways_per_shift"] = ""
 
         if has_player_takeaways:
             row_map["takeaways"] = str(takeaways_cnt)
-            if include_shifts_in_stats:
-                row_map["takeaways_per_shift"] = _fmt_per_shift(takeaways_cnt, shifts_cnt_row)
         else:
             row_map["takeaways"] = ""
-            if include_shifts_in_stats:
-                row_map["takeaways_per_shift"] = ""
 
         if has_controlled_entry_events:
             row_map["controlled_entry_for"] = str(on_ice["controlled_entry_for"])
             row_map["controlled_entry_against"] = str(on_ice["controlled_entry_against"])
-            if include_shifts_in_stats:
-                row_map["controlled_entry_for_per_shift"] = _fmt_per_shift(on_ice["controlled_entry_for"], shifts_cnt_row)
-                row_map["controlled_entry_against_per_shift"] = _fmt_per_shift(
-                    on_ice["controlled_entry_against"], shifts_cnt_row
-                )
         else:
             row_map["controlled_entry_for"] = ""
             row_map["controlled_entry_against"] = ""
-            if include_shifts_in_stats:
-                row_map["controlled_entry_for_per_shift"] = ""
-                row_map["controlled_entry_against_per_shift"] = ""
 
         if has_controlled_exit_events:
             row_map["controlled_exit_for"] = str(on_ice["controlled_exit_for"])
             row_map["controlled_exit_against"] = str(on_ice["controlled_exit_against"])
-            if include_shifts_in_stats:
-                row_map["controlled_exit_for_per_shift"] = _fmt_per_shift(on_ice["controlled_exit_for"], shifts_cnt_row)
-                row_map["controlled_exit_against_per_shift"] = _fmt_per_shift(
-                    on_ice["controlled_exit_against"], shifts_cnt_row
-                )
         else:
             row_map["controlled_exit_for"] = ""
             row_map["controlled_exit_against"] = ""
-            if include_shifts_in_stats:
-                row_map["controlled_exit_for_per_shift"] = ""
-                row_map["controlled_exit_against_per_shift"] = ""
 
         row_map["gf_counted"] = str(len(counted_gf))
         row_map["ga_counted"] = str(len(counted_ga))
-        if include_shifts_in_stats:
-            row_map["gf_per_shift"] = _fmt_per_shift(len(counted_gf), shifts_cnt_row)
-            row_map["ga_per_shift"] = _fmt_per_shift(len(counted_ga), shifts_cnt_row)
         if include_shifts_in_stats:
             v_pairs = video_pairs_by_player.get(player_key, [])
             if v_pairs:
