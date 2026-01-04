@@ -7374,6 +7374,7 @@ def _upload_shift_package_to_webapp(
     home_logo_content_type: Optional[str] = None,
     away_logo_b64: Optional[str] = None,
     away_logo_content_type: Optional[str] = None,
+    game_video_url: Optional[str] = None,
     create_missing_players: bool = False,
 ) -> None:
     try:
@@ -7430,6 +7431,8 @@ def _upload_shift_package_to_webapp(
         payload["away_logo_content_type"] = str(away_logo_content_type)
     if create_missing_players:
         payload["create_missing_players"] = True
+    if game_video_url:
+        payload["game_video_url"] = str(game_video_url)
     headers: Dict[str, str] = {}
     if webapp_token:
         tok = str(webapp_token).strip()
@@ -8117,6 +8120,7 @@ def main() -> None:
                         home_logo_content_type=logo_fields.get("home_logo_content_type"),
                         away_logo_b64=logo_fields.get("away_logo_b64"),
                         away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                        game_video_url=_meta("game_video", "game_video_url", "video_url"),
                         create_missing_players=False,
                     )
                     upload_ok += 1
@@ -8163,6 +8167,7 @@ def main() -> None:
                             home_logo_content_type=logo_fields.get("home_logo_content_type"),
                             away_logo_b64=logo_fields.get("away_logo_b64"),
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                            game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=True,
                         )
                         upload_ok += 1
