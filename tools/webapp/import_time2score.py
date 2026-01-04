@@ -111,6 +111,12 @@ def ensure_league_schema(conn) -> None:
               division_name VARCHAR(255) NULL,
               division_id INT NULL,
               conference_id INT NULL,
+              mhr_div_rating DOUBLE NULL,
+              mhr_rating DOUBLE NULL,
+              mhr_agd DOUBLE NULL,
+              mhr_sched DOUBLE NULL,
+              mhr_games INT NULL,
+              mhr_updated_at DATETIME NULL,
               UNIQUE KEY uniq_league_team (league_id, team_id),
               INDEX(league_id), INDEX(team_id),
               FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -154,6 +160,27 @@ def ensure_league_schema(conn) -> None:
                         cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
                     except Exception:
                         pass
+
+        # Add rating columns (best-effort) so direct-DB imports work even if the webapp hasn't run yet.
+        for col_ddl in [
+            "mhr_div_rating DOUBLE NULL",
+            "mhr_rating DOUBLE NULL",
+            "mhr_agd DOUBLE NULL",
+            "mhr_sched DOUBLE NULL",
+            "mhr_games INT NULL",
+            "mhr_updated_at DATETIME NULL",
+        ]:
+            col = col_ddl.split(" ", 1)[0]
+            try:
+                cur.execute("SHOW COLUMNS FROM league_teams LIKE %s", (col,))
+                exists = cur.fetchone()
+                if not exists:
+                    cur.execute(f"ALTER TABLE league_teams ADD COLUMN {col_ddl}")
+            except Exception:
+                try:
+                    cur.execute(f"ALTER TABLE league_teams ADD COLUMN {col_ddl}")
+                except Exception:
+                    pass
     conn.commit()
 
 

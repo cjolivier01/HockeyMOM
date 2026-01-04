@@ -19,6 +19,38 @@ SHIFT_FILE_LIST="${SHIFT_FILE_LIST:-$HOME/Videos/game_list_long.txt}"
 PROJECT_ID="${PROJECT_ID:-sage-courier-241217}"
 ZONE="${ZONE:-us-central1-a}"
 INSTANCE="${INSTANCE:-hm-webapp}"
+DEPLOY_ONLY=0
+
+usage() {
+  cat <<'EOF'
+Usage: ./gcp_import_webapp.sh [--deploy-only]
+
+Environment:
+  WEBAPP_URL              Webapp base URL (default: https://www.jrsharks2013.org)
+  HM_WEBAPP_IMPORT_TOKEN  Import token (required for reset/import/upload; not needed for --deploy-only)
+  LEAGUE_NAME             League name (default: Norcal)
+  OWNER_EMAIL             League owner email (default: cjolivier01@gmail.com)
+  SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/Videos/game_list_long.txt)
+  PROJECT_ID              GCP project id (default: sage-courier-241217)
+  ZONE                    GCE zone (default: us-central1-a)
+  INSTANCE                GCE instance name (default: hm-webapp)
+
+Options:
+  --deploy-only           Only redeploy/restart the webapp and exit (no reset/import/upload)
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --deploy-only) DEPLOY_ONLY=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      echo "[!] Unknown arg: $arg" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
 
 is_local_url() {
   case "${WEBAPP_URL}" in
@@ -29,7 +61,9 @@ is_local_url() {
 
 TOKEN_ARGS=()
 RESET_TOKEN_ARGS=()
-if [[ -n "${HM_WEBAPP_IMPORT_TOKEN}" ]]; then
+if [[ "${DEPLOY_ONLY}" == "1" ]]; then
+  :
+elif [[ -n "${HM_WEBAPP_IMPORT_TOKEN}" ]]; then
   TOKEN_ARGS+=( "--import-token=${HM_WEBAPP_IMPORT_TOKEN}" )
   RESET_TOKEN_ARGS+=( "--webapp-token=${HM_WEBAPP_IMPORT_TOKEN}" )
 else
@@ -45,6 +79,11 @@ python3 tools/webapp/redeploy_gcp.py --project "${PROJECT_ID}" --zone "${ZONE}" 
 
 echo "[i] Verifying webapp endpoint"
 curl -sS -o /dev/null -m 15 -f -I "${WEBAPP_URL}/" >/dev/null
+
+if [[ "${DEPLOY_ONLY}" == "1" ]]; then
+  echo "[i] --deploy-only: skipping reset/import/upload"
+  exit 0
+fi
 
 echo "[i] Ensuring league '${LEAGUE_NAME}' is owned by ${OWNER_EMAIL}"
 LEAGUE_OWNER_PAYLOAD="$(

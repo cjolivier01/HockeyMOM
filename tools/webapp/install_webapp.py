@@ -200,10 +200,10 @@ WantedBy=multi-user.target
 
     sudo_write_text(f"/etc/systemd/system/{SERVICE_NAME}", unit)
 
-    print("Writing weekly Div Ratings systemd timer...")
+    print("Writing weekly Ratings systemd timer...")
     ratings_service = f"""
 [Unit]
-Description=HockeyMOM: Recompute Div Ratings (weekly)
+Description=HockeyMOM: Recompute Ratings (weekly)
 After=network-online.target
 Wants=network-online.target
 
@@ -220,7 +220,7 @@ ExecStart={python_bin} {app_dir}/recalc_div_ratings.py --config {app_dir}/config
     sudo_write_text("/etc/systemd/system/hm-webapp-div-ratings.service", ratings_service)
     ratings_timer = """
 [Unit]
-Description=HockeyMOM: Weekly Div Ratings recalculation
+Description=HockeyMOM: Weekly Ratings recalculation
 
 [Timer]
 OnCalendar=Wed *-*-* 00:00:00

@@ -43,7 +43,13 @@ _base_dir_str = str(BASE_DIR)
 if _base_dir_str not in sys.path:
     sys.path.insert(0, _base_dir_str)
 
-from hockey_rankings import GameScore, compute_mhr_like_ratings, scale_ratings_to_0_99_9  # noqa: E402
+from hockey_rankings import (  # noqa: E402
+    GameScore,
+    compute_mhr_like_ratings,
+    parse_age_from_division_name,
+    filter_games_ignore_cross_age,
+    scale_ratings_to_0_99_9_by_component,
+)
 
 
 def to_dt(value: Any) -> Optional[dt.datetime]:
@@ -842,13 +848,13 @@ def create_app() -> Flask:
             return redirect(url_for("leagues_index"))
         try:
             recompute_league_mhr_ratings(g.db, int(league_id))
-            flash("Div Ratings recalculated.", "success")
+            flash("Ratings recalculated.", "success")
         except Exception as e:  # noqa: BLE001
             try:
                 g.db.rollback()
             except Exception:
                 pass
-            flash(f"Failed to recalculate Div Ratings: {e}", "error")
+            flash(f"Failed to recalculate Ratings: {e}", "error")
         return redirect(url_for("leagues_index"))
 
     @app.get("/leagues")
@@ -4918,6 +4924,7 @@ def init_db():
               division_name VARCHAR(255) NULL,
               division_id INT NULL,
               conference_id INT NULL,
+              mhr_div_rating DOUBLE NULL,
               mhr_rating DOUBLE NULL,
               mhr_agd DOUBLE NULL,
               mhr_sched DOUBLE NULL,
@@ -4967,6 +4974,7 @@ def init_db():
                         pass
         # Extend league_teams with rating fields (older installs)
         for col_ddl in [
+            "mhr_div_rating DOUBLE NULL",
             "mhr_rating DOUBLE NULL",
             "mhr_agd DOUBLE NULL",
             "mhr_sched DOUBLE NULL",
@@ -5299,6 +5307,26 @@ def recompute_league_mhr_ratings(db_conn, league_id: int, *, max_goal_diff: int 
 
         cur.execute(
             """
+            SELECT lt.team_id, lt.division_name, t.name AS team_name
+            FROM league_teams lt JOIN teams t ON lt.team_id=t.id
+            WHERE lt.league_id=%s
+            """,
+            (int(league_id),),
+        )
+        team_age: dict[int, Optional[int]] = {}
+        for r in cur.fetchall() or []:
+            try:
+                tid = int(r.get("team_id"))
+            except Exception:
+                continue
+            dn = str(r.get("division_name") or "").strip()
+            age = parse_age_from_division_name(dn)
+            if age is None:
+                age = parse_age_from_division_name(str(r.get("team_name") or "").strip())
+            team_age[tid] = age
+
+        cur.execute(
+            """
             SELECT g.team1_id, g.team2_id, g.team1_score, g.team2_score,
                    lg.division_name AS game_division_name,
                    lt1.division_name AS team1_league_division_name,
@@ -5329,22 +5357,25 @@ def recompute_league_mhr_ratings(db_conn, league_id: int, *, max_goal_diff: int 
         except Exception:
             continue
 
+    # Ignore cross-age games when computing ratings (no cross-age coupling).
+    games_same_age = filter_games_ignore_cross_age(games, team_age=team_age)
+
     computed = compute_mhr_like_ratings(
-        games=games,
+        games=games_same_age,
         max_goal_diff=int(max_goal_diff),
         min_games_for_rating=int(min_games),
     )
-    computed = scale_ratings_to_0_99_9(computed, key="rating")
+    # Normalize per disconnected component: top team in each independent group becomes 99.9.
+    computed_norm = scale_ratings_to_0_99_9_by_component(computed, games=games_same_age, key="rating")
 
     now_s = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     # Persist for all league teams (set NULL when unknown/insufficient).
     with db_conn.cursor() as cur:
         for tid in league_team_ids:
-            row = computed.get(int(tid)) or {}
-            rating = row.get("rating")
-            agd = row.get("agd")
-            sched = row.get("sched")
-            games_n = row.get("games")
+            row_norm = computed_norm.get(int(tid)) or {}
+            rating = row_norm.get("rating")
+            # Use raw AGD/SCHED/GAMES from the base computation (before shifting).
+            row_base = computed.get(int(tid)) or {}
             cur.execute(
                 """
                 UPDATE league_teams
@@ -5353,16 +5384,16 @@ def recompute_league_mhr_ratings(db_conn, league_id: int, *, max_goal_diff: int 
                 """,
                 (
                     float(rating) if rating is not None else None,
-                    float(agd) if agd is not None else None,
-                    float(sched) if sched is not None else None,
-                    int(games_n) if games_n is not None else 0,
+                    float(row_base.get("agd")) if row_base.get("agd") is not None else None,
+                    float(row_base.get("sched")) if row_base.get("sched") is not None else None,
+                    int(row_base.get("games")) if row_base.get("games") is not None else 0,
                     now_s,
                     int(league_id),
                     int(tid),
                 ),
             )
     db_conn.commit()
-    return computed
+    return computed_norm
 
 
 def parse_events_csv(events_csv: str) -> tuple[list[str], list[dict[str, str]]]:

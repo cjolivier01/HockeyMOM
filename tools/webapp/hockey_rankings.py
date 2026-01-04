@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import re
+
 
 @dataclass(frozen=True)
 class GameScore:
@@ -182,6 +184,291 @@ def scale_ratings_to_0_99_9(results: dict[int, dict[str, Any]], *, key: str = "r
     out: dict[int, dict[str, Any]] = {int(tid): dict(row) for tid, row in results.items()}
     for tid, v in rated:
         out[int(tid)][key] = _shift(float(v))
+    return out
+
+
+def scale_ratings_to_0_99_9_by_component(
+    results: dict[int, dict[str, Any]], *, games: list[GameScore], key: str = "rating"
+) -> dict[int, dict[str, Any]]:
+    """
+    Like `scale_ratings_to_0_99_9`, but normalizes each disconnected connected-component of the
+    game graph independently, setting the top team in each component to 99.9.
+
+    This is the right behavior when there is no cross-pollination between groups of teams: the
+    MHR equations are translation-invariant per component, so absolute offsets between components
+    are not identifiable.
+    """
+    if not results:
+        return {}
+
+    # Build adjacency from games.
+    adj: dict[int, set[int]] = {}
+    for g in games or []:
+        try:
+            a = int(g.team1_id)
+            b = int(g.team2_id)
+        except Exception:
+            continue
+        if a == b:
+            continue
+        adj.setdefault(a, set()).add(b)
+        adj.setdefault(b, set()).add(a)
+
+    all_nodes = set(adj.keys()) | {int(tid) for tid in results.keys()}
+    out: dict[int, dict[str, Any]] = {int(tid): dict(row) for tid, row in results.items()}
+
+    seen: set[int] = set()
+    for start in sorted(all_nodes):
+        if start in seen:
+            continue
+        # BFS component
+        stack = [start]
+        comp: list[int] = []
+        seen.add(start)
+        while stack:
+            cur = stack.pop()
+            comp.append(cur)
+            for nb in adj.get(cur, set()):
+                if nb not in seen:
+                    seen.add(nb)
+                    stack.append(nb)
+
+        rated_vals: list[float] = []
+        for tid in comp:
+            row = results.get(int(tid)) or {}
+            v = row.get(key)
+            if v is None:
+                continue
+            try:
+                rated_vals.append(float(v))
+            except Exception:
+                continue
+        if not rated_vals:
+            continue
+
+        vmax = max(rated_vals)
+        offset = 99.9 - float(vmax)
+        for tid in comp:
+            row = results.get(int(tid)) or {}
+            v = row.get(key)
+            if v is None:
+                continue
+            try:
+                shifted = float(v) + float(offset)
+            except Exception:
+                continue
+            if shifted < 0.0:
+                shifted = 0.0
+            out[int(tid)][key] = round(float(shifted), 2)
+
+    return out
+
+
+_AGE_WORDS: list[tuple[str, int]] = [
+    ("mite", 8),
+    ("squirt", 10),
+    ("peewee", 12),
+    ("pee wee", 12),
+    ("bantam", 14),
+    ("midget", 16),
+    ("junior", 18),
+]
+
+# Match a leading age like "12U", "12AA", "10 B West", etc.
+_AGE_RE = re.compile(r"(?i)(?:^|\b)(\d{1,2})(?=\s|$|u\b|[A-Za-z])")
+
+
+def parse_age_from_division_name(division_name: str) -> Optional[int]:
+    """
+    Extract the numeric age from a division string like "10U B West", "12AA", "16A", etc.
+    Returns None if no plausible age is found.
+    """
+    s = str(division_name or "").strip()
+    if not s:
+        return None
+    low = s.lower()
+    for word, age in _AGE_WORDS:
+        if word in low:
+            return int(age)
+    m = _AGE_RE.search(s)
+    if not m:
+        return None
+    val = m.group(1)
+    try:
+        age = int(val)
+    except Exception:
+        return None
+    # Youth ages are typically 6..20; keep a broad band.
+    if age < 4 or age > 30:
+        return None
+    return age
+
+
+def normalize_ratings_to_0_99_9_age_aware(
+    results: dict[int, dict[str, Any]],
+    *,
+    games: list[GameScore],
+    team_age: dict[int, Optional[int]],
+    key: str = "rating",
+    min_cross_teams_each_side: int = 2,
+) -> dict[int, dict[str, Any]]:
+    """
+    Normalize ratings into a [0, 99.9] display range while preserving rating differences
+    within the groups we consider comparable.
+
+    Rule:
+      - By default, ratings are anchored separately per age group (10U vs 12U, etc), so each age
+        group can have a 99.9-rated team.
+      - Two age groups are only "comparable" (share the same anchoring) if there is strong
+        cross-pollination: at least `min_cross_teams_each_side` distinct teams from each age group
+        have played the other age group.
+      - Within an age-group anchoring set, if the (filtered) team graph is disconnected, each
+        disconnected component is anchored independently (top team in each component is 99.9).
+
+    Important: we ONLY APPLY CONSTANT SHIFTS per component (no min/max rescaling), so differences
+    remain in goal-differential units inside each anchored component.
+    """
+    if not results:
+        return {}
+
+    # Track cross-age participation for "strong" links.
+    cross: dict[tuple[int, int], tuple[set[int], set[int]]] = {}
+    for g in games or []:
+        try:
+            a = int(g.team1_id)
+            b = int(g.team2_id)
+        except Exception:
+            continue
+        if a == b:
+            continue
+        age_a = team_age.get(a)
+        age_b = team_age.get(b)
+        if age_a is None or age_b is None:
+            continue
+        if int(age_a) == int(age_b):
+            continue
+        lo, hi = (int(age_a), int(age_b)) if int(age_a) < int(age_b) else (int(age_b), int(age_a))
+        key_pair = (lo, hi)
+        sa, sb = cross.get(key_pair, (set(), set()))
+        # Always store as (teams_in_lo_age, teams_in_hi_age)
+        if int(age_a) == lo:
+            sa.add(a)
+            sb.add(b)
+        else:
+            sa.add(b)
+            sb.add(a)
+        cross[key_pair] = (sa, sb)
+
+    strong_age_links: set[tuple[int, int]] = set()
+    thresh = max(1, int(min_cross_teams_each_side))
+    for (lo, hi), (sa, sb) in cross.items():
+        if len(sa) >= thresh and len(sb) >= thresh:
+            strong_age_links.add((int(lo), int(hi)))
+
+    def _age_id(tid: int) -> Optional[int]:
+        v = team_age.get(int(tid))
+        return int(v) if v is not None else None
+
+    def _ages_strong(a: Optional[int], b: Optional[int]) -> bool:
+        if a is None or b is None:
+            return False
+        if a == b:
+            return True
+        lo, hi = (a, b) if a < b else (b, a)
+        return (lo, hi) in strong_age_links
+
+    # Build adjacency for anchoring components:
+    # - include same-age games
+    # - include cross-age games ONLY for strongly-linked age pairs
+    adj: dict[int, set[int]] = {}
+    for g in games or []:
+        try:
+            a = int(g.team1_id)
+            b = int(g.team2_id)
+        except Exception:
+            continue
+        if a == b:
+            continue
+        age_a = _age_id(a)
+        age_b = _age_id(b)
+        if age_a is None or age_b is None:
+            continue
+        if not _ages_strong(age_a, age_b):
+            continue
+        adj.setdefault(a, set()).add(b)
+        adj.setdefault(b, set()).add(a)
+
+    # Ensure all rated teams are included as nodes (even if they have no edges for anchoring).
+    all_nodes = set(adj.keys()) | {int(tid) for tid in results.keys()}
+
+    out: dict[int, dict[str, Any]] = {int(tid): dict(row) for tid, row in results.items()}
+
+    seen: set[int] = set()
+    for start in sorted(all_nodes):
+        if start in seen:
+            continue
+        # BFS component
+        stack = [start]
+        comp: list[int] = []
+        seen.add(start)
+        while stack:
+            cur = stack.pop()
+            comp.append(cur)
+            for nb in adj.get(cur, set()):
+                if nb not in seen:
+                    seen.add(nb)
+                    stack.append(nb)
+
+        rated_vals: list[float] = []
+        for tid in comp:
+            row = results.get(int(tid)) or {}
+            v = row.get(key)
+            if v is None:
+                continue
+            try:
+                rated_vals.append(float(v))
+            except Exception:
+                continue
+        if not rated_vals:
+            continue
+
+        vmax = max(rated_vals)
+        offset = 99.9 - float(vmax)
+        for tid in comp:
+            row = results.get(int(tid)) or {}
+            v = row.get(key)
+            if v is None:
+                continue
+            try:
+                shifted = float(v) + float(offset)
+            except Exception:
+                continue
+            if shifted < 0.0:
+                shifted = 0.0
+            out[int(tid)][key] = round(float(shifted), 2)
+
+    return out
+
+
+def filter_games_ignore_cross_age(games: list[GameScore], *, team_age: dict[int, Optional[int]]) -> list[GameScore]:
+    """
+    Return only games where both teams have a known age and the ages match.
+    This implements "ignore games that cross an age boundary" for rating computations.
+    """
+    out: list[GameScore] = []
+    for g in games or []:
+        try:
+            a = int(g.team1_id)
+            b = int(g.team2_id)
+        except Exception:
+            continue
+        age_a = team_age.get(a)
+        age_b = team_age.get(b)
+        if age_a is None or age_b is None:
+            continue
+        if int(age_a) != int(age_b):
+            continue
+        out.append(g)
     return out
 
 

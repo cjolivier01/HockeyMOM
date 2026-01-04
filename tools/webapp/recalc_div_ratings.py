@@ -35,7 +35,7 @@ def _list_league_ids(conn) -> list[int]:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="Recompute Div Ratings for leagues (weekly job).")
+    ap = argparse.ArgumentParser(description="Recompute Ratings for leagues (weekly job).")
     ap.add_argument(
         "--config",
         default=os.environ.get("HM_DB_CONFIG") or "/opt/hm-webapp/app/config.json",
@@ -60,7 +60,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             try:
                 webapp_app.recompute_league_mhr_ratings(conn, int(lid))
                 ok += 1
-                print(f"[ok] Recomputed Div Ratings for league_id={lid}")
+                print(f"[ok] Recomputed Ratings for league_id={lid}")
             except Exception as e:  # noqa: BLE001
                 try:
                     conn.rollback()
@@ -80,4 +80,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

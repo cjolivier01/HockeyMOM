@@ -155,13 +155,13 @@ echo "[i] Starting hm-webapp and nginx"
 sudo systemctl restart hm-webapp
 sudo systemctl restart nginx
 
-echo "[i] Ensuring weekly Div Ratings timer is installed (Wed 00:00)"
+echo "[i] Ensuring weekly Ratings timer is installed (Wed 00:00)"
 APP_USER="$(stat -c '%U' "$APP_DIR" 2>/dev/null || echo "${SUDO_USER:-$USER}")"
 UNIT_SERVICE="/etc/systemd/system/hm-webapp-div-ratings.service"
 UNIT_TIMER="/etc/systemd/system/hm-webapp-div-ratings.timer"
 sudo tee "$UNIT_SERVICE" >/dev/null <<EOF
 [Unit]
-Description=HockeyMOM: Recompute Div Ratings (weekly)
+Description=HockeyMOM: Recompute Ratings (weekly)
 After=network-online.target
 Wants=network-online.target
 
@@ -178,7 +178,7 @@ EOF
 
 sudo tee "$UNIT_TIMER" >/dev/null <<EOF
 [Unit]
-Description=HockeyMOM: Weekly Div Ratings recalculation
+Description=HockeyMOM: Weekly Ratings recalculation
 
 [Timer]
 OnCalendar=Wed *-*-* 00:00:00
