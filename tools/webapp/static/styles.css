@@ -105,10 +105,10 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 .table-nowrap th, .table-nowrap td { white-space: nowrap; }
 
 /* Horizontal scroll wrapper for wide tables */
-.table-scroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+.table-scroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; position: relative; }
 
 /* Scrollable viewport for very tall tables (e.g., game events). */
-.table-scroll-y { overflow-y: auto; max-height: 50vh; }
+.table-scroll-y { overflow-y: auto; max-height: 50vh; position: relative; }
 .table-scroll-y thead th { position: sticky; top: 0; z-index: 4; }
 
 /* Sortable tables */
@@ -124,6 +124,7 @@ td.cell-pre { white-space: pre-line !important; }
 .table-never-wrap td { overflow-wrap: normal !important; word-break: normal !important; }
 
 /* Freeze left columns (JS sets left offsets; CSS provides layering + row-matched backgrounds) */
+table[data-freeze-cols] { border-collapse: separate; border-spacing: 0; overflow: visible; }
 th.sticky-col, td.sticky-col { position: sticky; left: 0; z-index: 3; }
 thead th.sticky-col { background: var(--thead-bg); z-index: 6; }
 tbody tr:nth-child(odd) td.sticky-col { background: var(--row-odd); }
@@ -162,6 +163,18 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   }
   table th, table td { white-space: nowrap; }
   table td { overflow-wrap: normal; word-break: normal; }
+
+  /* If a table is already wrapped in an explicit scroll container, keep scrolling on the wrapper
+     so sticky/frozen columns work reliably. */
+  .table-scroll > table,
+  .table-scroll-y > table {
+    display: table;
+    overflow-x: visible;
+    overflow-y: visible;
+    white-space: nowrap;
+    width: max-content;
+    min-width: 100%;
+  }
 
   /* Additionally scale down scrollable tables based on JS-computed --mobile-table-scale. */
   table.table-mobile-scale th,

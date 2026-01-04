@@ -292,6 +292,9 @@
                 if (s < minS) s = minS;
                 try { t.style.setProperty("--mobile-table-scale", String(s)); } catch (e) {}
               });
+
+              // Recompute frozen column offsets after any layout-affecting scaling/resizes.
+              document.querySelectorAll("table[data-freeze-cols]").forEach(function(t) { setupFrozenColumns(t); });
             });
           }
 
