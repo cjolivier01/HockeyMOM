@@ -471,6 +471,7 @@ def upsert_hky_game(
     user_id: int,
     team1_id: int,
     team2_id: int,
+    game_type_id: Optional[int],
     starts_at: Optional[str],
     location: Optional[str],
     team1_score: Optional[int],
@@ -543,13 +544,14 @@ def upsert_hky_game(
             merged_notes = json.dumps(notes_json_fields, sort_keys=True) if notes_json_fields else (notes or None)
             cur.execute(
                 """
-                INSERT INTO hky_games(user_id, team1_id, team2_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                INSERT INTO hky_games(user_id, team1_id, team2_id, game_type_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     user_id,
                     team1_id,
                     team2_id,
+                    game_type_id,
                     starts_at,
                     location,
                     team1_score,
@@ -572,7 +574,8 @@ def upsert_hky_game(
             cur.execute(
                 """
                 UPDATE hky_games
-                SET location=COALESCE(%s, location),
+                SET game_type_id=COALESCE(%s, game_type_id),
+                    location=COALESCE(%s, location),
                     team1_score=%s,
                     team2_score=%s,
                     is_final=CASE WHEN %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
@@ -582,6 +585,7 @@ def upsert_hky_game(
                 WHERE id=%s
                 """,
                 (
+                    game_type_id,
                     location,
                     team1_score,
                     team2_score,
@@ -597,7 +601,8 @@ def upsert_hky_game(
             cur.execute(
                 """
                 UPDATE hky_games
-                SET location=COALESCE(%s, location),
+                SET game_type_id=COALESCE(%s, game_type_id),
+                    location=COALESCE(%s, location),
                     team1_score=COALESCE(team1_score, %s),
                     team2_score=COALESCE(team2_score, %s),
                     is_final=CASE WHEN team1_score IS NULL AND team2_score IS NULL AND %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
@@ -607,6 +612,7 @@ def upsert_hky_game(
                 WHERE id=%s
                 """,
                 (
+                    game_type_id,
                     location,
                     team1_score,
                     team2_score,
@@ -720,6 +726,34 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
 
     ensure_league_member(conn, league_id, owner_user_id, role="admin")
 
+    def _normalize_import_game_type_name(raw: Any) -> Optional[str]:
+        s = str(raw or "").strip()
+        if not s:
+            return None
+        sl = s.casefold()
+        if sl.startswith("regular"):
+            return "Regular Season"
+        if sl.startswith("preseason"):
+            return "Preseason"
+        if sl.startswith("exhibition"):
+            return "Exhibition"
+        if sl.startswith("tournament"):
+            return "Tournament"
+        return s
+
+    def _ensure_game_type_id(name_any: Any) -> Optional[int]:
+        nm = _normalize_import_game_type_name(name_any)
+        if not nm:
+            return None
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM game_types WHERE name=%s", (nm,))
+            r = cur.fetchone()
+            if r:
+                return int(r[0])
+            cur.execute("INSERT INTO game_types(name, is_default) VALUES(%s,%s)", (nm, 0))
+            conn.commit()
+            return int(cur.lastrowid)
+
     def _ensure_player_for_import(
         team_id: int, name: str, jersey_number: Optional[str], position: Optional[str]
     ) -> int:
@@ -796,12 +830,16 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
 
         tts_game_id = int(game["timetoscore_game_id"]) if game.get("timetoscore_game_id") is not None else None
         season_id = int(game["season_id"]) if game.get("season_id") is not None else None
+        game_type_id = _ensure_game_type_id(
+            game.get("game_type_name") or game.get("game_type") or game.get("timetoscore_type") or game.get("type")
+        )
 
         gid = upsert_hky_game(
             conn,
             user_id=owner_user_id,
             team1_id=team1_id,
             team2_id=team2_id,
+            game_type_id=game_type_id,
             starts_at=starts_at,
             location=location,
             team1_score=team1_score,
@@ -1416,6 +1454,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 {
                     "home_name": home_name,
                     "away_name": away_name,
+                    "game_type_name": str((fb or {}).get("type") or "").strip() or None,
                     "division_name": game_div_name,
                     "division_id": game_div_id,
                     "conference_id": game_conf_id,
@@ -1499,11 +1538,36 @@ def main(argv: Optional[list[str]] = None) -> int:
                 pass
 
         notes = f"Imported from TimeToScore {args.source} game_id={gid}"
+        game_type_name = str((fb or {}).get("type") or "").strip() or None
+        game_type_id = None
+        if game_type_name:
+            with conn.cursor() as cur:
+                # Map TimeToScore schedule Type to our canonical game type names.
+                sl = game_type_name.casefold()
+                if sl.startswith("regular"):
+                    nm = "Regular Season"
+                elif sl.startswith("preseason"):
+                    nm = "Preseason"
+                elif sl.startswith("exhibition"):
+                    nm = "Exhibition"
+                elif sl.startswith("tournament"):
+                    nm = "Tournament"
+                else:
+                    nm = game_type_name
+                cur.execute("SELECT id FROM game_types WHERE name=%s", (nm,))
+                r = cur.fetchone()
+                if r:
+                    game_type_id = int(r[0])
+                else:
+                    cur.execute("INSERT INTO game_types(name, is_default) VALUES(%s,%s)", (nm, 0))
+                    conn.commit()
+                    game_type_id = int(cur.lastrowid)
         game_db_id = upsert_hky_game(
             conn,
             user_id=user_id,
             team1_id=team1_id,
             team2_id=team2_id,
+            game_type_id=game_type_id,
             starts_at=starts_at,
             location=location,
             team1_score=t1_score,

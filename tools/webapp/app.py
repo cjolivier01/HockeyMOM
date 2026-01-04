@@ -925,6 +925,34 @@ def create_app() -> Flask:
             if commit:
                 g.db.commit()
 
+    def _normalize_import_game_type_name(raw: Any) -> Optional[str]:
+        s = str(raw or "").strip()
+        if not s:
+            return None
+        sl = s.casefold()
+        if sl.startswith("regular"):
+            return "Regular Season"
+        if sl.startswith("preseason"):
+            return "Preseason"
+        if sl.startswith("exhibition"):
+            return "Exhibition"
+        if sl.startswith("tournament"):
+            return "Tournament"
+        return s
+
+    def _ensure_game_type_id_for_import(game_type_name: Any) -> Optional[int]:
+        nm = _normalize_import_game_type_name(game_type_name)
+        if not nm:
+            return None
+        with g.db.cursor() as cur:
+            cur.execute("SELECT id FROM game_types WHERE name=%s", (nm,))
+            row = cur.fetchone()
+            if row:
+                return int(row[0])
+            cur.execute("INSERT INTO game_types(name, is_default) VALUES(%s,%s)", (nm, 0))
+            g.db.commit()
+            return int(cur.lastrowid)
+
     def _ensure_external_team_for_import(owner_user_id: int, name: str, *, commit: bool = True) -> int:
         def _norm_team_name(s: str) -> str:
             t = str(s or "").replace("\xa0", " ").strip()
@@ -1013,6 +1041,7 @@ def create_app() -> Flask:
         owner_user_id: int,
         team1_id: int,
         team2_id: int,
+        game_type_id: Optional[int],
         starts_at: Optional[str],
         location: Optional[str],
         team1_score: Optional[int],
@@ -1078,13 +1107,14 @@ def create_app() -> Flask:
                 notes = json.dumps(notes_json_fields, sort_keys=True)
                 cur.execute(
                     """
-                    INSERT INTO hky_games(user_id, team1_id, team2_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    INSERT INTO hky_games(user_id, team1_id, team2_id, game_type_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (
                         owner_user_id,
                         team1_id,
                         team2_id,
+                        game_type_id,
                         starts_at,
                         location,
                         team1_score,
@@ -1107,7 +1137,8 @@ def create_app() -> Flask:
                 cur.execute(
                     """
                     UPDATE hky_games
-                    SET location=COALESCE(%s, location),
+                    SET game_type_id=COALESCE(%s, game_type_id),
+                        location=COALESCE(%s, location),
                         team1_score=%s,
                         team2_score=%s,
                         is_final=CASE WHEN %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
@@ -1117,6 +1148,7 @@ def create_app() -> Flask:
                     WHERE id=%s
                     """,
                     (
+                        game_type_id,
                         location,
                         team1_score,
                         team2_score,
@@ -1132,7 +1164,8 @@ def create_app() -> Flask:
                 cur.execute(
                     """
                     UPDATE hky_games
-                    SET location=COALESCE(%s, location),
+                    SET game_type_id=COALESCE(%s, game_type_id),
+                        location=COALESCE(%s, location),
                         team1_score=COALESCE(team1_score, %s),
                         team2_score=COALESCE(team2_score, %s),
                         is_final=CASE WHEN team1_score IS NULL AND team2_score IS NULL AND %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
@@ -1142,6 +1175,7 @@ def create_app() -> Flask:
                     WHERE id=%s
                     """,
                     (
+                        game_type_id,
                         location,
                         team1_score,
                         team2_score,
@@ -1516,6 +1550,16 @@ def create_app() -> Flask:
                 pass
         if payload.get("source"):
             notes_fields["source"] = str(payload.get("source"))
+        if game.get("timetoscore_type") is not None:
+            notes_fields["timetoscore_type"] = str(game.get("timetoscore_type"))
+        elif game.get("game_type_name") is not None:
+            notes_fields["timetoscore_type"] = str(game.get("game_type_name"))
+        elif game.get("type") is not None:
+            notes_fields["timetoscore_type"] = str(game.get("type"))
+
+        game_type_id = _ensure_game_type_id_for_import(
+            game.get("game_type_name") or game.get("game_type") or game.get("timetoscore_type") or game.get("type")
+        )
 
         try:
             t1s = int(team1_score) if team1_score is not None else None
@@ -1530,6 +1574,7 @@ def create_app() -> Flask:
             owner_user_id=owner_user_id,
             team1_id=team1_id,
             team2_id=team2_id,
+            game_type_id=game_type_id,
             starts_at=starts_at_s,
             location=location,
             team1_score=t1s,
@@ -1788,6 +1833,16 @@ def create_app() -> Flask:
                         pass
                 if payload.get("source"):
                     notes_fields["source"] = str(payload.get("source"))
+                if game.get("timetoscore_type") is not None:
+                    notes_fields["timetoscore_type"] = str(game.get("timetoscore_type"))
+                elif game.get("game_type_name") is not None:
+                    notes_fields["timetoscore_type"] = str(game.get("game_type_name"))
+                elif game.get("type") is not None:
+                    notes_fields["timetoscore_type"] = str(game.get("type"))
+
+                game_type_id = _ensure_game_type_id_for_import(
+                    game.get("game_type_name") or game.get("game_type") or game.get("timetoscore_type") or game.get("type")
+                )
 
                 try:
                     t1s = int(team1_score) if team1_score is not None else None
@@ -1802,6 +1857,7 @@ def create_app() -> Flask:
                     owner_user_id=owner_user_id,
                     team1_id=team1_id,
                     team2_id=team2_id,
+                    game_type_id=game_type_id,
                     starts_at=starts_at_s,
                     location=location,
                     team1_score=t1s,
@@ -2152,6 +2208,7 @@ def create_app() -> Flask:
                     owner_user_id=owner_user_id_for_create,
                     team1_id=team1_id,
                     team2_id=team2_id,
+                    game_type_id=None,
                     starts_at=starts_at,
                     location=location,
                     team1_score=team1_score,
@@ -4969,8 +5026,16 @@ def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:
             losses += 1
         else:
             ties += 1
-    points = wins * 2 + ties * 1
-    return {"wins": wins, "losses": losses, "ties": ties, "gf": gf, "ga": ga, "points": points}
+    points_total = wins * 2 + ties * 1
+    return {
+        "wins": wins,
+        "losses": losses,
+        "ties": ties,
+        "gf": gf,
+        "ga": ga,
+        "points": points_total,
+        "points_total": points_total,
+    }
 
 
 def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
@@ -4978,8 +5043,16 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
     with db_conn.cursor(curtype) if curtype else db_conn.cursor() as cur:
         cur.execute(
             """
-            SELECT g.team1_id, g.team2_id, g.team1_score, g.team2_score, g.is_final
-            FROM league_games lg JOIN hky_games g ON lg.game_id=g.id
+            SELECT g.team1_id, g.team2_id, g.team1_score, g.team2_score, g.is_final,
+                   lg.division_name AS league_division_name,
+                   gt.name AS game_type_name,
+                   lt1.division_name AS team1_league_division_name,
+                   lt2.division_name AS team2_league_division_name
+            FROM league_games lg
+              JOIN hky_games g ON lg.game_id=g.id
+              LEFT JOIN game_types gt ON g.game_type_id=gt.id
+              LEFT JOIN league_teams lt1 ON lt1.league_id=lg.league_id AND lt1.team_id=g.team1_id
+              LEFT JOIN league_teams lt2 ON lt2.league_id=lg.league_id AND lt2.team_id=g.team2_id
             WHERE lg.league_id=%s AND (g.team1_id=%s OR g.team2_id=%s)
               AND g.team1_score IS NOT NULL AND g.team2_score IS NOT NULL
             """,
@@ -4987,6 +5060,20 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
         )
         rows = cur.fetchall()
     wins = losses = ties = gf = ga = 0
+    swins = slosses = sties = sgf = sga = 0
+
+    def _is_regular_game(r: dict) -> bool:
+        # Only regular-season games should contribute to standings points/rankings.
+        gt = str(r.get("game_type_name") or "").strip()
+        if not gt or not gt.lower().startswith("regular"):
+            return False
+        # Any game involving an External team, or mapped to the External division, does not count for standings.
+        for key in ("league_division_name", "team1_league_division_name", "team2_league_division_name"):
+            dn = str(r.get(key) or "").strip()
+            if dn.lower() == "external":
+                return False
+        return True
+
     for r in rows:
         t1 = int(r["team1_id"]) == team_id
         my_score = (
@@ -5007,16 +5094,42 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
             losses += 1
         else:
             ties += 1
-    points = wins * 2 + ties * 1
-    return {"wins": wins, "losses": losses, "ties": ties, "gf": gf, "ga": ga, "points": points}
+
+        if _is_regular_game(r):
+            sgf += my_score
+            sga += op_score
+            if my_score > op_score:
+                swins += 1
+            elif my_score < op_score:
+                slosses += 1
+            else:
+                sties += 1
+
+    points = swins * 2 + sties * 1
+    points_total = wins * 2 + ties * 1
+    return {
+        "wins": wins,
+        "losses": losses,
+        "ties": ties,
+        "gf": gf,
+        "ga": ga,
+        "points": points,
+        "points_total": points_total,
+        # Used only for sorting/tiebreakers in standings; display fields above include all games.
+        "standings_wins": swins,
+        "standings_losses": slosses,
+        "standings_ties": sties,
+        "standings_gf": sgf,
+        "standings_ga": sga,
+    }
 
 
 def sort_key_team_standings(team_row: dict, stats: dict) -> tuple:
     """Standard hockey standings sort (points, wins, goal diff, goals for, goals against, name)."""
     pts = int(stats.get("points", 0))
-    wins = int(stats.get("wins", 0))
-    gf = int(stats.get("gf", 0))
-    ga = int(stats.get("ga", 0))
+    wins = int(stats.get("standings_wins", stats.get("wins", 0)))
+    gf = int(stats.get("standings_gf", stats.get("gf", 0)))
+    ga = int(stats.get("standings_ga", stats.get("ga", 0)))
     gd = gf - ga
     name = str(team_row.get("name") or "")
     return (-pts, -wins, -gd, -gf, ga, name.lower())

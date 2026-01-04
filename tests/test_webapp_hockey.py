@@ -90,6 +90,83 @@ def should_compute_team_stats_from_rows():
     assert stats["points"] == 1 * 2 + 1 * 1
 
 
+def should_compute_league_points_from_regular_only_but_keep_record_from_all_games():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    class _Cur:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+        def execute(self, *_args, **_kwargs):
+            return 1
+
+        def fetchall(self):
+            return list(self._rows)
+
+    class _Conn:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def cursor(self, *_args, **_kwargs):
+            return _Cur(self._rows)
+
+    # team_id=1:
+    # - Regular Season win (counts for points)
+    # - Preseason tie (does not count for points)
+    # - Regular Season win in External division (does not count for points)
+    rows = [
+        {
+            "team1_id": 1,
+            "team2_id": 2,
+            "team1_score": 3,
+            "team2_score": 1,
+            "game_type_name": "Regular Season",
+            "league_division_name": "12 AA",
+            "team1_league_division_name": "12 AA",
+            "team2_league_division_name": "12 AA",
+        },
+        {
+            "team1_id": 2,
+            "team2_id": 1,
+            "team1_score": 2,
+            "team2_score": 2,
+            "game_type_name": "Preseason",
+            "league_division_name": "12 AA",
+            "team1_league_division_name": "12 AA",
+            "team2_league_division_name": "12 AA",
+        },
+        {
+            "team1_id": 1,
+            "team2_id": 3,
+            "team1_score": 4,
+            "team2_score": 2,
+            "game_type_name": "Regular Season",
+            "league_division_name": "External",
+            "team1_league_division_name": "12 AA",
+            "team2_league_division_name": "External",
+        },
+    ]
+    stats = mod.compute_team_stats_league(_Conn(rows), team_id=1, league_id=999)
+    # Record/GF/GA include all games
+    assert stats["wins"] == 2
+    assert stats["losses"] == 0
+    assert stats["ties"] == 1
+    assert stats["gf"] == 3 + 2 + 4
+    assert stats["ga"] == 1 + 2 + 2
+    # Points only count regular-season games that are not external.
+    assert stats["points"] == 2
+    # Total points include all games.
+    assert stats["points_total"] == 2 * 2 + 1 * 1
+
+
 def should_aggregate_player_totals_from_rows():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"

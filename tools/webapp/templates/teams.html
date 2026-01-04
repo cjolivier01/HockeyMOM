@@ -22,6 +22,7 @@
           <th>Record</th>
           <th>GF/GA</th>
           <th>Pts</th>
+          <th>Pts (Total)</th>
           <th></th>
         </tr>
       </thead>
@@ -41,6 +42,7 @@
             <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
             <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
             <td>{{ s.get('points',0) }}</td>
+            <td>{{ s.get('points_total', s.get('points',0)) }}</td>
             <td>
               {% if not (public_league_id is defined) and t['user_id'] == current_user_id %}
                 <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
@@ -62,6 +64,7 @@
         <th>Record</th>
         <th>GF/GA</th>
         <th>Pts</th>
+        <th>Pts (Total)</th>
         <th></th>
       </tr>
     </thead>
@@ -81,6 +84,7 @@
           <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
           <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
           <td>{{ s.get('points',0) }}</td>
+          <td>{{ s.get('points_total', s.get('points',0)) }}</td>
           <td>
             {% if not (public_league_id is defined) and t['user_id'] == current_user_id %}
               <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>

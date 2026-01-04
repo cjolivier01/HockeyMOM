@@ -367,28 +367,45 @@ class FakeCursor:
                     break
             return 1
 
-        if q.startswith(
-            "INSERT INTO hky_games(user_id, team1_id, team2_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at) VALUES"
-        ):
-            (
-                user_id,
-                team1_id,
-                team2_id,
-                starts_at,
-                location,
-                team1_score,
-                team2_score,
-                is_final,
-                notes,
-                stats_imported_at,
-                created_at,
-            ) = p
+        if q.startswith("INSERT INTO hky_games(user_id, team1_id, team2_id,"):
+            # Schema evolved to include game_type_id as the 4th column.
+            if "game_type_id" in q:
+                (
+                    user_id,
+                    team1_id,
+                    team2_id,
+                    game_type_id,
+                    starts_at,
+                    location,
+                    team1_score,
+                    team2_score,
+                    is_final,
+                    notes,
+                    stats_imported_at,
+                    created_at,
+                ) = p
+            else:
+                (
+                    user_id,
+                    team1_id,
+                    team2_id,
+                    starts_at,
+                    location,
+                    team1_score,
+                    team2_score,
+                    is_final,
+                    notes,
+                    stats_imported_at,
+                    created_at,
+                ) = p
+                game_type_id = None
             gid = self._conn._alloc_id("hky_games")
             self._conn.hky_games_by_id[gid] = {
                 "id": gid,
                 "user_id": int(user_id),
                 "team1_id": int(team1_id),
                 "team2_id": int(team2_id),
+                "game_type_id": game_type_id,
                 "starts_at": starts_at,
                 "location": location,
                 "team1_score": team1_score,
@@ -413,6 +430,23 @@ class FakeCursor:
                 ]
             return 1
 
+        if q.startswith("UPDATE hky_games SET game_type_id=COALESCE(%s, game_type_id), location=COALESCE(%s, location), team1_score=%s, team2_score=%s"):
+            game_type_id, location, t1, t2, _t1, _t2, notes, stats_imported_at, updated_at, gid = p
+            gid = int(gid)
+            g = self._conn.hky_games_by_id[gid]
+            if game_type_id is not None and g.get("game_type_id") is None:
+                g["game_type_id"] = game_type_id
+            if location is not None and not g.get("location"):
+                g["location"] = location
+            g["team1_score"] = t1
+            g["team2_score"] = t2
+            if t1 is not None and t2 is not None:
+                g["is_final"] = 1
+            g["notes"] = notes
+            g["stats_imported_at"] = stats_imported_at
+            g["updated_at"] = updated_at
+            return 1
+
         if q.startswith("UPDATE hky_games SET location=COALESCE(%s, location), team1_score=%s, team2_score=%s"):
             location, t1, t2, _t1, _t2, notes, stats_imported_at, updated_at, gid = p
             gid = int(gid)
@@ -422,6 +456,27 @@ class FakeCursor:
             g["team1_score"] = t1
             g["team2_score"] = t2
             if t1 is not None and t2 is not None:
+                g["is_final"] = 1
+            g["notes"] = notes
+            g["stats_imported_at"] = stats_imported_at
+            g["updated_at"] = updated_at
+            return 1
+
+        if q.startswith(
+            "UPDATE hky_games SET game_type_id=COALESCE(%s, game_type_id), location=COALESCE(%s, location), team1_score=COALESCE(team1_score, %s), team2_score=COALESCE(team2_score, %s)"
+        ):
+            game_type_id, location, t1, t2, _t1, _t2, notes, stats_imported_at, updated_at, gid = p
+            gid = int(gid)
+            g = self._conn.hky_games_by_id[gid]
+            if game_type_id is not None and g.get("game_type_id") is None:
+                g["game_type_id"] = game_type_id
+            if location is not None and not g.get("location"):
+                g["location"] = location
+            if g.get("team1_score") is None:
+                g["team1_score"] = t1
+            if g.get("team2_score") is None:
+                g["team2_score"] = t2
+            if g.get("team1_score") is not None and g.get("team2_score") is not None:
                 g["is_final"] = 1
             g["notes"] = notes
             g["stats_imported_at"] = stats_imported_at

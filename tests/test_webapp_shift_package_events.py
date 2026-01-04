@@ -372,22 +372,38 @@ class FakeCursor:
             self._rows = []
             return 1
 
-        if q.startswith(
-            "INSERT INTO hky_games(user_id, team1_id, team2_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at) VALUES"
-        ):
-            (
-                user_id,
-                team1_id,
-                team2_id,
-                starts_at,
-                location,
-                team1_score,
-                team2_score,
-                is_final,
-                notes,
-                stats_imported_at,
-                created_at,
-            ) = p
+        if q.startswith("INSERT INTO hky_games(user_id, team1_id, team2_id,"):
+            # Schema evolved to include game_type_id.
+            if "game_type_id" in q:
+                (
+                    user_id,
+                    team1_id,
+                    team2_id,
+                    game_type_id,
+                    starts_at,
+                    location,
+                    team1_score,
+                    team2_score,
+                    is_final,
+                    notes,
+                    stats_imported_at,
+                    created_at,
+                ) = p
+            else:
+                (
+                    user_id,
+                    team1_id,
+                    team2_id,
+                    starts_at,
+                    location,
+                    team1_score,
+                    team2_score,
+                    is_final,
+                    notes,
+                    stats_imported_at,
+                    created_at,
+                ) = p
+                game_type_id = None
             gid = int(self._conn._next_id["hky_games"])
             self._conn._next_id["hky_games"] += 1
             self._conn.hky_games[gid] = {
@@ -395,6 +411,7 @@ class FakeCursor:
                 "user_id": int(user_id),
                 "team1_id": int(team1_id),
                 "team2_id": int(team2_id),
+                "game_type_id": game_type_id,
                 "starts_at": starts_at,
                 "location": location,
                 "team1_score": team1_score,
