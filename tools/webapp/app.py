@@ -8,6 +8,7 @@ import re
 import secrets
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 from flask import (
     Flask,
@@ -126,6 +127,22 @@ def create_app() -> Flask:
         d = _to_dt(value)
         return d.strftime("%H:%M") if d else ""
 
+    @app.template_filter("fmt_stat")
+    def _fmt_stat(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return "1" if value else "0"
+        if isinstance(value, int):
+            return str(value)
+        try:
+            f = float(value)
+            if f.is_integer():
+                return str(int(f))
+            return f"{f:.2f}".rstrip("0").rstrip(".")
+        except Exception:
+            return str(value)
+
     @app.before_request
     def open_db():
         g.db = get_db()
@@ -232,7 +249,18 @@ def create_app() -> Flask:
                     leagues = cur.fetchall()
             except Exception:
                 leagues = []
-        return dict(user_leagues=leagues, selected_league_id=selected)
+        def url_with_args(**kwargs: Any) -> str:
+            # Merge current query params with overrides, preserving other args.
+            params = request.args.to_dict(flat=True)
+            for k, v in (kwargs or {}).items():
+                if v is None or str(v).strip() == "":
+                    params.pop(str(k), None)
+                else:
+                    params[str(k)] = str(v)
+            qs = urlencode(params)
+            return request.path + (f"?{qs}" if qs else "")
+
+        return dict(user_leagues=leagues, selected_league_id=selected, url_with_args=url_with_args)
 
     @app.post("/league/select")
     def league_select():
@@ -2552,6 +2580,13 @@ def create_app() -> Flask:
         league = _is_public_league(league_id)
         if not league:
             return ("Not found", 404)
+        recent_n_raw = request.args.get("recent_n")
+        try:
+            recent_n = max(1, min(10, int(str(recent_n_raw or "5"))))
+        except Exception:
+            recent_n = 5
+        recent_sort = str(request.args.get("recent_sort") or "points").strip() or "points"
+        recent_dir = str(request.args.get("recent_dir") or "desc").strip().lower() or "desc"
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 """
@@ -2573,7 +2608,7 @@ def create_app() -> Flask:
             cur.execute(
                 """
                 SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
-                       lg.division_name AS division_name
+                       lg.division_name AS division_name, lg.sort_order AS sort_order
                 FROM league_games lg
                   JOIN hky_games g ON lg.game_id=g.id
                   JOIN teams t1 ON g.team1_id=t1.id
@@ -2585,11 +2620,37 @@ def create_app() -> Flask:
                 (int(league_id), team_id, team_id),
             )
             schedule_games = cur.fetchall() or []
+
+        cols_sql = ", ".join([f"ps.{c}" for c in PLAYER_STATS_SUM_KEYS])
+        with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+            cur.execute(
+                f"""
+                SELECT ps.player_id, ps.game_id, {cols_sql}
+                FROM league_games lg JOIN player_stats ps ON lg.game_id=ps.game_id
+                WHERE lg.league_id=%s AND ps.team_id=%s
+                """,
+                (int(league_id), team_id),
+            )
+            ps_rows = cur.fetchall() or []
+
+        player_stats_rows = build_player_stats_table_rows(players, player_totals)
+        recent_totals = compute_recent_player_totals_from_rows(
+            schedule_games=schedule_games, player_stats_rows=ps_rows, n=recent_n
+        )
+        recent_player_stats_rows = sort_player_stats_rows(
+            build_player_stats_table_rows(players, recent_totals), sort_key=recent_sort, sort_dir=recent_dir
+        )
         return render_template(
             "team_detail.html",
             team=team,
             players=players,
-            player_totals=player_totals,
+            player_stats_columns=PLAYER_STATS_DISPLAY_COLUMNS,
+            player_stats_rows=player_stats_rows,
+            recent_player_stats_columns=PLAYER_STATS_DISPLAY_COLUMNS,
+            recent_player_stats_rows=recent_player_stats_rows,
+            recent_n=recent_n,
+            recent_sort=recent_sort,
+            recent_dir=recent_dir,
             tstats=tstats,
             schedule_games=schedule_games,
             editable=False,
@@ -2889,6 +2950,13 @@ def create_app() -> Flask:
         r = require_login()
         if r:
             return r
+        recent_n_raw = request.args.get("recent_n")
+        try:
+            recent_n = max(1, min(10, int(str(recent_n_raw or "5"))))
+        except Exception:
+            recent_n = 5
+        recent_sort = str(request.args.get("recent_sort") or "points").strip() or "points"
+        recent_dir = str(request.args.get("recent_dir") or "desc").strip().lower() or "desc"
         league_id = session.get("league_id")
         team = get_team(team_id, session["user_id"])
         editable = bool(team)
@@ -2926,7 +2994,7 @@ def create_app() -> Flask:
                 cur.execute(
                     """
                     SELECT g.*, t1.name AS team1_name, t2.name AS team2_name, gt.name AS game_type_name,
-                           lg.division_name AS division_name
+                           lg.division_name AS division_name, lg.sort_order AS sort_order
                     FROM league_games lg
                       JOIN hky_games g ON lg.game_id=g.id
                       JOIN teams t1 ON g.team1_id=t1.id
@@ -2938,6 +3006,18 @@ def create_app() -> Flask:
                     (int(league_id), team_id, team_id),
                 )
                 schedule_games = cur.fetchall() or []
+
+            cols_sql = ", ".join([f"ps.{c}" for c in PLAYER_STATS_SUM_KEYS])
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    f"""
+                    SELECT ps.player_id, ps.game_id, {cols_sql}
+                    FROM league_games lg JOIN player_stats ps ON lg.game_id=ps.game_id
+                    WHERE lg.league_id=%s AND ps.team_id=%s
+                    """,
+                    (int(league_id), team_id),
+                )
+                ps_rows = cur.fetchall() or []
         else:
             player_totals = aggregate_players_totals(g.db, team_id, team_owner_id)
             tstats = compute_team_stats(g.db, team_id, team_owner_id)
@@ -2955,11 +3035,32 @@ def create_app() -> Flask:
                     (team_owner_id, team_id, team_id),
                 )
                 schedule_games = cur.fetchall() or []
+            cols_sql = ", ".join([str(c) for c in PLAYER_STATS_SUM_KEYS])
+            with g.db.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(
+                    f"SELECT player_id, game_id, {cols_sql} FROM player_stats WHERE team_id=%s AND user_id=%s",
+                    (team_id, team_owner_id),
+                )
+                ps_rows = cur.fetchall() or []
+
+        player_stats_rows = build_player_stats_table_rows(players, player_totals)
+        recent_totals = compute_recent_player_totals_from_rows(
+            schedule_games=schedule_games, player_stats_rows=ps_rows, n=recent_n
+        )
+        recent_player_stats_rows = sort_player_stats_rows(
+            build_player_stats_table_rows(players, recent_totals), sort_key=recent_sort, sort_dir=recent_dir
+        )
         return render_template(
             "team_detail.html",
             team=team,
             players=players,
-            player_totals=player_totals,
+            player_stats_columns=PLAYER_STATS_DISPLAY_COLUMNS,
+            player_stats_rows=player_stats_rows,
+            recent_player_stats_columns=PLAYER_STATS_DISPLAY_COLUMNS,
+            recent_player_stats_rows=recent_player_stats_rows,
+            recent_n=recent_n,
+            recent_sort=recent_sort,
+            recent_dir=recent_dir,
             tstats=tstats,
             schedule_games=schedule_games,
             editable=editable,
@@ -4650,12 +4751,286 @@ def sort_key_team_standings(team_row: dict, stats: dict) -> tuple:
     return (-pts, -wins, -gd, -gf, ga, name.lower())
 
 
+PLAYER_STATS_SUM_KEYS: tuple[str, ...] = (
+    "goals",
+    "assists",
+    "pim",
+    "shots",
+    "sog",
+    "expected_goals",
+    "plus_minus",
+    "giveaways",
+    "turnovers_forced",
+    "created_turnovers",
+    "takeaways",
+    "controlled_entry_for",
+    "controlled_entry_against",
+    "controlled_exit_for",
+    "controlled_exit_against",
+    "gf_counted",
+    "ga_counted",
+    "gt_goals",
+    "gw_goals",
+    "ot_goals",
+    "ot_assists",
+    "hits",
+    "blocks",
+    "faceoff_wins",
+    "faceoff_attempts",
+    "goalie_saves",
+    "goalie_ga",
+    "goalie_sa",
+)
+
+PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("gp", "GP"),
+    ("goals", "Goals"),
+    ("assists", "Assists"),
+    ("points", "Points"),
+    ("ppg", "PPG"),
+    ("plus_minus", "Goal +/-"),
+    ("plus_minus_per_game", "Goal +/- per Game"),
+    ("gf_counted", "GF Counted"),
+    ("gf_per_game", "GF per Game"),
+    ("ga_counted", "GA Counted"),
+    ("ga_per_game", "GA per Game"),
+    ("shots", "Shots"),
+    ("shots_per_game", "Shots per Game"),
+    ("sog", "SOG"),
+    ("sog_per_game", "SOG per Game"),
+    ("expected_goals", "xG"),
+    ("expected_goals_per_game", "xG per Game"),
+    ("expected_goals_per_sog", "xG per SOG"),
+    ("turnovers_forced", "Turnovers (forced)"),
+    ("turnovers_forced_per_game", "Turnovers (forced) per Game"),
+    ("created_turnovers", "Created Turnovers"),
+    ("created_turnovers_per_game", "Created Turnovers per Game"),
+    ("giveaways", "Giveaways"),
+    ("giveaways_per_game", "Giveaways per Game"),
+    ("takeaways", "Takeaways"),
+    ("takeaways_per_game", "Takeaways per Game"),
+    ("controlled_entry_for", "Controlled Entry For (On-Ice)"),
+    ("controlled_entry_for_per_game", "Controlled Entry For (On-Ice) per Game"),
+    ("controlled_entry_against", "Controlled Entry Against (On-Ice)"),
+    ("controlled_entry_against_per_game", "Controlled Entry Against (On-Ice) per Game"),
+    ("controlled_exit_for", "Controlled Exit For (On-Ice)"),
+    ("controlled_exit_for_per_game", "Controlled Exit For (On-Ice) per Game"),
+    ("controlled_exit_against", "Controlled Exit Against (On-Ice)"),
+    ("controlled_exit_against_per_game", "Controlled Exit Against (On-Ice) per Game"),
+    ("gt_goals", "GT Goals"),
+    ("gw_goals", "GW Goals"),
+    ("ot_goals", "OT Goals"),
+    ("ot_assists", "OT Assists"),
+    ("pim", "PIM"),
+    ("pim_per_game", "PIM per Game"),
+    ("hits", "Hits"),
+    ("hits_per_game", "Hits per Game"),
+    ("blocks", "Blocks"),
+    ("blocks_per_game", "Blocks per Game"),
+    ("faceoff_wins", "Faceoff Wins"),
+    ("faceoff_attempts", "Faceoff Attempts"),
+    ("faceoff_pct", "Faceoff %"),
+    ("goalie_saves", "Saves"),
+    ("goalie_sa", "SA"),
+    ("goalie_ga", "GA"),
+    ("goalie_sv_pct", "SV%"),
+)
+
+
+def _int0(v: Any) -> int:
+    try:
+        if v is None:
+            return 0
+        return int(float(str(v)))
+    except Exception:
+        return 0
+
+
+def _rate_or_none(numer: float, denom: float) -> Optional[float]:
+    try:
+        if denom <= 0:
+            return None
+        return float(numer) / float(denom)
+    except Exception:
+        return None
+
+
+def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
+    gp = _int0(sums.get("gp"))
+    goals = _int0(sums.get("goals"))
+    assists = _int0(sums.get("assists"))
+    points = goals + assists
+
+    shots = _int0(sums.get("shots"))
+    sog = _int0(sums.get("sog"))
+    xg = _int0(sums.get("expected_goals"))
+    pim = _int0(sums.get("pim"))
+    plus_minus = _int0(sums.get("plus_minus"))
+    gf = _int0(sums.get("gf_counted"))
+    ga = _int0(sums.get("ga_counted"))
+    giveaways = _int0(sums.get("giveaways"))
+    takeaways = _int0(sums.get("takeaways"))
+    turnovers_forced = _int0(sums.get("turnovers_forced"))
+    created_turnovers = _int0(sums.get("created_turnovers"))
+    ce_for = _int0(sums.get("controlled_entry_for"))
+    ce_against = _int0(sums.get("controlled_entry_against"))
+    cx_for = _int0(sums.get("controlled_exit_for"))
+    cx_against = _int0(sums.get("controlled_exit_against"))
+
+    faceoff_wins = _int0(sums.get("faceoff_wins"))
+    faceoff_attempts = _int0(sums.get("faceoff_attempts"))
+    goalie_saves = _int0(sums.get("goalie_saves"))
+    goalie_sa = _int0(sums.get("goalie_sa"))
+    goalie_ga = _int0(sums.get("goalie_ga"))
+
+    out: dict[str, Any] = dict(sums)
+    out["gp"] = gp
+    out["points"] = points
+    out["ppg"] = _rate_or_none(points, gp)
+
+    # Per-game rates.
+    out["shots_per_game"] = _rate_or_none(shots, gp)
+    out["sog_per_game"] = _rate_or_none(sog, gp)
+    out["expected_goals_per_game"] = _rate_or_none(xg, gp)
+    out["plus_minus_per_game"] = _rate_or_none(plus_minus, gp)
+    out["gf_per_game"] = _rate_or_none(gf, gp)
+    out["ga_per_game"] = _rate_or_none(ga, gp)
+    out["giveaways_per_game"] = _rate_or_none(giveaways, gp)
+    out["takeaways_per_game"] = _rate_or_none(takeaways, gp)
+    out["turnovers_forced_per_game"] = _rate_or_none(turnovers_forced, gp)
+    out["created_turnovers_per_game"] = _rate_or_none(created_turnovers, gp)
+    out["controlled_entry_for_per_game"] = _rate_or_none(ce_for, gp)
+    out["controlled_entry_against_per_game"] = _rate_or_none(ce_against, gp)
+    out["controlled_exit_for_per_game"] = _rate_or_none(cx_for, gp)
+    out["controlled_exit_against_per_game"] = _rate_or_none(cx_against, gp)
+    out["pim_per_game"] = _rate_or_none(pim, gp)
+    out["hits_per_game"] = _rate_or_none(_int0(sums.get("hits")), gp)
+    out["blocks_per_game"] = _rate_or_none(_int0(sums.get("blocks")), gp)
+
+    out["expected_goals_per_sog"] = _rate_or_none(xg, sog)
+    out["faceoff_pct"] = _rate_or_none(faceoff_wins, faceoff_attempts)
+    out["goalie_sv_pct"] = _rate_or_none(goalie_saves, goalie_sa)
+    return out
+
+
+def _empty_player_display_stats(player_id: int) -> dict[str, Any]:
+    base: dict[str, Any] = {"player_id": int(player_id), "gp": 0}
+    for k in PLAYER_STATS_SUM_KEYS:
+        base[k] = 0
+    return compute_player_display_stats(base)
+
+
+def build_player_stats_table_rows(
+    players: list[dict[str, Any]],
+    stats_by_player_id: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for p in (players or []):
+        pid = int(p.get("id"))
+        s = stats_by_player_id.get(pid) or _empty_player_display_stats(pid)
+        row = {
+            "player_id": pid,
+            "jersey_number": str(p.get("jersey_number") or ""),
+            "name": str(p.get("name") or ""),
+            "position": str(p.get("position") or ""),
+        }
+        for k, _label in PLAYER_STATS_DISPLAY_COLUMNS:
+            row[k] = s.get(k)
+        rows.append(row)
+    return rows
+
+
+def compute_recent_player_totals_from_rows(
+    *,
+    schedule_games: list[dict[str, Any]],
+    player_stats_rows: list[dict[str, Any]],
+    n: int,
+) -> dict[int, dict[str, Any]]:
+    """
+    Compute per-player totals using each player's most recent N games (as defined by `schedule_games` order).
+    """
+    n_i = max(1, min(10, int(n)))
+    order_idx: dict[int, int] = {}
+    for idx, g in enumerate(schedule_games or []):
+        try:
+            order_idx[int(g.get("id"))] = int(idx)
+        except Exception:
+            continue
+
+    rows_by_player: dict[int, list[tuple[int, dict[str, Any]]]] = {}
+    for r in (player_stats_rows or []):
+        try:
+            gid = int(r.get("game_id"))
+            pid = int(r.get("player_id"))
+        except Exception:
+            continue
+        idx = order_idx.get(gid)
+        if idx is None:
+            continue
+        rows_by_player.setdefault(pid, []).append((idx, r))
+
+    out: dict[int, dict[str, Any]] = {}
+    for pid, items in rows_by_player.items():
+        items.sort(key=lambda t: t[0], reverse=True)
+        chosen = items[:n_i]
+        sums: dict[str, Any] = {"player_id": int(pid), "gp": len(chosen)}
+        for k in PLAYER_STATS_SUM_KEYS:
+            sums[k] = sum(_int0(rr.get(k)) for _idx, rr in chosen)
+        out[int(pid)] = compute_player_display_stats(sums)
+    return out
+
+
+def sort_player_stats_rows(
+    rows: list[dict[str, Any]],
+    *,
+    sort_key: str,
+    sort_dir: str,
+) -> list[dict[str, Any]]:
+    key = str(sort_key or "").strip()
+    direction = str(sort_dir or "").strip().lower()
+    if direction not in {"asc", "desc"}:
+        direction = "desc"
+
+    def _val(r: dict[str, Any]) -> Any:
+        if key in {"jersey", "jersey_number", "#"}:
+            try:
+                return int(str(r.get("jersey_number") or "0").strip() or "0")
+            except Exception:
+                return 0
+        if key in {"name", "player"}:
+            return str(r.get("name") or "").lower()
+        if key == "position":
+            return str(r.get("position") or "").lower()
+        v = r.get(key)
+        if v is None or v == "":
+            return float("-inf") if direction == "desc" else float("inf")
+        if isinstance(v, (int, float)):
+            return v
+        try:
+            return float(str(v))
+        except Exception:
+            return str(v).lower()
+
+    reverse = direction == "desc"
+    # Stable tie-breakers (points desc, then name).
+    def _tiebreak(r: dict[str, Any]) -> tuple:
+        pts = r.get("points")
+        try:
+            pts_v = float(pts) if pts is not None else 0.0
+        except Exception:
+            pts_v = 0.0
+        return (-pts_v, str(r.get("name") or "").lower())
+
+    return sorted(list(rows or []), key=lambda r: (_val(r), _tiebreak(r)), reverse=reverse)
+
+
 def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
     curtype = pymysql.cursors.DictCursor if (pymysql and getattr(pymysql, "cursors", None)) else None  # type: ignore
     with db_conn.cursor(curtype) if curtype else db_conn.cursor() as cur:
         cur.execute(
             """
 	            SELECT player_id,
+	                   COUNT(*) AS gp,
 	                   COALESCE(SUM(goals),0) AS goals,
 	                   COALESCE(SUM(assists),0) AS assists,
 	                   COALESCE(SUM(pim),0) AS pim,
@@ -4663,6 +5038,8 @@ def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
 	                   COALESCE(SUM(sog),0) AS sog,
 	                   COALESCE(SUM(expected_goals),0) AS expected_goals,
 	                   COALESCE(SUM(giveaways),0) AS giveaways,
+	                   COALESCE(SUM(turnovers_forced),0) AS turnovers_forced,
+	                   COALESCE(SUM(created_turnovers),0) AS created_turnovers,
 	                   COALESCE(SUM(takeaways),0) AS takeaways,
 	                   COALESCE(SUM(controlled_entry_for),0) AS controlled_entry_for,
 	                   COALESCE(SUM(controlled_entry_against),0) AS controlled_entry_against,
@@ -4670,33 +5047,28 @@ def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
 	                   COALESCE(SUM(controlled_exit_against),0) AS controlled_exit_against,
 	                   COALESCE(SUM(plus_minus),0) AS plus_minus,
 	                   COALESCE(SUM(gf_counted),0) AS gf_counted,
-	                   COALESCE(SUM(ga_counted),0) AS ga_counted
+	                   COALESCE(SUM(ga_counted),0) AS ga_counted,
+	                   COALESCE(SUM(gt_goals),0) AS gt_goals,
+	                   COALESCE(SUM(gw_goals),0) AS gw_goals,
+	                   COALESCE(SUM(ot_goals),0) AS ot_goals,
+	                   COALESCE(SUM(ot_assists),0) AS ot_assists,
+	                   COALESCE(SUM(hits),0) AS hits,
+	                   COALESCE(SUM(blocks),0) AS blocks,
+	                   COALESCE(SUM(faceoff_wins),0) AS faceoff_wins,
+	                   COALESCE(SUM(faceoff_attempts),0) AS faceoff_attempts,
+	                   COALESCE(SUM(goalie_saves),0) AS goalie_saves,
+	                   COALESCE(SUM(goalie_ga),0) AS goalie_ga,
+	                   COALESCE(SUM(goalie_sa),0) AS goalie_sa
 	            FROM player_stats WHERE team_id=%s AND user_id=%s
 	            GROUP BY player_id
             """,
             (team_id, user_id),
         )
         rows = cur.fetchall()
-    out = {}
-    for r in rows:
-	        out[int(r["player_id"])] = {
-	            "goals": int(r["goals"] or 0),
-	            "assists": int(r["assists"] or 0),
-	            "points": int(r["goals"] or 0) + int(r["assists"] or 0),
-	            "shots": int(r["shots"] or 0),
-	            "sog": int(r.get("sog") or 0),
-	            "expected_goals": int(r.get("expected_goals") or 0),
-            "giveaways": int(r.get("giveaways") or 0),
-            "takeaways": int(r.get("takeaways") or 0),
-            "controlled_entry_for": int(r.get("controlled_entry_for") or 0),
-            "controlled_entry_against": int(r.get("controlled_entry_against") or 0),
-	            "controlled_exit_for": int(r.get("controlled_exit_for") or 0),
-	            "controlled_exit_against": int(r.get("controlled_exit_against") or 0),
-	            "plus_minus": int(r.get("plus_minus") or 0),
-	            "gf_counted": int(r.get("gf_counted") or 0),
-	            "ga_counted": int(r.get("ga_counted") or 0),
-	            "pim": int(r["pim"] or 0),
-	        }
+    out: dict[int, dict[str, Any]] = {}
+    for r in (rows or []):
+        pid = int(r.get("player_id") if isinstance(r, dict) else r["player_id"])
+        out[pid] = compute_player_display_stats(dict(r))
     return out
 
 
@@ -4706,6 +5078,7 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
         cur.execute(
             """
 	            SELECT ps.player_id,
+	                   COUNT(*) AS gp,
 	                   COALESCE(SUM(ps.goals),0) AS goals,
 	                   COALESCE(SUM(ps.assists),0) AS assists,
 	                   COALESCE(SUM(ps.pim),0) AS pim,
@@ -4713,6 +5086,8 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
 	                   COALESCE(SUM(ps.sog),0) AS sog,
 	                   COALESCE(SUM(ps.expected_goals),0) AS expected_goals,
 	                   COALESCE(SUM(ps.giveaways),0) AS giveaways,
+	                   COALESCE(SUM(ps.turnovers_forced),0) AS turnovers_forced,
+	                   COALESCE(SUM(ps.created_turnovers),0) AS created_turnovers,
 	                   COALESCE(SUM(ps.takeaways),0) AS takeaways,
 	                   COALESCE(SUM(ps.controlled_entry_for),0) AS controlled_entry_for,
 	                   COALESCE(SUM(ps.controlled_entry_against),0) AS controlled_entry_against,
@@ -4720,7 +5095,18 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
 	                   COALESCE(SUM(ps.controlled_exit_against),0) AS controlled_exit_against,
 	                   COALESCE(SUM(ps.plus_minus),0) AS plus_minus,
 	                   COALESCE(SUM(ps.gf_counted),0) AS gf_counted,
-	                   COALESCE(SUM(ps.ga_counted),0) AS ga_counted
+	                   COALESCE(SUM(ps.ga_counted),0) AS ga_counted,
+	                   COALESCE(SUM(ps.gt_goals),0) AS gt_goals,
+	                   COALESCE(SUM(ps.gw_goals),0) AS gw_goals,
+	                   COALESCE(SUM(ps.ot_goals),0) AS ot_goals,
+	                   COALESCE(SUM(ps.ot_assists),0) AS ot_assists,
+	                   COALESCE(SUM(ps.hits),0) AS hits,
+	                   COALESCE(SUM(ps.blocks),0) AS blocks,
+	                   COALESCE(SUM(ps.faceoff_wins),0) AS faceoff_wins,
+	                   COALESCE(SUM(ps.faceoff_attempts),0) AS faceoff_attempts,
+	                   COALESCE(SUM(ps.goalie_saves),0) AS goalie_saves,
+	                   COALESCE(SUM(ps.goalie_ga),0) AS goalie_ga,
+	                   COALESCE(SUM(ps.goalie_sa),0) AS goalie_sa
 	            FROM league_games lg JOIN player_stats ps ON lg.game_id=ps.game_id
 	            WHERE lg.league_id=%s AND ps.team_id=%s
 	            GROUP BY ps.player_id
@@ -4728,26 +5114,10 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
             (league_id, team_id),
         )
         rows = cur.fetchall()
-    out = {}
-    for r in rows:
-	        out[int(r["player_id"])] = {
-            "goals": int(r["goals"] or 0),
-            "assists": int(r["assists"] or 0),
-            "points": int(r["goals"] or 0) + int(r["assists"] or 0),
-            "shots": int(r["shots"] or 0),
-            "sog": int(r.get("sog") or 0),
-            "expected_goals": int(r.get("expected_goals") or 0),
-            "giveaways": int(r.get("giveaways") or 0),
-            "takeaways": int(r.get("takeaways") or 0),
-            "controlled_entry_for": int(r.get("controlled_entry_for") or 0),
-            "controlled_entry_against": int(r.get("controlled_entry_against") or 0),
-	            "controlled_exit_for": int(r.get("controlled_exit_for") or 0),
-	            "controlled_exit_against": int(r.get("controlled_exit_against") or 0),
-	            "plus_minus": int(r.get("plus_minus") or 0),
-	            "gf_counted": int(r.get("gf_counted") or 0),
-	            "ga_counted": int(r.get("ga_counted") or 0),
-	            "pim": int(r["pim"] or 0),
-	        }
+    out: dict[int, dict[str, Any]] = {}
+    for r in (rows or []):
+        pid = int(r.get("player_id") if isinstance(r, dict) else r["player_id"])
+        out[pid] = compute_player_display_stats(dict(r))
     return out
 
 

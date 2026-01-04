@@ -796,6 +796,50 @@ def should_error_when_upload_webapp_external_game_missing_team_names(tmp_path: P
     assert int(getattr(e.value, "code", 0) or 0) == 2
 
 
+def should_allow_file_list_home_away_suffix_on_directory_inputs(tmp_path: Path):
+    # File-list inputs can be directories, and may include ':HOME' / ':AWAY' to
+    # specify whether the "For" team is home or away (used for T2S mapping and
+    # webapp upload semantics).
+    stats_dir = tmp_path / "coyotes-1" / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+
+    df = pd.DataFrame(
+        [
+            ["1st Period", "", "", "", "", ""],
+            [
+                "Jersey No",
+                "Name",
+                pss.LABEL_START_SB,
+                pss.LABEL_END_SB,
+                pss.LABEL_START_V,
+                pss.LABEL_END_V,
+            ],
+            ["8", "Adam Ro", "0:10", "0:40", "0:10", "0:40"],
+        ]
+    )
+    xlsx_path = stats_dir / "coyotes-1.xlsx"
+    df.to_excel(xlsx_path, index=False, header=False)
+
+    p, side = pss._parse_input_token(f"{stats_dir}:AWAY")
+    assert p == stats_dir
+    assert side == "away"
+
+    discovered = pss._expand_dir_input_to_game_sheets(p)
+    assert discovered and discovered[0].name == "coyotes-1.xlsx"
+
+    # Mimic the group-side selection logic from main(): side should carry through.
+    groups_by_label: dict[str, dict] = {}
+    for order_idx, fp in enumerate(discovered):
+        label = pss._base_label_from_path(fp)
+        g = groups_by_label.setdefault(
+            label, {"label": label, "primary": None, "long_paths": [], "side": None, "order": order_idx, "meta": {}}
+        )
+        if g.get("side") is None:
+            g["side"] = side
+
+    assert groups_by_label["coyotes-1"]["side"] == "away"
+
+
 if __name__ == "__main__":
     # Make `bazel test //tests:test_parse_shift_spreadsheet` run pytest collection.
     raise SystemExit(

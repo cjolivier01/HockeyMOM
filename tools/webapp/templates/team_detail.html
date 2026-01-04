@@ -105,37 +105,39 @@
 
 <h3>Players</h3>
 <div class="card">
-  <div style="overflow-x:auto;">
-    <table>
+  <div class="table-scroll">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
       <thead>
-        <tr><th>#</th><th>Name</th><th>Pos</th><th>G</th><th>A</th><th>P</th><th>S</th><th>SOG</th><th>xG</th><th>+/-</th><th>PIM</th><th></th></tr>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Pos</th>
+          {% for key, label in (player_stats_columns or []) %}
+            <th>{{ label }}</th>
+          {% endfor %}
+          {% if editable %}<th></th>{% endif %}
+        </tr>
       </thead>
       <tbody>
-        {% for p in players %}
-          {% set agg = player_totals.get(p['id'], {'goals':0,'assists':0,'points':0,'shots':0,'sog':0,'expected_goals':0,'plus_minus':0,'pim':0}) %}
+        {% for r in (player_stats_rows or []) %}
           <tr>
-            <td>{{ p['jersey_number'] or '' }}</td>
-            <td>{{ p['name'] }}</td>
-            <td>{{ p['position'] or '' }}</td>
-            <td>{{ agg['goals'] }}</td>
-            <td>{{ agg['assists'] }}</td>
-            <td>{{ agg['points'] }}</td>
-            <td>{{ agg['shots'] }}</td>
-            <td>{{ agg['sog'] }}</td>
-            <td>{{ agg['expected_goals'] }}</td>
-            <td>{{ agg['plus_minus'] }}</td>
-            <td>{{ agg['pim'] }}</td>
-            <td>
-              {% if editable %}
-                <a class="btn" href="/teams/{{ team['id'] }}/players/{{ p['id'] }}/edit">Edit</a>
-                <form style="display:inline" method="post" action="/teams/{{ team['id'] }}/players/{{ p['id'] }}/delete" onsubmit="return confirm('Delete player?');">
+            <td>{{ r.get('jersey_number') or '' }}</td>
+            <td>{{ r.get('name') or '' }}</td>
+            <td>{{ r.get('position') or '' }}</td>
+            {% for key, label in (player_stats_columns or []) %}
+              <td>{{ r.get(key)|fmt_stat }}</td>
+            {% endfor %}
+            {% if editable %}
+              <td>
+                <a class="btn" href="/teams/{{ team['id'] }}/players/{{ r.get('player_id') }}/edit">Edit</a>
+                <form style="display:inline" method="post" action="/teams/{{ team['id'] }}/players/{{ r.get('player_id') }}/delete" onsubmit="return confirm('Delete player?');">
                   <button class="btn danger" type="submit">Delete</button>
                 </form>
-              {% endif %}
-            </td>
+              </td>
+            {% endif %}
           </tr>
         {% else %}
-          <tr><td colspan="13" class="muted">No players yet.</td></tr>
+          <tr><td colspan="{{ 3 + (player_stats_columns|length) + (1 if editable else 0) }}" class="muted">No players yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -143,5 +145,61 @@
   {% if editable %}
     <p><a class="btn primary" href="/teams/{{ team['id'] }}/players/new">Add player</a></p>
   {% endif %}
+</div>
+
+<h3 style="margin-top:1.25rem;">Recent Player Stats  -- Are They On a Roll?</h3>
+<div class="card">
+  {% set sort_key = (recent_sort or 'points') %}
+  {% set sort_dir = (recent_dir or 'desc') %}
+  {% macro _sort_label(col_key, label) -%}
+    {%- if sort_key == col_key -%}
+      {{ label }} {{ '▲' if sort_dir == 'asc' else '▼' }}
+    {%- else -%}
+      {{ label }}
+    {%- endif -%}
+  {%- endmacro %}
+  {% macro _sort_href(col_key) -%}
+    {%- set next_dir = 'asc' if (sort_key == col_key and sort_dir == 'desc') else 'desc' -%}
+    {{ url_with_args(recent_sort=col_key, recent_dir=next_dir) }}
+  {%- endmacro %}
+
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:.75rem;">
+    <span class="muted">Last</span>
+    <select onchange="window.location=this.value" style="max-width:170px;">
+      {% for n in range(1, 11) %}
+        <option value="{{ url_with_args(recent_n=n) }}" {% if (recent_n or 5) == n %}selected{% endif %}>{{ n }} games</option>
+      {% endfor %}
+    </select>
+    <span class="muted">per player</span>
+  </div>
+
+  <div class="table-scroll">
+    <table class="table-nowrap table-grid" data-freeze-cols="2">
+      <thead>
+        <tr>
+          <th><a href="{{ _sort_href('jersey_number') }}" style="text-decoration:none;color:inherit;">{{ _sort_label('jersey_number', '#') }}</a></th>
+          <th><a href="{{ _sort_href('name') }}" style="text-decoration:none;color:inherit;">{{ _sort_label('name', 'Name') }}</a></th>
+          <th><a href="{{ _sort_href('position') }}" style="text-decoration:none;color:inherit;">{{ _sort_label('position', 'Pos') }}</a></th>
+          {% for key, label in (recent_player_stats_columns or []) %}
+            <th><a href="{{ _sort_href(key) }}" style="text-decoration:none;color:inherit;">{{ _sort_label(key, label) }}</a></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in (recent_player_stats_rows or []) %}
+          <tr>
+            <td>{{ r.get('jersey_number') or '' }}</td>
+            <td>{{ r.get('name') or '' }}</td>
+            <td>{{ r.get('position') or '' }}</td>
+            {% for key, label in (recent_player_stats_columns or []) %}
+              <td>{{ r.get(key)|fmt_stat }}</td>
+            {% endfor %}
+          </tr>
+        {% else %}
+          <tr><td colspan="{{ 3 + (recent_player_stats_columns|length) }}" class="muted">No recent stats.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}
