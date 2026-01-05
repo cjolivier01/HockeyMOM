@@ -1166,29 +1166,82 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     # Used to disambiguate team names that appear in multiple divisions (common on CAHA).
+    def _clean_team_name(name: str) -> str:
+        t = str(name or "").replace("\xa0", " ").strip()
+        t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
+        t = " ".join(t.split())
+        return t
+
+    def _norm_team_key(name: str) -> str:
+        return _clean_team_name(name).casefold()
+
+    def _clean_division_label(name: str) -> str:
+        t = str(name or "").replace("\xa0", " ").strip()
+        t = " ".join(t.split())
+        return t
+
+    def _norm_div_key(name: str) -> str:
+        return _clean_division_label(name).casefold()
+
     team_name_counts: dict[str, int] = {}
     for d in divs:
         for t in d.teams:
-            nm = str((t or {}).get("name") or "").strip()
+            nm = _clean_team_name((t or {}).get("name") or "")
             if nm:
-                k = nm.lower()
+                k = _norm_team_key(nm)
                 team_name_counts[k] = team_name_counts.get(k, 0) + 1
 
     def canonical_team_name(name: str, division_name: Optional[str]) -> str:
-        nm = str(name or "").strip() or "UNKNOWN"
-        dn = (division_name or "").strip()
-        if dn and team_name_counts.get(nm.lower(), 0) > 1:
+        nm = _clean_team_name(name or "") or "UNKNOWN"
+        dn = _clean_division_label(division_name or "")
+        if dn and team_name_counts.get(_norm_team_key(nm), 0) > 1:
             return f"{nm} ({dn})"
         return nm
+
+    division_teams: list[dict[str, Any]] = []
+    seen_team_names: set[str] = set()
+    for d in divs:
+        dn = str(d.name or "").strip() or None
+        try:
+            did = int(d.division_id)
+        except Exception:
+            did = None
+        try:
+            cid = int(d.conference_id)
+        except Exception:
+            cid = None
+        for t in d.teams:
+            nm_raw = str((t or {}).get("name") or "").strip()
+            if not nm_raw:
+                continue
+            nm = canonical_team_name(nm_raw, dn)
+            key = nm.casefold()
+            if key in seen_team_names:
+                continue
+            seen_team_names.add(key)
+            tts_id_raw = (t or {}).get("id")
+            try:
+                tts_id = int(tts_id_raw) if tts_id_raw is not None else None
+            except Exception:
+                tts_id = None
+            division_teams.append(
+                {
+                    "name": nm,
+                    "division_name": dn,
+                    "division_id": did,
+                    "conference_id": cid,
+                    "tts_team_id": tts_id,
+                }
+            )
 
     # Map (team_name_lower, division_name_lower) -> team_id for logo retrieval.
     tts_team_id_by_name_div: dict[tuple[str, str], int] = {}
     tts_team_ids_by_name: dict[str, list[int]] = {}
     tts_team_div_meta_by_id: dict[int, tuple[str, int, int]] = {}
     for d in divs:
-        dn = str(d.name or "").strip()
+        dn = _clean_division_label(d.name or "")
         for t in d.teams:
-            nm = str((t or {}).get("name") or "").strip()
+            nm = _clean_team_name((t or {}).get("name") or "")
             tid = (t or {}).get("id")
             if not nm or tid is None:
                 continue
@@ -1196,13 +1249,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                 tid_i = int(tid)
             except Exception:
                 continue
-            tts_team_id_by_name_div[(nm.lower(), dn.lower())] = tid_i
-            tts_team_ids_by_name.setdefault(nm.lower(), []).append(tid_i)
+            tts_team_id_by_name_div[(_norm_team_key(nm), _norm_div_key(dn))] = tid_i
+            tts_team_ids_by_name.setdefault(_norm_team_key(nm), []).append(tid_i)
             tts_team_div_meta_by_id[tid_i] = (dn, int(d.division_id), int(d.conference_id))
 
     def resolve_tts_team_id(name: str, division_name: Optional[str]) -> Optional[int]:
-        nm = str(name or "").strip().lower()
-        dn = str(division_name or "").strip().lower()
+        nm = _norm_team_key(name or "")
+        dn = _norm_div_key(division_name or "")
         if nm and dn and (nm, dn) in tts_team_id_by_name_div:
             return int(tts_team_id_by_name_div[(nm, dn)])
         ids = tts_team_ids_by_name.get(nm) or []
@@ -1217,7 +1270,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             dn, did, cid = tts_team_div_meta_by_id[int(tts_id)]
             return dn or None, int(did), int(cid), int(tts_id)
         # If the team name is unique across all divisions, assign its division without relying on the game.
-        ids = tts_team_ids_by_name.get(str(name or "").strip().lower()) or []
+        ids = tts_team_ids_by_name.get(_norm_team_key(name or "")) or []
         if len(ids) == 1 and int(ids[0]) in tts_team_div_meta_by_id:
             dn, did, cid = tts_team_div_meta_by_id[int(ids[0])]
             return dn or None, int(did), int(cid), int(ids[0])
@@ -1279,6 +1332,131 @@ def main(argv: Optional[list[str]] = None) -> int:
                 continue
             ensure_league_member(conn, league_id, uid, role="viewer")
 
+    api_base = str(args.api_url or "").rstrip("/")
+    api_headers: dict[str, str] = {}
+    if rest_mode and args.api_token:
+        tok = str(args.api_token).strip()
+        if tok:
+            api_headers["Authorization"] = f"Bearer {tok}"
+            api_headers["X-HM-Import-Token"] = tok
+    api_batch_size = max(1, int(args.api_batch_size or 1))
+
+    logo_url_cache: dict[int, Optional[str]] = {}
+    logo_b64_cache: dict[int, Optional[str]] = {}
+    logo_ct_cache: dict[int, Optional[str]] = {}
+    sent_logo_ids: set[int] = set()
+
+    def _logo_url(tts_id: Optional[int]) -> Optional[str]:
+        if (not rest_mode) or args.no_import_logos or tts_id is None:
+            return None
+        tid_i = int(tts_id)
+        if tid_i in logo_url_cache:
+            return logo_url_cache[tid_i]
+        try:
+            u = tts_direct.scrape_team_logo_url(str(args.source), season_id=int(season_id), team_id=tid_i)
+        except Exception:
+            u = None
+        logo_url_cache[tid_i] = u
+        return u
+
+    def _logo_b64_and_type(tts_id: Optional[int]) -> tuple[Optional[str], Optional[str]]:
+        if (not rest_mode) or args.no_import_logos or tts_id is None:
+            return None, None
+        tid_i = int(tts_id)
+        if tid_i in logo_b64_cache:
+            return logo_b64_cache[tid_i], logo_ct_cache.get(tid_i)
+
+        url = _logo_url(tid_i)
+        if not url:
+            logo_b64_cache[tid_i] = None
+            logo_ct_cache[tid_i] = None
+            return None, None
+
+        try:
+            data, content_type = _download_logo_bytes(url)
+        except Exception:
+            logo_b64_cache[tid_i] = None
+            logo_ct_cache[tid_i] = None
+            return None, None
+
+        try:
+            b64 = base64.b64encode(data).decode("ascii")
+        except Exception:
+            b64 = None
+        logo_b64_cache[tid_i] = b64
+        logo_ct_cache[tid_i] = content_type
+        return b64, content_type
+
+    if not (args.cleanup_only or args.refresh_team_metadata):
+        if division_teams:
+            log(f"Seeding league teams from TimeToScore divisions: {len(division_teams)}")
+        if rest_mode and division_teams:
+            import requests
+
+            team_payload: list[dict[str, Any]] = []
+            for row in division_teams:
+                item: dict[str, Any] = {
+                    "name": row["name"],
+                    "division_name": row["division_name"],
+                    "division_id": row["division_id"],
+                    "conference_id": row["conference_id"],
+                }
+                if not args.no_import_logos:
+                    tts_id = row.get("tts_team_id")
+                    if tts_id is not None:
+                        logo_url = _logo_url(int(tts_id))
+                        logo_b64, logo_ct = _logo_b64_and_type(int(tts_id))
+                        item["logo_url"] = logo_url
+                        item["logo_b64"] = logo_b64
+                        item["logo_content_type"] = logo_ct
+                        if logo_b64:
+                            sent_logo_ids.add(int(tts_id))
+                team_payload.append(item)
+            payload = {
+                "league_name": league_name,
+                "shared": bool(args.shared),
+                "replace": bool(args.replace),
+                "owner_email": owner_email,
+                "owner_name": owner_email,
+                "source": "timetoscore",
+                "external_key": f"{args.source}:{season_id}",
+                "teams": team_payload,
+            }
+            r = requests.post(f"{api_base}/api/import/hockey/teams", json=payload, headers=api_headers, timeout=180)
+            r.raise_for_status()
+            out = r.json()
+            if not out.get("ok"):
+                raise RuntimeError(str(out))
+        if (not rest_mode) and division_teams:
+            assert conn is not None
+            assert league_id is not None
+            assert user_id is not None
+            for row in division_teams:
+                team_db_id = ensure_team(conn, user_id, row["name"], is_external=True)
+                map_team_to_league_with_division(
+                    conn,
+                    league_id=league_id,
+                    team_id=team_db_id,
+                    division_name=row["division_name"],
+                    division_id=row["division_id"],
+                    conference_id=row["conference_id"],
+                )
+                if logo_dir is not None and row.get("tts_team_id") is not None:
+                    try:
+                        _ensure_team_logo(
+                            conn,
+                            team_db_id=int(team_db_id),
+                            team_owner_user_id=user_id,
+                            source=str(args.source),
+                            season_id=int(season_id),
+                            tts_team_id=int(row["tts_team_id"]),
+                            logo_dir=Path(logo_dir),
+                            replace=bool(args.replace),
+                            tts_direct=tts_direct,
+                        )
+                    except Exception:
+                        pass
+
     if args.cleanup_only or args.refresh_team_metadata:
         game_ids = []
         fallback_by_gid = {}
@@ -1317,22 +1495,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     skipped = 0
     posted = 0
     api_games_batch: list[dict[str, Any]] = []
-    logo_url_cache: dict[int, Optional[str]] = {}
-    logo_b64_cache: dict[int, Optional[str]] = {}
-    logo_ct_cache: dict[int, Optional[str]] = {}
-    sent_logo_ids: set[int] = set()
     cleaned_team_ids: set[int] = set()
     started = time.time()
     last_heartbeat = started
-
-    api_base = str(args.api_url or "").rstrip("/")
-    api_headers: dict[str, str] = {}
-    if rest_mode and args.api_token:
-        tok = str(args.api_token).strip()
-        if tok:
-            api_headers["Authorization"] = f"Bearer {tok}"
-            api_headers["X-HM-Import-Token"] = tok
-    api_batch_size = max(1, int(args.api_batch_size or 1))
 
     def _post_batch() -> None:
         nonlocal posted, api_games_batch
@@ -1411,48 +1576,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             t2_score = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
 
         if rest_mode:
-            def _logo_url(tts_id: Optional[int]) -> Optional[str]:
-                if args.no_import_logos or tts_id is None:
-                    return None
-                tid_i = int(tts_id)
-                if tid_i in logo_url_cache:
-                    return logo_url_cache[tid_i]
-                try:
-                    u = tts_direct.scrape_team_logo_url(str(args.source), season_id=int(season_id), team_id=tid_i)
-                except Exception:
-                    u = None
-                logo_url_cache[tid_i] = u
-                return u
-
-            def _logo_b64_and_type(tts_id: Optional[int]) -> tuple[Optional[str], Optional[str]]:
-                # When importing via REST, embed logo bytes because the deployed webapp venv may not include `requests`.
-                if args.no_import_logos or tts_id is None:
-                    return None, None
-                tid_i = int(tts_id)
-                if tid_i in logo_b64_cache:
-                    return logo_b64_cache[tid_i], logo_ct_cache.get(tid_i)
-
-                url = _logo_url(tid_i)
-                if not url:
-                    logo_b64_cache[tid_i] = None
-                    logo_ct_cache[tid_i] = None
-                    return None, None
-
-                try:
-                    data, content_type = _download_logo_bytes(url)
-                except Exception:
-                    logo_b64_cache[tid_i] = None
-                    logo_ct_cache[tid_i] = None
-                    return None, None
-
-                try:
-                    b64 = base64.b64encode(data).decode("ascii")
-                except Exception:
-                    b64 = None
-                logo_b64_cache[tid_i] = b64
-                logo_ct_cache[tid_i] = content_type
-                return b64, content_type
-
             game_div_name = home_div_name or fb_division_name
             game_div_id = home_div_id if home_div_id is not None else fb_division_id
             game_conf_id = home_conf_id if home_conf_id is not None else fb_conference_id

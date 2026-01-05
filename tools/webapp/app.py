@@ -1548,6 +1548,99 @@ def create_app() -> Flask:
         _ensure_league_member_for_import(league_id, owner_user_id, role="admin")
         return jsonify({"ok": True, "league_id": league_id, "owner_user_id": owner_user_id})
 
+    @app.post("/api/import/hockey/teams")
+    def api_import_teams():
+        auth = _require_import_auth()
+        if auth:
+            return auth
+        payload = request.get_json(silent=True) or {}
+        league_name = str(payload.get("league_name") or "Norcal")
+        shared = bool(payload.get("shared", True))
+        replace = bool(payload.get("replace", False))
+        owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
+        owner_name = str(payload.get("owner_name") or "Norcal Import")
+        owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
+
+        teams = payload.get("teams") or []
+        if not isinstance(teams, list) or not teams:
+            return jsonify({"ok": False, "error": "teams must be a non-empty list"}), 400
+
+        league_id = _ensure_league_for_import(
+            league_name=league_name,
+            owner_user_id=owner_user_id,
+            is_shared=shared,
+            source=str(payload.get("source") or "timetoscore"),
+            external_key=str(payload.get("external_key") or ""),
+            commit=False,
+        )
+        _ensure_league_member_for_import(league_id, owner_user_id, role="admin", commit=False)
+
+        results: list[dict[str, Any]] = []
+        try:
+            def _clean_division_name(dn: Any) -> Optional[str]:
+                s = str(dn or "").strip()
+                if not s:
+                    return None
+                if s.lower() == "external":
+                    return None
+                return s
+
+            for idx, team in enumerate(teams):
+                if not isinstance(team, dict):
+                    raise ValueError(f"teams[{idx}] must be an object")
+                name = str(team.get("name") or "").strip()
+                if not name:
+                    continue
+
+                team_replace = bool(team.get("replace", replace))
+
+                division_name = _clean_division_name(team.get("division_name"))
+                try:
+                    division_id = int(team.get("division_id")) if team.get("division_id") is not None else None
+                except Exception:
+                    division_id = None
+                try:
+                    conference_id = int(team.get("conference_id")) if team.get("conference_id") is not None else None
+                except Exception:
+                    conference_id = None
+
+                team_id = _ensure_external_team_for_import(owner_user_id, name, commit=False)
+                _map_team_to_league_for_import(
+                    league_id,
+                    team_id,
+                    division_name=division_name,
+                    division_id=division_id,
+                    conference_id=conference_id,
+                    commit=False,
+                )
+                _ensure_team_logo_for_import(
+                    team_id=int(team_id),
+                    logo_b64=team.get("logo_b64") or team.get("team_logo_b64"),
+                    logo_content_type=team.get("logo_content_type") or team.get("team_logo_content_type"),
+                    logo_url=team.get("logo_url") or team.get("team_logo_url"),
+                    replace=team_replace,
+                    commit=False,
+                )
+                results.append({"team_id": int(team_id), "name": name})
+
+            g.db.commit()
+        except Exception as e:
+            try:
+                g.db.rollback()
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": str(e)}), 400
+
+        return jsonify(
+            {
+                "ok": True,
+                "league_id": league_id,
+                "owner_user_id": owner_user_id,
+                "imported": len(results),
+                "results": results,
+            }
+        )
+
     @app.post("/api/import/hockey/game")
     def api_import_game():
         auth = _require_import_auth()
