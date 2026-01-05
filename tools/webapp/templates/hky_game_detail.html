@@ -459,19 +459,28 @@
               path("M12 5.2v2.8", "none", "#ffb3b3", 2.4, "round", "round");
             } else if (icon === "xg") {
               // Transparent crosshairs + purple "X" overlay (no outside circle).
-              path("M12 4.2v5.2", "none", "rgba(255,255,255,0.85)", 2.0, "round", "round");
-              path("M12 14.6v5.2", "none", "rgba(255,255,255,0.85)", 2.0, "round", "round");
-              path("M4.2 12h5.2", "none", "rgba(255,255,255,0.85)", 2.0, "round", "round");
-              path("M14.6 12h5.2", "none", "rgba(255,255,255,0.85)", 2.0, "round", "round");
+              // Symmetric crosshair arms that do NOT enter the inner circle.
+              var ch = "rgba(255,255,255,0.85)";
+              var sw = 2.0;
+              // Arms (with a small gap before the circle).
+              path("M12 3.8V7.0", "none", ch, sw, "round", "round");
+              path("M12 17.0V20.2", "none", ch, sw, "round", "round");
+              path("M3.8 12H7.0", "none", ch, sw, "round", "round");
+              path("M17.0 12H20.2", "none", ch, sw, "round", "round");
+              // Inner circle (larger, as requested).
+              circle(12, 12, 4.2, "none", ch, sw);
               // X is prominent but still inside the crosshairs.
               path("M8.8 8.8l6.4 6.4", "none", "#7c4dff", 2.8, "round", "round");
               path("M15.2 8.8l-6.4 6.4", "none", "#7c4dff", 2.8, "round", "round");
             } else if (icon === "sog") {
               // Transparent crosshairs only (no outside circle).
-              path("M12 4.2v5.2", "none", "rgba(255,255,255,0.85)", 2.0, "round", "round");
-              path("M12 14.6v5.2", "none", "rgba(255,255,255,0.85)", 2.0, "round", "round");
-              path("M4.2 12h5.2", "none", "rgba(255,255,255,0.85)", 2.0, "round", "round");
-              path("M14.6 12h5.2", "none", "rgba(255,255,255,0.85)", 2.0, "round", "round");
+              var ch2 = "rgba(255,255,255,0.85)";
+              var sw2 = 2.0;
+              path("M12 3.8V7.0", "none", ch2, sw2, "round", "round");
+              path("M12 17.0V20.2", "none", ch2, sw2, "round", "round");
+              path("M3.8 12H7.0", "none", ch2, sw2, "round", "round");
+              path("M17.0 12H20.2", "none", ch2, sw2, "round", "round");
+              circle(12, 12, 4.2, "none", ch2, sw2);
             } else if (icon === "shot") {
               circle(9.5, 14.5, 3.8, "#111827", "rgba(255,255,255,0.2)", 1);
               path("M13 12l8-6", "none", stroke, 2, "round", "round");
