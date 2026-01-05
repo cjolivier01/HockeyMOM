@@ -195,9 +195,19 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   color: var(--text);
   pointer-events: none;
 }
+.events-timeline-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-bottom: .15rem;
+}
+.events-timeline-tooltip-icon {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+}
 .events-timeline-tooltip-title {
   font-weight: 800;
-  margin-bottom: .15rem;
 }
 .events-timeline-tooltip-meta {
   color: var(--muted);
@@ -207,6 +217,9 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 .events-timeline-tooltip-line {
   color: rgba(230,232,236,0.9);
   font-size: .85rem;
+}
+.events-timeline-tooltip-pre {
+  white-space: pre-line;
 }
 
 /* Mobile: tables should scroll horizontally instead of wrapping each cell into unreadable columns. */
