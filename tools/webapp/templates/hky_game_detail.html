@@ -244,6 +244,549 @@
     </p>
   {% endif %}
   {% if events_rows and events_headers %}
+    <div class="events-timeline">
+      <div class="events-timeline-header">
+        <div class="muted">Timeline</div>
+        <div id="game-events-timeline-legend" class="events-timeline-legend"></div>
+      </div>
+      <div class="events-timeline-wrap">
+        <svg id="game-events-timeline-svg" class="events-timeline-svg" role="img" aria-label="Game events timeline"></svg>
+      </div>
+      <script type="application/json" id="game-events-timeline-data">{{ events_rows|tojson }}</script>
+      <script>
+        (function () {
+          var dataEl = document.getElementById("game-events-timeline-data");
+          var svg = document.getElementById("game-events-timeline-svg");
+          var legendEl = document.getElementById("game-events-timeline-legend");
+          if (!dataEl || !svg || !legendEl) return;
+
+          var eventsRows = [];
+          try {
+            eventsRows = JSON.parse(dataEl.textContent || "[]") || [];
+          } catch (e) {
+            eventsRows = [];
+          }
+          if (!Array.isArray(eventsRows) || eventsRows.length === 0) return;
+
+          function parseTimeToSeconds(s) {
+            s = (s || "").trim();
+            if (!s) return null;
+            var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+            if (!m) return null;
+            var a = parseInt(m[1], 10);
+            var b = parseInt(m[2], 10);
+            var c = m[3] ? parseInt(m[3], 10) : null;
+            if (c === null) return a * 60 + b; // mm:ss
+            return a * 3600 + b * 60 + c; // h:mm:ss
+          }
+
+          function getValue(row, keys) {
+            if (!row) return "";
+            for (var i = 0; i < keys.length; i++) {
+              var k = keys[i];
+              if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
+              var kl = String(k).toLowerCase();
+              for (var kk in row) {
+                if (!Object.prototype.hasOwnProperty.call(row, kk)) continue;
+                if (String(kk).toLowerCase() === kl) return row[kk];
+              }
+            }
+            return "";
+          }
+
+          function parsePeriod(p) {
+            var s = String(p || "").trim();
+            if (!s) return null;
+            var sl = s.toLowerCase();
+            if (sl === "ot" || sl === "overtime") return 4;
+            var m = sl.match(/(\d+)/);
+            if (!m) return null;
+            var n = parseInt(m[1], 10);
+            return isFinite(n) && n > 0 ? n : null;
+          }
+
+          function normalizeTypeLabel(raw) {
+            var s = String(raw || "").trim();
+            if (!s) return "";
+            var sl = s.toLowerCase();
+            if (sl === "expectedgoal" || sl === "xg" || sl === "xg ") return "xG";
+            if (sl === "shots on goal" || sl === "shot on goal" || sl === "sog") return "SOG";
+            if (sl === "shot") return "Shot";
+            if (sl === "goal") return "Goal";
+            if (sl === "assist") return "Assist";
+            if (sl.indexOf("rush") >= 0) return "Rush";
+            if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "Turnovers (forced)";
+            if (sl.indexOf("created") >= 0 && sl.indexOf("turnover") >= 0) return "Created Turnovers";
+            if (sl === "giveaway") return "Giveaway";
+            if (sl === "takeaway") return "Takeaway";
+            return s;
+          }
+
+          function typeKey(label) {
+            var sl = String(label || "").trim().toLowerCase();
+            if (!sl) return "other";
+            if (sl === "goal") return "goal";
+            if (sl === "assist") return "assist";
+            if (sl === "xg") return "xg";
+            if (sl === "sog") return "sog";
+            if (sl === "shot") return "shot";
+            if (sl.indexOf("rush") >= 0) return "rush";
+            if (sl.indexOf("turnovers") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
+            if (sl.indexOf("created") >= 0 && sl.indexOf("turnovers") >= 0) return "turnover_created";
+            if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
+            if (sl.indexOf("created") >= 0 && sl.indexOf("turnover") >= 0) return "turnover_created";
+            if (sl === "giveaway") return "giveaway";
+            if (sl === "takeaway") return "takeaway";
+            return "other";
+          }
+
+          function isShotFamily(k) {
+            return k === "shot" || k === "sog" || k === "xg";
+          }
+
+          function shotPriority(k) {
+            if (k === "xg") return 3;
+            if (k === "sog") return 2;
+            if (k === "shot") return 1;
+            return 0;
+          }
+
+          function parseSide(row) {
+            var tr = String(getValue(row, ["Team Rel", "TeamRel", "For/Against", "For Against", "Side"]) || "").trim();
+            var trl = tr.toLowerCase();
+            if (trl === "for" || trl === "home" || trl === "team1") return "For";
+            if (trl === "against" || trl === "away" || trl === "team2") return "Against";
+            if (trl.indexOf("for") >= 0) return "For";
+            if (trl.indexOf("against") >= 0) return "Against";
+
+            var team = String(getValue(row, ["Team", "Team Raw", "TeamRaw"]) || "").trim().toLowerCase();
+            if (team === "home") return "For";
+            if (team === "away") return "Against";
+            return "Neutral";
+          }
+
+          function svgEl(name, attrs) {
+            var el = document.createElementNS("http://www.w3.org/2000/svg", name);
+            if (attrs) {
+              for (var k in attrs) {
+                if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+                el.setAttribute(k, String(attrs[k]));
+              }
+            }
+            return el;
+          }
+
+          function iconGroup(icon, opts) {
+            opts = opts || {};
+            var size = opts.size || 16;
+            var s = size / 24;
+            var g = svgEl("g", { transform: "scale(" + s + ") translate(-12,-12)" });
+            var stroke = opts.stroke || "rgba(255,255,255,0.6)";
+
+            function circle(cx, cy, r, fill, st, sw) {
+              g.appendChild(
+                svgEl("circle", {
+                  cx: cx,
+                  cy: cy,
+                  r: r,
+                  fill: fill,
+                  stroke: st || "none",
+                  "stroke-width": sw || 0,
+                })
+              );
+            }
+            function path(d, fill, st, sw, linecap, linejoin) {
+              var p = svgEl("path", {
+                d: d,
+                fill: fill || "none",
+                stroke: st || "none",
+                "stroke-width": sw || 0,
+              });
+              if (linecap) p.setAttribute("stroke-linecap", linecap);
+              if (linejoin) p.setAttribute("stroke-linejoin", linejoin);
+              g.appendChild(p);
+            }
+            function rect(x, y, w, h, rx, fill, st, sw) {
+              g.appendChild(
+                svgEl("rect", {
+                  x: x,
+                  y: y,
+                  width: w,
+                  height: h,
+                  rx: rx || 0,
+                  fill: fill || "none",
+                  stroke: st || "none",
+                  "stroke-width": sw || 0,
+                })
+              );
+            }
+            function text(x, y, txt, fill, fs, fw) {
+              var t = svgEl("text", {
+                x: x,
+                y: y,
+                fill: fill || "#fff",
+                "font-size": fs || 10,
+                "font-weight": fw || 800,
+                "text-anchor": "middle",
+                "dominant-baseline": "central",
+                "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
+              });
+              t.appendChild(document.createTextNode(txt));
+              g.appendChild(t);
+            }
+
+            if (icon === "goal") {
+              // Siren: dome + base + rays.
+              rect(5, 10, 14, 10, 4, "#ff3b3b", "rgba(0,0,0,0.25)", 1);
+              path("M8 10a4 4 0 0 1 8 0", "none", "#ffd1d1", 2, "round", "round");
+              rect(10.5, 7.5, 3, 3, 1.2, "#ffd1d1", "none", 0);
+              path("M3 12h2", "none", "#ff8a8a", 2, "round", "round");
+              path("M19 12h2", "none", "#ff8a8a", 2, "round", "round");
+              path("M4.5 8.5l1.5 1.2", "none", "#ff8a8a", 2, "round", "round");
+              path("M19.5 8.5l-1.5 1.2", "none", "#ff8a8a", 2, "round", "round");
+            } else if (icon === "assist") {
+              circle(8, 12, 4.2, "#4da3ff", "rgba(0,0,0,0.25)", 1);
+              circle(16, 12, 4.2, "#4da3ff", "rgba(0,0,0,0.25)", 1);
+              path("M10.5 12h3", "none", "#e6f2ff", 2, "round", "round");
+              path("M12.5 10.5l2 1.5-2 1.5", "none", "#e6f2ff", 2, "round", "round");
+            } else if (icon === "xg") {
+              circle(12, 12, 9, "#7c4dff", "rgba(0,0,0,0.25)", 1);
+              text(12, 12.3, "xG", "#ffffff", 10, 900);
+            } else if (icon === "sog") {
+              circle(12, 12, 9, "#2ecc71", "rgba(0,0,0,0.25)", 1);
+              circle(12, 12, 4.6, "none", "rgba(255,255,255,0.9)", 1.8);
+              path("M12 4.5v4", "none", "rgba(255,255,255,0.9)", 1.8, "round", "round");
+              path("M12 15.5v4", "none", "rgba(255,255,255,0.9)", 1.8, "round", "round");
+              path("M4.5 12h4", "none", "rgba(255,255,255,0.9)", 1.8, "round", "round");
+              path("M15.5 12h4", "none", "rgba(255,255,255,0.9)", 1.8, "round", "round");
+            } else if (icon === "shot") {
+              circle(9.5, 14.5, 3.8, "#111827", "rgba(255,255,255,0.2)", 1);
+              path("M13 12l8-6", "none", stroke, 2, "round", "round");
+              path("M15 14l6-4", "none", stroke, 2, "round", "round");
+            } else if (icon === "rush") {
+              path("M4 12h10", "none", "#ff8a4c", 3, "round", "round");
+              path("M12 7l6 5-6 5", "none", "#ff8a4c", 3, "round", "round");
+            } else if (icon === "turnover_forced" || icon === "turnover_created") {
+              circle(12, 12, 9, icon === "turnover_created" ? "#ffc107" : "#ffd54f", "rgba(0,0,0,0.25)", 1);
+              path("M8 10c1-2 3-3 5-3 3 0 5 2 5 5", "none", "#111827", 2, "round", "round");
+              path("M17.5 9.5l-.5 3-3-.5", "none", "#111827", 2, "round", "round");
+              path("M16 14c-1 2-3 3-5 3-3 0-5-2-5-5", "none", "#111827", 2, "round", "round");
+              path("M6.5 14.5l.5-3 3 .5", "none", "#111827", 2, "round", "round");
+            } else if (icon === "giveaway") {
+              circle(12, 12, 9, "#d81b60", "rgba(0,0,0,0.25)", 1);
+              path("M12 6v10", "none", "#ffe3ee", 2.6, "round", "round");
+              path("M8 12l4 4 4-4", "none", "#ffe3ee", 2.6, "round", "round");
+            } else if (icon === "takeaway") {
+              circle(12, 12, 9, "#28a745", "rgba(0,0,0,0.25)", 1);
+              path("M12 18V8", "none", "#eafff0", 2.6, "round", "round");
+              path("M8 12l4-4 4 4", "none", "#eafff0", 2.6, "round", "round");
+            } else {
+              circle(12, 12, 9, "#6b7280", "rgba(0,0,0,0.25)", 1);
+              var t = String(opts.label || "?").trim();
+              text(12, 12.2, t ? t.slice(0, 1).toUpperCase() : "?", "#ffffff", 12, 900);
+            }
+            return g;
+          }
+
+          function clearSvg(el) {
+            while (el.firstChild) el.removeChild(el.firstChild);
+          }
+
+          function render() {
+            clearSvg(svg);
+            while (legendEl.firstChild) legendEl.removeChild(legendEl.firstChild);
+
+            var parsed = [];
+            for (var i = 0; i < eventsRows.length; i++) {
+              var r = eventsRows[i] || {};
+              var period = parsePeriod(getValue(r, ["Period"]));
+              if (period === null) continue;
+
+              var gs = String(getValue(r, ["Game Seconds", "GameSeconds"]) || "").trim();
+              var tWithin = null;
+              if (gs && gs.match(/^-?\d+$/)) {
+                tWithin = parseInt(gs, 10);
+              } else {
+                tWithin = parseTimeToSeconds(getValue(r, ["Game Time", "GameTime", "Time"]));
+              }
+              if (tWithin === null || !isFinite(tWithin)) continue;
+              if (tWithin < 0) tWithin = 0;
+
+              var label = normalizeTypeLabel(getValue(r, ["Event Type", "EventType", "Event", "Type"]));
+              if (!label) continue;
+
+              var side = parseSide(r);
+              var ik = typeKey(label);
+              parsed.push({
+                period: period,
+                tWithin: tWithin,
+                typeLabel: label,
+                iconKey: ik,
+                side: side,
+                row: r,
+              });
+            }
+            if (parsed.length === 0) return;
+
+            // Suppress Shot/SOG/xG duplicates at the same instant and side.
+            var bestShotByKey = {};
+            for (var j = 0; j < parsed.length; j++) {
+              var ev = parsed[j];
+              if (!isShotFamily(ev.iconKey)) continue;
+              var k = ev.period + "|" + ev.tWithin + "|" + ev.side;
+              var cur = bestShotByKey[k];
+              if (!cur || shotPriority(ev.iconKey) > shotPriority(cur)) bestShotByKey[k] = ev.iconKey;
+            }
+            var filtered = [];
+            for (var k2 = 0; k2 < parsed.length; k2++) {
+              var ev2 = parsed[k2];
+              if (isShotFamily(ev2.iconKey)) {
+                var sk = ev2.period + "|" + ev2.tWithin + "|" + ev2.side;
+                if (bestShotByKey[sk] && bestShotByKey[sk] !== ev2.iconKey) continue;
+              }
+              filtered.push(ev2);
+            }
+            if (filtered.length === 0) return;
+
+            // Period model: 3 periods by default; OT (period 4) defaults to 5:00 unless events exceed it.
+            var maxPeriod = 0;
+            var maxTWithinP4 = 0;
+            for (var q = 0; q < filtered.length; q++) {
+              maxPeriod = Math.max(maxPeriod, filtered[q].period);
+              if (filtered[q].period === 4) maxTWithinP4 = Math.max(maxTWithinP4, filtered[q].tWithin);
+            }
+            maxPeriod = Math.max(3, maxPeriod);
+            var durations = [];
+            for (var p = 1; p <= maxPeriod; p++) {
+              if (p === 4) durations.push(maxTWithinP4 > 300 ? 1200 : 300);
+              else durations.push(1200);
+            }
+            var offsets = [0];
+            for (var p2 = 0; p2 < durations.length; p2++) offsets.push(offsets[p2] + durations[p2]);
+            var totalDuration = offsets[offsets.length - 1] || 1;
+
+            // Best-effort: if Game Seconds already looks like absolute game seconds, don't double-offset by period.
+            var maxTWithin = 0;
+            for (var w0 = 0; w0 < filtered.length; w0++) maxTWithin = Math.max(maxTWithin, filtered[w0].tWithin);
+            var maxPerDuration = 0;
+            for (var pd = 0; pd < durations.length; pd++) maxPerDuration = Math.max(maxPerDuration, durations[pd]);
+            var looksAbsolute = maxTWithin > maxPerDuration + 5;
+
+            // Determine type ordering and side-specific row maps.
+            var typeOrder = [
+              "goal",
+              "assist",
+              "xg",
+              "sog",
+              "shot",
+              "rush",
+              "turnover_forced",
+              "turnover_created",
+              "takeaway",
+              "giveaway",
+              "other",
+            ];
+            var byIconKey = {};
+            for (var s0 = 0; s0 < filtered.length; s0++) {
+              var e0 = filtered[s0];
+              if (!byIconKey[e0.iconKey]) byIconKey[e0.iconKey] = { label: e0.typeLabel, iconKey: e0.iconKey };
+            }
+            var presentKeys = Object.keys(byIconKey);
+            presentKeys.sort(function (a, b) {
+              var ai = typeOrder.indexOf(a);
+              var bi = typeOrder.indexOf(b);
+              if (ai === -1) ai = 999;
+              if (bi === -1) bi = 999;
+              if (ai !== bi) return ai - bi;
+              var al = (byIconKey[a].label || a).toLowerCase();
+              var bl = (byIconKey[b].label || b).toLowerCase();
+              if (al < bl) return -1;
+              if (al > bl) return 1;
+              return 0;
+            });
+
+            var typesFor = [];
+            var typesAgainst = [];
+            var seenFor = {};
+            var seenAgainst = {};
+            for (var t0 = 0; t0 < filtered.length; t0++) {
+              var e1 = filtered[t0];
+              if (e1.side === "For" && !seenFor[e1.iconKey]) {
+                seenFor[e1.iconKey] = true;
+              }
+              if (e1.side === "Against" && !seenAgainst[e1.iconKey]) {
+                seenAgainst[e1.iconKey] = true;
+              }
+            }
+            for (var u = 0; u < presentKeys.length; u++) {
+              var kk = presentKeys[u];
+              if (seenFor[kk]) typesFor.push(kk);
+              if (seenAgainst[kk]) typesAgainst.push(kk);
+            }
+            var yIndexFor = {};
+            for (var yf = 0; yf < typesFor.length; yf++) yIndexFor[typesFor[yf]] = yf;
+            var yIndexAgainst = {};
+            for (var ya = 0; ya < typesAgainst.length; ya++) yIndexAgainst[typesAgainst[ya]] = ya;
+
+            // Legend (top-right).
+            for (var li = 0; li < presentKeys.length; li++) {
+              var lk = presentKeys[li];
+              var item = document.createElement("div");
+              item.className = "events-timeline-legend-item";
+              var iconSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+              iconSvg.setAttribute("viewBox", "0 0 24 24");
+              iconSvg.setAttribute("aria-hidden", "true");
+              var iconWrap = document.createElementNS("http://www.w3.org/2000/svg", "g");
+              iconWrap.setAttribute("transform", "translate(12,12)");
+              iconWrap.appendChild(iconGroup(lk, { size: 18, label: (byIconKey[lk].label || "?").slice(0, 1) }));
+              iconSvg.appendChild(iconWrap);
+              var labelSpan = document.createElement("span");
+              labelSpan.appendChild(document.createTextNode(byIconKey[lk].label || lk));
+              item.appendChild(iconSvg);
+              item.appendChild(labelSpan);
+              legendEl.appendChild(item);
+            }
+
+            // Layout
+            var minW = 720;
+            var containerW = svg.parentElement ? svg.parentElement.clientWidth : 0;
+            var W = Math.max(minW, containerW || minW);
+            var leftPad = 16;
+            var rightPad = 16;
+            var topPad = 10;
+            var bottomPad = 14;
+            var axisGap = 10;
+            var rowSpacing = 22;
+            var labelH = 18;
+            var axisY = topPad + typesFor.length * rowSpacing + axisGap;
+            var H = axisY + axisGap + typesAgainst.length * rowSpacing + labelH + bottomPad;
+            if (H < 90) H = 90;
+
+            svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+            svg.style.width = W + "px";
+            svg.style.height = H + "px";
+            svg.setAttribute("width", String(W));
+            svg.setAttribute("height", String(H));
+            svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
+
+            var innerW = W - leftPad - rightPad;
+            function xForTime(period, tWithin) {
+              var t = looksAbsolute ? tWithin : (offsets[period - 1] || 0) + tWithin;
+              if (t < 0) t = 0;
+              if (t > totalDuration) t = totalDuration;
+              return leftPad + (t / totalDuration) * innerW;
+            }
+
+            // Background
+            svg.appendChild(
+              svgEl("rect", {
+                x: 0,
+                y: 0,
+                width: W,
+                height: H,
+                fill: "rgba(0,0,0,0.12)",
+                rx: 10,
+              })
+            );
+
+            // Axis
+            svg.appendChild(
+              svgEl("line", {
+                x1: leftPad,
+                y1: axisY,
+                x2: W - rightPad,
+                y2: axisY,
+                stroke: "rgba(255,255,255,0.35)",
+                "stroke-width": 2,
+              })
+            );
+
+            // Period ticks + labels
+            for (var p3 = 1; p3 <= maxPeriod; p3++) {
+              var xStart = leftPad + ((offsets[p3 - 1] || 0) / totalDuration) * innerW;
+              var xEnd = leftPad + ((offsets[p3] || 0) / totalDuration) * innerW;
+              if (p3 > 1) {
+                svg.appendChild(
+                  svgEl("line", {
+                    x1: xStart,
+                    y1: axisY - 9,
+                    x2: xStart,
+                    y2: axisY + 9,
+                    stroke: "rgba(255,255,255,0.35)",
+                    "stroke-width": 2,
+                  })
+                );
+              }
+              var label = p3 === 4 ? "OT" : "P" + p3;
+              var tx = (xStart + xEnd) / 2;
+              var tEl = svgEl("text", {
+                x: tx,
+                y: axisY + 18,
+                fill: "rgba(255,255,255,0.65)",
+                "font-size": 12,
+                "font-weight": 700,
+                "text-anchor": "middle",
+                "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
+              });
+              tEl.appendChild(document.createTextNode(label));
+              svg.appendChild(tEl);
+            }
+
+            // Event markers
+            var countsByKey = {};
+            for (var e2 = 0; e2 < filtered.length; e2++) {
+              var ev3 = filtered[e2];
+              var x = xForTime(ev3.period, ev3.tWithin);
+
+              var y = axisY;
+              if (ev3.side === "For") {
+                var iy = yIndexFor[ev3.iconKey];
+                if (iy === undefined) continue;
+                y = axisY - axisGap - (iy + 0.5) * rowSpacing;
+              } else if (ev3.side === "Against") {
+                var ia = yIndexAgainst[ev3.iconKey];
+                if (ia === undefined) continue;
+                y = axisY + axisGap + (ia + 0.5) * rowSpacing;
+              }
+
+              var jitterKey = ev3.side + "|" + ev3.iconKey + "|" + ev3.period + "|" + ev3.tWithin;
+              countsByKey[jitterKey] = (countsByKey[jitterKey] || 0) + 1;
+              var idx = countsByKey[jitterKey] - 1;
+              var dx = (idx % 5) * 4; // small spread when multiple events are identical
+              x = Math.min(W - rightPad, x + dx);
+
+              var g = svgEl("g", { transform: "translate(" + x + "," + y + ")" });
+              var icon = iconGroup(ev3.iconKey, { size: 16, label: ev3.typeLabel });
+              g.appendChild(icon);
+
+              var title = [];
+              title.push(ev3.typeLabel);
+              if (ev3.side === "For" || ev3.side === "Against") title.push(ev3.side);
+              title.push((ev3.period === 4 ? "OT" : "P" + ev3.period) + " @ " + secondsToLabel(ev3.tWithin));
+              var tTitle = svgEl("title");
+              tTitle.appendChild(document.createTextNode(title.join(" • ")));
+              g.appendChild(tTitle);
+
+              svg.appendChild(g);
+            }
+
+            function secondsToLabel(sec) {
+              sec = Math.max(0, Math.floor(sec || 0));
+              var m = Math.floor(sec / 60);
+              var s = sec % 60;
+              return m + ":" + (s < 10 ? "0" + s : "" + s);
+            }
+          }
+
+          render();
+          var resizeTimer = null;
+          window.addEventListener("resize", function () {
+            if (resizeTimer) window.clearTimeout(resizeTimer);
+            resizeTimer = window.setTimeout(render, 120);
+          });
+        })();
+      </script>
+    </div>
     <div class="table-scroll table-scroll-y">
       <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
         <thead>

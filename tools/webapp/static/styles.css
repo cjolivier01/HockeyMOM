@@ -139,6 +139,50 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 .muted { color: var(--muted); }
 .spacer { height: 1rem; }
 
+/* Game events timeline */
+.events-timeline {
+  background: #12151c;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: .75rem;
+  margin: .75rem 0;
+}
+.events-timeline-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.events-timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem .75rem;
+  justify-content: flex-end;
+}
+.events-timeline-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  color: var(--muted);
+  font-size: .85rem;
+  white-space: nowrap;
+}
+.events-timeline-legend-item svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+.events-timeline-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  padding-top: .35rem;
+}
+.events-timeline-svg {
+  display: block;
+  min-width: 720px;
+}
+
 /* Mobile: tables should scroll horizontally instead of wrapping each cell into unreadable columns. */
 @media (max-width: 720px), (pointer: coarse) and (max-width: 980px) {
   body { font-size: 14px; }
