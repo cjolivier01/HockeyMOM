@@ -61,4 +61,4 @@ echo "[i] Importing TimeToScore (caha -> Norcal)"
 ./p tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com
 
 echo "[i] Uploading shift spreadsheets"
-./p scripts/parse_shift_spreadsheet.py --file-list ~/Videos/game_list_long.txt --shifts --upload-webapp --webapp-url="${WEBAPP_URL}" ${WEB_ACCESS_KEY} --webapp-owner-email cjolivier01@gmail.com --webapp-league-name=Norcal
+./p scripts/parse_shift_spreadsheet.py --file-list ~/Videos/game_list_long.txt --shifts --no-scripts --upload-webapp --webapp-url="${WEBAPP_URL}" ${WEB_ACCESS_KEY} --webapp-owner-email cjolivier01@gmail.com --webapp-league-name=Norcal
