@@ -168,11 +168,12 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   white-space: nowrap;
 }
 .events-timeline-legend-item svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex: 0 0 auto;
 }
 .events-timeline-wrap {
+  position: relative;
   overflow-x: auto;
   max-width: 100%;
   -webkit-overflow-scrolling: touch;
@@ -180,7 +181,32 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 }
 .events-timeline-svg {
   display: block;
-  min-width: 720px;
+}
+
+.events-timeline-tooltip {
+  position: absolute;
+  z-index: 20;
+  max-width: min(420px, 92vw);
+  background: rgba(12, 14, 19, 0.96);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  padding: .55rem .65rem;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  color: var(--text);
+  pointer-events: none;
+}
+.events-timeline-tooltip-title {
+  font-weight: 800;
+  margin-bottom: .15rem;
+}
+.events-timeline-tooltip-meta {
+  color: var(--muted);
+  font-size: .85rem;
+  margin-bottom: .35rem;
+}
+.events-timeline-tooltip-line {
+  color: rgba(230,232,236,0.9);
+  font-size: .85rem;
 }
 
 /* Mobile: tables should scroll horizontally instead of wrapping each cell into unreadable columns. */
@@ -262,6 +288,10 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
     height: 22px !important;
   }
   .table-fit-wrap { width: 100%; max-width: 100%; overflow: hidden; }
+
+  .events-timeline { padding: .65rem; }
+  .events-timeline-legend-item { font-size: .82rem; }
+  .events-timeline-legend-item svg { width: 22px; height: 22px; }
 }
 
 @media (max-width: 420px) {
