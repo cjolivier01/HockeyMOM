@@ -309,7 +309,7 @@
             var s = String(raw || "").trim();
             if (!s) return "";
             var sl = s.toLowerCase();
-            if (sl === "expectedgoal" || sl === "xg" || sl === "xg ") return "xG";
+            if (sl === "expectedgoal" || sl === "expected goal" || sl === "xg" || sl === "expected goal (xg)") return "Expected Goal (xG)";
             if (sl === "shots on goal" || sl === "shot on goal" || sl === "sog") return "SOG";
             if (sl === "shot") return "Shot";
             if (sl === "goal") return "Goal";
@@ -328,7 +328,7 @@
             var sl = String(label || "").trim().toLowerCase();
             if (!sl) return "other";
             if (sl === "goal") return "goal";
-            if (sl === "xg") return "xg";
+            if (sl === "xg" || sl === "expected goal" || sl === "expectedgoal" || sl === "expected goal (xg)" || sl.indexOf("xg") >= 0) return "xg";
             if (sl === "sog") return "sog";
             if (sl === "shot") return "shot";
             if (sl === "controlled entry") return "controlled_entry";

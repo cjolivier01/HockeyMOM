@@ -95,6 +95,18 @@ tbody tr:nth-child(even) { background: var(--row-even); }
 	tbody tr:hover td { background: var(--row-hover); }
 	tbody tr:hover td.sticky-col { background: var(--row-hover); }
 
+/* Clamp header label height to <= 2 lines (wrapping allowed, but no tall header rows). */
+.th-clamp {
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.15;
+  max-width: 22ch;
+}
+
 /* Keep date/time fields readable and non-wrapping */
 td, th { vertical-align: top; }
 td { overflow-wrap: anywhere; }
@@ -103,6 +115,7 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 /* Utility: prevent column text wrapping for wide tables (use with overflow-x:auto wrappers). */
 .table-nowrap { width: max-content; min-width: 100%; }
 .table-nowrap th, .table-nowrap td { white-space: nowrap; }
+.table-nowrap th .th-clamp { white-space: normal; }
 
 /* Horizontal scroll wrapper for wide tables */
 .table-scroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; position: relative; }
