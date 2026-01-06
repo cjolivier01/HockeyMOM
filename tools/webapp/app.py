@@ -852,8 +852,8 @@ def create_app() -> Flask:
         except Exception as e:  # noqa: BLE001
             try:
                 g.db.rollback()
-            except Exception:
-                pass
+            except Exception as rollback_err:
+                app.logger.exception("Database rollback failed after ratings recompute error: %s", rollback_err)
             flash(f"Failed to recalculate Ratings: {e}", "error")
         return redirect(url_for("leagues_index"))
 
@@ -1628,6 +1628,7 @@ def create_app() -> Flask:
             try:
                 g.db.rollback()
             except Exception:
+                # Ignore rollback errors; the original exception `e` is already being handled.
                 pass
             return jsonify({"ok": False, "error": str(e)}), 400
 
@@ -2513,6 +2514,7 @@ def create_app() -> Flask:
             try:
                 _update_game_video_url_note(int(resolved_game_id), str(game_video_url), replace=replace, commit=False)
             except Exception:
+                # Best-effort: failures updating the optional game video URL must not block the import.
                 pass
 
         # Optional league mapping / ordering updates for existing games.

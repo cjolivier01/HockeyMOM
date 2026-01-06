@@ -1454,8 +1454,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                             replace=bool(args.replace),
                             tts_direct=tts_direct,
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log(
+                            f"Warning: failed to ensure team logo for team_id={team_db_id}, "
+                            f"tts_team_id={row.get('tts_team_id')}: {exc}"
+                        )
 
     if args.cleanup_only or args.refresh_team_metadata:
         game_ids = []

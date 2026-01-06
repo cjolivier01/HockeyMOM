@@ -2556,6 +2556,7 @@ def _extract_roster_tables_from_df(
                 if parse_period_label(df.iat[rr, 0]) is not None:
                     break
             except Exception:
+                # Non-period label or unexpected cell format; ignore and continue scanning.
                 pass
 
             jersey_norm = _normalize_jersey_number(df.iat[rr, jersey_col])
