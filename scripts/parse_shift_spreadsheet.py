@@ -36,6 +36,7 @@ Example:
 import argparse
 import base64
 import datetime
+import html as _html
 import os
 import re
 import statistics
@@ -44,6 +45,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
 import pandas as pd
 
@@ -189,6 +192,245 @@ def _clip_pre_post_s_for_event_type(event_type: str) -> Tuple[int, int]:
     if et in {"goal", "assist"}:
         return GOAL_CLIP_PRE_S, GOAL_CLIP_POST_S
     return EVENT_CLIP_PRE_S, EVENT_CLIP_POST_S
+
+
+def _clean_html_fragment(s: str) -> str:
+    if not s:
+        return ""
+    # Lightly strip tags (TimeToScore scoresheet pages are simple tables) and normalize whitespace.
+    txt = re.sub(r"(?is)<[^>]+>", " ", str(s))
+    txt = _html.unescape(txt)
+    txt = txt.replace("\xa0", " ")
+    return " ".join(txt.split()).strip()
+
+
+T2S_CAHA_SCORESHEET_URL = "https://stats.caha.timetoscore.com/oss-scoresheet"
+
+
+def _fetch_t2s_scoresheet_html(game_id: int, *, timeout_s: float = 20.0) -> str:
+    url = f"{T2S_CAHA_SCORESHEET_URL}?{urlencode({'game_id': int(game_id)})}"
+    with urlopen(url, timeout=float(timeout_s)) as resp:  # noqa: S310 (trusted URL)
+        data = resp.read()
+    return data.decode("utf-8", "ignore")
+
+
+def _t2s_team_names_from_scoresheet_html(html: str) -> Tuple[Optional[str], Optional[str]]:
+    # NOTE: the scoresheet HTML has malformed tags in spots (e.g., <td> ... </th>),
+    # so use a tolerant regex rather than a strict HTML parser.
+    m_vis = re.search(r"(?is)<tr>\\s*<th>\\s*Visitor\\s*</th>\\s*<td>\\s*([^<]+)", html)
+    m_home = re.search(r"(?is)<tr>\\s*<th>\\s*Home\\s*</th>\\s*<td>\\s*([^<]+)", html)
+    visitor = _clean_html_fragment(m_vis.group(1)) if m_vis else None
+    home = _clean_html_fragment(m_home.group(1)) if m_home else None
+    return (visitor or None, home or None)
+
+
+def _t2s_default_period_length_seconds_from_scoresheet_html(html: str) -> int:
+    # Example: "<td colspan=2>Period Lengths:</td><td align=center>15</td>..."
+    m = re.search(r"(?is)Period\\s*Lengths\\s*:\\s*</td>\\s*<td[^>]*>\\s*(\\d+)\\s*<", html)
+    if m:
+        try:
+            return int(m.group(1)) * 60
+        except Exception:
+            pass
+    return 15 * 60
+
+
+def _t2s_penalties_from_scoresheet_html(
+    html: str,
+    *,
+    our_side: Optional[str],
+) -> List[Dict[str, Any]]:
+    visitor_name, home_name = _t2s_team_names_from_scoresheet_html(html)
+    # The scoresheet contains two Penalties tables; the first corresponds to Visitor/away,
+    # and the second corresponds to Home.
+    tables = re.findall(
+        r"(?is)<table[^>]*>\\s*<tr>\\s*<th[^>]*colspan\\s*=\\s*8[^>]*>\\s*Penalties\\s*</th>.*?</table>",
+        html,
+    )
+
+    out: List[Dict[str, Any]] = []
+
+    def _rel(side: str) -> str:
+        s = str(our_side or "").strip().lower()
+        if s not in {"home", "away"}:
+            return ""
+        return "For" if str(side).strip().lower() == s else "Against"
+
+    def _parse_table(table_html: str, *, side: str, team_name: Optional[str]) -> None:
+        for row_html in re.findall(r"(?is)<tr[^>]*>.*?</tr>", table_html):
+            # Skip header rows.
+            if re.search(r"(?is)<th[^>]*>\\s*Per\\s*</th>", row_html):
+                continue
+            cells = re.findall(r"(?is)<t[dh][^>]*>(.*?)</t[dh]>", row_html)
+            if len(cells) < 8:
+                continue
+            # Per, #, Infraction, Min, Off Ice, Start, End, On Ice
+            per_raw = _clean_html_fragment(cells[0])
+            per = parse_period_token(per_raw)
+            if per is None:
+                continue
+            num_raw = _clean_html_fragment(cells[1])
+            infraction = _clean_html_fragment(cells[2])
+            minutes_raw = _clean_html_fragment(cells[3])
+            off_ice = _clean_html_fragment(cells[4])
+            start = _clean_html_fragment(cells[5]) or off_ice
+            end = _clean_html_fragment(cells[6])
+            on_ice = _clean_html_fragment(cells[7])
+
+            try:
+                game_s = parse_flex_time_to_seconds(start)
+            except Exception:
+                continue
+
+            jersey = _normalize_jersey_number(num_raw)
+            details_parts: List[str] = []
+            if jersey:
+                details_parts.append(f"#{jersey}")
+            if infraction:
+                details_parts.append(infraction)
+            if minutes_raw:
+                details_parts.append(f"{minutes_raw}m")
+            t_parts: List[str] = []
+            if start:
+                t_parts.append(f"start {start}")
+            if end:
+                t_parts.append(f"end {end}")
+            if t_parts:
+                details_parts.append(f"({', '.join(t_parts)})")
+            if on_ice and on_ice != end:
+                details_parts.append(f"on ice {on_ice}")
+
+            out.append(
+                {
+                    "event_type": "Penalty",
+                    "source": "t2s",
+                    "team_raw": team_name or side,
+                    "team_side": side,
+                    "team_rel": _rel(side),
+                    "period": int(per),
+                    "game_s": int(game_s),
+                    "details": " ".join([p for p in details_parts if p]).strip(),
+                    "attributed_jerseys": [jersey] if jersey else [],
+                }
+            )
+
+    if len(tables) >= 1:
+        _parse_table(tables[0], side="away", team_name=visitor_name)
+    if len(tables) >= 2:
+        _parse_table(tables[1], side="home", team_name=home_name)
+    return out
+
+
+def _t2s_goalie_changes_from_scoresheet_html(
+    html: str,
+    *,
+    our_side: Optional[str],
+) -> List[Dict[str, Any]]:
+    visitor_name, home_name = _t2s_team_names_from_scoresheet_html(html)
+    default_period_s = _t2s_default_period_length_seconds_from_scoresheet_html(html)
+
+    def _rel(side: str) -> str:
+        s = str(our_side or "").strip().lower()
+        if s not in {"home", "away"}:
+            return ""
+        return "For" if str(side).strip().lower() == s else "Against"
+
+    def _section(title: str) -> List[str]:
+        # Capture between <th colspan=2>Title</th> and the next section header / end of table.
+        if title == "Home Goalie Changes":
+            m = re.search(
+                r"(?is)<th[^>]*colspan\\s*=\\s*2[^>]*>\\s*Home Goalie Changes\\s*</th>(.*?)(?:<th[^>]*colspan\\s*=\\s*2[^>]*>\\s*Visitor Changes\\s*</th>)",
+                html,
+            )
+        else:
+            m = re.search(
+                r"(?is)<th[^>]*colspan\\s*=\\s*2[^>]*>\\s*Visitor Changes\\s*</th>(.*?)(?:</table>)",
+                html,
+            )
+        if not m:
+            return []
+        seg = m.group(1)
+        # Each row is a single-cell <td colspan=2>...</td>
+        vals = re.findall(r"(?is)<td[^>]*colspan\\s*=\\s*2[^>]*>(.*?)</td>", seg)
+        out_vals: List[str] = []
+        for v in vals:
+            vv = _clean_html_fragment(v)
+            if vv:
+                out_vals.append(vv)
+        return out_vals
+
+    out: List[Dict[str, Any]] = []
+
+    def _add_lines(lines: List[str], *, side: str, team_name: Optional[str]) -> None:
+        for line in lines:
+            # Examples:
+            #  - "Joshua T Brown Starting"
+            #  - "Empty Net 3-14:47"
+            #  - "Joshua Rocha 2-13:42"
+            details = str(line).strip()
+            period: Optional[int] = None
+            game_s: Optional[int] = None
+            m = re.search(r"(?i)\\b(\\d+)\\s*-\\s*(\\d{1,2}:\\d{2})\\b", details)
+            if m:
+                period = parse_period_token(m.group(1))
+                try:
+                    game_s = parse_flex_time_to_seconds(m.group(2))
+                except Exception:
+                    game_s = None
+                details = details[: m.start()].strip()
+            elif re.search(r"(?i)\\bstarting\\b", details):
+                period = 1
+                game_s = int(default_period_s)
+
+            if period is None:
+                continue
+
+            out.append(
+                {
+                    "event_type": "GoalieChange",
+                    "source": "t2s",
+                    "team_raw": team_name or side,
+                    "team_side": side,
+                    "team_rel": _rel(side),
+                    "period": int(period),
+                    "game_s": int(game_s) if game_s is not None else None,
+                    "details": details,
+                    "attributed_jerseys": [],
+                }
+            )
+
+    _add_lines(_section("Home Goalie Changes"), side="home", team_name=home_name)
+    _add_lines(_section("Visitor Changes"), side="away", team_name=visitor_name)
+    return out
+
+
+def t2s_events_from_scoresheet(
+    game_id: int,
+    *,
+    our_side: Optional[str],
+) -> List[Dict[str, Any]]:
+    """
+    Best-effort TimeToScore (CAHA) event scraper used to enrich `all_events_summary.csv`.
+
+    Includes:
+      - penalties (start times)
+      - goalie changes (including empty net + starting goalie)
+    """
+    try:
+        html = _fetch_t2s_scoresheet_html(int(game_id))
+    except Exception as e:  # noqa: BLE001
+        print(f"[t2s:{game_id}] Failed to fetch scoresheet HTML: {e}", file=sys.stderr)
+        return []
+    out: List[Dict[str, Any]] = []
+    try:
+        out.extend(_t2s_penalties_from_scoresheet_html(html, our_side=our_side))
+    except Exception as e:  # noqa: BLE001
+        print(f"[t2s:{game_id}] Failed to parse penalties: {e}", file=sys.stderr)
+    try:
+        out.extend(_t2s_goalie_changes_from_scoresheet_html(html, our_side=our_side))
+    except Exception as e:  # noqa: BLE001
+        print(f"[t2s:{game_id}] Failed to parse goalie changes: {e}", file=sys.stderr)
+    return out
 
 
 def forward_fill_header_labels(header_row: pd.Series) -> Dict[str, List[int]]:
@@ -3642,6 +3884,7 @@ def _write_all_events_summary(
     goals_by_period: Dict[int, List[GoalEvent]],
     event_log_context: Optional["EventLogContext"],
     focus_team: Optional[str],
+    t2s_events: Optional[List[Dict[str, Any]]] = None,
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
 ) -> None:
     """
@@ -3771,11 +4014,59 @@ def _write_all_events_summary(
                         "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
                         "Game Seconds": gs_i if gs_i is not None else "",
                         "Video Seconds": vs_i if vs_i is not None else "",
+                        "Details": "",
                         "Attributed Players": ",".join(_format_player_name_with_jersey(x) for x in attrib_players),
                         "Attributed Jerseys": ",".join(str(j) for j in attrib_jerseys),
                         "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
                     }
                 )
+
+    # Extra TimeToScore-derived events (penalties/goalie changes), even when long sheets exist.
+    for ev in t2s_events or []:
+        try:
+            etype = str(ev.get("event_type") or "").strip() or "Event"
+            period = int(ev.get("period") or 0)
+        except Exception:
+            continue
+        gs_raw = ev.get("game_s")
+        gs_i = int(gs_raw) if isinstance(gs_raw, (int, float)) else None
+        vs_i = _map_sb_to_video(period, gs_i) if (gs_i is not None and period > 0) else None
+        on_ice = _on_ice_players_pm(period, gs_i) if (gs_i is not None and period > 0) else []
+
+        team_raw = str(ev.get("team_raw") or "")
+        team_rel = str(ev.get("team_rel") or "")
+        details = str(ev.get("details") or "")
+        jerseys_val = ev.get("attributed_jerseys") or []
+        jerseys_list: List[str] = []
+        if isinstance(jerseys_val, (list, tuple)):
+            for j in jerseys_val:
+                norm = _normalize_jersey_number(j)
+                if norm:
+                    jerseys_list.append(norm)
+        else:
+            norm = _normalize_jersey_number(jerseys_val)
+            if norm:
+                jerseys_list.append(norm)
+
+        event_id += 1
+        rows.append(
+            {
+                "Event ID": event_id,
+                "Source": str(ev.get("source") or "t2s"),
+                "Event Type": _display_event_type(etype),
+                "Team Raw": team_raw,
+                "Team Rel": team_rel,
+                "Period": period if period > 0 else "",
+                "Game Time": seconds_to_mmss_or_hhmmss(gs_i) if gs_i is not None else "",
+                "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
+                "Game Seconds": gs_i if gs_i is not None else "",
+                "Video Seconds": vs_i if vs_i is not None else "",
+                "Details": details,
+                "Attributed Players": "",
+                "Attributed Jerseys": ",".join(jerseys_list),
+                "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
+            }
+        )
 
     # Goal/assist events from the goals list.
     for ev in sorted(goals or [], key=lambda e: (int(getattr(e, "period", 0) or 0), int(getattr(e, "t_sec", 0) or 0))):
@@ -3801,6 +4092,7 @@ def _write_all_events_summary(
                     "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
                     "Game Seconds": gs_i,
                     "Video Seconds": vs_i if vs_i is not None else "",
+                    "Details": "",
                     "Attributed Players": "",
                     "Attributed Jerseys": str(scorer),
                     "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
@@ -3823,6 +4115,7 @@ def _write_all_events_summary(
                     "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
                     "Game Seconds": gs_i,
                     "Video Seconds": vs_i if vs_i is not None else "",
+                    "Details": "",
                     "Attributed Players": "",
                     "Attributed Jerseys": str(ast),
                     "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
@@ -3858,6 +4151,7 @@ def _write_all_events_summary(
         "Video Time",
         "Game Seconds",
         "Video Seconds",
+        "Details",
         "Attributed Players",
         "Attributed Jerseys",
         "On-Ice Players",
@@ -3873,6 +4167,7 @@ def _write_all_events_summary(
             "Event Type",
             "Team Raw",
             "Team Rel",
+            "Details",
             "Attributed Players",
             "Attributed Jerseys",
             "On-Ice Players",
@@ -6525,6 +6820,7 @@ def process_sheet(
     roster_map: Optional[Dict[str, str]] = None,
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
     t2s_side: Optional[str] = None,
+    t2s_game_id: Optional[int] = None,
     long_xls_paths: Optional[List[Path]] = None,
     focus_team_override: Optional[str] = None,
     include_shifts_in_stats: bool = False,
@@ -6874,6 +7170,9 @@ def process_sheet(
                 has_controlled_exit_events = True
 
     if write_events_summary:
+        t2s_events: List[Dict[str, Any]] = []
+        if t2s_game_id is not None:
+            t2s_events = t2s_events_from_scoresheet(int(t2s_game_id), our_side=t2s_side)
         _write_all_events_summary(
             stats_dir,
             sb_pairs_by_player=sb_pairs_by_player,
@@ -6881,6 +7180,7 @@ def process_sheet(
             goals_by_period=goals_by_period,
             event_log_context=event_log_context,
             focus_team=focus_team,
+            t2s_events=t2s_events,
             conv_segments_by_period=conv_segments_by_period,
         )
 
@@ -8354,6 +8654,7 @@ def main() -> None:
             roster_map=roster_map,
             t2s_rosters_by_side=t2s_rosters_by_side,
             t2s_side=side_to_use,
+            t2s_game_id=t2s_id,
             long_xls_paths=long_paths,
             focus_team_override=focus_team_override,
             include_shifts_in_stats=include_shifts_in_stats,
