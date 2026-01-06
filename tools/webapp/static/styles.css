@@ -95,6 +95,18 @@ tbody tr:nth-child(even) { background: var(--row-even); }
 	tbody tr:hover td { background: var(--row-hover); }
 	tbody tr:hover td.sticky-col { background: var(--row-hover); }
 
+/* Clamp header label height to <= 2 lines (wrapping allowed, but no tall header rows). */
+.th-clamp {
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.15;
+  max-width: 22ch;
+}
+
 /* Keep date/time fields readable and non-wrapping */
 td, th { vertical-align: top; }
 td { overflow-wrap: anywhere; }
@@ -103,12 +115,13 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 /* Utility: prevent column text wrapping for wide tables (use with overflow-x:auto wrappers). */
 .table-nowrap { width: max-content; min-width: 100%; }
 .table-nowrap th, .table-nowrap td { white-space: nowrap; }
+.table-nowrap th .th-clamp { white-space: normal; }
 
 /* Horizontal scroll wrapper for wide tables */
-.table-scroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+.table-scroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; position: relative; }
 
 /* Scrollable viewport for very tall tables (e.g., game events). */
-.table-scroll-y { overflow-y: auto; max-height: 50vh; }
+.table-scroll-y { overflow-y: auto; max-height: 50vh; position: relative; }
 .table-scroll-y thead th { position: sticky; top: 0; z-index: 4; }
 
 /* Sortable tables */
@@ -119,7 +132,12 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 /* Allow newline rendering inside specific cells even in nowrap tables */
 td.cell-pre { white-space: pre-line !important; }
 
+/* Tables that should never wrap cell content (used with JS fit scaling). */
+.table-never-wrap th, .table-never-wrap td { white-space: nowrap !important; }
+.table-never-wrap td { overflow-wrap: normal !important; word-break: normal !important; }
+
 /* Freeze left columns (JS sets left offsets; CSS provides layering + row-matched backgrounds) */
+table[data-freeze-cols] { border-collapse: separate; border-spacing: 0; overflow: visible; }
 th.sticky-col, td.sticky-col { position: sticky; left: 0; z-index: 3; }
 thead th.sticky-col { background: var(--thead-bg); z-index: 6; }
 tbody tr:nth-child(odd) td.sticky-col { background: var(--row-odd); }
@@ -133,3 +151,177 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 
 .muted { color: var(--muted); }
 .spacer { height: 1rem; }
+
+/* Game events timeline */
+.events-timeline {
+  background: #12151c;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: .75rem;
+  margin: .75rem 0;
+}
+.events-timeline-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.events-timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem .75rem;
+  justify-content: flex-end;
+}
+.events-timeline-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  color: var(--muted);
+  font-size: .85rem;
+  white-space: nowrap;
+}
+.events-timeline-legend-item svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+.events-timeline-wrap {
+  position: relative;
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  padding-top: .35rem;
+}
+.events-timeline-svg {
+  display: block;
+}
+
+.events-timeline-tooltip {
+  position: absolute;
+  z-index: 20;
+  max-width: min(420px, 92vw);
+  background: rgba(12, 14, 19, 0.96);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  padding: .55rem .65rem;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  color: var(--text);
+  pointer-events: none;
+}
+.events-timeline-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-bottom: .15rem;
+}
+.events-timeline-tooltip-icon {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+}
+.events-timeline-tooltip-title {
+  font-weight: 800;
+}
+.events-timeline-tooltip-meta {
+  color: var(--muted);
+  font-size: .85rem;
+  margin-bottom: .35rem;
+}
+.events-timeline-tooltip-line {
+  color: rgba(230,232,236,0.9);
+  font-size: .85rem;
+}
+.events-timeline-tooltip-pre {
+  white-space: pre-line;
+}
+
+/* Mobile: tables should scroll horizontally instead of wrapping each cell into unreadable columns. */
+@media (max-width: 720px), (pointer: coarse) and (max-width: 980px) {
+  body { font-size: 14px; }
+  .container { padding: .75rem; }
+  .nav-wrap { padding: .6rem .85rem; }
+  .nav-links { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: flex-end; }
+  .nav-links a { margin-left: 0; }
+  .hero { padding: 1.75rem 0 1.25rem; }
+  .hero h1 { font-size: 1.6rem; }
+  .btn { padding: .42rem .6rem; font-size: .92rem; }
+  .card { padding: .85rem; }
+
+  th, td { padding: .5rem .55rem; font-size: .84rem; }
+
+  /* Make all tables horizontally scrollable on small screens. */
+  table {
+    display: block;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  table th, table td { white-space: nowrap; }
+  table td { overflow-wrap: normal; word-break: normal; }
+
+  /* If a table is already wrapped in an explicit scroll container, keep scrolling on the wrapper
+     so sticky/frozen columns work reliably. */
+  .table-scroll > table,
+  .table-scroll-y > table {
+    display: table;
+    overflow-x: visible;
+    overflow-y: visible;
+    white-space: nowrap;
+    width: max-content;
+    min-width: 100%;
+  }
+
+  /* Additionally scale down scrollable tables based on JS-computed --mobile-table-scale. */
+  table.table-mobile-scale th,
+  table.table-mobile-scale td {
+    font-size: calc(.84rem * var(--mobile-table-scale, 1));
+    padding: calc(.5rem * var(--mobile-table-scale, 1)) calc(.55rem * var(--mobile-table-scale, 1));
+  }
+  table.table-mobile-scale img {
+    width: calc(22px * var(--mobile-table-scale, 1)) !important;
+    height: calc(22px * var(--mobile-table-scale, 1)) !important;
+  }
+  table.table-mobile-scale a.btn,
+  table.table-mobile-scale button.btn {
+    font-size: calc(.92rem * var(--mobile-table-scale, 1));
+    padding: calc(.42rem * var(--mobile-table-scale, 1)) calc(.6rem * var(--mobile-table-scale, 1));
+  }
+
+  /* Opt-out for small tables that should fit on mobile without scrolling. */
+  table.table-no-scroll-mobile {
+    display: table;
+    width: max-content;
+    max-width: none;
+    overflow-x: visible;
+    white-space: normal;
+  }
+  table.table-no-scroll-mobile th,
+  table.table-no-scroll-mobile td {
+    white-space: nowrap;
+  }
+  /* Use JS to scale these tables to fit; keep them nowrap for readability. */
+  .table-fit-wrap table.table-no-scroll-mobile th,
+  .table-fit-wrap table.table-no-scroll-mobile td {
+    white-space: nowrap !important;
+  }
+  table.table-no-scroll-mobile a.btn.secondary {
+    padding: .3rem .45rem;
+    font-size: .9em;
+  }
+  table.table-no-scroll-mobile img {
+    width: 22px !important;
+    height: 22px !important;
+  }
+  .table-fit-wrap { width: 100%; max-width: 100%; overflow: hidden; }
+
+  .events-timeline { padding: .65rem; }
+  .events-timeline-legend-item { font-size: .82rem; }
+  .events-timeline-legend-item svg { width: 22px; height: 22px; }
+}
+
+@media (max-width: 420px) {
+  body { font-size: 13px; }
+  th, td { padding: .45rem .5rem; font-size: .8rem; }
+  .btn { padding: .38rem .55rem; font-size: .9rem; }
+}

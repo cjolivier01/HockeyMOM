@@ -186,6 +186,135 @@
       function init() {
         document.querySelectorAll("table[data-sortable='1']").forEach(function(t) { setupTable(t); });
         document.querySelectorAll("table[data-freeze-cols]").forEach(function(t) { setupFrozenColumns(t); });
+        // Clamp table header labels to at most 2 lines (avoid very tall header rows).
+        (function clampTableHeaders() {
+          document.querySelectorAll("table thead th").forEach(function(th) {
+            if (!th || !th.childNodes || th.childNodes.length === 0) return;
+            // Avoid double-wrapping.
+            if (th.firstElementChild && th.firstElementChild.classList && th.firstElementChild.classList.contains("th-clamp")) return;
+            var wrap = document.createElement("div");
+            wrap.className = "th-clamp";
+            // Move all children into wrapper.
+            while (th.firstChild) wrap.appendChild(th.firstChild);
+            th.appendChild(wrap);
+          });
+        })();
+
+        // On mobile, scale down tables explicitly marked as non-scrollable so they fit
+        // horizontally without wrapping.
+        (function() {
+          function isMobile() {
+            return window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
+          }
+
+          function shouldFitAlways(table) {
+            if (!table || !table.classList || !table.classList.contains("table-fit-always")) return false;
+            // Apply on mobile + small landscape tablets/phones; avoid shrinking on large desktops.
+            var coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+            return coarse || (window.innerWidth && window.innerWidth <= 980);
+          }
+
+          function isMobileish() {
+            var coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+            return isMobile() || (coarse && (window.innerWidth && window.innerWidth <= 980));
+          }
+
+          function ensureWrap(table) {
+            if (!table || !table.parentElement) return null;
+            if (table.parentElement && table.parentElement.classList && table.parentElement.classList.contains("table-fit-wrap")) {
+              return table.parentElement;
+            }
+            var wrap = document.createElement("div");
+            wrap.className = "table-fit-wrap";
+            table.parentNode.insertBefore(wrap, table);
+            wrap.appendChild(table);
+            return wrap;
+          }
+
+          function resetFit(table, wrap) {
+            if (!table || !wrap) return;
+            wrap.style.position = "";
+            wrap.style.overflowX = "";
+            wrap.style.overflowY = "";
+            wrap.style.height = "";
+            table.style.position = "";
+            table.style.left = "";
+            table.style.top = "";
+            table.style.transformOrigin = "";
+            table.style.transform = "";
+          }
+
+          function applyFit(table, wrap) {
+            if (!table || !wrap) return;
+            // Clear old fit first so measurements are stable.
+            resetFit(table, wrap);
+            var avail = wrap.clientWidth || 0;
+            var needed = table.scrollWidth || 0;
+            if (!avail || !needed) return;
+            var scale = avail / needed;
+            if (scale >= 0.999) return;
+            var h = table.offsetHeight || 0;
+            wrap.style.position = "relative";
+            wrap.style.overflowX = "hidden";
+            wrap.style.overflowY = "hidden";
+            wrap.style.height = (h * scale) + "px";
+            table.style.position = "absolute";
+            table.style.left = "0";
+            table.style.top = "0";
+            table.style.transformOrigin = "top left";
+            table.style.transform = "scale(" + scale + ")";
+          }
+
+          var raf = null;
+          function run() {
+            if (raf) window.cancelAnimationFrame(raf);
+            raf = window.requestAnimationFrame(function() {
+              var mobile = isMobile();
+              var mobileish = isMobileish();
+              document.querySelectorAll("table.table-no-scroll-mobile").forEach(function(t) {
+                var wrap = ensureWrap(t);
+                if (!wrap) return;
+                var fitAlways = shouldFitAlways(t);
+                if (!mobile && !fitAlways) {
+                  resetFit(t, wrap);
+                } else {
+                  applyFit(t, wrap);
+                }
+              });
+
+              // For tables that remain horizontally scrollable on mobile, still scale down the
+              // font/padding proportionally (without using transforms) so they remain readable.
+              document.querySelectorAll("table").forEach(function(t) {
+                if (!t || !t.classList) return;
+                if (t.classList.contains("table-no-scroll-mobile")) return; // handled above
+                if (!mobileish) {
+                  t.classList.remove("table-mobile-scale");
+                  try { t.style.removeProperty("--mobile-table-scale"); } catch (e) {}
+                  return;
+                }
+                // Reset scale before measuring.
+                t.classList.add("table-mobile-scale");
+                try { t.style.setProperty("--mobile-table-scale", "1"); } catch (e) {}
+                var parent = t.parentElement;
+                var avail = (parent && parent.clientWidth) ? parent.clientWidth : (t.clientWidth || 0);
+                var needed = t.scrollWidth || 0;
+                if (!avail || !needed) return;
+                var s = avail / needed;
+                if (s > 1) s = 1;
+                var minS = 0.72;
+                if (s < minS) s = minS;
+                try { t.style.setProperty("--mobile-table-scale", String(s)); } catch (e) {}
+              });
+
+              // Recompute frozen column offsets after any layout-affecting scaling/resizes.
+              document.querySelectorAll("table[data-freeze-cols]").forEach(function(t) { setupFrozenColumns(t); });
+            });
+          }
+
+          run();
+          window.addEventListener("resize", run);
+          window.addEventListener("load", run);
+        })();
       }
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", init);

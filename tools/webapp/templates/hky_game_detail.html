@@ -244,6 +244,901 @@
     </p>
   {% endif %}
   {% if events_rows and events_headers %}
+    <div class="events-timeline">
+      <div class="events-timeline-header">
+        <div class="muted">Timeline</div>
+        <div id="game-events-timeline-legend" class="events-timeline-legend"></div>
+      </div>
+      <div class="events-timeline-wrap">
+        <svg id="game-events-timeline-svg" class="events-timeline-svg" role="img" aria-label="Game events timeline"></svg>
+      </div>
+      <script type="application/json" id="game-events-timeline-data">{{ events_rows|tojson }}</script>
+      <script>
+        (function () {
+          var dataEl = document.getElementById("game-events-timeline-data");
+          var svg = document.getElementById("game-events-timeline-svg");
+          var legendEl = document.getElementById("game-events-timeline-legend");
+          if (!dataEl || !svg || !legendEl) return;
+
+          var eventsRows = [];
+          try {
+            eventsRows = JSON.parse(dataEl.textContent || "[]") || [];
+          } catch (e) {
+            eventsRows = [];
+          }
+          if (!Array.isArray(eventsRows) || eventsRows.length === 0) return;
+
+          function parseTimeToSeconds(s) {
+            s = (s || "").trim();
+            if (!s) return null;
+            var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+            if (!m) return null;
+            var a = parseInt(m[1], 10);
+            var b = parseInt(m[2], 10);
+            var c = m[3] ? parseInt(m[3], 10) : null;
+            if (c === null) return a * 60 + b; // mm:ss
+            return a * 3600 + b * 60 + c; // h:mm:ss
+          }
+
+          function getValue(row, keys) {
+            if (!row) return "";
+            for (var i = 0; i < keys.length; i++) {
+              var k = keys[i];
+              if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
+              var kl = String(k).toLowerCase();
+              for (var kk in row) {
+                if (!Object.prototype.hasOwnProperty.call(row, kk)) continue;
+                if (String(kk).toLowerCase() === kl) return row[kk];
+              }
+            }
+            return "";
+          }
+
+          function parsePeriod(p) {
+            var s = String(p || "").trim();
+            if (!s) return null;
+            var sl = s.toLowerCase();
+            if (sl === "ot" || sl === "overtime") return 4;
+            var m = sl.match(/(\d+)/);
+            if (!m) return null;
+            var n = parseInt(m[1], 10);
+            return isFinite(n) && n > 0 ? n : null;
+          }
+
+          function normalizeTypeLabel(raw) {
+            var s = String(raw || "").trim();
+            if (!s) return "";
+            var sl = s.toLowerCase();
+            if (sl === "expectedgoal" || sl === "expected goal" || sl === "xg" || sl === "expected goal (xg)") return "Expected Goal (xG)";
+            if (sl === "shots on goal" || sl === "shot on goal" || sl === "sog") return "SOG";
+            if (sl === "shot") return "Shot";
+            if (sl === "goal") return "Goal";
+            if (sl === "assist") return "Assist";
+            if (sl.indexOf("rush") >= 0) return "Odd-Man Rush";
+            if (sl === "controlledentry" || sl === "controlled entry") return "Controlled Entry";
+            if (sl === "controlledexit" || sl === "controlled exit") return "Controlled Exit";
+            if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "Turnovers (forced)";
+            if (sl.indexOf("created") >= 0 && sl.indexOf("turnover") >= 0) return "Created Turnovers";
+            if (sl === "giveaway") return "Giveaway";
+            if (sl === "takeaway") return "Takeaway";
+            return s;
+          }
+
+          function typeKey(label) {
+            var sl = String(label || "").trim().toLowerCase();
+            if (!sl) return "other";
+            if (sl === "goal") return "goal";
+            if (sl === "xg" || sl === "expected goal" || sl === "expectedgoal" || sl === "expected goal (xg)" || sl.indexOf("xg") >= 0) return "xg";
+            if (sl === "sog") return "sog";
+            if (sl === "shot") return "shot";
+            if (sl === "controlled entry") return "controlled_entry";
+            if (sl === "controlled exit") return "controlled_exit";
+            if (sl.indexOf("rush") >= 0) return "odd_man_rush";
+            if (sl.indexOf("turnovers") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
+            if (sl.indexOf("created") >= 0 && sl.indexOf("turnovers") >= 0) return "turnover_created";
+            if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
+            if (sl.indexOf("created") >= 0 && sl.indexOf("turnover") >= 0) return "turnover_created";
+            if (sl === "giveaway") return "giveaway";
+            if (sl === "takeaway") return "takeaway";
+            return "other";
+          }
+
+          function isFinishFamily(k) {
+            return k === "shot" || k === "sog" || k === "xg" || k === "goal";
+          }
+
+          function finishPriority(k) {
+            if (k === "goal") return 4;
+            if (k === "xg") return 3;
+            if (k === "sog") return 2;
+            if (k === "shot") return 1;
+            return 0;
+          }
+
+          function laneKey(iconKey) {
+            if (isFinishFamily(iconKey)) return "finish";
+            if (iconKey === "controlled_entry" || iconKey === "controlled_exit") return "transition";
+            return iconKey;
+          }
+
+          function parseSide(row) {
+            var tr = String(getValue(row, ["Team Rel", "TeamRel", "For/Against", "For Against", "Side"]) || "").trim();
+            var trl = tr.toLowerCase();
+            if (trl === "for" || trl === "home" || trl === "team1") return "For";
+            if (trl === "against" || trl === "away" || trl === "team2") return "Against";
+            if (trl.indexOf("for") >= 0) return "For";
+            if (trl.indexOf("against") >= 0) return "Against";
+
+            var team = String(getValue(row, ["Team", "Team Raw", "TeamRaw"]) || "").trim().toLowerCase();
+            if (team === "home") return "For";
+            if (team === "away") return "Against";
+            return "Neutral";
+          }
+
+          function svgEl(name, attrs) {
+            var el = document.createElementNS("http://www.w3.org/2000/svg", name);
+            if (attrs) {
+              for (var k in attrs) {
+                if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+                el.setAttribute(k, String(attrs[k]));
+              }
+            }
+            return el;
+          }
+
+          function iconGroup(icon, opts) {
+            opts = opts || {};
+            var size = opts.size || 16;
+            var s = size / 24;
+            var g = svgEl("g", { transform: "scale(" + s + ") translate(-12,-12)" });
+            var stroke = opts.stroke || "rgba(255,255,255,0.6)";
+
+            function circle(cx, cy, r, fill, st, sw) {
+              g.appendChild(
+                svgEl("circle", {
+                  cx: cx,
+                  cy: cy,
+                  r: r,
+                  fill: fill,
+                  stroke: st || "none",
+                  "stroke-width": sw || 0,
+                })
+              );
+            }
+            function path(d, fill, st, sw, linecap, linejoin) {
+              var p = svgEl("path", {
+                d: d,
+                fill: fill || "none",
+                stroke: st || "none",
+                "stroke-width": sw || 0,
+              });
+              if (linecap) p.setAttribute("stroke-linecap", linecap);
+              if (linejoin) p.setAttribute("stroke-linejoin", linejoin);
+              g.appendChild(p);
+            }
+            function rect(x, y, w, h, rx, fill, st, sw) {
+              g.appendChild(
+                svgEl("rect", {
+                  x: x,
+                  y: y,
+                  width: w,
+                  height: h,
+                  rx: rx || 0,
+                  fill: fill || "none",
+                  stroke: st || "none",
+                  "stroke-width": sw || 0,
+                })
+              );
+            }
+            function text(x, y, txt, fill, fs, fw) {
+              var t = svgEl("text", {
+                x: x,
+                y: y,
+                fill: fill || "#fff",
+                "font-size": fs || 10,
+                "font-weight": fw || 800,
+                "text-anchor": "middle",
+                "dominant-baseline": "central",
+                "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
+              });
+              t.appendChild(document.createTextNode(txt));
+              g.appendChild(t);
+            }
+
+            if (icon === "goal") {
+              // Symmetric flashing red light (siren).
+              // Make the red light occupy most of the icon for visibility.
+              rect(4.5, 10, 15, 10.5, 5.2, "#ff2d2d", "rgba(0,0,0,0.30)", 1);
+              path("M8 10a4 4 0 0 1 8 0v2H8z", "#ff2d2d", "rgba(0,0,0,0.30)", 1, "round", "round");
+              path("M9 10a3 3 0 0 1 6 0", "none", "#ffe2e2", 2.4, "round", "round");
+              rect(10.8, 7.6, 2.4, 3.4, 1.2, "#ffe2e2", "none", 0);
+              path("M3.6 15h3.2", "none", "#ffb3b3", 2.4, "round", "round");
+              path("M17.2 15H20.4", "none", "#ffb3b3", 2.4, "round", "round");
+              path("M4.6 10.6l2.3 1.8", "none", "#ffb3b3", 2.4, "round", "round");
+              path("M19.4 10.6l-2.3 1.8", "none", "#ffb3b3", 2.4, "round", "round");
+              path("M12 5.2v2.8", "none", "#ffb3b3", 2.4, "round", "round");
+            } else if (icon === "xg") {
+              // Transparent crosshairs + purple "X" overlay (no outside circle).
+              // Symmetric crosshair arms that do NOT enter the inner circle.
+              var ch = "rgba(255,255,255,0.85)";
+              var sw = 2.0;
+              // Arms (with a small gap before the circle).
+              path("M12 3.8V7.0", "none", ch, sw, "round", "round");
+              path("M12 17.0V20.2", "none", ch, sw, "round", "round");
+              path("M3.8 12H7.0", "none", ch, sw, "round", "round");
+              path("M17.0 12H20.2", "none", ch, sw, "round", "round");
+              // Inner circle (larger, as requested).
+              circle(12, 12, 4.2, "none", ch, sw);
+              // X is prominent but still inside the crosshairs.
+              path("M8.8 8.8l6.4 6.4", "none", "#7c4dff", 2.8, "round", "round");
+              path("M15.2 8.8l-6.4 6.4", "none", "#7c4dff", 2.8, "round", "round");
+            } else if (icon === "sog") {
+              // Transparent crosshairs only (no outside circle).
+              var ch2 = "rgba(255,255,255,0.85)";
+              var sw2 = 2.0;
+              path("M12 3.8V7.0", "none", ch2, sw2, "round", "round");
+              path("M12 17.0V20.2", "none", ch2, sw2, "round", "round");
+              path("M3.8 12H7.0", "none", ch2, sw2, "round", "round");
+              path("M17.0 12H20.2", "none", ch2, sw2, "round", "round");
+              circle(12, 12, 4.2, "none", ch2, sw2);
+            } else if (icon === "shot") {
+              circle(9.5, 14.5, 3.8, "#111827", "rgba(255,255,255,0.2)", 1);
+              path("M13 12l8-6", "none", stroke, 2, "round", "round");
+              path("M15 14l6-4", "none", stroke, 2, "round", "round");
+            } else if (icon === "controlled_entry") {
+              // Arrow into a "zone" bracket.
+              rect(15.5, 7, 4.5, 10, 2, "rgba(0,0,0,0.0)", "#29c7a9", 2.2);
+              path("M4.5 12h10", "none", "#29c7a9", 3, "round", "round");
+              path("M11.5 8.5l4 3.5-4 3.5", "none", "#29c7a9", 3, "round", "round");
+            } else if (icon === "controlled_exit") {
+              // Arrow out of a "zone" bracket.
+              rect(4, 7, 4.5, 10, 2, "rgba(0,0,0,0.0)", "#43b3ff", 2.2);
+              path("M9.5 12h10", "none", "#43b3ff", 3, "round", "round");
+              path("M16.5 8.5l4 3.5-4 3.5", "none", "#43b3ff", 3, "round", "round");
+            } else if (icon === "odd_man_rush") {
+              // 3 arrows rushing vs 2 defenders (dots): "3-on-2".
+              path("M4 9h7", "none", "#f59e0b", 2.8, "round", "round");
+              path("M9.3 6.8l3 2.2-3 2.2", "none", "#f59e0b", 2.8, "round", "round");
+              path("M4 12h7", "none", "#f59e0b", 2.8, "round", "round");
+              path("M9.3 9.8l3 2.2-3 2.2", "none", "#f59e0b", 2.8, "round", "round");
+              path("M4 15h7", "none", "#f59e0b", 2.8, "round", "round");
+              path("M9.3 12.8l3 2.2-3 2.2", "none", "#f59e0b", 2.8, "round", "round");
+              circle(17.2, 11.2, 2.0, "#111827", "rgba(255,255,255,0.25)", 1);
+              circle(19.2, 13.6, 2.0, "#111827", "rgba(255,255,255,0.25)", 1);
+            } else if (icon === "turnover_forced") {
+              // Turnover: frying pan flipping a pancake (transparent background).
+              // Pan body (skillet)
+              path("M6.2 15.5c0-2.2 3.0-3.9 6.7-3.9s6.7 1.7 6.7 3.9-3.0 3.9-6.7 3.9-6.7-1.7-6.7-3.9z", "#374151", "rgba(0,0,0,0.55)", 1.1, "round", "round");
+              path("M7.6 15.3c0-1.4 2.3-2.5 5.3-2.5s5.3 1.1 5.3 2.5-2.3 2.5-5.3 2.5-5.3-1.1-5.3-2.5z", "rgba(255,255,255,0.08)", "none", 0, "round", "round");
+              // Handle
+              path("M18.3 14.9h4.6", "none", "#4b5563", 3.2, "round", "round");
+              path("M18.3 14.9h4.6", "none", "rgba(0,0,0,0.45)", 1.0, "round", "round");
+              // Pancake arc + pancake
+              path("M8.0 10.2c1.8-2.6 4.2-3.9 6.6-3.9 2.0 0 3.8.8 5.3 2.4", "none", "rgba(255,255,255,0.55)", 1.7, "round", "round");
+              circle(11.2, 7.7, 2.8, "#fbbf24", "rgba(0,0,0,0.45)", 1.0);
+              circle(11.2, 7.7, 1.6, "rgba(255,255,255,0.25)", "none", 0);
+            } else if (icon === "turnover_created") {
+              // Created turnover: purple "spark" + swirl (no background circle).
+              path("M8.0 14.5c.8 2 2.7 3.3 4.9 3.3 3.0 0 5.5-2.5 5.5-5.5 0-2.4-1.4-4.5-3.4-5.3", "none", "#7c4dff", 2.6, "round", "round");
+              path("M17.9 11.3l.6 3.0-3 .4", "none", "#7c4dff", 2.6, "round", "round");
+              path(
+                "M10.4 6.2l1.0 2.6 2.8.2-2.3 1.6.8 2.7-2.3-1.6-2.3 1.6.8-2.7-2.3-1.6 2.8-.2z",
+                "#7c4dff",
+                "rgba(0,0,0,0.35)",
+                1.0
+              );
+            } else if (icon === "giveaway") {
+              // Gift/present (transparent background).
+              rect(6.3, 11.0, 11.4, 9.6, 1.6, "#ff4d7a", "rgba(0,0,0,0.55)", 1.2);
+              rect(6.0, 9.3, 12.0, 2.6, 1.2, "#ff6b93", "rgba(0,0,0,0.55)", 1.2);
+              // Ribbon
+              rect(11.0, 9.3, 2.0, 11.3, 1.0, "#f7c6a5", "rgba(0,0,0,0.45)", 1.0);
+              rect(6.0, 13.1, 12.0, 1.7, 0.8, "#f7c6a5", "rgba(0,0,0,0.0)", 0);
+              // Bow: two loops + center knot.
+              rect(11.0, 6.4, 2.0, 2.2, 0.8, "#f7c6a5", "rgba(0,0,0,0.45)", 1.0);
+              path("M12 8.2c-2.6-3.0-6.2-2.7-6.7-1.0-.6 1.8 2.3 3.2 6.7 3.7", "none", "rgba(0,0,0,0.55)", 1.2, "round", "round");
+              path("M12 8.2c2.6-3.0 6.2-2.7 6.7-1.0.6 1.8-2.3 3.2-6.7 3.7", "none", "rgba(0,0,0,0.55)", 1.2, "round", "round");
+              path("M12 8.2c-1.8 0-3.6-.3-5.0-1.0", "none", "#f7c6a5", 2.2, "round", "round");
+              path("M12 8.2c1.8 0 3.6-.3 5.0-1.0", "none", "#f7c6a5", 2.2, "round", "round");
+            } else if (icon === "takeaway") {
+              // Hand picking up a shiny diamond (transparent background).
+              var skin = "rgba(230,232,236,0.92)";
+              var edge = "rgba(0,0,0,0.42)";
+              var shine = "rgba(255,255,255,0.85)";
+              // Fingers (pinch)
+              rect(4.0, 7.0, 9.4, 2.8, 1.4, skin, edge, 1.0);
+              rect(4.4, 10.0, 8.2, 2.8, 1.4, skin, edge, 1.0);
+              // Thumb curve approaching diamond
+              path("M13.2 11.2c2.2.4 3.7 1.5 4.6 3.2.8 1.5.9 3.1.2 4.6", "none", skin, 2.8, "round", "round");
+              path("M13.2 11.2c2.2.4 3.7 1.5 4.6 3.2.8 1.5.9 3.1.2 4.6", "none", edge, 1.0, "round", "round");
+              // Palm (top-right)
+              rect(12.4, 3.4, 8.8, 7.6, 3.8, skin, edge, 1.0);
+
+              // Diamond being picked up (near pinch)
+              path("M11.0 13.8l3.2 3.2L11.0 20.2 7.8 17.0z", "#a7f3d0", edge, 1.0, "round", "round");
+              path("M11.0 13.8l1.6 3.2-1.6 3.2-1.6-3.2z", "rgba(255,255,255,0.30)", "none", 0, "round", "round");
+              // Sparkle lines
+              path("M15.6 13.4h2.1", "none", shine, 1.8, "round", "round");
+              path("M14.9 11.9v2.1", "none", shine, 1.8, "round", "round");
+              path("M6.6 16.5h2.1", "none", shine, 1.6, "round", "round");
+              path("M7.6 15.5v2.1", "none", shine, 1.6, "round", "round");
+            } else {
+              rect(5.5, 5.5, 13, 13, 3, "rgba(0,0,0,0.0)", "rgba(255,255,255,0.35)", 1.2);
+              var t = String(opts.label || "?").trim();
+              text(12, 12.2, t ? t.slice(0, 1).toUpperCase() : "?", "#ffffff", 12, 900);
+            }
+            return g;
+          }
+
+          function clearSvg(el) {
+            while (el.firstChild) el.removeChild(el.firstChild);
+          }
+
+          function render() {
+            clearSvg(svg);
+            while (legendEl.firstChild) legendEl.removeChild(legendEl.firstChild);
+
+            var parsed = [];
+            for (var i = 0; i < eventsRows.length; i++) {
+              var r = eventsRows[i] || {};
+              var period = parsePeriod(getValue(r, ["Period"]));
+              if (period === null) continue;
+
+              var gs = String(getValue(r, ["Game Seconds", "GameSeconds"]) || "").trim();
+              var tWithin = null;
+              if (gs && gs.match(/^-?\d+$/)) {
+                tWithin = parseInt(gs, 10);
+              } else {
+                tWithin = parseTimeToSeconds(getValue(r, ["Game Time", "GameTime", "Time"]));
+              }
+              if (tWithin === null || !isFinite(tWithin)) continue;
+              if (tWithin < 0) tWithin = 0;
+
+              var label = normalizeTypeLabel(getValue(r, ["Event Type", "EventType", "Event", "Type"]));
+              if (!label) continue;
+              if (String(label).trim().toLowerCase() === "assist") continue;
+
+              var side = parseSide(r);
+              var ik = typeKey(label);
+              parsed.push({
+                period: period,
+                tWithin: tWithin,
+                typeLabel: label,
+                iconKey: ik,
+                laneKey: laneKey(ik),
+                side: side,
+                row: r,
+              });
+            }
+            if (parsed.length === 0) return;
+
+            // Suppress Shot/SOG/xG/Goal duplicates at the same instant and side (show best icon).
+            var bestFinishByKey = {};
+            for (var j = 0; j < parsed.length; j++) {
+              var ev = parsed[j];
+              if (!isFinishFamily(ev.iconKey)) continue;
+              var k = ev.period + "|" + ev.tWithin + "|" + ev.side;
+              var cur = bestFinishByKey[k];
+              if (!cur || finishPriority(ev.iconKey) > finishPriority(cur)) bestFinishByKey[k] = ev.iconKey;
+            }
+            var filtered = [];
+            for (var k2 = 0; k2 < parsed.length; k2++) {
+              var ev2 = parsed[k2];
+              if (isFinishFamily(ev2.iconKey)) {
+                var sk = ev2.period + "|" + ev2.tWithin + "|" + ev2.side;
+                if (bestFinishByKey[sk] && bestFinishByKey[sk] !== ev2.iconKey) continue;
+              }
+              filtered.push(ev2);
+            }
+            if (filtered.length === 0) return;
+
+            // Period model: 3 periods by default; OT (period 4) defaults to 5:00 unless events exceed it.
+            var maxPeriod = 0;
+            var maxTWithinP4 = 0;
+            var maxWithinAll = 0;
+            var minWithinByPeriod = {};
+            var maxWithinByPeriod = {};
+            for (var q = 0; q < filtered.length; q++) {
+              maxPeriod = Math.max(maxPeriod, filtered[q].period);
+              if (filtered[q].period === 4) maxTWithinP4 = Math.max(maxTWithinP4, filtered[q].tWithin);
+              if (isFinite(filtered[q].tWithin)) {
+                maxWithinAll = Math.max(maxWithinAll, filtered[q].tWithin);
+                var pp = filtered[q].period;
+                if (minWithinByPeriod[pp] === undefined || filtered[q].tWithin < minWithinByPeriod[pp]) minWithinByPeriod[pp] = filtered[q].tWithin;
+                if (maxWithinByPeriod[pp] === undefined || filtered[q].tWithin > maxWithinByPeriod[pp]) maxWithinByPeriod[pp] = filtered[q].tWithin;
+              }
+            }
+            maxPeriod = Math.max(3, maxPeriod);
+            // Heuristic: if times exceed a single period length, treat as absolute game seconds.
+            var looksAbsolute = maxWithinAll > 1500;
+            function roundUp(n, step) {
+              if (!isFinite(n) || n <= 0) return 0;
+              return Math.ceil(n / step) * step;
+            }
+
+            var durations = [];
+            if (looksAbsolute) {
+              for (var p = 1; p <= maxPeriod; p++) {
+                var lo = minWithinByPeriod[p];
+                var hi = maxWithinByPeriod[p];
+                var raw = isFinite(lo) && isFinite(hi) && hi > lo ? (hi - lo) : 0;
+                var dAbs = roundUp(raw, 60);
+                if (!dAbs || dAbs < 300) dAbs = 1200;
+                if (p === 4 && dAbs > 900) dAbs = 300;
+                durations.push(dAbs);
+              }
+            } else {
+              var typicalRaw = 0;
+              for (var pT = 1; pT <= Math.min(3, maxPeriod); pT++) {
+                typicalRaw = Math.max(typicalRaw, maxWithinByPeriod[pT] || 0);
+              }
+              var typical = roundUp(typicalRaw, 60);
+              if (!typical || typical < 600 || typical > 1500) typical = 1200;
+              for (var p = 1; p <= maxPeriod; p++) {
+                if (p === 4) {
+                  var otRaw = maxWithinByPeriod[p] || 0;
+                  var ot = roundUp(Math.max(otRaw, 300), 60);
+                  if (!ot || ot < 300) ot = 300;
+                  if (ot > typical) ot = Math.min(typical, 1200);
+                  durations.push(ot);
+                } else {
+                  durations.push(typical);
+                }
+              }
+            }
+            var offsets = [0];
+            for (var p2 = 0; p2 < durations.length; p2++) offsets.push(offsets[p2] + durations[p2]);
+            var totalDuration = offsets[offsets.length - 1] || 1;
+
+            // Infer whether times are elapsed or remaining (per period); only used for non-absolute mode.
+            var timeModeByPeriod = {};
+            if (!looksAbsolute) {
+              for (var pInf = 1; pInf <= maxPeriod; pInf++) {
+                var dInf = durations[pInf - 1] || 1200;
+                var nearZero = 0;
+                var nearHigh = 0;
+                var count = 0;
+                for (var z0 = 0; z0 < filtered.length; z0++) {
+                  if (filtered[z0].period !== pInf) continue;
+                  var tt = filtered[z0].tWithin;
+                  if (!isFinite(tt)) continue;
+                  count++;
+                  if (tt <= 120) nearZero++;
+                  if (tt >= dInf - 120) nearHigh++;
+                }
+                if (count < 5) {
+                  timeModeByPeriod[pInf] = "elapsed";
+                } else {
+                  timeModeByPeriod[pInf] = nearHigh > nearZero ? "remaining" : "elapsed";
+                }
+              }
+            }
+
+            // Determine type ordering and side-specific row maps.
+            var laneOrder = [
+              "finish",
+              "transition",
+              "odd_man_rush",
+              "takeaway",
+              "giveaway",
+              "turnover_created",
+              "turnover_forced",
+              "other",
+            ];
+            var iconOrder = [
+              "goal",
+              "xg",
+              "sog",
+              "shot",
+              "controlled_entry",
+              "controlled_exit",
+              "odd_man_rush",
+              "takeaway",
+              "giveaway",
+              "turnover_created",
+              "turnover_forced",
+              "other",
+            ];
+            var byIconKey = {};
+            for (var s0 = 0; s0 < filtered.length; s0++) {
+              var e0 = filtered[s0];
+              if (!byIconKey[e0.iconKey]) byIconKey[e0.iconKey] = { label: e0.typeLabel, iconKey: e0.iconKey };
+            }
+            var presentKeys = Object.keys(byIconKey);
+            presentKeys.sort(function (a, b) {
+              var ai = iconOrder.indexOf(a);
+              var bi = iconOrder.indexOf(b);
+              if (ai === -1) ai = 999;
+              if (bi === -1) bi = 999;
+              if (ai !== bi) return ai - bi;
+              var al = (byIconKey[a].label || a).toLowerCase();
+              var bl = (byIconKey[b].label || b).toLowerCase();
+              if (al < bl) return -1;
+              if (al > bl) return 1;
+              return 0;
+            });
+
+            var typesFor = [];
+            var typesAgainst = [];
+            var seenFor = {};
+            var seenAgainst = {};
+            for (var t0 = 0; t0 < filtered.length; t0++) {
+              var e1 = filtered[t0];
+              if (e1.side === "For" && !seenFor[e1.laneKey]) {
+                seenFor[e1.laneKey] = true;
+              }
+              if (e1.side === "Against" && !seenAgainst[e1.laneKey]) {
+                seenAgainst[e1.laneKey] = true;
+              }
+            }
+            for (var u = 0; u < laneOrder.length; u++) {
+              var kk = laneOrder[u];
+              if (seenFor[kk]) typesFor.push(kk);
+              if (seenAgainst[kk]) typesAgainst.push(kk);
+            }
+            var yIndexFor = {};
+            for (var yf = 0; yf < typesFor.length; yf++) yIndexFor[typesFor[yf]] = yf;
+            var yIndexAgainst = {};
+            for (var ya = 0; ya < typesAgainst.length; ya++) yIndexAgainst[typesAgainst[ya]] = ya;
+
+            var isMobile = window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
+            var iconSize = isMobile ? 28 : 24;
+
+            // Legend (top-right).
+            for (var li = 0; li < presentKeys.length; li++) {
+              var lk = presentKeys[li];
+              var item = document.createElement("div");
+              item.className = "events-timeline-legend-item";
+              var iconSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+              iconSvg.setAttribute("viewBox", "0 0 24 24");
+              iconSvg.setAttribute("aria-hidden", "true");
+              iconSvg.style.width = iconSize + "px";
+              iconSvg.style.height = iconSize + "px";
+              var iconWrap = document.createElementNS("http://www.w3.org/2000/svg", "g");
+              iconWrap.setAttribute("transform", "translate(12,12)");
+              iconWrap.appendChild(iconGroup(lk, { size: 24, label: (byIconKey[lk].label || "?").slice(0, 1) }));
+              iconSvg.appendChild(iconWrap);
+              var labelSpan = document.createElement("span");
+              labelSpan.appendChild(document.createTextNode(byIconKey[lk].label || lk));
+              item.appendChild(iconSvg);
+              item.appendChild(labelSpan);
+              legendEl.appendChild(item);
+            }
+
+            // Layout
+            var minW = isMobile ? 840 : 900;
+            var containerW = svg.parentElement ? svg.parentElement.clientWidth : 0;
+            var W = Math.max(minW, containerW || minW);
+            var leftPad = 16;
+            var rightPad = 16;
+            var topPad = 10;
+            var bottomPad = 14;
+            var axisGap = isMobile ? 12 : 10;
+            var rowSpacing = iconSize + (isMobile ? 14 : 12);
+            var labelH = 18;
+            var axisY = topPad + typesFor.length * rowSpacing + axisGap;
+            var H = axisY + axisGap + typesAgainst.length * rowSpacing + labelH + bottomPad;
+            if (H < 90) H = 90;
+
+            svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+            svg.style.width = W + "px";
+            svg.style.height = H + "px";
+            svg.setAttribute("width", String(W));
+            svg.setAttribute("height", String(H));
+            svg.setAttribute("preserveAspectRatio", "xMinYMin meet");
+
+            var innerW = W - leftPad - rightPad;
+            function withinToElapsed(period, tWithin) {
+              var d = durations[period - 1] || 1200;
+              var mode = timeModeByPeriod[period] || "elapsed";
+              var elapsed = mode === "remaining" ? d - tWithin : tWithin;
+              if (!isFinite(elapsed)) elapsed = 0;
+              if (elapsed < 0) elapsed = 0;
+              if (elapsed > d) elapsed = d;
+              return elapsed;
+            }
+            function xForTime(period, tWithin) {
+              var t = looksAbsolute ? tWithin : (offsets[period - 1] || 0) + withinToElapsed(period, tWithin);
+              if (t < 0) t = 0;
+              if (t > totalDuration) t = totalDuration;
+              return leftPad + (t / totalDuration) * innerW;
+            }
+
+            // Background
+            svg.appendChild(
+              svgEl("rect", {
+                x: 0,
+                y: 0,
+                width: W,
+                height: H,
+                fill: "rgba(0,0,0,0.12)",
+                rx: 10,
+              })
+            );
+
+            // Axis
+            svg.appendChild(
+              svgEl("line", {
+                x1: leftPad,
+                y1: axisY,
+                x2: W - rightPad,
+                y2: axisY,
+                stroke: "rgba(255,255,255,0.35)",
+                "stroke-width": 2,
+              })
+            );
+
+            // For/Against labels
+            if (typesFor.length > 0) {
+              var forText = svgEl("text", {
+                x: leftPad,
+                y: topPad + 12,
+                fill: "rgba(255,255,255,0.75)",
+                "font-size": 12,
+                "font-weight": 800,
+                "text-anchor": "start",
+                "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
+              });
+              forText.appendChild(document.createTextNode("For"));
+              svg.appendChild(forText);
+            }
+            if (typesAgainst.length > 0) {
+              var againstText = svgEl("text", {
+                x: leftPad,
+                y: axisY + axisGap + 12,
+                fill: "rgba(255,255,255,0.75)",
+                "font-size": 12,
+                "font-weight": 800,
+                "text-anchor": "start",
+                "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
+              });
+              againstText.appendChild(document.createTextNode("Against"));
+              svg.appendChild(againstText);
+            }
+
+            // Period ticks + labels
+            for (var p3 = 1; p3 <= maxPeriod; p3++) {
+              var xStart = leftPad + ((offsets[p3 - 1] || 0) / totalDuration) * innerW;
+              var xEnd = leftPad + ((offsets[p3] || 0) / totalDuration) * innerW;
+              if (p3 > 1) {
+                svg.appendChild(
+                  svgEl("line", {
+                    x1: xStart,
+                    y1: axisY - 9,
+                    x2: xStart,
+                    y2: axisY + 9,
+                    stroke: "rgba(255,255,255,0.35)",
+                    "stroke-width": 2,
+                  })
+                );
+              }
+              var label = p3 === 4 ? "OT" : "P" + p3;
+              var tx = (xStart + xEnd) / 2;
+              var tEl = svgEl("text", {
+                x: tx,
+                y: axisY + 18,
+                fill: "rgba(255,255,255,0.65)",
+                "font-size": 12,
+                "font-weight": 700,
+                "text-anchor": "middle",
+                "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
+              });
+              tEl.appendChild(document.createTextNode(label));
+              svg.appendChild(tEl);
+            }
+
+            // Event markers
+            function drawPriority(iconKey) {
+              if (iconKey === "shot") return 10;
+              if (iconKey === "sog") return 20;
+              if (iconKey === "xg") return 30;
+              if (iconKey === "goal") return 40;
+              return 0;
+            }
+            var drawList = filtered.slice().sort(function (a, b) {
+              var ap = drawPriority(a.iconKey);
+              var bp = drawPriority(b.iconKey);
+              if (ap !== bp) return ap - bp;
+              // Stable-ish fallback by time.
+              if (a.period !== b.period) return a.period - b.period;
+              if (a.tWithin !== b.tWithin) return a.tWithin - b.tWithin;
+              return 0;
+            });
+
+            var wrapEl = svg.parentElement || null;
+            var tooltipEl = wrapEl ? wrapEl.querySelector(".events-timeline-tooltip") : null;
+            if (wrapEl && !tooltipEl) {
+              tooltipEl = document.createElement("div");
+              tooltipEl.className = "events-timeline-tooltip";
+              tooltipEl.style.display = "none";
+              wrapEl.appendChild(tooltipEl);
+              wrapEl.addEventListener("mouseleave", function () {
+                if (tooltipEl) tooltipEl.style.display = "none";
+                if (tooltipEl) tooltipEl.dataset.pinned = "0";
+              });
+              document.addEventListener("click", function (e) {
+                if (!tooltipEl || tooltipEl.style.display === "none") return;
+                if (tooltipEl.dataset.pinned !== "1") return;
+                if (wrapEl && wrapEl.contains(e.target)) return;
+                tooltipEl.style.display = "none";
+                tooltipEl.dataset.pinned = "0";
+              });
+            }
+
+            function setTooltipContent(ev) {
+              if (!tooltipEl) return;
+              while (tooltipEl.firstChild) tooltipEl.removeChild(tooltipEl.firstChild);
+
+              var header = document.createElement("div");
+              header.className = "events-timeline-tooltip-header";
+
+              var iconSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+              iconSvg.setAttribute("viewBox", "0 0 48 48");
+              iconSvg.setAttribute("aria-hidden", "true");
+              iconSvg.classList.add("events-timeline-tooltip-icon");
+              var iconWrap = document.createElementNS("http://www.w3.org/2000/svg", "g");
+              iconWrap.setAttribute("transform", "translate(24,24)");
+              iconWrap.appendChild(iconGroup(ev.iconKey, { size: 48, label: ev.typeLabel }));
+              iconSvg.appendChild(iconWrap);
+              header.appendChild(iconSvg);
+
+              var title = document.createElement("div");
+              title.className = "events-timeline-tooltip-title";
+              title.appendChild(document.createTextNode(ev.typeLabel + (ev.side ? " (" + ev.side + ")" : "")));
+              header.appendChild(title);
+              tooltipEl.appendChild(header);
+
+              var meta = document.createElement("div");
+              meta.className = "events-timeline-tooltip-meta";
+              var pLabel = ev.period === 4 ? "OT" : "P" + ev.period;
+              var timeTxt = String(getValue(ev.row, ["Game Time", "GameTime", "Time"]) || "").trim();
+              if (!timeTxt) timeTxt = secondsToLabel(ev.tWithin);
+              meta.appendChild(document.createTextNode(pLabel + " @ " + timeTxt));
+              tooltipEl.appendChild(meta);
+
+              function addLine(label, v) {
+                var s = String(v || "").trim();
+                if (!s) return;
+                if (s.length > 180) s = s.slice(0, 177) + "...";
+                var line = document.createElement("div");
+                line.className = "events-timeline-tooltip-line";
+                line.appendChild(document.createTextNode(label + ": " + s));
+                tooltipEl.appendChild(line);
+              }
+
+              function splitList(v) {
+                var s = String(v || "").trim();
+                if (!s) return [];
+                // Accept comma-separated or newline-separated.
+                s = s.replace(/\r/g, "\n");
+                s = s.replace(/\n+/g, ",");
+                var parts = s.split(",").map(function (x) { return String(x || "").trim(); }).filter(Boolean);
+                return parts;
+              }
+
+              function addMultiline(label, v) {
+                var items = splitList(v);
+                if (!items.length) return;
+                var text = label + ":\n" + items.join("\n");
+                if (text.length > 700) text = text.slice(0, 697) + "...";
+                var line = document.createElement("div");
+                line.className = "events-timeline-tooltip-line events-timeline-tooltip-pre";
+                line.textContent = text;
+                tooltipEl.appendChild(line);
+              }
+
+              addLine("Players", getValue(ev.row, ["Attributed Players"]));
+              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
+              addMultiline("On-Ice", getValue(ev.row, ["On-Ice Players"]));
+            }
+
+            function positionTooltip(clientX, clientY) {
+              if (!tooltipEl || !wrapEl) return;
+              var wrapRect = wrapEl.getBoundingClientRect();
+              var x = clientX - wrapRect.left + wrapEl.scrollLeft;
+              var y = clientY - wrapRect.top + wrapEl.scrollTop;
+              tooltipEl.style.display = "block";
+              tooltipEl.style.left = x + "px";
+              tooltipEl.style.top = y + "px";
+              // Clamp after layout.
+              var tw = tooltipEl.offsetWidth || 0;
+              var th = tooltipEl.offsetHeight || 0;
+              var maxX = wrapEl.scrollLeft + wrapEl.clientWidth - 8;
+              var maxY = wrapEl.scrollTop + wrapEl.clientHeight - 8;
+              var left = Math.min(Math.max(wrapEl.scrollLeft + 8, x + 12), maxX - tw);
+              var top = Math.min(Math.max(wrapEl.scrollTop + 8, y + 12), maxY - th);
+              tooltipEl.style.left = left + "px";
+              tooltipEl.style.top = top + "px";
+            }
+
+            var countsByKey = {};
+            for (var e2 = 0; e2 < drawList.length; e2++) {
+              var ev3 = drawList[e2];
+              var x = xForTime(ev3.period, ev3.tWithin);
+
+              var y = axisY;
+              if (ev3.side === "For") {
+                var iy = yIndexFor[ev3.laneKey];
+                if (iy === undefined) continue;
+                y = axisY - axisGap - (iy + 0.5) * rowSpacing;
+              } else if (ev3.side === "Against") {
+                var ia = yIndexAgainst[ev3.laneKey];
+                if (ia === undefined) continue;
+                y = axisY + axisGap + (ia + 0.5) * rowSpacing;
+              }
+
+              var jitterKey = ev3.side + "|" + ev3.laneKey + "|" + ev3.period + "|" + ev3.tWithin;
+              countsByKey[jitterKey] = (countsByKey[jitterKey] || 0) + 1;
+              var idx = countsByKey[jitterKey] - 1;
+              var dx = (idx % 5) * 4; // small spread when multiple events are identical
+              x = Math.min(W - rightPad, x + dx);
+
+              var g = svgEl("g", { transform: "translate(" + x + "," + y + ")" });
+              var icon = iconGroup(ev3.iconKey, { size: iconSize, label: ev3.typeLabel });
+              g.appendChild(icon);
+              g.style.cursor = "pointer";
+
+              var title = [];
+              title.push(ev3.typeLabel);
+              if (ev3.side === "For" || ev3.side === "Against") title.push(ev3.side);
+              var timeTxt2 = String(getValue(ev3.row, ["Game Time", "GameTime", "Time"]) || "").trim();
+              if (!timeTxt2) timeTxt2 = secondsToLabel(ev3.tWithin);
+              title.push((ev3.period === 4 ? "OT" : "P" + ev3.period) + " @ " + timeTxt2);
+              var tTitle = svgEl("title");
+              tTitle.appendChild(document.createTextNode(title.join(" • ")));
+              g.appendChild(tTitle);
+
+              (function (evCopy) {
+                g.addEventListener("mouseenter", function (e) {
+                  if (!tooltipEl) return;
+                  if (tooltipEl.dataset.pinned === "1") return;
+                  setTooltipContent(evCopy);
+                  positionTooltip(e.clientX, e.clientY);
+                });
+                g.addEventListener("mousemove", function (e) {
+                  if (!tooltipEl) return;
+                  if (tooltipEl.dataset.pinned === "1") return;
+                  positionTooltip(e.clientX, e.clientY);
+                });
+                g.addEventListener("mouseleave", function () {
+                  if (!tooltipEl) return;
+                  if (tooltipEl.dataset.pinned === "1") return;
+                  tooltipEl.style.display = "none";
+                });
+                g.addEventListener("click", function (e) {
+                  if (!tooltipEl) return;
+                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
+                    tooltipEl.dataset.pinned = "1";
+                    setTooltipContent(evCopy);
+                    positionTooltip(e.clientX, e.clientY);
+                  } else {
+                    tooltipEl.style.display = "none";
+                    tooltipEl.dataset.pinned = "0";
+                  }
+                  e.stopPropagation();
+                });
+              })(ev3);
+
+              svg.appendChild(g);
+            }
+
+            function secondsToLabel(sec) {
+              sec = Math.max(0, Math.floor(sec || 0));
+              var m = Math.floor(sec / 60);
+              var s = sec % 60;
+              return m + ":" + (s < 10 ? "0" + s : "" + s);
+            }
+          }
+
+          render();
+          var resizeTimer = null;
+          window.addEventListener("resize", function () {
+            if (resizeTimer) window.clearTimeout(resizeTimer);
+            resizeTimer = window.setTimeout(render, 120);
+          });
+        })();
+      </script>
+    </div>
     <div class="table-scroll table-scroll-y">
       <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
         <thead>

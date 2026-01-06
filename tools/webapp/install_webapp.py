@@ -73,6 +73,8 @@ def main():
     print("Copying webapp code...")
     subprocess.check_call(["sudo", "mkdir", "-p", str(app_dir)])
     _do_copy(repo_root / "tools/webapp/app.py", app_dir / "app.py")
+    _do_copy(repo_root / "tools/webapp/hockey_rankings.py", app_dir / "hockey_rankings.py")
+    _do_copy(repo_root / "tools/webapp/recalc_div_ratings.py", app_dir / "recalc_div_ratings.py")
     subprocess.check_call(["sudo", "mkdir", "-p", str(templates_dir)])
     for t in (repo_root / "tools/webapp/templates").glob("*.html"):
         _do_copy(t, templates_dir / t.name)
@@ -198,6 +200,37 @@ WantedBy=multi-user.target
 
     sudo_write_text(f"/etc/systemd/system/{SERVICE_NAME}", unit)
 
+    print("Writing weekly Ratings systemd timer...")
+    ratings_service = f"""
+[Unit]
+Description=HockeyMOM: Recompute Ratings (weekly)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={args.user}
+Group={args.user}
+Environment=PYTHONUNBUFFERED=1
+Environment=HM_DB_CONFIG={app_dir}/config.json
+Environment=HM_WATCH_ROOT={args.watch_root}
+WorkingDirectory={app_dir}
+ExecStart={python_bin} {app_dir}/recalc_div_ratings.py --config {app_dir}/config.json
+""".lstrip()
+    sudo_write_text("/etc/systemd/system/hm-webapp-div-ratings.service", ratings_service)
+    ratings_timer = """
+[Unit]
+Description=HockeyMOM: Weekly Ratings recalculation
+
+[Timer]
+OnCalendar=Wed *-*-* 00:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+""".lstrip()
+    sudo_write_text("/etc/systemd/system/hm-webapp-div-ratings.timer", ratings_timer)
+
     print("Writing nginx site...")
     nginx_conf = f"""
 server {{
@@ -227,6 +260,7 @@ server {{
     subprocess.check_call(["sudo", "chown", "-R", f"{args.user}:{args.user}", str(install_root)])
     subprocess.check_call(["sudo", "systemctl", "daemon-reload"])
     subprocess.check_call(["sudo", "systemctl", "enable", "--now", SERVICE_NAME])
+    subprocess.check_call(["sudo", "systemctl", "enable", "--now", "hm-webapp-div-ratings.timer"])
     subprocess.check_call(["sudo", "systemctl", "restart", "nginx"])
 
     print("Installed webapp:")

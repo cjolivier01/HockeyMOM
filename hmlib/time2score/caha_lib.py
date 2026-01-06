@@ -540,35 +540,64 @@ def scrape_league_schedule(season_id: int) -> list[dict[str, Any]]:
     if season_id and season_id > 0:
         params["season"] = str(season_id)
     soup = util.get_html(TIMETOSCORE_URL + "display-schedule.php", params=params)
-    if not soup.table:
-        return []
-    try:
-        df = pd.read_html(io.StringIO(str(soup.table)), header=0, flavor="bs4")[0]
-    except Exception:
+    tables = soup.find_all("table") if soup else []
+    if not tables:
         return []
 
+    def _flatten_col(col: Any) -> str:
+        if isinstance(col, tuple):
+            parts = [str(p) for p in col if str(p) and str(p).lower() != "nan"]
+            return " ".join(parts).strip()
+        return str(col or "").strip()
+
+    def _rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
+        if df is None or df.empty:
+            return []
+        df = df.fillna(np.nan).replace([np.nan], [None])
+        cols = [_flatten_col(c) for c in df.columns]
+        if len(cols) < 8:
+            return []
+        cols_lower = [c.lower() for c in cols]
+        if not cols_lower:
+            return []
+        if not (cols_lower[0].startswith("game") or any("game results" in c for c in cols_lower)):
+            if not any("game" in c for c in cols_lower):
+                return []
+
+        rows_out: list[dict[str, Any]] = []
+        keys = [
+            "id",
+            "date",
+            "time",
+            "rink",
+            "league",
+            "level",
+            "away",
+            "awayGoals",
+            "home",
+            "homeGoals",
+            "type",
+        ]
+        for _, r in df.iterrows():
+            row = list(r.values.tolist())
+            first = str(row[0] or "").strip() if row else ""
+            if first.lower() == "game":
+                continue
+            out: dict[str, Any] = {}
+            for idx, key in enumerate(keys):
+                out[key] = row[idx] if idx < len(row) else None
+            rows_out.append(out)
+        return rows_out
+
     rows: list[dict[str, Any]] = []
-    for _, r in df.iterrows():
-        d = r.to_dict()
-        # CAHA nests headers as "Game Results.*"; row 0 repeats the column titles ("Game", "Date", ...).
-        first = str(d.get("Game Results") or "").strip()
-        if first.lower() == "game":
+    for tbl in tables:
+        try:
+            dfs = pd.read_html(io.StringIO(str(tbl)), header=0, flavor="bs4")
+        except Exception:
             continue
-        # Map into stable keys.
-        out: dict[str, Any] = {
-            "id": d.get("Game Results"),
-            "date": d.get("Game Results.1"),
-            "time": d.get("Game Results.2"),
-            "rink": d.get("Game Results.3"),
-            "league": d.get("Game Results.4"),
-            "level": d.get("Game Results.5"),
-            "away": d.get("Game Results.6"),
-            "awayGoals": d.get("Game Results.7"),
-            "home": d.get("Game Results.8"),
-            "homeGoals": d.get("Game Results.9"),
-            "type": d.get("Game Results.10"),
-        }
-        rows.append(out)
+        for df in dfs:
+            rows.extend(_rows_from_df(df))
+
     return rows
 
 

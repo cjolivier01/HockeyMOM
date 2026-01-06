@@ -108,6 +108,44 @@ class FakeCursor:
                 self._rows = [d({"id": league["id"], "name": league["name"]})]
             return 1
 
+        if q.startswith(
+            "SELECT DISTINCT division_name FROM league_teams WHERE league_id=%s AND division_name IS NOT NULL AND division_name<>''"
+        ):
+            # No league_teams in this unit test fixture.
+            self._rows = []
+            return 1
+
+        if q.startswith("SELECT DISTINCT t.id, t.name FROM league_teams lt JOIN teams t ON lt.team_id=t.id"):
+            # No league_teams in this unit test fixture.
+            self._rows = []
+            return 1
+
+        if "FROM league_games lg" in q and "JOIN hky_games g ON lg.game_id=g.id" in q and "WHERE lg.league_id=%s" in q:
+            league_id = int(p[0])
+            rows: list[dict[str, Any]] = []
+            for lg in self._conn.league_games:
+                if int(lg.get("league_id") or 0) != league_id:
+                    continue
+                gid = int(lg.get("game_id") or 0)
+                g = dict(self._conn.hky_games.get(gid) or {})
+                if not g:
+                    continue
+                t1 = self._conn.teams[int(g["team1_id"])]
+                t2 = self._conn.teams[int(g["team2_id"])]
+                rows.append(
+                    dict(
+                        g,
+                        team1_name=t1["name"],
+                        team2_name=t2["name"],
+                        game_type_name=None,
+                        division_name=str(lg.get("division_name") or ""),
+                        team1_league_division_name=None,
+                        team2_league_division_name=None,
+                    )
+                )
+            self._rows = [d(r) for r in rows]
+            return 1
+
         if q == "SELECT id FROM users WHERE email=%s":
             email = str(p[0]).strip().lower()
             u = self._conn.users_by_email.get(email)
@@ -591,6 +629,20 @@ class FakeCursor:
                 self._conn.hky_games[gid]["stats_imported_at"] = _ts
             return 1
 
+        if q == "SELECT notes FROM hky_games WHERE id=%s":
+            gid = int(p[0])
+            g = self._conn.hky_games.get(gid)
+            self._rows = [d({"notes": g.get("notes") if g else None})] if g else []
+            return 1
+
+        if q == "UPDATE hky_games SET notes=%s, updated_at=%s WHERE id=%s":
+            notes, updated_at, gid = p
+            gid = int(gid)
+            if gid in self._conn.hky_games:
+                self._conn.hky_games[gid]["notes"] = notes
+                self._conn.hky_games[gid]["updated_at"] = updated_at
+            return 1
+
         if "FROM league_games lg JOIN hky_games g ON lg.game_id=g.id" in q and "WHERE g.id=%s AND lg.league_id=%s" in q:
             gid, league_id = int(p[0]), int(p[1])
             ok = any(int(lg["league_id"]) == league_id and int(lg["game_id"]) == gid for lg in self._conn.league_games)
@@ -762,6 +814,26 @@ def should_store_player_stats_csv_via_shift_package_and_render_public_game_page(
     assert "Average Shift" not in html
     assert "Shifts" not in html
     assert "TOI Total" not in html
+
+
+def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(client_and_db):
+    client, db = client_and_db
+    r = client.post(
+        "/api/import/hockey/shift_package",
+        json={
+            "timetoscore_game_id": 123,
+            "game_video_url": "https://example.com/video",
+            "source_label": "unit-test",
+        },
+        headers={"X-HM-Import-Token": "sekret"},
+    )
+    assert r.status_code == 200
+    assert r.get_json()["ok"] is True
+    assert "game_video_url" in str(db.hky_games[1001].get("notes") or "")
+
+    schedule_html = client.get("/public/leagues/1/schedule").get_data(as_text=True)
+    assert 'href="https://example.com/video"' in schedule_html
+    assert 'target="_blank"' in schedule_html
 
 
 def should_create_external_game_via_shift_package_and_map_to_league(client_and_db):

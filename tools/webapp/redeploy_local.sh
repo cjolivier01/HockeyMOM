@@ -119,6 +119,8 @@ sudo -v
 
 echo "[i] Copying app.py, templates, and static to $APP_DIR (sudo required)"
 sudo install -m 0644 -D tools/webapp/app.py "$APP_DIR/app.py"
+sudo install -m 0644 -D tools/webapp/hockey_rankings.py "$APP_DIR/hockey_rankings.py"
+sudo install -m 0755 -D tools/webapp/recalc_div_ratings.py "$APP_DIR/recalc_div_ratings.py"
 sudo mkdir -p "$APP_DIR/templates" "$APP_DIR/static"
 sudo rsync -a tools/webapp/templates/ "$APP_DIR/templates/"
 sudo rsync -a tools/webapp/static/ "$APP_DIR/static/"
@@ -152,6 +154,41 @@ fi
 echo "[i] Starting hm-webapp and nginx"
 sudo systemctl restart hm-webapp
 sudo systemctl restart nginx
+
+echo "[i] Ensuring weekly Ratings timer is installed (Wed 00:00)"
+APP_USER="$(stat -c '%U' "$APP_DIR" 2>/dev/null || echo "${SUDO_USER:-$USER}")"
+UNIT_SERVICE="/etc/systemd/system/hm-webapp-div-ratings.service"
+UNIT_TIMER="/etc/systemd/system/hm-webapp-div-ratings.timer"
+sudo tee "$UNIT_SERVICE" >/dev/null <<EOF
+[Unit]
+Description=HockeyMOM: Recompute Ratings (weekly)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=${APP_USER}
+Group=${APP_USER}
+Environment=PYTHONUNBUFFERED=1
+Environment=HM_DB_CONFIG=${APP_DIR}/config.json
+Environment=HM_WATCH_ROOT=/data/incoming
+WorkingDirectory=${APP_DIR}
+ExecStart=/opt/hm-webapp/venv/bin/python ${APP_DIR}/recalc_div_ratings.py --config ${APP_DIR}/config.json
+EOF
+
+sudo tee "$UNIT_TIMER" >/dev/null <<EOF
+[Unit]
+Description=HockeyMOM: Weekly Ratings recalculation
+
+[Timer]
+OnCalendar=Wed *-*-* 00:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+sudo systemctl daemon-reload || true
+sudo systemctl enable --now hm-webapp-div-ratings.timer || true
 
 echo "[i] Waiting for hm-webapp to listen on :$PORT"
 if ! wait_for_tcp "127.0.0.1" "$PORT" 20; then

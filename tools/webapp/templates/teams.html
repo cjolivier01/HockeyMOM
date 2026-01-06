@@ -14,10 +14,10 @@
   </div>
 </div>
 
-{% if league_view and divisions %}
-  {% for div in divisions %}
-    <h3 style="margin-top:1rem;">{{ div.name }}</h3>
-    <table>
+  {% if league_view and divisions %}
+    {% for div in divisions %}
+      <h3 style="margin-top:1rem;">{{ div.name }}</h3>
+    <table class="table-no-scroll-mobile">
       <thead>
         <tr>
           <th>Name</th>
@@ -26,6 +26,9 @@
           <th>GF/GA</th>
           <th>Pts</th>
           <th>Pts (Total)</th>
+          {% if league_view %}
+            <th>Rating</th>
+          {% endif %}
           <th></th>
         </tr>
       </thead>
@@ -46,20 +49,29 @@
             <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
             <td>{{ s.get('points',0) }}</td>
             <td>{{ s.get('points_total', s.get('points',0)) }}</td>
+            {% if league_view %}
+              <td>
+                {% if t.get('mhr_rating') is not none %}
+                  {{ '%.2f'|format(t.get('mhr_rating')) }}
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+            {% endif %}
             <td>
-              {% if not (public_league_id is defined) and t['user_id'] == current_user_id %}
+              {% if not (public_league_id is defined) and (not league_view) and t['user_id'] == current_user_id %}
                 <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
               {% endif %}
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="5" class="muted">No teams yet.</td></tr>
+          <tr><td colspan="{% if league_view %}8{% else %}7{% endif %}" class="muted">No teams yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   {% endfor %}
 {% else %}
-  <table>
+  <table class="table-no-scroll-mobile">
     <thead>
       <tr>
         <th>Name</th>
@@ -68,6 +80,9 @@
         <th>GF/GA</th>
         <th>Pts</th>
         <th>Pts (Total)</th>
+        {% if league_view %}
+          <th>Rating</th>
+        {% endif %}
         <th></th>
       </tr>
     </thead>
@@ -88,14 +103,23 @@
           <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
           <td>{{ s.get('points',0) }}</td>
           <td>{{ s.get('points_total', s.get('points',0)) }}</td>
+          {% if league_view %}
+            <td>
+              {% if t.get('mhr_rating') is not none %}
+                {{ '%.2f'|format(t.get('mhr_rating')) }}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          {% endif %}
           <td>
-            {% if not (public_league_id is defined) and t['user_id'] == current_user_id %}
+            {% if not (public_league_id is defined) and (not league_view) and t['user_id'] == current_user_id %}
               <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
             {% endif %}
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="5" class="muted">No teams yet.</td></tr>
+        <tr><td colspan="{% if league_view %}8{% else %}7{% endif %}" class="muted">No teams yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -2452,12 +2452,214 @@ def _infer_focus_team_from_long_sheet(
     return "Blue" if blue_ov > white_ov else "White"
 
 
+def _infer_focus_team_from_color_rosters(
+    our_jerseys: set[str],
+    jerseys_by_team: Dict[str, Iterable[int]],
+) -> Optional[str]:
+    """
+    Infer whether "us" is Blue or White by roster overlap.
+
+    This is used when the primary sheet is an event-log layout (no names) and we have
+    TimeToScore roster numbers for our team, or when long-sheet inference isn't available.
+    """
+    if not our_jerseys or not jerseys_by_team:
+        return None
+    blue = {str(int(x)) for x in (jerseys_by_team.get("Blue") or []) if isinstance(x, (int, float))}
+    white = {str(int(x)) for x in (jerseys_by_team.get("White") or []) if isinstance(x, (int, float))}
+    blue_ov = len(our_jerseys & blue)
+    white_ov = len(our_jerseys & white)
+    if blue_ov == 0 and white_ov == 0:
+        return None
+    if blue_ov == white_ov:
+        return None
+    return "Blue" if blue_ov > white_ov else "White"
+
+
+def _extract_roster_tables_from_df(
+    df: pd.DataFrame,
+) -> List[Tuple[Optional[str], Dict[str, str]]]:
+    """
+    Best-effort extraction of roster tables from a sheet.
+
+    We look for header rows that contain both a jersey/number column and a name/player column,
+    and then parse subsequent rows as (jersey -> name).
+
+    Returns a list of (team_color_or_none, roster_map) entries. The team is inferred only when
+    nearby cells mention "Blue" or "White"; otherwise it is None and callers can assign based
+    on jersey overlap with other signals.
+    """
+    if df is None or df.empty:
+        return []
+
+    def _norm_cell(v: Any) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ""
+        try:
+            s = str(v).strip().lower()
+        except Exception:
+            return ""
+        s = s.replace("\xa0", " ")
+        s = " ".join(s.split())
+        return re.sub(r"[^a-z0-9]+", "", s)
+
+    def _scan_team_near(r: int) -> Optional[str]:
+        # Look in the header row and a couple of rows above for Blue/White labels.
+        found: set[str] = set()
+        for rr in range(max(0, r - 2), min(df.shape[0], r + 1)):
+            for cc in range(df.shape[1]):
+                v = df.iat[rr, cc]
+                if pd.isna(v) or not isinstance(v, str):
+                    continue
+                sl = v.strip().lower()
+                if "blue" in sl or sl.startswith("blu"):
+                    found.add("Blue")
+                if "white" in sl or sl.startswith("whi"):
+                    found.add("White")
+        if len(found) == 1:
+            return next(iter(found))
+        return None
+
+    out: List[Tuple[Optional[str], Dict[str, str]]] = []
+    # Scan for header rows.
+    for r in range(df.shape[0]):
+        normed = [_norm_cell(df.iat[r, c]) for c in range(df.shape[1])]
+        if not any(normed):
+            continue
+
+        jersey_cols = [c for c, s in enumerate(normed) if s and (("jersey" in s) or s in {"number", "num", "#"})]
+        name_cols = [c for c, s in enumerate(normed) if s and (("name" in s) or s in {"player", "playername"})]
+        if not jersey_cols or not name_cols:
+            continue
+
+        # Prefer adjacent columns.
+        best = None
+        for jc in jersey_cols:
+            for nc in name_cols:
+                dist = abs(jc - nc)
+                if best is None or dist < best[0]:
+                    best = (dist, jc, nc)
+        if best is None:
+            continue
+        _, jersey_col, name_col = best
+
+        team_guess = _scan_team_near(r)
+        roster: Dict[str, str] = {}
+        blank_jersey_streak = 0
+        for rr in range(r + 1, df.shape[0]):
+            # Stop if we hit another header-like row.
+            if rr != r + 1:
+                row_normed = [_norm_cell(df.iat[rr, c]) for c in range(df.shape[1])]
+                if ("jersey" in "".join(row_normed)) and ("name" in "".join(row_normed) or "player" in "".join(row_normed)):
+                    break
+            # Stop at period headers (common in these sheets).
+            try:
+                if parse_period_label(df.iat[rr, 0]) is not None:
+                    break
+            except Exception:
+                # Non-period label or unexpected cell format; ignore and continue scanning.
+                pass
+
+            jersey_norm = _normalize_jersey_number(df.iat[rr, jersey_col])
+            if not jersey_norm:
+                blank_jersey_streak += 1
+                if blank_jersey_streak >= 3:
+                    break
+                continue
+            blank_jersey_streak = 0
+            try:
+                nm_raw = df.iat[rr, name_col]
+            except Exception:
+                nm_raw = None
+            name = str(nm_raw or "").strip()
+            if not name or name.lower() in {"nan", "none"}:
+                continue
+            roster[jersey_norm] = name
+
+        # Require a small minimum to avoid false positives.
+        if len(roster) >= 3:
+            out.append((team_guess, roster))
+
+    return out
+
+
+def _resolve_team_color_player_key(
+    pk: str,
+    roster_name_by_team: Dict[str, Dict[str, str]],
+) -> str:
+    """
+    Resolve placeholder keys like 'Blue_12' to '12_First_Last' when a roster name is known.
+    """
+    try:
+        text = str(pk or "").strip()
+    except Exception:
+        return pk
+    m = re.fullmatch(r"(Blue|White)_(\d+)", text)
+    if not m:
+        return pk
+    team = m.group(1)
+    jersey_norm = _normalize_jersey_number(m.group(2))
+    if not jersey_norm:
+        return pk
+    name = (roster_name_by_team.get(team) or {}).get(jersey_norm)
+    if not name:
+        return pk
+    return f"{sanitize_name(jersey_norm)}_{sanitize_name(name)}"
+
+
+def _rename_dict_keys_merge_lists(
+    d: Dict[str, List[Any]],
+    key_map: Dict[str, str],
+) -> Dict[str, List[Any]]:
+    out: Dict[str, List[Any]] = {}
+    for k, v in (d or {}).items():
+        nk = key_map.get(k, k)
+        out.setdefault(nk, []).extend(list(v or []))
+    return out
+
+
+def _rename_event_log_context_players(
+    ctx: Optional["EventLogContext"],
+    key_map: Dict[str, str],
+) -> Optional["EventLogContext"]:
+    if ctx is None or not key_map:
+        return ctx
+
+    counts_by_player: Dict[str, Dict[str, int]] = {}
+    for pk, kinds in (ctx.event_counts_by_player or {}).items():
+        nk = key_map.get(pk, pk)
+        dest = counts_by_player.setdefault(nk, {})
+        for et, cnt in (kinds or {}).items():
+            try:
+                inc = int(cnt)
+            except Exception:
+                inc = 0
+            dest[et] = dest.get(et, 0) + inc
+
+    player_rows: List[Dict[str, Any]] = []
+    for r in (ctx.event_player_rows or []):
+        rr = dict(r or {})
+        pk = str(rr.get("player") or "").strip()
+        if pk:
+            rr["player"] = key_map.get(pk, pk)
+        player_rows.append(rr)
+
+    return EventLogContext(
+        event_counts_by_player=counts_by_player,
+        event_counts_by_type_team=dict(ctx.event_counts_by_type_team or {}),
+        event_instances=dict(ctx.event_instances or {}),
+        event_player_rows=player_rows,
+        team_roster=dict(ctx.team_roster or {}),
+        team_excluded=dict(ctx.team_excluded or {}),
+    )
+
+
 def _event_log_context_from_long_events(
     long_events: List[LongEvent],
     *,
     jersey_to_players: Dict[str, List[str]],
     focus_team: Optional[str],
     jerseys_by_team: Dict[str, set[int]],
+    roster_name_by_team: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> EventLogContext:
     event_counts_by_player: Dict[str, Dict[str, int]] = {}
     event_counts_by_type_team: Dict[Tuple[str, str], int] = {}
@@ -2512,6 +2714,10 @@ def _event_log_context_from_long_events(
             player_keys: List[str] = []
             if focus_team is not None and team == focus_team and jersey_norm:
                 player_keys = jersey_to_players.get(jersey_norm, [])
+            if not player_keys and jersey_norm and roster_name_by_team:
+                nm = (roster_name_by_team.get(team) or {}).get(jersey_norm)
+                if nm:
+                    player_keys = [f"{sanitize_name(jersey_norm)}_{sanitize_name(nm)}"]
             if not player_keys:
                 player_keys = [f"{team}_{int(jersey)}"]
             for pk in player_keys:
@@ -5548,6 +5754,47 @@ def _get_t2s_team_roster(
     return roster
 
 
+def _get_t2s_game_rosters(
+    t2s_id: int,
+    hockey_db_dir: Path,
+) -> Dict[str, Dict[str, str]]:
+    """
+    Return both rosters (home/away) as normalized jersey number -> player name mappings.
+
+    This is used to resolve placeholder spreadsheet player labels like 'Blue_12' / 'White_7'
+    to real player names when event logs include opponent jerseys.
+    """
+    t2s_api = _get_t2s_api()
+    if t2s_api is None:
+        details = f": {_t2s_api_import_error}" if _t2s_api_import_error else ""
+        raise RuntimeError(f"TimeToScore API not available (failed to import hmlib.time2score.api){details}")
+    try:
+        with _working_directory(hockey_db_dir):
+            info = t2s_api.get_game_details(int(t2s_id))
+    except Exception as e:
+        raise RuntimeError(f"TimeToScore API failed to load game {t2s_id} for rosters: {e}") from e
+
+    stats = (info or {}).get("stats")
+    if not isinstance(stats, dict) or not stats:
+        raise RuntimeError(f"TimeToScore returned no usable stats for game {t2s_id}; cannot load rosters.")
+
+    out: Dict[str, Dict[str, str]] = {"home": {}, "away": {}}
+    for side, key in (("home", "homePlayers"), ("away", "awayPlayers")):
+        rows = stats.get(key) or []
+        roster: Dict[str, str] = {}
+        for r in rows:
+            raw_num = (r or {}).get("number")
+            num_norm = _normalize_jersey_number(raw_num)
+            if not num_norm:
+                continue
+            name = str((r or {}).get("name") or "").strip()
+            if not name:
+                continue
+            roster[num_norm] = name
+        out[side] = roster
+    return out
+
+
 def _write_event_summaries_and_clips(
     outdir: Path,
     stats_dir: Path,
@@ -6277,6 +6524,8 @@ def process_sheet(
     keep_goalies: bool,
     goals: List[GoalEvent],
     roster_map: Optional[Dict[str, str]] = None,
+    t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
+    t2s_side: Optional[str] = None,
     long_xls_paths: Optional[List[Path]] = None,
     focus_team_override: Optional[str] = None,
     include_shifts_in_stats: bool = False,
@@ -6330,6 +6579,9 @@ def process_sheet(
     stats_table_rows: List[Dict[str, str]] = []
     all_periods_seen: set[int] = set()
 
+    roster_tables: List[Tuple[Optional[str], Dict[str, str]]] = []
+    roster_tables.extend(_extract_roster_tables_from_df(df))
+
     jersey_to_players: Dict[str, List[str]] = {}
     for pk in sb_pairs_by_player.keys():
         norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
@@ -6367,6 +6619,7 @@ def process_sheet(
     merged_event_context: Optional[EventLogContext] = event_log_context
     inferred_long_goals: List[GoalEvent] = []
 
+    long_events_all: List[LongEvent] = []
     long_goal_rows_all: List[Dict[str, Any]] = []
     jerseys_by_team_all: Dict[str, set[int]] = {}
 
@@ -6387,6 +6640,8 @@ def process_sheet(
             if not long_events and not long_goal_rows:
                 continue
 
+            roster_tables.extend(_extract_roster_tables_from_df(long_df))
+            long_events_all.extend(long_events or [])
             for team, nums in (jerseys_by_team or {}).items():
                 jerseys_by_team_all.setdefault(team, set()).update(nums or set())
             long_goal_rows_all.extend(long_goal_rows or [])
@@ -6395,15 +6650,96 @@ def process_sheet(
                 our_jerseys: set[str] = set(jersey_to_players.keys())
                 if roster_map:
                     our_jerseys |= set(roster_map.keys())
+                if t2s_rosters_by_side and t2s_side in {"home", "away"}:
+                    our_jerseys |= set((t2s_rosters_by_side.get(str(t2s_side)) or {}).keys())
                 focus_team = _infer_focus_team_from_long_sheet(our_jerseys, jerseys_by_team_all)
 
-            long_ctx = _event_log_context_from_long_events(
-                long_events,
-                jersey_to_players=jersey_to_players,
-                focus_team=focus_team,
-                jerseys_by_team=jerseys_by_team,
-            )
-            merged_event_context = _merge_event_log_contexts(merged_event_context, long_ctx)
+    # If we still don't know our color, try inferring from the primary sheet's event-log rosters.
+    if focus_team is None and merged_event_context is not None and (merged_event_context.team_roster or {}):
+        our_jerseys2: set[str] = set()
+        if roster_map:
+            our_jerseys2 |= set(roster_map.keys())
+        if t2s_rosters_by_side and t2s_side in {"home", "away"}:
+            our_jerseys2 |= set((t2s_rosters_by_side.get(str(t2s_side)) or {}).keys())
+        focus_team = _infer_focus_team_from_color_rosters(our_jerseys2, merged_event_context.team_roster)
+
+    # Build roster name maps by team color for resolving placeholder keys (Blue_#/White_#).
+    roster_name_by_team: Dict[str, Dict[str, str]] = {"Blue": {}, "White": {}}
+
+    def _assign_unknown_roster(roster: Dict[str, str]) -> Optional[str]:
+        if not roster:
+            return None
+        roster_nums = set(roster.keys())
+        # Prefer long-sheet observed rosters when available.
+        if jerseys_by_team_all:
+            blue = {str(int(x)) for x in (jerseys_by_team_all.get("Blue") or set())}
+            white = {str(int(x)) for x in (jerseys_by_team_all.get("White") or set())}
+            blue_ov = len(roster_nums & blue)
+            white_ov = len(roster_nums & white)
+            if blue_ov != white_ov and (blue_ov > 0 or white_ov > 0):
+                return "Blue" if blue_ov > white_ov else "White"
+        if merged_event_context is not None and (merged_event_context.team_roster or {}):
+            blue = {str(int(x)) for x in (merged_event_context.team_roster.get("Blue") or [])}
+            white = {str(int(x)) for x in (merged_event_context.team_roster.get("White") or [])}
+            blue_ov = len(roster_nums & blue)
+            white_ov = len(roster_nums & white)
+            if blue_ov != white_ov and (blue_ov > 0 or white_ov > 0):
+                return "Blue" if blue_ov > white_ov else "White"
+        return None
+
+    for team_guess, roster in roster_tables:
+        team = team_guess if team_guess in {"Blue", "White"} else _assign_unknown_roster(roster)
+        if team in {"Blue", "White"}:
+            roster_name_by_team[team].update(roster or {})
+
+    # Prefer TimeToScore rosters when available (resolve opponent names too).
+    if t2s_rosters_by_side and t2s_side in {"home", "away"} and focus_team in {"Blue", "White"}:
+        our_side = str(t2s_side)
+        opp_side = "away" if our_side == "home" else "home"
+        opp_team = "White" if focus_team == "Blue" else "Blue"
+        roster_name_by_team[focus_team].update(t2s_rosters_by_side.get(our_side) or {})
+        roster_name_by_team[opp_team].update(t2s_rosters_by_side.get(opp_side) or {})
+    elif roster_map and focus_team in {"Blue", "White"}:
+        roster_name_by_team[focus_team].update(roster_map or {})
+
+    # Resolve placeholder player keys (e.g., 'Blue_12') to named keys when possible.
+    key_map: Dict[str, str] = {}
+    for pk in list(sb_pairs_by_player.keys()):
+        nk = _resolve_team_color_player_key(pk, roster_name_by_team)
+        if nk != pk:
+            key_map[pk] = nk
+    for pk in list(video_pairs_by_player.keys()):
+        nk = _resolve_team_color_player_key(pk, roster_name_by_team)
+        if nk != pk:
+            key_map[pk] = nk
+    if merged_event_context is not None:
+        for pk in list((merged_event_context.event_counts_by_player or {}).keys()):
+            nk = _resolve_team_color_player_key(pk, roster_name_by_team)
+            if nk != pk:
+                key_map[pk] = nk
+
+    if key_map:
+        sb_pairs_by_player = _rename_dict_keys_merge_lists(sb_pairs_by_player, key_map)  # type: ignore[arg-type]
+        video_pairs_by_player = _rename_dict_keys_merge_lists(video_pairs_by_player, key_map)  # type: ignore[arg-type]
+        merged_event_context = _rename_event_log_context_players(merged_event_context, key_map)
+
+        # Rebuild jersey->player mapping after key renames.
+        jersey_to_players = {}
+        for pk in sb_pairs_by_player.keys():
+            norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
+            if norm:
+                jersey_to_players.setdefault(norm, []).append(pk)
+
+    # Convert parsed long-sheet events into an EventLogContext (with roster name resolution).
+    if long_events_all:
+        long_ctx = _event_log_context_from_long_events(
+            long_events_all,
+            jersey_to_players=jersey_to_players,
+            focus_team=focus_team,
+            jerseys_by_team=jerseys_by_team_all,
+            roster_name_by_team=roster_name_by_team,
+        )
+        merged_event_context = _merge_event_log_contexts(merged_event_context, long_ctx)
 
         if focus_team is None and (long_goal_rows_all or jerseys_by_team_all):
             print(
@@ -7374,6 +7710,7 @@ def _upload_shift_package_to_webapp(
     home_logo_content_type: Optional[str] = None,
     away_logo_b64: Optional[str] = None,
     away_logo_content_type: Optional[str] = None,
+    game_video_url: Optional[str] = None,
     create_missing_players: bool = False,
 ) -> None:
     try:
@@ -7430,6 +7767,8 @@ def _upload_shift_package_to_webapp(
         payload["away_logo_content_type"] = str(away_logo_content_type)
     if create_missing_players:
         payload["create_missing_players"] = True
+    if game_video_url:
+        payload["game_video_url"] = str(game_video_url)
     headers: Dict[str, str] = {}
     if webapp_token:
         tok = str(webapp_token).strip()
@@ -7990,9 +8329,11 @@ def main() -> None:
         # accounting, so that players listed on the official roster are
         # credited with a game played even if they have no recorded shifts.
         roster_map: Optional[Dict[str, str]] = None
+        t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None
         if t2s_id is not None and side_to_use is not None:
             try:
-                roster_map = _get_t2s_team_roster(int(t2s_id), side_to_use, hockey_db_dir)
+                t2s_rosters_by_side = _get_t2s_game_rosters(int(t2s_id), hockey_db_dir)
+                roster_map = dict(t2s_rosters_by_side.get(str(side_to_use), {}) or {})
             except Exception as e:  # noqa: BLE001
                 print(
                     f"Error: failed to fetch roster from TimeToScore for game {t2s_id} while processing '{label}'.",
@@ -8012,6 +8353,8 @@ def main() -> None:
             keep_goalies=args.keep_goalies,
             goals=goals,
             roster_map=roster_map,
+            t2s_rosters_by_side=t2s_rosters_by_side,
+            t2s_side=side_to_use,
             long_xls_paths=long_paths,
             focus_team_override=focus_team_override,
             include_shifts_in_stats=include_shifts_in_stats,
@@ -8117,6 +8460,7 @@ def main() -> None:
                         home_logo_content_type=logo_fields.get("home_logo_content_type"),
                         away_logo_b64=logo_fields.get("away_logo_b64"),
                         away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                        game_video_url=_meta("game_video", "game_video_url", "video_url"),
                         create_missing_players=False,
                     )
                     upload_ok += 1
@@ -8163,6 +8507,7 @@ def main() -> None:
                             home_logo_content_type=logo_fields.get("home_logo_content_type"),
                             away_logo_b64=logo_fields.get("away_logo_b64"),
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                            game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=True,
                         )
                         upload_ok += 1

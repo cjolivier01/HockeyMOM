@@ -33,10 +33,10 @@ class DetectorInferencePlugin(Plugin):
         do_trace = self._iter_num == 4
         if do_trace:
             pass
-        from cuda_stacktrace import CudaStackTracer
+        # from cuda_stacktrace import CudaStackTracer
 
         with (
-            CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace),
+            # CudaStackTracer(functions=["cudaStreamSynchronize"], enabled=do_trace),
             contextlib.nullcontext(),
         ):
             results = super().__call__(*args, **kwargs)
