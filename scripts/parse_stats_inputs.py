@@ -3568,11 +3568,26 @@ def _print_goal_discrepancy_rich_table(rows: List[Dict[str, Any]]) -> None:
         t2s_ast_str = str(r.get("t2s_assists") or "")
         long_ast_str = str(r.get("long_assists") or "")
 
-        def _assist_set(s: str) -> set[str]:
+        def _assist_tokens(s: str) -> List[str]:
             parts = [p.strip() for p in str(s or "").split(",")]
-            return {p for p in parts if p}
+            return [p for p in parts if p]
 
-        assist_mismatch = _assist_set(t2s_ast_str) != _assist_set(long_ast_str)
+        t2s_ast_tokens = _assist_tokens(t2s_ast_str)
+        long_ast_tokens = _assist_tokens(long_ast_str)
+        t2s_ast_set = set(t2s_ast_tokens)
+        long_ast_set = set(long_ast_tokens)
+        assist_mismatch = t2s_ast_set != long_ast_set
+
+        def _render_assists(tokens: List[str], other_set: set[str]) -> Text:
+            txt = Text()
+            for i, tok in enumerate(tokens):
+                if i:
+                    txt.append(",")
+                if tok not in other_set:
+                    txt.append(tok, style="bold cyan")
+                else:
+                    txt.append(tok)
+            return txt
         table.add_row(
             Text(str(r.get("label") or ""), style="bold"),
             str(r.get("t2s_id") or ""),
@@ -3582,8 +3597,8 @@ def _print_goal_discrepancy_rich_table(rows: List[Dict[str, Any]]) -> None:
             Text(issue, style=issue_style) if issue_style else issue,
             Text(t2s_scorer, style="bold red") if scorer_mismatch else t2s_scorer,
             Text(long_scorer, style="bold red") if scorer_mismatch else long_scorer,
-            Text(t2s_ast_str, style="bold cyan") if assist_mismatch else t2s_ast_str,
-            Text(long_ast_str, style="bold cyan") if assist_mismatch else long_ast_str,
+            _render_assists(t2s_ast_tokens, long_ast_set) if assist_mismatch else t2s_ast_str,
+            _render_assists(long_ast_tokens, t2s_ast_set) if assist_mismatch else long_ast_str,
             Text(str(r.get("dt_s") or ""), style="dim") if str(r.get("dt_s") or "").strip() else "",
         )
     console.print(table)
@@ -9909,8 +9924,9 @@ def main() -> None:
     input_entries: List[InputEntry] = []
     if args.file_list:
         try:
-            base_dir = args.file_list.expanduser().resolve().parent
-            with args.file_list.open("r", encoding="utf-8") as f:
+            file_list_path = args.file_list.expanduser()
+            base_dir = file_list_path.resolve().parent
+            with file_list_path.open("r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     # Strip UTF-8 BOM if present (common when files are created on Windows).
