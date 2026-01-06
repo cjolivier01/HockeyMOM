@@ -117,7 +117,7 @@ echo "[i] Importing TimeToScore (caha -> ${LEAGUE_NAME}) via REST"
   --user-email "${OWNER_EMAIL}"
 
 echo "[i] Uploading shift spreadsheets via REST"
-./p scripts/parse_shift_spreadsheet.py \
+./p scripts/parse_stats_inputs.py \
   --file-list "${SHIFT_FILE_LIST}" \
   --shifts \
   --upload-webapp \

@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import scripts.parse_shift_spreadsheet as pss  # noqa: E402
+import scripts.parse_stats_inputs as pss  # noqa: E402
 
 
 def should_parse_period_labels_and_tokens():
@@ -668,6 +668,168 @@ def should_parse_long_shift_tables_for_both_teams():
     assert b_sb["34_Bob_Example"][:2] == [(1, "15:00", "14:40"), (1, "14:10", "13:50")]
 
 
+def should_write_opponent_player_stats_from_long_shift_tables(tmp_path: Path):
+    import datetime
+
+    shift_xlsx = tmp_path / "game.xlsx"
+    long_xlsx = tmp_path / "game-long.xlsx"
+
+    # Minimal per-player shift sheet with one skater on our team (jersey 12).
+    shift_df = _basic_shift_sheet_df()
+    shift_df.to_excel(shift_xlsx, index=False, header=False)
+
+    # Build a synthetic long sheet with:
+    #   - leftmost per-period event table (records a SOG for opponent jersey 34 on White)
+    #   - embedded shift tables for both teams (Team A has jersey 12, Team B has jersey 34)
+    header = [None] * 10 + [
+        "Jersey Number",
+        "Player Name",
+        "Shift start (Scoreboard time)",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Shift Start (Video Time)",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Shift End (Scoreboard Time)",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Shift End (Video Time)",
+    ]
+    width = len(header)
+
+    rows = []
+    rows.append(
+        [
+            "1st Period",
+            "Video Time",
+            "Scoreboard",
+            "Team",
+            "Shots",
+            "Shots on Goal",
+            "Assist",
+        ]
+        + [None] * (width - 7)
+    )
+    rows.append(["Shot", "0:10", "14:20", "White", "34", "SOG", ""] + [None] * (width - 7))
+
+    # Team A shift table (jersey 12).
+    rows.append([None] * 10 + ["Team A (1st Period)"] + [None] * (width - 11))
+    rows.append(header)
+    rows.append(
+        [None] * 10
+        + [
+            12,
+            "Alice Example",
+            datetime.time(15, 0),
+            datetime.time(14, 0),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            datetime.time(0, 10),
+            datetime.time(0, 30),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            datetime.time(14, 30),
+            datetime.time(13, 30),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            datetime.time(0, 20),
+            datetime.time(0, 40),
+        ]
+    )
+
+    # Spacer then Team B shift table (jersey 34).
+    rows.append([None] * width)
+    rows.append([None] * 10 + ["Team B (1st Period)"] + [None] * (width - 11))
+    rows.append(header)
+    rows.append(
+        [None] * 10
+        + [
+            34,
+            "Bob Example",
+            "15:00",
+            "14:10",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "0:05",
+            "0:25",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "14:40",
+            "13:50",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "0:15",
+            "0:35",
+        ]
+    )
+
+    import pandas as pd
+
+    pd.DataFrame(rows).to_excel(long_xlsx, index=False, header=False)
+
+    outdir = tmp_path / "out"
+    final_outdir, *_rest = pss.process_sheet(
+        xls_path=shift_xlsx,
+        sheet_name=None,
+        outdir=outdir,
+        keep_goalies=False,
+        goals=[pss.GoalEvent("GA", 1, "14:20", scorer="34", assists=[])],
+        t2s_side="home",
+        long_xls_paths=[long_xlsx],
+        include_shifts_in_stats=False,
+        write_events_summary=False,
+        skip_validation=True,
+        create_scripts=False,
+    )
+    assert final_outdir == outdir / "Home" / "per_player"
+
+    opp_csv = outdir / "Away" / "per_player" / "stats" / "player_stats.csv"
+    assert opp_csv.exists()
+    df_opp = pd.read_csv(opp_csv)
+    row = df_opp[(df_opp["Jersey #"] == 34) & (df_opp["Player"] == "Bob Example")].iloc[0]
+    assert int(row["Goals"]) == 1
+    assert int(row["SOG"]) == 1
+
+
 def should_compare_primary_vs_long_shift_summary_counts():
     # Primary has 2 shifts; long has 3, with one mismatch and one extra.
     primary = {
@@ -919,14 +1081,14 @@ def should_error_when_upload_webapp_missing_required_args(tmp_path: Path, monkey
 
     monkeypatch.setattr(
         sys,
-        "argv",
-        [
-            "parse_shift_spreadsheet.py",
-            "--input",
-            str(xlsx_path),
-            "--upload-webapp",
-        ],
-    )
+            "argv",
+            [
+                "parse_stats_inputs.py",
+                "--input",
+                str(xlsx_path),
+                "--upload-webapp",
+            ],
+        )
     with pytest.raises(SystemExit) as e:
         pss.main()
     assert int(getattr(e.value, "code", 0) or 0) == 2
@@ -942,14 +1104,14 @@ def should_error_when_upload_webapp_external_game_missing_team_names(tmp_path: P
 
     monkeypatch.setattr(
         sys,
-        "argv",
-        [
-            "parse_shift_spreadsheet.py",
-            "--file-list",
-            str(file_list),
-            "--upload-webapp",
-            "--webapp-owner-email",
-            "owner@example.com",
+            "argv",
+            [
+                "parse_stats_inputs.py",
+                "--file-list",
+                str(file_list),
+                "--upload-webapp",
+                "--webapp-owner-email",
+                "owner@example.com",
             "--webapp-league-name",
             "Norcal",
         ],
@@ -972,14 +1134,14 @@ def should_error_when_upload_webapp_external_game_missing_date(tmp_path: Path, m
 
     monkeypatch.setattr(
         sys,
-        "argv",
-        [
-            "parse_shift_spreadsheet.py",
-            "--file-list",
-            str(file_list),
-            "--upload-webapp",
-            "--webapp-owner-email",
-            "owner@example.com",
+            "argv",
+            [
+                "parse_stats_inputs.py",
+                "--file-list",
+                str(file_list),
+                "--upload-webapp",
+                "--webapp-owner-email",
+                "owner@example.com",
             "--webapp-league-name",
             "Norcal",
         ],
@@ -1103,7 +1265,7 @@ def should_parse_webapp_starts_at_from_meta_date_and_starts_at(capsys):
 
 
 if __name__ == "__main__":
-    # Make `bazel test //tests:test_parse_shift_spreadsheet` run pytest collection.
+    # Make `bazel test //tests:test_parse_stats_inputs` run pytest collection.
     raise SystemExit(
         pytest.main(
             [

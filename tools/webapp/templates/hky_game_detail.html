@@ -209,7 +209,7 @@
         <h3 style="margin:0 0 .25rem 0;">Import Shift Spreadsheet Stats</h3>
         <p class="muted" style="margin-top:0">
           Upload <code>stats/player_stats.csv</code> and optionally <code>stats/game_stats.csv</code> from
-          <code>scripts/parse_shift_spreadsheet.py</code>.
+          <code>scripts/parse_stats_inputs.py</code>.
         </p>
         <form method="post" action="/hky/games/{{ game['id'] }}/import_shift_stats{{ return_to_first_q }}" enctype="multipart/form-data">
           <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">

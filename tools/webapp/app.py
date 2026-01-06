@@ -4984,7 +4984,7 @@ def init_db():
             """
         )
 
-        # Raw per-game events CSV (e.g., all_events_summary.csv from scripts/parse_shift_spreadsheet.py)
+        # Raw per-game events CSV (e.g., all_events_summary.csv from scripts/parse_stats_inputs.py)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS hky_game_events (
@@ -4997,7 +4997,7 @@ def init_db():
             """
         )
 
-        # Raw per-game player stats CSV (e.g., stats/player_stats.csv from scripts/parse_shift_spreadsheet.py)
+        # Raw per-game player stats CSV (e.g., stats/player_stats.csv from scripts/parse_stats_inputs.py)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS hky_game_player_stats_csv (
@@ -6976,7 +6976,7 @@ def format_seconds_to_mmss_or_hhmmss(raw: Any) -> str:
 
 def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
     """
-    Parse stats/player_stats.csv written by scripts/parse_shift_spreadsheet.py.
+    Parse stats/player_stats.csv written by scripts/parse_stats_inputs.py.
 
     Returns rows with:
       - player_label: original display label (e.g. "59 Ryan S Donahue")
@@ -7077,7 +7077,7 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
 
 def parse_shift_stats_game_stats_csv(csv_text: str) -> dict[str, Any]:
     """
-    Parse stats/game_stats.csv written by scripts/parse_shift_spreadsheet.py.
+    Parse stats/game_stats.csv written by scripts/parse_stats_inputs.py.
     Format is a 2-column table: "Stat", "<game_label>".
     """
     f = io.StringIO(csv_text)

@@ -3,7 +3,7 @@
 Analyze shifts and stats from an Excel sheet and optionally enrich with
 TimeToScore game data to auto-fill Goals For/Against.
 
-This is a migrated and extended version of scripts/parse_shift_spreadsheet.py
+This is a migrated and extended version of scripts/parse_stats_inputs.py
 with an additional --t2s option to fetch goals from CAHA TimeToScore.
 """
 

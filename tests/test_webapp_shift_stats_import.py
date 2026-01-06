@@ -10,7 +10,7 @@ def _load_app_module():
     return mod
 
 
-def should_parse_shift_spreadsheet_player_stats_csv():
+def should_parse_stats_inputs_player_stats_csv():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
@@ -40,7 +40,7 @@ def should_parse_shift_spreadsheet_player_stats_csv():
     assert p1["ga"] == 0
 
 
-def should_parse_shift_spreadsheet_game_stats_csv():
+def should_parse_stats_inputs_game_stats_csv():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
@@ -62,7 +62,7 @@ def should_format_seconds_to_toi_strings():
     assert mod.format_seconds_to_mmss_or_hhmmss(1 * 3600 + 2 * 60 + 3) == "1:02:03"
 
 
-def should_parse_shift_spreadsheet_otg_ota_columns():
+def should_parse_stats_inputs_otg_ota_columns():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
@@ -75,7 +75,7 @@ def should_parse_shift_spreadsheet_otg_ota_columns():
     assert r["stats"]["ot_assists"] == 2
 
 
-def should_parse_shift_spreadsheet_turnovers_forced_keeps_columns_separate():
+def should_parse_stats_inputs_turnovers_forced_keeps_columns_separate():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
@@ -93,7 +93,7 @@ def should_not_include_empty_period_columns_in_consolidated_stats():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -114,7 +114,7 @@ def should_not_write_times_files_when_no_scripts():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -183,7 +183,7 @@ def should_not_write_player_shift_clip_files_without_shifts_flag():
     import pandas as pd
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_shift_files", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_shift_files", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -262,7 +262,7 @@ def should_write_pair_on_ice_xlsx_when_shifts_enabled(tmp_path):
     import pandas as pd
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_pair", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_pair", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -308,7 +308,7 @@ def should_write_pair_on_ice_without_shifts_but_not_publish_toi(tmp_path):
     import pandas as pd
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_pair_no_shifts", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_pair_no_shifts", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -361,7 +361,7 @@ def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_team_clips", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_team_clips", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -442,7 +442,7 @@ def should_process_t2s_only_game_without_spreadsheets():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_t2s", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_t2s", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -502,7 +502,7 @@ def should_parse_t2s_only_token_with_side_and_label():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_parse", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_parse", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -524,7 +524,7 @@ def should_fail_goals_from_t2s_when_api_missing():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_t2s_missing", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_t2s_missing", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -547,7 +547,7 @@ def should_fail_goals_from_t2s_when_api_call_fails():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_t2s_call_fail", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_t2s_call_fail", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -574,7 +574,7 @@ def should_parse_long_sheet_turnover_and_giveaway_distinct_events():
     import pandas as pd
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_long", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_long", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -610,7 +610,7 @@ def should_error_on_unforced_turnover_with_multiple_opponent_jerseys():
     import pandas as pd
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_long_err", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_long_err", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -638,7 +638,7 @@ def should_parse_long_sheet_sharks_12_1_r3_turnover_roles():
     import pandas as pd
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_long_fixture", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_long_fixture", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -690,7 +690,7 @@ def should_write_game_stats_consolidated_preserves_result_order():
     import pandas as pd
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_game_stats_order", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_game_stats_order", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -726,7 +726,7 @@ def should_order_player_stats_consolidated_sheets_reverse_file_list():
     from openpyxl import load_workbook
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_sheet_order", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_sheet_order", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -761,12 +761,13 @@ def should_order_player_stats_consolidated_sheets_reverse_file_list():
         _write_minimal_sheet(old_game)
         _write_minimal_sheet(new_game)
 
-        file_list.write_text(f"{old_game}\n{new_game}\n", encoding="utf-8")
+        # HOME/AWAY is now required for spreadsheet-backed games when using --file-list.
+        file_list.write_text(f"{old_game}:HOME\n{new_game}:HOME\n", encoding="utf-8")
 
         argv_prev = sys.argv[:]
         try:
             sys.argv = [
-                "parse_shift_spreadsheet.py",
+                "parse_stats_inputs.py",
                 "--file-list",
                 str(file_list),
                 "--outdir",
@@ -787,7 +788,7 @@ def should_aggregate_all_turnover_types_in_consolidated_player_stats():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_agg", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_agg", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -860,7 +861,7 @@ def should_select_tracking_output_video_prefers_highest_number():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_video", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_video", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -888,7 +889,7 @@ def should_write_combined_highlight_times_with_deduped_xg_goal():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_highlights", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_highlights", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -946,7 +947,7 @@ def should_write_season_highlight_script_with_embedded_video_paths():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_season_scripts", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_season_scripts", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -1011,7 +1012,7 @@ def should_write_season_highlight_script_uses_absolute_timestamp_paths_for_relat
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_season_scripts_rel", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_season_scripts_rel", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -1056,7 +1057,7 @@ def should_write_season_highlight_script_uses_ffmpeg_concat_for_season_join():
     from pathlib import Path
 
     spec = importlib.util.spec_from_file_location(
-        "parse_shift_spreadsheet_mod_season_scripts_ffmpeg", "scripts/parse_shift_spreadsheet.py"
+        "parse_stats_inputs_mod_season_scripts_ffmpeg", "scripts/parse_stats_inputs.py"
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader

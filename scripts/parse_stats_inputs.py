@@ -26,7 +26,7 @@ Install deps (for .xls):
   pip install pandas xlrd
 
 Example:
-  python scripts/parse_shift_spreadsheet.py \
+  python scripts/parse_stats_inputs.py \
       --input dh-tv-12-1.xls \
       --outdir player_focus \
       --t2s 51602 --away \
@@ -3218,6 +3218,795 @@ def _print_shift_discrepancy_rich_summary(summary: Dict[str, Any]) -> None:
         f"nonsensical_primary={summary.get('nonsensical_primary_shifts')} nonsensical_long={summary.get('nonsensical_long_shifts')}"
     )
     console.print(totals)
+
+
+def _goal_records_from_long_goal_rows(
+    goal_rows: List[Dict[str, Any]],
+    *,
+    focus_team: Optional[str],
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for r in goal_rows or []:
+        try:
+            team_raw = str(r.get("team") or "").strip()
+            period = int(r.get("period") or 0)
+        except Exception:
+            continue
+        gsec = r.get("game_s")
+        if not isinstance(gsec, (int, float)):
+            continue
+        gsec_i = int(gsec)
+        scorer = r.get("scorer")
+        assists = r.get("assists") or []
+
+        scorer_norm = _normalize_jersey_number(scorer) if scorer is not None else None
+        assists_norm: List[str] = []
+        if isinstance(assists, (list, tuple)):
+            for a in assists:
+                aa = _normalize_jersey_number(a)
+                if aa:
+                    assists_norm.append(aa)
+        else:
+            aa = _normalize_jersey_number(assists)
+            if aa:
+                assists_norm.append(aa)
+
+        kind: Optional[str] = None
+        if focus_team in {"Blue", "White"} and team_raw in {"Blue", "White"}:
+            kind = "GF" if team_raw == focus_team else "GA"
+
+        out.append(
+            {
+                "source": "long",
+                "team_raw": team_raw,
+                "period": period,
+                "game_s": gsec_i,
+                "t_str": seconds_to_mmss_or_hhmmss(gsec_i),
+                "kind": kind,
+                "scorer": scorer_norm,
+                "assists": assists_norm,
+            }
+        )
+    out.sort(key=lambda x: (int(x.get("period") or 0), int(x.get("game_s") or 0)))
+    return out
+
+
+def _goal_records_from_t2s(
+    goals: List[GoalEvent],
+    *,
+    side: str,
+) -> List[Dict[str, Any]]:
+    """
+    Convert GoalEvent rows (relative GF/GA for our team) into goal records tagged with team_side.
+    """
+    side_l = str(side or "").strip().lower()
+    if side_l not in {"home", "away"}:
+        side_l = "home"
+    opp = "away" if side_l == "home" else "home"
+
+    out: List[Dict[str, Any]] = []
+    for g in goals or []:
+        period = int(getattr(g, "period", 0) or 0)
+        gsec = int(getattr(g, "t_sec", 0) or 0)
+        kind = str(getattr(g, "kind", "") or "").strip().upper()
+        if kind not in {"GF", "GA"}:
+            continue
+        team_side = side_l if kind == "GF" else opp
+        scorer = _normalize_jersey_number(getattr(g, "scorer", None))
+        assists_norm: List[str] = []
+        for a in (getattr(g, "assists", None) or []) or []:
+            aa = _normalize_jersey_number(a)
+            if aa:
+                assists_norm.append(aa)
+        out.append(
+            {
+                "source": "t2s",
+                "team_side": team_side,
+                "period": period,
+                "game_s": gsec,
+                "t_str": seconds_to_mmss_or_hhmmss(gsec),
+                "kind": kind,
+                "scorer": scorer,
+                "assists": assists_norm,
+            }
+        )
+    out.sort(key=lambda x: (int(x.get("period") or 0), int(x.get("game_s") or 0)))
+    return out
+
+
+def _compare_t2s_vs_long_goals(
+    *,
+    label: str,
+    t2s_id: int,
+    side: str,
+    t2s_goals: List[GoalEvent],
+    long_goal_rows: List[Dict[str, Any]],
+    focus_team: Optional[str],
+    home_team_name: Optional[str] = None,
+    away_team_name: Optional[str] = None,
+    match_tolerance_s: int = 2,
+) -> List[Dict[str, Any]]:
+    """
+    Compare TimeToScore (official) goals vs long-sheet recorded goals/assists by time+period.
+    Produces one row per discrepancy (missing/extra goal, scorer mismatch, assist mismatch, time mismatch).
+    """
+    tol = int(match_tolerance_s or 0)
+    t2s_recs = _goal_records_from_t2s(t2s_goals, side=side)
+    long_recs = _goal_records_from_long_goal_rows(long_goal_rows, focus_team=focus_team)
+
+    unmatched_long = list(long_recs)
+    out_rows: List[Dict[str, Any]] = []
+
+    def _fmt_assists(lst: Any) -> str:
+        if not lst:
+            return ""
+        if isinstance(lst, (list, tuple)):
+            return ",".join([str(x) for x in lst if str(x).strip()])
+        return str(lst)
+
+    def _best_long_match(period: int, gsec: int, kind: Optional[str]) -> Optional[Dict[str, Any]]:
+        best = None
+        best_dt = None
+        for cand in unmatched_long:
+            if int(cand.get("period") or 0) != int(period):
+                continue
+            gs2 = int(cand.get("game_s") or 0)
+            dt = abs(gs2 - int(gsec))
+            if tol >= 0 and dt > tol:
+                continue
+            # If long has a GF/GA kind (requires focus_team), prefer matching by kind.
+            cand_kind = cand.get("kind")
+            if kind in {"GF", "GA"} and cand_kind in {"GF", "GA"} and cand_kind != kind:
+                continue
+            if best is None or best_dt is None or dt < best_dt:
+                best = cand
+                best_dt = dt
+        return best
+
+    for tg in t2s_recs:
+        period = int(tg.get("period") or 0)
+        gsec = int(tg.get("game_s") or 0)
+        kind = str(tg.get("kind") or "")
+        tm_side = str(tg.get("team_side") or "")
+        best = _best_long_match(period, gsec, kind)
+        if best is None:
+            out_rows.append(
+                {
+                    "label": label,
+                    "t2s_id": int(t2s_id),
+                    "home_team": str(home_team_name or ""),
+                    "away_team": str(away_team_name or ""),
+                    "period": period,
+                    "game_s": gsec,
+                    "time": tg.get("t_str") or "",
+                    "team": tm_side,
+                    "issue": "T2S-only goal (no long match)",
+                    "t2s_scorer": tg.get("scorer") or "",
+                    "long_scorer": "",
+                    "t2s_assists": _fmt_assists(tg.get("assists") or []),
+                    "long_assists": "",
+                    "dt_s": "",
+                }
+            )
+            continue
+
+        unmatched_long.remove(best)
+        dt_val = abs(int(best.get("game_s") or 0) - gsec)
+
+        # If time differs but still matched within tolerance, show it.
+        if dt_val != 0:
+            out_rows.append(
+                {
+                    "label": label,
+                    "t2s_id": int(t2s_id),
+                    "home_team": str(home_team_name or ""),
+                    "away_team": str(away_team_name or ""),
+                    "period": period,
+                    "game_s": gsec,
+                    "time": tg.get("t_str") or "",
+                    "team": tm_side,
+                    "issue": "Time mismatch",
+                    "t2s_scorer": tg.get("scorer") or "",
+                    "long_scorer": best.get("scorer") or "",
+                    "t2s_assists": _fmt_assists(tg.get("assists") or []),
+                    "long_assists": _fmt_assists(best.get("assists") or []),
+                    "dt_s": str(dt_val),
+                }
+            )
+
+        t2s_scorer = str(tg.get("scorer") or "").strip()
+        long_scorer = str(best.get("scorer") or "").strip()
+        if t2s_scorer and long_scorer and t2s_scorer != long_scorer:
+            out_rows.append(
+                {
+                    "label": label,
+                    "t2s_id": int(t2s_id),
+                    "home_team": str(home_team_name or ""),
+                    "away_team": str(away_team_name or ""),
+                    "period": period,
+                    "game_s": gsec,
+                    "time": tg.get("t_str") or "",
+                    "team": tm_side,
+                    "issue": "Scorer mismatch",
+                    "t2s_scorer": t2s_scorer,
+                    "long_scorer": long_scorer,
+                    "t2s_assists": _fmt_assists(tg.get("assists") or []),
+                    "long_assists": _fmt_assists(best.get("assists") or []),
+                    "dt_s": str(dt_val) if dt_val else "",
+                }
+            )
+
+        t2s_ast = [str(x).strip() for x in (tg.get("assists") or []) if str(x).strip()]
+        long_ast = [str(x).strip() for x in (best.get("assists") or []) if str(x).strip()]
+        if set(t2s_ast) != set(long_ast):
+            missing = sorted([x for x in t2s_ast if x and x not in set(long_ast)])
+            extra = sorted([x for x in long_ast if x and x not in set(t2s_ast)])
+            out_rows.append(
+                {
+                    "label": label,
+                    "t2s_id": int(t2s_id),
+                    "home_team": str(home_team_name or ""),
+                    "away_team": str(away_team_name or ""),
+                    "period": period,
+                    "game_s": gsec,
+                    "time": tg.get("t_str") or "",
+                    "team": tm_side,
+                    "issue": (
+                        "Assist mismatch"
+                        + (f" (-{','.join(missing)})" if missing else "")
+                        + (f" (+{','.join(extra)})" if extra else "")
+                    ),
+                    "t2s_scorer": t2s_scorer,
+                    "long_scorer": long_scorer,
+                    "t2s_assists": _fmt_assists(t2s_ast),
+                    "long_assists": _fmt_assists(long_ast),
+                    "dt_s": str(dt_val) if dt_val else "",
+                }
+            )
+
+    for lg in unmatched_long:
+        out_rows.append(
+            {
+                "label": label,
+                "t2s_id": int(t2s_id),
+                "home_team": str(home_team_name or ""),
+                "away_team": str(away_team_name or ""),
+                "period": int(lg.get("period") or 0),
+                "game_s": int(lg.get("game_s") or 0),
+                "time": lg.get("t_str") or "",
+                "team": str(lg.get("kind") or lg.get("team_raw") or ""),
+                "issue": "Long-only goal (no T2S match)",
+                "t2s_scorer": "",
+                "long_scorer": lg.get("scorer") or "",
+                "t2s_assists": "",
+                "long_assists": _fmt_assists(lg.get("assists") or []),
+                "dt_s": "",
+            }
+        )
+
+    out_rows.sort(key=lambda r: (str(r.get("label") or ""), int(r.get("period") or 0), int(r.get("game_s") or 0)))
+    return out_rows
+
+
+def _print_goal_discrepancy_rich_table(rows: List[Dict[str, Any]]) -> None:
+    if not rows:
+        return
+    try:
+        from rich.console import Console  # type: ignore
+        from rich.table import Table  # type: ignore
+        from rich.text import Text  # type: ignore
+    except Exception:
+        # Fallback: one-line summaries.
+        by_game: Dict[str, int] = {}
+        for r in rows:
+            by_game[str(r.get("label") or "")] = by_game.get(str(r.get("label") or ""), 0) + 1
+        items = ", ".join([f"{k}={v}" for k, v in sorted(by_game.items())])
+        print(f"[t2s-vs-long] goal discrepancies: {items}", file=sys.stderr)
+        return
+
+    console = Console(file=sys.stderr)
+    table = Table(title="TimeToScore vs Long-Sheet Goal/Assist Discrepancies", show_lines=False)
+    table.add_column("Game", no_wrap=True)
+    table.add_column("T2S", justify="right", no_wrap=True)
+    table.add_column("P", justify="right", no_wrap=True)
+    table.add_column("Time", justify="right", no_wrap=True)
+    table.add_column("Team", no_wrap=True)
+    table.add_column("Issue")
+    table.add_column("T2S Scorer", justify="right", no_wrap=True)
+    table.add_column("Long Scorer", justify="right", no_wrap=True)
+    table.add_column("T2S Ast", no_wrap=True)
+    table.add_column("Long Ast", no_wrap=True)
+    table.add_column("Δt(s)", justify="right", no_wrap=True)
+
+    def _issue_style(issue: str) -> str:
+        s = str(issue or "").strip().lower()
+        if s.startswith("t2s-only goal"):
+            return "bold red"
+        if s.startswith("long-only goal"):
+            return "bold yellow"
+        if s.startswith("scorer mismatch"):
+            return "bold magenta"
+        if s.startswith("assist mismatch"):
+            return "bold cyan"
+        if s.startswith("time mismatch"):
+            return "dim"
+        return ""
+
+    for r in rows:
+        issue = str(r.get("issue") or "")
+        issue_style = _issue_style(issue)
+        team = str(r.get("team") or "")
+        team_style = "green" if team.lower() == "home" else ("blue" if team.lower() == "away" else "")
+
+        t2s_scorer = str(r.get("t2s_scorer") or "")
+        long_scorer = str(r.get("long_scorer") or "")
+        scorer_mismatch = bool(t2s_scorer.strip()) and bool(long_scorer.strip()) and t2s_scorer != long_scorer
+
+        t2s_ast_str = str(r.get("t2s_assists") or "")
+        long_ast_str = str(r.get("long_assists") or "")
+
+        def _assist_set(s: str) -> set[str]:
+            parts = [p.strip() for p in str(s or "").split(",")]
+            return {p for p in parts if p}
+
+        assist_mismatch = _assist_set(t2s_ast_str) != _assist_set(long_ast_str)
+        table.add_row(
+            Text(str(r.get("label") or ""), style="bold"),
+            str(r.get("t2s_id") or ""),
+            str(r.get("period") or ""),
+            str(r.get("time") or ""),
+            Text(team, style=team_style) if team_style else team,
+            Text(issue, style=issue_style) if issue_style else issue,
+            Text(t2s_scorer, style="bold red") if scorer_mismatch else t2s_scorer,
+            Text(long_scorer, style="bold red") if scorer_mismatch else long_scorer,
+            Text(t2s_ast_str, style="bold cyan") if assist_mismatch else t2s_ast_str,
+            Text(long_ast_str, style="bold cyan") if assist_mismatch else long_ast_str,
+            Text(str(r.get("dt_s") or ""), style="dim") if str(r.get("dt_s") or "").strip() else "",
+        )
+    console.print(table)
+
+    # Under the table, print the team name mapping (from TimeToScore) per game.
+    try:
+        games: Dict[Tuple[str, str], Tuple[str, str]] = {}
+        for r in rows:
+            label = str(r.get("label") or "")
+            t2s_id = str(r.get("t2s_id") or "")
+            home_team = str(r.get("home_team") or "")
+            away_team = str(r.get("away_team") or "")
+            if not label and not t2s_id:
+                continue
+            if (label, t2s_id) not in games:
+                games[(label, t2s_id)] = (home_team, away_team)
+        if games:
+            console.print("")
+            for (label, t2s_id), (home_team, away_team) in sorted(games.items(), key=lambda x: (x[0][0], x[0][1])):
+                prefix = f"{label} (t2s={t2s_id})".strip()
+                if prefix:
+                    console.print(Text(prefix, style="bold"))
+                if home_team:
+                    console.print(Text(f"  Home: {home_team}", style="green"))
+                if away_team:
+                    console.print(Text(f"  Away: {away_team}", style="blue"))
+    except Exception:
+        pass
+
+
+def _write_opponent_team_stats_from_long_shifts(
+    *,
+    game_out_root: Path,
+    format_dir: str,
+    our_side: str,
+    long_shift_tables_by_team: Dict[str, Dict[str, Dict[str, List[Tuple[Any, ...]]]]],
+    shift_cmp_summary: Dict[str, Any],
+    goals: List[GoalEvent],
+    event_log_context: Optional["EventLogContext"],
+    focus_team: Optional[str],
+    include_shifts_in_stats: bool,
+    xls_path: Path,
+    t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
+) -> Optional[Path]:
+    """
+    Best-effort: when a '*-long*' sheet provides embedded shift tables for both teams, write
+    stats outputs for the opponent team into the opposite Home/Away subtree.
+
+    This is primarily used to populate the opponent's player stats in the webapp import.
+    """
+    matched_team = str((shift_cmp_summary or {}).get("matched_team") or "").strip()
+    if not matched_team:
+        return None
+
+    candidates = [t for t in (long_shift_tables_by_team or {}).keys() if str(t) != matched_team]
+    if not candidates:
+        return None
+
+    def _total_shifts(team_name: str) -> int:
+        info = (long_shift_tables_by_team or {}).get(team_name) or {}
+        sb_map = (info.get("sb_pairs_by_player") or {}) if isinstance(info, dict) else {}
+        return sum(len(v or []) for v in (sb_map or {}).values())
+
+    opponent_team = max(candidates, key=_total_shifts)
+    opp_info = (long_shift_tables_by_team or {}).get(opponent_team) or {}
+    opp_sb_pairs_by_player = dict((opp_info.get("sb_pairs_by_player") or {}))
+    opp_video_pairs_by_player = dict((opp_info.get("video_pairs_by_player") or {}))
+
+    if not opp_sb_pairs_by_player:
+        return None
+
+    our_side_l = str(our_side or "").strip().lower()
+    if our_side_l not in {"home", "away"}:
+        return None
+    opp_side_l = "away" if our_side_l == "home" else "home"
+    opp_team_subdir = "Away" if opp_side_l == "away" else "Home"
+
+    other_outdir = game_out_root / opp_team_subdir / str(format_dir or "per_player")
+    other_stats_dir = other_outdir / "stats"
+    other_stats_dir.mkdir(parents=True, exist_ok=True)
+
+    # Skip if the opponent stats already exist (e.g., explicitly provided via another input).
+    try:
+        existing = other_stats_dir / "player_stats.csv"
+        if existing.exists() and existing.is_file() and existing.stat().st_size > 0:
+            return other_outdir
+    except Exception:
+        pass
+
+    # Optionally add TimeToScore roster-only players for the opponent (GP accounting).
+    if t2s_rosters_by_side and opp_side_l in {"home", "away"}:
+        opp_roster = t2s_rosters_by_side.get(opp_side_l) or {}
+        seen_normals: set[str] = set()
+        for pk in opp_sb_pairs_by_player.keys():
+            norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
+            if norm:
+                seen_normals.add(norm)
+        for jersey_norm, name in (opp_roster or {}).items():
+            if not jersey_norm or not name:
+                continue
+            if jersey_norm in seen_normals:
+                continue
+            player_key = f"{sanitize_name(jersey_norm)}_{sanitize_name(name)}"
+            if player_key in opp_sb_pairs_by_player:
+                continue
+            opp_sb_pairs_by_player[player_key] = []
+
+    # Build jersey->player mapping for scoring attribution.
+    opp_jersey_to_players: Dict[str, List[str]] = {}
+    for pk in opp_sb_pairs_by_player.keys():
+        norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
+        if norm:
+            opp_jersey_to_players.setdefault(norm, []).append(pk)
+
+    # Flip scoring perspective (their GF is our GA, and vice-versa).
+    opp_goals: List[GoalEvent] = []
+    for g in goals or []:
+        kind = str(getattr(g, "kind", "") or "").strip().upper()
+        if kind == "GF":
+            kind2 = "GA"
+        elif kind == "GA":
+            kind2 = "GF"
+        else:
+            kind2 = kind
+        opp_goals.append(
+            GoalEvent(
+                kind2,
+                int(getattr(g, "period", 0) or 0),
+                str(getattr(g, "t_str", "") or ""),
+                scorer=g.scorer,
+                assists=list(g.assists or []),
+            )
+        )
+    opp_goals.sort(key=lambda e: (e.period, e.t_sec))
+    _annotate_goal_roles(opp_goals)
+
+    # Determine which long-sheet/player-attributed event types exist in this game so we can
+    # leave blank when the stat type wasn't collected (not 0).
+    player_event_types_present: set[str] = set()
+    if event_log_context is not None:
+        for counts in (event_log_context.event_counts_by_player or {}).values():
+            for et in (counts or {}).keys():
+                if et:
+                    player_event_types_present.add(str(et))
+    has_player_shots = "Shot" in player_event_types_present
+    has_player_sog = "SOG" in player_event_types_present
+    has_player_expected_goals = "ExpectedGoal" in player_event_types_present
+    has_player_turnovers_forced = "TurnoverForced" in player_event_types_present
+    has_player_created_turnovers = "CreatedTurnover" in player_event_types_present
+    has_player_giveaways = "Giveaway" in player_event_types_present
+    has_player_takeaways = "Takeaway" in player_event_types_present
+
+    opp_focus_team: Optional[str] = None
+    if focus_team in {"Blue", "White"}:
+        opp_focus_team = "White" if focus_team == "Blue" else "Blue"
+
+    has_controlled_entry_events = False
+    has_controlled_exit_events = False
+    if opp_focus_team in {"Blue", "White"} and event_log_context is not None:
+        for (etype, _team) in (event_log_context.event_instances or {}).keys():
+            if etype == "ControlledEntry":
+                has_controlled_entry_events = True
+            elif etype == "ControlledExit":
+                has_controlled_exit_events = True
+
+    # Pre-group team-level events by period for on-ice for/against counts.
+    on_ice_event_types = {"ControlledEntry", "ControlledExit"}
+    team_events_by_period: Dict[int, List[Tuple[str, str, int]]] = {}
+    if opp_focus_team is not None and event_log_context is not None:
+        for (etype, team), inst_list in (event_log_context.event_instances or {}).items():
+            if etype not in on_ice_event_types:
+                continue
+            for it in inst_list or []:
+                p = it.get("period")
+                gs = it.get("game_s")
+                if not isinstance(p, int) or not isinstance(gs, (int, float)):
+                    continue
+                team_events_by_period.setdefault(int(p), []).append((str(etype), str(team), int(gs)))
+
+    # Stats and plus/minus.
+    goals_by_period: Dict[int, List[GoalEvent]] = {}
+    for ev in opp_goals or []:
+        goals_by_period.setdefault(int(ev.period), []).append(ev)
+
+    # Pair on-ice for opponent (informational; may be empty for short games/tests).
+    if opp_sb_pairs_by_player:
+        try:
+            pair_rows = _compute_pair_on_ice_rows(opp_sb_pairs_by_player, goals_by_period)
+            _write_pair_on_ice_csv(other_stats_dir, pair_rows, include_toi=include_shifts_in_stats)
+        except Exception:
+            pass
+
+    per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]] = {
+        pk: {"goals": [], "assists": [], "gf_on_ice": [], "ga_on_ice": []} for pk in opp_sb_pairs_by_player.keys()
+    }
+    goal_assist_counts: Dict[str, Dict[str, int]] = {
+        pk: {"goals": 0, "assists": 0} for pk in opp_sb_pairs_by_player.keys()
+    }
+
+    def _match_player_keys(num_token: Any) -> List[str]:
+        matches: List[str] = []
+        candidates2: set[str] = set()
+        if num_token is not None:
+            try:
+                txt = str(num_token).strip()
+                if txt:
+                    candidates2.add(txt)
+            except Exception:
+                pass
+        norm2 = _normalize_jersey_number(num_token)
+        if norm2:
+            candidates2.add(norm2)
+        for cand in candidates2:
+            matches.extend(opp_jersey_to_players.get(cand, []))
+        return list(dict.fromkeys(matches))
+
+    for ev in opp_goals:
+        if ev.kind != "GF":
+            continue
+        if ev.scorer:
+            for pk in _match_player_keys(ev.scorer):
+                goal_assist_counts[pk]["goals"] += 1
+                per_player_goal_events[pk]["goals"].append(ev)
+        for ast in ev.assists:
+            for pk in _match_player_keys(ast):
+                goal_assist_counts[pk]["assists"] += 1
+                per_player_goal_events[pk]["assists"].append(ev)
+
+    stats_table_rows: List[Dict[str, str]] = []
+    all_periods_seen: set[int] = set()
+
+    for player_key, sb_list in opp_sb_pairs_by_player.items():
+        sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
+        for period, a, b in sb_list or []:
+            sb_by_period.setdefault(int(period), []).append((str(a), str(b)))
+        for period in sb_by_period.keys():
+            all_periods_seen.add(period)
+        all_pairs = [(a, b) for (_, a, b) in sb_list]
+        if include_shifts_in_stats:
+            shift_summary = summarize_shift_lengths_sec(all_pairs)
+            per_period_toi_map = per_period_toi(sb_by_period)
+        else:
+            shift_summary = {}
+            per_period_toi_map = {}
+
+        plus_minus = 0
+        counted_gf: List[str] = []
+        counted_ga: List[str] = []
+        counted_gf_by_period: Dict[int, int] = {}
+        counted_ga_by_period: Dict[int, int] = {}
+        for period, pairs in sb_by_period.items():
+            if period not in goals_by_period:
+                continue
+            for ev in goals_by_period[period]:
+                matched = False
+                for a, b in pairs:
+                    a_sec = parse_flex_time_to_seconds(a)
+                    b_sec = parse_flex_time_to_seconds(b)
+                    lo, hi = (a_sec, b_sec) if a_sec <= b_sec else (b_sec, a_sec)
+                    if not (lo <= ev.t_sec <= hi):
+                        continue
+                    if ev.t_sec == a_sec:
+                        continue
+                    matched = True
+                    break
+                if matched:
+                    if ev.kind == "GF":
+                        plus_minus += 1
+                        counted_gf.append(f"P{period}:{ev.t_str}")
+                        counted_gf_by_period[period] = counted_gf_by_period.get(period, 0) + 1
+                        per_player_goal_events[player_key]["gf_on_ice"].append(ev)
+                    else:
+                        plus_minus -= 1
+                        counted_ga.append(f"P{period}:{ev.t_str}")
+                        counted_ga_by_period[period] = counted_ga_by_period.get(period, 0) + 1
+                        per_player_goal_events[player_key]["ga_on_ice"].append(ev)
+
+        scoring_counts = goal_assist_counts.get(player_key, {"goals": 0, "assists": 0})
+        goals_cnt = int(scoring_counts.get("goals", 0) or 0)
+        assists_cnt = int(scoring_counts.get("assists", 0) or 0)
+        points_val = goals_cnt + assists_cnt
+
+        # Overtime scoring (OT period is period 4; OT2 -> 5, etc.).
+        ot_goals_cnt = 0
+        ot_assists_cnt = 0
+        try:
+            ev_map = per_player_goal_events.get(player_key, {}) or {}
+            ot_goals_cnt = sum(
+                1 for ev in (ev_map.get("goals") or []) if int(getattr(ev, "period", 0) or 0) >= 4
+            )
+            ot_assists_cnt = sum(
+                1 for ev in (ev_map.get("assists") or []) if int(getattr(ev, "period", 0) or 0) >= 4
+            )
+        except Exception:
+            ot_goals_cnt = 0
+            ot_assists_cnt = 0
+
+        # Game-tying / game-winning goals for this game.
+        gt_goals_cnt = 0
+        gw_goals_cnt = 0
+        try:
+            ev_map = per_player_goal_events.get(player_key, {}) or {}
+            gt_goals_cnt, gw_goals_cnt = _count_goal_role_flags(list(ev_map.get("goals") or []))
+        except Exception:
+            gt_goals_cnt = 0
+            gw_goals_cnt = 0
+
+        # On-ice for/against metrics for team-level events (e.g., controlled exits).
+        on_ice: Dict[str, int] = {
+            "controlled_entry_for": 0,
+            "controlled_entry_against": 0,
+            "controlled_exit_for": 0,
+            "controlled_exit_against": 0,
+        }
+        if opp_focus_team is not None and team_events_by_period and sb_by_period:
+            for period, pairs in sb_by_period.items():
+                period_events = team_events_by_period.get(period, [])
+                if not period_events or not pairs:
+                    continue
+                intervals = [compute_interval_seconds(a, b) for a, b in pairs]
+                for etype, team, gsec in period_events:
+                    in_any = False
+                    for lo, hi in intervals:
+                        if lo <= gsec <= hi:
+                            in_any = True
+                            break
+                    if not in_any:
+                        continue
+                    is_for = team == opp_focus_team
+                    if etype == "ControlledEntry":
+                        key = "controlled_entry_for" if is_for else "controlled_entry_against"
+                        on_ice[key] += 1
+                    elif etype == "ControlledExit":
+                        key = "controlled_exit_for" if is_for else "controlled_exit_against"
+                        on_ice[key] += 1
+
+        row_map: Dict[str, str] = {
+            "player": player_key,
+            "goals": str(goals_cnt),
+            "assists": str(assists_cnt),
+            "gt_goals": str(gt_goals_cnt),
+            "gw_goals": str(gw_goals_cnt),
+            "ot_goals": str(ot_goals_cnt),
+            "ot_assists": str(ot_assists_cnt),
+            "points": str(points_val),
+            "gp": "1",
+            "plus_minus": str(plus_minus),
+        }
+        if include_shifts_in_stats:
+            shifts_cnt_row = 0
+            try:
+                shifts_cnt_row = int(str(shift_summary.get("num_shifts", "0") or 0))
+            except Exception:
+                shifts_cnt_row = 0
+            row_map["shifts"] = str(shifts_cnt_row)
+            row_map["sb_toi_total"] = str(shift_summary.get("toi_total", "0:00"))
+            row_map["sb_avg"] = str(shift_summary.get("toi_avg", "0:00"))
+            row_map["sb_median"] = str(shift_summary.get("toi_median", "0:00"))
+            row_map["sb_longest"] = str(shift_summary.get("toi_longest", "0:00"))
+            row_map["sb_shortest"] = str(shift_summary.get("toi_shortest", "0:00"))
+
+        # Event counts (from event logs / long sheets), per game.
+        if event_log_context is not None:
+            ev_counts = (event_log_context.event_counts_by_player or {}).get(player_key, {})
+        else:
+            ev_counts = {}
+        shots_cnt = int(ev_counts.get("Shot", 0) or 0)
+        sog_cnt = int(ev_counts.get("SOG", 0) or 0)
+        expected_goals_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
+        turnovers_forced_cnt = int(ev_counts.get("TurnoverForced", 0) or 0)
+        created_turnovers_cnt = int(ev_counts.get("CreatedTurnover", 0) or 0)
+        giveaways_cnt = int(ev_counts.get("Giveaway", 0) or 0)
+        takeaways_cnt = int(ev_counts.get("Takeaway", 0) or 0)
+        row_map["shots"] = str(shots_cnt) if has_player_shots else ""
+        row_map["sog"] = str(sog_cnt) if has_player_sog else ""
+        row_map["expected_goals"] = str(expected_goals_cnt) if has_player_expected_goals else ""
+        if has_player_expected_goals and has_player_sog:
+            row_map["expected_goals_per_sog"] = f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
+        else:
+            row_map["expected_goals_per_sog"] = ""
+        row_map["turnovers_forced"] = str(turnovers_forced_cnt) if has_player_turnovers_forced else ""
+        row_map["created_turnovers"] = str(created_turnovers_cnt) if has_player_created_turnovers else ""
+        row_map["giveaways"] = str(giveaways_cnt) if has_player_giveaways else ""
+        row_map["takeaways"] = str(takeaways_cnt) if has_player_takeaways else ""
+
+        if has_controlled_entry_events:
+            row_map["controlled_entry_for"] = str(on_ice["controlled_entry_for"])
+            row_map["controlled_entry_against"] = str(on_ice["controlled_entry_against"])
+        else:
+            row_map["controlled_entry_for"] = ""
+            row_map["controlled_entry_against"] = ""
+        if has_controlled_exit_events:
+            row_map["controlled_exit_for"] = str(on_ice["controlled_exit_for"])
+            row_map["controlled_exit_against"] = str(on_ice["controlled_exit_against"])
+        else:
+            row_map["controlled_exit_for"] = ""
+            row_map["controlled_exit_against"] = ""
+
+        row_map["gf_counted"] = str(len(counted_gf))
+        row_map["ga_counted"] = str(len(counted_ga))
+        if include_shifts_in_stats:
+            v_pairs = opp_video_pairs_by_player.get(player_key, [])
+            if v_pairs:
+                v_sum = 0
+                for a, b in v_pairs:
+                    lo, hi = compute_interval_seconds(a, b)
+                    v_sum += hi - lo
+                row_map["video_toi_total"] = _format_duration(v_sum)
+            else:
+                row_map["video_toi_total"] = ""
+            for period, toi in per_period_toi_map.items():
+                row_map[f"P{period}_toi"] = toi
+                all_periods_seen.add(int(period))
+            for period, pairs in sb_by_period.items():
+                row_map[f"P{period}_shifts"] = str(len(pairs))
+        for period, cnt in counted_gf_by_period.items():
+            row_map[f"P{period}_GF"] = str(cnt)
+            all_periods_seen.add(int(period))
+        for period, cnt in counted_ga_by_period.items():
+            row_map[f"P{period}_GA"] = str(cnt)
+            all_periods_seen.add(int(period))
+
+        stats_table_rows.append(row_map)
+
+    if include_shifts_in_stats:
+        _write_global_summary_csv(other_stats_dir, opp_sb_pairs_by_player)
+
+    period_list = sorted(all_periods_seen)
+    if stats_table_rows:
+        _write_player_stats_text_and_csv(
+            other_stats_dir,
+            stats_table_rows,
+            period_list,
+            include_shifts_in_stats=include_shifts_in_stats,
+        )
+
+    _write_game_stats_files(
+        other_stats_dir,
+        xls_path=xls_path,
+        periods=period_list,
+        goals=opp_goals,
+        event_log_context=event_log_context,
+        focus_team=opp_focus_team,
+    )
+
+    return other_outdir
 
 
 def _infer_focus_team_from_long_sheet(
@@ -7402,17 +8191,13 @@ def process_sheet(
 
     # Output subdir depends on format
     format_dir = "event_log" if used_event_log else "per_player"
-    format_outdir = outdir / format_dir
-    format_outdir.mkdir(parents=True, exist_ok=True)
-
-    # Split outputs by team side when known (TimeToScore-linked games).
-    # Default to Home when unknown so existing workflows still produce outputs.
     side = str(t2s_side or "").strip().lower()
-    team_subdir = "Home" if side != "away" else "Away"
-    (format_outdir / "Home").mkdir(parents=True, exist_ok=True)
-    (format_outdir / "Away").mkdir(parents=True, exist_ok=True)
+    team_subdir = "Away" if side == "away" else "Home"
 
-    outdir = format_outdir / team_subdir
+    # Top-level Home/Away split, then format (per_player/event_log).
+    (outdir / "Home").mkdir(parents=True, exist_ok=True)
+    (outdir / "Away").mkdir(parents=True, exist_ok=True)
+    outdir = outdir / team_subdir / format_dir
     outdir.mkdir(parents=True, exist_ok=True)
     stats_dir = outdir / "stats"
     stats_dir.mkdir(parents=True, exist_ok=True)
@@ -7585,6 +8370,37 @@ def process_sheet(
         team = team_guess if team_guess in {"Blue", "White"} else _assign_unknown_roster(roster)
         if team in {"Blue", "White"}:
             roster_name_by_team[team].update(roster or {})
+
+    # Use player names from embedded long shift tables (both teams) to resolve opponent jerseys when
+    # roster tables / TimeToScore rosters are not available.
+    if long_shift_tables_by_team:
+        long_team_rosters: Dict[str, Dict[str, str]] = {}
+        for team_name, info in (long_shift_tables_by_team or {}).items():
+            sb_any = (info or {}).get("sb_pairs_by_player") or {}
+            roster: Dict[str, str] = {}
+            for pk in sb_any.keys():
+                parts = _parse_player_key(pk)
+                jersey_norm = _normalize_jersey_number(parts.jersey)
+                name = str(parts.name or "").strip()
+                if not jersey_norm or not name:
+                    continue
+                # Keep a stable display name; it will be sanitized again when building player keys.
+                roster.setdefault(jersey_norm, name.replace("_", " "))
+            if roster:
+                long_team_rosters[str(team_name)] = roster
+
+        matched_long_team = str((shift_cmp_summary or {}).get("matched_team") or "").strip()
+        if focus_team in {"Blue", "White"} and matched_long_team and matched_long_team in long_team_rosters:
+            roster_name_by_team[focus_team].update(long_team_rosters.get(matched_long_team) or {})
+            opp_team = "White" if focus_team == "Blue" else "Blue"
+            other_names = [t for t in long_team_rosters.keys() if t != matched_long_team]
+            if len(other_names) == 1:
+                roster_name_by_team[opp_team].update(long_team_rosters.get(other_names[0]) or {})
+        else:
+            for _team_name, roster in long_team_rosters.items():
+                team = _assign_unknown_roster(roster)
+                if team in {"Blue", "White"}:
+                    roster_name_by_team[team].update(roster or {})
 
     # Prefer TimeToScore rosters when available (resolve opponent names too).
     if t2s_rosters_by_side and t2s_side in {"home", "away"} and focus_team in {"Blue", "White"}:
@@ -8156,6 +8972,26 @@ def process_sheet(
         focus_team=focus_team,
     )
 
+    # If a long sheet provides embedded shift tables for both teams, also write the opponent's
+    # per-player stats under the opposite Home/Away subtree (primarily for webapp import).
+    if long_shift_tables_by_team and shift_cmp_summary:
+        try:
+            _write_opponent_team_stats_from_long_shifts(
+                game_out_root=outdir.parent.parent,
+                format_dir=format_dir,
+                our_side=str(t2s_side or ""),
+                long_shift_tables_by_team=long_shift_tables_by_team,
+                shift_cmp_summary=shift_cmp_summary,
+                goals=goals,
+                event_log_context=event_log_context,
+                focus_team=focus_team,
+                include_shifts_in_stats=include_shifts_in_stats,
+                xls_path=xls_path,
+                t2s_rosters_by_side=t2s_rosters_by_side,
+            )
+        except Exception:
+            pass
+
     # Goals windows
     _write_goal_window_files(outdir, goals, conv_segments_by_period)
 
@@ -8234,15 +9070,11 @@ def process_t2s_only_game(
     shift timing data.
     """
     outdir.mkdir(parents=True, exist_ok=True)
-    format_outdir = outdir / "per_player"
-    format_outdir.mkdir(parents=True, exist_ok=True)
-
+    (outdir / "Home").mkdir(parents=True, exist_ok=True)
+    (outdir / "Away").mkdir(parents=True, exist_ok=True)
     side_l = str(side or "").strip().lower()
-    team_subdir = "Home" if side_l != "away" else "Away"
-    (format_outdir / "Home").mkdir(parents=True, exist_ok=True)
-    (format_outdir / "Away").mkdir(parents=True, exist_ok=True)
-
-    outdir = format_outdir / team_subdir
+    team_subdir = "Away" if side_l == "away" else "Home"
+    outdir = outdir / team_subdir / "per_player"
     outdir.mkdir(parents=True, exist_ok=True)
     stats_dir = outdir / "stats"
     stats_dir.mkdir(parents=True, exist_ok=True)
@@ -8649,7 +9481,7 @@ def _upload_shift_package_to_webapp(
         "game_stats_csv": game_stats_csv,
         "events_csv": events_csv,
         "source_label": (
-            f"parse_shift_spreadsheet:{label}{str(source_label_suffix) if source_label_suffix else ''}"
+            f"parse_stats_inputs:{label}{str(source_label_suffix) if source_label_suffix else ''}"
         ),
         "replace": bool(replace),
     }
@@ -8934,6 +9766,7 @@ def main() -> None:
     groups = sorted(groups_by_label.values(), key=lambda x: int(x.get("order", 0)))
     multiple_inputs = len(groups) > 1
     results: List[Dict[str, Any]] = []
+    goal_discrepancy_rows: List[Dict[str, Any]] = []
     upload_ok = 0
     upload_failed = 0
     upload_skipped_external_missing_meta = 0
@@ -9239,6 +10072,32 @@ def main() -> None:
             )
             sys.exit(2)
 
+        # For output organization (Home/Away subdirs) and webapp upload, we always
+        # require a known HOME/AWAY side for spreadsheet-backed games.
+        if side_to_use not in {"home", "away"}:
+            if t2s_id is None:
+                print(
+                    f"Error: cannot determine HOME/AWAY side for '{label}' while processing '{in_path.name}'.",
+                    file=sys.stderr,
+                )
+                print("  Reason: no ':HOME' / ':AWAY' provided and no TimeToScore id inferred.", file=sys.stderr)
+                if args.file_list:
+                    print(f"  File list: {args.file_list}", file=sys.stderr)
+                print(
+                    "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Error: cannot determine HOME/AWAY side for TimeToScore game {t2s_id} while processing '{label}'.",
+                    file=sys.stderr,
+                )
+                print(
+                    "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
+                    file=sys.stderr,
+                )
+            sys.exit(2)
+
         goals = _resolve_goals_for_file(in_path, t2s_id, side_to_use)
 
         # Build a TimeToScore roster map (normalized jersey -> name) for GP
@@ -9261,6 +10120,58 @@ def main() -> None:
                 print(f"  Side: {side_to_use}", file=sys.stderr)
                 print(f"  Cause: {e}", file=sys.stderr)
                 sys.exit(2)
+
+        # Compare TimeToScore's official scoring vs long-sheet recorded goals/assists (auditing).
+        if t2s_id is not None and long_paths:
+            try:
+                with _working_directory(hockey_db_dir):
+                    t2s_goals_for_compare = goals_from_t2s(int(t2s_id), side=str(side_to_use))
+            except Exception:
+                t2s_goals_for_compare = []
+
+            if t2s_goals_for_compare:
+                # Best-effort fetch of team names from the TimeToScore scoresheet HTML.
+                home_team_name: Optional[str] = None
+                away_team_name: Optional[str] = None
+                try:
+                    html = _fetch_t2s_scoresheet_html(int(t2s_id))
+                    visitor, home = _t2s_team_names_from_scoresheet_html(html)
+                    away_team_name = str(visitor or "").strip() or None
+                    home_team_name = str(home or "").strip() or None
+                except Exception:
+                    home_team_name = None
+                    away_team_name = None
+
+                long_goal_rows_all: List[Dict[str, Any]] = []
+                jerseys_by_team_all: Dict[str, set[int]] = {}
+                for lp in long_paths or []:
+                    try:
+                        long_df = pd.read_excel(Path(lp).expanduser(), sheet_name=0, header=None)
+                    except Exception:
+                        continue
+                    try:
+                        _long_events, long_goal_rows, jerseys_by_team = _parse_long_left_event_table(long_df)
+                    except Exception:
+                        continue
+                    long_goal_rows_all.extend(list(long_goal_rows or []))
+                    for team, nums in (jerseys_by_team or {}).items():
+                        jerseys_by_team_all.setdefault(str(team), set()).update(set(nums or set()))
+
+                if long_goal_rows_all:
+                    our_jerseys: set[str] = set((roster_map or {}).keys())
+                    focus_team_for_compare = _infer_focus_team_from_long_sheet(our_jerseys, jerseys_by_team_all)
+                    goal_discrepancy_rows.extend(
+                        _compare_t2s_vs_long_goals(
+                            label=str(label or ""),
+                            t2s_id=int(t2s_id),
+                            side=str(side_to_use),
+                            t2s_goals=t2s_goals_for_compare,
+                            long_goal_rows=long_goal_rows_all,
+                            focus_team=focus_team_for_compare,
+                            home_team_name=home_team_name,
+                            away_team_name=away_team_name,
+                        )
+                    )
 
         final_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = process_sheet(
             xls_path=in_path,
@@ -9360,10 +10271,12 @@ def main() -> None:
                 # generate both teams), upload both. To avoid overwriting the per-game raw CSV blobs
                 # and game/event stats, we only upload the non-primary side's player_stats.csv.
                 def _team_stats_dirs(final_out: Path) -> Dict[str, Path]:
-                    root = final_out.parent
+                    # final_out is "<game>/<Home|Away>/<format_dir>"
+                    root = final_out.parent.parent
+                    format_dir = final_out.name
                     return {
-                        "home": root / "Home" / "stats",
-                        "away": root / "Away" / "stats",
+                        "home": root / "Home" / format_dir / "stats",
+                        "away": root / "Away" / format_dir / "stats",
                     }
 
                 def _has_player_stats(sd: Path) -> bool:
@@ -9541,6 +10454,9 @@ def main() -> None:
                 "'|owner_email=you@example.com|league=Norcal|home_team=...|away_team=...' for non-TimeToScore games.",
                 file=sys.stderr,
             )
+
+    if goal_discrepancy_rows:
+        _print_goal_discrepancy_rich_table(goal_discrepancy_rows)
 
     if multiple_inputs:
         agg_rows, agg_periods, per_game_denoms = _aggregate_stats_rows(
