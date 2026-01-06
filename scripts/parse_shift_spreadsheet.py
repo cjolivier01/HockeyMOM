@@ -8622,6 +8622,10 @@ def _upload_shift_package_to_webapp(
     away_logo_content_type: Optional[str] = None,
     game_video_url: Optional[str] = None,
     create_missing_players: bool = False,
+    include_player_stats: bool = True,
+    include_game_stats: bool = True,
+    include_events: bool = True,
+    source_label_suffix: Optional[str] = None,
 ) -> None:
     try:
         import requests  # type: ignore
@@ -8636,15 +8640,17 @@ def _upload_shift_package_to_webapp(
             pass
         return ""
 
-    player_stats_csv = _read_text(stats_dir / "player_stats.csv")
-    game_stats_csv = _read_text(stats_dir / "game_stats.csv")
-    events_csv = _read_text(stats_dir / "all_events_summary.csv")
+    player_stats_csv = _read_text(stats_dir / "player_stats.csv") if include_player_stats else ""
+    game_stats_csv = _read_text(stats_dir / "game_stats.csv") if include_game_stats else ""
+    events_csv = _read_text(stats_dir / "all_events_summary.csv") if include_events else ""
 
     payload: Dict[str, Any] = {
         "player_stats_csv": player_stats_csv,
         "game_stats_csv": game_stats_csv,
         "events_csv": events_csv,
-        "source_label": f"parse_shift_spreadsheet:{label}",
+        "source_label": (
+            f"parse_shift_spreadsheet:{label}{str(source_label_suffix) if source_label_suffix else ''}"
+        ),
         "replace": bool(replace),
     }
     if t2s_game_id is not None:
@@ -9350,31 +9356,87 @@ def main() -> None:
                 pass
 
             try:
+                # If both Home/Away outputs exist (e.g., when long-sheet shift tables were used to
+                # generate both teams), upload both. To avoid overwriting the per-game raw CSV blobs
+                # and game/event stats, we only upload the non-primary side's player_stats.csv.
+                def _team_stats_dirs(final_out: Path) -> Dict[str, Path]:
+                    root = final_out.parent
+                    return {
+                        "home": root / "Home" / "stats",
+                        "away": root / "Away" / "stats",
+                    }
+
+                def _has_player_stats(sd: Path) -> bool:
+                    try:
+                        p = sd / "player_stats.csv"
+                        return p.exists() and p.is_file() and p.stat().st_size > 0
+                    except Exception:
+                        return False
+
                 if t2s_id is not None:
-                    _upload_shift_package_to_webapp(
-                        webapp_url=str(getattr(args, "webapp_url", "") or "").strip() or "http://127.0.0.1:8008",
-                        webapp_token=(
-                            getattr(args, "webapp_token", None) or getattr(args, "import_token", None) or None
-                        ),
-                        t2s_game_id=int(t2s_id),
-                        external_game_key=None,
-                        label=str(label or ""),
-                        stats_dir=(final_outdir / "stats"),
-                        replace=bool(getattr(args, "webapp_replace", False)),
-                        owner_email=owner_email,
-                        league_name=league_name,
-                        division_name=division_name,
-                        sort_order=sort_order,
-                        team_side=team_side,
-                        starts_at=starts_at,
-                        home_logo_b64=logo_fields.get("home_logo_b64"),
-                        home_logo_content_type=logo_fields.get("home_logo_content_type"),
-                        away_logo_b64=logo_fields.get("away_logo_b64"),
-                        away_logo_content_type=logo_fields.get("away_logo_content_type"),
-                        game_video_url=_meta("game_video", "game_video_url", "video_url"),
-                        create_missing_players=False,
-                    )
-                    upload_ok += 1
+                    dirs = _team_stats_dirs(final_outdir)
+                    primary_side = str(team_side or "").strip().lower()
+                    if primary_side not in {"home", "away"}:
+                        primary_side = "home"
+                    primary_stats = dirs.get(primary_side, final_outdir / "stats")
+                    if _has_player_stats(primary_stats):
+                        _upload_shift_package_to_webapp(
+                            webapp_url=str(getattr(args, "webapp_url", "") or "").strip() or "http://127.0.0.1:8008",
+                            webapp_token=(
+                                getattr(args, "webapp_token", None) or getattr(args, "import_token", None) or None
+                            ),
+                            t2s_game_id=int(t2s_id),
+                            external_game_key=None,
+                            label=str(label or ""),
+                            stats_dir=primary_stats,
+                            replace=bool(getattr(args, "webapp_replace", False)),
+                            owner_email=owner_email,
+                            league_name=league_name,
+                            division_name=division_name,
+                            sort_order=sort_order,
+                            team_side=primary_side,
+                            starts_at=starts_at,
+                            home_logo_b64=logo_fields.get("home_logo_b64"),
+                            home_logo_content_type=logo_fields.get("home_logo_content_type"),
+                            away_logo_b64=logo_fields.get("away_logo_b64"),
+                            away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                            game_video_url=_meta("game_video", "game_video_url", "video_url"),
+                            create_missing_players=False,
+                            source_label_suffix=f":{primary_side}",
+                        )
+                        upload_ok += 1
+
+                    other_side = "away" if primary_side == "home" else "home"
+                    other_stats = dirs.get(other_side)
+                    if other_stats is not None and _has_player_stats(other_stats):
+                        # Avoid overwriting per-game blob tables (player_stats_csv/events/game_stats) and game_stats.
+                        _upload_shift_package_to_webapp(
+                            webapp_url=str(getattr(args, "webapp_url", "") or "").strip() or "http://127.0.0.1:8008",
+                            webapp_token=(
+                                getattr(args, "webapp_token", None) or getattr(args, "import_token", None) or None
+                            ),
+                            t2s_game_id=int(t2s_id),
+                            external_game_key=None,
+                            label=str(label or ""),
+                            stats_dir=other_stats,
+                            replace=False,
+                            owner_email=owner_email,
+                            league_name=league_name,
+                            division_name=division_name,
+                            sort_order=sort_order,
+                            team_side=other_side,
+                            starts_at=starts_at,
+                            home_logo_b64=logo_fields.get("home_logo_b64"),
+                            home_logo_content_type=logo_fields.get("home_logo_content_type"),
+                            away_logo_b64=logo_fields.get("away_logo_b64"),
+                            away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                            game_video_url=_meta("game_video", "game_video_url", "video_url"),
+                            create_missing_players=False,
+                            include_game_stats=False,
+                            include_events=False,
+                            source_label_suffix=f":{other_side}",
+                        )
+                        upload_ok += 1
                 else:
                     if not (owner_email and league_name and external_home and external_away):
                         upload_skipped_external_missing_meta += 1
@@ -9395,6 +9457,11 @@ def main() -> None:
                         except Exception:
                             pass
                     else:
+                        dirs = _team_stats_dirs(final_outdir)
+                        primary_side = str(team_side or "").strip().lower()
+                        if primary_side not in {"home", "away"}:
+                            primary_side = "home"
+                        primary_stats = dirs.get(primary_side, final_outdir / "stats")
                         _upload_shift_package_to_webapp(
                             webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
                             or "http://127.0.0.1:8008",
@@ -9404,13 +9471,13 @@ def main() -> None:
                             t2s_game_id=None,
                             external_game_key=str(label or ""),
                             label=str(label or ""),
-                            stats_dir=(final_outdir / "stats"),
+                            stats_dir=primary_stats,
                             replace=bool(getattr(args, "webapp_replace", False)),
                             owner_email=owner_email,
                             league_name=league_name,
                             division_name=division_name or "External",
                             sort_order=sort_order,
-                            team_side=team_side,
+                            team_side=primary_side,
                             home_team_name=external_home,
                             away_team_name=external_away,
                             starts_at=starts_at,
@@ -9420,8 +9487,43 @@ def main() -> None:
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=True,
+                            source_label_suffix=f":{primary_side}",
                         )
                         upload_ok += 1
+
+                        other_side = "away" if primary_side == "home" else "home"
+                        other_stats = dirs.get(other_side)
+                        if other_stats is not None and _has_player_stats(other_stats):
+                            _upload_shift_package_to_webapp(
+                                webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
+                                or "http://127.0.0.1:8008",
+                                webapp_token=(
+                                    getattr(args, "webapp_token", None) or getattr(args, "import_token", None) or None
+                                ),
+                                t2s_game_id=None,
+                                external_game_key=str(label or ""),
+                                label=str(label or ""),
+                                stats_dir=other_stats,
+                                replace=False,
+                                owner_email=owner_email,
+                                league_name=league_name,
+                                division_name=division_name or "External",
+                                sort_order=sort_order,
+                                team_side=other_side,
+                                home_team_name=external_home,
+                                away_team_name=external_away,
+                                starts_at=starts_at,
+                                home_logo_b64=logo_fields.get("home_logo_b64"),
+                                home_logo_content_type=logo_fields.get("home_logo_content_type"),
+                                away_logo_b64=logo_fields.get("away_logo_b64"),
+                                away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                                game_video_url=_meta("game_video", "game_video_url", "video_url"),
+                                create_missing_players=True,
+                                include_game_stats=False,
+                                include_events=False,
+                                source_label_suffix=f":{other_side}",
+                            )
+                            upload_ok += 1
             except Exception as e:  # noqa: BLE001
                 upload_failed += 1
                 if t2s_id is not None:
