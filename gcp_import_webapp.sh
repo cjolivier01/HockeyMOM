@@ -7,7 +7,6 @@ WEBAPP_URL="${WEBAPP_URL:-https://www.jrsharks2013.org}"
 # Import token (required for production; local dev typically does not require it).
 # Do NOT hardcode this in the script; pass it via env.
 LOCAL_WEBAPP_TOKEN="$(cat ~/.ssh/hm-webapp-token.txt)"
-echo "LOCAL_WEBAPP_TOKEN=$LOCAL_WEBAPP_TOKEN"
 HM_WEBAPP_IMPORT_TOKEN=${HM_WEBAPP_IMPORT_TOKEN:-${LOCAL_WEBAPP_TOKEN}}
 
 # League/user defaults.
