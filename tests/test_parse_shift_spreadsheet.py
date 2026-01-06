@@ -830,6 +830,166 @@ def should_write_opponent_player_stats_from_long_shift_tables(tmp_path: Path):
     assert int(row["SOG"]) == 1
 
 
+def should_process_long_only_sheets_writes_home_and_away_stats(tmp_path: Path):
+    import datetime
+
+    long_xlsx = tmp_path / "game-long.xlsx"
+
+    # Build a synthetic long sheet with:
+    #   - leftmost per-period event table (Blue/White) for team-color inference
+    #   - embedded shift tables for both teams
+    header = [None] * 10 + [
+        "Jersey Number",
+        "Player Name",
+        "Shift start (Scoreboard time)",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Shift Start (Video Time)",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Shift End (Scoreboard Time)",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Shift End (Video Time)",
+    ]
+    width = len(header)
+    rows = []
+    rows.append(
+        [
+            "1st Period",
+            "Video Time",
+            "Scoreboard",
+            "Team",
+            "Shots",
+            "Shots on Goal",
+            "Assist",
+        ]
+        + [None] * (width - 7)
+    )
+    rows.append(["Shot", "0:05", "14:50", "Blue", "12", "SOG", ""] + [None] * (width - 7))
+    rows.append(["Shot", "0:10", "14:20", "White", "34", "SOG", ""] + [None] * (width - 7))
+
+    # Team A shift table (jersey 12).
+    rows.append([None] * 10 + ["Team A (1st Period)"] + [None] * (width - 11))
+    rows.append(header)
+    rows.append(
+        [None] * 10
+        + [
+            12,
+            "Alice Example",
+            datetime.time(15, 0),
+            datetime.time(14, 0),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            datetime.time(0, 10),
+            datetime.time(0, 30),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            datetime.time(14, 30),
+            datetime.time(13, 30),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            datetime.time(0, 20),
+            datetime.time(0, 40),
+        ]
+    )
+
+    # Spacer then Team B shift table (jersey 34).
+    rows.append([None] * width)
+    rows.append([None] * 10 + ["Team B (1st Period)"] + [None] * (width - 11))
+    rows.append(header)
+    rows.append(
+        [None] * 10
+        + [
+            34,
+            "Bob Example",
+            "15:00",
+            "14:10",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "0:05",
+            "0:25",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "14:40",
+            "13:50",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "0:15",
+            "0:35",
+        ]
+    )
+
+    pd.DataFrame(rows).to_excel(long_xlsx, index=False, header=False)
+
+    outdir = tmp_path / "out"
+    final_outdir, *_rest = pss.process_long_only_sheets(
+        long_xls_paths=[long_xlsx],
+        outdir=outdir,
+        goals=[pss.GoalEvent("GA", 1, "14:20", scorer="34", assists=[])],
+        roster_map={"12": "Alice Example"},
+        t2s_side="home",
+        t2s_game_id=None,
+        include_shifts_in_stats=False,
+        write_events_summary=False,
+        create_scripts=False,
+    )
+    assert final_outdir == outdir / "Home" / "per_player"
+
+    home_csv = outdir / "Home" / "per_player" / "stats" / "player_stats.csv"
+    away_csv = outdir / "Away" / "per_player" / "stats" / "player_stats.csv"
+    assert home_csv.exists()
+    assert away_csv.exists()
+
+    df_home = pd.read_csv(home_csv)
+    row_home = df_home[(df_home["Jersey #"] == 12) & (df_home["Player"] == "Alice Example")].iloc[0]
+    assert int(row_home["SOG"]) == 1
+
+    df_away = pd.read_csv(away_csv)
+    row_away = df_away[(df_away["Jersey #"] == 34) & (df_away["Player"] == "Bob Example")].iloc[0]
+    assert int(row_away["Goals"]) == 1
+    assert int(row_away["SOG"]) == 1
+
+
 def should_compare_primary_vs_long_shift_summary_counts():
     # Primary has 2 shifts; long has 3, with one mismatch and one extra.
     primary = {

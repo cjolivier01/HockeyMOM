@@ -47,6 +47,7 @@ python scripts/parse_stats_inputs.py --input <game stats dir> --outdir <out> --l
 - If a directory is provided, it expands to:
   - exactly one “primary” (non-`*-long*`) shift sheet, and
   - zero or more `*-long*` sheets in the same dir.
+- If a directory contains **only** `*-long*` sheets, it will process from the embedded long-sheet shift tables.
 - You can also pass a game directory (it will try `<dir>/stats/`).
 - Directory inputs must contain exactly one “game label” (derived from filename); otherwise it errors and you should use `--file-list`.
 

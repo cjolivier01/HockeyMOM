@@ -1148,6 +1148,31 @@ def _collect_sheet_jerseys(
                 if norm:
                     jerseys.add(norm)
 
+    # Long-only fallback: parse embedded long shift tables and/or long-sheet event table rosters.
+    if not jerseys:
+        try:
+            # Embedded shift tables (team blocks with Jersey/Name columns).
+            parsed = _parse_long_shift_tables(df)
+            for _team, info in (parsed or {}).items():
+                sb_any = (info or {}).get("sb_pairs_by_player") or {}
+                for pk in sb_any.keys():
+                    parts = _parse_player_key(pk)
+                    norm = _normalize_jersey_number(parts.jersey)
+                    if norm:
+                        jerseys.add(norm)
+        except Exception:
+            pass
+    if not jerseys:
+        try:
+            _events, _goal_rows, jerseys_by_team = _parse_long_left_event_table(df)
+            for nums in (jerseys_by_team or {}).values():
+                for n in nums or set():
+                    norm = _normalize_jersey_number(n)
+                    if norm:
+                        jerseys.add(norm)
+        except Exception:
+            pass
+
     return jerseys
 
 
@@ -1700,11 +1725,9 @@ def _expand_dir_input_to_game_sheets(dir_path: Path) -> List[Path]:
     paths = by_label[only_label]
     primaries = [p for p in paths if not _is_long_sheet_path(p)]
     long_paths = [p for p in paths if _is_long_sheet_path(p)]
+    # Long-only games: allow processing from the embedded long-sheet shift tables.
     if not primaries and long_paths:
-        raise ValueError(
-            f"Directory {dir_path} has only '*-long*' sheets for {only_label}; "
-            "add the primary shift sheet or pass it explicitly."
-        )
+        return long_paths
     if len(primaries) != 1:
         raise ValueError(
             f"Directory {dir_path} has {len(primaries)} primary sheets for {only_label}; "
@@ -3591,111 +3614,89 @@ def _print_goal_discrepancy_rich_table(rows: List[Dict[str, Any]]) -> None:
         pass
 
 
-def _write_opponent_team_stats_from_long_shifts(
+def _write_team_stats_from_long_shift_team(
     *,
     game_out_root: Path,
     format_dir: str,
-    our_side: str,
+    team_side: str,
+    team_name: str,
     long_shift_tables_by_team: Dict[str, Dict[str, Dict[str, List[Tuple[Any, ...]]]]],
-    shift_cmp_summary: Dict[str, Any],
     goals: List[GoalEvent],
     event_log_context: Optional["EventLogContext"],
     focus_team: Optional[str],
     include_shifts_in_stats: bool,
     xls_path: Path,
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
-) -> Optional[Path]:
+    create_scripts: bool = False,
+    skip_if_exists: bool = False,
+) -> Tuple[
+    Path,
+    List[Dict[str, str]],
+    List[int],
+    Dict[str, Dict[str, List[GoalEvent]]],
+    List[Dict[str, Any]],
+]:
     """
-    Best-effort: when a '*-long*' sheet provides embedded shift tables for both teams, write
-    stats outputs for the opponent team into the opposite Home/Away subtree.
-
-    This is primarily used to populate the opponent's player stats in the webapp import.
+    Write stats for a specific long-sheet embedded shift table team into Home/Away/<format_dir>/stats.
+    Returns (outdir, stats_rows, periods, per_player_goal_events, pair_on_ice_rows).
     """
-    matched_team = str((shift_cmp_summary or {}).get("matched_team") or "").strip()
-    if not matched_team:
-        return None
+    side_l = str(team_side or "").strip().lower()
+    if side_l not in {"home", "away"}:
+        raise ValueError(f"invalid team_side: {team_side!r}")
+    team_subdir = "Away" if side_l == "away" else "Home"
+    outdir = Path(game_out_root) / team_subdir / str(format_dir or "per_player")
+    stats_dir = outdir / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
 
-    candidates = [t for t in (long_shift_tables_by_team or {}).keys() if str(t) != matched_team]
-    if not candidates:
-        return None
+    if skip_if_exists:
+        try:
+            existing = stats_dir / "player_stats.csv"
+            if existing.exists() and existing.is_file() and existing.stat().st_size > 0:
+                return outdir, [], [], {}, []
+        except Exception:
+            pass
 
-    def _total_shifts(team_name: str) -> int:
-        info = (long_shift_tables_by_team or {}).get(team_name) or {}
-        sb_map = (info.get("sb_pairs_by_player") or {}) if isinstance(info, dict) else {}
-        return sum(len(v or []) for v in (sb_map or {}).values())
+    info = (long_shift_tables_by_team or {}).get(str(team_name)) or {}
+    sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]] = dict((info.get("sb_pairs_by_player") or {}))
+    video_pairs_by_player: Dict[str, List[Tuple[str, str]]] = dict((info.get("video_pairs_by_player") or {}))
+    if not sb_pairs_by_player:
+        return outdir, [], [], {}, []
 
-    opponent_team = max(candidates, key=_total_shifts)
-    opp_info = (long_shift_tables_by_team or {}).get(opponent_team) or {}
-    opp_sb_pairs_by_player = dict((opp_info.get("sb_pairs_by_player") or {}))
-    opp_video_pairs_by_player = dict((opp_info.get("video_pairs_by_player") or {}))
-
-    if not opp_sb_pairs_by_player:
-        return None
-
-    our_side_l = str(our_side or "").strip().lower()
-    if our_side_l not in {"home", "away"}:
-        return None
-    opp_side_l = "away" if our_side_l == "home" else "home"
-    opp_team_subdir = "Away" if opp_side_l == "away" else "Home"
-
-    other_outdir = game_out_root / opp_team_subdir / str(format_dir or "per_player")
-    other_stats_dir = other_outdir / "stats"
-    other_stats_dir.mkdir(parents=True, exist_ok=True)
-
-    # Skip if the opponent stats already exist (e.g., explicitly provided via another input).
-    try:
-        existing = other_stats_dir / "player_stats.csv"
-        if existing.exists() and existing.is_file() and existing.stat().st_size > 0:
-            return other_outdir
-    except Exception:
-        pass
-
-    # Optionally add TimeToScore roster-only players for the opponent (GP accounting).
-    if t2s_rosters_by_side and opp_side_l in {"home", "away"}:
-        opp_roster = t2s_rosters_by_side.get(opp_side_l) or {}
+    # Optionally add TimeToScore roster-only players for GP accounting.
+    if t2s_rosters_by_side and side_l in {"home", "away"}:
+        roster = t2s_rosters_by_side.get(side_l) or {}
         seen_normals: set[str] = set()
-        for pk in opp_sb_pairs_by_player.keys():
+        for pk in sb_pairs_by_player.keys():
             norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
             if norm:
                 seen_normals.add(norm)
-        for jersey_norm, name in (opp_roster or {}).items():
+        for jersey_norm, name in (roster or {}).items():
             if not jersey_norm or not name:
                 continue
             if jersey_norm in seen_normals:
                 continue
             player_key = f"{sanitize_name(jersey_norm)}_{sanitize_name(name)}"
-            if player_key in opp_sb_pairs_by_player:
+            if player_key in sb_pairs_by_player:
                 continue
-            opp_sb_pairs_by_player[player_key] = []
+            sb_pairs_by_player[player_key] = []
+
+    if include_shifts_in_stats:
+        try:
+            _write_video_times_and_scripts(outdir, video_pairs_by_player, create_scripts=create_scripts)
+            _write_scoreboard_times(outdir, sb_pairs_by_player, create_scripts=create_scripts)
+        except Exception:
+            pass
 
     # Build jersey->player mapping for scoring attribution.
-    opp_jersey_to_players: Dict[str, List[str]] = {}
-    for pk in opp_sb_pairs_by_player.keys():
+    jersey_to_players: Dict[str, List[str]] = {}
+    for pk in sb_pairs_by_player.keys():
         norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
         if norm:
-            opp_jersey_to_players.setdefault(norm, []).append(pk)
+            jersey_to_players.setdefault(norm, []).append(pk)
 
-    # Flip scoring perspective (their GF is our GA, and vice-versa).
-    opp_goals: List[GoalEvent] = []
-    for g in goals or []:
-        kind = str(getattr(g, "kind", "") or "").strip().upper()
-        if kind == "GF":
-            kind2 = "GA"
-        elif kind == "GA":
-            kind2 = "GF"
-        else:
-            kind2 = kind
-        opp_goals.append(
-            GoalEvent(
-                kind2,
-                int(getattr(g, "period", 0) or 0),
-                str(getattr(g, "t_str", "") or ""),
-                scorer=g.scorer,
-                assists=list(g.assists or []),
-            )
-        )
-    opp_goals.sort(key=lambda e: (e.period, e.t_sec))
-    _annotate_goal_roles(opp_goals)
+    goals2 = list(goals or [])
+    goals2.sort(key=lambda e: (e.period, e.t_sec))
+    _annotate_goal_roles(goals2)
 
     # Determine which long-sheet/player-attributed event types exist in this game so we can
     # leave blank when the stat type wasn't collected (not 0).
@@ -3713,13 +3714,9 @@ def _write_opponent_team_stats_from_long_shifts(
     has_player_giveaways = "Giveaway" in player_event_types_present
     has_player_takeaways = "Takeaway" in player_event_types_present
 
-    opp_focus_team: Optional[str] = None
-    if focus_team in {"Blue", "White"}:
-        opp_focus_team = "White" if focus_team == "Blue" else "Blue"
-
     has_controlled_entry_events = False
     has_controlled_exit_events = False
-    if opp_focus_team in {"Blue", "White"} and event_log_context is not None:
+    if focus_team in {"Blue", "White"} and event_log_context is not None:
         for (etype, _team) in (event_log_context.event_instances or {}).keys():
             if etype == "ControlledEntry":
                 has_controlled_entry_events = True
@@ -3729,7 +3726,7 @@ def _write_opponent_team_stats_from_long_shifts(
     # Pre-group team-level events by period for on-ice for/against counts.
     on_ice_event_types = {"ControlledEntry", "ControlledExit"}
     team_events_by_period: Dict[int, List[Tuple[str, str, int]]] = {}
-    if opp_focus_team is not None and event_log_context is not None:
+    if focus_team is not None and event_log_context is not None:
         for (etype, team), inst_list in (event_log_context.event_instances or {}).items():
             if etype not in on_ice_event_types:
                 continue
@@ -3740,24 +3737,23 @@ def _write_opponent_team_stats_from_long_shifts(
                     continue
                 team_events_by_period.setdefault(int(p), []).append((str(etype), str(team), int(gs)))
 
-    # Stats and plus/minus.
     goals_by_period: Dict[int, List[GoalEvent]] = {}
-    for ev in opp_goals or []:
+    for ev in goals2 or []:
         goals_by_period.setdefault(int(ev.period), []).append(ev)
 
-    # Pair on-ice for opponent (informational; may be empty for short games/tests).
-    if opp_sb_pairs_by_player:
+    pair_on_ice_rows: List[Dict[str, Any]] = []
+    if sb_pairs_by_player:
         try:
-            pair_rows = _compute_pair_on_ice_rows(opp_sb_pairs_by_player, goals_by_period)
-            _write_pair_on_ice_csv(other_stats_dir, pair_rows, include_toi=include_shifts_in_stats)
+            pair_on_ice_rows = _compute_pair_on_ice_rows(sb_pairs_by_player, goals_by_period)
+            _write_pair_on_ice_csv(stats_dir, pair_on_ice_rows, include_toi=include_shifts_in_stats)
         except Exception:
-            pass
+            pair_on_ice_rows = []
 
     per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]] = {
-        pk: {"goals": [], "assists": [], "gf_on_ice": [], "ga_on_ice": []} for pk in opp_sb_pairs_by_player.keys()
+        pk: {"goals": [], "assists": [], "gf_on_ice": [], "ga_on_ice": []} for pk in sb_pairs_by_player.keys()
     }
     goal_assist_counts: Dict[str, Dict[str, int]] = {
-        pk: {"goals": 0, "assists": 0} for pk in opp_sb_pairs_by_player.keys()
+        pk: {"goals": 0, "assists": 0} for pk in sb_pairs_by_player.keys()
     }
 
     def _match_player_keys(num_token: Any) -> List[str]:
@@ -3774,10 +3770,10 @@ def _write_opponent_team_stats_from_long_shifts(
         if norm2:
             candidates2.add(norm2)
         for cand in candidates2:
-            matches.extend(opp_jersey_to_players.get(cand, []))
+            matches.extend(jersey_to_players.get(cand, []))
         return list(dict.fromkeys(matches))
 
-    for ev in opp_goals:
+    for ev in goals2:
         if ev.kind != "GF":
             continue
         if ev.scorer:
@@ -3792,7 +3788,7 @@ def _write_opponent_team_stats_from_long_shifts(
     stats_table_rows: List[Dict[str, str]] = []
     all_periods_seen: set[int] = set()
 
-    for player_key, sb_list in opp_sb_pairs_by_player.items():
+    for player_key, sb_list in sb_pairs_by_player.items():
         sb_by_period: Dict[int, List[Tuple[str, str]]] = {}
         for period, a, b in sb_list or []:
             sb_by_period.setdefault(int(period), []).append((str(a), str(b)))
@@ -3875,7 +3871,7 @@ def _write_opponent_team_stats_from_long_shifts(
             "controlled_exit_for": 0,
             "controlled_exit_against": 0,
         }
-        if opp_focus_team is not None and team_events_by_period and sb_by_period:
+        if focus_team is not None and team_events_by_period and sb_by_period:
             for period, pairs in sb_by_period.items():
                 period_events = team_events_by_period.get(period, [])
                 if not period_events or not pairs:
@@ -3889,7 +3885,7 @@ def _write_opponent_team_stats_from_long_shifts(
                             break
                     if not in_any:
                         continue
-                    is_for = team == opp_focus_team
+                    is_for = team == focus_team
                     if etype == "ControlledEntry":
                         key = "controlled_entry_for" if is_for else "controlled_entry_against"
                         on_ice[key] += 1
@@ -3962,7 +3958,7 @@ def _write_opponent_team_stats_from_long_shifts(
         row_map["gf_counted"] = str(len(counted_gf))
         row_map["ga_counted"] = str(len(counted_ga))
         if include_shifts_in_stats:
-            v_pairs = opp_video_pairs_by_player.get(player_key, [])
+            v_pairs = video_pairs_by_player.get(player_key, [])
             if v_pairs:
                 v_sum = 0
                 for a, b in v_pairs:
@@ -3986,27 +3982,109 @@ def _write_opponent_team_stats_from_long_shifts(
         stats_table_rows.append(row_map)
 
     if include_shifts_in_stats:
-        _write_global_summary_csv(other_stats_dir, opp_sb_pairs_by_player)
+        _write_global_summary_csv(stats_dir, sb_pairs_by_player)
 
     period_list = sorted(all_periods_seen)
     if stats_table_rows:
         _write_player_stats_text_and_csv(
-            other_stats_dir,
+            stats_dir,
             stats_table_rows,
             period_list,
             include_shifts_in_stats=include_shifts_in_stats,
         )
 
     _write_game_stats_files(
-        other_stats_dir,
+        stats_dir,
         xls_path=xls_path,
         periods=period_list,
+        goals=goals2,
+        event_log_context=event_log_context,
+        focus_team=focus_team,
+    )
+
+    return outdir, stats_table_rows, period_list, per_player_goal_events, pair_on_ice_rows
+
+
+def _write_opponent_team_stats_from_long_shifts(
+    *,
+    game_out_root: Path,
+    format_dir: str,
+    our_side: str,
+    long_shift_tables_by_team: Dict[str, Dict[str, Dict[str, List[Tuple[Any, ...]]]]],
+    shift_cmp_summary: Dict[str, Any],
+    goals: List[GoalEvent],
+    event_log_context: Optional["EventLogContext"],
+    focus_team: Optional[str],
+    include_shifts_in_stats: bool,
+    xls_path: Path,
+    t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
+) -> Optional[Path]:
+    """
+    Best-effort: when a '*-long*' sheet provides embedded shift tables for both teams, write
+    stats outputs for the opponent team into the opposite Home/Away subtree.
+
+    This is primarily used to populate the opponent's player stats in the webapp import.
+    """
+    matched_team = str((shift_cmp_summary or {}).get("matched_team") or "").strip()
+    if not matched_team:
+        return None
+
+    candidates = [t for t in (long_shift_tables_by_team or {}).keys() if str(t) != matched_team]
+    if not candidates:
+        return None
+
+    def _total_shifts(team_name: str) -> int:
+        info = (long_shift_tables_by_team or {}).get(team_name) or {}
+        sb_map = (info.get("sb_pairs_by_player") or {}) if isinstance(info, dict) else {}
+        return sum(len(v or []) for v in (sb_map or {}).values())
+
+    opponent_team = max(candidates, key=_total_shifts)
+
+    our_side_l = str(our_side or "").strip().lower()
+    if our_side_l not in {"home", "away"}:
+        return None
+    opp_side_l = "away" if our_side_l == "home" else "home"
+
+    # Flip scoring perspective (their GF is our GA, and vice-versa).
+    opp_goals: List[GoalEvent] = []
+    for g in goals or []:
+        kind = str(getattr(g, "kind", "") or "").strip().upper()
+        if kind == "GF":
+            kind2 = "GA"
+        elif kind == "GA":
+            kind2 = "GF"
+        else:
+            kind2 = kind
+        opp_goals.append(
+            GoalEvent(
+                kind2,
+                int(getattr(g, "period", 0) or 0),
+                str(getattr(g, "t_str", "") or ""),
+                scorer=g.scorer,
+                assists=list(g.assists or []),
+            )
+        )
+
+    opp_focus_team: Optional[str] = None
+    if focus_team in {"Blue", "White"}:
+        opp_focus_team = "White" if focus_team == "Blue" else "Blue"
+
+    outdir2, _rows, _periods, _events, _pair_rows = _write_team_stats_from_long_shift_team(
+        game_out_root=game_out_root,
+        format_dir=format_dir,
+        team_side=str(opp_side_l),
+        team_name=str(opponent_team),
+        long_shift_tables_by_team=long_shift_tables_by_team,
         goals=opp_goals,
         event_log_context=event_log_context,
         focus_team=opp_focus_team,
+        include_shifts_in_stats=include_shifts_in_stats,
+        xls_path=xls_path,
+        t2s_rosters_by_side=t2s_rosters_by_side,
+        create_scripts=False,
+        skip_if_exists=True,
     )
-
-    return other_outdir
+    return outdir2
 
 
 def _infer_focus_team_from_long_sheet(
@@ -9048,6 +9126,261 @@ def process_sheet(
     return outdir, stats_table_rows, sorted(all_periods_seen), per_player_goal_events, pair_on_ice_rows
 
 
+def process_long_only_sheets(
+    *,
+    long_xls_paths: List[Path],
+    outdir: Path,
+    goals: List[GoalEvent],
+    roster_map: Optional[Dict[str, str]] = None,
+    t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
+    t2s_side: Optional[str] = None,
+    t2s_game_id: Optional[int] = None,
+    focus_team_override: Optional[str] = None,
+    include_shifts_in_stats: bool = False,
+    write_events_summary: Optional[bool] = None,
+    create_scripts: bool = True,
+) -> Tuple[
+    Path,
+    List[Dict[str, str]],
+    List[int],
+    Dict[str, Dict[str, List[GoalEvent]]],
+    List[Dict[str, Any]],
+]:
+    """
+    Process a game when only '*-long*' spreadsheets are available.
+
+    Uses the embedded long-sheet shift table for our team as the primary shift source, and (when
+    available) writes opponent player stats from the other embedded shift table.
+    """
+    outdir.mkdir(parents=True, exist_ok=True)
+    (outdir / "Home").mkdir(parents=True, exist_ok=True)
+    (outdir / "Away").mkdir(parents=True, exist_ok=True)
+
+    side = str(t2s_side or "").strip().lower()
+    if side not in {"home", "away"}:
+        raise ValueError("process_long_only_sheets requires t2s_side='home' or 'away'")
+    team_subdir = "Away" if side == "away" else "Home"
+    format_dir = "per_player"
+
+    if write_events_summary is None:
+        write_events_summary = include_shifts_in_stats
+
+    # Parse all long sheets: embedded shift tables + left event table.
+    long_shift_tables_by_team: Dict[str, Dict[str, Dict[str, List[Tuple[Any, ...]]]]] = {}
+    long_events_all: List[LongEvent] = []
+    long_goal_rows_all: List[Dict[str, Any]] = []
+    jerseys_by_team_all: Dict[str, set[int]] = {}
+    long_sheet_paths_used: List[Path] = []
+    for lp in long_xls_paths or []:
+        if lp is None:
+            continue
+        p = Path(lp).expanduser()
+        if not p.exists():
+            continue
+        long_sheet_paths_used.append(p)
+        long_df = pd.read_excel(p, sheet_name=0, header=None)
+
+        try:
+            parsed_shift_tables = _parse_long_shift_tables(long_df)
+        except Exception as e:  # noqa: BLE001
+            parsed_shift_tables = {}
+            print(f"[long] Failed to parse long shift tables from {p}: {e}", file=sys.stderr)
+
+        for team_name, info in (parsed_shift_tables or {}).items():
+            dest = long_shift_tables_by_team.setdefault(
+                str(team_name),
+                {"sb_pairs_by_player": {}, "video_pairs_by_player": {}},
+            )
+            for k in ("sb_pairs_by_player", "video_pairs_by_player"):
+                src_map = (info or {}).get(k) or {}
+                dst_map = dest.setdefault(k, {})
+                for pk, lst in (src_map or {}).items():
+                    dst_map.setdefault(pk, []).extend(list(lst or []))
+
+        try:
+            long_events, long_goal_rows, jerseys_by_team = _parse_long_left_event_table(long_df)
+        except Exception as e:  # noqa: BLE001
+            long_events, long_goal_rows, jerseys_by_team = [], [], {}
+            print(f"[long] Failed to parse long left event table from {p}: {e}", file=sys.stderr)
+
+        long_events_all.extend(list(long_events or []))
+        long_goal_rows_all.extend(list(long_goal_rows or []))
+        for team, nums in (jerseys_by_team or {}).items():
+            jerseys_by_team_all.setdefault(str(team), set()).update(set(nums or set()))
+
+    if not long_shift_tables_by_team:
+        raise ValueError("No embedded long-sheet shift tables were found; cannot compute shifts.")
+
+    # Normalize jerseys seen in each long shift table (for matching).
+    jerseys_by_long_team: Dict[str, set[str]] = {}
+    for team_name, info in long_shift_tables_by_team.items():
+        sb_any = (info or {}).get("sb_pairs_by_player") or {}
+        jerseys: set[str] = set()
+        for pk in sb_any.keys():
+            parts = _parse_player_key(pk)
+            norm = _normalize_jersey_number(parts.jersey)
+            if norm:
+                jerseys.add(norm)
+        jerseys_by_long_team[str(team_name)] = jerseys
+
+    # Determine our Blue/White focus team from long events (when possible).
+    focus_team: Optional[str] = focus_team_override
+    if focus_team not in {"Blue", "White"}:
+        our_jerseys: set[str] = set()
+        if roster_map:
+            our_jerseys |= set(roster_map.keys())
+        if t2s_rosters_by_side and side in {"home", "away"}:
+            our_jerseys |= set((t2s_rosters_by_side.get(side) or {}).keys())
+        focus_team = _infer_focus_team_from_long_sheet(our_jerseys, jerseys_by_team_all)
+
+    # Map each embedded shift table team name -> Blue/White (best-effort) by overlap with event rosters.
+    blue_set = {str(int(x)) for x in (jerseys_by_team_all.get("Blue") or set())}
+    white_set = {str(int(x)) for x in (jerseys_by_team_all.get("White") or set())}
+    long_team_color: Dict[str, Optional[str]] = {}
+    if blue_set or white_set:
+        for team_name, nums in jerseys_by_long_team.items():
+            ob = len(nums & blue_set) if nums else 0
+            ow = len(nums & white_set) if nums else 0
+            if ob > ow and ob > 0:
+                long_team_color[team_name] = "Blue"
+            elif ow > ob and ow > 0:
+                long_team_color[team_name] = "White"
+            else:
+                long_team_color[team_name] = None
+
+    # Pick which embedded shift table is ours.
+    our_team_name: Optional[str] = None
+    if focus_team in {"Blue", "White"} and long_team_color:
+        best = -1
+        for team_name, color in long_team_color.items():
+            if color != focus_team:
+                continue
+            ov = len(jerseys_by_long_team.get(team_name, set()) & (blue_set if focus_team == "Blue" else white_set))
+            if ov > best:
+                best = ov
+                our_team_name = team_name
+    if our_team_name is None and roster_map:
+        our_roster = set(roster_map.keys())
+        if our_roster:
+            best2 = -1
+            for team_name, nums in jerseys_by_long_team.items():
+                ov = len(nums & our_roster)
+                if ov > best2:
+                    best2 = ov
+                    our_team_name = team_name
+    if our_team_name is None:
+        if len(jerseys_by_long_team) == 1:
+            our_team_name = next(iter(jerseys_by_long_team.keys()))
+        else:
+            teams = ", ".join(sorted(jerseys_by_long_team.keys()))
+            raise ValueError(
+                "Cannot infer which long shift table is your team. "
+                f"Found teams: {teams}. Provide a TimeToScore id (for roster matching) or include the primary shift sheet."
+            )
+
+    our_team_name = str(our_team_name)
+
+    # Build roster_name_by_team for resolving opponent player names in long events.
+    roster_name_by_team: Dict[str, Dict[str, str]] = {"Blue": {}, "White": {}}
+    if long_team_color:
+        for team_name, info in long_shift_tables_by_team.items():
+            color = long_team_color.get(team_name)
+            if color not in {"Blue", "White"}:
+                continue
+            sb_any = (info or {}).get("sb_pairs_by_player") or {}
+            for pk in sb_any.keys():
+                parts = _parse_player_key(pk)
+                jersey_norm = _normalize_jersey_number(parts.jersey)
+                name = str(parts.name or "").replace("_", " ").strip()
+                if jersey_norm and name:
+                    roster_name_by_team[color].setdefault(jersey_norm, name)
+
+    if t2s_rosters_by_side and side in {"home", "away"} and focus_team in {"Blue", "White"}:
+        our_side = side
+        opp_side = "away" if our_side == "home" else "home"
+        opp_team = "White" if focus_team == "Blue" else "Blue"
+        roster_name_by_team[focus_team].update(t2s_rosters_by_side.get(our_side) or {})
+        roster_name_by_team[opp_team].update(t2s_rosters_by_side.get(opp_side) or {})
+    elif roster_map and focus_team in {"Blue", "White"}:
+        roster_name_by_team[focus_team].update(roster_map or {})
+
+    # Build jersey_to_players mapping for our team from the long shift table.
+    our_sb_pairs_by_player = (long_shift_tables_by_team.get(our_team_name) or {}).get("sb_pairs_by_player") or {}
+    jersey_to_players: Dict[str, List[str]] = {}
+    for pk in our_sb_pairs_by_player.keys():
+        norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
+        if norm:
+            jersey_to_players.setdefault(norm, []).append(pk)
+
+    merged_event_context: Optional[EventLogContext] = None
+    if long_events_all:
+        merged_event_context = _event_log_context_from_long_events(
+            long_events_all,
+            jersey_to_players=jersey_to_players,
+            focus_team=focus_team,
+            jerseys_by_team=jerseys_by_team_all,
+            roster_name_by_team=roster_name_by_team,
+        )
+
+    # Write our team stats from the selected long shift table.
+    primary_long_path = long_sheet_paths_used[0] if long_sheet_paths_used else (long_xls_paths[0] if long_xls_paths else Path("game-long.xlsx"))
+    our_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = _write_team_stats_from_long_shift_team(
+        game_out_root=outdir,
+        format_dir=format_dir,
+        team_side=side,
+        team_name=our_team_name,
+        long_shift_tables_by_team=long_shift_tables_by_team,
+        goals=goals,
+        event_log_context=merged_event_context,
+        focus_team=focus_team,
+        include_shifts_in_stats=include_shifts_in_stats,
+        xls_path=Path(primary_long_path),
+        t2s_rosters_by_side=t2s_rosters_by_side,
+        create_scripts=create_scripts,
+        skip_if_exists=False,
+    )
+
+    # Write all_events_summary (for webapp import / auditing).
+    if write_events_summary:
+        t2s_events: List[Dict[str, Any]] = []
+        if t2s_game_id is not None:
+            t2s_events = t2s_events_from_scoresheet(int(t2s_game_id), our_side=side)
+        goals_by_period: Dict[int, List[GoalEvent]] = {}
+        for ev in goals or []:
+            goals_by_period.setdefault(int(ev.period), []).append(ev)
+        _write_all_events_summary(
+            our_outdir / "stats",
+            sb_pairs_by_player=dict(our_sb_pairs_by_player),
+            goals=list(goals or []),
+            goals_by_period=goals_by_period,
+            event_log_context=merged_event_context,
+            focus_team=focus_team,
+            t2s_events=t2s_events,
+            conv_segments_by_period={},
+        )
+
+    # Write opponent player stats (when another embedded shift table exists).
+    try:
+        _write_opponent_team_stats_from_long_shifts(
+            game_out_root=outdir,
+            format_dir=format_dir,
+            our_side=side,
+            long_shift_tables_by_team=long_shift_tables_by_team,
+            shift_cmp_summary={"matched_team": our_team_name, "long_sheets": [str(p) for p in long_sheet_paths_used]},
+            goals=goals,
+            event_log_context=merged_event_context,
+            focus_team=focus_team,
+            include_shifts_in_stats=include_shifts_in_stats,
+            xls_path=Path(primary_long_path),
+            t2s_rosters_by_side=t2s_rosters_by_side,
+        )
+    except Exception:
+        pass
+
+    # Return our team's outputs (for season aggregation).
+    return our_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows
+
+
 def process_t2s_only_game(
     *,
     t2s_id: int,
@@ -9941,7 +10274,8 @@ def main() -> None:
                 print("✅ Done.")
             continue
 
-        in_path = g.get("primary")
+        primary_path = g.get("primary")
+        in_path = primary_path
         if in_path is None:
             long_paths = g.get("long_paths") or []
             if long_paths:
@@ -10122,7 +10456,23 @@ def main() -> None:
                 sys.exit(2)
 
         # Compare TimeToScore's official scoring vs long-sheet recorded goals/assists (auditing).
-        if t2s_id is not None and long_paths:
+        long_paths_for_compare: List[Path] = []
+        if primary_path is None:
+            long_paths_for_compare.append(in_path)
+        long_paths_for_compare.extend(list(long_paths or []))
+        long_paths_for_compare = [Path(p) for p in long_paths_for_compare if p is not None]
+        # De-dupe while preserving order.
+        _seen_lp: set[str] = set()
+        _tmp_lp: List[Path] = []
+        for _p in long_paths_for_compare:
+            k = str(Path(_p))
+            if k in _seen_lp:
+                continue
+            _seen_lp.add(k)
+            _tmp_lp.append(Path(_p))
+        long_paths_for_compare = _tmp_lp
+
+        if t2s_id is not None and long_paths_for_compare:
             try:
                 with _working_directory(hockey_db_dir):
                     t2s_goals_for_compare = goals_from_t2s(int(t2s_id), side=str(side_to_use))
@@ -10144,7 +10494,7 @@ def main() -> None:
 
                 long_goal_rows_all: List[Dict[str, Any]] = []
                 jerseys_by_team_all: Dict[str, set[int]] = {}
-                for lp in long_paths or []:
+                for lp in long_paths_for_compare:
                     try:
                         long_df = pd.read_excel(Path(lp).expanduser(), sheet_name=0, header=None)
                     except Exception:
@@ -10173,23 +10523,38 @@ def main() -> None:
                         )
                     )
 
-        final_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = process_sheet(
-            xls_path=in_path,
-            sheet_name=args.sheet,
-            outdir=outdir,
-            keep_goalies=args.keep_goalies,
-            goals=goals,
-            roster_map=roster_map,
-            t2s_rosters_by_side=t2s_rosters_by_side,
-            t2s_side=side_to_use,
-            t2s_game_id=t2s_id,
-            long_xls_paths=long_paths,
-            focus_team_override=focus_team_override,
-            include_shifts_in_stats=include_shifts_in_stats,
-            write_events_summary=write_events_summary,
-            skip_validation=args.skip_validation,
-            create_scripts=create_scripts,
-        )
+        if primary_path is None and long_paths_for_compare:
+            final_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = process_long_only_sheets(
+                long_xls_paths=list(long_paths_for_compare),
+                outdir=outdir,
+                goals=goals,
+                roster_map=roster_map,
+                t2s_rosters_by_side=t2s_rosters_by_side,
+                t2s_side=side_to_use,
+                t2s_game_id=t2s_id,
+                focus_team_override=focus_team_override,
+                include_shifts_in_stats=include_shifts_in_stats,
+                write_events_summary=write_events_summary,
+                create_scripts=create_scripts,
+            )
+        else:
+            final_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = process_sheet(
+                xls_path=in_path,
+                sheet_name=args.sheet,
+                outdir=outdir,
+                keep_goalies=args.keep_goalies,
+                goals=goals,
+                roster_map=roster_map,
+                t2s_rosters_by_side=t2s_rosters_by_side,
+                t2s_side=side_to_use,
+                t2s_game_id=t2s_id,
+                long_xls_paths=long_paths,
+                focus_team_override=focus_team_override,
+                include_shifts_in_stats=include_shifts_in_stats,
+                write_events_summary=write_events_summary,
+                skip_validation=args.skip_validation,
+                create_scripts=create_scripts,
+            )
         video_path = _find_tracking_output_video_for_sheet_path(in_path) if create_scripts else None
         results.append(
             {
