@@ -217,8 +217,8 @@ def _fetch_t2s_scoresheet_html(game_id: int, *, timeout_s: float = 20.0) -> str:
 def _t2s_team_names_from_scoresheet_html(html: str) -> Tuple[Optional[str], Optional[str]]:
     # NOTE: the scoresheet HTML has malformed tags in spots (e.g., <td> ... </th>),
     # so use a tolerant regex rather than a strict HTML parser.
-    m_vis = re.search(r"(?is)<tr>\\s*<th>\\s*Visitor\\s*</th>\\s*<td>\\s*([^<]+)", html)
-    m_home = re.search(r"(?is)<tr>\\s*<th>\\s*Home\\s*</th>\\s*<td>\\s*([^<]+)", html)
+    m_vis = re.search(r"(?is)<tr>\s*<th>\s*Visitor\s*</th>\s*<td>\s*([^<]+)", html)
+    m_home = re.search(r"(?is)<tr>\s*<th>\s*Home\s*</th>\s*<td>\s*([^<]+)", html)
     visitor = _clean_html_fragment(m_vis.group(1)) if m_vis else None
     home = _clean_html_fragment(m_home.group(1)) if m_home else None
     return (visitor or None, home or None)
@@ -226,7 +226,7 @@ def _t2s_team_names_from_scoresheet_html(html: str) -> Tuple[Optional[str], Opti
 
 def _t2s_default_period_length_seconds_from_scoresheet_html(html: str) -> int:
     # Example: "<td colspan=2>Period Lengths:</td><td align=center>15</td>..."
-    m = re.search(r"(?is)Period\\s*Lengths\\s*:\\s*</td>\\s*<td[^>]*>\\s*(\\d+)\\s*<", html)
+    m = re.search(r"(?is)Period\s*Lengths\s*:\s*</td>\s*<td[^>]*>\s*(\d+)\s*<", html)
     if m:
         try:
             return int(m.group(1)) * 60
@@ -244,7 +244,7 @@ def _t2s_penalties_from_scoresheet_html(
     # The scoresheet contains two Penalties tables; the first corresponds to Visitor/away,
     # and the second corresponds to Home.
     tables = re.findall(
-        r"(?is)<table[^>]*>\\s*<tr>\\s*<th[^>]*colspan\\s*=\\s*8[^>]*>\\s*Penalties\\s*</th>.*?</table>",
+        r"(?is)<table[^>]*>\s*<tr>\s*<th[^>]*colspan\s*=\s*8[^>]*>\s*Penalties\s*</th>.*?</table>",
         html,
     )
 
@@ -259,7 +259,7 @@ def _t2s_penalties_from_scoresheet_html(
     def _parse_table(table_html: str, *, side: str, team_name: Optional[str]) -> None:
         for row_html in re.findall(r"(?is)<tr[^>]*>.*?</tr>", table_html):
             # Skip header rows.
-            if re.search(r"(?is)<th[^>]*>\\s*Per\\s*</th>", row_html):
+            if re.search(r"(?is)<th[^>]*>\s*Per\s*</th>", row_html):
                 continue
             cells = re.findall(r"(?is)<t[dh][^>]*>(.*?)</t[dh]>", row_html)
             if len(cells) < 8:
@@ -339,19 +339,19 @@ def _t2s_goalie_changes_from_scoresheet_html(
         # Capture between <th colspan=2>Title</th> and the next section header / end of table.
         if title == "Home Goalie Changes":
             m = re.search(
-                r"(?is)<th[^>]*colspan\\s*=\\s*2[^>]*>\\s*Home Goalie Changes\\s*</th>(.*?)(?:<th[^>]*colspan\\s*=\\s*2[^>]*>\\s*Visitor Changes\\s*</th>)",
+                r"(?is)<th[^>]*colspan\s*=\s*2[^>]*>\s*Home Goalie Changes\s*</th>(.*?)(?:<th[^>]*colspan\s*=\s*2[^>]*>\s*Visitor Changes\s*</th>)",
                 html,
             )
         else:
             m = re.search(
-                r"(?is)<th[^>]*colspan\\s*=\\s*2[^>]*>\\s*Visitor Changes\\s*</th>(.*?)(?:</table>)",
+                r"(?is)<th[^>]*colspan\s*=\s*2[^>]*>\s*Visitor Changes\s*</th>(.*?)(?:</table>)",
                 html,
             )
         if not m:
             return []
         seg = m.group(1)
         # Each row is a single-cell <td colspan=2>...</td>
-        vals = re.findall(r"(?is)<td[^>]*colspan\\s*=\\s*2[^>]*>(.*?)</td>", seg)
+        vals = re.findall(r"(?is)<td[^>]*colspan\s*=\s*2[^>]*>(.*?)</td>", seg)
         out_vals: List[str] = []
         for v in vals:
             vv = _clean_html_fragment(v)
@@ -370,7 +370,7 @@ def _t2s_goalie_changes_from_scoresheet_html(
             details = str(line).strip()
             period: Optional[int] = None
             game_s: Optional[int] = None
-            m = re.search(r"(?i)\\b(\\d+)\\s*-\\s*(\\d{1,2}:\\d{2})\\b", details)
+            m = re.search(r"(?i)\b(\d+)\s*-\s*(\d{1,2}:\d{2})\b", details)
             if m:
                 period = parse_period_token(m.group(1))
                 try:
@@ -378,7 +378,7 @@ def _t2s_goalie_changes_from_scoresheet_html(
                 except Exception:
                     game_s = None
                 details = details[: m.start()].strip()
-            elif re.search(r"(?i)\\bstarting\\b", details):
+            elif re.search(r"(?i)\bstarting\b", details):
                 period = 1
                 game_s = int(default_period_s)
 
@@ -2675,6 +2675,549 @@ def _parse_long_left_event_table(
     # Remove empty defaults if nothing was seen.
     jerseys_by_team = {k: v for k, v in jerseys_by_team.items() if v}
     return events, goal_rows, jerseys_by_team
+
+
+def _parse_long_shift_tables(
+    df: pd.DataFrame,
+) -> Dict[str, Dict[str, Dict[str, List[Tuple[Any, ...]]]]]:
+    """
+    Parse the embedded per-team shift tables found in '*-long*.xlsx' sheets.
+
+    These long sheets often contain (for each team):
+      - a title row like "<Team Name> (1st Period)"
+      - a row like "2nd Period" / "3rd Period" between blocks
+      - a shift table with columns similar to the primary shift spreadsheet:
+          - Jersey Number, Player Name
+          - Shift start/end (Scoreboard time)
+          - Shift Start/End (Video Time)
+
+    Returns:
+      {
+        "<Team Name>": {
+          "sb_pairs_by_player": { "<jersey>_<name>": [(period, start, end), ...], ... },
+          "video_pairs_by_player": { "<jersey>_<name>": [(video_start, video_end), ...], ... },
+        },
+        ...
+      }
+    """
+    if df is None or df.empty:
+        return {}
+
+    def _find_text_cells(row: pd.Series) -> List[Tuple[int, str]]:
+        out: List[Tuple[int, str]] = []
+        for c in range(len(row)):
+            v = row.iloc[c]
+            if not isinstance(v, str):
+                continue
+            s = v.strip()
+            if not s:
+                continue
+            out.append((c, s))
+        return out
+
+    def _parse_team_header(s: str) -> Optional[Tuple[str, int]]:
+        # Example: "San Jose Jr Sharks 12AA-2 (1st Period)"
+        m = re.match(r"(?is)^\s*(.+?)\s*\(([^)]+)\)\s*$", str(s or ""))
+        if not m:
+            return None
+        team = _clean_html_fragment(m.group(1))
+        p = parse_period_label(m.group(2))
+        if not team or p is None:
+            return None
+        return team, int(p)
+
+    def _parse_period_only(s: str) -> Optional[int]:
+        # Example: "2nd Period"
+        return parse_period_label(s)
+
+    def _is_shift_table_header(row: pd.Series) -> bool:
+        have_jersey = False
+        have_name = False
+        have_sb_start = False
+        have_sb_end = False
+        for _c, txt in _find_text_cells(row):
+            norm = _normalize_header_label(txt)
+            if norm in {"jerseynumber", "jerseyno", "jerseynumber"} or ("jersey" in norm and "number" in norm):
+                have_jersey = True
+            if norm in {"playername", "player"} or ("player" in norm and "name" in norm):
+                have_name = True
+            if "shiftstart" in norm and "scoreboard" in norm:
+                have_sb_start = True
+            if "shiftend" in norm and "scoreboard" in norm:
+                have_sb_end = True
+        return have_jersey and have_name and have_sb_start and have_sb_end
+
+    out: Dict[str, Dict[str, Dict[str, List[Tuple[Any, ...]]]]] = {}
+    current_team: Optional[str] = None
+    current_period: Optional[int] = None
+
+    r = 0
+    while r < df.shape[0]:
+        row = df.iloc[r]
+
+        # Update team/period context from title lines.
+        for _c, txt in _find_text_cells(row):
+            header = _parse_team_header(txt)
+            if header is not None:
+                current_team, current_period = header
+                break
+        # Update period if we see a period-only marker within a team block.
+        if current_team is not None:
+            for _c, txt in _find_text_cells(row):
+                p = _parse_period_only(txt)
+                if p is not None:
+                    current_period = int(p)
+                    break
+
+        if not _is_shift_table_header(row):
+            r += 1
+            continue
+
+        if current_team is None or current_period is None:
+            r += 1
+            continue
+
+        # Identify core columns (jersey/name) and shift time groups.
+        jersey_col: Optional[int] = None
+        name_col: Optional[int] = None
+        for c, txt in _find_text_cells(row):
+            norm = _normalize_header_label(txt)
+            if jersey_col is None and ("jersey" in norm and "number" in norm):
+                jersey_col = c
+            if name_col is None and (norm == "playername" or ("player" in norm and "name" in norm)):
+                name_col = c
+
+        groups = forward_fill_header_labels(row)
+        start_sb_cols = _resolve_header_columns(
+            groups,
+            LABEL_START_SB,
+            "Shift Start (Scoreboard time)",
+            "Shift start (Scoreboard time)",
+            "Shift start (Scoreboard time)",
+        )
+        end_sb_cols = _resolve_header_columns(
+            groups,
+            LABEL_END_SB,
+            "Shift End (Scoreboard Time)",
+            "Shift end (Scoreboard time)",
+            "Shift End (Scoreboard time)",
+        )
+        start_v_cols = _resolve_header_columns(groups, LABEL_START_V, "Shift Start (Video Time)")
+        end_v_cols = _resolve_header_columns(groups, LABEL_END_V, "Shift End (Video Time)")
+
+        if jersey_col is None or name_col is None or not start_sb_cols or not end_sb_cols:
+            r += 1
+            continue
+
+        team_entry = out.setdefault(
+            str(current_team),
+            {"sb_pairs_by_player": {}, "video_pairs_by_player": {}},
+        )
+        sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]] = team_entry["sb_pairs_by_player"]  # type: ignore[assignment]
+        video_pairs_by_player: Dict[str, List[Tuple[str, str]]] = team_entry["video_pairs_by_player"]  # type: ignore[assignment]
+
+        # Parse until we hit a new header / period marker.
+        blank_streak = 0
+        rr = r + 1
+        while rr < df.shape[0]:
+            row2 = df.iloc[rr]
+            # Stop at another header row or at a new team title / period marker.
+            if _is_shift_table_header(row2):
+                break
+            stop = False
+            for _c, txt in _find_text_cells(row2):
+                if _parse_team_header(txt) is not None:
+                    stop = True
+                    break
+                if _parse_period_only(txt) is not None:
+                    stop = True
+                    break
+            if stop:
+                break
+
+            jersey_norm = _normalize_jersey_number(row2.iloc[jersey_col])
+            nm_raw = row2.iloc[name_col]
+            name = str(nm_raw or "").strip()
+            if not jersey_norm or not name or name.lower() in {"nan", "none"}:
+                blank_streak += 1
+                if blank_streak >= 5:
+                    break
+                rr += 1
+                continue
+            blank_streak = 0
+
+            player_key = f"{sanitize_name(jersey_norm)}_{sanitize_name(name)}"
+            sb_pairs = extract_pairs_from_row(row2, start_sb_cols, end_sb_cols)
+            for a, b in sb_pairs:
+                if not a or not b:
+                    continue
+                sb_pairs_by_player.setdefault(player_key, []).append((int(current_period), a, b))
+            if start_v_cols and end_v_cols:
+                v_pairs = extract_pairs_from_row(row2, start_v_cols, end_v_cols)
+                if v_pairs:
+                    video_pairs_by_player.setdefault(player_key, []).extend(v_pairs)
+            rr += 1
+
+        r = rr
+
+    return out
+
+
+def _compare_primary_shifts_to_long_shifts(
+    *,
+    primary_sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]],
+    long_shift_tables_by_team: Dict[str, Dict[str, Dict[str, List[Tuple[Any, ...]]]]],
+    threshold_seconds: int = 5,
+    warn_label: str = "",
+    long_sheet_paths: Optional[List[Path]] = None,
+) -> Dict[str, Any]:
+    """
+    Compare the primary (non-long) shift sheet against long-sheet shift tables for the
+    matching team (chosen by jersey overlap) and print discrepancies > threshold_seconds.
+    """
+    if not primary_sb_pairs_by_player or not long_shift_tables_by_team:
+        return {}
+
+    def _warn(msg: str) -> None:
+        if not msg:
+            return
+        prefix = f"[long-shifts]{' [' + warn_label + ']' if warn_label else ''}"
+        print(f"{prefix} {msg}", file=sys.stderr)
+
+    our_jerseys: set[str] = set()
+    for pk in primary_sb_pairs_by_player.keys():
+        norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
+        if norm:
+            our_jerseys.add(norm)
+    if not our_jerseys:
+        return {}
+
+    # Choose the long-sheet team whose jersey set best overlaps our primary sheet.
+    best_team: Optional[str] = None
+    best_overlap = -1
+    best_total = 0
+    for team_name, info in (long_shift_tables_by_team or {}).items():
+        sb_map_any = (info or {}).get("sb_pairs_by_player") or {}
+        jerseys_team: set[str] = set()
+        for pk in sb_map_any.keys():
+            norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
+            if norm:
+                jerseys_team.add(norm)
+        ov = len(our_jerseys & jerseys_team)
+        if ov > best_overlap:
+            best_overlap = ov
+            best_team = str(team_name)
+            best_total = len(jerseys_team)
+
+    if best_team is None or best_overlap <= 0:
+        _warn("could not match a long-sheet team to the primary shift sheet (no jersey overlap).")
+        return {}
+
+    sb_long_any = (long_shift_tables_by_team.get(best_team) or {}).get("sb_pairs_by_player") or {}
+
+    # Index long-sheet players by jersey for robust matching (names may differ).
+    long_player_by_jersey: Dict[str, str] = {}
+    for pk in sb_long_any.keys():
+        norm = _normalize_jersey_number(_parse_player_key(pk).jersey)
+        if not norm:
+            continue
+        long_player_by_jersey.setdefault(norm, pk)
+
+    # Normalize both sources to per-player per-period lists of (start_sec, end_sec).
+    def _to_period_intervals(sb_list: List[Tuple[int, str, str]]) -> Dict[int, List[Tuple[int, int]]]:
+        out: Dict[int, List[Tuple[int, int]]] = {}
+        for per, a, b in sb_list or []:
+            try:
+                p = int(per)
+            except Exception:
+                continue
+            try:
+                sa = parse_flex_time_to_seconds(str(a))
+                sb = parse_flex_time_to_seconds(str(b))
+            except Exception:
+                continue
+            out.setdefault(p, []).append((sa, sb))
+        # Sort by shift start descending (scoreboard counts down).
+        for p, lst in out.items():
+            lst.sort(key=lambda x: (-max(x[0], x[1]), -min(x[0], x[1])))
+        return out
+
+    def _match_intervals(
+        prim: List[Tuple[int, int]], long: List[Tuple[int, int]]
+    ) -> List[Tuple[Tuple[int, int], Optional[Tuple[int, int]]]]:
+        if not prim:
+            return []
+        used: set[int] = set()
+        matches: List[Tuple[Tuple[int, int], Optional[Tuple[int, int]]]] = []
+        for p_int in prim:
+            best_j = None
+            best_cost = None
+            for j, l_int in enumerate(long or []):
+                if j in used:
+                    continue
+                cost = abs(p_int[0] - l_int[0]) + abs(p_int[1] - l_int[1])
+                if best_cost is None or cost < best_cost:
+                    best_cost = cost
+                    best_j = j
+            if best_j is None:
+                matches.append((p_int, None))
+            else:
+                used.add(best_j)
+                matches.append((p_int, long[best_j]))
+        return matches
+
+    total_checked = 0
+    total_mismatched = 0
+    total_missing_in_long = 0
+    total_extra_in_long = 0
+    total_primary_shifts = 0
+    total_long_shifts = 0
+    nonsensical_primary = 0
+    nonsensical_long = 0
+    per_player_rows: List[Dict[str, Any]] = []
+    mismatch_rows: List[Dict[str, Any]] = []
+
+    def _dur(a: int, b: int) -> int:
+        try:
+            return abs(int(b) - int(a))
+        except Exception:
+            return 0
+
+    MAX_SHIFT_SECONDS = 30 * 60
+
+    for pk_primary, sb_list_primary in sorted(primary_sb_pairs_by_player.items(), key=lambda x: x[0]):
+        jersey = _normalize_jersey_number(_parse_player_key(pk_primary).jersey)
+        if not jersey:
+            continue
+        if not sb_list_primary:
+            continue
+        pk_long = long_player_by_jersey.get(jersey)
+        if not pk_long:
+            continue
+
+        prim_by_period = _to_period_intervals(sb_list_primary)
+        long_by_period = _to_period_intervals(sb_long_any.get(pk_long, []) or [])
+
+        player_checked = 0
+        player_mismatched = 0
+        player_missing = 0
+        player_extra = 0
+        player_max_ds = 0
+        player_max_de = 0
+        player_max_dlen = 0
+        player_sum_dlen = 0
+        player_sum_ds = 0
+        player_sum_de = 0
+        player_pairs = 0
+
+        for period, prim_ints in sorted(prim_by_period.items(), key=lambda x: x[0]):
+            long_ints = long_by_period.get(period, [])
+            total_primary_shifts += len(prim_ints)
+            total_long_shifts += len(long_ints)
+            for a, b in prim_ints:
+                if _dur(a, b) <= 0 or _dur(a, b) > MAX_SHIFT_SECONDS:
+                    nonsensical_primary += 1
+            for a, b in long_ints:
+                if _dur(a, b) <= 0 or _dur(a, b) > MAX_SHIFT_SECONDS:
+                    nonsensical_long += 1
+
+            pairs = _match_intervals(prim_ints, long_ints)
+            # Extra shifts in long are those not used by the matching.
+            used = sum(1 for _p, l in pairs if l is not None)
+            if len(long_ints) > used:
+                extra = len(long_ints) - used
+                total_extra_in_long += extra
+                player_extra += extra
+            for idx, (p_int, l_int) in enumerate(pairs):
+                total_checked += 1
+                player_checked += 1
+                if l_int is None:
+                    total_mismatched += 1
+                    total_missing_in_long += 1
+                    player_missing += 1
+                    player_mismatched += 1
+                    _warn(
+                        f"missing long shift: team={best_team!r} player={pk_primary} period={period} primary={seconds_to_mmss_or_hhmmss(p_int[0])}-{seconds_to_mmss_or_hhmmss(p_int[1])}"
+                    )
+                    mismatch_rows.append(
+                        {
+                            "team": best_team,
+                            "player": pk_primary,
+                            "period": int(period),
+                            "shift": int(idx + 1),
+                            "kind": "missing_in_long",
+                            "primary_start": int(p_int[0]),
+                            "primary_end": int(p_int[1]),
+                            "long_start": None,
+                            "long_end": None,
+                            "delta_start_s": None,
+                            "delta_end_s": None,
+                            "delta_len_s": None,
+                        }
+                    )
+                    continue
+                ds = abs(int(p_int[0]) - int(l_int[0]))
+                de = abs(int(p_int[1]) - int(l_int[1]))
+                dlen = abs(_dur(p_int[0], p_int[1]) - _dur(l_int[0], l_int[1]))
+                player_pairs += 1
+                player_sum_ds += int(ds)
+                player_sum_de += int(de)
+                player_sum_dlen += int(dlen)
+                player_max_ds = max(player_max_ds, int(ds))
+                player_max_de = max(player_max_de, int(de))
+                player_max_dlen = max(player_max_dlen, int(dlen))
+                if ds > int(threshold_seconds) or de > int(threshold_seconds):
+                    total_mismatched += 1
+                    player_mismatched += 1
+                    _warn(
+                        f"shift mismatch (> {threshold_seconds}s): team={best_team!r} player={pk_primary} period={period} shift#{idx+1} "
+                        f"primary={seconds_to_mmss_or_hhmmss(p_int[0])}-{seconds_to_mmss_or_hhmmss(p_int[1])} "
+                        f"long={seconds_to_mmss_or_hhmmss(l_int[0])}-{seconds_to_mmss_or_hhmmss(l_int[1])} "
+                        f"Δstart={ds}s Δend={de}s"
+                    )
+                    mismatch_rows.append(
+                        {
+                            "team": best_team,
+                            "player": pk_primary,
+                            "period": int(period),
+                            "shift": int(idx + 1),
+                            "kind": "mismatch",
+                            "primary_start": int(p_int[0]),
+                            "primary_end": int(p_int[1]),
+                            "long_start": int(l_int[0]),
+                            "long_end": int(l_int[1]),
+                            "delta_start_s": int(ds),
+                            "delta_end_s": int(de),
+                            "delta_len_s": int(dlen),
+                        }
+                    )
+
+        player_total_primary = sum(len(v or []) for v in prim_by_period.values())
+        player_total_long = sum(len(v or []) for v in long_by_period.values())
+        per_player_rows.append(
+            {
+                "player": pk_primary,
+                "jersey": jersey,
+                "primary_shifts": player_total_primary,
+                "long_shifts": player_total_long,
+                "checked_shifts": player_checked,
+                "mismatched": player_mismatched,
+                "missing_in_long": player_missing,
+                "extra_in_long": player_extra,
+                "max_delta_start_s": player_max_ds,
+                "max_delta_end_s": player_max_de,
+                "max_delta_len_s": player_max_dlen,
+                "mean_delta_len_s": (player_sum_dlen / player_pairs) if player_pairs > 0 else 0.0,
+                "mean_delta_start_s": (player_sum_ds / player_pairs) if player_pairs > 0 else 0.0,
+                "mean_delta_end_s": (player_sum_de / player_pairs) if player_pairs > 0 else 0.0,
+            }
+        )
+
+    _warn(
+        f"compared primary vs long shifts for team={best_team!r} (overlap={best_overlap}/{len(our_jerseys)} jerseys; long_team_roster={best_total}); "
+        f"checked={total_checked} shifts, mismatched={total_mismatched}."
+    )
+
+    # Also count "missing in primary" shifts for matched players (long shifts not present in primary).
+    # This is distinct from "extra_in_long" which is based on per-period matching.
+    # Here we count any player+period long shifts that have no sufficiently-close primary match at all.
+    # (Used only for summary/diagnostics.)
+
+    summary: Dict[str, Any] = {
+        "primary_label": str(warn_label or ""),
+        "long_sheets": [str(p) for p in (long_sheet_paths or [])],
+        "matched_team": str(best_team),
+        "threshold_seconds": int(threshold_seconds),
+        "primary_jerseys": len(our_jerseys),
+        "team_overlap": int(best_overlap),
+        "long_team_roster": int(best_total),
+        "total_primary_shifts": int(total_primary_shifts),
+        "total_long_shifts": int(total_long_shifts),
+        "total_compared": int(total_checked),
+        "mismatched": int(total_mismatched),
+        "missing_in_long": int(total_missing_in_long),
+        "extra_in_long": int(total_extra_in_long),
+        "nonsensical_primary_shifts": int(nonsensical_primary),
+        "nonsensical_long_shifts": int(nonsensical_long),
+        "per_player": per_player_rows,
+        "mismatch_rows": mismatch_rows,
+    }
+    return summary
+
+
+def _print_shift_discrepancy_rich_summary(summary: Dict[str, Any]) -> None:
+    if not summary:
+        return
+    try:
+        from rich.console import Console  # type: ignore
+        from rich.table import Table  # type: ignore
+        from rich.text import Text  # type: ignore
+    except Exception:
+        # Fallback: plain summary line.
+        msg = (
+            f"[shift-summary] team={summary.get('matched_team')!r} "
+            f"mismatched={summary.get('mismatched')} missing_in_long={summary.get('missing_in_long')} "
+            f"extra_in_long={summary.get('extra_in_long')}"
+        )
+        print(msg, file=sys.stderr)
+        return
+
+    console = Console(file=sys.stderr)
+    title = (
+        f"Shift Discrepancy Summary (team={summary.get('matched_team')!r}, "
+        f"threshold>{int(summary.get('threshold_seconds') or 0)}s)"
+    )
+    table = Table(title=title, show_lines=False)
+    table.add_column("Jersey", justify="right", no_wrap=True)
+    table.add_column("Player", overflow="fold")
+    table.add_column("P", justify="right")
+    table.add_column("L", justify="right")
+    table.add_column("Missing", justify="right")
+    table.add_column("Extra", justify="right")
+    table.add_column("Mismatch", justify="right")
+    table.add_column("Max ΔStart", justify="right")
+    table.add_column("Max ΔEnd", justify="right")
+    table.add_column("Max ΔLen", justify="right")
+    table.add_column("Mean ΔLen", justify="right")
+
+    rows = list(summary.get("per_player") or [])
+    rows.sort(
+        key=lambda r: (
+            int(r.get("mismatched") or 0),
+            int(r.get("missing_in_long") or 0),
+            int(r.get("extra_in_long") or 0),
+        ),
+        reverse=True,
+    )
+    for r in rows[:40]:
+        mismatch = int(r.get("mismatched") or 0)
+        style = "red" if mismatch > 0 else None
+        pk = str(r.get("player") or "")
+        jersey = str(r.get("jersey") or "")
+        player_disp = _format_player_name_only(pk)
+        table.add_row(
+            jersey,
+            Text(player_disp, style=style) if style else player_disp,
+            str(int(r.get("primary_shifts") or 0)),
+            str(int(r.get("long_shifts") or 0)),
+            str(int(r.get("missing_in_long") or 0)),
+            str(int(r.get("extra_in_long") or 0)),
+            str(mismatch),
+            f"{int(r.get('max_delta_start_s') or 0)}s",
+            f"{int(r.get('max_delta_end_s') or 0)}s",
+            f"{int(r.get('max_delta_len_s') or 0)}s",
+            f"{float(r.get('mean_delta_len_s') or 0.0):.1f}s",
+        )
+
+    console.print(table)
+
+    totals = (
+        f"Totals: compared={summary.get('total_compared')} mismatched={summary.get('mismatched')} "
+        f"missing_in_long={summary.get('missing_in_long')} extra_in_long={summary.get('extra_in_long')} "
+        f"primary_shifts={summary.get('total_primary_shifts')} long_shifts={summary.get('total_long_shifts')} "
+        f"nonsensical_primary={summary.get('nonsensical_primary_shifts')} nonsensical_long={summary.get('nonsensical_long_shifts')}"
+    )
+    console.print(totals)
 
 
 def _infer_focus_team_from_long_sheet(
@@ -6859,7 +7402,17 @@ def process_sheet(
 
     # Output subdir depends on format
     format_dir = "event_log" if used_event_log else "per_player"
-    outdir = outdir / format_dir
+    format_outdir = outdir / format_dir
+    format_outdir.mkdir(parents=True, exist_ok=True)
+
+    # Split outputs by team side when known (TimeToScore-linked games).
+    # Default to Home when unknown so existing workflows still produce outputs.
+    side = str(t2s_side or "").strip().lower()
+    team_subdir = "Home" if side != "away" else "Away"
+    (format_outdir / "Home").mkdir(parents=True, exist_ok=True)
+    (format_outdir / "Away").mkdir(parents=True, exist_ok=True)
+
+    outdir = format_outdir / team_subdir
     outdir.mkdir(parents=True, exist_ok=True)
     stats_dir = outdir / "stats"
     stats_dir.mkdir(parents=True, exist_ok=True)
@@ -6918,6 +7471,9 @@ def process_sheet(
     long_events_all: List[LongEvent] = []
     long_goal_rows_all: List[Dict[str, Any]] = []
     jerseys_by_team_all: Dict[str, set[int]] = {}
+    long_shift_tables_by_team: Dict[str, Dict[str, Dict[str, List[Tuple[Any, ...]]]]] = {}
+    long_sheet_paths_used: List[Path] = []
+    shift_cmp_summary: Dict[str, Any] = {}
 
     if long_xls_paths:
         for long_path in long_xls_paths:
@@ -6926,14 +7482,34 @@ def process_sheet(
             lp = Path(long_path).expanduser()
             if not lp.exists():
                 continue
+            long_sheet_paths_used.append(lp)
             try:
                 long_df = pd.read_excel(lp, sheet_name=0, header=None)
             except Exception as e:  # noqa: BLE001
                 print(f"[long] Failed to read {lp}: {e}", file=sys.stderr)
                 continue
 
+            # Parse embedded shift tables (both teams) from the long sheet.
+            try:
+                parsed_shift_tables = _parse_long_shift_tables(long_df)
+            except Exception as e:  # noqa: BLE001
+                parsed_shift_tables = {}
+                print(f"[long] Failed to parse long shift tables from {lp}: {e}", file=sys.stderr)
+
+            for team_name, info in (parsed_shift_tables or {}).items():
+                dest = long_shift_tables_by_team.setdefault(
+                    str(team_name),
+                    {"sb_pairs_by_player": {}, "video_pairs_by_player": {}},
+                )
+                for k in ("sb_pairs_by_player", "video_pairs_by_player"):
+                    src_map = (info or {}).get(k) or {}
+                    dst_map = dest.setdefault(k, {})
+                    for pk, lst in (src_map or {}).items():
+                        dst_map.setdefault(pk, []).extend(list(lst or []))
+
             long_events, long_goal_rows, jerseys_by_team = _parse_long_left_event_table(long_df)
             if not long_events and not long_goal_rows:
+                # Still keep long shift tables / rosters (useful for validation).
                 continue
 
             roster_tables.extend(_extract_roster_tables_from_df(long_df))
@@ -6949,6 +7525,28 @@ def process_sheet(
                 if t2s_rosters_by_side and t2s_side in {"home", "away"}:
                     our_jerseys |= set((t2s_rosters_by_side.get(str(t2s_side)) or {}).keys())
                 focus_team = _infer_focus_team_from_long_sheet(our_jerseys, jerseys_by_team_all)
+
+    # If we have a primary shift sheet and a long sheet, compare shift boundaries (diagnostic).
+    if long_shift_tables_by_team:
+        try:
+            for team_name, info in sorted(long_shift_tables_by_team.items(), key=lambda x: x[0]):
+                sb_any = (info or {}).get("sb_pairs_by_player") or {}
+                n_players = len(sb_any)
+                n_shifts = sum(len(v or []) for v in sb_any.values())
+                print(
+                    f"[long-shifts]{' [' + str(xls_path.name) + ']' if xls_path.name else ''} "
+                    f"parsed long shift tables: team={team_name!r} players={n_players} shifts={n_shifts}",
+                    file=sys.stderr,
+                )
+        except Exception:
+            pass
+        shift_cmp_summary = _compare_primary_shifts_to_long_shifts(
+            primary_sb_pairs_by_player=sb_pairs_by_player,
+            long_shift_tables_by_team=long_shift_tables_by_team,
+            threshold_seconds=5,
+            warn_label=str(xls_path.name),
+            long_sheet_paths=long_sheet_paths_used,
+        )
 
     # If we still don't know our color, try inferring from the primary sheet's event-log rosters.
     if focus_team is None and merged_event_context is not None and (merged_event_context.team_roster or {}):
@@ -7607,6 +8205,10 @@ def process_sheet(
             file=sys.stderr,
         )
 
+    # At end, print a Rich summary table for primary-vs-long shift discrepancies (when available).
+    if shift_cmp_summary:
+        _print_shift_discrepancy_rich_summary(shift_cmp_summary)
+
     return outdir, stats_table_rows, sorted(all_periods_seen), per_player_goal_events, pair_on_ice_rows
 
 
@@ -7632,7 +8234,15 @@ def process_t2s_only_game(
     shift timing data.
     """
     outdir.mkdir(parents=True, exist_ok=True)
-    outdir = outdir / "per_player"
+    format_outdir = outdir / "per_player"
+    format_outdir.mkdir(parents=True, exist_ok=True)
+
+    side_l = str(side or "").strip().lower()
+    team_subdir = "Home" if side_l != "away" else "Away"
+    (format_outdir / "Home").mkdir(parents=True, exist_ok=True)
+    (format_outdir / "Away").mkdir(parents=True, exist_ok=True)
+
+    outdir = format_outdir / team_subdir
     outdir.mkdir(parents=True, exist_ok=True)
     stats_dir = outdir / "stats"
     stats_dir.mkdir(parents=True, exist_ok=True)

@@ -545,6 +545,157 @@ def should_compute_pair_on_ice_player_goal_assist_and_collaboration_counts():
     assert b_a["assists_collab_with_teammate"] == 1  # Bob assisted Alice's goal
 
 
+def should_parse_long_shift_tables_for_both_teams():
+    # Minimal synthetic long-sheet layout: two team blocks, each with a 1st period shift table.
+    import pandas as pd
+    import datetime
+
+    rows = []
+    # Team A header + table header.
+    rows.append([None] * 10 + ["Team A (1st Period)", None, None, None, None, None, None, None, None, None])
+    header = [None] * 10 + [
+        "Jersey Number",
+        "Player Name",
+        "Shift start (Scoreboard time)",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Shift Start (Video Time)",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Shift End (Scoreboard Time)",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Shift End (Video Time)",
+    ]
+    rows.append(header)
+    rows.append(
+        [None] * 10
+        + [
+            12,
+            "Alice Example",
+            datetime.time(15, 0),
+            datetime.time(14, 0),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            # start_sb group spans 8 columns total -> 2 times + 6 blanks
+            datetime.time(0, 10),
+            datetime.time(0, 30),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            datetime.time(14, 30),
+            datetime.time(13, 30),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            datetime.time(0, 20),
+            datetime.time(0, 40),
+        ]
+    )
+    # Spacer then Team B.
+    rows.append([None] * len(header))
+    rows.append([None] * 10 + ["Team B (1st Period)"] + [None] * (len(header) - 11))
+    rows.append(header)
+    rows.append(
+        [None] * 10
+        + [
+            34,
+            "Bob Example",
+            "15:00",
+            "14:10",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            # start_sb group spans 8 columns total -> 2 times + 6 blanks
+            "0:05",
+            "0:25",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "14:40",
+            "13:50",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "0:15",
+            "0:35",
+        ]
+    )
+
+    df = pd.DataFrame(rows)
+    parsed = pss._parse_long_shift_tables(df)
+    assert "Team A" in parsed
+    assert "Team B" in parsed
+    a_sb = parsed["Team A"]["sb_pairs_by_player"]
+    b_sb = parsed["Team B"]["sb_pairs_by_player"]
+    assert "12_Alice_Example" in a_sb
+    assert a_sb["12_Alice_Example"][:2] == [(1, "15:00", "14:30"), (1, "14:00", "13:30")]
+    assert "34_Bob_Example" in b_sb
+    assert b_sb["34_Bob_Example"][:2] == [(1, "15:00", "14:40"), (1, "14:10", "13:50")]
+
+
+def should_compare_primary_vs_long_shift_summary_counts():
+    # Primary has 2 shifts; long has 3, with one mismatch and one extra.
+    primary = {
+        "12_Alice": [(1, "15:00", "14:30"), (1, "14:00", "13:30")],
+    }
+    long_tables = {
+        "Team A": {
+            "sb_pairs_by_player": {
+                "12_Alice_Long": [(1, "15:00", "14:30"), (1, "14:10", "13:30"), (1, "13:00", "12:30")]
+            },
+            "video_pairs_by_player": {},
+        }
+    }
+    summary = pss._compare_primary_shifts_to_long_shifts(
+        primary_sb_pairs_by_player=primary,
+        long_shift_tables_by_team=long_tables,
+        threshold_seconds=5,
+        warn_label="primary.xlsx",
+        long_sheet_paths=[],
+    )
+    assert summary["matched_team"] == "Team A"
+    assert summary["total_primary_shifts"] == 2
+    assert summary["total_long_shifts"] == 3
+    assert summary["missing_in_long"] == 0
+    assert summary["extra_in_long"] == 1
+    assert summary["mismatched"] == 1
+
+
 def should_not_compute_per_shift_rates():
     shift_game_rows = [
         {
