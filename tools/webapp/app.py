@@ -2140,6 +2140,8 @@ def create_app() -> Flask:
                         return int(r[0]) if r else None
 
                 stats_rows = game.get("player_stats") or []
+                events_csv = game.get("events_csv")
+                game_stats_json = game.get("game_stats")
                 played = bool(game.get("is_final")) or (t1s is not None and t2s is not None) or (
                     isinstance(stats_rows, list) and bool(stats_rows)
                 )
@@ -2164,6 +2166,7 @@ def create_app() -> Flask:
                                 continue
                             goals = srow.get("goals")
                             assists = srow.get("assists")
+                            pim = srow.get("pim")
                             try:
                                 gval = int(goals) if goals is not None else 0
                             except Exception:
@@ -2172,6 +2175,10 @@ def create_app() -> Flask:
                                 aval = int(assists) if assists is not None else 0
                             except Exception:
                                 aval = 0
+                            try:
+                                pim_val = int(pim) if pim is not None and str(pim).strip() != "" else None
+                            except Exception:
+                                pim_val = None
 
                             team_ref = team1_id
                             pid = _player_id_by_name(team1_id, pname)
@@ -2186,21 +2193,69 @@ def create_app() -> Flask:
                             if game_replace:
                                 cur.execute(
                                     """
-                                    INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
-                                    VALUES(%s,%s,%s,%s,%s,%s)
-                                    ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists)
+                                    INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists, pim)
+                                    VALUES(%s,%s,%s,%s,%s,%s,%s)
+                                    ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists), pim=VALUES(pim)
                                     """,
-                                    (owner_user_id, team_ref, gid, pid, gval, aval),
+                                    (owner_user_id, team_ref, gid, pid, gval, aval, pim_val),
                                 )
                             else:
                                 cur.execute(
                                     """
-                                    INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
-                                    VALUES(%s,%s,%s,%s,%s,%s)
-                                    ON DUPLICATE KEY UPDATE goals=COALESCE(goals, VALUES(goals)), assists=COALESCE(assists, VALUES(assists))
+                                    INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists, pim)
+                                    VALUES(%s,%s,%s,%s,%s,%s,%s)
+                                    ON DUPLICATE KEY UPDATE goals=COALESCE(goals, VALUES(goals)), assists=COALESCE(assists, VALUES(assists)), pim=COALESCE(pim, VALUES(pim))
                                     """,
-                                    (owner_user_id, team_ref, gid, pid, gval, aval),
+                                    (owner_user_id, team_ref, gid, pid, gval, aval, pim_val),
                                 )
+
+                    # TimeToScore imports may also provide a per-game events timeline and simple per-game stats.
+                    if isinstance(events_csv, str) and events_csv.strip():
+                        if game_replace:
+                            cur.execute(
+                                """
+                                INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
+                                VALUES(%s,%s,%s,%s)
+                                ON DUPLICATE KEY UPDATE events_csv=VALUES(events_csv), source_label=VALUES(source_label), updated_at=VALUES(updated_at)
+                                """,
+                                (gid, events_csv, "timetoscore", dt.datetime.now().isoformat()),
+                            )
+                        else:
+                            cur.execute("SELECT events_csv FROM hky_game_events WHERE game_id=%s", (gid,))
+                            if not cur.fetchone():
+                                cur.execute(
+                                    """
+                                    INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
+                                    VALUES(%s,%s,%s,%s)
+                                    """,
+                                    (gid, events_csv, "timetoscore", dt.datetime.now().isoformat()),
+                                )
+
+                    if isinstance(game_stats_json, dict) and game_stats_json:
+                        try:
+                            stats_json_text = json.dumps(game_stats_json)
+                        except Exception:
+                            stats_json_text = None
+                        if stats_json_text:
+                            if game_replace:
+                                cur.execute(
+                                    """
+                                    INSERT INTO hky_game_stats(game_id, stats_json, updated_at)
+                                    VALUES(%s,%s,%s)
+                                    ON DUPLICATE KEY UPDATE stats_json=VALUES(stats_json), updated_at=VALUES(updated_at)
+                                    """,
+                                    (gid, stats_json_text, dt.datetime.now().isoformat()),
+                                )
+                            else:
+                                cur.execute("SELECT stats_json FROM hky_game_stats WHERE game_id=%s", (gid,))
+                                if not cur.fetchone():
+                                    cur.execute(
+                                        """
+                                        INSERT INTO hky_game_stats(game_id, stats_json, updated_at)
+                                        VALUES(%s,%s,%s)
+                                        """,
+                                        (gid, stats_json_text, dt.datetime.now().isoformat()),
+                                    )
 
                 results.append({"game_id": gid, "team1_id": team1_id, "team2_id": team2_id})
 
@@ -2594,10 +2649,11 @@ def create_app() -> Flask:
                             )
                     else:
                         cur.execute(
-                            "SELECT events_csv FROM hky_game_events WHERE game_id=%s",
+                            "SELECT events_csv, source_label, updated_at FROM hky_game_events WHERE game_id=%s",
                             (resolved_game_id,),
                         )
-                        if not cur.fetchone():
+                        existing = cur.fetchone()
+                        if not existing:
                             cur.execute(
                                 """
                                 INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
@@ -2605,6 +2661,85 @@ def create_app() -> Flask:
                                 """,
                                 (resolved_game_id, events_csv, source_label, dt.datetime.now().isoformat()),
                             )
+                        else:
+                            # For TimeToScore-linked games, treat TimeToScore as the source of truth for events,
+                            # but still allow shift-spreadsheet uploads to *augment* the timeline with non-T2S events
+                            # (e.g., SOG/xG/entries). We do not overwrite any existing rows.
+                            try:
+                                tts_linked = bool(tts_game_id is not None)
+                            except Exception:
+                                tts_linked = False
+                            try:
+                                if isinstance(existing, dict):
+                                    existing_csv = str(existing.get("events_csv") or "")
+                                    existing_source = str(existing.get("source_label") or "")
+                                else:
+                                    existing_csv = str(existing[0] or "")
+                                    existing_source = str(existing[1] or "")
+                            except Exception:
+                                existing_csv = ""
+                                existing_source = ""
+
+                            if tts_linked and existing_csv.strip() and existing_source.lower().startswith("timetoscore"):
+                                try:
+                                    ex_headers, ex_rows = parse_events_csv(existing_csv)
+                                    in_headers, in_rows = parse_events_csv(events_csv)
+
+                                    def _norm_ev_type(v: Any) -> str:
+                                        return str(v or "").strip().casefold()
+
+                                    protected_types = {
+                                        "goal",
+                                        "assist",
+                                        "penalty",
+                                        "goaliechange",
+                                        "power play",
+                                        "penalty kill",
+                                    }
+
+                                    def _key(r: dict[str, str]) -> tuple[str, str, str, str, str]:
+                                        et = _norm_ev_type(r.get("Event Type") or r.get("Event") or "")
+                                        per = str(r.get("Period") or "").strip()
+                                        gs = str(r.get("Game Seconds") or r.get("GameSeconds") or "").strip()
+                                        tr = str(r.get("Team Rel") or r.get("TeamRel") or r.get("Team") or "").strip().casefold()
+                                        jerseys = str(r.get("Attributed Jerseys") or "").strip()
+                                        return (et, per, gs, tr, jerseys)
+
+                                    seen = {_key(r) for r in (ex_rows or []) if isinstance(r, dict)}
+                                    merged_rows: list[dict[str, str]] = list(ex_rows or [])
+                                    for rr in in_rows or []:
+                                        if not isinstance(rr, dict):
+                                            continue
+                                        et = _norm_ev_type(rr.get("Event Type") or rr.get("Event") or "")
+                                        if et in protected_types:
+                                            continue
+                                        k = _key(rr)
+                                        if k in seen:
+                                            continue
+                                        seen.add(k)
+                                        merged_rows.append(rr)
+
+                                    merged_headers = list(ex_headers or [])
+                                    for h in in_headers or []:
+                                        if h not in merged_headers:
+                                            merged_headers.append(h)
+                                    merged_csv = to_csv_text(merged_headers, merged_rows)
+                                    cur.execute(
+                                        """
+                                        INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
+                                        VALUES(%s,%s,%s,%s)
+                                        ON DUPLICATE KEY UPDATE events_csv=VALUES(events_csv), updated_at=VALUES(updated_at)
+                                        """,
+                                        (
+                                            resolved_game_id,
+                                            merged_csv,
+                                            existing_source or source_label,
+                                            dt.datetime.now().isoformat(),
+                                        ),
+                                    )
+                                except Exception:
+                                    # Best-effort merge; never fail the upload.
+                                    pass
 
                 if isinstance(player_stats_csv, str) and player_stats_csv.strip():
                     try:

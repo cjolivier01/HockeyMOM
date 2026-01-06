@@ -314,6 +314,9 @@
             if (sl === "shot") return "Shot";
             if (sl === "goal") return "Goal";
             if (sl === "assist") return "Assist";
+            if (sl === "penalty") return "Penalty";
+            if (sl === "powerplay" || sl === "power play" || sl === "pp") return "Power Play";
+            if (sl === "penaltykill" || sl === "penalty kill" || sl === "pk") return "Penalty Kill";
             if (sl.indexOf("rush") >= 0) return "Odd-Man Rush";
             if (sl === "controlledentry" || sl === "controlled entry") return "Controlled Entry";
             if (sl === "controlledexit" || sl === "controlled exit") return "Controlled Exit";
@@ -331,6 +334,9 @@
             if (sl === "xg" || sl === "expected goal" || sl === "expectedgoal" || sl === "expected goal (xg)" || sl.indexOf("xg") >= 0) return "xg";
             if (sl === "sog") return "sog";
             if (sl === "shot") return "shot";
+            if (sl === "penalty") return "penalty";
+            if (sl === "power play" || sl === "pp") return "pp";
+            if (sl === "penalty kill" || sl === "pk") return "pk";
             if (sl === "controlled entry") return "controlled_entry";
             if (sl === "controlled exit") return "controlled_exit";
             if (sl.indexOf("rush") >= 0) return "odd_man_rush";
@@ -356,6 +362,7 @@
           }
 
           function laneKey(iconKey) {
+            if (iconKey === "penalty" || iconKey === "pp" || iconKey === "pk") return "special_teams";
             if (isFinishFamily(iconKey)) return "finish";
             if (iconKey === "controlled_entry" || iconKey === "controlled_exit") return "transition";
             return iconKey;
@@ -485,6 +492,12 @@
               circle(9.5, 14.5, 3.8, "#111827", "rgba(255,255,255,0.2)", 1);
               path("M13 12l8-6", "none", stroke, 2, "round", "round");
               path("M15 14l6-4", "none", stroke, 2, "round", "round");
+            } else if (icon === "penalty") {
+              // Penalty: yellow striped box (transparent background).
+              rect(6.3, 6.6, 11.4, 14.2, 2.2, "#fbbf24", "rgba(0,0,0,0.55)", 1.2);
+              path("M8.2 9.0l7.6 0", "none", "rgba(0,0,0,0.35)", 2.2, "round", "round");
+              path("M8.2 12.0l7.6 0", "none", "rgba(0,0,0,0.35)", 2.2, "round", "round");
+              path("M8.2 15.0l7.6 0", "none", "rgba(0,0,0,0.35)", 2.2, "round", "round");
             } else if (icon === "controlled_entry") {
               // Arrow into a "zone" bracket.
               rect(15.5, 7, 4.5, 10, 2, "rgba(0,0,0,0.0)", "#29c7a9", 2.2);
@@ -579,6 +592,7 @@
             while (legendEl.firstChild) legendEl.removeChild(legendEl.firstChild);
 
             var parsed = [];
+            var spans = [];
             for (var i = 0; i < eventsRows.length; i++) {
               var r = eventsRows[i] || {};
               var period = parsePeriod(getValue(r, ["Period"]));
@@ -600,6 +614,28 @@
 
               var side = parseSide(r);
               var ik = typeKey(label);
+              if (ik === "pp" || ik === "pk") {
+                var endRaw = String(getValue(r, ["Game Seconds End", "GameSecondsEnd", "End Game Seconds", "EndGameSeconds"]) || "").trim();
+                var endWithin = null;
+                if (endRaw && endRaw.match(/^-?\d+$/)) {
+                  endWithin = parseInt(endRaw, 10);
+                } else {
+                  endWithin = parseTimeToSeconds(getValue(r, ["Game Time End", "GameTimeEnd", "End Time", "EndTime"]));
+                }
+                if (endWithin !== null && isFinite(endWithin)) {
+                  spans.push({
+                    period: period,
+                    startWithin: tWithin,
+                    endWithin: endWithin,
+                    typeLabel: label,
+                    iconKey: ik,
+                    laneKey: "special_teams",
+                    side: side,
+                    row: r,
+                  });
+                }
+                continue;
+              }
               parsed.push({
                 period: period,
                 tWithin: tWithin,
@@ -610,7 +646,7 @@
                 row: r,
               });
             }
-            if (parsed.length === 0) return;
+            if (parsed.length === 0 && spans.length === 0) return;
 
             // Suppress Shot/SOG/xG/Goal duplicates at the same instant and side (show best icon).
             var bestFinishByKey = {};
@@ -716,6 +752,7 @@
 
             // Determine type ordering and side-specific row maps.
             var laneOrder = [
+              "special_teams",
               "finish",
               "transition",
               "odd_man_rush",
@@ -727,6 +764,7 @@
             ];
             var iconOrder = [
               "goal",
+              "penalty",
               "xg",
               "sog",
               "shot",
@@ -771,6 +809,15 @@
                 seenAgainst[e1.laneKey] = true;
               }
             }
+            for (var t1 = 0; t1 < spans.length; t1++) {
+              var s1 = spans[t1];
+              if (s1.side === "For" && !seenFor[s1.laneKey]) {
+                seenFor[s1.laneKey] = true;
+              }
+              if (s1.side === "Against" && !seenAgainst[s1.laneKey]) {
+                seenAgainst[s1.laneKey] = true;
+              }
+            }
             for (var u = 0; u < laneOrder.length; u++) {
               var kk = laneOrder[u];
               if (seenFor[kk]) typesFor.push(kk);
@@ -804,6 +851,31 @@
               item.appendChild(labelSpan);
               legendEl.appendChild(item);
             }
+
+            // Add legend markers for PP/PK spans when present.
+            var hasPP = false;
+            var hasPK = false;
+            for (var si = 0; si < spans.length; si++) {
+              if (spans[si].iconKey === "pp") hasPP = true;
+              if (spans[si].iconKey === "pk") hasPK = true;
+            }
+            function addSpanLegend(label, color) {
+              var item = document.createElement("div");
+              item.className = "events-timeline-legend-item";
+              var iconSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+              iconSvg.setAttribute("viewBox", "0 0 24 24");
+              iconSvg.setAttribute("aria-hidden", "true");
+              iconSvg.style.width = iconSize + "px";
+              iconSvg.style.height = iconSize + "px";
+              iconSvg.appendChild(svgEl("line", { x1: 2, y1: 12, x2: 22, y2: 12, stroke: color, "stroke-width": 5, "stroke-linecap": "round" }));
+              var labelSpan = document.createElement("span");
+              labelSpan.appendChild(document.createTextNode(label));
+              item.appendChild(iconSvg);
+              item.appendChild(labelSpan);
+              legendEl.appendChild(item);
+            }
+            if (hasPP) addSpanLegend("Power Play", "#22c55e");
+            if (hasPK) addSpanLegend("Penalty Kill", "#ef4444");
 
             // Layout
             var minW = isMobile ? 840 : 900;
@@ -1029,6 +1101,7 @@
 
               addLine("Players", getValue(ev.row, ["Attributed Players"]));
               addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
+              addLine("Details", getValue(ev.row, ["Details"]));
               addMultiline("On-Ice", getValue(ev.row, ["On-Ice Players"]));
             }
 
@@ -1052,6 +1125,33 @@
             }
 
             var countsByKey = {};
+
+            // Draw PP/PK spans (behind icons).
+            function spanDrawY(side, laneKeyValue) {
+              var y = axisY;
+              if (side === "For") {
+                var iy = yIndexFor[laneKeyValue];
+                if (iy === undefined) return null;
+                return axisY - axisGap - (iy + 0.5) * rowSpacing;
+              } else if (side === "Against") {
+                var ia = yIndexAgainst[laneKeyValue];
+                if (ia === undefined) return null;
+                return axisY + axisGap + (ia + 0.5) * rowSpacing;
+              }
+              return null;
+            }
+            for (var sp = 0; sp < spans.length; sp++) {
+              var sEv = spans[sp];
+              var yS = spanDrawY(sEv.side, sEv.laneKey);
+              if (yS === null) continue;
+              var x1 = xForTime(sEv.period, sEv.startWithin);
+              var x2 = xForTime(sEv.period, sEv.endWithin);
+              var xa = Math.min(x1, x2);
+              var xb = Math.max(x1, x2);
+              if (!isFinite(xa) || !isFinite(xb) || xb <= xa) continue;
+              var col = sEv.iconKey === "pp" ? "#22c55e" : "#ef4444";
+              svg.appendChild(svgEl("line", { x1: xa, y1: yS, x2: xb, y2: yS, stroke: col, "stroke-width": 6, "stroke-linecap": "round", opacity: 0.85 }));
+            }
             for (var e2 = 0; e2 < drawList.length; e2++) {
               var ev3 = drawList[e2];
               var x = xForTime(ev3.period, ev3.tWithin);

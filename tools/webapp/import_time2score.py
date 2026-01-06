@@ -14,8 +14,11 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import base64
+import csv
+import io
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -42,6 +45,47 @@ def connect_pymysql(db_cfg: dict):
         charset="utf8mb4",
         cursorclass=pymysql.cursors.Cursor,
     )
+
+
+def _parse_period_token(val: Any) -> Optional[int]:
+    s = str(val or "").strip()
+    if not s:
+        return None
+    sl = s.casefold()
+    if sl in {"ot", "overtime"}:
+        return 4
+    m = re.search(r"(\d+)", sl)
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+        return n if n > 0 else None
+    except Exception:
+        return None
+
+
+def _parse_mmss_to_seconds(val: Any) -> Optional[int]:
+    s = str(val or "").strip()
+    if not s:
+        return None
+    m = re.match(r"^\s*(\d+):(\d{2})\s*$", s)
+    if not m:
+        return None
+    try:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    except Exception:
+        return None
+
+
+def _to_csv_text(headers: list[str], rows: list[dict[str, Any]]) -> str:
+    if not headers:
+        return ""
+    out = io.StringIO()
+    w = csv.DictWriter(out, fieldnames=headers, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    for r in rows or []:
+        w.writerow({h: ("" if r.get(h) is None else str(r.get(h))) for h in headers})
+    return out.getvalue()
 
 
 def ensure_defaults(conn) -> None:
@@ -1536,8 +1580,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         fb = fallback_by_gid.get(int(gid))
         try:
             stats = tts_direct.scrape_game_stats(args.source, game_id=int(gid), season_id=season_id)
-        except Exception:
+        except Exception as e:
+            # If the game has a recorded score in the schedule, missing stats should be treated as fatal
+            # so we can fix the scraper and backfill correctly.
             stats = {}
+            fb_hg = tts_norm.parse_int_or_none((fb or {}).get("homeGoals"))
+            fb_ag = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
+            has_result = (fb_hg is not None) or (fb_ag is not None)
+            if has_result:
+                raise RuntimeError(
+                    f"TimeToScore scrape_game_stats failed for a game with a recorded result: "
+                    f"source={args.source} season_id={season_id} game_id={gid} "
+                    f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}"
+                ) from e
             if not fb:
                 skipped += 1
                 continue
@@ -1577,6 +1632,388 @@ def main(argv: Optional[list[str]] = None) -> int:
             t1_score = tts_norm.parse_int_or_none((fb or {}).get("homeGoals"))
         if t2_score is None and (fb or {}).get("awayGoals") is not None:
             t2_score = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
+
+        # Strictness: if the game has a non-zero score, we must be able to attribute
+        # per-player goals/assists from the TimeToScore payload.
+        goal_total = int(t1_score or 0) + int(t2_score or 0)
+        ga_rows = [agg for agg in tts_norm.aggregate_goals_assists(stats) if str(agg.get("name") or "").strip()]
+        ga_sum = sum(int(r.get("goals") or 0) for r in ga_rows)
+        if goal_total > 0 and ga_sum == 0:
+            raise RuntimeError(
+                f"TimeToScore scrape returned a scored game but no scoring attribution: "
+                f"source={args.source} season_id={season_id} game_id={gid} "
+                f"(homeGoals={t1_score}, awayGoals={t2_score})."
+            )
+
+        # Build a basic events timeline from TimeToScore data (goals + penalties + PP/PK spans)
+        # so the webapp can show game events even before any spreadsheets are uploaded.
+        def _side_label(side: str) -> str:
+            return "Home" if str(side).strip().lower() == "home" else "Away"
+
+        def _norm_jersey(val: Any) -> Optional[str]:
+            s = str(val or "").strip()
+            if not s:
+                return None
+            m = re.search(r"(\d+)", s)
+            return m.group(1) if m else None
+
+        roster_home = list(tts_norm.extract_roster(stats, "home"))
+        roster_away = list(tts_norm.extract_roster(stats, "away"))
+        num_to_name_home = {str(m.group(1)): str(p.get("name") or "").strip() for p in roster_home if (m := re.search(r"(\d+)", str(p.get("number") or ""))) and str(p.get("name") or "").strip()}
+        num_to_name_away = {str(m.group(1)): str(p.get("name") or "").strip() for p in roster_away if (m := re.search(r"(\d+)", str(p.get("number") or ""))) and str(p.get("name") or "").strip()}
+
+        def _infer_period_len_s(stats_in: dict[str, Any]) -> int:
+            raw = str(stats_in.get("periodLength") or "").strip()
+            try:
+                v = int(float(raw))
+                if v > 0:
+                    return int(v) * 60
+            except Exception:
+                pass
+            return 15 * 60
+
+        period_len_s = _infer_period_len_s(stats)
+
+        # Collect raw penalty records per team and compute per-player PIM.
+        penalties_by_side: dict[str, list[dict[str, Any]]] = {"home": [], "away": []}
+        pim_by_player_name: dict[str, int] = {}
+        for side_key, roster_map in (("home", num_to_name_home), ("away", num_to_name_away)):
+            pen_rows = stats.get(f"{side_key}Penalties") or []
+            if not isinstance(pen_rows, list):
+                pen_rows = []
+            for prow in pen_rows:
+                if not isinstance(prow, dict):
+                    continue
+                per = _parse_period_token(prow.get("period"))
+                if per is None:
+                    continue
+                jersey = _norm_jersey(prow.get("number"))
+                minutes = tts_norm.parse_int_or_none(prow.get("minutes"))
+                start_txt = str(prow.get("start") or prow.get("offIce") or "").strip()
+                end_txt = str(prow.get("end") or prow.get("onIce") or "").strip()
+                start_s = _parse_mmss_to_seconds(start_txt)
+                end_s = _parse_mmss_to_seconds(end_txt)
+                inf = str(prow.get("infraction") or "").strip()
+                rec = {
+                    "side": side_key,
+                    "period": int(per),
+                    "jersey": jersey,
+                    "minutes": int(minutes) if minutes is not None else None,
+                    "start_txt": start_txt,
+                    "end_txt": end_txt,
+                    "start_s": start_s,
+                    "end_s": end_s,
+                    "infraction": inf,
+                }
+                penalties_by_side[side_key].append(rec)
+                if jersey and minutes is not None:
+                    nm = roster_map.get(jersey)
+                    if nm:
+                        pim_by_player_name[nm] = pim_by_player_name.get(nm, 0) + int(minutes)
+
+        # Build basic goal events from scoring tables when available.
+        goal_events: list[dict[str, Any]] = []
+        for side_key, roster_map in (("home", num_to_name_home), ("away", num_to_name_away)):
+            scoring = stats.get(f"{side_key}Scoring") or []
+            if not isinstance(scoring, list):
+                continue
+            for srow in scoring:
+                if not isinstance(srow, dict):
+                    continue
+                per = _parse_period_token(srow.get("period"))
+                if per is None:
+                    continue
+                time_txt = str(srow.get("time") or "").strip()
+                time_s = _parse_mmss_to_seconds(time_txt)
+                scorer_raw = srow.get("goal")
+                a1_raw = srow.get("assist1")
+                a2_raw = srow.get("assist2")
+
+                scorer_num = _norm_jersey(scorer_raw)
+                scorer_name = (
+                    roster_map.get(scorer_num) if scorer_num and scorer_num in roster_map else str(scorer_raw or "").strip()
+                )
+                a1_num = _norm_jersey(a1_raw)
+                a2_num = _norm_jersey(a2_raw)
+                a1_name = roster_map.get(a1_num) if a1_num and a1_num in roster_map else str(a1_raw or "").strip()
+                a2_name = roster_map.get(a2_num) if a2_num and a2_num in roster_map else str(a2_raw or "").strip()
+
+                assists_txt = ", ".join([x for x in [a1_name, a2_name] if x])
+                details = f"{scorer_name}" + (f" (A: {assists_txt})" if assists_txt else "")
+                goal_events.append(
+                    {
+                        "Event Type": "Goal",
+                        "Source": "timetoscore",
+                        "Team Rel": _side_label(side_key),
+                        "Team Raw": _side_label(side_key),
+                        "Period": int(per),
+                        "Game Time": time_txt,
+                        "Game Seconds": time_s if time_s is not None else "",
+                        "Game Seconds End": "",
+                        "Details": details,
+                        "Attributed Players": scorer_name if scorer_name else "",
+                        "Attributed Jerseys": scorer_num or "",
+                    }
+                )
+
+        # Determine per-period time mode and compute PP/PK spans (best-effort).
+        pp_pk_spans: list[dict[str, Any]] = []
+        penalties_events_rows: list[dict[str, Any]] = []
+        for side_key, recs in penalties_by_side.items():
+            for rec in recs:
+                per = int(rec["period"])
+                start_s = rec.get("start_s")
+                end_s = rec.get("end_s")
+                minutes = rec.get("minutes")
+                if start_s is not None and end_s is None and minutes is not None:
+                    # Best-effort: assume the sheet uses a running/scoreboard clock and fill end time.
+                    # We'll refine direction after inferring elapsed-vs-remaining for the period.
+                    rec["end_s_guess_delta"] = int(minutes) * 60
+                penalties_events_rows.append(
+                    {
+                        "Event Type": "Penalty",
+                        "Source": "timetoscore",
+                        "Team Rel": _side_label(side_key),
+                        "Team Raw": _side_label(side_key),
+                        "Period": per,
+                        "Game Time": rec.get("start_txt") or "",
+                        "Game Seconds": start_s if start_s is not None else "",
+                        "Game Seconds End": end_s if end_s is not None else "",
+                        "Details": " ".join(
+                            [
+                                x
+                                for x in [
+                                    (f"#{rec.get('jersey')}" if rec.get("jersey") else ""),
+                                    str(rec.get("infraction") or "").strip(),
+                                    (f"{int(rec.get('minutes'))}m" if rec.get("minutes") is not None else ""),
+                                    (f"(end {rec.get('end_txt')})" if rec.get("end_txt") else ""),
+                                ]
+                                if x
+                            ]
+                        ).strip(),
+                        "Attributed Players": (
+                            num_to_name_home.get(str(rec.get("jersey"))) if side_key == "home" and rec.get("jersey") else
+                            num_to_name_away.get(str(rec.get("jersey"))) if side_key == "away" and rec.get("jersey") else
+                            ""
+                        ),
+                        "Attributed Jerseys": rec.get("jersey") or "",
+                    }
+                )
+
+        def _infer_time_mode(period: int) -> str:
+            times: list[int] = []
+            for ev in goal_events:
+                if int(ev.get("Period") or 0) != int(period):
+                    continue
+                gs = ev.get("Game Seconds")
+                if isinstance(gs, int):
+                    times.append(int(gs))
+            for row in penalties_events_rows:
+                if int(row.get("Period") or 0) != int(period):
+                    continue
+                gs = row.get("Game Seconds")
+                ge = row.get("Game Seconds End")
+                if isinstance(gs, int):
+                    times.append(int(gs))
+                if isinstance(ge, int):
+                    times.append(int(ge))
+            if not times:
+                return "elapsed"
+            near_zero = sum(1 for t in times if t <= 120)
+            near_high = sum(1 for t in times if t >= period_len_s - 120)
+            return "remaining" if near_high > near_zero else "elapsed"
+
+        # Fill missing end times using inferred mode.
+        mode_by_period: dict[int, str] = {}
+        for p in range(1, 6):
+            if any(int(r.get("Period") or 0) == p for r in penalties_events_rows) or any(int(g.get("Period") or 0) == p for g in goal_events):
+                mode_by_period[p] = _infer_time_mode(p)
+
+        for side_key, recs in penalties_by_side.items():
+            for rec in recs:
+                if rec.get("end_s") is not None:
+                    continue
+                start_s = rec.get("start_s")
+                if start_s is None:
+                    continue
+                delta = rec.get("end_s_guess_delta")
+                if not isinstance(delta, int) or delta <= 0:
+                    continue
+                per = int(rec["period"])
+                mode = mode_by_period.get(per, "elapsed")
+                if mode == "remaining":
+                    rec["end_s"] = max(0, int(start_s) - int(delta))
+                else:
+                    rec["end_s"] = min(int(period_len_s), int(start_s) + int(delta))
+
+        # Compute PP/PK spans from penalty intervals where an end time is known.
+        for per, mode in mode_by_period.items():
+            home_ints: list[tuple[int, int]] = []
+            away_ints: list[tuple[int, int]] = []
+            for side_key, dest in (("home", home_ints), ("away", away_ints)):
+                for rec in penalties_by_side.get(side_key, []):
+                    if int(rec.get("period") or 0) != int(per):
+                        continue
+                    s0 = rec.get("start_s")
+                    e0 = rec.get("end_s")
+                    if s0 is None or e0 is None:
+                        continue
+                    s = int(s0)
+                    e = int(e0)
+                    s_el = (period_len_s - s) if mode == "remaining" else s
+                    e_el = (period_len_s - e) if mode == "remaining" else e
+                    a, b = (s_el, e_el) if s_el <= e_el else (e_el, s_el)
+                    a = max(0, min(int(period_len_s), a))
+                    b = max(0, min(int(period_len_s), b))
+                    if b <= a:
+                        continue
+                    dest.append((a, b))
+
+            bounds = sorted({0, int(period_len_s)} | {x for ab in home_ints + away_ints for x in ab})
+            if len(bounds) < 2:
+                continue
+
+            def _count_active(ints: list[tuple[int, int]], t: float) -> int:
+                return sum(1 for a, b in ints if a <= t < b)
+
+            def _to_within(el: int) -> int:
+                return int(period_len_s - el) if mode == "remaining" else int(el)
+
+            for i in range(len(bounds) - 1):
+                a = int(bounds[i])
+                b = int(bounds[i + 1])
+                if b <= a:
+                    continue
+                mid = (a + b) / 2.0
+                hc = _count_active(home_ints, mid)
+                ac = _count_active(away_ints, mid)
+                if hc == ac:
+                    continue
+                home_skaters = max(3, 5 - hc)
+                away_skaters = max(3, 5 - ac)
+                if ac > hc:
+                    # Home has advantage.
+                    pp_pk_spans.append(
+                        {
+                            "Event Type": "Power Play",
+                            "Source": "timetoscore",
+                            "Team Rel": "Home",
+                            "Team Raw": "Home",
+                            "Period": int(per),
+                            "Game Time": "",
+                            "Game Seconds": _to_within(a),
+                            "Game Seconds End": _to_within(b),
+                            "Details": f"{home_skaters}v{away_skaters}",
+                            "Attributed Players": "",
+                            "Attributed Jerseys": "",
+                        }
+                    )
+                    pp_pk_spans.append(
+                        {
+                            "Event Type": "Penalty Kill",
+                            "Source": "timetoscore",
+                            "Team Rel": "Away",
+                            "Team Raw": "Away",
+                            "Period": int(per),
+                            "Game Time": "",
+                            "Game Seconds": _to_within(a),
+                            "Game Seconds End": _to_within(b),
+                            "Details": f"{away_skaters}v{home_skaters}",
+                            "Attributed Players": "",
+                            "Attributed Jerseys": "",
+                        }
+                    )
+                else:
+                    # Away has advantage.
+                    pp_pk_spans.append(
+                        {
+                            "Event Type": "Power Play",
+                            "Source": "timetoscore",
+                            "Team Rel": "Away",
+                            "Team Raw": "Away",
+                            "Period": int(per),
+                            "Game Time": "",
+                            "Game Seconds": _to_within(a),
+                            "Game Seconds End": _to_within(b),
+                            "Details": f"{away_skaters}v{home_skaters}",
+                            "Attributed Players": "",
+                            "Attributed Jerseys": "",
+                        }
+                    )
+                    pp_pk_spans.append(
+                        {
+                            "Event Type": "Penalty Kill",
+                            "Source": "timetoscore",
+                            "Team Rel": "Home",
+                            "Team Raw": "Home",
+                            "Period": int(per),
+                            "Game Time": "",
+                            "Game Seconds": _to_within(a),
+                            "Game Seconds End": _to_within(b),
+                            "Details": f"{home_skaters}v{away_skaters}",
+                            "Attributed Players": "",
+                            "Attributed Jerseys": "",
+                        }
+                    )
+
+        events_headers = [
+            "Event Type",
+            "Source",
+            "Team Raw",
+            "Team Rel",
+            "Period",
+            "Game Time",
+            "Game Seconds",
+            "Game Seconds End",
+            "Details",
+            "Attributed Players",
+            "Attributed Jerseys",
+        ]
+        events_rows = list(goal_events) + list(penalties_events_rows) + list(pp_pk_spans)
+        events_rows.sort(
+            key=lambda r: (
+                int(r.get("Period") or 0),
+                int(r.get("Game Seconds") or 0) if str(r.get("Game Seconds") or "").strip() else 0,
+                str(r.get("Event Type") or ""),
+            )
+        )
+        events_csv_text = _to_csv_text(events_headers, events_rows)
+
+        # Merge per-player stats: goals/assists (when present) + PIM (when present).
+        stats_by_name: dict[str, dict[str, int]] = {}
+        for r in ga_rows:
+            nm = str(r.get("name") or "").strip()
+            if not nm:
+                continue
+            stats_by_name.setdefault(nm, {"goals": 0, "assists": 0, "pim": 0})
+            stats_by_name[nm]["goals"] = int(r.get("goals") or 0)
+            stats_by_name[nm]["assists"] = int(r.get("assists") or 0)
+        for nm, pim in pim_by_player_name.items():
+            if not nm:
+                continue
+            stats_by_name.setdefault(nm, {"goals": 0, "assists": 0, "pim": 0})
+            stats_by_name[nm]["pim"] = int(pim or 0)
+        player_stats_out = [
+            {"name": nm, "goals": int(v.get("goals") or 0), "assists": int(v.get("assists") or 0), "pim": int(v.get("pim") or 0)}
+            for nm, v in stats_by_name.items()
+            if (int(v.get("goals") or 0) + int(v.get("assists") or 0) + int(v.get("pim") or 0)) > 0
+        ]
+        player_stats_out.sort(key=lambda r: str(r.get("name") or "").casefold())
+
+        def _sum_pim(side_key: str) -> int:
+            return sum(int(r.get("minutes") or 0) for r in (penalties_by_side.get(side_key) or []) if r.get("minutes") is not None)
+
+        home_pim_total = _sum_pim("home")
+        away_pim_total = _sum_pim("away")
+
+        game_stats_json = {
+            "Home Score": t1_score if t1_score is not None else "",
+            "Away Score": t2_score if t2_score is not None else "",
+            "Home Penalties": str(len([r for r in penalties_by_side.get("home", []) if r.get("start_s") is not None])),
+            "Away Penalties": str(len([r for r in penalties_by_side.get("away", []) if r.get("start_s") is not None])),
+            "Home PIM": str(home_pim_total) if home_pim_total else "",
+            "Away PIM": str(away_pim_total) if away_pim_total else "",
+        }
 
         if rest_mode:
             game_div_name = home_div_name or fb_division_name
@@ -1631,15 +2068,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "away_logo_content_type": away_logo_ct,
                     "home_roster": list(tts_norm.extract_roster(stats, "home")),
                     "away_roster": list(tts_norm.extract_roster(stats, "away")),
-                    "player_stats": [
-                        {
-                            "name": str(agg.get("name") or "").strip(),
-                            "goals": int(agg.get("goals") or 0),
-                            "assists": int(agg.get("assists") or 0),
-                        }
-                        for agg in tts_norm.aggregate_goals_assists(stats)
-                        if str(agg.get("name") or "").strip()
-                    ],
+                    "player_stats": player_stats_out,
+                    "events_csv": events_csv_text,
+                    "game_stats": game_stats_json,
                 }
             )
             if len(api_games_batch) >= api_batch_size:

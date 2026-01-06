@@ -46,6 +46,8 @@ class FakeConn:
         self.league_games: set[tuple[int, int]] = set()
         self.league_games_meta: dict[tuple[int, int], dict[str, Any]] = {}
         self.player_stats: dict[tuple[int, int], dict[str, Any]] = {}
+        self.hky_game_events: dict[int, dict[str, Any]] = {}
+        self.hky_game_stats: dict[int, dict[str, Any]] = {}
 
     def _alloc_id(self, table: str) -> int:
         nid = self._next_id[table]
@@ -514,7 +516,37 @@ class FakeCursor:
                     "player_id": int(player_id),
                     "goals": None,
                     "assists": None,
+                    "pim": None,
                 }
+            return 1
+
+        if q.startswith("INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists, pim) VALUES"):
+            user_id, team_id, game_id, player_id, goals, assists, pim = p
+            key = (int(game_id), int(player_id))
+            is_replace = "goals=VALUES(goals)" in q
+            if key not in self._conn.player_stats:
+                self._conn.player_stats[key] = {
+                    "user_id": int(user_id),
+                    "team_id": int(team_id),
+                    "game_id": int(game_id),
+                    "player_id": int(player_id),
+                    "goals": goals,
+                    "assists": assists,
+                    "pim": pim,
+                }
+                return 1
+            rec = self._conn.player_stats[key]
+            if is_replace:
+                rec["goals"] = goals
+                rec["assists"] = assists
+                rec["pim"] = pim
+            else:
+                if rec.get("goals") is None:
+                    rec["goals"] = goals
+                if rec.get("assists") is None:
+                    rec["assists"] = assists
+                if rec.get("pim") is None:
+                    rec["pim"] = pim
             return 1
 
         if q.startswith("INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists) VALUES"):
@@ -529,6 +561,7 @@ class FakeCursor:
                     "player_id": int(player_id),
                     "goals": goals,
                     "assists": assists,
+                    "pim": None,
                 }
                 return 1
             rec = self._conn.player_stats[key]
@@ -540,6 +573,43 @@ class FakeCursor:
                     rec["goals"] = goals
                 if rec.get("assists") is None:
                     rec["assists"] = assists
+            return 1
+
+        if q == "SELECT events_csv FROM hky_game_events WHERE game_id=%s":
+            gid = int(p[0])
+            ev = self._conn.hky_game_events.get(gid)
+            if ev:
+                self._rows = [as_row_tuple(ev.get("events_csv"))]
+            return 1
+
+        if q.startswith("INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at) VALUES"):
+            gid, events_csv, source_label, updated_at = p
+            gid_i = int(gid)
+            if "ON DUPLICATE KEY UPDATE" in q or gid_i not in self._conn.hky_game_events:
+                self._conn.hky_game_events[gid_i] = {
+                    "game_id": gid_i,
+                    "events_csv": str(events_csv),
+                    "source_label": str(source_label),
+                    "updated_at": updated_at,
+                }
+            return 1
+
+        if q == "SELECT stats_json FROM hky_game_stats WHERE game_id=%s":
+            gid = int(p[0])
+            row = self._conn.hky_game_stats.get(gid)
+            if row:
+                self._rows = [as_row_tuple(row.get("stats_json"))]
+            return 1
+
+        if q.startswith("INSERT INTO hky_game_stats(game_id, stats_json, updated_at) VALUES"):
+            gid, stats_json, updated_at = p
+            gid_i = int(gid)
+            if "ON DUPLICATE KEY UPDATE" in q or gid_i not in self._conn.hky_game_stats:
+                self._conn.hky_game_stats[gid_i] = {
+                    "game_id": gid_i,
+                    "stats_json": str(stats_json),
+                    "updated_at": updated_at,
+                }
             return 1
 
         if q == "SELECT division_name, division_id, conference_id FROM league_teams WHERE league_id=%s AND team_id=%s":
