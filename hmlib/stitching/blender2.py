@@ -1233,11 +1233,9 @@ def blend_video(
                     fps = cap_1.fps
                     video_out = VideoOutput(
                         output_video_path=output_video,
-                        output_frame_width=video_dim_width,
-                        output_frame_height=video_dim_height,
                         fps=fps,
                         skip_final_save=skip_final_video_save,
-                        fourcc="auto",
+                        fourcc="nvenc_av1",
                         # batch_size=batch_size,
                         cache_size=queue_size,
                         name="StitchedOutput",

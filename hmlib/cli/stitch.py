@@ -522,7 +522,7 @@ def _main(args) -> None:
             output_stitched_video_file=args.output_file,
             blend_mode=args.blend_mode,
             ignore_clip_box=True,
-            cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
+            cache_size=0,
             remapping_device=remapping_device,
             decoder_device=decoder_device,
             encoder_device=encoder_device,
