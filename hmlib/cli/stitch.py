@@ -316,6 +316,7 @@ def stitch_videos(
             # Thread through basic display flags so VideoOutPlugin can honor them.
             setattr(cam_args, "show_image", bool(getattr(args, "show_image", False)))
             setattr(cam_args, "show_scaled", getattr(args, "show_scaled", None))
+            setattr(cam_args, "output_video_bit_rate", getattr(args, "output_video_bit_rate", None))
         aspen_shared: Dict[str, Any] = {"device": encoder_device, "cam_args": cam_args}
         if profiler is not None:
             aspen_shared["profiler"] = profiler

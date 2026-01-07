@@ -1041,7 +1041,7 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
             height=self._height,
             fps=self._fps,
             codec=encoder_codec,
-            preset="P3",
+            preset="P2",
             device=self._device,
             gpu_id=self._device.index or 0,
             cuda_stream=(
