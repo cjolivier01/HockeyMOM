@@ -315,6 +315,7 @@ class StitchingPlugin(Plugin):
             device=device,
             dtype=dtype,
             python_blender=self._python_blender,
+            use_cuda_pano=not self._python_blender,
             minimize_blend=self._minimize_blend,
             blend_mode=self._blend_mode,
             add_alpha_channel=False,

@@ -235,7 +235,7 @@ def stitch_videos(
                 remapping_device=remapping_device,
                 dtype=dtype,
                 auto_adjust_exposure=auto_adjust_exposure,
-                minimize_blend=minimize_blend,
+                minimize_blend=preferred_arg(getattr(args, "minimize_blend", None), minimize_blend),
                 python_blender=python_blender,
                 post_stitch_rotate_degrees=post_stitch_rotate_degrees,
                 profiler=profiler,

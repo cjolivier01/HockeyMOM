@@ -36,7 +36,7 @@ from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
 from hmlib.game_audio import transfer_audio
-from hmlib.hm_opts import copy_opts, hm_opts
+from hmlib.hm_opts import copy_opts, hm_opts, preferred_arg
 
 # from hmlib.hm_transforms import update_data_pipeline
 from hmlib.log import get_root_logger, logger
@@ -882,7 +882,9 @@ def _main(args, num_gpu):
                         dtype=torch.float if not args.fp16_stitch else torch.half,
                         auto_adjust_exposure=args.stitch_auto_adjust_exposure,
                         python_blender=args.python_blender,
-                        minimize_blend=not args.no_minimize_blend,
+                        minimize_blend=preferred_arg(
+                            getattr(args, "minimize_blend", None), not args.no_minimize_blend
+                        ),
                         no_cuda_streams=args.no_cuda_streams,
                         post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
                         profiler=getattr(args, "profiler", None),
