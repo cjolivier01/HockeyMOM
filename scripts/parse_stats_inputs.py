@@ -9644,6 +9644,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
         "You can append ':HOME' or ':AWAY' per line. "
         "You can also append metadata like '|key=value' (e.g. owner_email/league/home_team/away_team/division/date/home_logo/away_logo) for webapp upload. "
+        "To force a game to be treated as non-TimeToScore even if its filename ends with a T2S id, add '|no_t2s=1'. "
         "Lines may also be 't2s=<game_id>[:HOME|AWAY][:game_label]' to process a TimeToScore-only game with no spreadsheets.",
     )
     p.add_argument(
@@ -10139,6 +10140,30 @@ def main() -> None:
     upload_failed = 0
     upload_skipped_external_missing_meta = 0
 
+    def _meta_truthy(meta: dict[str, str], *keys: str) -> bool:
+        for k in keys:
+            kk = str(k or "").strip().lower()
+            if not kk:
+                continue
+            if kk not in meta:
+                continue
+            raw = str(meta.get(kk) or "").strip().lower()
+            if raw in {"", "0", "false", "no", "n", "off"}:
+                return False
+            return raw in {"1", "true", "yes", "y", "on"} or True
+        return False
+
+    def _no_t2s_for_game(meta: dict[str, str]) -> bool:
+        return _meta_truthy(
+            meta,
+            "no_t2s",
+            "no-t2s",
+            "no_time2score",
+            "no-time2score",
+            "disable_t2s",
+            "disable-t2s",
+        )
+
     # Webapp upload arg validation (fail fast; don't silently skip uploads).
     default_webapp_url = "http://127.0.0.1:8008"
     if str(getattr(args, "webapp_url", "") or "").strip() != default_webapp_url and not getattr(
@@ -10164,10 +10189,14 @@ def main() -> None:
             if t2s_only_id is not None:
                 continue
             primary = gg.get("primary")
-            t2s_id_inferred = _infer_t2s_from_filename(Path(primary)) if primary else None
+            meta = dict(gg.get("meta") or {})
+            t2s_id_inferred = (
+                None
+                if _no_t2s_for_game(meta)
+                else (_infer_t2s_from_filename(Path(primary)) if primary else None)
+            )
             if t2s_id_inferred is not None:
                 continue
-            meta = dict(gg.get("meta") or {})
 
             def _m(*keys: str) -> Optional[str]:
                 for k in keys:
@@ -10255,8 +10284,18 @@ def main() -> None:
         return g
 
     for idx, g in enumerate(groups):
+        meta_for_group = dict(g.get("meta") or {})
+        no_t2s_for_group = _no_t2s_for_game(meta_for_group)
+
         t2s_only_id = g.get("t2s_id_only")
         if t2s_only_id is not None:
+            if no_t2s_for_group:
+                print(
+                    f"Error: game '{g.get('label')}' is a TimeToScore-only entry (t2s={t2s_only_id}) "
+                    "but metadata requested no TimeToScore (no_t2s=1). Remove the t2s=... line.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
             if not use_t2s:
                 print(f"[no-time2score] Skipping TimeToScore-only game: t2s={t2s_only_id}", file=sys.stderr)
                 continue
@@ -10330,7 +10369,7 @@ def main() -> None:
         # game name and do not trigger T2S usage.
         t2s_id = (
             (t2s_arg_id if t2s_arg_id is not None else _infer_t2s_from_filename(in_path))
-            if use_t2s
+            if use_t2s and (not no_t2s_for_group)
             else None
         )
         label = str(g.get("label") or _base_label_from_path(in_path))
