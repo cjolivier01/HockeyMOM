@@ -3391,7 +3391,6 @@ def create_app() -> Flask:
             players = cur.fetchall() or []
         skaters, goalies, head_coaches, assistant_coaches = split_roster(players or [])
         roster_players = list(skaters) + list(goalies)
-        player_totals = aggregate_players_totals_league(g.db, team_id, int(league_id))
         tstats = compute_team_stats_league(g.db, team_id, int(league_id))
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
@@ -3456,10 +3455,48 @@ def create_app() -> Flask:
             )
             ps_rows = cur.fetchall() or []
 
+        # Game type filter applies to player stats tables only.
+        for g2 in schedule_games or []:
+            try:
+                g2["_game_type_label"] = _game_type_label_for_row(g2)
+            except Exception:
+                g2["_game_type_label"] = "Unknown"
+        game_type_options = _dedupe_preserve_str([str(g2.get("_game_type_label") or "") for g2 in (schedule_games or [])])
+        selected_types = _parse_selected_game_type_labels(available=game_type_options, args=request.args)
+        stats_schedule_games = (
+            list(schedule_games or [])
+            if selected_types is None
+            else [g2 for g2 in (schedule_games or []) if str(g2.get("_game_type_label") or "") in selected_types]
+        )
+        eligible_games = [g2 for g2 in stats_schedule_games if _game_has_recorded_result(g2)]
+        eligible_game_ids_in_order: list[int] = []
+        for g2 in eligible_games:
+            try:
+                eligible_game_ids_in_order.append(int(g2.get("id")))
+            except Exception:
+                continue
+        eligible_game_ids: set[int] = set(eligible_game_ids_in_order)
+        ps_rows_filtered = []
+        for r in ps_rows or []:
+            try:
+                if int(r.get("game_id")) in eligible_game_ids:
+                    ps_rows_filtered.append(r)
+            except Exception:
+                continue
+
+        player_totals = _aggregate_player_totals_from_rows(player_stats_rows=ps_rows_filtered, allowed_game_ids=eligible_game_ids)
         player_stats_rows = sort_players_table_default(build_player_stats_table_rows(skaters, player_totals))
         player_stats_columns = filter_player_stats_display_columns_for_rows(PLAYER_STATS_DISPLAY_COLUMNS, player_stats_rows)
+        cov_counts, cov_total = _compute_team_player_stats_coverage(
+            player_stats_rows=ps_rows_filtered, eligible_game_ids=eligible_game_ids_in_order
+        )
+        player_stats_columns = _player_stats_columns_with_coverage(
+            columns=player_stats_columns, coverage_counts=cov_counts, total_games=cov_total
+        )
+
+        recent_scope_ids = eligible_game_ids_in_order[-int(recent_n) :] if eligible_game_ids_in_order else []
         recent_totals = compute_recent_player_totals_from_rows(
-            schedule_games=schedule_games, player_stats_rows=ps_rows, n=recent_n
+            schedule_games=stats_schedule_games, player_stats_rows=ps_rows_filtered, n=recent_n
         )
         recent_player_stats_rows = sort_player_stats_rows(
             build_player_stats_table_rows(skaters, recent_totals), sort_key=recent_sort, sort_dir=recent_dir
@@ -3467,6 +3504,23 @@ def create_app() -> Flask:
         recent_player_stats_columns = filter_player_stats_display_columns_for_rows(
             PLAYER_STATS_DISPLAY_COLUMNS, recent_player_stats_rows
         )
+        recent_cov_counts, recent_cov_total = _compute_team_player_stats_coverage(
+            player_stats_rows=ps_rows_filtered, eligible_game_ids=recent_scope_ids
+        )
+        recent_player_stats_columns = _player_stats_columns_with_coverage(
+            columns=recent_player_stats_columns, coverage_counts=recent_cov_counts, total_games=recent_cov_total
+        )
+
+        player_stats_sources = _compute_team_player_stats_sources(g.db, eligible_game_ids=eligible_game_ids_in_order)
+        selected_label = (
+            "All"
+            if selected_types is None
+            else ", ".join(sorted(list(selected_types), key=lambda s: s.lower()))
+        )
+        game_type_filter_options = [
+            {"label": gt, "checked": (selected_types is None) or (gt in selected_types)}
+            for gt in game_type_options
+        ]
         return render_template(
             "team_detail.html",
             team=team,
@@ -3485,6 +3539,11 @@ def create_app() -> Flask:
             schedule_games=schedule_games,
             editable=False,
             public_league_id=int(league_id),
+            player_stats_sources=player_stats_sources,
+            player_stats_coverage_total_games=cov_total,
+            player_stats_recent_coverage_total_games=recent_cov_total,
+            game_type_filter_options=game_type_filter_options,
+            game_type_filter_label=selected_label,
         )
 
     @app.get("/public/leagues/<int:league_id>/schedule")
@@ -3912,7 +3971,6 @@ def create_app() -> Flask:
         skaters, goalies, head_coaches, assistant_coaches = split_roster(players or [])
         roster_players = list(skaters) + list(goalies)
         if league_id:
-            player_totals = aggregate_players_totals_league(g.db, team_id, int(league_id))
             tstats = compute_team_stats_league(g.db, team_id, int(league_id))
             with g.db.cursor(pymysql.cursors.DictCursor) as cur:
                 cur.execute(
@@ -3977,7 +4035,6 @@ def create_app() -> Flask:
                 )
                 ps_rows = cur.fetchall() or []
         else:
-            player_totals = aggregate_players_totals(g.db, team_id, team_owner_id)
             tstats = compute_team_stats(g.db, team_id, team_owner_id)
             with g.db.cursor(pymysql.cursors.DictCursor) as cur:
                 cur.execute(
@@ -4012,10 +4069,47 @@ def create_app() -> Flask:
                 )
                 ps_rows = cur.fetchall() or []
 
+        # Game type filter applies to player stats tables only.
+        for g2 in schedule_games or []:
+            try:
+                g2["_game_type_label"] = _game_type_label_for_row(g2)
+            except Exception:
+                g2["_game_type_label"] = "Unknown"
+        game_type_options = _dedupe_preserve_str([str(g2.get("_game_type_label") or "") for g2 in (schedule_games or [])])
+        selected_types = _parse_selected_game_type_labels(available=game_type_options, args=request.args)
+        stats_schedule_games = (
+            list(schedule_games or [])
+            if selected_types is None
+            else [g2 for g2 in (schedule_games or []) if str(g2.get("_game_type_label") or "") in selected_types]
+        )
+        eligible_games = [g2 for g2 in stats_schedule_games if _game_has_recorded_result(g2)]
+        eligible_game_ids_in_order: list[int] = []
+        for g2 in eligible_games:
+            try:
+                eligible_game_ids_in_order.append(int(g2.get("id")))
+            except Exception:
+                continue
+        eligible_game_ids: set[int] = set(eligible_game_ids_in_order)
+        ps_rows_filtered = []
+        for r in ps_rows or []:
+            try:
+                if int(r.get("game_id")) in eligible_game_ids:
+                    ps_rows_filtered.append(r)
+            except Exception:
+                continue
+
+        player_totals = _aggregate_player_totals_from_rows(player_stats_rows=ps_rows_filtered, allowed_game_ids=eligible_game_ids)
         player_stats_rows = sort_players_table_default(build_player_stats_table_rows(skaters, player_totals))
         player_stats_columns = filter_player_stats_display_columns_for_rows(PLAYER_STATS_DISPLAY_COLUMNS, player_stats_rows)
+        cov_counts, cov_total = _compute_team_player_stats_coverage(
+            player_stats_rows=ps_rows_filtered, eligible_game_ids=eligible_game_ids_in_order
+        )
+        player_stats_columns = _player_stats_columns_with_coverage(
+            columns=player_stats_columns, coverage_counts=cov_counts, total_games=cov_total
+        )
+        recent_scope_ids = eligible_game_ids_in_order[-int(recent_n) :] if eligible_game_ids_in_order else []
         recent_totals = compute_recent_player_totals_from_rows(
-            schedule_games=schedule_games, player_stats_rows=ps_rows, n=recent_n
+            schedule_games=stats_schedule_games, player_stats_rows=ps_rows_filtered, n=recent_n
         )
         recent_player_stats_rows = sort_player_stats_rows(
             build_player_stats_table_rows(skaters, recent_totals), sort_key=recent_sort, sort_dir=recent_dir
@@ -4023,6 +4117,23 @@ def create_app() -> Flask:
         recent_player_stats_columns = filter_player_stats_display_columns_for_rows(
             PLAYER_STATS_DISPLAY_COLUMNS, recent_player_stats_rows
         )
+        recent_cov_counts, recent_cov_total = _compute_team_player_stats_coverage(
+            player_stats_rows=ps_rows_filtered, eligible_game_ids=recent_scope_ids
+        )
+        recent_player_stats_columns = _player_stats_columns_with_coverage(
+            columns=recent_player_stats_columns, coverage_counts=recent_cov_counts, total_games=recent_cov_total
+        )
+
+        player_stats_sources = _compute_team_player_stats_sources(g.db, eligible_game_ids=eligible_game_ids_in_order)
+        selected_label = (
+            "All"
+            if selected_types is None
+            else ", ".join(sorted(list(selected_types), key=lambda s: s.lower()))
+        )
+        game_type_filter_options = [
+            {"label": gt, "checked": (selected_types is None) or (gt in selected_types)}
+            for gt in game_type_options
+        ]
         return render_template(
             "team_detail.html",
             team=team,
@@ -4041,6 +4152,11 @@ def create_app() -> Flask:
             schedule_games=schedule_games,
             editable=editable,
             is_league_admin=is_league_admin,
+            player_stats_sources=player_stats_sources,
+            player_stats_coverage_total_games=cov_total,
+            player_stats_recent_coverage_total_games=recent_cov_total,
+            game_type_filter_options=game_type_filter_options,
+            game_type_filter_label=selected_label,
         )
 
     @app.route("/teams/<int:team_id>/edit", methods=["GET", "POST"])
@@ -7705,6 +7821,294 @@ def compute_recent_player_totals_from_rows(
         for k in PLAYER_STATS_SUM_KEYS:
             sums[k] = sum(_int0(rr.get(k)) for _idx, rr in chosen)
         out[int(pid)] = compute_player_display_stats(sums)
+    return out
+
+
+def _dedupe_preserve_str(items: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for it in items or []:
+        s = str(it or "").strip()
+        if not s:
+            continue
+        k = s.casefold()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(s)
+    return out
+
+
+def _game_type_label_for_row(game_row: dict[str, Any]) -> str:
+    gt = str(game_row.get("game_type_name") or "").strip()
+    if not gt and str(game_row.get("division_name") or "").strip().lower() == "external":
+        return "Tournament"
+    return gt or "Unknown"
+
+
+def _game_has_recorded_result(game_row: dict[str, Any]) -> bool:
+    return (
+        (game_row.get("team1_score") is not None)
+        or (game_row.get("team2_score") is not None)
+        or bool(game_row.get("is_final"))
+    )
+
+
+def _parse_selected_game_type_labels(
+    *,
+    available: list[str],
+    args: Any,
+) -> Optional[set[str]]:
+    """
+    Parse a game type filter from request args. Returns None to represent "no filtering" (all types).
+    """
+    avail = _dedupe_preserve_str(list(available or []))
+    if not avail:
+        return None
+    raw: list[str] = []
+    try:
+        raw.extend(list(args.getlist("gt") or []))
+    except Exception:
+        pass
+    try:
+        v = args.get("gt")
+        if v and isinstance(v, str) and "," in v:
+            raw.extend([p.strip() for p in v.split(",") if p.strip()])
+    except Exception:
+        pass
+    selected = _dedupe_preserve_str(raw)
+    if not selected:
+        return None
+    avail_map = {a.casefold(): a for a in avail}
+    chosen: set[str] = set()
+    for s in selected:
+        v = avail_map.get(s.casefold())
+        if v:
+            chosen.add(v)
+    if not chosen or len(chosen) == len(avail):
+        return None
+    return chosen
+
+
+def _aggregate_player_totals_from_rows(
+    *,
+    player_stats_rows: list[dict[str, Any]],
+    allowed_game_ids: set[int],
+) -> dict[int, dict[str, Any]]:
+    sums_by_pid: dict[int, dict[str, Any]] = {}
+    gp_by_pid: dict[int, int] = {}
+    for r in (player_stats_rows or []):
+        if not isinstance(r, dict):
+            continue
+        try:
+            gid = int(r.get("game_id"))
+            pid = int(r.get("player_id"))
+        except Exception:
+            continue
+        if gid not in allowed_game_ids:
+            continue
+        gp_by_pid[pid] = gp_by_pid.get(pid, 0) + 1
+        acc = sums_by_pid.setdefault(pid, {"player_id": int(pid)})
+        for k in PLAYER_STATS_SUM_KEYS:
+            acc[k] = _int0(acc.get(k)) + _int0(r.get(k))
+    out: dict[int, dict[str, Any]] = {}
+    for pid, base in sums_by_pid.items():
+        base["gp"] = int(gp_by_pid.get(pid, 0))
+        out[int(pid)] = compute_player_display_stats(dict(base))
+    return out
+
+
+def _player_stats_required_sum_keys_for_display_key(col_key: str) -> tuple[str, ...]:
+    k = str(col_key or "").strip()
+    if not k:
+        return tuple()
+    if k in set(PLAYER_STATS_SUM_KEYS):
+        return (k,)
+    if k == "gp":
+        return tuple()
+    if k in {"points", "ppg"}:
+        return ("goals", "assists")
+    if k.endswith("_per_game"):
+        base = k[: -len("_per_game")]
+        if base in set(PLAYER_STATS_SUM_KEYS):
+            return (base,)
+    if k == "expected_goals_per_sog":
+        return ("expected_goals", "sog")
+    return tuple()
+
+
+def _compute_team_player_stats_coverage(
+    *,
+    player_stats_rows: list[dict[str, Any]],
+    eligible_game_ids: list[int],
+) -> tuple[dict[str, int], int]:
+    """
+    Returns (coverage_counts_by_display_key, total_eligible_games).
+    """
+    eligible_set = {int(gid) for gid in (eligible_game_ids or [])}
+    total = len(eligible_set)
+    if total <= 0:
+        return {}, 0
+
+    has_any_ps: set[int] = set()
+    has_key_by_game: dict[int, set[str]] = {}
+    for r in (player_stats_rows or []):
+        if not isinstance(r, dict):
+            continue
+        try:
+            gid = int(r.get("game_id"))
+        except Exception:
+            continue
+        if gid not in eligible_set:
+            continue
+        has_any_ps.add(gid)
+        keys = has_key_by_game.setdefault(gid, set())
+        for sk in PLAYER_STATS_SUM_KEYS:
+            if r.get(sk) is not None:
+                keys.add(sk)
+
+    counts: dict[str, int] = {"gp": len(has_any_ps)}
+    for display_key, _label in PLAYER_STATS_DISPLAY_COLUMNS:
+        dk = str(display_key)
+        if dk in counts:
+            continue
+        req = _player_stats_required_sum_keys_for_display_key(dk)
+        if not req:
+            counts[dk] = len(has_any_ps)
+            continue
+        n = 0
+        for gid in eligible_set:
+            present = has_key_by_game.get(gid) or set()
+            if all(rk in present for rk in req):
+                n += 1
+        counts[dk] = int(n)
+    return counts, total
+
+
+def _annotate_player_stats_column_labels(
+    *,
+    columns: list[tuple[str, str]],
+    coverage_counts: dict[str, int],
+    total_games: int,
+) -> list[tuple[str, str]]:
+    # Backwards-compatible wrapper: keep older call sites working.
+    out: list[tuple[str, str]] = []
+    for c in _player_stats_columns_with_coverage(columns=columns, coverage_counts=coverage_counts, total_games=total_games):
+        out.append((str(c["key"]), str(c["label"])))
+    return out
+
+
+def _player_stats_columns_with_coverage(
+    *,
+    columns: list[tuple[str, str]],
+    coverage_counts: dict[str, int],
+    total_games: int,
+) -> list[dict[str, Any]]:
+    """
+    Return columns as dicts with optional coverage sublabel info for UI rendering.
+    """
+    out: list[dict[str, Any]] = []
+    for k, label in (columns or []):
+        key = str(k)
+        n = coverage_counts.get(key, total_games)
+        show = bool(total_games > 0 and n != total_games)
+        out.append(
+            {
+                "key": key,
+                "label": str(label),
+                "n_games": int(n) if n is not None else 0,
+                "total_games": int(total_games) if total_games is not None else 0,
+                "show_count": show,
+            }
+        )
+    return out
+
+
+def _canon_source_label_for_ui(raw: Any) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    sl = s.casefold()
+    if sl in {"t2s", "tts"}:
+        return "TimeToScore"
+    if sl == "timetoscore":
+        return "TimeToScore"
+    if sl == "long":
+        return "Long"
+    if sl == "primary":
+        return "Primary"
+    if sl.startswith("parse_stats_inputs:") or sl == "parse_stats_inputs":
+        return "Primary"
+    if sl.startswith("parse_shift_spreadsheet:") or sl == "parse_shift_spreadsheet":
+        return "Primary"
+    if sl == "shift_package":
+        return "Shift Package"
+    if sl == "goals":
+        return "Goals"
+    # Only show recognized, high-level source types (avoid per-game labels like "sharks-12-2-r1").
+    return ""
+
+
+def _compute_team_player_stats_sources(
+    db_conn,
+    *,
+    eligible_game_ids: list[int],
+) -> list[str]:
+    gids = [int(g) for g in (eligible_game_ids or []) if int(g) > 0]
+    if not gids:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(src: Any) -> None:
+        s = _canon_source_label_for_ui(src)
+        if not s:
+            return
+        k = s.casefold()
+        if k in seen:
+            return
+        seen.add(k)
+        out.append(s)
+
+    # Prefer scanning events CSV sources (multi-valued Source column), then include player_stats CSV labels.
+    try:
+        with db_conn.cursor(pymysql.cursors.DictCursor) as cur:
+            for i in range(0, len(gids), 200):
+                chunk = gids[i : i + 200]
+                ph = ",".join(["%s"] * len(chunk))
+                cur.execute(f"SELECT game_id, events_csv, source_label FROM hky_game_events WHERE game_id IN ({ph})", chunk)
+                rows = cur.fetchall() or []
+                for r in rows:
+                    if not isinstance(r, dict):
+                        continue
+                    csv_text = str(r.get("events_csv") or "").strip()
+                    if csv_text:
+                        try:
+                            _h, ev_rows = parse_events_csv(csv_text)
+                            for s in summarize_event_sources(ev_rows, fallback_source_label=str(r.get("source_label") or "")):
+                                _add(s)
+                            continue
+                        except Exception:
+                            pass
+                    _add(r.get("source_label"))
+    except Exception:
+        pass
+    try:
+        with db_conn.cursor(pymysql.cursors.DictCursor) as cur:
+            for i in range(0, len(gids), 200):
+                chunk = gids[i : i + 200]
+                ph = ",".join(["%s"] * len(chunk))
+                cur.execute(
+                    f"SELECT game_id, source_label FROM hky_game_player_stats_csv WHERE game_id IN ({ph})", chunk
+                )
+                rows = cur.fetchall() or []
+                for r in rows:
+                    if not isinstance(r, dict):
+                        continue
+                    _add(r.get("source_label"))
+    except Exception:
+        pass
+
     return out
 
 

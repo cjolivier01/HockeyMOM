@@ -110,6 +110,16 @@ tbody tr:nth-child(even) { background: var(--row-even); }
   max-width: 22ch;
 }
 
+/* Secondary sub-label under a table header (e.g., "(N Games)" coverage note). */
+.th-subnote {
+  margin-top: 2px;
+  font-size: 0.78em;
+  font-weight: 500;
+  color: var(--muted);
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
 /* Keep date/time fields readable and non-wrapping */
 td, th { vertical-align: top; }
 td { overflow-wrap: anywhere; }
