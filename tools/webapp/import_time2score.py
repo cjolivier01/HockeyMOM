@@ -1949,6 +1949,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     {
                         "Event Type": "Goal",
                         "Source": "timetoscore",
+                        "Team Side": _side_label(side_key),
+                        "For/Against": "For",
                         "Team Rel": _side_label(side_key),
                         "Team Raw": _side_label(side_key),
                         "Period": int(per),
@@ -1977,6 +1979,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     {
                         "Event Type": "Penalty",
                         "Source": "timetoscore",
+                        "Team Side": _side_label(side_key),
+                        "For/Against": "Against",
                         "Team Rel": _side_label(side_key),
                         "Team Raw": _side_label(side_key),
                         "Period": per,
@@ -2074,6 +2078,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     {
                         "Event Type": "Penalty Expired",
                         "Source": "timetoscore",
+                        "Team Side": _side_label(side_key),
+                        "For/Against": "For",
                         "Team Rel": _side_label(side_key),
                         "Team Raw": _side_label(side_key),
                         "Period": per,
@@ -2094,6 +2100,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             "Event Type",
             "Source",
             "Team Raw",
+            "Team Side",
+            "For/Against",
             "Team Rel",
             "Period",
             "Game Time",

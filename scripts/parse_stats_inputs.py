@@ -250,12 +250,6 @@ def _t2s_penalties_from_scoresheet_html(
 
     out: List[Dict[str, Any]] = []
 
-    def _rel(side: str) -> str:
-        s = str(our_side or "").strip().lower()
-        if s not in {"home", "away"}:
-            return ""
-        return "For" if str(side).strip().lower() == s else "Against"
-
     def _parse_table(table_html: str, *, side: str, team_name: Optional[str]) -> None:
         for row_html in re.findall(r"(?is)<tr[^>]*>.*?</tr>", table_html):
             # Skip header rows.
@@ -306,7 +300,7 @@ def _t2s_penalties_from_scoresheet_html(
                     "source": "t2s",
                     "team_raw": team_name or side,
                     "team_side": side,
-                    "team_rel": _rel(side),
+                    "for_against": "Against",
                     "period": int(per),
                     "game_s": int(game_s),
                     "details": " ".join([p for p in details_parts if p]).strip(),
@@ -328,12 +322,6 @@ def _t2s_goalie_changes_from_scoresheet_html(
 ) -> List[Dict[str, Any]]:
     visitor_name, home_name = _t2s_team_names_from_scoresheet_html(html)
     default_period_s = _t2s_default_period_length_seconds_from_scoresheet_html(html)
-
-    def _rel(side: str) -> str:
-        s = str(our_side or "").strip().lower()
-        if s not in {"home", "away"}:
-            return ""
-        return "For" if str(side).strip().lower() == s else "Against"
 
     def _section(title: str) -> List[str]:
         # Capture between <th colspan=2>Title</th> and the next section header / end of table.
@@ -391,7 +379,7 @@ def _t2s_goalie_changes_from_scoresheet_html(
                     "source": "t2s",
                     "team_raw": team_name or side,
                     "team_side": side,
-                    "team_rel": _rel(side),
+                    "for_against": "",
                     "period": int(period),
                     "game_s": int(game_s) if game_s is not None else None,
                     "details": details,
@@ -5310,6 +5298,8 @@ def _write_all_events_summary(
     goals_by_period: Dict[int, List[GoalEvent]],
     event_log_context: Optional["EventLogContext"],
     focus_team: Optional[str],
+    team_side: Optional[str],
+    t2s_game_id: Optional[int] = None,
     t2s_events: Optional[List[Dict[str, Any]]] = None,
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
 ) -> None:
@@ -5323,15 +5313,54 @@ def _write_all_events_summary(
     Note: without opponent shift times, opponent on-ice lists cannot be reconstructed here.
     """
 
-    def _team_label(team: Any, *, event_type: Optional[str] = None) -> str:
-        team_str = str(team) if team is not None else ""
-        if focus_team in {"Blue", "White"} and team_str in {"Blue", "White"}:
-            et = str(event_type or "")
-            invert = et in {"TurnoverForced", "CreatedTurnover", "Giveaway", "Takeaway"}
-            if invert:
-                return "Against" if team_str == focus_team else "For"
-            return "For" if team_str == focus_team else "Against"
-        return team_str or ""
+    def _side_label(side: str) -> str:
+        sl = str(side or "").strip().lower()
+        if sl == "home":
+            return "Home"
+        if sl == "away":
+            return "Away"
+        return ""
+
+    def _team_side_from_color(team_color: Any) -> str:
+        team_str = str(team_color) if team_color is not None else ""
+        our_side_l = str(team_side or "").strip().lower()
+        if our_side_l not in {"home", "away"}:
+            return ""
+        if focus_team not in {"Blue", "White"}:
+            return ""
+        if team_str not in {"Blue", "White"}:
+            return ""
+        if team_str == focus_team:
+            return _side_label(our_side_l)
+        opp = "away" if our_side_l == "home" else "home"
+        return _side_label(opp)
+
+    def _for_against_for_event(event_type: Any) -> str:
+        et = str(event_type or "").strip()
+        etl = et.casefold()
+        # "For/Against" is relative to the owning team (Team Side), not a synonym for Home/Away.
+        if etl in {"giveaway", "createdturnover", "created turnover"}:
+            return "Against"
+        if etl in {"penalty"}:
+            return "Against"
+        if etl in {"penalty expired"}:
+            return "For"
+        if etl in {
+            "shot",
+            "sog",
+            "expectedgoal",
+            "xg",
+            "goal",
+            "assist",
+            "controlledentry",
+            "controlled exit",
+            "controlledexit",
+            "takeaway",
+            "turnoverforced",
+            "turnovers (forced)",
+        }:
+            return "For"
+        return ""
 
     # Precompute merged shift intervals and shift-start times for on-ice membership.
     intervals_by_player_period: Dict[str, Dict[int, List[Tuple[int, int]]]] = {}
@@ -5412,7 +5441,10 @@ def _write_all_events_summary(
         for (etype, team), inst_list in sorted((event_log_context.event_instances or {}).items()):
             if goals and str(etype) == "Goal":
                 # Prefer canonical Goal/Assist rows from the goals list when available.
-                continue
+                # Exception: for TimeToScore-linked games, we keep long-sheet goal rows in this CSV so the webapp
+                # can enrich TimeToScore goal events with long-sheet video times (server ignores long-only goals).
+                if t2s_game_id is None:
+                    continue
             for inst in inst_list or []:
                 period = int(inst.get("period") or 0)
                 video_s = inst.get("video_s")
@@ -5434,7 +5466,9 @@ def _write_all_events_summary(
                         "Source": "long",
                         "Event Type": _display_event_type(str(etype)),
                         "Team Raw": str(team),
-                        "Team Rel": _team_label(team, event_type=str(etype)),
+                        "Team Side": _team_side_from_color(team),
+                        "For/Against": _for_against_for_event(str(etype)),
+                        "Team Rel": _team_side_from_color(team),
                         "Period": period if period > 0 else "",
                         "Game Time": seconds_to_mmss_or_hhmmss(gs_i) if gs_i is not None else "",
                         "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
@@ -5460,7 +5494,8 @@ def _write_all_events_summary(
         on_ice = _on_ice_players_pm(period, gs_i) if (gs_i is not None and period > 0) else []
 
         team_raw = str(ev.get("team_raw") or "")
-        team_rel = str(ev.get("team_rel") or "")
+        side_txt = _side_label(str(ev.get("team_side") or ""))
+        for_against_txt = str(ev.get("for_against") or "")
         details = str(ev.get("details") or "")
         jerseys_val = ev.get("attributed_jerseys") or []
         jerseys_list: List[str] = []
@@ -5481,7 +5516,9 @@ def _write_all_events_summary(
                 "Source": str(ev.get("source") or "t2s"),
                 "Event Type": _display_event_type(etype),
                 "Team Raw": team_raw,
-                "Team Rel": team_rel,
+                "Team Side": side_txt,
+                "For/Against": for_against_txt if for_against_txt else _for_against_for_event(etype),
+                "Team Rel": side_txt,
                 "Period": period if period > 0 else "",
                 "Game Time": seconds_to_mmss_or_hhmmss(gs_i) if gs_i is not None else "",
                 "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
@@ -5499,7 +5536,14 @@ def _write_all_events_summary(
         period = int(getattr(ev, "period", 0) or 0)
         gs_i = int(getattr(ev, "t_sec", 0) or 0)
         vs_i = _map_sb_to_video(period, gs_i)
-        team_rel = "For" if getattr(ev, "kind", None) == "GF" else ("Against" if getattr(ev, "kind", None) == "GA" else "")
+        kind = str(getattr(ev, "kind", "") or "").strip().upper()
+        our_side_l = str(team_side or "").strip().lower()
+        if our_side_l in {"home", "away"}:
+            opp_side_l = "away" if our_side_l == "home" else "home"
+            goal_side_txt = _side_label(our_side_l) if kind == "GF" else (_side_label(opp_side_l) if kind == "GA" else "")
+        else:
+            goal_side_txt = ""
+        for_against_txt = "For" if goal_side_txt else ""
         on_ice = _on_ice_players_pm(period, gs_i) if period > 0 else []
 
         # Goal scorer row (if known).
@@ -5512,7 +5556,9 @@ def _write_all_events_summary(
                     "Source": "goals",
                     "Event Type": "Goal",
                     "Team Raw": "",
-                    "Team Rel": team_rel,
+                    "Team Side": goal_side_txt,
+                    "For/Against": for_against_txt,
+                    "Team Rel": goal_side_txt,
                     "Period": period if period > 0 else "",
                     "Game Time": seconds_to_mmss_or_hhmmss(gs_i),
                     "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
@@ -5535,7 +5581,9 @@ def _write_all_events_summary(
                     "Source": "goals",
                     "Event Type": "Assist",
                     "Team Raw": "",
-                    "Team Rel": team_rel,
+                    "Team Side": goal_side_txt,
+                    "For/Against": for_against_txt,
+                    "Team Rel": goal_side_txt,
                     "Period": period if period > 0 else "",
                     "Game Time": seconds_to_mmss_or_hhmmss(gs_i),
                     "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
@@ -5571,6 +5619,8 @@ def _write_all_events_summary(
         "Event ID",
         "Source",
         "Team Raw",
+        "Team Side",
+        "For/Against",
         "Team Rel",
         "Period",
         "Game Time",
@@ -5592,6 +5642,8 @@ def _write_all_events_summary(
         text_columns=[
             "Event Type",
             "Team Raw",
+            "Team Side",
+            "For/Against",
             "Team Rel",
             "Details",
             "Attributed Players",
@@ -8688,6 +8740,8 @@ def process_sheet(
             goals_by_period=goals_by_period,
             event_log_context=event_log_context,
             focus_team=focus_team,
+            team_side=t2s_side,
+            t2s_game_id=t2s_game_id,
             t2s_events=t2s_events,
             conv_segments_by_period=conv_segments_by_period,
         )
@@ -9370,6 +9424,8 @@ def process_long_only_sheets(
             goals_by_period=goals_by_period,
             event_log_context=merged_event_context,
             focus_team=focus_team,
+            team_side=side,
+            t2s_game_id=t2s_game_id,
             t2s_events=t2s_events,
             conv_segments_by_period={},
         )

@@ -2632,6 +2632,9 @@ def create_app() -> Flask:
         player_stats_csv = payload.get("player_stats_csv")
         game_stats_csv = payload.get("game_stats_csv")
         events_csv = payload.get("events_csv")
+        incoming_events_csv_raw: Optional[str] = None
+        incoming_events_headers_raw: Optional[list[str]] = None
+        incoming_events_rows_raw: Optional[list[dict[str, str]]] = None
         source_label = str(payload.get("source_label") or "").strip() or None
         game_video_url = (
             payload.get("game_video_url")
@@ -2647,6 +2650,12 @@ def create_app() -> Flask:
                 pass
 
         if isinstance(events_csv, str) and events_csv.strip():
+            incoming_events_csv_raw = str(events_csv)
+            if tts_linked:
+                try:
+                    incoming_events_headers_raw, incoming_events_rows_raw = parse_events_csv(incoming_events_csv_raw)
+                except Exception:
+                    incoming_events_headers_raw, incoming_events_rows_raw = None, None
             # Never store PP/PK span events; they are derived at render time from penalty windows.
             # For TimeToScore-linked games, do not store spreadsheet Goal/Assist attribution.
             drop_types = {"power play", "powerplay", "penalty kill", "penaltykill"}
@@ -2771,6 +2780,13 @@ def create_app() -> Flask:
                                 try:
                                     ex_headers, ex_rows = parse_events_csv(existing_csv)
                                     in_headers, in_rows = parse_events_csv(events_csv)
+                                    if incoming_events_headers_raw is not None and incoming_events_rows_raw is not None:
+                                        ex_headers, ex_rows = enrich_timetoscore_goals_with_long_video_times(
+                                            existing_headers=ex_headers,
+                                            existing_rows=ex_rows,
+                                            incoming_headers=incoming_events_headers_raw,
+                                            incoming_rows=incoming_events_rows_raw,
+                                        )
 
                                     def _norm_ev_type(v: Any) -> str:
                                         return str(v or "").strip().casefold()
@@ -2787,7 +2803,14 @@ def create_app() -> Flask:
                                         et = _norm_ev_type(r.get("Event Type") or r.get("Event") or "")
                                         per = str(r.get("Period") or "").strip()
                                         gs = str(r.get("Game Seconds") or r.get("GameSeconds") or "").strip()
-                                        tr = str(r.get("Team Rel") or r.get("TeamRel") or r.get("Team") or "").strip().casefold()
+                                        tr = str(
+                                            r.get("Team Side")
+                                            or r.get("TeamSide")
+                                            or r.get("Team Rel")
+                                            or r.get("TeamRel")
+                                            or r.get("Team")
+                                            or ""
+                                        ).strip().casefold()
                                         jerseys = str(r.get("Attributed Jerseys") or "").strip()
                                         return (et, per, gs, tr, jerseys)
 
@@ -3568,6 +3591,10 @@ def create_app() -> Flask:
             game = cur.fetchone()
         if not game:
             return ("Not found", 404)
+        try:
+            game["game_video_url"] = _sanitize_http_url(_extract_game_video_url_from_notes(game.get("notes")))
+        except Exception:
+            game["game_video_url"] = None
         if _league_game_is_cross_division_non_external(game):
             return ("Not found", 404)
         now_dt = dt.datetime.now()
@@ -4581,6 +4608,10 @@ def create_app() -> Flask:
         if not game:
             flash("Not found", "error")
             return redirect(url_for("schedule"))
+        try:
+            game["game_video_url"] = _sanitize_http_url(_extract_game_video_url_from_notes(game.get("notes")))
+        except Exception:
+            game["game_video_url"] = None
         is_owner = int(game.get("user_id") or 0) == int(session["user_id"])
         if league_id and not is_owner and _league_game_is_cross_division_non_external(game):
             return ("Not found", 404)
@@ -5894,8 +5925,8 @@ def compute_team_scoring_by_period_from_events(
 
     Notes:
       - Uses event rows (e.g. from hky_game_events.events_csv).
-      - Team mapping uses 'Team Rel' when present:
-          home/for/team1 => team1, away/against/team2 => team2
+      - Team mapping prefers absolute Home/Away via "Team Side" (or legacy "Team Rel" when it contains Home/Away).
+      - "For/Against" is treated as a relative direction, not a synonym for Home/Away.
     Returns rows like:
       {'period': 1, 'team1_gf': 2, 'team1_ga': 1, 'team2_gf': 1, 'team2_ga': 2}
     """
@@ -5909,24 +5940,37 @@ def compute_team_scoring_by_period_from_events(
         except Exception:
             return None
 
-    def _team_rel_to_team_idx(row: dict[str, str]) -> Optional[int]:
-        tr = _norm(
-            row.get("Team Rel")
-            or row.get("TeamRel")
-            or row.get("For/Against")
-            or row.get("For Against")
+    def _team_side_to_team_idx(row: dict[str, str]) -> Optional[int]:
+        # Prefer explicit Team Side when available.
+        side = _norm(
+            row.get("Team Side")
+            or row.get("TeamSide")
             or row.get("Side")
-            or row.get("Team")
+            or ""
         )
-        if tr in {"home", "for", "team1"}:
+        if side in {"home", "team1"}:
             return 1
-        if tr in {"away", "against", "team2"}:
+        if side in {"away", "team2"}:
             return 2
-        # Some old tables use team raw "Home"/"Away" but leave Team Rel blank.
-        tr2 = _norm(row.get("Team Raw") or row.get("TeamRaw") or "")
-        if tr2 in {"home", "for", "team1"}:
+
+        # Legacy: some tables stored Home/Away in Team Rel or Team Raw.
+        tr = _norm(row.get("Team Rel") or row.get("TeamRel") or "")
+        if tr in {"home", "team1"}:
             return 1
-        if tr2 in {"away", "against", "team2"}:
+        if tr in {"away", "team2"}:
+            return 2
+
+        # Some simple/older tables use "Team" as Home/Away directly.
+        team = _norm(row.get("Team") or "")
+        if team in {"home", "team1"}:
+            return 1
+        if team in {"away", "team2"}:
+            return 2
+
+        tr2 = _norm(row.get("Team Raw") or row.get("TeamRaw") or "")
+        if tr2 in {"home", "team1"}:
+            return 1
+        if tr2 in {"away", "team2"}:
             return 2
         return None
 
@@ -5957,7 +6001,7 @@ def compute_team_scoring_by_period_from_events(
         per = _parse_int(r.get("Period"))
         if per is None:
             continue
-        team_idx = _team_rel_to_team_idx(r)
+        team_idx = _team_side_to_team_idx(r)
         if team_idx is None:
             continue
         rec = by_period.setdefault(per, {"team1_gf": 0, "team1_ga": 0, "team2_gf": 0, "team2_ga": 0})
@@ -5994,8 +6038,16 @@ def filter_events_rows_prefer_timetoscore_for_goal_assist(
     def _ev_type(r: dict[str, str]) -> str:
         return _norm(r.get("Event Type") or r.get("Event") or "")
 
+    def _split_sources(raw: Any) -> list[str]:
+        s = str(raw or "").strip()
+        if not s:
+            return []
+        parts = re.split(r"[,+;/\s]+", s)
+        return [p for p in (pp.strip() for pp in parts) if p]
+
     def _is_tts_row(r: dict[str, str]) -> bool:
-        return _norm(r.get("Source") or "") == "timetoscore"
+        toks = _split_sources(r.get("Source") or "")
+        return any(_norm(t) == "timetoscore" for t in toks)
 
     if not events_rows:
         return []
@@ -6043,6 +6095,13 @@ def summarize_event_sources(
     def _norm(s: Any) -> str:
         return str(s or "").strip()
 
+    def _split_sources(raw: Any) -> list[str]:
+        s = _norm(raw)
+        if not s:
+            return []
+        parts = re.split(r"[,+;/\s]+", s)
+        return [p for p in (pp.strip() for pp in parts) if p]
+
     def _canon(s: str) -> str:
         sl = s.strip().casefold()
         if sl == "timetoscore":
@@ -6062,17 +6121,19 @@ def summarize_event_sources(
     for r in events_rows or []:
         if not isinstance(r, dict):
             continue
-        src_raw = _norm(r.get("Source") or "")
-        src = _canon(src_raw)
-        if not src and fallback_source_label:
-            src = _canon(str(fallback_source_label))
-        if not src:
-            continue
-        key = src.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(src)
+        src_raw = r.get("Source") or ""
+        toks = _split_sources(src_raw)
+        if not toks and fallback_source_label:
+            toks = _split_sources(str(fallback_source_label))
+        for t in toks:
+            src = _canon(t)
+            if not src:
+                continue
+            key = src.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(src)
     return out
 
 
@@ -6098,14 +6159,23 @@ def merge_events_csv_prefer_timetoscore(
     def _is_tts_row(r: dict[str, str], fallback_label: str) -> bool:
         src = _norm(r.get("Source") or "")
         if src:
-            return src == "timetoscore"
+            toks = [t for t in re.split(r"[,+;/\s]+", src) if t]
+            return any(t == "timetoscore" for t in toks)
         return str(fallback_label or "").strip().lower().startswith("timetoscore")
 
     def _key(r: dict[str, str]) -> tuple[str, str, str, str, str]:
         et = _ev_type(r)
         per = str(r.get("Period") or "").strip()
         gs = str(r.get("Game Seconds") or r.get("GameSeconds") or "").strip()
-        tr = str(r.get("Team Rel") or r.get("TeamRel") or r.get("Team") or "").strip().casefold()
+        # Prefer absolute Home/Away when available.
+        tr = str(
+            r.get("Team Side")
+            or r.get("TeamSide")
+            or r.get("Team Rel")
+            or r.get("TeamRel")
+            or r.get("Team")
+            or ""
+        ).strip().casefold()
         jerseys = str(r.get("Attributed Jerseys") or "").strip()
         return (et, per, gs, tr, jerseys)
 
@@ -6149,6 +6219,132 @@ def merge_events_csv_prefer_timetoscore(
     )
 
     return to_csv_text(merged_headers, merged_rows), str(merged_source or "")
+
+
+def enrich_timetoscore_goals_with_long_video_times(
+    *,
+    existing_headers: list[str],
+    existing_rows: list[dict[str, str]],
+    incoming_headers: list[str],
+    incoming_rows: list[dict[str, str]],
+) -> tuple[list[str], list[dict[str, str]]]:
+    """
+    For TimeToScore-linked games, treat TimeToScore goal attribution as authoritative, but
+    copy Video Time/Seconds from matching long-sheet Goal events (same team + period + game time).
+
+    - Only uses incoming rows with Source containing "long"
+    - Only enriches existing rows whose Source contains "timetoscore"
+    - Never adds new goal events; long-only goals are ignored
+    """
+
+    def _norm(s: Any) -> str:
+        return str(s or "").strip().casefold()
+
+    def _split_sources(raw: Any) -> list[str]:
+        s = str(raw or "").strip()
+        if not s:
+            return []
+        parts = re.split(r"[,+;/\s]+", s)
+        return [p for p in (pp.strip() for pp in parts) if p]
+
+    def _has_source(row: dict[str, str], token: str) -> bool:
+        return any(_norm(t) == _norm(token) for t in _split_sources(row.get("Source") or ""))
+
+    def _add_source(row: dict[str, str], token: str) -> None:
+        toks = _split_sources(row.get("Source") or "")
+        toks_cf = {_norm(t) for t in toks}
+        if _norm(token) not in toks_cf:
+            toks.append(str(token))
+        row["Source"] = ",".join([t for t in toks if t])
+
+    def _parse_int(v: Any) -> Optional[int]:
+        try:
+            return int(str(v or "").strip())
+        except Exception:
+            return None
+
+    def _norm_side(row: dict[str, str]) -> Optional[str]:
+        for k in ("Team Side", "TeamSide", "Side", "Team Rel", "TeamRel", "Team Raw", "TeamRaw", "Team"):
+            v = str(row.get(k) or "").strip().casefold()
+            if v in {"home", "team1"}:
+                return "home"
+            if v in {"away", "team2"}:
+                return "away"
+        return None
+
+    def _ev_type(row: dict[str, str]) -> str:
+        return _norm(row.get("Event Type") or row.get("Event") or "")
+
+    def _period(row: dict[str, str]) -> Optional[int]:
+        p = _parse_int(row.get("Period"))
+        return p if p is not None and p > 0 else None
+
+    def _game_seconds(row: dict[str, str]) -> Optional[int]:
+        gs = _parse_int(row.get("Game Seconds") or row.get("GameSeconds"))
+        if gs is not None:
+            return gs
+        return parse_duration_seconds(row.get("Game Time") or row.get("GameTime") or row.get("Time"))
+
+    def _video_seconds(row: dict[str, str]) -> Optional[int]:
+        vs = _parse_int(row.get("Video Seconds") or row.get("VideoSeconds"))
+        if vs is not None:
+            return vs
+        return parse_duration_seconds(row.get("Video Time") or row.get("VideoTime"))
+
+    def _video_time(row: dict[str, str]) -> str:
+        return str(row.get("Video Time") or row.get("VideoTime") or "").strip()
+
+    # Build lookup from incoming long Goal rows.
+    long_by_key: dict[tuple[int, str, int], dict[str, str]] = {}
+    for r in incoming_rows or []:
+        if not isinstance(r, dict):
+            continue
+        if _ev_type(r) != "goal":
+            continue
+        if not _has_source(r, "long"):
+            continue
+        per = _period(r)
+        side = _norm_side(r)
+        gs = _game_seconds(r)
+        if per is None or side is None or gs is None:
+            continue
+        vs = _video_seconds(r)
+        vt = _video_time(r)
+        if vs is None and not vt:
+            continue
+        long_by_key[(per, side, int(gs))] = r
+
+    if not long_by_key:
+        return existing_headers, existing_rows
+
+    # Ensure destination headers include video fields.
+    out_headers = list(existing_headers or [])
+    for h in ("Video Time", "Video Seconds"):
+        if h not in out_headers:
+            out_headers.append(h)
+
+    out_rows: list[dict[str, str]] = []
+    for r in existing_rows or []:
+        if not isinstance(r, dict):
+            continue
+        rr = dict(r)
+        if _ev_type(rr) == "goal" and _has_source(rr, "timetoscore"):
+            per = _period(rr)
+            side = _norm_side(rr)
+            gs = _game_seconds(rr)
+            if per is not None and side is not None and gs is not None:
+                match = long_by_key.get((per, side, int(gs)))
+                if match is not None:
+                    vs = _video_seconds(match)
+                    vt = _video_time(match)
+                    if vs is not None:
+                        rr["Video Seconds"] = str(int(vs))
+                    if vt:
+                        rr["Video Time"] = vt
+                    _add_source(rr, "long")
+        out_rows.append(rr)
+
+    return out_headers, out_rows
 
 
 def filter_game_stats_for_display(game_stats: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
