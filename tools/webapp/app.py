@@ -4596,6 +4596,7 @@ def create_app() -> Flask:
         if not can_view_summary:
             return ("Not found", 404)
         # is_owner already computed above
+        tts_linked = _extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
 
         return_to = _safe_return_to_url(request.args.get("return_to"), default="/schedule")
 
@@ -4908,6 +4909,20 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
+        # Bootstrap a default admin login for fresh DBs.
+        # Note: this is intentionally simple for quick setup; change/remove in real deployments.
+        try:
+            cur.execute(
+                "INSERT IGNORE INTO users(email, password_hash, name, created_at) VALUES(%s,%s,%s,%s)",
+                (
+                    "admin",
+                    generate_password_hash("admin"),
+                    "admin",
+                    dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+        except Exception:
+            pass
         # Leagues and sharing tables
         cur.execute(
             """
