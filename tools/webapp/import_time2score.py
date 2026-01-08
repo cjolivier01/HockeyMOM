@@ -65,7 +65,7 @@ def _parse_period_token(val: Any) -> Optional[int]:
         return None
 
 
-def _parse_mmss_to_seconds(val: Any) -> Optional[int]:
+def _parse_mmss_to_seconds(val: Any, *, period_len_s: Optional[int] = None) -> Optional[int]:
     s = str(val or "").strip()
     if not s:
         return None
@@ -75,6 +75,23 @@ def _parse_mmss_to_seconds(val: Any) -> Optional[int]:
         m = re.match(r"^\s*(\d+)[.](\d{1,2})\s*$", s)
         if not m:
             return None
+        try:
+            a = int(m.group(1))
+            b = int(m.group(2))
+        except Exception:
+            return None
+
+        # Disambiguate:
+        #   - "10.0" => 10:00 (mm:ss)
+        #   - "54.8" (in a 15:00 period) => 54.8 seconds (ss.d)
+        # Heuristic: if the "minutes" part exceeds the period length in minutes, treat it as seconds.
+        try:
+            if period_len_s is not None and a > max(1, int(period_len_s) // 60):
+                return int(float(s))
+        except Exception:
+            pass
+        return a * 60 + b
+
     try:
         return int(m.group(1)) * 60 + int(m.group(2))
     except Exception:
@@ -1879,8 +1896,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 minutes = tts_norm.parse_int_or_none(prow.get("minutes"))
                 start_txt = str(prow.get("start") or prow.get("offIce") or "").strip()
                 end_txt = str(prow.get("end") or prow.get("onIce") or "").strip()
-                start_s = _parse_mmss_to_seconds(start_txt)
-                end_s = _parse_mmss_to_seconds(end_txt)
+                start_s = _parse_mmss_to_seconds(start_txt, period_len_s=period_len_s)
+                end_s = _parse_mmss_to_seconds(end_txt, period_len_s=period_len_s)
                 inf = str(prow.get("infraction") or "").strip()
                 rec = {
                     "side": side_key,
@@ -1912,7 +1929,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if per is None:
                     continue
                 time_txt = str(srow.get("time") or "").strip()
-                time_s = _parse_mmss_to_seconds(time_txt)
+                time_s = _parse_mmss_to_seconds(time_txt, period_len_s=period_len_s)
                 scorer_raw = srow.get("goal")
                 a1_raw = srow.get("assist1")
                 a2_raw = srow.get("assist2")

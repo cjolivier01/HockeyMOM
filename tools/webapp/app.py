@@ -3627,6 +3627,7 @@ def create_app() -> Flask:
                     "source_label": erow.get("source_label"),
                     "updated_at": erow.get("updated_at"),
                     "count": len(events_rows),
+                    "sources": summarize_event_sources(events_rows, fallback_source_label=str(erow.get("source_label") or "")),
                 }
         except Exception:
             events_headers, events_rows, events_meta = [], [], None
@@ -4684,6 +4685,9 @@ def create_app() -> Flask:
         if events_meta is not None:
             try:
                 events_meta["count"] = len(events_rows)
+                events_meta["sources"] = summarize_event_sources(
+                    events_rows, fallback_source_label=str(events_meta.get("source_label") or "")
+                )
             except Exception:
                 pass
 
@@ -6025,6 +6029,51 @@ def filter_events_csv_drop_event_types(csv_text: str, *, drop_types: set[str]) -
             continue
         kept_rows.append(r)
     return to_csv_text(headers, kept_rows)
+
+
+def summarize_event_sources(
+    events_rows: list[dict[str, str]],
+    *,
+    fallback_source_label: Optional[str] = None,
+) -> list[str]:
+    """
+    Return a de-duped, order-preserving list of event row sources for UI display.
+    """
+
+    def _norm(s: Any) -> str:
+        return str(s or "").strip()
+
+    def _canon(s: str) -> str:
+        sl = s.strip().casefold()
+        if sl == "timetoscore":
+            return "TimeToScore"
+        if sl == "long":
+            return "Long"
+        if sl == "goals":
+            return "Goals"
+        if sl == "shift_package":
+            return "Shift Package"
+        if not s.strip():
+            return ""
+        return s.strip()
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for r in events_rows or []:
+        if not isinstance(r, dict):
+            continue
+        src_raw = _norm(r.get("Source") or "")
+        src = _canon(src_raw)
+        if not src and fallback_source_label:
+            src = _canon(str(fallback_source_label))
+        if not src:
+            continue
+        key = src.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(src)
+    return out
 
 
 def merge_events_csv_prefer_timetoscore(

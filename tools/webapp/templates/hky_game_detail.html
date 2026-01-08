@@ -277,7 +277,7 @@
   <h3 style="margin-top:0;">Game Events</h3>
   {% if events_meta %}
     <p class="muted" style="margin-top:0;">
-      {% if events_meta.get('source_label') %}Source: {{ events_meta.get('source_label') }}{% endif %}
+      {% if events_meta.get('sources') %}Sources: {{ ', '.join(events_meta.get('sources')) }}{% elif events_meta.get('source_label') %}Source: {{ events_meta.get('source_label') }}{% endif %}
       {% if events_meta.get('updated_at') %} | Updated: {{ events_meta.get('updated_at') }}{% endif %}
       {% if events_meta.get('count') is not none %} | Rows: {{ events_meta.get('count') }}{% endif %}
     </p>
@@ -299,6 +299,9 @@
           var legendEl = document.getElementById("game-events-timeline-legend");
           if (!dataEl || !svg || !legendEl) return;
 
+          var homeTeamName = {{ (game.get('team1_name') or 'Home')|tojson }};
+          var awayTeamName = {{ (game.get('team2_name') or 'Away')|tojson }};
+
           var eventsRows = [];
           try {
             eventsRows = JSON.parse(dataEl.textContent || "[]") || [];
@@ -317,6 +320,26 @@
             var c = m[3] ? parseInt(m[3], 10) : null;
             if (c === null) return a * 60 + b; // mm:ss
             return a * 3600 + b * 60 + c; // h:mm:ss
+          }
+
+          function parseTimeToSecondsLoose(s) {
+            var t = parseTimeToSeconds(s);
+            if (t !== null && isFinite(t)) return t;
+            s = String(s || "").trim();
+            if (!s) return null;
+            // Support TimeToScore dot formats:
+            //  - "10.0" => 10:00 (mm:ss with '.' separator)
+            //  - "54.8" => 54.8 seconds (scoreboard fractional seconds)
+            var m = s.match(/^(\d+)\.(\d{1,2})$/);
+            if (!m) return null;
+            var a = parseInt(m[1], 10);
+            var b = parseInt(m[2], 10);
+            if (!isFinite(a) || !isFinite(b)) return null;
+            if (a > 20) {
+              var f = parseFloat(s);
+              return isFinite(f) ? Math.floor(f) : null;
+            }
+            return a * 60 + b;
           }
 
           function getValue(row, keys) {
@@ -412,14 +435,16 @@
           function parseSide(row) {
             var tr = String(getValue(row, ["Team Rel", "TeamRel", "For/Against", "For Against", "Side"]) || "").trim();
             var trl = tr.toLowerCase();
-            if (trl === "for" || trl === "home" || trl === "team1") return "For";
-            if (trl === "against" || trl === "away" || trl === "team2") return "Against";
-            if (trl.indexOf("for") >= 0) return "For";
-            if (trl.indexOf("against") >= 0) return "Against";
+            if (trl === "for" || trl === "home" || trl === "team1") return "Home";
+            if (trl === "against" || trl === "away" || trl === "team2") return "Away";
+            if (trl.indexOf("home") >= 0) return "Home";
+            if (trl.indexOf("away") >= 0) return "Away";
+            if (trl.indexOf("for") >= 0 && trl.indexOf("against") < 0) return "Home";
+            if (trl.indexOf("against") >= 0) return "Away";
 
             var team = String(getValue(row, ["Team", "Team Raw", "TeamRaw"]) || "").trim().toLowerCase();
-            if (team === "home") return "For";
-            if (team === "away") return "Against";
+            if (team === "home") return "Home";
+            if (team === "away") return "Away";
             return "Neutral";
           }
 
@@ -654,7 +679,12 @@
               if (endRaw && endRaw.match(/^-?\\d+$/)) {
                 endWithin = parseInt(endRaw, 10);
               } else {
-                endWithin = parseTimeToSeconds(getValue(row, ["Game Time End", "GameTimeEnd", "End Time", "EndTime"]));
+                endWithin = parseTimeToSecondsLoose(getValue(row, ["Game Time End", "GameTimeEnd", "End Time", "EndTime"]));
+              }
+              if (endWithin !== null && isFinite(endWithin) && endWithin > 1500) {
+                var endAlt = parseTimeToSecondsLoose(getValue(row, ["Game Time End", "GameTimeEnd", "End Time", "EndTime"]));
+                if (endAlt !== null && isFinite(endAlt)) endWithin = endAlt;
+                if (endWithin !== null && isFinite(endWithin) && endWithin > 1500) return null;
               }
               return endWithin !== null && isFinite(endWithin) ? endWithin : null;
             }
@@ -669,7 +699,12 @@
               if (gs && gs.match(/^-?\d+$/)) {
                 tWithin = parseInt(gs, 10);
               } else {
-                tWithin = parseTimeToSeconds(getValue(r, ["Game Time", "GameTime", "Time"]));
+                tWithin = parseTimeToSecondsLoose(getValue(r, ["Game Time", "GameTime", "Time"]));
+              }
+              if (tWithin !== null && isFinite(tWithin) && tWithin > 1500) {
+                var tAlt = parseTimeToSecondsLoose(getValue(r, ["Game Time", "GameTime", "Time"]));
+                if (tAlt !== null && isFinite(tAlt)) tWithin = tAlt;
+                if (tWithin !== null && isFinite(tWithin) && tWithin > 1500) continue;
               }
               if (tWithin === null || !isFinite(tWithin)) continue;
               if (tWithin < 0) tWithin = 0;
@@ -959,7 +994,7 @@
 	                    if (Math.abs(hi - expectedEnd) <= 2) {
 	                      reason = "Timed out";
 	                    } else if (hi < expectedEnd - 2) {
-	                      var otherSide = side === "For" ? "Against" : "For";
+	                      var otherSide = side === "Home" ? "Away" : "Home";
 	                      if (findGoalNear(period, otherSide, hi, 2.0)) {
 	                        reason = "Ended by goal";
 	                      } else if (hi >= d - 1) {
@@ -1027,8 +1062,8 @@
               for (var p = 1; p <= maxPeriod; p++) {
                 if (looksAbsolute) continue; // spans only supported in within-period mode
                 var d = durations[p - 1] || 1200;
-                var forInts = buildIntervals(p, "For");
-                var againstInts = buildIntervals(p, "Against");
+                var forInts = buildIntervals(p, "Home");
+                var againstInts = buildIntervals(p, "Away");
                 if (!forInts.length && !againstInts.length) continue;
 
                 var boundsObj = { 0: true };
@@ -1049,7 +1084,7 @@
                   if (forPen === againstPen) continue;
 	                  var forSk = Math.max(3, 5 - forPen);
 	                  var againstSk = Math.max(3, 5 - againstPen);
-	                  var penalizedSide = forPen < againstPen ? "Against" : "For";
+	                  var penalizedSide = forPen < againstPen ? "Away" : "Home";
 	                  var penaltiesText = penaltiesTextForSpan(p, penalizedSide, a0, b0);
 	                  if (forPen < againstPen) {
 	                    spans.push({
@@ -1059,7 +1094,7 @@
 	                      typeLabel: "Power Play",
 	                      iconKey: "pp",
 	                      laneKey: "special_teams",
-	                      side: "For",
+	                      side: "Home",
 	                      row: { Details: forSk + "v" + againstSk },
 	                      penaltiesText: penaltiesText,
 	                    });
@@ -1070,7 +1105,7 @@
 	                      typeLabel: "Penalty Kill",
 	                      iconKey: "pk",
 	                      laneKey: "special_teams",
-	                      side: "Against",
+	                      side: "Away",
 	                      row: { Details: againstSk + "v" + forSk },
 	                      penaltiesText: penaltiesText,
 	                    });
@@ -1082,7 +1117,7 @@
 	                      typeLabel: "Power Play",
 	                      iconKey: "pp",
 	                      laneKey: "special_teams",
-	                      side: "Against",
+	                      side: "Away",
 	                      row: { Details: againstSk + "v" + forSk },
 	                      penaltiesText: penaltiesText,
 	                    });
@@ -1093,7 +1128,7 @@
 	                      typeLabel: "Penalty Kill",
 	                      iconKey: "pk",
 	                      laneKey: "special_teams",
-	                      side: "For",
+	                      side: "Home",
 	                      row: { Details: forSk + "v" + againstSk },
 	                      penaltiesText: penaltiesText,
 	                    });
@@ -1154,19 +1189,19 @@
             var seenAgainst = {};
             for (var t0 = 0; t0 < filtered.length; t0++) {
               var e1 = filtered[t0];
-              if (e1.side === "For" && !seenFor[e1.laneKey]) {
+              if (e1.side === "Home" && !seenFor[e1.laneKey]) {
                 seenFor[e1.laneKey] = true;
               }
-              if (e1.side === "Against" && !seenAgainst[e1.laneKey]) {
+              if (e1.side === "Away" && !seenAgainst[e1.laneKey]) {
                 seenAgainst[e1.laneKey] = true;
               }
             }
             for (var t1 = 0; t1 < spans.length; t1++) {
               var s1 = spans[t1];
-              if (s1.side === "For" && !seenFor[s1.laneKey]) {
+              if (s1.side === "Home" && !seenFor[s1.laneKey]) {
                 seenFor[s1.laneKey] = true;
               }
-              if (s1.side === "Against" && !seenAgainst[s1.laneKey]) {
+              if (s1.side === "Away" && !seenAgainst[s1.laneKey]) {
                 seenAgainst[s1.laneKey] = true;
               }
             }
@@ -1235,13 +1270,12 @@
             var W = Math.max(minW, containerW || minW);
             var leftPad = 16;
             var rightPad = 16;
-            var topPad = 10;
-            var bottomPad = 14;
+            var topPad = 10 + 18;
+            var bottomPad = 14 + 18;
             var axisGap = isMobile ? 12 : 10;
             var rowSpacing = iconSize + (isMobile ? 14 : 12);
-            var labelH = 18;
             var axisY = topPad + typesFor.length * rowSpacing + axisGap;
-            var H = axisY + axisGap + typesAgainst.length * rowSpacing + labelH + bottomPad;
+            var H = axisY + axisGap + typesAgainst.length * rowSpacing + bottomPad;
             if (H < 90) H = 90;
 
             svg.setAttribute("viewBox", "0 0 " + W + " " + H);
@@ -1301,31 +1335,31 @@
               })
             );
 
-            // For/Against labels
+            // Home/Away labels (outside the row regions so they never overlap icons)
             if (typesFor.length > 0) {
               var forText = svgEl("text", {
                 x: leftPad,
-                y: topPad + 12,
+                y: topPad - 6,
                 fill: "rgba(255,255,255,0.75)",
                 "font-size": 12,
                 "font-weight": 800,
                 "text-anchor": "start",
                 "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
               });
-              forText.appendChild(document.createTextNode("For"));
+              forText.appendChild(document.createTextNode("Home — " + (homeTeamName || "Home")));
               svg.appendChild(forText);
             }
             if (typesAgainst.length > 0) {
               var againstText = svgEl("text", {
                 x: leftPad,
-                y: axisY + axisGap + 12,
+                y: H - bottomPad + 14,
                 fill: "rgba(255,255,255,0.75)",
                 "font-size": 12,
                 "font-weight": 800,
                 "text-anchor": "start",
                 "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
               });
-              againstText.appendChild(document.createTextNode("Against"));
+              againstText.appendChild(document.createTextNode("Away — " + (awayTeamName || "Away")));
               svg.appendChild(againstText);
             }
 
@@ -1497,11 +1531,11 @@
             // Draw PP/PK spans (behind icons).
             function spanDrawY(side, laneKeyValue) {
               var y = axisY;
-              if (side === "For") {
+              if (side === "Home") {
                 var iy = yIndexFor[laneKeyValue];
                 if (iy === undefined) return null;
                 return axisY - axisGap - (iy + 0.5) * rowSpacing;
-              } else if (side === "Against") {
+              } else if (side === "Away") {
                 var ia = yIndexAgainst[laneKeyValue];
                 if (ia === undefined) return null;
                 return axisY + axisGap + (ia + 0.5) * rowSpacing;
@@ -1561,11 +1595,11 @@
               var x = xForTime(ev3.period, ev3.tWithin);
 
               var y = axisY;
-              if (ev3.side === "For") {
+              if (ev3.side === "Home") {
                 var iy = yIndexFor[ev3.laneKey];
                 if (iy === undefined) continue;
                 y = axisY - axisGap - (iy + 0.5) * rowSpacing;
-              } else if (ev3.side === "Against") {
+              } else if (ev3.side === "Away") {
                 var ia = yIndexAgainst[ev3.laneKey];
                 if (ia === undefined) continue;
                 y = axisY + axisGap + (ia + 0.5) * rowSpacing;
@@ -1584,7 +1618,7 @@
 
               var title = [];
               title.push(ev3.typeLabel);
-              if (ev3.side === "For" || ev3.side === "Against") title.push(ev3.side);
+              if (ev3.side === "Home" || ev3.side === "Away") title.push(ev3.side);
               var timeTxt2 = String(getValue(ev3.row, ["Game Time", "GameTime", "Time"]) || "").trim();
               if (!timeTxt2) timeTxt2 = secondsToLabel(ev3.tWithin);
               title.push((ev3.period === 4 ? "OT" : "P" + ev3.period) + " @ " + timeTxt2);
