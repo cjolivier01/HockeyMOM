@@ -146,44 +146,40 @@
     <p class="muted" style="margin-top:0;">Warning: {{ player_stats_import_warning }}</p>
   {% endif %}
 
-  {% if scoring_by_period_rows and (scoring_by_period_rows|length) %}
-    <div class="card" style="margin-top:.75rem;">
-      <h4 style="margin:0 0 .5rem 0;">Scoring By Period</h4>
-      <div class="table-scroll">
-        <table class="table-grid table-nowrap">
-          <thead>
-            <tr>
-              <th>Period</th>
-              <th>{{ game['team1_name'] }} GF/GA</th>
-              <th>{{ game['team2_name'] }} GF/GA</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% set t1_gf = namespace(v=0) %}
-            {% set t1_ga = namespace(v=0) %}
-            {% set t2_gf = namespace(v=0) %}
-            {% set t2_ga = namespace(v=0) %}
-            {% for r in scoring_by_period_rows %}
-              {% set p = r.get('period') %}
-              {% set p_label = ('OT' if p == 4 else ('P' ~ p)) %}
-              {% set _ = t1_gf.__setattr__('v', t1_gf.v + (r.get('team1_gf') or 0)) %}
-              {% set _ = t1_ga.__setattr__('v', t1_ga.v + (r.get('team1_ga') or 0)) %}
-              {% set _ = t2_gf.__setattr__('v', t2_gf.v + (r.get('team2_gf') or 0)) %}
-              {% set _ = t2_ga.__setattr__('v', t2_ga.v + (r.get('team2_ga') or 0)) %}
-              <tr>
-                <td>{{ p_label }}</td>
-                <td>{{ (r.get('team1_gf') or 0) }}/{{ (r.get('team1_ga') or 0) }}</td>
-                <td>{{ (r.get('team2_gf') or 0) }}/{{ (r.get('team2_ga') or 0) }}</td>
-              </tr>
-            {% endfor %}
-            <tr style="font-weight:600;">
-              <td>Total</td>
-              <td>{{ t1_gf.v }}/{{ t1_ga.v }}</td>
-              <td>{{ t2_gf.v }}/{{ t2_ga.v }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+	  {% if scoring_by_period_rows and (scoring_by_period_rows|length) %}
+	    <div class="card" style="margin-top:.75rem;">
+	      <h4 style="margin:0 0 .5rem 0;">Scoring By Period</h4>
+	      <div class="table-scroll">
+	        <table class="table-grid table-nowrap">
+	          <thead>
+	            <tr>
+	              <th>Period</th>
+	              <th>{{ game['team1_name'] }}</th>
+	              <th>{{ game['team2_name'] }}</th>
+	            </tr>
+	          </thead>
+	          <tbody>
+	            {% set t1_gf = namespace(v=0) %}
+	            {% set t2_gf = namespace(v=0) %}
+	            {% for r in scoring_by_period_rows %}
+	              {% set p = r.get('period') %}
+	              {% set p_label = ('OT' if p == 4 else ('P' ~ p)) %}
+	              {% set t1_gf.v = t1_gf.v + (r.get('team1_gf') or 0) %}
+	              {% set t2_gf.v = t2_gf.v + (r.get('team2_gf') or 0) %}
+	              <tr>
+	                <td>{{ p_label }}</td>
+	                <td>{{ (r.get('team1_gf') or 0) }}</td>
+	                <td>{{ (r.get('team2_gf') or 0) }}</td>
+	              </tr>
+	            {% endfor %}
+	            <tr style="font-weight:600;">
+	              <td>Total</td>
+	              <td>{{ t1_gf.v }}</td>
+	              <td>{{ t2_gf.v }}</td>
+	            </tr>
+	          </tbody>
+	        </table>
+	      </div>
       <p class="muted" style="margin:.5rem 0 0 0;">Derived from goal events (TimeToScore / imported events), not shifts.</p>
     </div>
   {% endif %}

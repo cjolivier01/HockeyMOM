@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import TimeToScore data into the HockeyMOM webapp DB (no local sqlite cache).
+"""Import TimeToScore data into the HockeyMOM webapp DB (optionally using a local sqlite cache).
 
 This script scrapes TimeToScore directly via `hmlib.time2score` and upserts:
 - teams (as external teams owned by the specified user)
@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
+from contextlib import contextmanager
 
 
 def load_db_cfg(config_path: str) -> dict:
@@ -89,6 +90,17 @@ def _to_csv_text(headers: list[str], rows: list[dict[str, Any]]) -> str:
     for r in rows or []:
         w.writerow({h: ("" if r.get(h) is None else str(r.get(h))) for h in headers})
     return out.getvalue()
+
+
+@contextmanager
+def _working_directory(path: Path):
+    prev = Path.cwd()
+    path.mkdir(parents=True, exist_ok=True)
+    os.chdir(str(path))
+    try:
+        yield
+    finally:
+        os.chdir(str(prev))
 
 
 def ensure_defaults(conn) -> None:
@@ -1122,6 +1134,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--game-id", dest="game_ids", action="append", default=[], help="Import specific game id (repeatable)")
     ap.add_argument("--games-file", default=None, help="File containing one game id per line")
     ap.add_argument("--limit", type=int, default=None, help="Max games to import (for testing)")
+    ap.add_argument(
+        "--hockey-db-dir",
+        type=Path,
+        default=Path.home() / ".cache" / "hockeymom",
+        help=(
+            "Directory for the local TimeToScore sqlite cache (hockey_league.db). "
+            "Used to avoid re-scraping game pages when possible (default: ~/.cache/hockeymom)."
+        ),
+    )
+    ap.add_argument(
+        "--scrape",
+        action="store_true",
+        help="Force re-scraping TimeToScore game pages (refreshed stats are written back to the local cache).",
+    )
 
     ap.add_argument(
         "--league-name",
@@ -1192,6 +1218,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     from hmlib.time2score import direct as tts_direct
     from hmlib.time2score import normalize as tts_norm
+    from hmlib.time2score import database as tts_db
 
     rest_mode = bool(args.api_url)
     if rest_mode and (args.cleanup_only or args.refresh_team_metadata or args.share_with):
@@ -1233,6 +1260,37 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     season_id = int(args.season) or tts_direct.pick_current_season_id(args.source)
     log(f"Using source={args.source} season_id={season_id}")
+    hockey_db_dir = Path(args.hockey_db_dir).expanduser()
+
+    def _get_cached_stats(game_id: int) -> Optional[dict[str, Any]]:
+        try:
+            with _working_directory(hockey_db_dir):
+                db = tts_db.Database()
+                db.create_tables()
+                cached = db.get_cached_game_stats(str(args.source), int(game_id))
+                if cached:
+                    return cached
+                row = db.get_game(int(game_id))
+                if row and row.get("stats"):
+                    return row.get("stats")
+        except Exception:
+            return None
+        return None
+
+    def _set_cached_stats(game_id: int, stats: dict[str, Any]) -> None:
+        try:
+            with _working_directory(hockey_db_dir):
+                db = tts_db.Database()
+                db.create_tables()
+                db.set_cached_game_stats(
+                    str(args.source),
+                    int(game_id),
+                    season_id=int(season_id) if season_id is not None else None,
+                    stats=dict(stats or {}),
+                )
+        except Exception:
+            pass
+
     divs = tts_direct.list_divisions(args.source, season_id=season_id)
     if args.list_divisions:
         for d in sorted(divs, key=lambda x: (int(x.division_id), int(x.conference_id), x.name)):
@@ -1618,103 +1676,118 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         schedule_only_game = False
         stats: dict[str, Any] = {}
-        for attempt in range(1, max_attempts + 1):
-            try:
-                stats = tts_direct.scrape_game_stats(args.source, game_id=int(gid), season_id=season_id)
-            except Exception as e:
-                stats = {}
-                # If the game has a recorded score in the schedule, missing stats should be treated as fatal
-                # so we can fix the scraper and backfill correctly.
-                if fb_has_result and attempt < max_attempts:
-                    sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
-                    log(
-                        f"Warning: scrape_game_stats failed (attempt {attempt}/{max_attempts}) "
-                        f"for source={args.source} season_id={season_id} game_id={gid} "
-                        f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}. "
-                        f"Retrying in {sleep_s:.1f}s..."
-                    )
-                    time.sleep(sleep_s)
-                    delay_s = min(max_delay_s, delay_s * 2.0) if max_delay_s else delay_s * 2.0
-                    continue
-                if fb_has_result:
-                    if bool(args.allow_schedule_only) and type(e).__name__ == "MissingStatsError":
-                        schedule_only_game = True
+        attempt = 0
+        if not bool(args.scrape):
+            cached = _get_cached_stats(int(gid))
+            if cached:
+                stats = dict(cached or {})
+
+        if not stats:
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    stats = tts_direct.scrape_game_stats(args.source, game_id=int(gid), season_id=season_id)
+                    if stats:
+                        _set_cached_stats(int(gid), stats)
+                except Exception as e:
+                    stats = {}
+                    # If the game has a recorded score in the schedule, missing stats should be treated as fatal
+                    # so we can fix the scraper and backfill correctly.
+                    if fb_has_result and attempt < max_attempts:
+                        sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
                         log(
-                            f"Warning: importing schedule-only game (missing boxscore after {attempt}/{max_attempts} attempts): "
+                            f"Warning: scrape_game_stats failed (attempt {attempt}/{max_attempts}) "
+                            f"for source={args.source} season_id={season_id} game_id={gid} "
+                            f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}. "
+                            f"Retrying in {sleep_s:.1f}s..."
+                        )
+                        time.sleep(sleep_s)
+                        delay_s = min(max_delay_s, delay_s * 2.0) if max_delay_s else delay_s * 2.0
+                        continue
+                    if fb_has_result:
+                        if bool(args.allow_schedule_only) and type(e).__name__ == "MissingStatsError":
+                            schedule_only_game = True
+                            log(
+                                f"Warning: importing schedule-only game (missing boxscore after {attempt}/{max_attempts} attempts): "
+                                f"source={args.source} season_id={season_id} game_id={gid} "
+                                f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}"
+                            )
+                            break
+                        raise RuntimeError(
+                            f"TimeToScore scrape_game_stats failed for a game with a recorded result: "
                             f"source={args.source} season_id={season_id} game_id={gid} "
                             f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}"
+                        ) from e
+                    break
+
+                # If the game has a non-zero score, we must be able to attribute per-player goals/assists
+                # from the TimeToScore payload. If not, retry (often throttling / partial HTML).
+                t1_score_try = tts_norm.parse_int_or_none(stats.get("homeGoals"))
+                t2_score_try = tts_norm.parse_int_or_none(stats.get("awayGoals"))
+                if t1_score_try is None and fb_hg is not None:
+                    t1_score_try = fb_hg
+                if t2_score_try is None and fb_ag is not None:
+                    t2_score_try = fb_ag
+                goal_total_try = int(t1_score_try or 0) + int(t2_score_try or 0)
+                ga_rows_try = [
+                    agg for agg in tts_norm.aggregate_goals_assists(stats) if str(agg.get("name") or "").strip()
+                ]
+                ga_sum_try = sum(int(r.get("goals") or 0) for r in ga_rows_try)
+                if goal_total_try > 0 and ga_sum_try == 0:
+                    has_any_boxscore_rows = False
+                    for k in (
+                        "homePlayers",
+                        "awayPlayers",
+                        "homeScoring",
+                        "awayScoring",
+                        "homePenalties",
+                        "awayPenalties",
+                        "homeShootout",
+                        "awayShootout",
+                        "homeSkaters",
+                        "awaySkaters",
+                        "home_skaters",
+                        "away_skaters",
+                    ):
+                        v = stats.get(k)
+                        if isinstance(v, list) and v:
+                            has_any_boxscore_rows = True
+                            break
+                    # If the page has *no* boxscore tables at all, it's often a permanent "schedule-only" game state.
+                    # Don't burn full backoff retries in that case.
+                    if (
+                        bool(args.allow_schedule_only)
+                        and not has_any_boxscore_rows
+                        and attempt >= min(max_attempts, 2)
+                    ):
+                        schedule_only_game = True
+                        log(
+                            f"Warning: importing schedule-only game (scored but no boxscore data after {attempt}/{max_attempts} attempts): "
+                            f"source={args.source} season_id={season_id} game_id={gid} "
+                            f"(homeGoals={t1_score_try}, awayGoals={t2_score_try})."
                         )
                         break
+                    if attempt < max_attempts:
+                        sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
+                        log(
+                            f"Warning: scored game but no scoring attribution (attempt {attempt}/{max_attempts}) "
+                            f"for source={args.source} season_id={season_id} game_id={gid} "
+                            f"(homeGoals={t1_score_try}, awayGoals={t2_score_try}; "
+                            f"homeScoring={len(stats.get('homeScoring') or [])}, awayScoring={len(stats.get('awayScoring') or [])}). "
+                            f"Retrying in {sleep_s:.1f}s..."
+                        )
+                        time.sleep(sleep_s)
+                        delay_s = min(max_delay_s, delay_s * 2.0) if max_delay_s else delay_s * 2.0
+                        continue
                     raise RuntimeError(
-                        f"TimeToScore scrape_game_stats failed for a game with a recorded result: "
-                        f"source={args.source} season_id={season_id} game_id={gid} "
-                        f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}"
-                    ) from e
-                break
-
-            # If the game has a non-zero score, we must be able to attribute per-player goals/assists
-            # from the TimeToScore payload. If not, retry (often throttling / partial HTML).
-            t1_score_try = tts_norm.parse_int_or_none(stats.get("homeGoals"))
-            t2_score_try = tts_norm.parse_int_or_none(stats.get("awayGoals"))
-            if t1_score_try is None and fb_hg is not None:
-                t1_score_try = fb_hg
-            if t2_score_try is None and fb_ag is not None:
-                t2_score_try = fb_ag
-            goal_total_try = int(t1_score_try or 0) + int(t2_score_try or 0)
-            ga_rows_try = [agg for agg in tts_norm.aggregate_goals_assists(stats) if str(agg.get("name") or "").strip()]
-            ga_sum_try = sum(int(r.get("goals") or 0) for r in ga_rows_try)
-            if goal_total_try > 0 and ga_sum_try == 0:
-                has_any_boxscore_rows = False
-                for k in (
-                    "homePlayers",
-                    "awayPlayers",
-                    "homeScoring",
-                    "awayScoring",
-                    "homePenalties",
-                    "awayPenalties",
-                    "homeShootout",
-                    "awayShootout",
-                    "homeSkaters",
-                    "awaySkaters",
-                    "home_skaters",
-                    "away_skaters",
-                ):
-                    v = stats.get(k)
-                    if isinstance(v, list) and v:
-                        has_any_boxscore_rows = True
-                        break
-                # If the page has *no* boxscore tables at all, it's often a permanent "schedule-only" game state.
-                # Don't burn full backoff retries in that case.
-                if (
-                    bool(args.allow_schedule_only)
-                    and not has_any_boxscore_rows
-                    and attempt >= min(max_attempts, 2)
-                ):
-                    schedule_only_game = True
-                    log(
-                        f"Warning: importing schedule-only game (scored but no boxscore data after {attempt}/{max_attempts} attempts): "
+                        f"TimeToScore scrape returned a scored game but no scoring attribution: "
                         f"source={args.source} season_id={season_id} game_id={gid} "
                         f"(homeGoals={t1_score_try}, awayGoals={t2_score_try})."
                     )
-                    break
-                if attempt < max_attempts:
-                    sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
-                    log(
-                        f"Warning: scored game but no scoring attribution (attempt {attempt}/{max_attempts}) "
-                        f"for source={args.source} season_id={season_id} game_id={gid} "
-                        f"(homeGoals={t1_score_try}, awayGoals={t2_score_try}; "
-                        f"homeScoring={len(stats.get('homeScoring') or [])}, awayScoring={len(stats.get('awayScoring') or [])}). "
-                        f"Retrying in {sleep_s:.1f}s..."
-                    )
-                    time.sleep(sleep_s)
-                    delay_s = min(max_delay_s, delay_s * 2.0) if max_delay_s else delay_s * 2.0
-                    continue
-                raise RuntimeError(
-                    f"TimeToScore scrape returned a scored game but no scoring attribution: "
-                    f"source={args.source} season_id={season_id} game_id={gid} "
-                    f"(homeGoals={t1_score_try}, awayGoals={t2_score_try})."
-                )
-            break
+                break
+
+        # If we forced a scrape, still persist the result.
+        if bool(args.scrape) and stats:
+            _set_cached_stats(int(gid), stats)
 
         if not stats and not fb:
             skipped += 1

@@ -23,6 +23,7 @@ DEPLOY_ONLY=0
 DROP_DB=0
 DROP_DB_ONLY=0
 SPREADSHEETS_ONLY=0
+T2S_SCRAPE=0
 
 usage() {
   cat <<'EOF'
@@ -43,6 +44,7 @@ Options:
   --drop-db               Drop (and recreate) the webapp MariaDB database on the GCE instance, then continue
   --drop-db-only          Drop (and recreate) the database, then exit (implies --drop-db)
   --spreadsheets-only     Seed only from shift spreadsheets (skip TimeToScore import; avoids T2S usage in parse_stats_inputs)
+  --scrape                Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
 EOF
 }
 
@@ -52,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --drop-db) DROP_DB=1; shift ;;
     --drop-db-only) DROP_DB=1; DROP_DB_ONLY=1; shift ;;
     --spreadsheets-only|--no-time2score|--no-t2s) SPREADSHEETS_ONLY=1; shift ;;
+    --scrape|--t2s-scrape) T2S_SCRAPE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *)
       echo "[!] Unknown arg: $1" >&2
@@ -196,11 +199,16 @@ if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
   echo "[i] --spreadsheets-only: skipping TimeToScore import"
 else
   echo "[i] Importing TimeToScore (caha -> ${LEAGUE_NAME}) via REST"
+  T2S_ARGS=()
+  if [[ "${T2S_SCRAPE}" == "1" ]]; then
+    T2S_ARGS+=( "--scrape" )
+  fi
   ./p tools/webapp/import_time2score.py \
     --source=caha \
     --league-name="${LEAGUE_NAME}" \
     --season 0 \
     --api-url "${WEBAPP_URL}" \
+    "${T2S_ARGS[@]}" \
     "${TOKEN_ARGS[@]}" \
     --user-email "${OWNER_EMAIL}"
 fi
