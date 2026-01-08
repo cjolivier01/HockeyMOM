@@ -190,7 +190,7 @@ Environment=MSMTP_CONFIG=/etc/msmtprc
 Environment=MSMTPRC=/etc/msmtprc
 Environment=HM_DB_CONFIG={app_dir}/config.json
 WorkingDirectory={app_dir}
-ExecStart={python_bin} -m gunicorn -b {args.bind_address}:{args.port} app:app
+ExecStart={python_bin} -m gunicorn -b {args.bind_address}:{args.port} --access-logfile - --error-logfile - --capture-output --log-level info app:app
 Restart=on-failure
 RestartSec=3
 

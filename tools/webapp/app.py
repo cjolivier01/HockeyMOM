@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import sys
+import traceback
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -24,6 +25,7 @@ from flask import (
     url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.exceptions import HTTPException
 
 # Lazy import for pymysql to allow importing module without DB installed (e.g., tests)
 try:
@@ -131,6 +133,18 @@ def create_app() -> Flask:
         MAX_CONTENT_LENGTH=1024 * 1024 * 500,  # 500MB
         UPLOAD_FOLDER=WATCH_ROOT,
     )
+
+    @app.errorhandler(Exception)  # noqa: BLE001
+    def _log_unhandled_exception(e: Exception):
+        # Ensure unexpected errors always show up in gunicorn/systemd logs.
+        if isinstance(e, HTTPException):
+            return e
+        try:
+            print("[webapp] Unhandled exception:", file=sys.stderr)
+            traceback.print_exc()
+        except Exception:
+            pass
+        return ("Internal Server Error", 500)
 
     INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
@@ -1113,6 +1127,36 @@ def create_app() -> Flask:
             return str(m.group(1)).strip()
         return None
 
+    def _extract_timetoscore_game_id_from_notes(notes: Optional[str]) -> Optional[int]:
+        s = str(notes or "").strip()
+        if not s:
+            return None
+        try:
+            d = json.loads(s)
+            if isinstance(d, dict):
+                v = d.get("timetoscore_game_id")
+                if v is not None:
+                    try:
+                        return int(v)
+                    except Exception:
+                        return None
+        except Exception:
+            pass
+        # Backward-compatible plain-text token used by older importers.
+        m = re.search(r"(?:^|[\\s|,;])game_id\\s*=\\s*(\\d+)", s, flags=re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1))
+            except Exception:
+                return None
+        m = re.search(r"\"timetoscore_game_id\"\\s*:\\s*(\\d+)", s)
+        if m:
+            try:
+                return int(m.group(1))
+            except Exception:
+                return None
+        return None
+
     def _update_game_video_url_note(game_id: int, video_url: str, *, replace: bool, commit: bool = True) -> None:
         url = _sanitize_http_url(video_url)
         if not url:
@@ -1860,7 +1904,10 @@ def create_app() -> Flask:
                     if pid is None:
                         pid = _ensure_player_for_import(owner_user_id, team_ref, pname, None, None)
 
-                    if replace:
+                    # If this game is linked to TimeToScore, TimeToScore is the source of truth for
+                    # goal/assist attribution. Always overwrite goals/assists from the TimeToScore import.
+                    force_tts_scoring = bool(tts_game_id is not None)
+                    if replace or force_tts_scoring:
                         cur.execute(
                             """
                             INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
@@ -2190,12 +2237,15 @@ def create_app() -> Flask:
                                     owner_user_id, team_ref, pname, None, None, commit=False
                                 )
 
-                            if game_replace:
+                            # If this game is linked to TimeToScore, TimeToScore is the source of truth for
+                            # goal/assist attribution. Always overwrite goals/assists from the TimeToScore import.
+                            force_tts_scoring = bool(tts_game_id is not None)
+                            if game_replace or force_tts_scoring:
                                 cur.execute(
                                     """
                                     INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists, pim)
                                     VALUES(%s,%s,%s,%s,%s,%s,%s)
-                                    ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists), pim=VALUES(pim)
+                                    ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists), pim=COALESCE(VALUES(pim), pim)
                                     """,
                                     (owner_user_id, team_ref, gid, pid, gval, aval, pim_val),
                                 )
@@ -2221,14 +2271,37 @@ def create_app() -> Flask:
                                 (gid, events_csv, "timetoscore", dt.datetime.now().isoformat()),
                             )
                         else:
-                            cur.execute("SELECT events_csv FROM hky_game_events WHERE game_id=%s", (gid,))
-                            if not cur.fetchone():
+                            cur.execute("SELECT events_csv, source_label FROM hky_game_events WHERE game_id=%s", (gid,))
+                            existing = cur.fetchone()
+                            if not existing:
                                 cur.execute(
                                     """
                                     INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
                                     VALUES(%s,%s,%s,%s)
                                     """,
                                     (gid, events_csv, "timetoscore", dt.datetime.now().isoformat()),
+                                )
+                            else:
+                                try:
+                                    existing_csv = str(existing[0] or "")
+                                    existing_source = str(existing[1] or "")
+                                except Exception:
+                                    existing_csv = ""
+                                    existing_source = ""
+                                merged_csv, merged_source = merge_events_csv_prefer_timetoscore(
+                                    existing_csv=existing_csv,
+                                    existing_source_label=existing_source,
+                                    incoming_csv=str(events_csv),
+                                    incoming_source_label="timetoscore",
+                                    protected_types={"goal", "assist", "penalty", "penalty expired", "goaliechange"},
+                                )
+                                cur.execute(
+                                    """
+                                    INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
+                                    VALUES(%s,%s,%s,%s)
+                                    ON DUPLICATE KEY UPDATE events_csv=VALUES(events_csv), source_label=VALUES(source_label), updated_at=VALUES(updated_at)
+                                    """,
+                                    (gid, merged_csv, merged_source or "timetoscore", dt.datetime.now().isoformat()),
                                 )
 
                     if isinstance(game_stats_json, dict) and game_stats_json:
@@ -2554,6 +2627,7 @@ def create_app() -> Flask:
         team1_id = int(game_row["team1_id"])
         team2_id = int(game_row["team2_id"])
         owner_user_id = int(game_row.get("user_id") or 0)
+        tts_linked = bool(tts_game_id is not None or _extract_timetoscore_game_id_from_notes(game_row.get("notes")) is not None)
 
         player_stats_csv = payload.get("player_stats_csv")
         game_stats_csv = payload.get("game_stats_csv")
@@ -2570,6 +2644,23 @@ def create_app() -> Flask:
                 _update_game_video_url_note(int(resolved_game_id), str(game_video_url), replace=replace, commit=False)
             except Exception:
                 # Best-effort: failures updating the optional game video URL must not block the import.
+                pass
+
+        if isinstance(events_csv, str) and events_csv.strip():
+            # Never store PP/PK span events; they are derived at render time from penalty windows.
+            # For TimeToScore-linked games, do not store spreadsheet Goal/Assist attribution.
+            drop_types = {"power play", "powerplay", "penalty kill", "penaltykill"}
+            if tts_linked:
+                drop_types |= {"goal", "assist"}
+            try:
+                events_csv = filter_events_csv_drop_event_types(str(events_csv), drop_types=drop_types)
+            except Exception:
+                pass
+            try:
+                _h, _r = parse_events_csv(str(events_csv))
+                if not _r:
+                    events_csv = None
+            except Exception:
                 pass
 
         # Optional league mapping / ordering updates for existing games.
@@ -2666,10 +2757,6 @@ def create_app() -> Flask:
                             # but still allow shift-spreadsheet uploads to *augment* the timeline with non-T2S events
                             # (e.g., SOG/xG/entries). We do not overwrite any existing rows.
                             try:
-                                tts_linked = bool(tts_game_id is not None)
-                            except Exception:
-                                tts_linked = False
-                            try:
                                 if isinstance(existing, dict):
                                     existing_csv = str(existing.get("events_csv") or "")
                                     existing_source = str(existing.get("source_label") or "")
@@ -2692,9 +2779,8 @@ def create_app() -> Flask:
                                         "goal",
                                         "assist",
                                         "penalty",
+                                        "penalty expired",
                                         "goaliechange",
-                                        "power play",
-                                        "penalty kill",
                                     }
 
                                     def _key(r: dict[str, str]) -> tuple[str, str, str, str, str]:
@@ -2846,6 +2932,10 @@ def create_app() -> Flask:
                                 continue
 
                         stats = row.get("stats") or {}
+                        if tts_linked:
+                            stats = dict(stats)
+                            stats["goals"] = None
+                            stats["assists"] = None
                         cols = [
                             "goals",
                             "assists",
@@ -3516,6 +3606,8 @@ def create_app() -> Flask:
             game_stats = None
         game_stats = filter_game_stats_for_display(game_stats)
         period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
+        tts_linked = _extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
+        tts_linked = _extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
 
         events_headers: list[str] = []
         events_rows: list[dict[str, str]] = []
@@ -3530,6 +3622,7 @@ def create_app() -> Flask:
             if erow and str(erow.get("events_csv") or "").strip():
                 events_headers, events_rows = parse_events_csv(str(erow.get("events_csv") or ""))
                 events_headers, events_rows = normalize_game_events_csv(events_headers, events_rows)
+                events_rows = filter_events_rows_prefer_timetoscore_for_goal_assist(events_rows, tts_linked=tts_linked)
                 events_meta = {
                     "source_label": erow.get("source_label"),
                     "updated_at": erow.get("updated_at"),
@@ -3537,6 +3630,8 @@ def create_app() -> Flask:
                 }
         except Exception:
             events_headers, events_rows, events_meta = [], [], None
+
+        scoring_by_period_rows = compute_team_scoring_by_period_from_events(events_rows, tts_linked=tts_linked)
 
         imported_player_stats_csv_text: Optional[str] = None
         player_stats_import_meta: Optional[dict[str, Any]] = None
@@ -3561,6 +3656,7 @@ def create_app() -> Flask:
                 players=list(team1_skaters) + list(team2_skaters),
                 stats_by_pid=stats_by_pid,
                 imported_csv_text=imported_player_stats_csv_text,
+                prefer_db_stats_for_keys={"goals", "assists"} if tts_linked else None,
             )
         )
         team1_skaters_sorted = list(team1_skaters)
@@ -3606,6 +3702,7 @@ def create_app() -> Flask:
             events_headers=events_headers,
             events_rows=events_rows,
             events_meta=events_meta,
+            scoring_by_period_rows=scoring_by_period_rows,
             game_player_stats_columns=game_player_stats_columns,
             player_stats_cells_by_pid=player_stats_cells_by_pid,
             player_stats_cell_conflicts_by_pid=player_stats_cell_conflicts_by_pid,
@@ -4239,6 +4336,8 @@ def create_app() -> Flask:
             flash("Not found", "error")
             return redirect(url_for("schedule"))
 
+        tts_linked = _extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
+
         # Authorization: only allow edits if owner or league admin/owner.
         editable = True
         if league_id:
@@ -4369,6 +4468,10 @@ def create_app() -> Flask:
                     continue
 
                 stats = row.get("stats") or {}
+                if tts_linked:
+                    stats = dict(stats)
+                    stats["goals"] = None
+                    stats["assists"] = None
                 cols = [
                     "goals",
                     "assists",
@@ -4572,6 +4675,19 @@ def create_app() -> Flask:
         except Exception:
             events_headers, events_rows, events_meta = [], [], None
 
+        try:
+            events_headers, events_rows = normalize_game_events_csv(events_headers, events_rows)
+        except Exception:
+            pass
+        events_rows = filter_events_rows_prefer_timetoscore_for_goal_assist(events_rows, tts_linked=tts_linked)
+        if events_meta is not None:
+            try:
+                events_meta["count"] = len(events_rows)
+            except Exception:
+                pass
+
+        scoring_by_period_rows = compute_team_scoring_by_period_from_events(events_rows, tts_linked=tts_linked)
+
         imported_player_stats_csv_text: Optional[str] = None
         player_stats_import_meta: Optional[dict[str, Any]] = None
         try:
@@ -4595,6 +4711,7 @@ def create_app() -> Flask:
                 players=list(team1_skaters) + list(team2_skaters),
                 stats_by_pid=stats_by_pid,
                 imported_csv_text=imported_player_stats_csv_text,
+                prefer_db_stats_for_keys={"goals", "assists"} if tts_linked else None,
             )
         )
         team1_skaters_sorted = list(team1_skaters)
@@ -4743,6 +4860,7 @@ def create_app() -> Flask:
             events_headers=events_headers,
             events_rows=events_rows,
             events_meta=events_meta,
+            scoring_by_period_rows=scoring_by_period_rows,
             game_player_stats_columns=game_player_stats_columns,
             player_stats_cells_by_pid=player_stats_cells_by_pid,
             player_stats_cell_conflicts_by_pid=player_stats_cell_conflicts_by_pid,
@@ -5747,6 +5865,228 @@ def normalize_game_events_csv(headers: list[str], rows: list[dict[str, str]]) ->
     return reordered_headers, reordered_rows
 
 
+def compute_team_scoring_by_period_from_events(
+    events_rows: list[dict[str, str]],
+    *,
+    tts_linked: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Compute per-period team GF/GA from stored goal events.
+
+    Notes:
+      - Uses event rows (e.g. from hky_game_events.events_csv).
+      - Team mapping uses 'Team Rel' when present:
+          home/for/team1 => team1, away/against/team2 => team2
+    Returns rows like:
+      {'period': 1, 'team1_gf': 2, 'team1_ga': 1, 'team2_gf': 1, 'team2_ga': 2}
+    """
+
+    def _norm(s: Any) -> str:
+        return str(s or "").strip().casefold()
+
+    def _parse_int(v: Any) -> Optional[int]:
+        try:
+            return int(str(v or "").strip())
+        except Exception:
+            return None
+
+    def _team_rel_to_team_idx(row: dict[str, str]) -> Optional[int]:
+        tr = _norm(
+            row.get("Team Rel")
+            or row.get("TeamRel")
+            or row.get("For/Against")
+            or row.get("For Against")
+            or row.get("Side")
+            or row.get("Team")
+        )
+        if tr in {"home", "for", "team1"}:
+            return 1
+        if tr in {"away", "against", "team2"}:
+            return 2
+        # Some old tables use team raw "Home"/"Away" but leave Team Rel blank.
+        tr2 = _norm(row.get("Team Raw") or row.get("TeamRaw") or "")
+        if tr2 in {"home", "for", "team1"}:
+            return 1
+        if tr2 in {"away", "against", "team2"}:
+            return 2
+        return None
+
+    by_period: dict[int, dict[str, int]] = {}
+    # If the game is TimeToScore-linked, only count TimeToScore goal rows for scoring attribution.
+    # Otherwise, prefer TimeToScore goal rows when they are present (but allow spreadsheet-only games).
+    has_tts_goal_rows = False
+    if tts_linked:
+        has_tts_goal_rows = True
+    else:
+        for r0 in events_rows or []:
+            if not isinstance(r0, dict):
+                continue
+            if _norm(r0.get("Event Type") or r0.get("Event") or "") != "goal":
+                continue
+            if _norm(r0.get("Source") or "") == "timetoscore":
+                has_tts_goal_rows = True
+                break
+
+    for r in events_rows or []:
+        if not isinstance(r, dict):
+            continue
+        et = _norm(r.get("Event Type") or r.get("Event") or "")
+        if et != "goal":
+            continue
+        if has_tts_goal_rows and _norm(r.get("Source") or "") != "timetoscore":
+            continue
+        per = _parse_int(r.get("Period"))
+        if per is None:
+            continue
+        team_idx = _team_rel_to_team_idx(r)
+        if team_idx is None:
+            continue
+        rec = by_period.setdefault(per, {"team1_gf": 0, "team1_ga": 0, "team2_gf": 0, "team2_ga": 0})
+        if team_idx == 1:
+            rec["team1_gf"] += 1
+            rec["team2_ga"] += 1
+        else:
+            rec["team2_gf"] += 1
+            rec["team1_ga"] += 1
+
+    if not by_period:
+        return []
+    max_period = max(3, max(by_period.keys()))
+    out: list[dict[str, Any]] = []
+    for p in range(1, max_period + 1):
+        rec = by_period.get(p) or {"team1_gf": 0, "team1_ga": 0, "team2_gf": 0, "team2_ga": 0}
+        out.append({"period": p, **rec})
+    return out
+
+
+def filter_events_rows_prefer_timetoscore_for_goal_assist(
+    events_rows: list[dict[str, str]],
+    *,
+    tts_linked: bool = False,
+) -> list[dict[str, str]]:
+    """
+    If any TimeToScore Goal/Assist rows exist, drop non-TimeToScore Goal/Assist rows to
+    avoid mixing attribution sources.
+    """
+
+    def _norm(s: Any) -> str:
+        return str(s or "").strip().casefold()
+
+    def _ev_type(r: dict[str, str]) -> str:
+        return _norm(r.get("Event Type") or r.get("Event") or "")
+
+    def _is_tts_row(r: dict[str, str]) -> bool:
+        return _norm(r.get("Source") or "") == "timetoscore"
+
+    if not events_rows:
+        return []
+    has_tts = any(_ev_type(r) in {"goal", "assist"} and _is_tts_row(r) for r in events_rows if isinstance(r, dict))
+    if not has_tts and not tts_linked:
+        return list(events_rows)
+    return [
+        r
+        for r in events_rows
+        if isinstance(r, dict) and (_ev_type(r) not in {"goal", "assist"} or _is_tts_row(r))
+    ]
+
+
+def filter_events_csv_drop_event_types(csv_text: str, *, drop_types: set[str]) -> str:
+    """
+    Drop specific event types from an events CSV (case-insensitive match on Event Type/Event).
+    """
+
+    def _norm(s: Any) -> str:
+        return str(s or "").strip().casefold()
+
+    headers, rows = parse_events_csv(csv_text)
+    if not headers:
+        return csv_text
+    kept_rows: list[dict[str, str]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        et = _norm(r.get("Event Type") or r.get("Event") or "")
+        if et and et in drop_types:
+            continue
+        kept_rows.append(r)
+    return to_csv_text(headers, kept_rows)
+
+
+def merge_events_csv_prefer_timetoscore(
+    *,
+    existing_csv: str,
+    existing_source_label: str,
+    incoming_csv: str,
+    incoming_source_label: str,
+    protected_types: set[str],
+) -> tuple[str, str]:
+    """
+    Merge two events CSVs, preferring TimeToScore rows for protected event types (Goal/Assist/etc).
+    Returns: (merged_csv, merged_source_label).
+    """
+
+    def _norm(s: Any) -> str:
+        return str(s or "").strip().casefold()
+
+    def _ev_type(r: dict[str, str]) -> str:
+        return _norm(r.get("Event Type") or r.get("Event") or "")
+
+    def _is_tts_row(r: dict[str, str], fallback_label: str) -> bool:
+        src = _norm(r.get("Source") or "")
+        if src:
+            return src == "timetoscore"
+        return str(fallback_label or "").strip().lower().startswith("timetoscore")
+
+    def _key(r: dict[str, str]) -> tuple[str, str, str, str, str]:
+        et = _ev_type(r)
+        per = str(r.get("Period") or "").strip()
+        gs = str(r.get("Game Seconds") or r.get("GameSeconds") or "").strip()
+        tr = str(r.get("Team Rel") or r.get("TeamRel") or r.get("Team") or "").strip().casefold()
+        jerseys = str(r.get("Attributed Jerseys") or "").strip()
+        return (et, per, gs, tr, jerseys)
+
+    ex_headers, ex_rows = parse_events_csv(existing_csv)
+    in_headers, in_rows = parse_events_csv(incoming_csv)
+
+    def _iter_typed(rows: list[dict[str, str]], label: str) -> list[tuple[dict[str, str], str]]:
+        out: list[tuple[dict[str, str], str]] = []
+        for r in rows or []:
+            if isinstance(r, dict):
+                out.append((r, label))
+        return out
+
+    all_rows = _iter_typed(ex_rows, existing_source_label) + _iter_typed(in_rows, incoming_source_label)
+    has_tts_protected = any(_ev_type(r) in protected_types and _is_tts_row(r, lbl) for r, lbl in all_rows)
+
+    merged_rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for r, lbl in all_rows:
+        et = _ev_type(r)
+        if not et:
+            continue
+        if has_tts_protected and et in protected_types and not _is_tts_row(r, lbl):
+            continue
+        k = _key(r)
+        if k in seen:
+            continue
+        seen.add(k)
+        merged_rows.append(r)
+
+    merged_headers = list(ex_headers or [])
+    for h in in_headers or []:
+        if h not in merged_headers:
+            merged_headers.append(h)
+
+    # Prefer a TimeToScore label if either input is TimeToScore.
+    merged_source = (
+        existing_source_label
+        if str(existing_source_label or "").strip().lower().startswith("timetoscore")
+        else (incoming_source_label if str(incoming_source_label or "").strip().lower().startswith("timetoscore") else (existing_source_label or incoming_source_label))
+    )
+
+    return to_csv_text(merged_headers, merged_rows), str(merged_source or "")
+
+
 def filter_game_stats_for_display(game_stats: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
     if not game_stats:
         return game_stats
@@ -6213,6 +6553,7 @@ def _build_game_player_stats_table_from_imported_csv(
     players: list[dict[str, Any]],
     stats_by_pid: dict[int, dict[str, Any]],
     imported_csv_text: str,
+    prefer_db_stats_for_keys: Optional[set[str]] = None,
 ) -> tuple[list[dict[str, Any]], dict[int, dict[str, str]], dict[int, dict[str, bool]], Optional[str]]:
     """
     Display-first per-game table: preserve imported CSV columns (minus identity fields),
@@ -6324,7 +6665,10 @@ def _build_game_player_stats_table_from_imported_csv(
             db_key = col.get("db_key")
             raw_v = str(imp_row.get(header) or "").strip()
             if db_key:
-                v, s, is_conf = _merge_stat_values(db_row.get(str(db_key)), raw_v)
+                if prefer_db_stats_for_keys and str(db_key) in prefer_db_stats_for_keys:
+                    v, s, is_conf = _merge_stat_values(db_row.get(str(db_key)), None)
+                else:
+                    v, s, is_conf = _merge_stat_values(db_row.get(str(db_key)), raw_v)
                 cell_text_by_pid[pid][cid] = s
                 cell_conf_by_pid[pid][cid] = bool(is_conf)
             else:
@@ -6591,17 +6935,15 @@ def filter_player_stats_display_columns_for_rows(
 ) -> tuple[tuple[str, str], ...]:
     """
     Hide:
-      - OT-only columns when all values are 0/blank
       - Any column that is entirely blank (missing data)
+      - Any column where all values are 0/blank
     """
     if not columns:
         return columns
     out: list[tuple[str, str]] = []
     for k, label in columns:
         vals = [r.get(k) for r in (rows or [])]
-        if k in OT_ONLY_PLAYER_STATS_KEYS and all(_is_zero_or_blank_stat(v) for v in vals):
-            continue
-        if all(_is_blank_stat(v) for v in vals):
+        if all(_is_zero_or_blank_stat(v) for v in vals):
             continue
         out.append((k, label))
     return tuple(out)
@@ -6704,6 +7046,7 @@ def build_game_player_stats_table(
     players: list[dict[str, Any]],
     stats_by_pid: dict[int, dict[str, Any]],
     imported_csv_text: Optional[str],
+    prefer_db_stats_for_keys: Optional[set[str]] = None,
 ) -> tuple[list[dict[str, Any]], dict[int, dict[str, str]], dict[int, dict[str, bool]], Optional[str]]:
     """
     Build a merged (DB + imported CSV) per-game player stats table.
@@ -6714,6 +7057,7 @@ def build_game_player_stats_table(
             players=players,
             stats_by_pid=stats_by_pid,
             imported_csv_text=str(imported_csv_text),
+            prefer_db_stats_for_keys=prefer_db_stats_for_keys,
         )
 
     imported_by_pid, imported_warning = _map_imported_shift_stats_to_player_ids(

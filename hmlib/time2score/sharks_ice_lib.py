@@ -119,26 +119,23 @@ tr_selectors = dict(
         " tbody:nth-child(1) > tr:nth-child(n+2)"
     ),
     awayScoring=(
-        "body > div > div.d50l > div.d25l > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
+        # Pages sometimes contain additional leading tables before the .d50l/.d50r layout blocks.
+        "body div.d50l div.d25l table:nth-of-type(1) tr"
     ),
     homeScoring=(
-        "body > div > div.d50r > div.d25l > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
+        "body div.d50r div.d25l table:nth-of-type(1) tr"
     ),
     awayPenalties=(
-        "body > div > div.d50l > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
+        "body div.d50l div.d25r table:nth-of-type(1) tr"
     ),
     homePenalties=(
-        "body > div > div.d50r > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
+        "body div.d50r div.d25r table:nth-of-type(1) tr"
     ),
     awayShootout=(
-        "body > div > div.d50l > div.d25l > table:nth-child(2) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
+        "body div.d50l div.d25l table:nth-of-type(2) tr"
     ),
     homeShootout=(
-        "body > div > div.d50r > div.d25l > table:nth-child(2) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
+        "body div.d50r div.d25l table:nth-of-type(2) tr"
     ),
 )
 

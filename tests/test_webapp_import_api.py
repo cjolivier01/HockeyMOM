@@ -785,7 +785,8 @@ def should_import_game_and_be_non_destructive_without_replace(client_and_db, mon
     assert (lid, int(out["team2_id"])) in db.league_teams
     assert (lid, gid) in db.league_games
 
-    # Re-import with different scores/stats without replace should not overwrite existing scores/stats
+    # Re-import with different scores/stats without replace should not overwrite existing scores,
+    # but should still refresh TimeToScore-sourced goal/assist attribution.
     payload2 = dict(payload)
     payload2["game"] = dict(payload["game"])
     payload2["game"]["home_score"] = 9
@@ -798,10 +799,10 @@ def should_import_game_and_be_non_destructive_without_replace(client_and_db, mon
     g2 = db.hky_games_by_id[gid2]
     assert g2["team1_score"] == 1 and g2["team2_score"] == 2
 
-    # Player stats remain original (non-null) without replace
+    # Player stats are refreshed from TimeToScore without replace
     alice_pid = db.player_id_by_user_team_name[(out["owner_user_id"], out["team1_id"], "Alice")]
     ps = db.player_stats[(gid, alice_pid)]
-    assert ps["goals"] == 1 and ps["assists"] == 0
+    assert ps["goals"] == 7 and ps["assists"] == 7
 
 
 def should_persist_division_metadata_on_import(client_and_db, monkeypatch):

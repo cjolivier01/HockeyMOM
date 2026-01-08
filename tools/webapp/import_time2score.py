@@ -70,7 +70,10 @@ def _parse_mmss_to_seconds(val: Any) -> Optional[int]:
         return None
     m = re.match(r"^\s*(\d+):(\d{2})\s*$", s)
     if not m:
-        return None
+        # Some TimeToScore pages use '.' instead of ':' (e.g. "10.0" meaning "10:00").
+        m = re.match(r"^\s*(\d+)[.](\d{1,2})\s*$", s)
+        if not m:
+            return None
     try:
         return int(m.group(1)) * 60 + int(m.group(2))
     except Exception:
@@ -1149,6 +1152,33 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=50,
         help="Games per REST batch request (only with --api-url).",
     )
+    ap.add_argument(
+        "--t2s-max-attempts",
+        type=int,
+        default=4,
+        help="Max scrape attempts per game when TimeToScore results look incomplete (throttling/HTML changes).",
+    )
+    ap.add_argument(
+        "--t2s-initial-backoff-s",
+        type=float,
+        default=1.0,
+        help="Initial backoff seconds between TimeToScore scrape attempts.",
+    )
+    ap.add_argument(
+        "--t2s-max-backoff-s",
+        type=float,
+        default=20.0,
+        help="Max backoff seconds between TimeToScore scrape attempts.",
+    )
+    ap.add_argument(
+        "--allow-schedule-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Allow importing schedule-only games when TimeToScore has a recorded score but the game page has "
+            "no usable boxscore (no roster/scoring/penalties)."
+        ),
+    )
 
     args = ap.parse_args(argv)
 
@@ -1541,6 +1571,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     count = 0
     skipped = 0
     posted = 0
+    schedule_only = 0
     api_games_batch: list[dict[str, Any]] = []
     cleaned_team_ids: set[int] = set()
     started = time.time()
@@ -1578,24 +1609,118 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.limit is not None and count >= int(args.limit):
             break
         fb = fallback_by_gid.get(int(gid))
-        try:
-            stats = tts_direct.scrape_game_stats(args.source, game_id=int(gid), season_id=season_id)
-        except Exception as e:
-            # If the game has a recorded score in the schedule, missing stats should be treated as fatal
-            # so we can fix the scraper and backfill correctly.
-            stats = {}
-            fb_hg = tts_norm.parse_int_or_none((fb or {}).get("homeGoals"))
-            fb_ag = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
-            has_result = (fb_hg is not None) or (fb_ag is not None)
-            if has_result:
+        fb_hg = tts_norm.parse_int_or_none((fb or {}).get("homeGoals"))
+        fb_ag = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
+        fb_has_result = (fb_hg is not None) or (fb_ag is not None)
+        max_attempts = max(1, int(args.t2s_max_attempts or 1))
+        delay_s = max(0.0, float(args.t2s_initial_backoff_s or 0.0))
+        max_delay_s = max(0.0, float(args.t2s_max_backoff_s or 0.0))
+
+        schedule_only_game = False
+        stats: dict[str, Any] = {}
+        for attempt in range(1, max_attempts + 1):
+            try:
+                stats = tts_direct.scrape_game_stats(args.source, game_id=int(gid), season_id=season_id)
+            except Exception as e:
+                stats = {}
+                # If the game has a recorded score in the schedule, missing stats should be treated as fatal
+                # so we can fix the scraper and backfill correctly.
+                if fb_has_result and attempt < max_attempts:
+                    sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
+                    log(
+                        f"Warning: scrape_game_stats failed (attempt {attempt}/{max_attempts}) "
+                        f"for source={args.source} season_id={season_id} game_id={gid} "
+                        f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}. "
+                        f"Retrying in {sleep_s:.1f}s..."
+                    )
+                    time.sleep(sleep_s)
+                    delay_s = min(max_delay_s, delay_s * 2.0) if max_delay_s else delay_s * 2.0
+                    continue
+                if fb_has_result:
+                    if bool(args.allow_schedule_only) and type(e).__name__ == "MissingStatsError":
+                        schedule_only_game = True
+                        log(
+                            f"Warning: importing schedule-only game (missing boxscore after {attempt}/{max_attempts} attempts): "
+                            f"source={args.source} season_id={season_id} game_id={gid} "
+                            f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}"
+                        )
+                        break
+                    raise RuntimeError(
+                        f"TimeToScore scrape_game_stats failed for a game with a recorded result: "
+                        f"source={args.source} season_id={season_id} game_id={gid} "
+                        f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}"
+                    ) from e
+                break
+
+            # If the game has a non-zero score, we must be able to attribute per-player goals/assists
+            # from the TimeToScore payload. If not, retry (often throttling / partial HTML).
+            t1_score_try = tts_norm.parse_int_or_none(stats.get("homeGoals"))
+            t2_score_try = tts_norm.parse_int_or_none(stats.get("awayGoals"))
+            if t1_score_try is None and fb_hg is not None:
+                t1_score_try = fb_hg
+            if t2_score_try is None and fb_ag is not None:
+                t2_score_try = fb_ag
+            goal_total_try = int(t1_score_try or 0) + int(t2_score_try or 0)
+            ga_rows_try = [agg for agg in tts_norm.aggregate_goals_assists(stats) if str(agg.get("name") or "").strip()]
+            ga_sum_try = sum(int(r.get("goals") or 0) for r in ga_rows_try)
+            if goal_total_try > 0 and ga_sum_try == 0:
+                has_any_boxscore_rows = False
+                for k in (
+                    "homePlayers",
+                    "awayPlayers",
+                    "homeScoring",
+                    "awayScoring",
+                    "homePenalties",
+                    "awayPenalties",
+                    "homeShootout",
+                    "awayShootout",
+                    "homeSkaters",
+                    "awaySkaters",
+                    "home_skaters",
+                    "away_skaters",
+                ):
+                    v = stats.get(k)
+                    if isinstance(v, list) and v:
+                        has_any_boxscore_rows = True
+                        break
+                # If the page has *no* boxscore tables at all, it's often a permanent "schedule-only" game state.
+                # Don't burn full backoff retries in that case.
+                if (
+                    bool(args.allow_schedule_only)
+                    and not has_any_boxscore_rows
+                    and attempt >= min(max_attempts, 2)
+                ):
+                    schedule_only_game = True
+                    log(
+                        f"Warning: importing schedule-only game (scored but no boxscore data after {attempt}/{max_attempts} attempts): "
+                        f"source={args.source} season_id={season_id} game_id={gid} "
+                        f"(homeGoals={t1_score_try}, awayGoals={t2_score_try})."
+                    )
+                    break
+                if attempt < max_attempts:
+                    sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
+                    log(
+                        f"Warning: scored game but no scoring attribution (attempt {attempt}/{max_attempts}) "
+                        f"for source={args.source} season_id={season_id} game_id={gid} "
+                        f"(homeGoals={t1_score_try}, awayGoals={t2_score_try}; "
+                        f"homeScoring={len(stats.get('homeScoring') or [])}, awayScoring={len(stats.get('awayScoring') or [])}). "
+                        f"Retrying in {sleep_s:.1f}s..."
+                    )
+                    time.sleep(sleep_s)
+                    delay_s = min(max_delay_s, delay_s * 2.0) if max_delay_s else delay_s * 2.0
+                    continue
                 raise RuntimeError(
-                    f"TimeToScore scrape_game_stats failed for a game with a recorded result: "
+                    f"TimeToScore scrape returned a scored game but no scoring attribution: "
                     f"source={args.source} season_id={season_id} game_id={gid} "
-                    f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}"
-                ) from e
-            if not fb:
-                skipped += 1
-                continue
+                    f"(homeGoals={t1_score_try}, awayGoals={t2_score_try})."
+                )
+            break
+
+        if not stats and not fb:
+            skipped += 1
+            continue
+        if schedule_only_game:
+            schedule_only += 1
 
         home_name = str(stats.get("home") or "").strip() or str((fb or {}).get("home") or "").strip()
         away_name = str(stats.get("away") or "").strip() or str((fb or {}).get("away") or "").strip()
@@ -1633,17 +1758,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if t2_score is None and (fb or {}).get("awayGoals") is not None:
             t2_score = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
 
-        # Strictness: if the game has a non-zero score, we must be able to attribute
-        # per-player goals/assists from the TimeToScore payload.
-        goal_total = int(t1_score or 0) + int(t2_score or 0)
         ga_rows = [agg for agg in tts_norm.aggregate_goals_assists(stats) if str(agg.get("name") or "").strip()]
-        ga_sum = sum(int(r.get("goals") or 0) for r in ga_rows)
-        if goal_total > 0 and ga_sum == 0:
-            raise RuntimeError(
-                f"TimeToScore scrape returned a scored game but no scoring attribution: "
-                f"source={args.source} season_id={season_id} game_id={gid} "
-                f"(homeGoals={t1_score}, awayGoals={t2_score})."
-            )
 
         # Build a basic events timeline from TimeToScore data (goals + penalties + PP/PK spans)
         # so the webapp can show game events even before any spreadsheets are uploaded.
@@ -1756,8 +1871,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     }
                 )
 
-        # Determine per-period time mode and compute PP/PK spans (best-effort).
-        pp_pk_spans: list[dict[str, Any]] = []
+        # Determine per-period time mode and fill missing penalty end times (best-effort).
         penalties_events_rows: list[dict[str, Any]] = []
         for side_key, recs in penalties_by_side.items():
             for rec in recs:
@@ -1778,7 +1892,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         "Period": per,
                         "Game Time": rec.get("start_txt") or "",
                         "Game Seconds": start_s if start_s is not None else "",
-                        "Game Seconds End": end_s if end_s is not None else "",
+                        "Game Seconds End": "",
                         "Details": " ".join(
                             [
                                 x
@@ -1846,115 +1960,45 @@ def main(argv: Optional[list[str]] = None) -> int:
                 else:
                     rec["end_s"] = min(int(period_len_s), int(start_s) + int(delta))
 
-        # Compute PP/PK spans from penalty intervals where an end time is known.
-        for per, mode in mode_by_period.items():
-            home_ints: list[tuple[int, int]] = []
-            away_ints: list[tuple[int, int]] = []
-            for side_key, dest in (("home", home_ints), ("away", away_ints)):
-                for rec in penalties_by_side.get(side_key, []):
-                    if int(rec.get("period") or 0) != int(per):
-                        continue
-                    s0 = rec.get("start_s")
-                    e0 = rec.get("end_s")
-                    if s0 is None or e0 is None:
-                        continue
-                    s = int(s0)
-                    e = int(e0)
-                    s_el = (period_len_s - s) if mode == "remaining" else s
-                    e_el = (period_len_s - e) if mode == "remaining" else e
-                    a, b = (s_el, e_el) if s_el <= e_el else (e_el, s_el)
-                    a = max(0, min(int(period_len_s), a))
-                    b = max(0, min(int(period_len_s), b))
-                    if b <= a:
-                        continue
-                    dest.append((a, b))
-
-            bounds = sorted({0, int(period_len_s)} | {x for ab in home_ints + away_ints for x in ab})
-            if len(bounds) < 2:
-                continue
-
-            def _count_active(ints: list[tuple[int, int]], t: float) -> int:
-                return sum(1 for a, b in ints if a <= t < b)
-
-            def _to_within(el: int) -> int:
-                return int(period_len_s - el) if mode == "remaining" else int(el)
-
-            for i in range(len(bounds) - 1):
-                a = int(bounds[i])
-                b = int(bounds[i + 1])
-                if b <= a:
+        # Emit explicit "Penalty Expired" events for each penalty with a known end time.
+        penalty_expired_events_rows: list[dict[str, Any]] = []
+        for side_key, recs in penalties_by_side.items():
+            for rec in recs:
+                end_s = rec.get("end_s")
+                if end_s is None:
                     continue
-                mid = (a + b) / 2.0
-                hc = _count_active(home_ints, mid)
-                ac = _count_active(away_ints, mid)
-                if hc == ac:
-                    continue
-                home_skaters = max(3, 5 - hc)
-                away_skaters = max(3, 5 - ac)
-                if ac > hc:
-                    # Home has advantage.
-                    pp_pk_spans.append(
-                        {
-                            "Event Type": "Power Play",
-                            "Source": "timetoscore",
-                            "Team Rel": "Home",
-                            "Team Raw": "Home",
-                            "Period": int(per),
-                            "Game Time": "",
-                            "Game Seconds": _to_within(a),
-                            "Game Seconds End": _to_within(b),
-                            "Details": f"{home_skaters}v{away_skaters}",
-                            "Attributed Players": "",
-                            "Attributed Jerseys": "",
-                        }
-                    )
-                    pp_pk_spans.append(
-                        {
-                            "Event Type": "Penalty Kill",
-                            "Source": "timetoscore",
-                            "Team Rel": "Away",
-                            "Team Raw": "Away",
-                            "Period": int(per),
-                            "Game Time": "",
-                            "Game Seconds": _to_within(a),
-                            "Game Seconds End": _to_within(b),
-                            "Details": f"{away_skaters}v{home_skaters}",
-                            "Attributed Players": "",
-                            "Attributed Jerseys": "",
-                        }
-                    )
-                else:
-                    # Away has advantage.
-                    pp_pk_spans.append(
-                        {
-                            "Event Type": "Power Play",
-                            "Source": "timetoscore",
-                            "Team Rel": "Away",
-                            "Team Raw": "Away",
-                            "Period": int(per),
-                            "Game Time": "",
-                            "Game Seconds": _to_within(a),
-                            "Game Seconds End": _to_within(b),
-                            "Details": f"{away_skaters}v{home_skaters}",
-                            "Attributed Players": "",
-                            "Attributed Jerseys": "",
-                        }
-                    )
-                    pp_pk_spans.append(
-                        {
-                            "Event Type": "Penalty Kill",
-                            "Source": "timetoscore",
-                            "Team Rel": "Home",
-                            "Team Raw": "Home",
-                            "Period": int(per),
-                            "Game Time": "",
-                            "Game Seconds": _to_within(a),
-                            "Game Seconds End": _to_within(b),
-                            "Details": f"{home_skaters}v{away_skaters}",
-                            "Attributed Players": "",
-                            "Attributed Jerseys": "",
-                        }
-                    )
+                per = int(rec.get("period") or 0)
+                details = " ".join(
+                    [
+                        x
+                        for x in [
+                            "Expired",
+                            (f"#{rec.get('jersey')}" if rec.get("jersey") else ""),
+                            str(rec.get("infraction") or "").strip(),
+                            (f"{int(rec.get('minutes'))}m" if rec.get("minutes") is not None else ""),
+                        ]
+                        if x
+                    ]
+                ).strip()
+                penalty_expired_events_rows.append(
+                    {
+                        "Event Type": "Penalty Expired",
+                        "Source": "timetoscore",
+                        "Team Rel": _side_label(side_key),
+                        "Team Raw": _side_label(side_key),
+                        "Period": per,
+                        "Game Time": rec.get("end_txt") or "",
+                        "Game Seconds": int(end_s),
+                        "Game Seconds End": "",
+                        "Details": details,
+                        "Attributed Players": (
+                            num_to_name_home.get(str(rec.get("jersey"))) if side_key == "home" and rec.get("jersey") else
+                            num_to_name_away.get(str(rec.get("jersey"))) if side_key == "away" and rec.get("jersey") else
+                            ""
+                        ),
+                        "Attributed Jerseys": rec.get("jersey") or "",
+                    }
+                )
 
         events_headers = [
             "Event Type",
@@ -1969,7 +2013,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             "Attributed Players",
             "Attributed Jerseys",
         ]
-        events_rows = list(goal_events) + list(penalties_events_rows) + list(pp_pk_spans)
+        events_rows = list(goal_events) + list(penalties_events_rows) + list(penalty_expired_events_rows)
         events_rows.sort(
             key=lambda r: (
                 int(r.get("Period") or 0),
@@ -2013,6 +2057,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             "Away Penalties": str(len([r for r in penalties_by_side.get("away", []) if r.get("start_s") is not None])),
             "Home PIM": str(home_pim_total) if home_pim_total else "",
             "Away PIM": str(away_pim_total) if away_pim_total else "",
+            "TTS Schedule Only": "1" if schedule_only_game else "",
         }
 
         if rest_mode:
@@ -2277,7 +2322,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if rest_mode:
         _post_batch()
 
-    log(f"Import complete. Imported {count} games, skipped={skipped}.")
+    log(f"Import complete. Imported {count} games, skipped={skipped}, schedule_only={schedule_only}.")
     if (not rest_mode) and (not args.no_cleanup_bogus_players):
         try:
             assert conn is not None

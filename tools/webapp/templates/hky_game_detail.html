@@ -145,6 +145,49 @@
   {% if player_stats_import_warning %}
     <p class="muted" style="margin-top:0;">Warning: {{ player_stats_import_warning }}</p>
   {% endif %}
+
+  {% if scoring_by_period_rows and (scoring_by_period_rows|length) %}
+    <div class="card" style="margin-top:.75rem;">
+      <h4 style="margin:0 0 .5rem 0;">Scoring By Period</h4>
+      <div class="table-scroll">
+        <table class="table-grid table-nowrap">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>{{ game['team1_name'] }} GF/GA</th>
+              <th>{{ game['team2_name'] }} GF/GA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set t1_gf = namespace(v=0) %}
+            {% set t1_ga = namespace(v=0) %}
+            {% set t2_gf = namespace(v=0) %}
+            {% set t2_ga = namespace(v=0) %}
+            {% for r in scoring_by_period_rows %}
+              {% set p = r.get('period') %}
+              {% set p_label = ('OT' if p == 4 else ('P' ~ p)) %}
+              {% set _ = t1_gf.__setattr__('v', t1_gf.v + (r.get('team1_gf') or 0)) %}
+              {% set _ = t1_ga.__setattr__('v', t1_ga.v + (r.get('team1_ga') or 0)) %}
+              {% set _ = t2_gf.__setattr__('v', t2_gf.v + (r.get('team2_gf') or 0)) %}
+              {% set _ = t2_ga.__setattr__('v', t2_ga.v + (r.get('team2_ga') or 0)) %}
+              <tr>
+                <td>{{ p_label }}</td>
+                <td>{{ (r.get('team1_gf') or 0) }}/{{ (r.get('team1_ga') or 0) }}</td>
+                <td>{{ (r.get('team2_gf') or 0) }}/{{ (r.get('team2_ga') or 0) }}</td>
+              </tr>
+            {% endfor %}
+            <tr style="font-weight:600;">
+              <td>Total</td>
+              <td>{{ t1_gf.v }}/{{ t1_ga.v }}</td>
+              <td>{{ t2_gf.v }}/{{ t2_ga.v }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="margin:.5rem 0 0 0;">Derived from goal events (TimeToScore / imported events), not shifts.</p>
+    </div>
+  {% endif %}
+
   {% for team_key, players in [('team1', team1_players), ('team2', team2_players)] %}
     {% set is_team1 = (team_key == 'team1') %}
     {% set team_name = game['team1_name'] if is_team1 else game['team2_name'] %}
@@ -315,6 +358,7 @@
             if (sl === "goal") return "Goal";
             if (sl === "assist") return "Assist";
             if (sl === "penalty") return "Penalty";
+            if (sl === "penalty expired" || sl === "penaltyexpired") return "Penalty Expired";
             if (sl === "powerplay" || sl === "power play" || sl === "pp") return "Power Play";
             if (sl === "penaltykill" || sl === "penalty kill" || sl === "pk") return "Penalty Kill";
             if (sl.indexOf("rush") >= 0) return "Odd-Man Rush";
@@ -335,6 +379,7 @@
             if (sl === "sog") return "sog";
             if (sl === "shot") return "shot";
             if (sl === "penalty") return "penalty";
+            if (sl === "penalty expired") return "penalty_expired";
             if (sl === "power play" || sl === "pp") return "pp";
             if (sl === "penalty kill" || sl === "pk") return "pk";
             if (sl === "controlled entry") return "controlled_entry";
@@ -593,6 +638,31 @@
 
             var parsed = [];
             var spans = [];
+            var penaltyStarts = [];
+            var penaltyEnds = [];
+
+            function extractPenaltyJersey(row) {
+              var j = String(
+                getValue(row, ["Attributed Jerseys", "AttributedJerseys", "Jersey #", "Jersey", "Jersey No", "JerseyNo", "Jersey Number"]) || ""
+              ).trim();
+              if (j && j.match(/^\\d+$/)) return j;
+              var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
+              var m = det.match(/#\\s*(\\d+)/);
+              if (m) return m[1];
+              return "";
+            }
+
+            function parseEndWithinFromRow(row) {
+              var endRaw = String(getValue(row, ["Game Seconds End", "GameSecondsEnd", "End Game Seconds", "EndGameSeconds"]) || "").trim();
+              var endWithin = null;
+              if (endRaw && endRaw.match(/^-?\\d+$/)) {
+                endWithin = parseInt(endRaw, 10);
+              } else {
+                endWithin = parseTimeToSeconds(getValue(row, ["Game Time End", "GameTimeEnd", "End Time", "EndTime"]));
+              }
+              return endWithin !== null && isFinite(endWithin) ? endWithin : null;
+            }
+
             for (var i = 0; i < eventsRows.length; i++) {
               var r = eventsRows[i] || {};
               var period = parsePeriod(getValue(r, ["Period"]));
@@ -614,27 +684,26 @@
 
               var side = parseSide(r);
               var ik = typeKey(label);
-              if (ik === "pp" || ik === "pk") {
-                var endRaw = String(getValue(r, ["Game Seconds End", "GameSecondsEnd", "End Game Seconds", "EndGameSeconds"]) || "").trim();
-                var endWithin = null;
-                if (endRaw && endRaw.match(/^-?\d+$/)) {
-                  endWithin = parseInt(endRaw, 10);
-                } else {
-                  endWithin = parseTimeToSeconds(getValue(r, ["Game Time End", "GameTimeEnd", "End Time", "EndTime"]));
-                }
-                if (endWithin !== null && isFinite(endWithin)) {
-                  spans.push({
-                    period: period,
-                    startWithin: tWithin,
-                    endWithin: endWithin,
-                    typeLabel: label,
-                    iconKey: ik,
-                    laneKey: "special_teams",
-                    side: side,
-                    row: r,
-                  });
-                }
-                continue;
+              var ll = String(label).trim().toLowerCase();
+              if (ll === "penalty expired") {
+                penaltyEnds.push({
+                  period: period,
+                  tWithin: tWithin,
+                  side: side,
+                  jersey: extractPenaltyJersey(r),
+                  row: r,
+                });
+                continue; // don't draw an icon for expiry markers
+              }
+              if (ll === "penalty") {
+                penaltyStarts.push({
+                  period: period,
+                  tWithin: tWithin,
+                  side: side,
+                  jersey: extractPenaltyJersey(r),
+                  endWithin: parseEndWithinFromRow(r),
+                  row: r,
+                });
               }
               parsed.push({
                 period: period,
@@ -749,6 +818,153 @@
                 }
               }
             }
+
+            // Infer PP/PK spans from penalty windows: only when penalty counts differ (4v4 etc -> no span).
+            spans = [];
+            (function inferSpansFromPenalties() {
+              if (!penaltyStarts.length) return;
+
+              var startsByPS = {};
+              var endsByPS = {};
+
+              function keyPS(p, s) { return String(p) + "|" + String(s); }
+
+              for (var a0 = 0; a0 < penaltyStarts.length; a0++) {
+                var st = penaltyStarts[a0];
+                var k = keyPS(st.period, st.side);
+                if (!startsByPS[k]) startsByPS[k] = [];
+                startsByPS[k].push(st);
+              }
+              for (var e0 = 0; e0 < penaltyEnds.length; e0++) {
+                var en = penaltyEnds[e0];
+                var k2 = keyPS(en.period, en.side);
+                if (!endsByPS[k2]) endsByPS[k2] = [];
+                endsByPS[k2].push(en);
+              }
+
+              function buildIntervals(period, side) {
+                var k = keyPS(period, side);
+                var starts = (startsByPS[k] || []).slice();
+                var ends = (endsByPS[k] || []).slice();
+                for (var i = 0; i < starts.length; i++) starts[i]._startElapsed = withinToElapsed(period, starts[i].tWithin);
+                for (var j = 0; j < ends.length; j++) ends[j]._endElapsed = withinToElapsed(period, ends[j].tWithin);
+                starts.sort(function (a, b) { return a._startElapsed - b._startElapsed; });
+                ends.sort(function (a, b) { return a._endElapsed - b._endElapsed; });
+
+                var used = {};
+                var ints = [];
+
+                function firstUnusedEnd(afterElapsed, jersey) {
+                  for (var k0 = 0; k0 < ends.length; k0++) {
+                    if (used[k0]) continue;
+                    if (ends[k0]._endElapsed < afterElapsed) continue;
+                    if (jersey && ends[k0].jersey && String(ends[k0].jersey) !== String(jersey)) continue;
+                    used[k0] = true;
+                    return ends[k0];
+                  }
+                  return null;
+                }
+
+                var d = durations[period - 1] || 1200;
+                for (var s0 = 0; s0 < starts.length; s0++) {
+                  var st = starts[s0];
+                  var a = st._startElapsed;
+                  var b = null;
+                  if (st.endWithin !== null && isFinite(st.endWithin)) {
+                    b = withinToElapsed(period, st.endWithin);
+                  } else {
+                    var match = firstUnusedEnd(a, st.jersey || "");
+                    if (!match && (st.jersey || "")) match = firstUnusedEnd(a, "");
+                    if (match) b = match._endElapsed;
+                  }
+                  if (b === null || !isFinite(b)) continue;
+                  var lo = Math.max(0, Math.min(d, Math.min(a, b)));
+                  var hi = Math.max(0, Math.min(d, Math.max(a, b)));
+                  if (hi <= lo) continue;
+                  ints.push([lo, hi]);
+                }
+                return ints;
+              }
+
+              function countActive(ints, t) {
+                var c = 0;
+                for (var i = 0; i < ints.length; i++) {
+                  if (ints[i][0] <= t && t < ints[i][1]) c++;
+                }
+                return c;
+              }
+
+              for (var p = 1; p <= maxPeriod; p++) {
+                if (looksAbsolute) continue; // spans only supported in within-period mode
+                var d = durations[p - 1] || 1200;
+                var forInts = buildIntervals(p, "For");
+                var againstInts = buildIntervals(p, "Against");
+                if (!forInts.length && !againstInts.length) continue;
+
+                var boundsObj = { 0: true };
+                boundsObj[String(d)] = true;
+                for (var ii = 0; ii < forInts.length; ii++) { boundsObj[String(forInts[ii][0])] = true; boundsObj[String(forInts[ii][1])] = true; }
+                for (var jj = 0; jj < againstInts.length; jj++) { boundsObj[String(againstInts[jj][0])] = true; boundsObj[String(againstInts[jj][1])] = true; }
+                var bounds = Object.keys(boundsObj).map(function (x) { return parseFloat(x); });
+                bounds.sort(function (a, b) { return a - b; });
+                if (bounds.length < 2) continue;
+
+                for (var bi = 0; bi < bounds.length - 1; bi++) {
+                  var a0 = bounds[bi];
+                  var b0 = bounds[bi + 1];
+                  if (b0 <= a0) continue;
+                  var mid = (a0 + b0) / 2.0;
+                  var forPen = countActive(forInts, mid);
+                  var againstPen = countActive(againstInts, mid);
+                  if (forPen === againstPen) continue;
+                  var forSk = Math.max(3, 5 - forPen);
+                  var againstSk = Math.max(3, 5 - againstPen);
+                  if (forPen < againstPen) {
+                    spans.push({
+                      period: p,
+                      startWithin: elapsedToWithin(p, a0),
+                      endWithin: elapsedToWithin(p, b0),
+                      typeLabel: "Power Play",
+                      iconKey: "pp",
+                      laneKey: "special_teams",
+                      side: "For",
+                      row: { Details: forSk + "v" + againstSk },
+                    });
+                    spans.push({
+                      period: p,
+                      startWithin: elapsedToWithin(p, a0),
+                      endWithin: elapsedToWithin(p, b0),
+                      typeLabel: "Penalty Kill",
+                      iconKey: "pk",
+                      laneKey: "special_teams",
+                      side: "Against",
+                      row: { Details: againstSk + "v" + forSk },
+                    });
+                  } else {
+                    spans.push({
+                      period: p,
+                      startWithin: elapsedToWithin(p, a0),
+                      endWithin: elapsedToWithin(p, b0),
+                      typeLabel: "Power Play",
+                      iconKey: "pp",
+                      laneKey: "special_teams",
+                      side: "Against",
+                      row: { Details: againstSk + "v" + forSk },
+                    });
+                    spans.push({
+                      period: p,
+                      startWithin: elapsedToWithin(p, a0),
+                      endWithin: elapsedToWithin(p, b0),
+                      typeLabel: "Penalty Kill",
+                      iconKey: "pk",
+                      laneKey: "special_teams",
+                      side: "For",
+                      row: { Details: forSk + "v" + againstSk },
+                    });
+                  }
+                }
+              }
+            })();
 
             // Determine type ordering and side-specific row maps.
             var laneOrder = [
@@ -908,6 +1124,15 @@
               if (elapsed < 0) elapsed = 0;
               if (elapsed > d) elapsed = d;
               return elapsed;
+            }
+            function elapsedToWithin(period, elapsed) {
+              var d = durations[period - 1] || 1200;
+              var mode = timeModeByPeriod[period] || "elapsed";
+              var tWithin = mode === "remaining" ? d - elapsed : elapsed;
+              if (!isFinite(tWithin)) tWithin = 0;
+              if (tWithin < 0) tWithin = 0;
+              if (tWithin > d) tWithin = d;
+              return tWithin;
             }
             function xForTime(period, tWithin) {
               var t = looksAbsolute ? tWithin : (offsets[period - 1] || 0) + withinToElapsed(period, tWithin);

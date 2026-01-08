@@ -14,6 +14,7 @@ set -euo pipefail
 APP_DIR="/opt/hm-webapp/app"
 SMOKE="${RUN_SMOKE:-0}"
 PORT="${HM_WEBAPP_PORT:-8008}"
+SERVICE_FILE="/etc/systemd/system/hm-webapp.service"
 
 die() {
   echo "[!]" "$@" >&2
@@ -114,8 +115,10 @@ if [ ! -d "$APP_DIR" ]; then
   die "$APP_DIR not found. Ensure the webapp is installed first."
 fi
 
-echo "[i] Validating sudo access (may prompt)"
-sudo -v
+echo "[i] Validating sudo access"
+if ! sudo -n true 2>/dev/null; then
+  die "sudo requires a password/tty. Run: sudo -v  (in a terminal), then re-run: tools/webapp/redeploy_local.sh"
+fi
 
 echo "[i] Copying app.py, templates, and static to $APP_DIR (sudo required)"
 sudo install -m 0644 -D tools/webapp/app.py "$APP_DIR/app.py"
@@ -128,6 +131,14 @@ sudo rsync -a tools/webapp/static/ "$APP_DIR/static/"
 CONFIG_JSON="$APP_DIR/config.json"
 if [ ! -f "$CONFIG_JSON" ]; then
   die "Missing $CONFIG_JSON; re-run installer (tools/webapp/install_webapp.py)."
+fi
+
+# Ensure gunicorn logs to journald (so Internal Server Error always has a traceback in `journalctl`).
+if sudo test -f "$SERVICE_FILE"; then
+  if ! sudo grep -q -- "--error-logfile" "$SERVICE_FILE"; then
+    echo "[i] Updating $SERVICE_FILE to capture gunicorn output"
+    sudo perl -0777 -i -pe 's/^(ExecStart=.*?gunicorn\\b[^\\n]*?)\\s+app:app\\s*$/\\1 --access-logfile - --error-logfile - --capture-output --log-level info app:app/m' "$SERVICE_FILE"
+  fi
 fi
 
 DB_HOST="$(json_get "$CONFIG_JSON" "db.host")"

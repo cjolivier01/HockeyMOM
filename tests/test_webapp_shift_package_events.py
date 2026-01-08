@@ -751,7 +751,8 @@ def should_find_existing_game_when_notes_are_legacy_game_id_token(client_and_db)
     db.hky_games[1001]["notes"] = "game_id=123"
     before_game_count = len(db.hky_games)
 
-    events1 = "Period,Time,Team,Event\n1,00:10,Blue,Goal\n"
+    # Non-Goal events are allowed to be stored even for TimeToScore-linked games.
+    events1 = "Period,Time,Team,Event\n1,00:10,Blue,Shot\n"
     r = client.post(
         "/api/import/hockey/shift_package",
         json={"timetoscore_game_id": 123, "events_csv": events1, "replace": False},
@@ -767,8 +768,8 @@ def should_find_existing_game_when_notes_are_legacy_game_id_token(client_and_db)
 
 def should_not_overwrite_events_without_replace(client_and_db):
     client, db = client_and_db
-    events1 = "Period,Time,Team,Event\n1,00:10,Blue,Goal\n"
-    events2 = "Period,Time,Team,Event\n1,00:11,Blue,Goal\n"
+    events1 = "Period,Time,Team,Event\n1,00:10,Blue,Shot\n"
+    events2 = "Period,Time,Team,Event\n1,00:11,Blue,Shot\n"
     r1 = client.post(
         "/api/import/hockey/shift_package",
         json={"timetoscore_game_id": 123, "events_csv": events1, "replace": False},
