@@ -13,11 +13,15 @@
   <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
     <div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <img src="{{ base }}/media/team_logo/{{ game['team2_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
-        <strong>{{ game['team2_name'] }}</strong>
+        <a href="{{ base }}/teams/{{ game['team2_id'] }}" style="display:inline-flex;align-items:center;gap:10px;text-decoration:none;color:inherit;">
+          <img src="{{ base }}/media/team_logo/{{ game['team2_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
+          <strong>{{ game['team2_name'] }}</strong>
+        </a>
         <span class="muted">at</span>
-        <img src="{{ base }}/media/team_logo/{{ game['team1_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
-        <strong>{{ game['team1_name'] }}</strong>
+        <a href="{{ base }}/teams/{{ game['team1_id'] }}" style="display:inline-flex;align-items:center;gap:10px;text-decoration:none;color:inherit;">
+          <img src="{{ base }}/media/team_logo/{{ game['team1_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
+          <strong>{{ game['team1_name'] }}</strong>
+        </a>
       </div>
 	      <div class="muted" style="margin-top:.5rem;">
 	        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_date }}</span>
@@ -69,7 +73,7 @@
 	        ></iframe>
 	      </div>
 	    </div>
-	    <p class="muted" style="margin:.75rem 0 0 0;">Tip: double-click an event row or click a timeline icon to open a clip from 20s before to 10s after the event.</p>
+	    <p class="muted" style="margin:.75rem 0 0 0;">Tip: double-click an event row, or open the timeline tooltip and press Video to view a clip (2/3 before, 1/3 after the event).</p>
 	  </div>
 	{% endif %}
 	
@@ -323,6 +327,14 @@
     </p>
   {% endif %}
   {% if events_rows and events_headers %}
+    <div id="timeline-clip-controls" class="muted" style="margin:.25rem 0 .5rem 0; display:none; align-items:center; gap:.35rem; flex-wrap:wrap;">
+      <label for="timeline-clip-len" class="muted" style="font-size:.85rem;">Clip length</label>
+      <select id="timeline-clip-len" style="padding:.25rem .5rem;border-radius:10px;">
+        <option value="10">10s</option>
+        <option value="20">20s</option>
+        <option value="30">30s</option>
+      </select>
+    </div>
     <div class="events-timeline">
       <div class="events-timeline-header">
         <div class="muted">Timeline</div>
@@ -337,6 +349,8 @@
           var dataEl = document.getElementById("game-events-timeline-data");
           var svg = document.getElementById("game-events-timeline-svg");
           var legendEl = document.getElementById("game-events-timeline-legend");
+          var clipControlsEl = document.getElementById("timeline-clip-controls");
+          var clipLenEl = document.getElementById("timeline-clip-len");
           if (!dataEl || !svg || !legendEl) return;
 
 	          var homeTeamName = {{ (game.get('team1_name') or 'Home')|tojson }};
@@ -532,6 +546,8 @@
 	            var end = Math.max(start + 1, Math.floor(endSec || 0));
 	            var params = new URLSearchParams();
 	            params.set("autoplay", "1");
+	            // Mobile browsers often block autoplay unless muted (even when initiated by a tap).
+	            params.set("mute", "1");
 	            params.set("start", String(start));
 	            params.set("end", String(end));
 	            params.set("rel", "0");
@@ -545,8 +561,19 @@
 	            if (!gameVideoUrl || !videoPane || !videoIframe) return false;
 	            var vs2 = parseVideoSecondsFromRow(row);
 	            if (vs2 === null || !isFinite(vs2)) return false;
-	            var start2 = Math.max(0, Math.floor(vs2 - 20));
-	            var end2 = Math.max(start2 + 1, Math.floor(vs2 + 10));
+	            var totalClipS = (function () {
+	              var v = 30;
+	              try {
+	                if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
+	              } catch (e) {}
+	              if (!isFinite(v) || v <= 0) v = 30;
+	              if (v !== 10 && v !== 20 && v !== 30) v = 30;
+	              return v;
+	            })();
+	            var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
+	            var postS = Math.max(0, totalClipS - preS);
+	            var start2 = Math.max(0, Math.floor(vs2 - preS));
+	            var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
 	            var embed = buildYoutubeEmbedUrl(gameVideoUrl, start2, end2);
 	            if (!embed) {
 	              try {
@@ -559,13 +586,14 @@
 	              return true;
 	            }
 	            videoIframe.src = embed;
+	            videoIframe.setAttribute("src", embed);
 	            if (videoMeta) {
 	              var label = (opts.label ? String(opts.label) : "");
 	              var at = (opts.at ? String(opts.at) : "");
 	              var metaTxt = [];
 	              if (label) metaTxt.push(label);
 	              if (at) metaTxt.push(at);
-	              metaTxt.push("video @" + Math.floor(vs2) + "s");
+	              metaTxt.push(totalClipS + "s clip (" + preS + "s before, " + postS + "s after)");
 	              videoMeta.textContent = metaTxt.join(" • ");
 	            }
 	            videoPane.style.display = "block";
@@ -1578,13 +1606,54 @@
               return 0;
             });
 
+            // Enable clip-length control when at least one event has a video time.
+            var hasAnyVideo = false;
+            try {
+              for (var vi = 0; vi < eventsRows.length; vi++) {
+                var vrow = eventsRows[vi] || {};
+                var vs = parseVideoSecondsFromRow(vrow);
+                if (vs !== null && isFinite(vs)) { hasAnyVideo = true; break; }
+              }
+            } catch (e) {}
+            if (clipControlsEl && clipLenEl && gameVideoUrl && hasAnyVideo) {
+              clipControlsEl.style.display = "flex";
+              try {
+                var saved = localStorage.getItem("hm_clip_len_s");
+                if (saved) {
+                  var sv = parseInt(String(saved), 10);
+                  if (sv === 10 || sv === 20 || sv === 30) clipLenEl.value = String(sv);
+                }
+              } catch (e) {}
+              if (clipLenEl) {
+                clipLenEl.addEventListener("change", function () {
+                  try { localStorage.setItem("hm_clip_len_s", String(clipLenEl.value || "30")); } catch (e) {}
+                });
+              }
+            }
+
             var wrapEl = svg.parentElement || null;
             var tooltipEl = wrapEl ? wrapEl.querySelector(".events-timeline-tooltip") : null;
+            var tooltipHideTimer = null;
             if (wrapEl && !tooltipEl) {
               tooltipEl = document.createElement("div");
               tooltipEl.className = "events-timeline-tooltip";
               tooltipEl.style.display = "none";
               wrapEl.appendChild(tooltipEl);
+              tooltipEl.dataset.pinned = "0";
+              tooltipEl.dataset.hovering = "0";
+              tooltipEl.addEventListener("mouseenter", function () {
+                tooltipEl.dataset.hovering = "1";
+              });
+              tooltipEl.addEventListener("mouseleave", function () {
+                tooltipEl.dataset.hovering = "0";
+                if (tooltipEl.dataset.pinned !== "1") tooltipEl.style.display = "none";
+              });
+              ["click", "mousedown", "touchstart", "pointerdown"].forEach(function (evt) {
+                tooltipEl.addEventListener(evt, function (e) {
+                  // Prevent underlying SVG icons from receiving the interaction.
+                  e.stopPropagation();
+                });
+              });
               wrapEl.addEventListener("mouseleave", function () {
                 if (tooltipEl) tooltipEl.style.display = "none";
                 if (tooltipEl) tooltipEl.dataset.pinned = "0";
@@ -1598,10 +1667,22 @@
               });
             }
 
+            function scheduleHideTooltip() {
+              if (!tooltipEl) return;
+              if (tooltipHideTimer) clearTimeout(tooltipHideTimer);
+              tooltipHideTimer = setTimeout(function () {
+                if (!tooltipEl) return;
+                if (tooltipEl.dataset.pinned === "1") return;
+                if (tooltipEl.dataset.hovering === "1") return;
+                tooltipEl.style.display = "none";
+              }, 140);
+            }
+
             function setTooltipContent(ev) {
               if (!tooltipEl) return;
               while (tooltipEl.firstChild) tooltipEl.removeChild(tooltipEl.firstChild);
 
+              var atTxt = "";
               var header = document.createElement("div");
               header.className = "events-timeline-tooltip-header";
 
@@ -1625,12 +1706,14 @@
 	              meta.className = "events-timeline-tooltip-meta";
 	              var pLabel = ev.period === 4 ? "OT" : "P" + ev.period;
 	              if (ev.startWithin !== undefined && ev.endWithin !== undefined && ev.startWithin !== null && ev.endWithin !== null) {
+	                atTxt = pLabel + " " + secondsToLabel(ev.startWithin);
 	                meta.appendChild(
 	                  document.createTextNode(pLabel + " " + secondsToLabel(ev.startWithin) + "–" + secondsToLabel(ev.endWithin))
 	                );
 	              } else {
 	                var timeTxt = String(getValue(ev.row, ["Game Time", "GameTime", "Time"]) || "").trim();
 	                if (!timeTxt) timeTxt = secondsToLabel(ev.tWithin);
+	                atTxt = pLabel + " " + timeTxt;
 	                meta.appendChild(document.createTextNode(pLabel + " @ " + timeTxt));
 	              }
 	              tooltipEl.appendChild(meta);
@@ -1671,6 +1754,31 @@
 	              addLine("Details", getValue(ev.row, ["Details"]));
 	              addMultiline("On-Ice", getValue(ev.row, ["On-Ice Players"]));
 	              if (ev.penaltiesText) addMultiline("Penalties", ev.penaltiesText);
+
+                // Action buttons (mobile-friendly: tap icon to show tooltip, then press Video).
+                try {
+                  if (gameVideoUrl && videoPane && videoIframe) {
+                    var vs3 = parseVideoSecondsFromRow(ev.row || {});
+                    if (vs3 !== null && isFinite(vs3)) {
+                      var actions = document.createElement("div");
+                      actions.className = "events-timeline-tooltip-line";
+                      actions.style.marginTop = "0.35rem";
+                      var btn = document.createElement("button");
+                      btn.type = "button";
+                      btn.className = "btn secondary";
+                      btn.textContent = "Video";
+                      btn.style.padding = ".35rem .6rem";
+                      btn.style.borderRadius = "10px";
+                      btn.addEventListener("click", function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        openVideoClipForRow(ev.row || {}, { label: ev.typeLabel, at: atTxt });
+                      });
+                      actions.appendChild(btn);
+                      tooltipEl.appendChild(actions);
+                    }
+                  }
+                } catch (e) {}
 	            }
 
             function positionTooltip(clientX, clientY) {
@@ -1739,18 +1847,9 @@
 	                ln.addEventListener("mouseleave", function () {
 	                  if (!tooltipEl) return;
 	                  if (tooltipEl.dataset.pinned === "1") return;
-	                  tooltipEl.style.display = "none";
+	                  scheduleHideTooltip();
 	                });
 		                ln.addEventListener("click", function (e) {
-		                  var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
-		                  if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
-		                    if (tooltipEl) {
-		                      tooltipEl.style.display = "none";
-		                      tooltipEl.dataset.pinned = "0";
-		                    }
-		                    e.stopPropagation();
-		                    return;
-		                  }
 		                  if (!tooltipEl) return;
 		                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
 		                    tooltipEl.dataset.pinned = "1";
@@ -1813,21 +1912,12 @@
                   if (tooltipEl.dataset.pinned === "1") return;
                   positionTooltip(e.clientX, e.clientY);
                 });
-                g.addEventListener("mouseleave", function () {
-                  if (!tooltipEl) return;
-                  if (tooltipEl.dataset.pinned === "1") return;
-                  tooltipEl.style.display = "none";
-                });
+	                g.addEventListener("mouseleave", function () {
+	                  if (!tooltipEl) return;
+	                  if (tooltipEl.dataset.pinned === "1") return;
+	                  scheduleHideTooltip();
+	                });
 		                g.addEventListener("click", function (e) {
-		                  var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
-		                  if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
-		                    if (tooltipEl) {
-		                      tooltipEl.style.display = "none";
-		                      tooltipEl.dataset.pinned = "0";
-		                    }
-		                    e.stopPropagation();
-		                    return;
-		                  }
 		                  if (!tooltipEl) return;
 		                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
 		                    tooltipEl.dataset.pinned = "1";
@@ -1888,10 +1978,12 @@
     </div>
 	    <div class="table-scroll table-scroll-y">
 	      <table id="game-events-table" class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
-        <thead>
+	        <thead>
           <tr>
             {% for h in events_headers %}
-              <th>{{ h }}</th>
+              {% if h != 'Video Seconds' and h != 'VideoSeconds' and h != 'Game Seconds' and h != 'GameSeconds' and h != 'Game Seconds End' and h != 'GameSecondsEnd' %}
+                <th>{{ h }}</th>
+              {% endif %}
             {% endfor %}
           </tr>
         </thead>
@@ -1899,11 +1991,13 @@
 	          {% for r in events_rows %}
 	            <tr data-event-row-index="{{ loop.index0 }}">
 	              {% for h in events_headers %}
-	                {% if h == 'On-Ice Players' or h == 'On-Ice Players (PM)' %}
-	                  <td class="cell-pre">{{ r.get(h,'')|replace(',', '\n') }}</td>
-	                {% else %}
-                  <td>{{ r.get(h,'') }}</td>
-                {% endif %}
+                  {% if h != 'Video Seconds' and h != 'VideoSeconds' and h != 'Game Seconds' and h != 'GameSeconds' and h != 'Game Seconds End' and h != 'GameSecondsEnd' %}
+	                  {% if h == 'On-Ice Players' or h == 'On-Ice Players (PM)' %}
+	                    <td class="cell-pre">{{ r.get(h,'')|replace(',', '\n') }}</td>
+	                  {% else %}
+                      <td>{{ r.get(h,'') }}</td>
+                    {% endif %}
+                  {% endif %}
               {% endfor %}
             </tr>
           {% endfor %}

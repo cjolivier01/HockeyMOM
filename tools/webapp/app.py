@@ -3650,6 +3650,8 @@ def create_app() -> Flask:
                 events_headers, events_rows = parse_events_csv(str(erow.get("events_csv") or ""))
                 events_headers, events_rows = normalize_game_events_csv(events_headers, events_rows)
                 events_rows = filter_events_rows_prefer_timetoscore_for_goal_assist(events_rows, tts_linked=tts_linked)
+                events_headers, events_rows = normalize_events_video_time_for_display(events_headers, events_rows)
+                events_rows = sort_events_rows_default(events_rows)
                 events_meta = {
                     "source_label": erow.get("source_label"),
                     "updated_at": erow.get("updated_at"),
@@ -4716,6 +4718,11 @@ def create_app() -> Flask:
         except Exception:
             pass
         events_rows = filter_events_rows_prefer_timetoscore_for_goal_assist(events_rows, tts_linked=tts_linked)
+        try:
+            events_headers, events_rows = normalize_events_video_time_for_display(events_headers, events_rows)
+            events_rows = sort_events_rows_default(events_rows)
+        except Exception:
+            pass
         if events_meta is not None:
             try:
                 events_meta["count"] = len(events_rows)
@@ -6451,6 +6458,79 @@ def compute_game_event_stats_by_side(events_rows: list[dict[str, str]]) -> list[
         rows.append({"event_type": et, "home": int(rec.get("home") or 0), "away": int(rec.get("away") or 0)})
     rows.sort(key=lambda r: (_prio(str(r.get("event_type") or "")), str(r.get("event_type") or "").casefold()))
     return rows
+
+
+def normalize_events_video_time_for_display(
+    headers: list[str],
+    rows: list[dict[str, str]],
+) -> tuple[list[str], list[dict[str, str]]]:
+    """
+    Ensure the events table includes a human-readable Video Time column when Video Seconds exists.
+    This is a display-time normalization only; it does not affect stored CSV.
+    """
+    if not headers or not rows:
+        return headers, rows
+    has_vs = any(str(h or "").strip().lower() in {"video seconds", "videoseconds"} for h in headers)
+    if not has_vs:
+        return headers, rows
+    has_vt = any(str(h or "").strip().lower() in {"video time", "videotime"} for h in headers)
+
+    out_headers = list(headers)
+    if not has_vt:
+        # Prefer to place it next to Video Seconds if present, otherwise near Game Time.
+        try:
+            vs_idx = next(i for i, h in enumerate(out_headers) if str(h or "").strip().lower() in {"video seconds", "videoseconds"})
+            out_headers.insert(vs_idx, "Video Time")
+        except Exception:
+            try:
+                gt_idx = next(i for i, h in enumerate(out_headers) if str(h or "").strip().lower() in {"game time", "gametime", "time"})
+                out_headers.insert(gt_idx + 1, "Video Time")
+            except Exception:
+                out_headers.append("Video Time")
+
+    out_rows: list[dict[str, str]] = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        rr = dict(r)
+        vt = str(rr.get("Video Time") or rr.get("VideoTime") or "").strip()
+        if not vt:
+            vs = parse_duration_seconds(rr.get("Video Seconds") or rr.get("VideoSeconds"))
+            if vs is not None:
+                rr["Video Time"] = format_seconds_to_mmss_or_hhmmss(vs)
+        out_rows.append(rr)
+    return out_headers, out_rows
+
+
+def sort_events_rows_default(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """
+    Default ordering for the Game Events table: period asc, then decreasing game time within period.
+    """
+
+    def _parse_int(v: Any) -> Optional[int]:
+        try:
+            return int(str(v or "").strip())
+        except Exception:
+            return None
+
+    def _period(r: dict[str, str]) -> int:
+        p = _parse_int(r.get("Period"))
+        return int(p) if p is not None and p > 0 else 999
+
+    def _game_seconds(r: dict[str, str]) -> int:
+        gs = _parse_int(r.get("Game Seconds") or r.get("GameSeconds"))
+        if gs is not None:
+            return int(gs)
+        gt = parse_duration_seconds(r.get("Game Time") or r.get("GameTime") or r.get("Time"))
+        return int(gt) if gt is not None else -1
+
+    def _ev_type(r: dict[str, str]) -> str:
+        return str(r.get("Event Type") or r.get("Event") or "").strip().casefold()
+
+    return sorted(
+        [r for r in (rows or []) if isinstance(r, dict)],
+        key=lambda r: (_period(r), -_game_seconds(r), _ev_type(r)),
+    )
 
 
 def reset_league_data(db_conn, league_id: int, *, owner_user_id: Optional[int] = None) -> dict[str, int]:

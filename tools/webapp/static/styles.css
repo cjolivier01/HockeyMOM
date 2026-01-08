@@ -209,7 +209,8 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   padding: .55rem .65rem;
   box-shadow: 0 10px 28px rgba(0,0,0,0.45);
   color: var(--text);
-  pointer-events: none;
+  /* Must allow interaction (e.g., Video button). */
+  pointer-events: auto;
 }
 .events-timeline-tooltip-header {
   display: flex;
