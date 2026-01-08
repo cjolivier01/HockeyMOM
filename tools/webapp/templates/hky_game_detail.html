@@ -47,9 +47,47 @@
   </div>
 </div>
 
+{% if scoring_by_period_rows and (scoring_by_period_rows|length) %}
+  <div class="card" style="margin-top:1rem;">
+    <h3 style="margin-top:0;">Scoring By Period</h3>
+    <div class="table-scroll">
+      <table class="table-grid table-nowrap">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>{{ game['team1_name'] }}</th>
+            <th>{{ game['team2_name'] }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set t1_gf = namespace(v=0) %}
+          {% set t2_gf = namespace(v=0) %}
+          {% for r in scoring_by_period_rows %}
+            {% set p = r.get('period') %}
+            {% set p_label = ('OT' if p == 4 else ('P' ~ p)) %}
+            {% set t1_gf.v = t1_gf.v + (r.get('team1_gf') or 0) %}
+            {% set t2_gf.v = t2_gf.v + (r.get('team2_gf') or 0) %}
+            <tr>
+              <td>{{ p_label }}</td>
+              <td>{{ (r.get('team1_gf') or 0) }}</td>
+              <td>{{ (r.get('team2_gf') or 0) }}</td>
+            </tr>
+          {% endfor %}
+          <tr style="font-weight:600;">
+            <td>Total</td>
+            <td>{{ t1_gf.v }}</td>
+            <td>{{ t2_gf.v }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted" style="margin:.5rem 0 0 0;">Derived from goal events (TimeToScore / uploaded events), not shifts.</p>
+  </div>
+{% endif %}
+
 {% if game_stats %}
   <div class="card" style="margin-top:1rem;">
-    <h3 style="margin-top:0">Imported Game Stats</h3>
+    <h3 style="margin-top:0">Game Stats</h3>
     <p class="muted" style="margin-top:0">
       Source: {{ game_stats.get('_label','') }}
       {% if game_stats_updated_at %} | Updated: {{ game_stats_updated_at }}{% endif %}
@@ -132,9 +170,9 @@
     {% endfor %}
   </div>
 
-  <h3 style="margin-top:1rem;">Player Stats</h3>
+  <h3 style="margin-top:1rem;">{% if player_stats_import_meta %}Imported Player Stats{% else %}Player Stats{% endif %}</h3>
   {% if player_stats_import_meta %}
-    <p class="muted" style="margin-top:0;">Imported Player Stats</p>
+    {# Source/updated lines below cover what the user needs here. #}
   {% endif %}
   {% if player_stats_import_meta %}
     <p class="muted" style="margin-top:0;">
@@ -146,48 +184,10 @@
     <p class="muted" style="margin-top:0;">Warning: {{ player_stats_import_warning }}</p>
   {% endif %}
 
-	  {% if scoring_by_period_rows and (scoring_by_period_rows|length) %}
-	    <div class="card" style="margin-top:.75rem;">
-	      <h4 style="margin:0 0 .5rem 0;">Scoring By Period</h4>
-	      <div class="table-scroll">
-	        <table class="table-grid table-nowrap">
-	          <thead>
-	            <tr>
-	              <th>Period</th>
-	              <th>{{ game['team1_name'] }}</th>
-	              <th>{{ game['team2_name'] }}</th>
-	            </tr>
-	          </thead>
-	          <tbody>
-	            {% set t1_gf = namespace(v=0) %}
-	            {% set t2_gf = namespace(v=0) %}
-	            {% for r in scoring_by_period_rows %}
-	              {% set p = r.get('period') %}
-	              {% set p_label = ('OT' if p == 4 else ('P' ~ p)) %}
-	              {% set t1_gf.v = t1_gf.v + (r.get('team1_gf') or 0) %}
-	              {% set t2_gf.v = t2_gf.v + (r.get('team2_gf') or 0) %}
-	              <tr>
-	                <td>{{ p_label }}</td>
-	                <td>{{ (r.get('team1_gf') or 0) }}</td>
-	                <td>{{ (r.get('team2_gf') or 0) }}</td>
-	              </tr>
-	            {% endfor %}
-	            <tr style="font-weight:600;">
-	              <td>Total</td>
-	              <td>{{ t1_gf.v }}</td>
-	              <td>{{ t2_gf.v }}</td>
-	            </tr>
-	          </tbody>
-	        </table>
-	      </div>
-      <p class="muted" style="margin:.5rem 0 0 0;">Derived from goal events (TimeToScore / imported events), not shifts.</p>
-    </div>
-  {% endif %}
-
-  {% for team_key, players in [('team1', team1_players), ('team2', team2_players)] %}
-    {% set is_team1 = (team_key == 'team1') %}
-    {% set team_name = game['team1_name'] if is_team1 else game['team2_name'] %}
-    {% set team_id = game['team1_id'] if is_team1 else game['team2_id'] %}
+	  {% for team_key, players in [('team1', team1_players), ('team2', team2_players)] %}
+	    {% set is_team1 = (team_key == 'team1') %}
+	    {% set team_name = game['team1_name'] if is_team1 else game['team2_name'] %}
+	    {% set team_id = game['team1_id'] if is_team1 else game['team2_id'] %}
     <h4 style="display:flex;align-items:center;gap:8px;margin-top:0.75rem;">
       <img src="{{ base }}/media/team_logo/{{ team_id }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
       <span>{{ team_name }}</span>
@@ -750,8 +750,23 @@
               }
             }
             maxPeriod = Math.max(3, maxPeriod);
-            // Heuristic: if times exceed a single period length, treat as absolute game seconds.
-            var looksAbsolute = maxWithinAll > 1500;
+            // Heuristic: treat times as absolute game seconds only when periods look like
+            // disjoint, increasing time ranges (avoids a single bad row collapsing all periods).
+            var looksAbsolute = (function () {
+              if (maxPeriod <= 1) return false;
+              var comparisons = 0;
+              var jumps = 0;
+              for (var pAbs = 2; pAbs <= maxPeriod; pAbs++) {
+                if (minWithinByPeriod[pAbs] === undefined) continue;
+                if (maxWithinByPeriod[pAbs - 1] === undefined) continue;
+                comparisons++;
+                if (minWithinByPeriod[pAbs] > (maxWithinByPeriod[pAbs - 1] + 60)) jumps++;
+              }
+              if (comparisons > 0) {
+                return jumps >= Math.max(1, Math.ceil(comparisons * 0.6));
+              }
+              return maxWithinAll > 3600;
+            })();
             function roundUp(n, step) {
               if (!isFinite(n) || n <= 0) return 0;
               return Math.ceil(n / step) * step;
@@ -817,42 +832,91 @@
 
             // Infer PP/PK spans from penalty windows: only when penalty counts differ (4v4 etc -> no span).
             spans = [];
-            (function inferSpansFromPenalties() {
-              if (!penaltyStarts.length) return;
+	            (function inferSpansFromPenalties() {
+	              if (!penaltyStarts.length) return;
 
-              var startsByPS = {};
-              var endsByPS = {};
+	              var startsByPS = {};
+	              var endsByPS = {};
+	              var penaltyWindowsByPS = {};
+	              var goalsByPeriod = {};
 
-              function keyPS(p, s) { return String(p) + "|" + String(s); }
+	              function keyPS(p, s) { return String(p) + "|" + String(s); }
 
-              for (var a0 = 0; a0 < penaltyStarts.length; a0++) {
-                var st = penaltyStarts[a0];
-                var k = keyPS(st.period, st.side);
-                if (!startsByPS[k]) startsByPS[k] = [];
+	              for (var g0 = 0; g0 < filtered.length; g0++) {
+	                var evg = filtered[g0];
+	                if (!evg || evg.iconKey !== "goal") continue;
+	                var p0 = evg.period;
+	                var el = withinToElapsed(p0, evg.tWithin);
+	                if (!isFinite(el)) continue;
+	                if (!goalsByPeriod[p0]) goalsByPeriod[p0] = [];
+	                goalsByPeriod[p0].push({ elapsed: el, side: evg.side });
+	              }
+	              for (var gp in goalsByPeriod) {
+	                if (!Object.prototype.hasOwnProperty.call(goalsByPeriod, gp)) continue;
+	                goalsByPeriod[gp].sort(function (a, b) { return a.elapsed - b.elapsed; });
+	              }
+
+	              function parsePenaltyMinutes(row) {
+	                var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
+	                var m = det.match(/\\b(\\d+)\\s*m\\b/i);
+	                if (m) {
+	                  var v = parseInt(m[1], 10);
+	                  return isFinite(v) ? v : null;
+	                }
+	                return null;
+	              }
+
+	              function parsePenaltyInfraction(row) {
+	                var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
+	                if (!det) return "";
+	                det = det.replace(/^Expired\\b\\s*/i, "");
+	                det = det.replace(/#\\s*\\d+\\s*/g, "");
+	                det = det.replace(/\\b\\d+\\s*m\\b/gi, "");
+	                det = det.replace(/\\(\\s*end\\s+[^\\)]+\\)/gi, "");
+	                det = det.replace(/\\s+/g, " ").trim();
+	                return det;
+	              }
+
+	              function findGoalNear(period, otherSide, elapsed, tolS) {
+	                tolS = tolS || 2.0;
+	                var arr = goalsByPeriod[period] || [];
+	                for (var i = 0; i < arr.length; i++) {
+	                  var g = arr[i];
+	                  if (g.side !== otherSide) continue;
+	                  if (Math.abs(g.elapsed - elapsed) <= tolS) return true;
+	                }
+	                return false;
+	              }
+
+	              for (var a0 = 0; a0 < penaltyStarts.length; a0++) {
+	                var st = penaltyStarts[a0];
+	                var k = keyPS(st.period, st.side);
+	                if (!startsByPS[k]) startsByPS[k] = [];
                 startsByPS[k].push(st);
               }
               for (var e0 = 0; e0 < penaltyEnds.length; e0++) {
                 var en = penaltyEnds[e0];
                 var k2 = keyPS(en.period, en.side);
-                if (!endsByPS[k2]) endsByPS[k2] = [];
-                endsByPS[k2].push(en);
-              }
+	                if (!endsByPS[k2]) endsByPS[k2] = [];
+	                endsByPS[k2].push(en);
+	              }
 
-              function buildIntervals(period, side) {
-                var k = keyPS(period, side);
-                var starts = (startsByPS[k] || []).slice();
-                var ends = (endsByPS[k] || []).slice();
-                for (var i = 0; i < starts.length; i++) starts[i]._startElapsed = withinToElapsed(period, starts[i].tWithin);
-                for (var j = 0; j < ends.length; j++) ends[j]._endElapsed = withinToElapsed(period, ends[j].tWithin);
-                starts.sort(function (a, b) { return a._startElapsed - b._startElapsed; });
-                ends.sort(function (a, b) { return a._endElapsed - b._endElapsed; });
+	              function buildPenaltyWindows(period, side) {
+	                var k = keyPS(period, side);
+	                if (penaltyWindowsByPS[k]) return penaltyWindowsByPS[k];
+	                var starts = (startsByPS[k] || []).slice();
+	                var ends = (endsByPS[k] || []).slice();
+	                for (var i = 0; i < starts.length; i++) starts[i]._startElapsed = withinToElapsed(period, starts[i].tWithin);
+	                for (var j = 0; j < ends.length; j++) ends[j]._endElapsed = withinToElapsed(period, ends[j].tWithin);
+	                starts.sort(function (a, b) { return a._startElapsed - b._startElapsed; });
+	                ends.sort(function (a, b) { return a._endElapsed - b._endElapsed; });
 
-                var used = {};
-                var ints = [];
+	                var used = {};
+	                var wins = [];
 
-                function firstUnusedEnd(afterElapsed, jersey) {
-                  for (var k0 = 0; k0 < ends.length; k0++) {
-                    if (used[k0]) continue;
+	                function firstUnusedEnd(afterElapsed, jersey) {
+	                  for (var k0 = 0; k0 < ends.length; k0++) {
+	                    if (used[k0]) continue;
                     if (ends[k0]._endElapsed < afterElapsed) continue;
                     if (jersey && ends[k0].jersey && String(ends[k0].jersey) !== String(jersey)) continue;
                     used[k0] = true;
@@ -861,29 +925,99 @@
                   return null;
                 }
 
-                var d = durations[period - 1] || 1200;
-                for (var s0 = 0; s0 < starts.length; s0++) {
-                  var st = starts[s0];
-                  var a = st._startElapsed;
-                  var b = null;
-                  if (st.endWithin !== null && isFinite(st.endWithin)) {
-                    b = withinToElapsed(period, st.endWithin);
-                  } else {
-                    var match = firstUnusedEnd(a, st.jersey || "");
-                    if (!match && (st.jersey || "")) match = firstUnusedEnd(a, "");
-                    if (match) b = match._endElapsed;
-                  }
-                  if (b === null || !isFinite(b)) continue;
-                  var lo = Math.max(0, Math.min(d, Math.min(a, b)));
-                  var hi = Math.max(0, Math.min(d, Math.max(a, b)));
-                  if (hi <= lo) continue;
-                  ints.push([lo, hi]);
-                }
-                return ints;
-              }
+	                var d = durations[period - 1] || 1200;
+	                for (var s0 = 0; s0 < starts.length; s0++) {
+	                  var st = starts[s0];
+	                  var a = st._startElapsed;
+	                  var b = null;
+	                  var endWithin = null;
+	                  var endRow = null;
+	                  if (st.endWithin !== null && isFinite(st.endWithin)) {
+	                    b = withinToElapsed(period, st.endWithin);
+	                    endWithin = st.endWithin;
+	                  } else {
+	                    var match = firstUnusedEnd(a, st.jersey || "");
+	                    if (!match && (st.jersey || "")) match = firstUnusedEnd(a, "");
+	                    if (match) {
+	                      b = match._endElapsed;
+	                      endWithin = match.tWithin;
+	                      endRow = match.row || null;
+	                    }
+	                  }
+	                  if (b === null || !isFinite(b)) continue;
+	                  var lo = Math.max(0, Math.min(d, Math.min(a, b)));
+	                  var hi = Math.max(0, Math.min(d, Math.max(a, b)));
+	                  if (hi <= lo) continue;
+	                  var pRow = st.row || {};
+	                  var minutes = parsePenaltyMinutes(pRow);
+	                  var infraction = parsePenaltyInfraction(pRow);
+	                  var player = String(getValue(pRow, ["Attributed Players", "Player", "Name"]) || "").trim();
+	                  var jersey = String(st.jersey || extractPenaltyJersey(pRow) || "").trim();
+	                  var expectedEnd = minutes !== null ? (lo + minutes * 60) : null;
+	                  var reason = "";
+	                  if (minutes !== null && expectedEnd !== null) {
+	                    if (Math.abs(hi - expectedEnd) <= 2) {
+	                      reason = "Timed out";
+	                    } else if (hi < expectedEnd - 2) {
+	                      var otherSide = side === "For" ? "Against" : "For";
+	                      if (findGoalNear(period, otherSide, hi, 2.0)) {
+	                        reason = "Ended by goal";
+	                      } else if (hi >= d - 1) {
+	                        reason = period === maxPeriod ? "End of game" : "End of period";
+	                      } else {
+	                        reason = "Ended early";
+	                      }
+	                    } else if (hi >= d - 1) {
+	                      reason = period === maxPeriod ? "End of game" : "End of period";
+	                    }
+	                  } else if (hi >= d - 1) {
+	                    reason = period === maxPeriod ? "End of game" : "End of period";
+	                  }
+	                  var startLabel = secondsToLabel(st.tWithin);
+	                  var endLabel = endWithin !== null && isFinite(endWithin) ? secondsToLabel(endWithin) : secondsToLabel(elapsedToWithin(period, hi));
+	                  var lineParts = [];
+	                  if (jersey) lineParts.push("#" + jersey);
+	                  if (player) lineParts.push(player);
+	                  if (infraction) lineParts.push("— " + infraction);
+	                  if (minutes !== null) lineParts.push("(" + minutes + "m)");
+	                  lineParts.push(startLabel + "–" + endLabel);
+	                  lineParts.push("dur " + secondsToLabel(Math.max(0, hi - lo)));
+	                  if (reason) lineParts.push("[" + reason + "]");
+	                  wins.push({
+	                    period: period,
+	                    side: side,
+	                    lo: lo,
+	                    hi: hi,
+	                    startWithin: st.tWithin,
+	                    endWithin: endWithin,
+	                    row: pRow,
+	                    endRow: endRow,
+	                    line: lineParts.join(" "),
+	                  });
+	                }
+	                penaltyWindowsByPS[k] = wins;
+	                return wins;
+	              }
 
-              function countActive(ints, t) {
-                var c = 0;
+	              function buildIntervals(period, side) {
+	                var wins = buildPenaltyWindows(period, side);
+	                var ints = [];
+	                for (var i = 0; i < wins.length; i++) ints.push([wins[i].lo, wins[i].hi]);
+	                return ints;
+	              }
+
+	              function penaltiesTextForSpan(period, penalizedSide, aEl, bEl) {
+	                var wins = buildPenaltyWindows(period, penalizedSide) || [];
+	                var lines = [];
+	                for (var i = 0; i < wins.length; i++) {
+	                  var w = wins[i];
+	                  if (w.lo < bEl && w.hi > aEl) lines.push(w.line);
+	                }
+	                return lines.join("\\n");
+	              }
+
+	              function countActive(ints, t) {
+	                var c = 0;
                 for (var i = 0; i < ints.length; i++) {
                   if (ints[i][0] <= t && t < ints[i][1]) c++;
                 }
@@ -913,53 +1047,59 @@
                   var forPen = countActive(forInts, mid);
                   var againstPen = countActive(againstInts, mid);
                   if (forPen === againstPen) continue;
-                  var forSk = Math.max(3, 5 - forPen);
-                  var againstSk = Math.max(3, 5 - againstPen);
-                  if (forPen < againstPen) {
-                    spans.push({
-                      period: p,
-                      startWithin: elapsedToWithin(p, a0),
-                      endWithin: elapsedToWithin(p, b0),
-                      typeLabel: "Power Play",
-                      iconKey: "pp",
-                      laneKey: "special_teams",
-                      side: "For",
-                      row: { Details: forSk + "v" + againstSk },
-                    });
-                    spans.push({
-                      period: p,
-                      startWithin: elapsedToWithin(p, a0),
-                      endWithin: elapsedToWithin(p, b0),
-                      typeLabel: "Penalty Kill",
-                      iconKey: "pk",
-                      laneKey: "special_teams",
-                      side: "Against",
-                      row: { Details: againstSk + "v" + forSk },
-                    });
-                  } else {
-                    spans.push({
-                      period: p,
-                      startWithin: elapsedToWithin(p, a0),
-                      endWithin: elapsedToWithin(p, b0),
-                      typeLabel: "Power Play",
-                      iconKey: "pp",
-                      laneKey: "special_teams",
-                      side: "Against",
-                      row: { Details: againstSk + "v" + forSk },
-                    });
-                    spans.push({
-                      period: p,
-                      startWithin: elapsedToWithin(p, a0),
-                      endWithin: elapsedToWithin(p, b0),
-                      typeLabel: "Penalty Kill",
-                      iconKey: "pk",
-                      laneKey: "special_teams",
-                      side: "For",
-                      row: { Details: forSk + "v" + againstSk },
-                    });
-                  }
-                }
-              }
+	                  var forSk = Math.max(3, 5 - forPen);
+	                  var againstSk = Math.max(3, 5 - againstPen);
+	                  var penalizedSide = forPen < againstPen ? "Against" : "For";
+	                  var penaltiesText = penaltiesTextForSpan(p, penalizedSide, a0, b0);
+	                  if (forPen < againstPen) {
+	                    spans.push({
+	                      period: p,
+	                      startWithin: elapsedToWithin(p, a0),
+	                      endWithin: elapsedToWithin(p, b0),
+	                      typeLabel: "Power Play",
+	                      iconKey: "pp",
+	                      laneKey: "special_teams",
+	                      side: "For",
+	                      row: { Details: forSk + "v" + againstSk },
+	                      penaltiesText: penaltiesText,
+	                    });
+	                    spans.push({
+	                      period: p,
+	                      startWithin: elapsedToWithin(p, a0),
+	                      endWithin: elapsedToWithin(p, b0),
+	                      typeLabel: "Penalty Kill",
+	                      iconKey: "pk",
+	                      laneKey: "special_teams",
+	                      side: "Against",
+	                      row: { Details: againstSk + "v" + forSk },
+	                      penaltiesText: penaltiesText,
+	                    });
+	                  } else {
+	                    spans.push({
+	                      period: p,
+	                      startWithin: elapsedToWithin(p, a0),
+	                      endWithin: elapsedToWithin(p, b0),
+	                      typeLabel: "Power Play",
+	                      iconKey: "pp",
+	                      laneKey: "special_teams",
+	                      side: "Against",
+	                      row: { Details: againstSk + "v" + forSk },
+	                      penaltiesText: penaltiesText,
+	                    });
+	                    spans.push({
+	                      period: p,
+	                      startWithin: elapsedToWithin(p, a0),
+	                      endWithin: elapsedToWithin(p, b0),
+	                      typeLabel: "Penalty Kill",
+	                      iconKey: "pk",
+	                      laneKey: "special_teams",
+	                      side: "For",
+	                      row: { Details: forSk + "v" + againstSk },
+	                      penaltiesText: penaltiesText,
+	                    });
+	                  }
+	                }
+	              }
             })();
 
             // Determine type ordering and side-specific row maps.
@@ -1281,13 +1421,19 @@
               header.appendChild(title);
               tooltipEl.appendChild(header);
 
-              var meta = document.createElement("div");
-              meta.className = "events-timeline-tooltip-meta";
-              var pLabel = ev.period === 4 ? "OT" : "P" + ev.period;
-              var timeTxt = String(getValue(ev.row, ["Game Time", "GameTime", "Time"]) || "").trim();
-              if (!timeTxt) timeTxt = secondsToLabel(ev.tWithin);
-              meta.appendChild(document.createTextNode(pLabel + " @ " + timeTxt));
-              tooltipEl.appendChild(meta);
+	              var meta = document.createElement("div");
+	              meta.className = "events-timeline-tooltip-meta";
+	              var pLabel = ev.period === 4 ? "OT" : "P" + ev.period;
+	              if (ev.startWithin !== undefined && ev.endWithin !== undefined && ev.startWithin !== null && ev.endWithin !== null) {
+	                meta.appendChild(
+	                  document.createTextNode(pLabel + " " + secondsToLabel(ev.startWithin) + "–" + secondsToLabel(ev.endWithin))
+	                );
+	              } else {
+	                var timeTxt = String(getValue(ev.row, ["Game Time", "GameTime", "Time"]) || "").trim();
+	                if (!timeTxt) timeTxt = secondsToLabel(ev.tWithin);
+	                meta.appendChild(document.createTextNode(pLabel + " @ " + timeTxt));
+	              }
+	              tooltipEl.appendChild(meta);
 
               function addLine(label, v) {
                 var s = String(v || "").trim();
@@ -1320,11 +1466,12 @@
                 tooltipEl.appendChild(line);
               }
 
-              addLine("Players", getValue(ev.row, ["Attributed Players"]));
-              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
-              addLine("Details", getValue(ev.row, ["Details"]));
-              addMultiline("On-Ice", getValue(ev.row, ["On-Ice Players"]));
-            }
+	              addLine("Players", getValue(ev.row, ["Attributed Players"]));
+	              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
+	              addLine("Details", getValue(ev.row, ["Details"]));
+	              addMultiline("On-Ice", getValue(ev.row, ["On-Ice Players"]));
+	              if (ev.penaltiesText) addMultiline("Penalties", ev.penaltiesText);
+	            }
 
             function positionTooltip(clientX, clientY) {
               if (!tooltipEl || !wrapEl) return;
@@ -1361,18 +1508,54 @@
               }
               return null;
             }
-            for (var sp = 0; sp < spans.length; sp++) {
-              var sEv = spans[sp];
-              var yS = spanDrawY(sEv.side, sEv.laneKey);
-              if (yS === null) continue;
-              var x1 = xForTime(sEv.period, sEv.startWithin);
-              var x2 = xForTime(sEv.period, sEv.endWithin);
-              var xa = Math.min(x1, x2);
-              var xb = Math.max(x1, x2);
-              if (!isFinite(xa) || !isFinite(xb) || xb <= xa) continue;
-              var col = sEv.iconKey === "pp" ? "#22c55e" : "#ef4444";
-              svg.appendChild(svgEl("line", { x1: xa, y1: yS, x2: xb, y2: yS, stroke: col, "stroke-width": 6, "stroke-linecap": "round", opacity: 0.85 }));
-            }
+	            for (var sp = 0; sp < spans.length; sp++) {
+	              var sEv = spans[sp];
+	              var yS = spanDrawY(sEv.side, sEv.laneKey);
+	              if (yS === null) continue;
+	              var x1 = xForTime(sEv.period, sEv.startWithin);
+	              var x2 = xForTime(sEv.period, sEv.endWithin);
+	              var xa = Math.min(x1, x2);
+	              var xb = Math.max(x1, x2);
+	              if (!isFinite(xa) || !isFinite(xb) || xb <= xa) continue;
+	              var col = sEv.iconKey === "pp" ? "#22c55e" : "#ef4444";
+	              var ln = svgEl("line", { x1: xa, y1: yS, x2: xb, y2: yS, stroke: col, "stroke-width": 6, "stroke-linecap": "round", opacity: 0.85 });
+	              ln.style.cursor = "pointer";
+	              var spTitle = svgEl("title");
+	              var pLbl = sEv.period === 4 ? "OT" : "P" + sEv.period;
+	              spTitle.appendChild(document.createTextNode(sEv.typeLabel + " (" + sEv.side + ") • " + pLbl + " " + secondsToLabel(sEv.startWithin) + "–" + secondsToLabel(sEv.endWithin)));
+	              ln.appendChild(spTitle);
+	              (function (evCopy) {
+	                ln.addEventListener("mouseenter", function (e) {
+	                  if (!tooltipEl) return;
+	                  if (tooltipEl.dataset.pinned === "1") return;
+	                  setTooltipContent(evCopy);
+	                  positionTooltip(e.clientX, e.clientY);
+	                });
+	                ln.addEventListener("mousemove", function (e) {
+	                  if (!tooltipEl) return;
+	                  if (tooltipEl.dataset.pinned === "1") return;
+	                  positionTooltip(e.clientX, e.clientY);
+	                });
+	                ln.addEventListener("mouseleave", function () {
+	                  if (!tooltipEl) return;
+	                  if (tooltipEl.dataset.pinned === "1") return;
+	                  tooltipEl.style.display = "none";
+	                });
+	                ln.addEventListener("click", function (e) {
+	                  if (!tooltipEl) return;
+	                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
+	                    tooltipEl.dataset.pinned = "1";
+	                    setTooltipContent(evCopy);
+	                    positionTooltip(e.clientX, e.clientY);
+	                  } else {
+	                    tooltipEl.style.display = "none";
+	                    tooltipEl.dataset.pinned = "0";
+	                  }
+	                  e.stopPropagation();
+	                });
+	              })(sEv);
+	              svg.appendChild(ln);
+	            }
             for (var e2 = 0; e2 < drawList.length; e2++) {
               var ev3 = drawList[e2];
               var x = xForTime(ev3.period, ev3.tWithin);
