@@ -9683,6 +9683,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--no-time2score",
+        "--no-t2s",
+        action="store_true",
+        help=(
+            "Disable all TimeToScore usage: ignore `t2s=...` file-list lines, do not infer T2S ids from filenames, "
+            "and do not fetch goals/start times from TimeToScore."
+        ),
+    )
+    p.add_argument(
         "--hockey-db-dir",
         type=Path,
         default=Path.home() / ".cache" / "hockeymom",
@@ -9899,6 +9908,7 @@ def _upload_shift_package_to_webapp(
 def main() -> None:
     args = build_arg_parser().parse_args()
     hockey_db_dir = args.hockey_db_dir.expanduser()
+    use_t2s = not bool(getattr(args, "no_time2score", False))
     create_scripts = not args.no_scripts
     include_shifts_in_stats = bool(getattr(args, "shifts", False))
     write_events_summary = include_shifts_in_stats or bool(getattr(args, "upload_webapp", False))
@@ -9912,6 +9922,9 @@ def main() -> None:
     t2s_arg_side: Optional[str] = None
     t2s_arg_label: Optional[str] = None
     if args.t2s is not None:
+        if not use_t2s:
+            print("Error: --no-time2score cannot be combined with --t2s.", file=sys.stderr)
+            sys.exit(2)
         parsed = _parse_t2s_spec(args.t2s)
         if parsed is None:
             print(
@@ -9947,6 +9960,9 @@ def main() -> None:
 
                     t2s_only = _parse_t2s_only_token(token)
                     if t2s_only is not None:
+                        if not use_t2s:
+                            print(f"[no-time2score] Skipping file-list entry: {token}", file=sys.stderr)
+                            continue
                         t2s_id, side, label = t2s_only
                         input_entries.append(
                             InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta)
@@ -9983,6 +9999,9 @@ def main() -> None:
 
         t2s_only = _parse_t2s_only_token(token)
         if t2s_only is not None:
+            if not use_t2s:
+                print(f"[no-time2score] Skipping input entry: {token}", file=sys.stderr)
+                continue
             t2s_id, side, label = t2s_only
             input_entries.append(InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta))
             continue
@@ -10238,6 +10257,9 @@ def main() -> None:
     for idx, g in enumerate(groups):
         t2s_only_id = g.get("t2s_id_only")
         if t2s_only_id is not None:
+            if not use_t2s:
+                print(f"[no-time2score] Skipping TimeToScore-only game: t2s={t2s_only_id}", file=sys.stderr)
+                continue
             label = str(g.get("label") or f"t2s-{int(t2s_only_id)}")
             outdir = base_outdir if not multiple_inputs else base_outdir / label
             side_override: Optional[str] = g.get("side") or (
@@ -10306,7 +10328,11 @@ def main() -> None:
         # filename only when the trailing numeric suffix is large enough
         # (>= 10000). Smaller suffixes (e.g., 'chicago-1') remain part of the
         # game name and do not trigger T2S usage.
-        t2s_id = t2s_arg_id if t2s_arg_id is not None else _infer_t2s_from_filename(in_path)
+        t2s_id = (
+            (t2s_arg_id if t2s_arg_id is not None else _infer_t2s_from_filename(in_path))
+            if use_t2s
+            else None
+        )
         label = str(g.get("label") or _base_label_from_path(in_path))
         outdir = base_outdir if not multiple_inputs else base_outdir / label
         manual_goals = load_goals(args.goal, args.goals_file)
