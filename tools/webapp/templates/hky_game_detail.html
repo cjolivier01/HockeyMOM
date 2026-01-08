@@ -13,17 +13,17 @@
   <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
     <div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <img src="{{ base }}/media/team_logo/{{ game['team1_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
-        <strong>{{ game['team1_name'] }}</strong>
-        <span class="muted">vs</span>
         <img src="{{ base }}/media/team_logo/{{ game['team2_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
         <strong>{{ game['team2_name'] }}</strong>
+        <span class="muted">at</span>
+        <img src="{{ base }}/media/team_logo/{{ game['team1_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
+        <strong>{{ game['team1_name'] }}</strong>
       </div>
 	      <div class="muted" style="margin-top:.5rem;">
 	        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_date }}</span>
 	        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_time }}</span>
 	        {% if game.get('location') %}<span> | {{ game['location'] }}</span>{% endif %}
-	        {% if game.get('game_video_url') %}<span> | Video: <a href="{{ game['game_video_url'] }}" target="_blank" rel="noopener">link</a></span>{% endif %}
+	        {% if game.get('game_video_url') %}<span> | Video: <a class="game-video-link" href="{{ game['game_video_url'] }}" target="_blank" rel="noopener noreferrer">link</a></span>{% endif %}
 	      </div>
       <div style="margin-top:.5rem;font-size:1.1rem;">
         {% if game.get('team1_score') is not none and game.get('team2_score') is not none %}
@@ -111,21 +111,35 @@
   </div>
 {% endif %}
 
-{% if game_stats %}
+{% if game_event_stats_rows and (game_event_stats_rows|length) %}
   <div class="card" style="margin-top:1rem;">
     <h3 style="margin-top:0">Game Stats</h3>
     <p class="muted" style="margin-top:0">
-      Source: {{ game_stats.get('_label','') }}
-      {% if game_stats_updated_at %} | Updated: {{ game_stats_updated_at }}{% endif %}
+      Source: {% if events_meta and events_meta.get('sources') %}{{ events_meta.get('sources')|join(', ') }}{% elif events_meta and events_meta.get('source_label') %}{{ events_meta.get('source_label') }}{% else %}—{% endif %}
+      {% if events_meta and events_meta.get('updated_at') %} | Updated: {{ events_meta.get('updated_at') }}{% endif %}
     </p>
     <div class="table-scroll">
       <table class="table-grid table-sortable" data-sortable="1">
-        <thead><tr><th>Stat</th><th>Value</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Event Type</th>
+            <th>
+              <div>Home</div>
+              <div class="muted" style="font-weight:700;margin-top:.15rem;">{{ game['team1_name'] }}</div>
+            </th>
+            <th>
+              <div>Away</div>
+              <div class="muted" style="font-weight:700;margin-top:.15rem;">{{ game['team2_name'] }}</div>
+            </th>
+          </tr>
+        </thead>
         <tbody>
-          {% for k, v in game_stats.items() %}
-            {% if k != '_label' %}
-              <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
-            {% endif %}
+          {% for r in game_event_stats_rows %}
+            <tr>
+              <td>{{ r.get('event_type','') }}</td>
+              <td>{{ r.get('home','') }}</td>
+              <td>{{ r.get('away','') }}</td>
+            </tr>
           {% endfor %}
         </tbody>
       </table>

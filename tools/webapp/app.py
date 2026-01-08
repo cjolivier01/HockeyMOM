@@ -3660,6 +3660,8 @@ def create_app() -> Flask:
             events_headers, events_rows, events_meta = [], [], None
 
         scoring_by_period_rows = compute_team_scoring_by_period_from_events(events_rows, tts_linked=tts_linked)
+        game_event_stats_rows = compute_game_event_stats_by_side(events_rows)
+        game_event_stats_rows = compute_game_event_stats_by_side(events_rows)
 
         imported_player_stats_csv_text: Optional[str] = None
         player_stats_import_meta: Optional[dict[str, Any]] = None
@@ -3731,6 +3733,7 @@ def create_app() -> Flask:
             events_rows=events_rows,
             events_meta=events_meta,
             scoring_by_period_rows=scoring_by_period_rows,
+            game_event_stats_rows=game_event_stats_rows,
             game_player_stats_columns=game_player_stats_columns,
             player_stats_cells_by_pid=player_stats_cells_by_pid,
             player_stats_cell_conflicts_by_pid=player_stats_cell_conflicts_by_pid,
@@ -4897,6 +4900,7 @@ def create_app() -> Flask:
             events_rows=events_rows,
             events_meta=events_meta,
             scoring_by_period_rows=scoring_by_period_rows,
+            game_event_stats_rows=game_event_stats_rows,
             game_player_stats_columns=game_player_stats_columns,
             player_stats_cells_by_pid=player_stats_cells_by_pid,
             player_stats_cell_conflicts_by_pid=player_stats_cell_conflicts_by_pid,
@@ -6371,6 +6375,82 @@ def filter_game_stats_for_display(game_stats: Optional[dict[str, Any]]) -> Optio
                 continue
         out[k] = v
     return out
+
+
+def compute_game_event_stats_by_side(events_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """
+    Build a simple Home/Away event-count table from normalized game events rows.
+    Returns rows: {"event_type": str, "home": int, "away": int}
+    """
+
+    def _norm(s: Any) -> str:
+        return str(s or "").strip()
+
+    def _norm_cf(s: Any) -> str:
+        return _norm(s).casefold()
+
+    def _event_type(r: dict[str, str]) -> str:
+        return _norm(r.get("Event Type") or r.get("Event") or r.get("Type") or "")
+
+    def _side(r: dict[str, str]) -> Optional[str]:
+        for k in ("Team Side", "TeamSide", "Team Rel", "TeamRel", "Side", "Team", "Team Raw", "TeamRaw"):
+            v = _norm_cf(r.get(k))
+            if v in {"home", "team1"}:
+                return "home"
+            if v in {"away", "team2"}:
+                return "away"
+            if v in {"neutral"}:
+                return None
+        return None
+
+    skip_types = {"assist", "penalty expired", "power play", "powerplay", "penalty kill", "penaltykill"}
+    counts: dict[str, dict[str, int]] = {}
+    for r in events_rows or []:
+        if not isinstance(r, dict):
+            continue
+        et = _event_type(r)
+        if not et:
+            continue
+        et_cf = et.casefold()
+        if et_cf in skip_types:
+            continue
+        side = _side(r)
+        if side not in {"home", "away"}:
+            continue
+        rec = counts.setdefault(et, {"home": 0, "away": 0})
+        rec[side] += 1
+
+    def _prio(et: str) -> int:
+        key = et.casefold().replace(" ", "")
+        order = [
+            "goal",
+            "penalty",
+            "sog",
+            "shot",
+            "xg",
+            "expectedgoal",
+            "rush",
+            "controlledentry",
+            "controlledexit",
+            "giveaway",
+            "takeaway",
+            "turnovers(forced)",
+            "turnoverforced",
+            "createdturnover",
+            "goaliechange",
+        ]
+        try:
+            return order.index(key)
+        except Exception:
+            return 10_000
+
+    rows: list[dict[str, Any]] = []
+    for et, rec in counts.items():
+        if int(rec.get("home") or 0) == 0 and int(rec.get("away") or 0) == 0:
+            continue
+        rows.append({"event_type": et, "home": int(rec.get("home") or 0), "away": int(rec.get("away") or 0)})
+    rows.sort(key=lambda r: (_prio(str(r.get("event_type") or "")), str(r.get("event_type") or "").casefold()))
+    return rows
 
 
 def reset_league_data(db_conn, league_id: int, *, owner_user_id: Optional[int] = None) -> dict[str, int]:

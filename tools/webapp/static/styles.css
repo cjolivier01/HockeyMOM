@@ -47,6 +47,9 @@ body {
 .nav-links a { color: var(--muted); text-decoration: none; margin-left: 1rem; font-weight: 600; }
 .nav-links a:hover { color: var(--text); }
 
+.game-video-link, .game-video-link:visited { color: #7dd3fc; }
+.game-video-link:hover { color: #bae6fd; }
+
 .container { max-width: 1500px; margin: 0 auto; padding: 1.25rem; }
 .hero { padding: 3rem 0 2rem; text-align: center; }
 .hero h1 { font-size: 2.1rem; margin: 0 0 .5rem; }
