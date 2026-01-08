@@ -5993,6 +5993,17 @@ def compute_team_scoring_by_period_from_events(
         except Exception:
             return None
 
+    def _split_sources(raw: Any) -> list[str]:
+        s = str(raw or "").strip()
+        if not s:
+            return []
+        parts = re.split(r"[,+;/\s]+", s)
+        return [p for p in (pp.strip() for pp in parts) if p]
+
+    def _is_tts_row(row: dict[str, str]) -> bool:
+        toks = _split_sources(row.get("Source") or "")
+        return any(_norm(t) == "timetoscore" for t in toks)
+
     def _team_side_to_team_idx(row: dict[str, str]) -> Optional[int]:
         # Prefer explicit Team Side when available.
         side = _norm(
@@ -6039,7 +6050,7 @@ def compute_team_scoring_by_period_from_events(
                 continue
             if _norm(r0.get("Event Type") or r0.get("Event") or "") != "goal":
                 continue
-            if _norm(r0.get("Source") or "") == "timetoscore":
+            if _is_tts_row(r0):
                 has_tts_goal_rows = True
                 break
 
@@ -6049,7 +6060,7 @@ def compute_team_scoring_by_period_from_events(
         et = _norm(r.get("Event Type") or r.get("Event") or "")
         if et != "goal":
             continue
-        if has_tts_goal_rows and _norm(r.get("Source") or "") != "timetoscore":
+        if has_tts_goal_rows and not _is_tts_row(r):
             continue
         per = _parse_int(r.get("Period"))
         if per is None:
