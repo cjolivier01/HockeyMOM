@@ -472,6 +472,31 @@ def create_app() -> Flask:
             return redirect(url_for("login"))
         return None
 
+    @app.post("/api/user/video_clip_len")
+    def api_user_video_clip_len():
+        # Session-authenticated endpoint (public pages may call this if the user is logged in).
+        if "user_id" not in session:
+            return jsonify({"ok": False, "error": "login_required"}), 401
+        payload = request.get_json(silent=True) or {}
+        raw = payload.get("clip_len_s")
+        try:
+            v = int(raw)
+        except Exception:
+            return jsonify({"ok": False, "error": "clip_len_s must be 10, 20, or 30"}), 400
+        if v not in {10, 20, 30}:
+            return jsonify({"ok": False, "error": "clip_len_s must be 10, 20, or 30"}), 400
+        try:
+            with g.db.cursor() as cur:
+                cur.execute("UPDATE users SET video_clip_len_s=%s WHERE id=%s", (int(v), int(session["user_id"])))
+            g.db.commit()
+        except Exception as e:  # noqa: BLE001
+            try:
+                g.db.rollback()
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": True, "clip_len_s": int(v)})
+
     @app.route("/games")
     def games():
         r = require_login()
@@ -3714,6 +3739,8 @@ def create_app() -> Flask:
             team2_skaters_sorted = list(team2_skaters)
         default_back_url = f"/public/leagues/{int(league_id)}/schedule"
         return_to = _safe_return_to_url(request.args.get("return_to"), default=default_back_url)
+        public_user_id = int(session.get("user_id") or 0) if "user_id" in session else 0
+        public_is_logged_in = bool(public_user_id)
         return render_template(
             "hky_game_detail.html",
             game=game,
@@ -3736,6 +3763,8 @@ def create_app() -> Flask:
             events_meta=events_meta,
             scoring_by_period_rows=scoring_by_period_rows,
             game_event_stats_rows=game_event_stats_rows,
+            user_video_clip_len_s=(get_user_video_clip_len_s(g.db, public_user_id) if public_is_logged_in else None),
+            user_is_logged_in=public_is_logged_in,
             game_player_stats_columns=game_player_stats_columns,
             player_stats_cells_by_pid=player_stats_cells_by_pid,
             player_stats_cell_conflicts_by_pid=player_stats_cell_conflicts_by_pid,
@@ -4908,6 +4937,8 @@ def create_app() -> Flask:
             events_meta=events_meta,
             scoring_by_period_rows=scoring_by_period_rows,
             game_event_stats_rows=game_event_stats_rows,
+            user_video_clip_len_s=get_user_video_clip_len_s(g.db, int(session.get("user_id") or 0)),
+            user_is_logged_in=True,
             game_player_stats_columns=game_player_stats_columns,
             player_stats_cells_by_pid=player_stats_cells_by_pid,
             player_stats_cell_conflicts_by_pid=player_stats_cell_conflicts_by_pid,
@@ -5109,6 +5140,17 @@ def init_db():
             # Fallback for MySQL variants without IF NOT EXISTS
             try:
                 cur.execute("ALTER TABLE users ADD COLUMN default_league_id INT NULL")
+            except Exception:
+                pass
+        # Add users.video_clip_len_s if missing (per-user UI preference)
+        try:
+            cur.execute("SHOW COLUMNS FROM users LIKE 'video_clip_len_s'")
+            exists = cur.fetchone()
+            if not exists:
+                cur.execute("ALTER TABLE users ADD COLUMN video_clip_len_s INT NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN video_clip_len_s INT NULL")
             except Exception:
                 pass
         # Players (belong to exactly one team)
@@ -6531,6 +6573,33 @@ def sort_events_rows_default(rows: list[dict[str, str]]) -> list[dict[str, str]]
         [r for r in (rows or []) if isinstance(r, dict)],
         key=lambda r: (_period(r), -_game_seconds(r), _ev_type(r)),
     )
+
+
+def get_user_video_clip_len_s(db_conn, user_id: Optional[int]) -> int:
+    """
+    Per-user clip length preference for timeline video clips.
+    Defaults to 10 seconds when unset/unknown.
+    """
+    if not user_id:
+        return 10
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT video_clip_len_s FROM users WHERE id=%s", (int(user_id),))
+            row = cur.fetchone()
+        v = None
+        if isinstance(row, dict):
+            v = row.get("video_clip_len_s")
+        elif isinstance(row, (list, tuple)) and row:
+            v = row[0]
+        try:
+            iv = int(v) if v is not None else None
+        except Exception:
+            iv = None
+        if iv in {10, 20, 30}:
+            return int(iv)
+    except Exception:
+        pass
+    return 10
 
 
 def reset_league_data(db_conn, league_id: int, *, owner_user_id: Optional[int] = None) -> dict[str, int]:

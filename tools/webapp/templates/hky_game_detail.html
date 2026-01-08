@@ -85,28 +85,32 @@
         <thead>
           <tr>
             <th>Period</th>
-            <th>{{ game['team1_name'] }}</th>
-            <th>{{ game['team2_name'] }}</th>
+            <th>{{ game['team1_name'] }} (GF/GA)</th>
+            <th>{{ game['team2_name'] }} (GF/GA)</th>
           </tr>
         </thead>
         <tbody>
           {% set t1_gf = namespace(v=0) %}
+          {% set t1_ga = namespace(v=0) %}
           {% set t2_gf = namespace(v=0) %}
+          {% set t2_ga = namespace(v=0) %}
           {% for r in scoring_by_period_rows %}
             {% set p = r.get('period') %}
             {% set p_label = ('OT' if p == 4 else ('P' ~ p)) %}
             {% set t1_gf.v = t1_gf.v + (r.get('team1_gf') or 0) %}
+            {% set t1_ga.v = t1_ga.v + (r.get('team1_ga') or 0) %}
             {% set t2_gf.v = t2_gf.v + (r.get('team2_gf') or 0) %}
+            {% set t2_ga.v = t2_ga.v + (r.get('team2_ga') or 0) %}
             <tr>
               <td>{{ p_label }}</td>
-              <td>{{ (r.get('team1_gf') or 0) }}</td>
-              <td>{{ (r.get('team2_gf') or 0) }}</td>
+              <td>{{ (r.get('team1_gf') or 0) }}/{{ (r.get('team1_ga') or 0) }}</td>
+              <td>{{ (r.get('team2_gf') or 0) }}/{{ (r.get('team2_ga') or 0) }}</td>
             </tr>
           {% endfor %}
           <tr style="font-weight:600;">
             <td>Total</td>
-            <td>{{ t1_gf.v }}</td>
-            <td>{{ t2_gf.v }}</td>
+            <td>{{ t1_gf.v }}/{{ t1_ga.v }}</td>
+            <td>{{ t2_gf.v }}/{{ t2_ga.v }}</td>
           </tr>
         </tbody>
       </table>
@@ -330,7 +334,7 @@
     <div id="timeline-clip-controls" class="muted" style="margin:.25rem 0 .5rem 0; display:none; align-items:center; gap:.35rem; flex-wrap:wrap;">
       <label for="timeline-clip-len" class="muted" style="font-size:.85rem;">Clip length</label>
       <select id="timeline-clip-len" style="padding:.25rem .5rem;border-radius:10px;">
-        <option value="10">10s</option>
+        <option value="10" selected>10s</option>
         <option value="20">20s</option>
         <option value="30">30s</option>
       </select>
@@ -352,6 +356,8 @@
           var clipControlsEl = document.getElementById("timeline-clip-controls");
           var clipLenEl = document.getElementById("timeline-clip-len");
           if (!dataEl || !svg || !legendEl) return;
+          var userClipLenS = {{ (user_video_clip_len_s if user_video_clip_len_s is not none else None)|tojson }};
+          var userIsLoggedIn = {{ (user_is_logged_in|default(false))|tojson }};
 
 	          var homeTeamName = {{ (game.get('team1_name') or 'Home')|tojson }};
 	          var awayTeamName = {{ (game.get('team2_name') or 'Away')|tojson }};
@@ -562,12 +568,12 @@
 	            var vs2 = parseVideoSecondsFromRow(row);
 	            if (vs2 === null || !isFinite(vs2)) return false;
 	            var totalClipS = (function () {
-	              var v = 30;
+	              var v = 10;
 	              try {
 	                if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
 	              } catch (e) {}
-	              if (!isFinite(v) || v <= 0) v = 30;
-	              if (v !== 10 && v !== 20 && v !== 30) v = 30;
+	              if (!isFinite(v) || v <= 0) v = 10;
+	              if (v !== 10 && v !== 20 && v !== 30) v = 10;
 	              return v;
 	            })();
 	            var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
@@ -1608,6 +1614,16 @@
 
             // Enable clip-length control when at least one event has a video time.
             var hasAnyVideo = false;
+            var isTouchDevice = (function () {
+              try {
+                if (window.matchMedia && window.matchMedia("(hover: none)").matches) return true;
+              } catch (e) {}
+              try {
+                return ("ontouchstart" in window) || (navigator && navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+              } catch (e) {
+                return false;
+              }
+            })();
             try {
               for (var vi = 0; vi < eventsRows.length; vi++) {
                 var vrow = eventsRows[vi] || {};
@@ -1618,15 +1634,38 @@
             if (clipControlsEl && clipLenEl && gameVideoUrl && hasAnyVideo) {
               clipControlsEl.style.display = "flex";
               try {
-                var saved = localStorage.getItem("hm_clip_len_s");
-                if (saved) {
-                  var sv = parseInt(String(saved), 10);
-                  if (sv === 10 || sv === 20 || sv === 30) clipLenEl.value = String(sv);
+                var sv = null;
+                if (userClipLenS === 10 || userClipLenS === 20 || userClipLenS === 30) {
+                  sv = userClipLenS;
+                } else {
+                  var saved = localStorage.getItem("hm_clip_len_s");
+                  if (saved) {
+                    var lv = parseInt(String(saved), 10);
+                    if (lv === 10 || lv === 20 || lv === 30) sv = lv;
+                  }
                 }
+                if (sv === 10 || sv === 20 || sv === 30) clipLenEl.value = String(sv);
               } catch (e) {}
               if (clipLenEl) {
                 clipLenEl.addEventListener("change", function () {
-                  try { localStorage.setItem("hm_clip_len_s", String(clipLenEl.value || "30")); } catch (e) {}
+                  var v = 10;
+                  try { v = parseInt(String(clipLenEl.value || "10"), 10); } catch (e) { v = 10; }
+                  if (v !== 10 && v !== 20 && v !== 30) v = 10;
+                  if (!userIsLoggedIn) {
+                    try { localStorage.setItem("hm_clip_len_s", String(v)); } catch (e) {}
+                    return;
+                  }
+                  try {
+                    fetch("/api/user/video_clip_len", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ clip_len_s: v }),
+                      credentials: "same-origin",
+                    })
+                      .then(function (r) { return r.json().catch(function () { return {}; }); })
+                      .then(function (j) { if (j && j.ok) userClipLenS = v; })
+                      .catch(function () {});
+                  } catch (e) {}
                 });
               }
             }
@@ -1676,6 +1715,14 @@
                 if (tooltipEl.dataset.hovering === "1") return;
                 tooltipEl.style.display = "none";
               }, 140);
+            }
+
+            function isDoubleTap(el) {
+              var now = Date.now();
+              var last = 0;
+              try { last = parseInt(String(el.getAttribute("data-last-tap") || "0"), 10) || 0; } catch (e) { last = 0; }
+              el.setAttribute("data-last-tap", String(now));
+              return last && (now - last) <= 350;
             }
 
             function setTooltipContent(ev) {
@@ -1850,6 +1897,28 @@
 	                  scheduleHideTooltip();
 	                });
 		                ln.addEventListener("click", function (e) {
+		                  if (isTouchDevice) {
+		                    var atTap = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
+		                    if (isDoubleTap(ln) && openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTap })) {
+		                      if (tooltipEl) {
+		                        tooltipEl.style.display = "none";
+		                        tooltipEl.dataset.pinned = "0";
+		                      }
+		                      e.stopPropagation();
+		                      return;
+		                    }
+		                  }
+		                  if (!isTouchDevice) {
+		                    var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
+		                    if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
+		                      if (tooltipEl) {
+		                        tooltipEl.style.display = "none";
+		                        tooltipEl.dataset.pinned = "0";
+		                      }
+		                      e.stopPropagation();
+		                      return;
+		                    }
+		                  }
 		                  if (!tooltipEl) return;
 		                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
 		                    tooltipEl.dataset.pinned = "1";
@@ -1859,6 +1928,12 @@
 	                    tooltipEl.style.display = "none";
 	                    tooltipEl.dataset.pinned = "0";
 	                  }
+	                  e.stopPropagation();
+	                });
+	                ln.addEventListener("dblclick", function (e) {
+	                  var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
+	                  openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt });
+	                  e.preventDefault();
 	                  e.stopPropagation();
 	                });
 	              })(sEv);
@@ -1918,6 +1993,28 @@
 	                  scheduleHideTooltip();
 	                });
 		                g.addEventListener("click", function (e) {
+		                  if (isTouchDevice) {
+		                    var atTap = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
+		                    if (isDoubleTap(g) && openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTap })) {
+		                      if (tooltipEl) {
+		                        tooltipEl.style.display = "none";
+		                        tooltipEl.dataset.pinned = "0";
+		                      }
+		                      e.stopPropagation();
+		                      return;
+		                    }
+		                  }
+		                  if (!isTouchDevice) {
+		                    var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
+		                    if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
+		                      if (tooltipEl) {
+		                        tooltipEl.style.display = "none";
+		                        tooltipEl.dataset.pinned = "0";
+		                      }
+		                      e.stopPropagation();
+		                      return;
+		                    }
+		                  }
 		                  if (!tooltipEl) return;
 		                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
 		                    tooltipEl.dataset.pinned = "1";
@@ -1929,6 +2026,12 @@
                   }
                   e.stopPropagation();
                 });
+	                g.addEventListener("dblclick", function (e) {
+	                  var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
+	                  openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt });
+	                  e.preventDefault();
+	                  e.stopPropagation();
+	                });
               })(ev3);
 
               svg.appendChild(g);
