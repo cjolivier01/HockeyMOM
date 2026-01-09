@@ -31,6 +31,14 @@ DROP_DB_ONLY=0
 SPREADSHEETS_ONLY=0
 T2S_SCRAPE=0
 
+require_cmd() {
+  local name="$1"
+  if ! command -v "${name}" >/dev/null 2>&1; then
+    echo "[!] Missing required command: ${name}" >&2
+    return 1
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only]
@@ -72,8 +80,22 @@ done
 
 if [[ "${DROP_DB_ONLY}" == "1" && "${DEPLOY_ONLY}" == "1" ]]; then
   echo "[!] --drop-db-only cannot be combined with --deploy-only" >&2
+    exit 2
+fi
+
+if [[ ! -x "./p" ]]; then
+  echo "[!] Missing executable: ./p" >&2
+  echo "    Run from repo root, or use ./run.sh / bazel run helpers." >&2
   exit 2
 fi
+
+require_cmd curl || exit 2
+require_cmd python3 || exit 2
+require_cmd gcloud || {
+  echo "    Install the Google Cloud CLI and run: gcloud auth login" >&2
+  echo "    See: https://cloud.google.com/sdk/docs/install" >&2
+  exit 2
+}
 
 is_local_url() {
   case "${WEBAPP_URL}" in
@@ -187,9 +209,13 @@ import json, os
 print(json.dumps({"league_name": os.environ["LEAGUE_NAME"], "owner_email": os.environ["OWNER_EMAIL"], "shared": True}))
 PY
 )"
+AUTH_HEADER=()
+if [[ -n "${HM_WEBAPP_IMPORT_TOKEN:-}" ]]; then
+  AUTH_HEADER+=( -H "Authorization: Bearer ${HM_WEBAPP_IMPORT_TOKEN}" )
+fi
 curl -sS -m 30 -f \
   -X POST "${WEBAPP_URL}/api/internal/ensure_league_owner" \
-  -H "Authorization: Bearer ${HM_WEBAPP_IMPORT_TOKEN}" \
+  "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d "${LEAGUE_OWNER_PAYLOAD}" >/dev/null
 
