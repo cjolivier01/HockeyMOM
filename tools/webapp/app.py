@@ -1178,7 +1178,7 @@ def create_app() -> Flask:
         *,
         league_name: str,
         owner_user_id: int,
-        is_shared: bool,
+        is_shared: Optional[bool],
         source: Optional[str],
         external_key: Optional[str],
         commit: bool = True,
@@ -1191,21 +1191,27 @@ def create_app() -> Flask:
             row = cur.fetchone()
             if row:
                 lid = int(row[0])
-                want_shared = 1 if is_shared else 0
-                if int(row[1]) != want_shared:
+                if is_shared is not None:
+                    want_shared = 1 if bool(is_shared) else 0
+                else:
+                    want_shared = None
+                if want_shared is not None and int(row[1]) != want_shared:
                     cur.execute(
                         "UPDATE leagues SET is_shared=%s, updated_at=%s WHERE id=%s",
-                        (want_shared, dt.datetime.now().isoformat(), lid),
+                        (int(want_shared), dt.datetime.now().isoformat(), lid),
                     )
                     if commit:
                         g.db.commit()
                 return lid
+            # Default for imported leagues: shared unless explicitly disabled.
+            if is_shared is None:
+                is_shared = True
             cur.execute(
                 "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
                 (
                     name,
                     owner_user_id,
-                    1 if is_shared else 0,
+                    1 if bool(is_shared) else 0,
                     source,
                     external_key,
                     dt.datetime.now().isoformat(),
@@ -1805,7 +1811,7 @@ def create_app() -> Flask:
             return auth
         payload = request.get_json(silent=True) or {}
         league_name = str(payload.get("league_name") or "Norcal")
-        shared = bool(payload.get("shared", True))
+        shared = bool(payload["shared"]) if "shared" in payload else None
         owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
         owner_name = str(payload.get("owner_name") or "Norcal Import")
         source = payload.get("source")
@@ -1828,7 +1834,7 @@ def create_app() -> Flask:
             return auth
         payload = request.get_json(silent=True) or {}
         league_name = str(payload.get("league_name") or "Norcal")
-        shared = bool(payload.get("shared", True))
+        shared = bool(payload["shared"]) if "shared" in payload else None
         replace = bool(payload.get("replace", False))
         owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
         owner_name = str(payload.get("owner_name") or "Norcal Import")
@@ -1922,7 +1928,7 @@ def create_app() -> Flask:
             return auth
         payload = request.get_json(silent=True) or {}
         league_name = str(payload.get("league_name") or "Norcal")
-        shared = bool(payload.get("shared", True))
+        shared = bool(payload["shared"]) if "shared" in payload else None
         replace = bool(payload.get("replace", False))
         owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
         owner_name = str(payload.get("owner_name") or "Norcal Import")
@@ -2174,7 +2180,7 @@ def create_app() -> Flask:
             return auth
         payload = request.get_json(silent=True) or {}
         league_name = str(payload.get("league_name") or "Norcal")
-        shared = bool(payload.get("shared", True))
+        shared = bool(payload["shared"]) if "shared" in payload else None
         replace = bool(payload.get("replace", False))
         owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
         owner_name = str(payload.get("owner_name") or "Norcal Import")
@@ -3311,7 +3317,7 @@ def create_app() -> Flask:
         league_name = str(payload.get("league_name") or "").strip()
         owner_email = str(payload.get("owner_email") or "").strip().lower()
         owner_name = str(payload.get("owner_name") or owner_email).strip() or owner_email
-        is_shared = bool(payload.get("shared", True))
+        is_shared = bool(payload["shared"]) if "shared" in payload else None
         if not league_name or not owner_email:
             return jsonify({"ok": False, "error": "owner_email and league_name are required"}), 400
 
@@ -3321,14 +3327,22 @@ def create_app() -> Flask:
             row = cur.fetchone()
             if row:
                 league_id = int(row[0])
-                cur.execute(
-                    "UPDATE leagues SET owner_user_id=%s, is_shared=%s, updated_at=%s WHERE id=%s",
-                    (owner_user_id, 1 if is_shared else 0, dt.datetime.now().isoformat(), league_id),
-                )
+                if is_shared is not None:
+                    cur.execute(
+                        "UPDATE leagues SET owner_user_id=%s, is_shared=%s, updated_at=%s WHERE id=%s",
+                        (owner_user_id, 1 if bool(is_shared) else 0, dt.datetime.now().isoformat(), league_id),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE leagues SET owner_user_id=%s, updated_at=%s WHERE id=%s",
+                        (owner_user_id, dt.datetime.now().isoformat(), league_id),
+                    )
             else:
+                if is_shared is None:
+                    is_shared = True
                 cur.execute(
                     "INSERT INTO leagues(name, owner_user_id, is_shared, is_public, created_at) VALUES(%s,%s,%s,%s,%s)",
-                    (league_name, owner_user_id, 1 if is_shared else 0, 0, dt.datetime.now().isoformat()),
+                    (league_name, owner_user_id, 1 if bool(is_shared) else 0, 0, dt.datetime.now().isoformat()),
                 )
                 league_id = int(cur.lastrowid)
             cur.execute(
@@ -3497,7 +3511,7 @@ def create_app() -> Flask:
     def _is_public_league(league_id: int) -> Optional[dict]:
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
-                "SELECT id, name, owner_user_id FROM leagues WHERE id=%s AND is_public=1", (league_id,)
+                "SELECT id, name FROM leagues WHERE id=%s AND is_public=1", (league_id,)
             )
             return cur.fetchone()
 

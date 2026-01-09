@@ -264,7 +264,7 @@ def ensure_league(
     conn,
     name: str,
     owner_user_id: int,
-    is_shared: bool,
+    is_shared: Optional[bool],
     source: Optional[str],
     external_key: Optional[str],
 ) -> int:
@@ -274,16 +274,26 @@ def ensure_league(
         r = cur.fetchone()
         if r:
             league_id = int(r[0])
-            cur.execute(
-                "UPDATE leagues SET is_shared=%s, source=%s, external_key=%s, updated_at=%s WHERE id=%s",
-                (1 if is_shared else 0, source, external_key, dt.datetime.now().isoformat(), league_id),
-            )
-            conn.commit()
+            if is_shared is not None:
+                cur.execute(
+                    "UPDATE leagues SET is_shared=%s, source=%s, external_key=%s, updated_at=%s WHERE id=%s",
+                    (1 if bool(is_shared) else 0, source, external_key, dt.datetime.now().isoformat(), league_id),
+                )
+                conn.commit()
+            else:
+                cur.execute(
+                    "UPDATE leagues SET source=%s, external_key=%s, updated_at=%s WHERE id=%s",
+                    (source, external_key, dt.datetime.now().isoformat(), league_id),
+                )
+                conn.commit()
             return league_id
         now = dt.datetime.now().isoformat()
+        if is_shared is None:
+            # Default for TimeToScore imports: shared unless explicitly disabled.
+            is_shared = True
         cur.execute(
             "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
-            (name, owner_user_id, 1 if is_shared else 0, source, external_key, now),
+            (name, owner_user_id, 1 if bool(is_shared) else 0, source, external_key, now),
         )
         conn.commit()
         return int(cur.lastrowid)
@@ -770,7 +780,7 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
     league_name = str(payload.get("league_name") or "").strip()
     if not league_name:
         raise ValueError("league_name is required")
-    shared = bool(payload.get("shared", False))
+    shared: Optional[bool] = bool(payload["shared"]) if "shared" in payload else None
     replace = bool(payload.get("replace", False))
     owner_email = str(payload.get("owner_email") or "").strip().lower()
     owner_name = str(payload.get("owner_name") or owner_email).strip()
@@ -812,17 +822,22 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         row = cur.fetchone()
         if row:
             league_id = int(row[0])
-            want_shared = 1 if shared else 0
-            if int(row[1]) != want_shared:
+            if shared is not None:
+                want_shared = 1 if bool(shared) else 0
+            else:
+                want_shared = None
+            if want_shared is not None and int(row[1]) != want_shared:
                 cur.execute(
                     "UPDATE leagues SET is_shared=%s, updated_at=%s WHERE id=%s",
-                    (want_shared, dt.datetime.now().isoformat(), league_id),
+                    (int(want_shared), dt.datetime.now().isoformat(), league_id),
                 )
                 conn.commit()
         else:
+            if shared is None:
+                shared = True
             cur.execute(
                 "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
-                (league_name, owner_user_id, 1 if shared else 0, source, external_key, dt.datetime.now().isoformat()),
+                (league_name, owner_user_id, 1 if bool(shared) else 0, source, external_key, dt.datetime.now().isoformat()),
             )
             conn.commit()
             league_id = int(cur.lastrowid)
@@ -1172,7 +1187,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="League name to import into (default: same as --source; created if missing)",
     )
     ap.add_argument("--league-owner-email", default=None, help="Owner of the league (defaults to --user-email)")
-    ap.add_argument("--shared", action="store_true", help="Mark the league as shared")
+    ap.add_argument(
+        "--shared",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Set whether the league is shared (default: leave unchanged; used for league creation if missing).",
+    )
     ap.add_argument("--share-with", action="append", default=[], help="Emails to add as league viewers (repeatable)")
 
     ap.add_argument(
@@ -1468,7 +1488,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             conn,
             league_name,
             owner_id,
-            bool(args.shared),
+            args.shared,
             source="timetoscore",
             external_key=f"{args.source}:{season_id}",
         )
@@ -1660,7 +1680,6 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         payload = {
             "league_name": league_name,
-            "shared": bool(args.shared),
             "replace": bool(args.replace),
             "owner_email": owner_email,
             "owner_name": owner_email,
@@ -1668,6 +1687,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             "external_key": f"{args.source}:{season_id}",
             "games": api_games_batch,
         }
+        if args.shared is not None:
+            payload["shared"] = bool(args.shared)
         r = requests.post(f"{api_base}/api/import/hockey/games_batch", json=payload, headers=api_headers, timeout=180)
         r.raise_for_status()
         out = r.json()
