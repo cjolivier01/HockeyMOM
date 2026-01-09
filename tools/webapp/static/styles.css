@@ -256,6 +256,18 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   overflow-x: auto;
   max-width: 100%;
 }
+.events-timeline-tooltip-section {
+  margin-top: .55rem;
+}
+.events-timeline-tooltip-section-label {
+  font-weight: 800;
+  color: rgba(245, 246, 248, 0.95);
+  font-size: .82rem;
+  white-space: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
+  margin-bottom: .2rem;
+}
 .events-timeline-tooltip-pre {
   /* Preserve explicit newlines, but never wrap long player/team names. */
   white-space: pre;
@@ -289,6 +301,9 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   .events-timeline-tooltip-line {
     font-size: .78rem;
     line-height: 1.25;
+  }
+  .events-timeline-tooltip-section-label {
+    font-size: .76rem;
   }
   .events-timeline-tooltip-title {
     font-size: .95rem;

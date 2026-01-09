@@ -1838,6 +1838,24 @@
                 tooltipEl.appendChild(line);
               }
 
+              function addSectionBlock(label, v) {
+                var items = splitList(v);
+                if (!items.length) return;
+                var wrap = document.createElement("div");
+                wrap.className = "events-timeline-tooltip-section";
+                var lab = document.createElement("div");
+                lab.className = "events-timeline-tooltip-section-label";
+                lab.textContent = String(label || "").trim() || "";
+                wrap.appendChild(lab);
+                var body = document.createElement("div");
+                body.className = "events-timeline-tooltip-line events-timeline-tooltip-pre";
+                var text = items.join("\n");
+                if (text.length > 700) text = text.slice(0, 697) + "...";
+                body.textContent = text;
+                wrap.appendChild(body);
+                tooltipEl.appendChild(wrap);
+              }
+
 	              addLine("Players", getValue(ev.row, ["Attributed Players"]));
 	              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
 	              addLine("Details", getValue(ev.row, ["Details"]));
@@ -1847,17 +1865,17 @@
 	                var onIceLegacy = getValue(ev.row, ["On-Ice Players", "OnIcePlayers"]);
 	                var hasSplit = String(onIceHome || "").trim() || String(onIceAway || "").trim();
 	                if (!hasSplit) {
-	                  addMultiline("On-Ice", onIceLegacy);
+	                  addSectionBlock("On-Ice", onIceLegacy);
 	                  return;
 	                }
 	                var homeLabel = "On-Ice (Home — " + (homeTeamName || "Home") + ")";
 	                var awayLabel = "On-Ice (Away — " + (awayTeamName || "Away") + ")";
 	                if (String(ev.side || "") === "Away") {
-	                  addMultiline(awayLabel, onIceAway);
-	                  addMultiline(homeLabel, onIceHome);
+	                  addSectionBlock(awayLabel, onIceAway);
+	                  addSectionBlock(homeLabel, onIceHome);
 	                } else {
-	                  addMultiline(homeLabel, onIceHome);
-	                  addMultiline(awayLabel, onIceAway);
+	                  addSectionBlock(homeLabel, onIceHome);
+	                  addSectionBlock(awayLabel, onIceAway);
 	                }
 	              })();
 	              if (ev.penaltiesText) addMultiline("Penalties", ev.penaltiesText);
