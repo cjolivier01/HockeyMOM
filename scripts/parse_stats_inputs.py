@@ -2731,11 +2731,24 @@ def _parse_long_shift_tables(
         m = re.match(r"(?is)^\s*(.+?)\s*\(([^)]+)\)\s*$", str(s or ""))
         if not m:
             return None
-        team = _clean_html_fragment(m.group(1))
-        p = parse_period_label(m.group(2))
-        if not team or p is None:
-            return None
-        return team, int(p)
+        left = _clean_html_fragment(m.group(1))
+        right = _clean_html_fragment(m.group(2))
+
+        # Common format: "<Team Name> (1st Period)"
+        p = parse_period_label(right)
+        if left and p is not None:
+            return left, int(p)
+
+        # Older long sheets sometimes label shift tables by team color only:
+        #   "1st Period (White team)" / "1st Period (Blue team)"
+        p2 = parse_period_label(left)
+        if p2 is not None and right:
+            rl = right.casefold()
+            if "white" in rl:
+                return "White", int(p2)
+            if "blue" in rl:
+                return "Blue", int(p2)
+        return None
 
     def _parse_period_only(s: str) -> Optional[int]:
         # Example: "2nd Period"
@@ -3229,6 +3242,150 @@ def _print_shift_discrepancy_rich_summary(summary: Dict[str, Any]) -> None:
         f"nonsensical_primary={summary.get('nonsensical_primary_shifts')} nonsensical_long={summary.get('nonsensical_long_shifts')}"
     )
     console.print(totals)
+
+
+def _print_game_inputs_rich_summary(results: List[Dict[str, Any]]) -> None:
+    """
+    Print a compact, per-game summary of which sources were used to generate stats/events.
+
+    This is intended to make it obvious when, e.g., a long sheet is present but its embedded
+    shift tables couldn't be parsed (so opponent shifts/stats are missing).
+    """
+    if not results or len(results) <= 1:
+        return
+
+    try:
+        from rich.console import Console  # type: ignore
+        from rich.table import Table  # type: ignore
+        from rich.text import Text  # type: ignore
+    except Exception:
+        return
+
+    def _count_players(player_stats_csv: Path) -> Optional[int]:
+        try:
+            if not player_stats_csv.exists():
+                return None
+            n = 0
+            with player_stats_csv.open("r", encoding="utf-8", errors="ignore") as f:
+                for _ in f:
+                    n += 1
+            # subtract header
+            return max(0, n - 1)
+        except Exception:
+            return None
+
+    def _events_sources(events_csv: Path) -> str:
+        try:
+            if not events_csv.exists():
+                return ""
+            with events_csv.open("r", encoding="utf-8", errors="ignore") as f:
+                reader = csv.DictReader(f)
+                if not reader.fieldnames:
+                    return ""
+                src_key = None
+                for cand in ("Source", "source"):
+                    if cand in reader.fieldnames:
+                        src_key = cand
+                        break
+                if src_key is None:
+                    return ""
+                seen: List[str] = []
+                for idx, row in enumerate(reader):
+                    if idx > 3000:
+                        break
+                    v = str((row or {}).get(src_key) or "").strip()
+                    if not v:
+                        continue
+                    if v not in seen:
+                        seen.append(v)
+                return ",".join(seen)
+        except Exception:
+            return ""
+
+    def _shift_source_for_side(
+        side: str,
+        *,
+        primary_side: Optional[str],
+        primary_path: Optional[Path],
+        stats_dir: Path,
+    ) -> str:
+        n_players = _count_players(stats_dir / "player_stats.csv")
+        if n_players is None or n_players <= 0:
+            return ""
+        if primary_side == side and primary_path is not None and (not _is_long_sheet_path(primary_path)):
+            return "Primary"
+        return "Long"
+
+    console = Console(file=sys.stderr)
+    table = Table(title="Stats Inputs Summary", show_lines=False)
+    table.add_column("Game", no_wrap=True)
+    table.add_column("T2S", justify="right", no_wrap=True)
+    table.add_column("Primary Side", no_wrap=True)
+    table.add_column("Primary", no_wrap=True)
+    table.add_column("Long", justify="right", no_wrap=True)
+    table.add_column("Home Shifts", no_wrap=True)
+    table.add_column("Away Shifts", no_wrap=True)
+    table.add_column("Home Players", justify="right", no_wrap=True)
+    table.add_column("Away Players", justify="right", no_wrap=True)
+    table.add_column("Event Sources", overflow="fold")
+
+    for r in sorted(results, key=lambda x: int(x.get("order") or 0)):
+        label = str(r.get("label") or "")
+        t2s_id = r.get("t2s_id")
+        t2s_disp = str(int(t2s_id)) if isinstance(t2s_id, int) else ""
+        primary_side = str(r.get("side") or "").strip().lower() or None
+        primary_path = None
+        try:
+            pp = r.get("primary_path")
+            primary_path = Path(pp) if pp else None
+        except Exception:
+            primary_path = None
+        long_paths = list(r.get("long_paths") or [])
+        long_count = len(long_paths)
+
+        outdir = Path(r.get("outdir"))
+        fmt_dir = outdir.name
+        root = outdir.parent.parent
+        home_stats = root / "Home" / fmt_dir / "stats"
+        away_stats = root / "Away" / fmt_dir / "stats"
+        home_players = _count_players(home_stats / "player_stats.csv")
+        away_players = _count_players(away_stats / "player_stats.csv")
+        home_shift_src = _shift_source_for_side("home", primary_side=primary_side, primary_path=primary_path, stats_dir=home_stats)
+        away_shift_src = _shift_source_for_side("away", primary_side=primary_side, primary_path=primary_path, stats_dir=away_stats)
+
+        events_sources = _events_sources(outdir / "stats" / "all_events_summary.csv")
+
+        def _fmt_players(n: Optional[int]) -> str:
+            if n is None:
+                return ""
+            return str(int(n))
+
+        # Highlight missing opponent shifts when long sheets are present.
+        warn_style = None
+        if long_count > 0:
+            if primary_side == "home" and not away_shift_src:
+                warn_style = "red"
+            if primary_side == "away" and not home_shift_src:
+                warn_style = "red"
+
+        game_cell: Any = label
+        if warn_style:
+            game_cell = Text(label, style=warn_style)
+
+        table.add_row(
+            game_cell,
+            t2s_disp,
+            primary_side or "",
+            "yes" if (primary_path is not None and primary_path.exists() and (not _is_long_sheet_path(primary_path))) else "no",
+            str(long_count) if long_count else "",
+            home_shift_src,
+            away_shift_src,
+            _fmt_players(home_players),
+            _fmt_players(away_players),
+            events_sources,
+        )
+
+    console.print(table)
 
 
 def _goal_records_from_long_goal_rows(
@@ -10949,6 +11106,8 @@ def main() -> None:
                 "events": per_player_events,
                 "pair_on_ice": pair_on_ice_rows,
                 "sheet_path": in_path,
+                "primary_path": str(primary_path) if primary_path is not None else None,
+                "long_paths": [str(p) for p in (long_paths or [])],
                 "video_path": video_path,
                 "side": str(side_to_use or "") or None,
                 "meta": dict(g.get("meta") or {}),
@@ -11201,6 +11360,8 @@ def main() -> None:
                 "'|owner_email=you@example.com|league=Norcal|home_team=...|away_team=...' for non-TimeToScore games.",
                 file=sys.stderr,
             )
+
+    _print_game_inputs_rich_summary(results)
 
     if goal_discrepancy_rows:
         _print_goal_discrepancy_rich_table(goal_discrepancy_rows)
