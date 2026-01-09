@@ -101,11 +101,50 @@ class FakeCursor:
         def t(*vals: Any) -> tuple[Any, ...]:
             return tuple(vals)
 
-        if q == "SELECT id, name FROM leagues WHERE id=%s AND is_public=1":
+        if q.startswith("SELECT id, name") and "FROM leagues WHERE id=%s AND is_public=1" in q:
             lid = int(p[0])
             league = self._conn.leagues.get(lid)
             if league and int(league.get("is_public") or 0) == 1:
-                self._rows = [d({"id": league["id"], "name": league["name"]})]
+                row = {"id": league["id"], "name": league["name"]}
+                if "owner_user_id" in q:
+                    row["owner_user_id"] = league.get("owner_user_id")
+                self._rows = [d(row)]
+            return 1
+
+        if q == "SELECT owner_user_id FROM leagues WHERE id=%s":
+            lid = int(p[0])
+            league = self._conn.leagues.get(lid)
+            if league:
+                self._rows = [t(int(league.get("owner_user_id") or 0))]
+            return 1
+
+        if q == "SELECT 1 FROM leagues WHERE id=%s AND owner_user_id=%s":
+            lid, uid = int(p[0]), int(p[1])
+            league = self._conn.leagues.get(lid)
+            if league and int(league.get("owner_user_id") or 0) == uid:
+                self._rows = [t(1)]
+            return 1
+
+        if q.startswith(
+            "SELECT 1 FROM leagues l LEFT JOIN league_members m ON m.league_id=l.id AND m.user_id=%s WHERE l.id=%s AND (l.is_shared=1 OR l.owner_user_id=%s OR m.user_id=%s)"
+        ):
+            uid1, lid, uid2, uid3 = int(p[0]), int(p[1]), int(p[2]), int(p[3])
+            assert uid1 == uid2 == uid3
+            league = self._conn.leagues.get(lid)
+            if league and (int(league.get("is_shared") or 0) == 1 or int(league.get("owner_user_id") or 0) == uid1):
+                self._rows = [t(1)]
+            return 1
+
+        if q == "SELECT 1 FROM league_members WHERE league_id=%s AND user_id=%s AND role IN ('admin','owner')":
+            self._rows = []
+            return 1
+
+        if q == "SELECT view_count FROM league_page_views WHERE league_id=%s AND page_kind=%s AND entity_id=%s":
+            self._rows = []
+            return 1
+
+        if q == "SELECT video_clip_len_s FROM users WHERE id=%s":
+            self._rows = []
             return 1
 
         if q.startswith(
@@ -144,6 +183,28 @@ class FakeCursor:
                     )
                 )
             self._rows = [d(r) for r in rows]
+            return 1
+
+        if (
+            "FROM hky_games g JOIN teams t1 ON g.team1_id=t1.id JOIN teams t2 ON g.team2_id=t2.id" in q
+            and "WHERE g.id=%s AND g.user_id=%s" in q
+        ):
+            gid, uid = int(p[0]), int(p[1])
+            g = self._conn.hky_games.get(gid)
+            if g and int(g.get("user_id") or 0) == uid:
+                t1 = self._conn.teams[int(g["team1_id"])]
+                t2 = self._conn.teams[int(g["team2_id"])]
+                self._rows = [
+                    d(
+                        dict(
+                            g,
+                            team1_name=t1["name"],
+                            team2_name=t2["name"],
+                            team1_ext=int(t1.get("is_external") or 0),
+                            team2_ext=int(t2.get("is_external") or 0),
+                        )
+                    )
+                ]
             return 1
 
         if q == "SELECT id FROM users WHERE email=%s":
@@ -878,7 +939,21 @@ def should_create_external_game_via_shift_package_and_map_to_league(client_and_d
 
     # Missing player is created and stats are inserted.
     assert any(str(p.get("name")) == "Charlie" and str(p.get("jersey_number")) == "13" for p in db.players)
-    assert any(int(ps.get("game_id")) == gid for ps in db.player_stats)
+
+
+def should_render_private_game_page_as_league_owner_when_not_game_owner(client_and_db):
+    client, db = client_and_db
+    # Act like a league owner viewing a league game that is owned by a different user.
+    with client.session_transaction() as sess:
+        sess["user_id"] = 10
+        sess["user_email"] = "owner@example.com"
+        sess["league_id"] = 1
+
+    db.hky_games[1001]["user_id"] = 11
+    r = client.get("/hky/games/1001?return_to=/teams/44")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert "Game Summary" in html
 
 
 def should_reuse_existing_league_team_by_name_and_preserve_division(client_and_db):

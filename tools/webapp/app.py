@@ -3016,6 +3016,12 @@ def create_app() -> Flask:
                                             incoming_headers=incoming_events_headers_raw,
                                             incoming_rows=incoming_events_rows_raw,
                                         )
+                                        ex_headers, ex_rows = enrich_timetoscore_penalties_with_video_times(
+                                            existing_headers=ex_headers,
+                                            existing_rows=ex_rows,
+                                            incoming_headers=incoming_events_headers_raw,
+                                            incoming_rows=incoming_events_rows_raw,
+                                        )
 
                                     def _norm_ev_type(v: Any) -> str:
                                         return str(v or "").strip().casefold()
@@ -5271,6 +5277,10 @@ def create_app() -> Flask:
                 pass
 
         scoring_by_period_rows = compute_team_scoring_by_period_from_events(events_rows, tts_linked=tts_linked)
+        try:
+            game_event_stats_rows = compute_game_event_stats_by_side(events_rows)
+        except Exception:
+            game_event_stats_rows = []
 
         imported_player_stats_csv_text: Optional[str] = None
         player_stats_import_meta: Optional[dict[str, Any]] = None
@@ -6974,6 +6984,185 @@ def enrich_timetoscore_goals_with_long_video_times(
                     if vt:
                         rr["Video Time"] = vt
                     _add_source(rr, "long")
+        out_rows.append(rr)
+
+    return out_headers, out_rows
+
+
+def enrich_timetoscore_penalties_with_video_times(
+    *,
+    existing_headers: list[str],
+    existing_rows: list[dict[str, str]],
+    incoming_headers: list[str],
+    incoming_rows: list[dict[str, str]],
+) -> tuple[list[str], list[dict[str, str]]]:
+    """
+    For TimeToScore-linked games, keep TimeToScore penalty events as authoritative, but
+    copy Video Time/Seconds from matching penalty rows found in the incoming spreadsheet
+    events CSV (which can map scoreboard time -> video time using shift sync).
+
+    This is what makes penalty icons in the game timeline clickable (the UI requires
+    Video Time/Seconds in the row to open the video clip).
+    """
+
+    def _norm(s: Any) -> str:
+        return str(s or "").strip().casefold()
+
+    def _split_sources(raw: Any) -> list[str]:
+        s = str(raw or "").strip()
+        if not s:
+            return []
+        parts = re.split(r"[,+;/\s]+", s)
+        return [p for p in (pp.strip() for pp in parts) if p]
+
+    def _has_source(row: dict[str, str], token: str) -> bool:
+        return any(_norm(t) == _norm(token) for t in _split_sources(row.get("Source") or ""))
+
+    def _add_source(row: dict[str, str], token: str) -> None:
+        toks = _split_sources(row.get("Source") or "")
+        toks_cf = {_norm(t) for t in toks}
+        if _norm(token) not in toks_cf:
+            toks.append(str(token))
+        row["Source"] = ",".join([t for t in toks if t])
+
+    def _parse_int(v: Any) -> Optional[int]:
+        try:
+            return int(str(v or "").strip())
+        except Exception:
+            return None
+
+    def _norm_side(row: dict[str, str]) -> Optional[str]:
+        for k in ("Team Side", "TeamSide", "Side", "Team Rel", "TeamRel", "Team Raw", "TeamRaw", "Team"):
+            v = str(row.get(k) or "").strip().casefold()
+            if v in {"home", "team1"}:
+                return "home"
+            if v in {"away", "team2"}:
+                return "away"
+        return None
+
+    def _ev_type(row: dict[str, str]) -> str:
+        return _norm(row.get("Event Type") or row.get("Event") or "")
+
+    def _period(row: dict[str, str]) -> Optional[int]:
+        p = _parse_int(row.get("Period"))
+        return p if p is not None and p > 0 else None
+
+    def _game_seconds(row: dict[str, str]) -> Optional[int]:
+        gs = _parse_int(row.get("Game Seconds") or row.get("GameSeconds"))
+        if gs is not None:
+            return gs
+        return parse_duration_seconds(row.get("Game Time") or row.get("GameTime") or row.get("Time"))
+
+    def _video_seconds(row: dict[str, str]) -> Optional[int]:
+        vs = _parse_int(row.get("Video Seconds") or row.get("VideoSeconds"))
+        if vs is not None:
+            return vs
+        return parse_duration_seconds(row.get("Video Time") or row.get("VideoTime"))
+
+    def _video_time(row: dict[str, str]) -> str:
+        return str(row.get("Video Time") or row.get("VideoTime") or "").strip()
+
+    def _has_video(row: dict[str, str]) -> bool:
+        return _video_seconds(row) is not None or bool(_video_time(row))
+
+    # Build generic per-period mapping points from incoming rows with both game+video seconds.
+    # These points already incorporate stoppages because they are derived from shift sync.
+    mapping_by_period: dict[int, list[tuple[int, int]]] = {}
+    for r in incoming_rows or []:
+        if not isinstance(r, dict):
+            continue
+        per = _period(r)
+        gs = _game_seconds(r)
+        vs = _video_seconds(r)
+        if per is None or gs is None or vs is None:
+            continue
+        mapping_by_period.setdefault(int(per), []).append((int(gs), int(vs)))
+    for per, pts in list(mapping_by_period.items()):
+        # Deduplicate by game seconds (keep first) and sort by game seconds.
+        seen_gs: set[int] = set()
+        uniq: list[tuple[int, int]] = []
+        for gs, vs in pts:
+            if gs in seen_gs:
+                continue
+            seen_gs.add(gs)
+            uniq.append((gs, vs))
+        uniq.sort(key=lambda x: x[0])
+        mapping_by_period[per] = uniq
+
+    def _interp_video_seconds(period: int, game_s: int) -> Optional[int]:
+        pts = mapping_by_period.get(int(period)) or []
+        if len(pts) < 2:
+            return None
+        for i in range(len(pts) - 1):
+            g0, v0 = pts[i]
+            g1, v1 = pts[i + 1]
+            lo, hi = (g0, g1) if g0 <= g1 else (g1, g0)
+            if not (lo <= int(game_s) <= hi):
+                continue
+            if g0 == g1:
+                continue
+            # Linear interpolation (works for both increasing and decreasing mappings).
+            return int(round(v0 + (int(game_s) - g0) * (v1 - v0) / (g1 - g0)))
+        return None
+
+    # Build lookup from incoming penalty rows with video times.
+    incoming_by_key: dict[tuple[int, str, int, str], dict[str, str]] = {}
+    for r in incoming_rows or []:
+        if not isinstance(r, dict):
+            continue
+        if _ev_type(r) != "penalty":
+            continue
+        per = _period(r)
+        side = _norm_side(r)
+        gs = _game_seconds(r)
+        if per is None or side is None or gs is None:
+            continue
+        if not _has_video(r):
+            continue
+        jerseys = str(r.get("Attributed Jerseys") or "").strip()
+        incoming_by_key[(int(per), side, int(gs), jerseys)] = r
+
+    if not incoming_by_key:
+        return existing_headers, existing_rows
+
+    # Ensure destination headers include video fields.
+    out_headers = list(existing_headers or [])
+    for h in ("Video Time", "Video Seconds"):
+        if h not in out_headers:
+            out_headers.append(h)
+
+    out_rows: list[dict[str, str]] = []
+    for r in existing_rows or []:
+        if not isinstance(r, dict):
+            continue
+        rr = dict(r)
+        if _ev_type(rr) == "penalty" and _has_source(rr, "timetoscore") and not _has_video(rr):
+            per = _period(rr)
+            side = _norm_side(rr)
+            gs = _game_seconds(rr)
+            jerseys = str(rr.get("Attributed Jerseys") or "").strip()
+            if per is not None and side is not None and gs is not None:
+                match = incoming_by_key.get((int(per), side, int(gs), jerseys))
+                # Fallback: match ignoring jersey if the scraper / import disagrees about attribution.
+                if match is None:
+                    match = incoming_by_key.get((int(per), side, int(gs), ""))
+                if match is not None:
+                    vs = _video_seconds(match)
+                    vt = _video_time(match)
+                    if vs is not None:
+                        rr["Video Seconds"] = str(int(vs))
+                        if not vt:
+                            rr["Video Time"] = format_seconds_to_mmss_or_hhmmss(int(vs))
+                    if vt:
+                        rr["Video Time"] = vt
+                    _add_source(rr, "shift_spreadsheet")
+                else:
+                    # Fallback: interpolate from any available shift-synced mapping points.
+                    vs2 = _interp_video_seconds(int(per), int(gs))
+                    if vs2 is not None:
+                        rr["Video Seconds"] = str(int(vs2))
+                        rr["Video Time"] = format_seconds_to_mmss_or_hhmmss(int(vs2))
+                        _add_source(rr, "shift_spreadsheet")
         out_rows.append(rr)
 
     return out_headers, out_rows
