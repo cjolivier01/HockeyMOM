@@ -13,7 +13,13 @@ LEAGUE_NAME="${LEAGUE_NAME:-Norcal}"
 OWNER_EMAIL="${OWNER_EMAIL:-cjolivier01@gmail.com}"
 
 # Game list for shift spreadsheet uploader.
-SHIFT_FILE_LIST="${SHIFT_FILE_LIST:-$HOME/Videos/game_list_long.txt}"
+if [[ -z "${SHIFT_FILE_LIST:-}" ]]; then
+  if [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
+    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.txt"
+  else
+    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.txt"
+  fi
+fi
 
 # GCP instance info for code redeploy.
 PROJECT_ID="${PROJECT_ID:-sage-courier-241217}"
@@ -34,7 +40,7 @@ Environment:
   HM_WEBAPP_IMPORT_TOKEN  Import token (required for reset/import/upload; not needed for --deploy-only)
   LEAGUE_NAME             League name (default: Norcal)
   OWNER_EMAIL             League owner email (default: cjolivier01@gmail.com)
-  SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/Videos/game_list_long.txt)
+  SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/RVideos/game_list_long.txt if present, else ~/Videos/game_list_long.txt)
   PROJECT_ID              GCP project id (default: sage-courier-241217)
   ZONE                    GCE zone (default: us-central1-a)
   INSTANCE                GCE instance name (default: hm-webapp)
@@ -214,6 +220,11 @@ else
 fi
 
 echo "[i] Uploading shift spreadsheets via REST"
+if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
+  echo "[!] SHIFT_FILE_LIST not found: ${SHIFT_FILE_LIST}" >&2
+  echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.txt" >&2
+  exit 2
+fi
 SPREADSHEET_ARGS=()
 if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--no-time2score" )

@@ -210,9 +210,14 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 }
 
 .events-timeline-tooltip {
-  position: absolute;
+  position: fixed;
   z-index: 20;
   max-width: min(420px, 92vw);
+  max-height: 70vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background: rgba(12, 14, 19, 0.96);
   border: 1px solid rgba(255,255,255,0.14);
   border-radius: 10px;
@@ -235,6 +240,9 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 }
 .events-timeline-tooltip-title {
   font-weight: 800;
+  white-space: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
 }
 .events-timeline-tooltip-meta {
   color: var(--muted);
@@ -244,9 +252,14 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 .events-timeline-tooltip-line {
   color: rgba(230,232,236,0.9);
   font-size: .85rem;
+  white-space: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
 }
 .events-timeline-tooltip-pre {
-  white-space: pre-line;
+  /* Preserve explicit newlines, but never wrap long player/team names. */
+  white-space: pre;
+  overflow-x: auto;
 }
 
 /* Mobile: tables should scroll horizontally instead of wrapping each cell into unreadable columns. */
@@ -262,6 +275,24 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   .card { padding: .85rem; }
 
   th, td { padding: .5rem .55rem; font-size: .84rem; }
+
+  /* Timeline tooltip: keep it readable and avoid clipping on small screens. */
+  .events-timeline-tooltip {
+    max-width: min(360px, 94vw);
+    padding: .45rem .55rem;
+  }
+  .events-timeline-tooltip-icon {
+    width: 44px;
+    height: 44px;
+  }
+  .events-timeline-tooltip-meta,
+  .events-timeline-tooltip-line {
+    font-size: .78rem;
+    line-height: 1.25;
+  }
+  .events-timeline-tooltip-title {
+    font-size: .95rem;
+  }
 
   /* Make all tables horizontally scrollable on small screens. */
   table {

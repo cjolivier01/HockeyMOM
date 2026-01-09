@@ -27,7 +27,7 @@
 	        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_date }}</span>
 	        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_time }}</span>
 	        {% if game.get('location') %}<span> | {{ game['location'] }}</span>{% endif %}
-	        {% if game.get('game_video_url') %}<span> | Video: <a class="game-video-link" href="{{ game['game_video_url'] }}" target="_blank" rel="noopener noreferrer">link</a></span>{% endif %}
+	        {% if game.get('game_video_url') %}<span> | Video: <a class="game-video-link" href="{{ game['game_video_url']|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">link</a></span>{% endif %}
 	      </div>
       <div style="margin-top:.5rem;font-size:1.1rem;">
         {% if game.get('team1_score') is not none and game.get('team2_score') is not none %}
@@ -550,12 +550,37 @@
 	            params.set("autoplay", "1");
 	            // Mobile browsers often block autoplay unless muted (even when initiated by a tap).
 	            params.set("mute", "1");
+	            // Enable JS API so we can request the highest available resolution.
+	            params.set("enablejsapi", "1");
 	            params.set("start", String(start));
 	            params.set("end", String(end));
+	            // Best-effort quality hint (YouTube may ignore based on bandwidth/device/player size).
+	            params.set("vq", "hd1080");
 	            params.set("rel", "0");
 	            params.set("modestbranding", "1");
 	            params.set("playsinline", "1");
 	            return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+	          }
+
+	          function requestYouTubeBestQuality(iframeEl) {
+	            try {
+	              if (!iframeEl || !iframeEl.contentWindow) return;
+	              var cmds = [
+	                { func: "setPlaybackQuality", args: ["highres"] },
+	                { func: "setPlaybackQuality", args: ["hd2160"] },
+	                { func: "setPlaybackQuality", args: ["hd1440"] },
+	                { func: "setPlaybackQuality", args: ["hd1080"] },
+	                { func: "setPlaybackQuality", args: ["hd720"] },
+	                { func: "setPlaybackQuality", args: ["large"] },
+	                { func: "setPlaybackQualityRange", args: ["highres", "hd1080"] },
+	              ];
+	              for (var i = 0; i < cmds.length; i++) {
+	                iframeEl.contentWindow.postMessage(
+	                  JSON.stringify({ event: "command", func: cmds[i].func, args: cmds[i].args || [] }),
+	                  "*"
+	                );
+	              }
+	            } catch (e) {}
 	          }
 	
 	          function openVideoClipForRow(row, opts) {
@@ -581,6 +606,7 @@
 	              try {
 	                var u2 = new URL(String(gameVideoUrl));
 	                u2.searchParams.set("t", String(start2) + "s");
+	                u2.searchParams.set("vq", u2.searchParams.get("vq") || "hd1080");
 	                window.open(u2.toString(), "_blank", "noopener");
 	              } catch (e) {
 	                window.open(String(gameVideoUrl), "_blank", "noopener");
@@ -589,6 +615,12 @@
 	            }
 	            videoIframe.src = embed;
 	            videoIframe.setAttribute("src", embed);
+	            // Best-effort: request highest available quality after navigation.
+	            try {
+	              requestYouTubeBestQuality(videoIframe);
+	              window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 250);
+	              window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 800);
+	            } catch (e) {}
 	            if (videoMeta) {
 	              var label = (opts.label ? String(opts.label) : "");
 	              var at = (opts.at ? String(opts.at) : "");
@@ -1673,7 +1705,9 @@
               tooltipEl = document.createElement("div");
               tooltipEl.className = "events-timeline-tooltip";
               tooltipEl.style.display = "none";
-              wrapEl.appendChild(tooltipEl);
+              // Append to <body> and use `position: fixed` so the tooltip is never clipped by
+              // the timeline scroll container (common on mobile when the timeline is partially off-screen).
+              try { document.body.appendChild(tooltipEl); } catch (e) { wrapEl.appendChild(tooltipEl); }
               tooltipEl.dataset.pinned = "0";
               tooltipEl.dataset.hovering = "0";
               tooltipEl.addEventListener("mouseenter", function () {
@@ -1690,12 +1724,24 @@
                 });
               });
               wrapEl.addEventListener("mouseleave", function () {
-                if (tooltipEl) tooltipEl.style.display = "none";
-                if (tooltipEl) tooltipEl.dataset.pinned = "0";
+                if (!tooltipEl) return;
+                if (tooltipEl.dataset.pinned === "1") return;
+                scheduleHideTooltip();
               });
+              wrapEl.addEventListener("scroll", function () {
+                if (!tooltipEl) return;
+                tooltipEl.style.display = "none";
+                tooltipEl.dataset.pinned = "0";
+              }, { passive: true });
+              window.addEventListener("scroll", function () {
+                if (!tooltipEl) return;
+                tooltipEl.style.display = "none";
+                tooltipEl.dataset.pinned = "0";
+              }, { passive: true });
               document.addEventListener("click", function (e) {
                 if (!tooltipEl || tooltipEl.style.display === "none") return;
                 if (tooltipEl.dataset.pinned !== "1") return;
+                if (tooltipEl && tooltipEl.contains(e.target)) return;
                 if (wrapEl && wrapEl.contains(e.target)) return;
                 tooltipEl.style.display = "none";
                 tooltipEl.dataset.pinned = "0";
@@ -1795,7 +1841,25 @@
 	              addLine("Players", getValue(ev.row, ["Attributed Players"]));
 	              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
 	              addLine("Details", getValue(ev.row, ["Details"]));
-	              addMultiline("On-Ice", getValue(ev.row, ["On-Ice Players"]));
+	              (function () {
+	                var onIceHome = getValue(ev.row, ["On-Ice Players (Home)", "On-Ice Home", "OnIceHome"]);
+	                var onIceAway = getValue(ev.row, ["On-Ice Players (Away)", "On-Ice Away", "OnIceAway"]);
+	                var onIceLegacy = getValue(ev.row, ["On-Ice Players", "OnIcePlayers"]);
+	                var hasSplit = String(onIceHome || "").trim() || String(onIceAway || "").trim();
+	                if (!hasSplit) {
+	                  addMultiline("On-Ice", onIceLegacy);
+	                  return;
+	                }
+	                var homeLabel = "On-Ice (Home — " + (homeTeamName || "Home") + ")";
+	                var awayLabel = "On-Ice (Away — " + (awayTeamName || "Away") + ")";
+	                if (String(ev.side || "") === "Away") {
+	                  addMultiline(awayLabel, onIceAway);
+	                  addMultiline(homeLabel, onIceHome);
+	                } else {
+	                  addMultiline(homeLabel, onIceHome);
+	                  addMultiline(awayLabel, onIceAway);
+	                }
+	              })();
 	              if (ev.penaltiesText) addMultiline("Penalties", ev.penaltiesText);
 
                 // Action buttons (mobile-friendly: tap icon to show tooltip, then press Video).
@@ -1825,20 +1889,32 @@
 	            }
 
             function positionTooltip(clientX, clientY) {
-              if (!tooltipEl || !wrapEl) return;
-              var wrapRect = wrapEl.getBoundingClientRect();
-              var x = clientX - wrapRect.left + wrapEl.scrollLeft;
-              var y = clientY - wrapRect.top + wrapEl.scrollTop;
+              if (!tooltipEl) return;
+              var x = clientX;
+              var y = clientY;
               tooltipEl.style.display = "block";
               tooltipEl.style.left = x + "px";
               tooltipEl.style.top = y + "px";
+              try {
+                var mh = Math.max(80, Math.floor((window.innerHeight || 0) * 0.70));
+                if (isFinite(mh) && mh > 0) {
+                  tooltipEl.style.maxHeight = mh + "px";
+                  tooltipEl.style.overflowY = "auto";
+                  tooltipEl.style.webkitOverflowScrolling = "touch";
+                }
+              } catch (e) {}
               // Clamp after layout.
               var tw = tooltipEl.offsetWidth || 0;
               var th = tooltipEl.offsetHeight || 0;
-              var maxX = wrapEl.scrollLeft + wrapEl.clientWidth - 8;
-              var maxY = wrapEl.scrollTop + wrapEl.clientHeight - 8;
-              var left = Math.min(Math.max(wrapEl.scrollLeft + 8, x + 12), maxX - tw);
-              var top = Math.min(Math.max(wrapEl.scrollTop + 8, y + 12), maxY - th);
+              var maxX = (window.innerWidth || 0) - 8;
+              var maxY = (window.innerHeight || 0) - 8;
+              var left = Math.min(Math.max(8, x + 12), maxX - tw);
+              // Prefer showing below the cursor/tap; if it would overflow, flip above.
+              var preferredTop = y + 12;
+              if (preferredTop + th + 8 > (window.innerHeight || 0)) {
+                preferredTop = y - 12 - th;
+              }
+              var top = Math.min(Math.max(8, preferredTop), maxY - th);
               tooltipEl.style.left = left + "px";
               tooltipEl.style.top = top + "px";
             }
@@ -2079,9 +2155,20 @@
 	      <table id="game-events-table" class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
 	        <thead>
           <tr>
+            {% set has_home_on_ice = ('On-Ice Players (Home)' in events_headers) %}
+            {% set has_away_on_ice = ('On-Ice Players (Away)' in events_headers) %}
+            {% set has_any_split_on_ice = has_home_on_ice or has_away_on_ice %}
             {% for h in events_headers %}
               {% if h != 'Video Seconds' and h != 'VideoSeconds' and h != 'Game Seconds' and h != 'GameSeconds' and h != 'Game Seconds End' and h != 'GameSecondsEnd' %}
-                <th>{{ h }}</th>
+                {% if has_any_split_on_ice and (h == 'On-Ice Players' or h == 'On-Ice Players (PM)') %}
+                  {# Hide legacy on-ice column when split Home/Away columns exist. #}
+                {% elif h == 'On-Ice Players (Home)' %}
+                  <th><div>On-Ice</div><div class="th-subnote">Home — {{ game['team1_name'] }}</div></th>
+                {% elif h == 'On-Ice Players (Away)' %}
+                  <th><div>On-Ice</div><div class="th-subnote">Away — {{ game['team2_name'] }}</div></th>
+                {% else %}
+                  <th>{{ h }}</th>
+                {% endif %}
               {% endif %}
             {% endfor %}
           </tr>
@@ -2091,7 +2178,9 @@
 	            <tr data-event-row-index="{{ loop.index0 }}">
 	              {% for h in events_headers %}
                   {% if h != 'Video Seconds' and h != 'VideoSeconds' and h != 'Game Seconds' and h != 'GameSeconds' and h != 'Game Seconds End' and h != 'GameSecondsEnd' %}
-	                  {% if h == 'On-Ice Players' or h == 'On-Ice Players (PM)' %}
+	                  {% if has_any_split_on_ice and (h == 'On-Ice Players' or h == 'On-Ice Players (PM)') %}
+                      {# Hide legacy on-ice column when split Home/Away columns exist. #}
+	                  {% elif h == 'On-Ice Players' or h == 'On-Ice Players (PM)' or h == 'On-Ice Players (Home)' or h == 'On-Ice Players (Away)' %}
 	                    <td class="cell-pre">{{ r.get(h,'')|replace(',', '\n') }}</td>
 	                  {% else %}
                       <td>{{ r.get(h,'') }}</td>

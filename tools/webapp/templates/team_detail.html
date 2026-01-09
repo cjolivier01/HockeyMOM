@@ -104,7 +104,7 @@
               </td>
               <td>
                 {% if g.get('game_video_url') %}
-                  <a href="{{ g.get('game_video_url') }}" target="_blank" rel="noopener noreferrer">Video</a>
+                  <a href="{{ g.get('game_video_url')|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">Video</a>
                 {% else %}
                   <span class="muted">—</span>
                 {% endif %}

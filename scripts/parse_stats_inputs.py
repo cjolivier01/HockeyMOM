@@ -5294,6 +5294,7 @@ def _write_all_events_summary(
     stats_dir: Path,
     *,
     sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]],
+    sb_pairs_by_player_by_side: Optional[Dict[str, Dict[str, List[Tuple[int, str, str]]]]] = None,
     goals: List[GoalEvent],
     goals_by_period: Dict[int, List[GoalEvent]],
     event_log_context: Optional["EventLogContext"],
@@ -5307,10 +5308,9 @@ def _write_all_events_summary(
     Write a single per-game table of all known events, including:
       - long-sheet / event-log events (player-attributed and team-only)
       - goal/assist events from the goals list (when available)
-      - on-ice player lists for each event (our team only, based on shift times)
+      - on-ice player lists for each event (home/away when available, based on shift times)
 
     This is intended to be sufficient to recompute most per-game and per-player event-based stats.
-    Note: without opponent shift times, opponent on-ice lists cannot be reconstructed here.
     """
 
     def _side_label(side: str) -> str:
@@ -5362,26 +5362,39 @@ def _write_all_events_summary(
             return "For"
         return ""
 
-    # Precompute merged shift intervals and shift-start times for on-ice membership.
-    intervals_by_player_period: Dict[str, Dict[int, List[Tuple[int, int]]]] = {}
-    start_times_by_player_period: Dict[str, Dict[int, set[int]]] = {}
-    for player, sb_list in (sb_pairs_by_player or {}).items():
-        per_period: Dict[int, List[Tuple[int, int]]] = {}
-        start_times: Dict[int, set[int]] = {}
-        for period, a, b in sb_list or []:
-            lo, hi = compute_interval_seconds(a, b)
-            per_period.setdefault(int(period), []).append((lo, hi))
-            try:
-                start_times.setdefault(int(period), set()).add(parse_flex_time_to_seconds(a))
-            except Exception:
-                pass
-        merged: Dict[int, List[Tuple[int, int]]] = {p: _merge_intervals(iv) for p, iv in per_period.items()}
-        intervals_by_player_period[player] = merged
-        start_times_by_player_period[player] = start_times
+    # Precompute merged shift intervals and shift-start times for on-ice membership (Home/Away).
+    intervals_by_side_player_period: Dict[str, Dict[str, Dict[int, List[Tuple[int, int]]]]] = {}
+    start_times_by_side_player_period: Dict[str, Dict[str, Dict[int, set[int]]]] = {}
 
-    def _on_ice_players(period: int, game_s: int) -> List[str]:
+    if sb_pairs_by_player_by_side is None:
+        # Back-compat: treat sb_pairs_by_player as the "our team" shift table.
+        our_side_label = _side_label(str(team_side or ""))
+        opp_side_label = "Away" if our_side_label == "Home" else ("Home" if our_side_label == "Away" else "")
+        sb_pairs_by_player_by_side = {
+            our_side_label: dict(sb_pairs_by_player or {}),
+            opp_side_label: {},
+        }
+
+    for side_label, side_map in (sb_pairs_by_player_by_side or {}).items():
+        if side_label not in {"Home", "Away"}:
+            continue
+        for player, sb_list in (side_map or {}).items():
+            per_period: Dict[int, List[Tuple[int, int]]] = {}
+            start_times: Dict[int, set[int]] = {}
+            for period, a, b in sb_list or []:
+                lo, hi = compute_interval_seconds(a, b)
+                per_period.setdefault(int(period), []).append((lo, hi))
+                try:
+                    start_times.setdefault(int(period), set()).add(parse_flex_time_to_seconds(a))
+                except Exception:
+                    pass
+            merged: Dict[int, List[Tuple[int, int]]] = {p: _merge_intervals(iv) for p, iv in per_period.items()}
+            intervals_by_side_player_period.setdefault(side_label, {})[player] = merged
+            start_times_by_side_player_period.setdefault(side_label, {})[player] = start_times
+
+    def _on_ice_players_side(side_label: str, period: int, game_s: int) -> List[str]:
         out: List[str] = []
-        for pk, per_map in intervals_by_player_period.items():
+        for pk, per_map in (intervals_by_side_player_period.get(side_label) or {}).items():
             for lo, hi in per_map.get(period, []):
                 if interval_contains(game_s, lo, hi):
                     out.append(pk)
@@ -5389,12 +5402,12 @@ def _write_all_events_summary(
         out.sort(key=_player_sort_key)
         return out
 
-    def _on_ice_players_pm(period: int, game_s: int) -> List[str]:
-        # Plus/minus skips goals exactly at shift start for each player.
-        base = _on_ice_players(period, game_s)
+    def _on_ice_players_pm_side(side_label: str, period: int, game_s: int) -> List[str]:
+        # Plus/minus skips events exactly at shift start for each player.
+        base = _on_ice_players_side(side_label, period, game_s)
         out: List[str] = []
         for pk in base:
-            if game_s in start_times_by_player_period.get(pk, {}).get(period, set()):
+            if game_s in (start_times_by_side_player_period.get(side_label) or {}).get(pk, {}).get(period, set()):
                 continue
             out.append(pk)
         return out
@@ -5455,9 +5468,15 @@ def _write_all_events_summary(
                 pj = player_rows_by_event.get(key, {"players": set(), "jerseys": set()})
                 attrib_players = sorted([str(x) for x in pj.get("players", set()) if x], key=_player_sort_key)
                 attrib_jerseys = sorted([int(x) for x in pj.get("jerseys", set()) if isinstance(x, int)])
-                # For event tables, we treat on-ice membership using the same boundary
-                # rule as plus/minus (i.e., skip events exactly at shift-start).
-                on_ice = _on_ice_players_pm(period, gs_i) if (gs_i is not None and period > 0) else []
+                home_on_ice = _on_ice_players_pm_side("Home", period, gs_i) if (gs_i is not None and period > 0) else []
+                away_on_ice = _on_ice_players_pm_side("Away", period, gs_i) if (gs_i is not None and period > 0) else []
+                team_side_txt = _team_side_from_color(team)
+                if team_side_txt == "Home":
+                    on_ice_team = home_on_ice
+                elif team_side_txt == "Away":
+                    on_ice_team = away_on_ice
+                else:
+                    on_ice_team = []
 
                 event_id += 1
                 rows.append(
@@ -5466,9 +5485,9 @@ def _write_all_events_summary(
                         "Source": "long",
                         "Event Type": _display_event_type(str(etype)),
                         "Team Raw": str(team),
-                        "Team Side": _team_side_from_color(team),
+                        "Team Side": team_side_txt,
                         "For/Against": _for_against_for_event(str(etype)),
-                        "Team Rel": _team_side_from_color(team),
+                        "Team Rel": team_side_txt,
                         "Period": period if period > 0 else "",
                         "Game Time": seconds_to_mmss_or_hhmmss(gs_i) if gs_i is not None else "",
                         "Video Time": _seconds_to_compact_hms(vs_i) if vs_i is not None else "",
@@ -5477,7 +5496,9 @@ def _write_all_events_summary(
                         "Details": "",
                         "Attributed Players": ",".join(_format_player_name_with_jersey(x) for x in attrib_players),
                         "Attributed Jerseys": ",".join(str(j) for j in attrib_jerseys),
-                        "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
+                        "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice_team),
+                        "On-Ice Players (Home)": ",".join(_format_player_name_with_jersey(x) for x in home_on_ice),
+                        "On-Ice Players (Away)": ",".join(_format_player_name_with_jersey(x) for x in away_on_ice),
                     }
                 )
 
@@ -5491,7 +5512,8 @@ def _write_all_events_summary(
         gs_raw = ev.get("game_s")
         gs_i = int(gs_raw) if isinstance(gs_raw, (int, float)) else None
         vs_i = _map_sb_to_video(period, gs_i) if (gs_i is not None and period > 0) else None
-        on_ice = _on_ice_players_pm(period, gs_i) if (gs_i is not None and period > 0) else []
+        home_on_ice = _on_ice_players_pm_side("Home", period, gs_i) if (gs_i is not None and period > 0) else []
+        away_on_ice = _on_ice_players_pm_side("Away", period, gs_i) if (gs_i is not None and period > 0) else []
 
         team_raw = str(ev.get("team_raw") or "")
         side_txt = _side_label(str(ev.get("team_side") or ""))
@@ -5527,7 +5549,12 @@ def _write_all_events_summary(
                 "Details": details,
                 "Attributed Players": "",
                 "Attributed Jerseys": ",".join(jerseys_list),
-                "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
+                "On-Ice Players": ",".join(
+                    _format_player_name_with_jersey(x)
+                    for x in (home_on_ice if side_txt == "Home" else (away_on_ice if side_txt == "Away" else []))
+                ),
+                "On-Ice Players (Home)": ",".join(_format_player_name_with_jersey(x) for x in home_on_ice),
+                "On-Ice Players (Away)": ",".join(_format_player_name_with_jersey(x) for x in away_on_ice),
             }
         )
 
@@ -5544,7 +5571,9 @@ def _write_all_events_summary(
         else:
             goal_side_txt = ""
         for_against_txt = "For" if goal_side_txt else ""
-        on_ice = _on_ice_players_pm(period, gs_i) if period > 0 else []
+        home_on_ice = _on_ice_players_pm_side("Home", period, gs_i) if period > 0 else []
+        away_on_ice = _on_ice_players_pm_side("Away", period, gs_i) if period > 0 else []
+        on_ice_team = home_on_ice if goal_side_txt == "Home" else (away_on_ice if goal_side_txt == "Away" else [])
 
         # Goal scorer row (if known).
         scorer = getattr(ev, "scorer", None)
@@ -5567,7 +5596,9 @@ def _write_all_events_summary(
                     "Details": "",
                     "Attributed Players": "",
                     "Attributed Jerseys": str(scorer),
-                    "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
+                    "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice_team),
+                    "On-Ice Players (Home)": ",".join(_format_player_name_with_jersey(x) for x in home_on_ice),
+                    "On-Ice Players (Away)": ",".join(_format_player_name_with_jersey(x) for x in away_on_ice),
                 }
             )
         # Assist rows (if any).
@@ -5592,9 +5623,134 @@ def _write_all_events_summary(
                     "Details": "",
                     "Attributed Players": "",
                     "Attributed Jerseys": str(ast),
-                    "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice),
+                    "On-Ice Players": ",".join(_format_player_name_with_jersey(x) for x in on_ice_team),
+                    "On-Ice Players (Home)": ",".join(_format_player_name_with_jersey(x) for x in home_on_ice),
+                    "On-Ice Players (Away)": ",".join(_format_player_name_with_jersey(x) for x in away_on_ice),
                 }
             )
+
+    # ---------------------------------------------------------------------
+    # Video-time propagation for events without video time
+    #
+    # Goal: if an event row has no video time, but another event (or a shift boundary)
+    # at the same game time has a video time, assign it.
+    #
+    # Special-case: penalties often occur at the end of a shift. If a penalty has no
+    # video time OR a more precise nearby video anchor exists, prefer the earliest
+    # available video time within +/- 3 seconds of the penalty game time.
+    # ---------------------------------------------------------------------
+
+    def _parse_int_or_none(v: Any) -> Optional[int]:
+        try:
+            if v is None:
+                return None
+            if isinstance(v, str) and not v.strip():
+                return None
+            return int(float(v))
+        except Exception:
+            return None
+
+    def _is_missing_video(row: Dict[str, Any]) -> bool:
+        vs = row.get("Video Seconds")
+        if vs is None:
+            return True
+        if isinstance(vs, str) and not vs.strip():
+            return True
+        try:
+            return not isinstance(int(float(vs)), int)
+        except Exception:
+            return True
+
+    # Build a per-period anchor map: (period, game_s) -> earliest video_s.
+    anchors_by_period: Dict[int, Dict[int, int]] = {}
+
+    def _add_anchor(period: int, game_s: int, video_s: int) -> None:
+        if period <= 0:
+            return
+        if game_s is None or video_s is None:
+            return
+        try:
+            p = int(period)
+            gs = int(game_s)
+            vs = int(video_s)
+        except Exception:
+            return
+        cur = anchors_by_period.setdefault(p, {})
+        if gs not in cur or vs < cur[gs]:
+            cur[gs] = vs
+
+    # 1) Existing event rows that already have video time.
+    for r in rows:
+        per = _parse_int_or_none(r.get("Period")) or 0
+        gs = _parse_int_or_none(r.get("Game Seconds"))
+        vs = _parse_int_or_none(r.get("Video Seconds"))
+        if per > 0 and gs is not None and vs is not None:
+            _add_anchor(per, gs, vs)
+
+    # 2) Shift boundaries from conversion segments (primary/long shift tables).
+    # Each segment (s1,s2,v1,v2) corresponds to one shift; the endpoints are "shift begin/end".
+    for per, segs in (conv_segments_by_period or {}).items():
+        try:
+            p = int(per)
+        except Exception:
+            continue
+        for s1, s2, v1, v2 in (segs or []):
+            try:
+                _add_anchor(p, int(s1), int(v1))
+                _add_anchor(p, int(s2), int(v2))
+            except Exception:
+                continue
+
+    # Materialize anchors list per period for +/- window scans.
+    anchors_list_by_period: Dict[int, List[Tuple[int, int]]] = {}
+    for per, m in anchors_by_period.items():
+        items = [(int(gs), int(vs)) for gs, vs in m.items()]
+        items.sort(key=lambda t: t[0])
+        anchors_list_by_period[int(per)] = items
+
+    def _best_video_for_game_time(period: int, game_s: int) -> Optional[int]:
+        return anchors_by_period.get(int(period), {}).get(int(game_s))
+
+    def _best_video_within_window(period: int, game_s: int, window_s: int) -> Optional[int]:
+        items = anchors_list_by_period.get(int(period)) or []
+        if not items:
+            return None
+        lo = int(game_s) - int(window_s)
+        hi = int(game_s) + int(window_s)
+        best_delta: Optional[int] = None
+        best_vs: Optional[int] = None
+        for gs, vs in items:
+            if gs < lo:
+                continue
+            if gs > hi:
+                break
+            d = abs(int(gs) - int(game_s))
+            if best_delta is None or d < best_delta:
+                best_delta = d
+                best_vs = int(vs)
+            elif d == best_delta and best_vs is not None and int(vs) < best_vs:
+                best_vs = int(vs)
+        return best_vs
+
+    for r in rows:
+        per = _parse_int_or_none(r.get("Period")) or 0
+        gs = _parse_int_or_none(r.get("Game Seconds"))
+        if per <= 0 or gs is None:
+            continue
+        et = str(r.get("Event Type") or "").strip().casefold()
+
+        if et == "penalty":
+            candidate = _best_video_within_window(per, gs, 3)
+            if candidate is not None:
+                r["Video Seconds"] = int(candidate)
+                r["Video Time"] = _seconds_to_compact_hms(int(candidate))
+            continue
+
+        if _is_missing_video(r):
+            candidate = _best_video_for_game_time(per, gs)
+            if candidate is not None:
+                r["Video Seconds"] = int(candidate)
+                r["Video Time"] = _seconds_to_compact_hms(int(candidate))
 
     # Stable sort by time, then id.
     def _sort_key(r: Dict[str, Any]) -> Tuple[int, int, int]:
@@ -5631,6 +5787,8 @@ def _write_all_events_summary(
         "Attributed Players",
         "Attributed Jerseys",
         "On-Ice Players",
+        "On-Ice Players (Home)",
+        "On-Ice Players (Away)",
     ]
     df = pd.DataFrame([{c: r.get(c, "") for c in cols} for r in rows], columns=cols)
     df.to_csv(stats_dir / "all_events_summary.csv", index=False)
@@ -5649,6 +5807,8 @@ def _write_all_events_summary(
             "Attributed Players",
             "Attributed Jerseys",
             "On-Ice Players",
+            "On-Ice Players (Home)",
+            "On-Ice Players (Away)",
         ],
     )
 
@@ -8733,9 +8893,51 @@ def process_sheet(
         t2s_events: List[Dict[str, Any]] = []
         if t2s_game_id is not None:
             t2s_events = t2s_events_from_scoresheet(int(t2s_game_id), our_side=t2s_side)
+
+        # Build Home/Away shift maps (for on-ice players in all_events_summary).
+        side_l = str(t2s_side or "").strip().lower()
+        our_side_label = "Home" if side_l == "home" else ("Away" if side_l == "away" else "")
+        opp_side_label = "Away" if our_side_label == "Home" else ("Home" if our_side_label == "Away" else "")
+        our_shifts = dict(sb_pairs_by_player or {})
+        matched_long_team = str((shift_cmp_summary or {}).get("matched_team") or "").strip()
+        if (not any((v or []) for v in our_shifts.values())) and matched_long_team and long_shift_tables_by_team:
+            our_shifts = dict((long_shift_tables_by_team.get(matched_long_team) or {}).get("sb_pairs_by_player") or {})
+        opp_shifts: Dict[str, List[Tuple[int, str, str]]] = {}
+        if matched_long_team and long_shift_tables_by_team:
+            other_teams = [t for t in long_shift_tables_by_team.keys() if str(t) != matched_long_team]
+            if len(other_teams) == 1:
+                opp_shifts = dict((long_shift_tables_by_team.get(other_teams[0]) or {}).get("sb_pairs_by_player") or {})
+        sb_by_side: Dict[str, Dict[str, List[Tuple[int, str, str]]]] = {}
+        if our_side_label in {"Home", "Away"}:
+            sb_by_side[our_side_label] = our_shifts
+        if opp_side_label in {"Home", "Away"}:
+            sb_by_side[opp_side_label] = opp_shifts
+
+        # Merge long-sheet shift conversion segments too (enables mapping scoreboard->video and shift-boundary anchors).
+        conv_segments_full: Dict[int, List[Tuple[int, int, int, int]]] = {int(k): list(v or []) for k, v in (conv_segments_by_period or {}).items()}
+        if long_shift_tables_by_team:
+            for _tname, info in (long_shift_tables_by_team or {}).items():
+                sb_map = (info or {}).get("sb_pairs_by_player") or {}
+                v_map = (info or {}).get("video_pairs_by_player") or {}
+                for pk, sb_list in (sb_map or {}).items():
+                    v_list = v_map.get(pk) or []
+                    nseg = min(len(sb_list or []), len(v_list or []))
+                    for idx in range(nseg):
+                        try:
+                            per, sba, sbb = sb_list[idx]
+                            sva, svb = v_list[idx]
+                            p_i = int(per)
+                            s1 = parse_flex_time_to_seconds(str(sba))
+                            s2 = parse_flex_time_to_seconds(str(sbb))
+                            v1 = parse_flex_time_to_seconds(str(sva))
+                            v2 = parse_flex_time_to_seconds(str(svb))
+                            conv_segments_full.setdefault(p_i, []).append((s1, s2, v1, v2))
+                        except Exception:
+                            continue
         _write_all_events_summary(
             stats_dir,
             sb_pairs_by_player=sb_pairs_by_player,
+            sb_pairs_by_player_by_side=sb_by_side if sb_by_side else None,
             goals=goals,
             goals_by_period=goals_by_period,
             event_log_context=event_log_context,
@@ -8743,7 +8945,7 @@ def process_sheet(
             team_side=t2s_side,
             t2s_game_id=t2s_game_id,
             t2s_events=t2s_events,
-            conv_segments_by_period=conv_segments_by_period,
+            conv_segments_by_period=conv_segments_full,
         )
 
     # Pre-group team-level events by period for on-ice for/against counts.
@@ -9417,9 +9619,39 @@ def process_long_only_sheets(
         goals_by_period: Dict[int, List[GoalEvent]] = {}
         for ev in goals or []:
             goals_by_period.setdefault(int(ev.period), []).append(ev)
+
+        our_side_label = "Home" if str(side or "").strip().lower() == "home" else "Away"
+        opp_side_label = "Away" if our_side_label == "Home" else "Home"
+        opp_team_names = [t for t in (long_shift_tables_by_team or {}).keys() if str(t) != str(our_team_name)]
+        opp_shifts: Dict[str, List[Tuple[int, str, str]]] = {}
+        if len(opp_team_names) == 1:
+            opp_shifts = dict((long_shift_tables_by_team.get(opp_team_names[0]) or {}).get("sb_pairs_by_player") or {})
+        sb_by_side = {our_side_label: dict(our_sb_pairs_by_player), opp_side_label: opp_shifts}
+
+        # Build conversion segments from long shift tables for mapping scoreboard->video and anchors.
+        conv_segments_full: Dict[int, List[Tuple[int, int, int, int]]] = {}
+        for _tname, info in (long_shift_tables_by_team or {}).items():
+            sb_map = (info or {}).get("sb_pairs_by_player") or {}
+            v_map = (info or {}).get("video_pairs_by_player") or {}
+            for pk, sb_list in (sb_map or {}).items():
+                v_list = v_map.get(pk) or []
+                nseg = min(len(sb_list or []), len(v_list or []))
+                for idx in range(nseg):
+                    try:
+                        per, sba, sbb = sb_list[idx]
+                        sva, svb = v_list[idx]
+                        p_i = int(per)
+                        s1 = parse_flex_time_to_seconds(str(sba))
+                        s2 = parse_flex_time_to_seconds(str(sbb))
+                        v1 = parse_flex_time_to_seconds(str(sva))
+                        v2 = parse_flex_time_to_seconds(str(svb))
+                        conv_segments_full.setdefault(p_i, []).append((s1, s2, v1, v2))
+                    except Exception:
+                        continue
         _write_all_events_summary(
             our_outdir / "stats",
             sb_pairs_by_player=dict(our_sb_pairs_by_player),
+            sb_pairs_by_player_by_side=sb_by_side,
             goals=list(goals or []),
             goals_by_period=goals_by_period,
             event_log_context=merged_event_context,
@@ -9427,7 +9659,7 @@ def process_long_only_sheets(
             team_side=side,
             t2s_game_id=t2s_game_id,
             t2s_events=t2s_events,
-            conv_segments_by_period={},
+            conv_segments_by_period=conv_segments_full,
         )
 
     # Write opponent player stats (when another embedded shift table exists).
@@ -10103,6 +10335,19 @@ def main() -> None:
                 expanded_entries.append(InputEntry(path=fp, side=entry.side, meta=dict(entry.meta or {})))
         else:
             expanded_entries.append(InputEntry(path=pp, side=entry.side, meta=dict(entry.meta or {})))
+            # If a primary sheet is provided directly, auto-discover any companion '*-long*' sheet(s)
+            # with the same base label in the same directory.
+            try:
+                if pp.is_file() and _is_spreadsheet_input_path(pp) and (not _is_long_sheet_path(pp)):
+                    base_label = _base_label_from_path(pp)
+                    for cand in _discover_spreadsheet_inputs_in_dir(pp.parent):
+                        if not _is_long_sheet_path(cand):
+                            continue
+                        if _base_label_from_path(cand) != base_label:
+                            continue
+                        expanded_entries.append(InputEntry(path=cand, side=entry.side, meta=dict(entry.meta or {})))
+            except Exception:
+                pass
     input_entries = expanded_entries
 
     base_outdir = args.outdir.expanduser()

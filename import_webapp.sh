@@ -3,6 +3,7 @@ set -euo pipefail
 
 WEBAPP_URL="${WEBAPP_URL:-http://127.0.0.1:8008}"
 WEB_ACCESS_KEY="${WEB_ACCESS_KEY:-}"
+SHIFT_FILE_LIST="${SHIFT_FILE_LIST:-}"
 DEPLOY_ONLY=0
 DROP_DB=0
 DROP_DB_ONLY=0
@@ -16,6 +17,7 @@ Usage: ./import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spread
 Environment:
   WEBAPP_URL        Webapp base URL (default: http://127.0.0.1:8008)
   WEB_ACCESS_KEY    Optional token args passed through to import scripts
+  SHIFT_FILE_LIST   Shift spreadsheet file list (default: ~/RVideos/game_list_long.txt if present, else ~/Videos/game_list_long.txt)
 
 Options:
   --deploy-only     Only redeploy/restart the webapp and exit (no reset/import/upload)
@@ -143,12 +145,24 @@ else
 fi
 
 #echo "[i] Uploading shift spreadsheets"
+if [[ -z "${SHIFT_FILE_LIST}" ]]; then
+  if [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
+    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.txt"
+  else
+    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.txt"
+  fi
+fi
+if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
+  echo "[!] SHIFT_FILE_LIST not found: ${SHIFT_FILE_LIST}" >&2
+  echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.txt" >&2
+  exit 2
+fi
 SPREADSHEET_ARGS=()
 if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--no-time2score" )
 fi
 python3 scripts/parse_stats_inputs.py \
-  --file-list ~/Videos/game_list_long.txt \
+  --file-list "${SHIFT_FILE_LIST}" \
   --shifts \
   --no-scripts \
   --upload-webapp \

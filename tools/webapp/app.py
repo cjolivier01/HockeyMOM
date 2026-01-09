@@ -182,6 +182,30 @@ def create_app() -> Flask:
         except Exception:
             return str(value)
 
+    @app.template_filter("youtube_best_quality_url")
+    def _youtube_best_quality_url(url: Any) -> str:
+        """
+        Best-effort: append YouTube's `vq` hint (e.g. hd1080) to prefer higher playback quality.
+        Note: YouTube ultimately chooses resolution based on bandwidth/device/player size.
+        """
+        s = str(url or "").strip()
+        if not s:
+            return ""
+        try:
+            from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+            u = urlparse(s)
+            host = (u.hostname or "").lower()
+            is_youtube = ("youtube.com" in host) or ("youtu.be" in host) or ("youtube-nocookie.com" in host)
+            if not is_youtube:
+                return s
+            q = dict(parse_qsl(u.query or "", keep_blank_values=True))
+            q.setdefault("vq", "hd1080")
+            new_u = u._replace(query=urlencode(q, doseq=True))
+            return urlunparse(new_u)
+        except Exception:
+            return s
+
     @app.before_request
     def open_db():
         g.db = get_db()
@@ -3735,6 +3759,7 @@ def create_app() -> Flask:
                 events_headers, events_rows = normalize_game_events_csv(events_headers, events_rows)
                 events_rows = filter_events_rows_prefer_timetoscore_for_goal_assist(events_rows, tts_linked=tts_linked)
                 events_headers, events_rows = normalize_events_video_time_for_display(events_headers, events_rows)
+                events_headers, events_rows = filter_events_headers_drop_empty_on_ice_split(events_headers, events_rows)
                 events_rows = sort_events_rows_default(events_rows)
                 events_meta = {
                     "source_label": erow.get("source_label"),
@@ -4865,6 +4890,7 @@ def create_app() -> Flask:
         events_rows = filter_events_rows_prefer_timetoscore_for_goal_assist(events_rows, tts_linked=tts_linked)
         try:
             events_headers, events_rows = normalize_events_video_time_for_display(events_headers, events_rows)
+            events_headers, events_rows = filter_events_headers_drop_empty_on_ice_split(events_headers, events_rows)
             events_rows = sort_events_rows_default(events_rows)
         except Exception:
             pass
@@ -6082,6 +6108,37 @@ def normalize_game_events_csv(headers: list[str], rows: list[dict[str, str]]) ->
     reordered_headers = [event_header] + [h for h in filtered_headers if h != event_header]
     reordered_rows = [{h: r.get(h, "") for h in reordered_headers} for r in filtered_rows]
     return reordered_headers, reordered_rows
+
+
+def filter_events_headers_drop_empty_on_ice_split(
+    headers: list[str],
+    rows: list[dict[str, str]],
+) -> tuple[list[str], list[dict[str, str]]]:
+    """
+    If Home/Away on-ice columns are present but completely empty, drop them from the display table.
+    Keeps the raw CSV stored in DB unchanged; this only affects UI rendering.
+    """
+    if not headers or not rows:
+        return headers, rows
+    split_cols = ["On-Ice Players (Home)", "On-Ice Players (Away)"]
+    present = [c for c in split_cols if c in headers]
+    if not present:
+        return headers, rows
+    keep: set[str] = set(headers)
+    for c in present:
+        any_nonempty = False
+        for r in rows:
+            v = str((r or {}).get(c, "") or "").strip()
+            if v:
+                any_nonempty = True
+                break
+        if not any_nonempty:
+            keep.discard(c)
+    if keep == set(headers):
+        return headers, rows
+    new_headers = [h for h in headers if h in keep]
+    new_rows = [{h: (r.get(h, "") if isinstance(r, dict) else "") for h in new_headers} for r in rows]
+    return new_headers, new_rows
 
 
 def compute_team_scoring_by_period_from_events(
