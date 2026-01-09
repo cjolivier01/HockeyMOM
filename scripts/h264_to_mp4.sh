@@ -1,11 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage:
-#   ./h265_to_mp4_fastcopy.sh in.h265 out.mp4
-#   ./h265_to_mp4_fastcopy.sh in.h265 out.mp4 --audio other.mkv
-#   ./h265_to_mp4_fastcopy.sh in.h265 out.mp4 --audio other.mp4 --audio-offset 0.250
-#   ./h265_to_mp4_fastcopy.sh in.h265 out.mp4 --audio other.mkv --audio-stream 0
+print_usage() {
+  cat <<EOF
+Usage:
+  $0 <input.h265> <output.mp4> [options]
+
+Options:
+  --audio <file>         Audio source (mp4, mkv, etc.)
+  --audio-stream <N>     Audio stream index in audio file (default: 0)
+  --audio-offset <sec>   Audio offset in seconds (e.g. 0.250 or -0.100)
+  --fps <rate>           Input video frame rate (default: 30000/1001)
+
+Examples:
+  $0 in.h265 out.mp4
+  $0 in.h265 out.mp4 --audio audio.mkv
+  $0 in.h265 out.mp4 --audio audio.mp4 --audio-offset 0.25
+  $0 in.h265 out.mp4 --audio audio.mkv --audio-stream 1
+EOF
+}
+
+# ------------------------------------------------------------
+# Require at least input + output
+# ------------------------------------------------------------
+if [[ $# -lt 2 ]]; then
+  print_usage
+  exit 1
+fi
 
 IN="$1"
 OUT="$2"
@@ -23,24 +44,31 @@ while [[ $# -gt 0 ]]; do
     --audio-stream) AUDIO_STREAM="$2"; shift 2;;
     --audio-offset) AUDIO_OFFSET="$2"; shift 2;;
     --fps) FPS="$2"; shift 2;;
-    *) echo "Unknown arg: $1"; exit 1;;
+    -h|--help)
+      print_usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      print_usage
+      exit 1
+      ;;
   esac
 done
 
 if ! command -v ffmpeg >/dev/null; then
-  echo "ffmpeg not found"
+  echo "Error: ffmpeg not found in PATH"
   exit 1
 fi
 
 # ------------------------------------------------------------
-# Build video input (raw h265 needs fps + pts)
+# Video input (raw h265 → needs fps + pts)
 # ------------------------------------------------------------
 VIDEO_INPUT=(-fflags +genpts -r "$FPS" -i "$IN")
-
 MP4_FLAGS=(-tag:v hvc1 -movflags +faststart)
 
 # ------------------------------------------------------------
-# No audio
+# Video only
 # ------------------------------------------------------------
 if [[ -z "$AUDIO_FILE" ]]; then
   ffmpeg -hide_banner -y \
@@ -63,24 +91,24 @@ AUDIO_CODEC=$(ffprobe -v error \
   "$AUDIO_FILE" || true)
 
 if [[ -z "$AUDIO_CODEC" ]]; then
-  echo "Could not detect audio codec"
+  echo "Error: could not detect audio stream ${AUDIO_STREAM} in $AUDIO_FILE"
   exit 1
 fi
 
 echo "Detected audio codec: $AUDIO_CODEC"
 
 # ------------------------------------------------------------
-# Choose audio mode
+# Choose audio handling
 # ------------------------------------------------------------
 if [[ "$AUDIO_CODEC" == "aac" ]]; then
-  echo "AAC detected → stream copy audio"
+  echo "Audio is AAC → stream copy"
   AUDIO_CODEC_ARGS=(-c:a copy)
 else
-  echo "Non-AAC detected → re-encode audio to AAC"
+  echo "Audio is $AUDIO_CODEC → re-encode to AAC"
   AUDIO_CODEC_ARGS=(-c:a aac -b:a "$AAC_BITRATE" -ac 2 -ar 48000)
 fi
 
-# Apply offset if needed
+# Apply optional offset
 AUDIO_INPUT=()
 if [[ "$AUDIO_OFFSET" != "0" && "$AUDIO_OFFSET" != "0.0" ]]; then
   AUDIO_INPUT+=(-itsoffset "$AUDIO_OFFSET")
