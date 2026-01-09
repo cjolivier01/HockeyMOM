@@ -1049,33 +1049,16 @@
             for (var p2 = 0; p2 < durations.length; p2++) offsets.push(offsets[p2] + durations[p2]);
             var totalDuration = offsets[offsets.length - 1] || 1;
 
-            // Infer whether times are elapsed or remaining (per period); only used for non-absolute mode.
+            // Hockey game clocks typically count DOWN within each period ("remaining" time).
+            // Use that convention for timeline placement so events flow left-to-right in game order
+            // (i.e., decreasing Game Time from left to right).
+            //
+            // Note: earlier heuristics attempted to infer elapsed-vs-remaining per period, but that
+            // can flip in periods that only have late events, which makes a period appear reversed.
             var timeModeByPeriod = {};
             if (!looksAbsolute) {
               for (var pInf = 1; pInf <= maxPeriod; pInf++) {
-                var dInf = durations[pInf - 1] || 1200;
-                var nearZero = 0;
-                var nearHigh = 0;
-                var count = 0;
-                function considerTime(tt) {
-                  if (!isFinite(tt)) return;
-                  count++;
-                  if (tt <= 120) nearZero++;
-                  if (tt >= dInf - 120) nearHigh++;
-                }
-                for (var z0 = 0; z0 < filtered.length; z0++) {
-                  if (filtered[z0].period !== pInf) continue;
-                  considerTime(filtered[z0].tWithin);
-                }
-                for (var z1 = 0; z1 < penaltyStarts.length; z1++) {
-                  if (penaltyStarts[z1].period !== pInf) continue;
-                  considerTime(penaltyStarts[z1].tWithin);
-                }
-                for (var z2 = 0; z2 < penaltyEnds.length; z2++) {
-                  if (penaltyEnds[z2].period !== pInf) continue;
-                  considerTime(penaltyEnds[z2].tWithin);
-                }
-                timeModeByPeriod[pInf] = count > 0 && nearHigh > nearZero ? "remaining" : "elapsed";
+                timeModeByPeriod[pInf] = "remaining";
               }
             }
 
