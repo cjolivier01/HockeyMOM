@@ -119,6 +119,78 @@ def _working_directory(path: Path):
         os.chdir(str(prev))
 
 
+def _parse_period_token(val: Any) -> Optional[int]:
+    s = str(val or "").strip()
+    if not s:
+        return None
+    sl = s.casefold()
+    if sl in {"ot", "overtime"}:
+        return 4
+    m = re.search(r"(\d+)", sl)
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+        return n if n > 0 else None
+    except Exception:
+        return None
+
+
+def _parse_mmss_to_seconds(val: Any, *, period_len_s: Optional[int] = None) -> Optional[int]:
+    s = str(val or "").strip()
+    if not s:
+        return None
+    m = re.match(r"^\s*(\d+):(\d{2})\s*$", s)
+    if not m:
+        # Some TimeToScore pages use '.' instead of ':' (e.g. "10.0" meaning "10:00").
+        m = re.match(r"^\s*(\d+)[.](\d{1,2})\s*$", s)
+        if not m:
+            return None
+        try:
+            a = int(m.group(1))
+            b = int(m.group(2))
+        except Exception:
+            return None
+
+        # Disambiguate:
+        #   - "10.0" => 10:00 (mm:ss)
+        #   - "54.8" (in a 15:00 period) => 54.8 seconds (ss.d)
+        # Heuristic: if the "minutes" part exceeds the period length in minutes, treat it as seconds.
+        try:
+            if period_len_s is not None and a > max(1, int(period_len_s) // 60):
+                return int(float(s))
+        except Exception:
+            pass
+        return a * 60 + b
+
+    try:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    except Exception:
+        return None
+
+
+def _to_csv_text(headers: list[str], rows: list[dict[str, Any]]) -> str:
+    if not headers:
+        return ""
+    out = io.StringIO()
+    w = csv.DictWriter(out, fieldnames=headers, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    for r in rows or []:
+        w.writerow({h: ("" if r.get(h) is None else str(r.get(h))) for h in headers})
+    return out.getvalue()
+
+
+@contextmanager
+def _working_directory(path: Path):
+    prev = Path.cwd()
+    path.mkdir(parents=True, exist_ok=True)
+    os.chdir(str(path))
+    try:
+        yield
+    finally:
+        os.chdir(str(prev))
+
+
 def ensure_defaults(conn) -> None:
     del conn
     try:

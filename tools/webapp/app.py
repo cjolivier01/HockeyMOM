@@ -89,9 +89,7 @@ def _get_league_owner_user_id(db_conn, league_id: int) -> Optional[int]:
     del db_conn
     try:
         _django_orm, m = _orm_modules()
-        owner_id = (
-            m.League.objects.filter(id=int(league_id)).values_list("owner_user_id", flat=True).first()
-        )
+        owner_id = m.League.objects.filter(id=int(league_id)).values_list("owner_user_id", flat=True).first()
         return int(owner_id) if owner_id is not None else None
     except Exception:
         return None
@@ -2077,6 +2075,8 @@ def create_app() -> Flask:
                     if pid is None:
                         pid = _ensure_player_for_import(owner_user_id, team_ref, pname, None, None)
 
+                    # If this game is linked to TimeToScore, TimeToScore is the source of truth for
+                    # goal/assist attribution. Always overwrite goals/assists from the TimeToScore import.
                     force_tts_scoring = bool(tts_game_id is not None)
                     ps, _created = m.PlayerStat.objects.get_or_create(
                         game_id=int(gid),
@@ -2404,6 +2404,8 @@ def create_app() -> Flask:
                         if pid is None:
                             pid = _ensure_player_for_import(owner_user_id, team_ref, pname, None, None, commit=False)
 
+                        # If this game is linked to TimeToScore, TimeToScore is the source of truth for
+                        # goal/assist attribution. Always overwrite goals/assists from the TimeToScore import.
                         force_tts_scoring = bool(tts_game_id is not None)
                         ps, _created = m.PlayerStat.objects.get_or_create(
                             game_id=int(gid),
@@ -3502,7 +3504,7 @@ def create_app() -> Flask:
                     "mhr_updated_at": r.get("mhr_updated_at"),
                 }
             )
-        stats = {t["id"]: compute_team_stats_league(g.db, t["id"], int(league_id)) for t in rows}
+        stats = {t["id"]: compute_team_stats_league(None, t["id"], int(league_id)) for t in rows}
         grouped: dict[str, list[dict]] = {}
         for t in rows:
             dn = str(t.get("division_name") or "").strip() or "Unknown Division"
@@ -5720,6 +5722,514 @@ def init_db():
 
     django_orm.ensure_schema()
     django_orm.ensure_bootstrap_data(default_admin_password_hash=generate_password_hash("admin"))
+    return
+
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              email VARCHAR(255) UNIQUE NOT NULL,
+              password_hash TEXT NOT NULL,
+              name VARCHAR(255),
+              created_at DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Bootstrap a default admin login for fresh DBs.
+        # Note: this is intentionally simple for quick setup; change/remove in real deployments.
+        try:
+            cur.execute(
+                "INSERT IGNORE INTO users(email, password_hash, name, created_at) VALUES(%s,%s,%s,%s)",
+                (
+                    "admin",
+                    generate_password_hash("admin"),
+                    "admin",
+                    dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+        except Exception:
+            pass
+        # Leagues and sharing tables
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leagues (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              name VARCHAR(255) UNIQUE NOT NULL,
+              owner_user_id INT NOT NULL,
+              is_shared TINYINT(1) NOT NULL DEFAULT 0,
+              is_public TINYINT(1) NOT NULL DEFAULT 0,
+              source VARCHAR(64) NULL,
+              external_key VARCHAR(255) NULL,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NULL,
+              INDEX(owner_user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Add leagues.source and leagues.external_key if missing (older installs)
+        try:
+            cur.execute("SHOW COLUMNS FROM leagues LIKE 'source'")
+            has_source = cur.fetchone()
+            if not has_source:
+                cur.execute("ALTER TABLE leagues ADD COLUMN source VARCHAR(64) NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE leagues ADD COLUMN source VARCHAR(64) NULL")
+            except Exception:
+                pass
+        try:
+            cur.execute("SHOW COLUMNS FROM leagues LIKE 'external_key'")
+            has_ext = cur.fetchone()
+            if not has_ext:
+                cur.execute("ALTER TABLE leagues ADD COLUMN external_key VARCHAR(255) NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE leagues ADD COLUMN external_key VARCHAR(255) NULL")
+            except Exception:
+                pass
+        # Add leagues.is_public if missing (older installs)
+        try:
+            cur.execute("SHOW COLUMNS FROM leagues LIKE 'is_public'")
+            has_pub = cur.fetchone()
+            if not has_pub:
+                cur.execute("ALTER TABLE leagues ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE leagues ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0")
+            except Exception:
+                pass
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_members (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              user_id INT NOT NULL,
+              role VARCHAR(32) NOT NULL DEFAULT 'viewer',
+              created_at DATETIME NOT NULL,
+              UNIQUE KEY uniq_member (league_id, user_id),
+              INDEX(league_id), INDEX(user_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_page_views (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              page_kind VARCHAR(32) NOT NULL,
+              entity_id INT NOT NULL DEFAULT 0,
+              view_count BIGINT NOT NULL DEFAULT 0,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NOT NULL,
+              UNIQUE KEY uniq_page (league_id, page_kind, entity_id),
+              INDEX(league_id), INDEX(page_kind), INDEX(entity_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS games (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              name VARCHAR(255) NOT NULL,
+              dir_path TEXT NOT NULL,
+              status VARCHAR(32) NOT NULL DEFAULT 'new',
+              created_at DATETIME NOT NULL,
+              INDEX(user_id),
+              FOREIGN KEY(user_id) REFERENCES users(id)
+                ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              game_id INT,
+              dir_path TEXT NOT NULL,
+              slurm_job_id VARCHAR(64),
+              status VARCHAR(32) NOT NULL,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NULL,
+              finished_at DATETIME NULL,
+              user_email VARCHAR(255) NULL,
+              INDEX(user_id), INDEX(game_id), INDEX(slurm_job_id), INDEX(status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS resets (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              token VARCHAR(128) UNIQUE NOT NULL,
+              expires_at DATETIME NOT NULL,
+              used_at DATETIME NULL,
+              created_at DATETIME NOT NULL,
+              INDEX(user_id), INDEX(token), INDEX(expires_at),
+              FOREIGN KEY(user_id) REFERENCES users(id)
+                ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Teams (owned by user)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS teams (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              name VARCHAR(255) NOT NULL,
+              logo_path TEXT NULL,
+              is_external TINYINT(1) NOT NULL DEFAULT 0,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NULL,
+              INDEX(user_id), INDEX(is_external),
+              UNIQUE KEY uniq_team_user_name (user_id, name)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Add users.default_league_id if missing
+        try:
+            cur.execute("SHOW COLUMNS FROM users LIKE 'default_league_id'")
+            exists = cur.fetchone()
+            if not exists:
+                cur.execute("ALTER TABLE users ADD COLUMN default_league_id INT NULL")
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_users_default_league ON users(default_league_id)"
+                )
+        except Exception:
+            # Fallback for MySQL variants without IF NOT EXISTS
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN default_league_id INT NULL")
+            except Exception:
+                pass
+        # Add users.video_clip_len_s if missing (per-user UI preference)
+        try:
+            cur.execute("SHOW COLUMNS FROM users LIKE 'video_clip_len_s'")
+            exists = cur.fetchone()
+            if not exists:
+                cur.execute("ALTER TABLE users ADD COLUMN video_clip_len_s INT NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN video_clip_len_s INT NULL")
+            except Exception:
+                pass
+        # Players (belong to exactly one team)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS players (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              team_id INT NOT NULL,
+              name VARCHAR(255) NOT NULL,
+              jersey_number VARCHAR(16) NULL,
+              position VARCHAR(32) NULL,
+              shoots VARCHAR(8) NULL,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NULL,
+              INDEX(user_id), INDEX(team_id), INDEX(name),
+              FOREIGN KEY(team_id) REFERENCES teams(id)
+                ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Hockey game types
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS game_types (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              name VARCHAR(64) UNIQUE NOT NULL,
+              is_default TINYINT(1) NOT NULL DEFAULT 0
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Hockey games
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hky_games (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              team1_id INT NOT NULL,
+              team2_id INT NOT NULL,
+              game_type_id INT NULL,
+              starts_at DATETIME NULL,
+              location VARCHAR(255) NULL,
+              notes TEXT NULL,
+              team1_score INT NULL,
+              team2_score INT NULL,
+              is_final TINYINT(1) NOT NULL DEFAULT 0,
+              stats_imported_at DATETIME NULL,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NULL,
+              INDEX(user_id), INDEX(team1_id), INDEX(team2_id), INDEX(game_type_id), INDEX(starts_at),
+              FOREIGN KEY(team1_id) REFERENCES teams(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+              FOREIGN KEY(team2_id) REFERENCES teams(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+              FOREIGN KEY(game_type_id) REFERENCES game_types(id) ON DELETE SET NULL ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Add hky_games.stats_imported_at if missing (older installs)
+        try:
+            cur.execute("SHOW COLUMNS FROM hky_games LIKE 'stats_imported_at'")
+            exists = cur.fetchone()
+            if not exists:
+                cur.execute("ALTER TABLE hky_games ADD COLUMN stats_imported_at DATETIME NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE hky_games ADD COLUMN stats_imported_at DATETIME NULL")
+            except Exception:
+                pass
+        # Player stats per game
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS player_stats (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              team_id INT NOT NULL,
+              game_id INT NOT NULL,
+              player_id INT NOT NULL,
+              goals INT NULL,
+              assists INT NULL,
+              shots INT NULL,
+              pim INT NULL,
+              plus_minus INT NULL,
+              hits INT NULL,
+              blocks INT NULL,
+              toi_seconds INT NULL,
+              faceoff_wins INT NULL,
+              faceoff_attempts INT NULL,
+              goalie_saves INT NULL,
+              goalie_ga INT NULL,
+              goalie_sa INT NULL,
+              sog INT NULL,
+              expected_goals INT NULL,
+              giveaways INT NULL,
+              turnovers_forced INT NULL,
+              created_turnovers INT NULL,
+              takeaways INT NULL,
+              controlled_entry_for INT NULL,
+              controlled_entry_against INT NULL,
+              controlled_exit_for INT NULL,
+              controlled_exit_against INT NULL,
+              gt_goals INT NULL,
+              gw_goals INT NULL,
+              ot_goals INT NULL,
+              ot_assists INT NULL,
+              shifts INT NULL,
+              gf_counted INT NULL,
+              ga_counted INT NULL,
+              video_toi_seconds INT NULL,
+              sb_avg_shift_seconds INT NULL,
+              sb_median_shift_seconds INT NULL,
+              sb_longest_shift_seconds INT NULL,
+              sb_shortest_shift_seconds INT NULL,
+              UNIQUE KEY uniq_game_player (game_id, player_id),
+              INDEX(user_id), INDEX(team_id), INDEX(game_id), INDEX(player_id),
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(player_id) REFERENCES players(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Extend player_stats for shift spreadsheet stats (older installs)
+        for col_ddl in [
+            "sog INT NULL",
+            "expected_goals INT NULL",
+            "giveaways INT NULL",
+            "turnovers_forced INT NULL",
+            "created_turnovers INT NULL",
+            "takeaways INT NULL",
+            "controlled_entry_for INT NULL",
+            "controlled_entry_against INT NULL",
+            "controlled_exit_for INT NULL",
+            "controlled_exit_against INT NULL",
+            "gt_goals INT NULL",
+            "gw_goals INT NULL",
+            "ot_goals INT NULL",
+            "ot_assists INT NULL",
+            "shifts INT NULL",
+            "gf_counted INT NULL",
+            "ga_counted INT NULL",
+            "video_toi_seconds INT NULL",
+            "sb_avg_shift_seconds INT NULL",
+            "sb_median_shift_seconds INT NULL",
+            "sb_longest_shift_seconds INT NULL",
+            "sb_shortest_shift_seconds INT NULL",
+        ]:
+            name = col_ddl.split(" ", 1)[0]
+            try:
+                cur.execute("SHOW COLUMNS FROM player_stats LIKE %s", (name,))
+                exists = cur.fetchone()
+                if not exists:
+                    cur.execute(f"ALTER TABLE player_stats ADD COLUMN {col_ddl}")
+            except Exception:
+                # best-effort for mysql variants
+                try:
+                    cur.execute(f"ALTER TABLE player_stats ADD COLUMN {col_ddl}")
+                except Exception:
+                    pass
+
+        # Per-player per-period stats (from shift spreadsheet outputs)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS player_period_stats (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              game_id INT NOT NULL,
+              player_id INT NOT NULL,
+              period INT NOT NULL,
+              toi_seconds INT NULL,
+              shifts INT NULL,
+              gf INT NULL,
+              ga INT NULL,
+              UNIQUE KEY uniq_period (game_id, player_id, period),
+              INDEX(game_id), INDEX(player_id), INDEX(period),
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(player_id) REFERENCES players(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+
+        # Per-game stats key/value from shift spreadsheet outputs
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hky_game_stats (
+              game_id INT PRIMARY KEY,
+              stats_json LONGTEXT NULL,
+              updated_at DATETIME NULL,
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+
+        # Raw per-game events CSV (e.g., all_events_summary.csv from scripts/parse_stats_inputs.py)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hky_game_events (
+              game_id INT PRIMARY KEY,
+              events_csv MEDIUMTEXT NULL,
+              source_label VARCHAR(255) NULL,
+              updated_at DATETIME NULL,
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+
+        # Raw per-game player stats CSV (e.g., stats/player_stats.csv from scripts/parse_stats_inputs.py)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS hky_game_player_stats_csv (
+              game_id INT PRIMARY KEY,
+              player_stats_csv MEDIUMTEXT NULL,
+              source_label VARCHAR(255) NULL,
+              updated_at DATETIME NULL,
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # League mappings (created after dependent tables)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_teams (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              team_id INT NOT NULL,
+              division_name VARCHAR(255) NULL,
+              division_id INT NULL,
+              conference_id INT NULL,
+              mhr_div_rating DOUBLE NULL,
+              mhr_rating DOUBLE NULL,
+              mhr_agd DOUBLE NULL,
+              mhr_sched DOUBLE NULL,
+              mhr_games INT NULL,
+              mhr_updated_at DATETIME NULL,
+              UNIQUE KEY uniq_league_team (league_id, team_id),
+              INDEX(league_id), INDEX(team_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_games (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              game_id INT NOT NULL,
+              division_name VARCHAR(255) NULL,
+              division_id INT NULL,
+              conference_id INT NULL,
+              sort_order INT NULL,
+              UNIQUE KEY uniq_league_game (league_id, game_id),
+              INDEX(league_id), INDEX(game_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
+              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        # Extend league_teams/league_games with division metadata (older installs)
+        for table in ("league_teams", "league_games"):
+            for col_ddl in [
+                "division_name VARCHAR(255) NULL",
+                "division_id INT NULL",
+                "conference_id INT NULL",
+            ]:
+                col = col_ddl.split(" ", 1)[0]
+                try:
+                    cur.execute(f"SHOW COLUMNS FROM {table} LIKE %s", (col,))
+                    exists = cur.fetchone()
+                    if not exists:
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
+                except Exception:
+                    try:
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
+                    except Exception:
+                        pass
+        # Extend league_teams with rating fields (older installs)
+        for col_ddl in [
+            "mhr_div_rating DOUBLE NULL",
+            "mhr_rating DOUBLE NULL",
+            "mhr_agd DOUBLE NULL",
+            "mhr_sched DOUBLE NULL",
+            "mhr_games INT NULL",
+            "mhr_updated_at DATETIME NULL",
+        ]:
+            col = col_ddl.split(" ", 1)[0]
+            try:
+                cur.execute("SHOW COLUMNS FROM league_teams LIKE %s", (col,))
+                exists = cur.fetchone()
+                if not exists:
+                    cur.execute(f"ALTER TABLE league_teams ADD COLUMN {col_ddl}")
+            except Exception:
+                try:
+                    cur.execute(f"ALTER TABLE league_teams ADD COLUMN {col_ddl}")
+                except Exception:
+                    pass
+        # Add league_games.sort_order if missing (older installs)
+        try:
+            cur.execute("SHOW COLUMNS FROM league_games LIKE %s", ("sort_order",))
+            exists = cur.fetchone()
+            if not exists:
+                cur.execute("ALTER TABLE league_games ADD COLUMN sort_order INT NULL")
+        except Exception:
+            try:
+                cur.execute("ALTER TABLE league_games ADD COLUMN sort_order INT NULL")
+            except Exception:
+                pass
+    db.commit()
+    # Seed default game types if empty
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM game_types")
+        count = (cur.fetchone() or [0])[0]
+        if int(count) == 0:
+            for name in ("Preseason", "Regular Season", "Tournament", "Exhibition"):
+                cur.execute("INSERT INTO game_types(name, is_default) VALUES(%s,%s)", (name, 1))
+    db.commit()
 
 
 def get_user_by_email(email: str) -> Optional[dict]:
@@ -8374,7 +8884,7 @@ def _compute_team_player_stats_sources(
         if k in seen:
             return
         seen.add(k)
-        out.append(s)
+    out.append(s)
 
     # Prefer scanning events CSV sources (multi-valued Source column), then include player_stats CSV labels.
     try:
