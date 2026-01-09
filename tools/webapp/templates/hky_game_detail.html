@@ -38,16 +38,31 @@
         {% if game.get('is_final') %}<span class="muted"> (Final)</span>{% endif %}
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:.5rem;">
-      {% if public_league_id is not defined %}
-        {% if can_edit_game and not edit_mode %}
-          <a class="btn primary" href="/hky/games/{{ game['id'] }}?edit=1{{ return_to_q }}">Edit</a>
-        {% endif %}
-        {% if edit_mode %}
-          <a class="btn" href="/hky/games/{{ game['id'] }}{{ return_to_first_q }}">Cancel</a>
-        {% endif %}
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.5rem;">
+      {% if league_page_views %}
+        <div
+          data-hm-league-pageviews="1"
+          data-league-id="{{ league_page_views.league_id }}"
+          data-kind="{{ league_page_views.kind }}"
+          data-entity-id="{{ league_page_views.entity_id }}"
+          class="muted"
+          style="font-size:.85rem;white-space:nowrap;"
+          title="Live page views (excluding your own views as league owner)"
+        >
+          Views: <span data-role="count">{{ league_page_views.count }}</span>
+        </div>
       {% endif %}
-      <a class="btn" href="{{ back_href }}">Back</a>
+      <div style="display:flex;align-items:center;gap:.5rem;">
+        {% if public_league_id is not defined %}
+          {% if can_edit_game and not edit_mode %}
+            <a class="btn primary" href="/hky/games/{{ game['id'] }}?edit=1{{ return_to_q }}">Edit</a>
+          {% endif %}
+          {% if edit_mode %}
+            <a class="btn" href="/hky/games/{{ game['id'] }}{{ return_to_first_q }}">Cancel</a>
+          {% endif %}
+        {% endif %}
+        <a class="btn" href="{{ back_href }}">Back</a>
+      </div>
     </div>
   </div>
 	</div>
@@ -327,14 +342,17 @@
     </p>
   {% endif %}
   {% if events_rows and events_headers %}
-    <div id="timeline-clip-controls" class="muted" style="margin:.25rem 0 .5rem 0; display:none; align-items:center; gap:.35rem; flex-wrap:wrap;">
-      <label for="timeline-clip-len" class="muted" style="font-size:.85rem;">Clip length</label>
-      <select id="timeline-clip-len" style="padding:.25rem .5rem;border-radius:10px;">
-        <option value="10" selected>10s</option>
-        <option value="20">20s</option>
-        <option value="30">30s</option>
-      </select>
-    </div>
+	    <div id="timeline-clip-controls" class="muted" style="margin:.25rem 0 .5rem 0; display:none; align-items:center; gap:.35rem; flex-wrap:wrap;">
+	      <label for="timeline-clip-len" class="muted" style="font-size:.85rem;">Clip Length</label>
+	      <select id="timeline-clip-len" style="padding:.25rem .5rem;border-radius:10px;">
+	        <option value="15">15s</option>
+	        <option value="20">20s</option>
+	        <option value="30" selected>30s</option>
+	        <option value="45">45s</option>
+	        <option value="60">60s</option>
+	        <option value="90">90s</option>
+	      </select>
+	    </div>
     <div class="events-timeline">
       <div class="events-timeline-header">
         <div class="muted">Timeline</div>
@@ -583,20 +601,20 @@
 	            } catch (e) {}
 	          }
 	
-	          function openVideoClipForRow(row, opts) {
-	            opts = opts || {};
-	            if (!gameVideoUrl || !videoPane || !videoIframe) return false;
-	            var vs2 = parseVideoSecondsFromRow(row);
-	            if (vs2 === null || !isFinite(vs2)) return false;
-	            var totalClipS = (function () {
-	              var v = 10;
-	              try {
-	                if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
-	              } catch (e) {}
-	              if (!isFinite(v) || v <= 0) v = 10;
-	              if (v !== 10 && v !== 20 && v !== 30) v = 10;
-	              return v;
-	            })();
+		          function openVideoClipForRow(row, opts) {
+		            opts = opts || {};
+		            if (!gameVideoUrl || !videoPane || !videoIframe) return false;
+		            var vs2 = parseVideoSecondsFromRow(row);
+		            if (vs2 === null || !isFinite(vs2)) return false;
+		            var totalClipS = (function () {
+		              var v = 30;
+		              try {
+		                if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
+		              } catch (e) {}
+		              if (!isFinite(v) || v <= 0) v = 30;
+		              if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
+		              return v;
+		            })();
 	            var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
 	            var postS = Math.max(0, totalClipS - preS);
 	            var start2 = Math.max(0, Math.floor(vs2 - preS));
@@ -1659,30 +1677,30 @@
                 if (vs !== null && isFinite(vs)) { hasAnyVideo = true; break; }
               }
             } catch (e) {}
-            if (clipControlsEl && clipLenEl && gameVideoUrl && hasAnyVideo) {
-              clipControlsEl.style.display = "flex";
-              try {
-                var sv = null;
-                if (userClipLenS === 10 || userClipLenS === 20 || userClipLenS === 30) {
-                  sv = userClipLenS;
-                } else {
-                  var saved = localStorage.getItem("hm_clip_len_s");
-                  if (saved) {
-                    var lv = parseInt(String(saved), 10);
-                    if (lv === 10 || lv === 20 || lv === 30) sv = lv;
-                  }
-                }
-                if (sv === 10 || sv === 20 || sv === 30) clipLenEl.value = String(sv);
-              } catch (e) {}
-              if (clipLenEl) {
-                clipLenEl.addEventListener("change", function () {
-                  var v = 10;
-                  try { v = parseInt(String(clipLenEl.value || "10"), 10); } catch (e) { v = 10; }
-                  if (v !== 10 && v !== 20 && v !== 30) v = 10;
-                  if (!userIsLoggedIn) {
-                    try { localStorage.setItem("hm_clip_len_s", String(v)); } catch (e) {}
-                    return;
-                  }
+		            if (clipControlsEl && clipLenEl && gameVideoUrl && hasAnyVideo) {
+		              clipControlsEl.style.display = "flex";
+		              try {
+		                var sv = null;
+		                if (userClipLenS === 15 || userClipLenS === 20 || userClipLenS === 30 || userClipLenS === 45 || userClipLenS === 60 || userClipLenS === 90) {
+		                  sv = userClipLenS;
+		                } else {
+		                  var saved = localStorage.getItem("hm_clip_len_s");
+		                  if (saved) {
+		                    var lv = parseInt(String(saved), 10);
+		                    if (lv === 15 || lv === 20 || lv === 30 || lv === 45 || lv === 60 || lv === 90) sv = lv;
+		                  }
+		                }
+		                if (sv === 15 || sv === 20 || sv === 30 || sv === 45 || sv === 60 || sv === 90) clipLenEl.value = String(sv);
+		              } catch (e) {}
+		              if (clipLenEl) {
+		                clipLenEl.addEventListener("change", function () {
+		                  var v = 30;
+		                  try { v = parseInt(String(clipLenEl.value || "30"), 10); } catch (e) { v = 30; }
+		                  if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
+		                  if (!userIsLoggedIn) {
+		                    try { localStorage.setItem("hm_clip_len_s", String(v)); } catch (e) {}
+		                    return;
+		                  }
                   try {
                     fetch("/api/user/video_clip_len", {
                       method: "POST",

@@ -3,14 +3,29 @@
 {% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
   <h2>{{ 'League Teams' if league_view else 'Your Teams' }}</h2>
-  <div>
-    {% if league_view %}
-      <a class="btn" href="{{ base }}/schedule">Schedule</a>
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;">
+    {% if league_page_views %}
+      <div
+        data-hm-league-pageviews="1"
+        data-league-id="{{ league_page_views.league_id }}"
+        data-kind="{{ league_page_views.kind }}"
+        data-entity-id="{{ league_page_views.entity_id }}"
+        class="muted"
+        style="font-size:.85rem;white-space:nowrap;"
+        title="Live page views (excluding your own views as league owner)"
+      >
+        Views: <span data-role="count">{{ league_page_views.count }}</span>
+      </div>
     {% endif %}
-    {% if not league_view %}
-      <a class="btn" href="/teams?all={{ 0 if include_external else 1 }}">{{ 'Hide' if include_external else 'Show' }} external</a>
-      <a class="btn primary" href="/teams/new" style="margin-left:.5rem">New team</a>
-    {% endif %}
+    <div>
+      {% if league_view %}
+        <a class="btn" href="{{ base }}/schedule">Schedule</a>
+      {% endif %}
+      {% if not league_view %}
+        <a class="btn" href="/teams?all={{ 0 if include_external else 1 }}">{{ 'Hide' if include_external else 'Show' }} external</a>
+        <a class="btn primary" href="/teams/new" style="margin-left:.5rem">New team</a>
+      {% endif %}
+    </div>
   </div>
 </div>
 

@@ -54,6 +54,115 @@ from hockey_rankings import (  # noqa: E402
 )
 
 
+LEAGUE_PAGE_VIEW_KIND_TEAMS = "teams"
+LEAGUE_PAGE_VIEW_KIND_SCHEDULE = "schedule"
+LEAGUE_PAGE_VIEW_KIND_TEAM = "team"
+LEAGUE_PAGE_VIEW_KIND_GAME = "game"
+
+LEAGUE_PAGE_VIEW_KINDS: set[str] = {
+    LEAGUE_PAGE_VIEW_KIND_TEAMS,
+    LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
+    LEAGUE_PAGE_VIEW_KIND_TEAM,
+    LEAGUE_PAGE_VIEW_KIND_GAME,
+}
+
+
+def _get_league_owner_user_id(db_conn, league_id: int) -> Optional[int]:
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute("SELECT owner_user_id FROM leagues WHERE id=%s", (int(league_id),))
+            row = cur.fetchone()
+        if not row:
+            return None
+        if isinstance(row, dict):
+            v = row.get("owner_user_id")
+        elif isinstance(row, (list, tuple)):
+            v = row[0] if row else None
+        else:
+            v = None
+        try:
+            return int(v) if v is not None else None
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def _get_league_page_view_count(db_conn, league_id: int, *, kind: str, entity_id: int = 0) -> int:
+    kind_s = str(kind or "").strip()
+    if kind_s not in LEAGUE_PAGE_VIEW_KINDS:
+        raise ValueError(f"Unsupported league page view kind: {kind_s}")
+    eid = int(entity_id or 0)
+    if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAM, LEAGUE_PAGE_VIEW_KIND_GAME} and eid <= 0:
+        raise ValueError(f"entity_id is required for kind={kind_s}")
+    if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAMS, LEAGUE_PAGE_VIEW_KIND_SCHEDULE}:
+        eid = 0
+    try:
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "SELECT view_count FROM league_page_views WHERE league_id=%s AND page_kind=%s AND entity_id=%s",
+                (int(league_id), kind_s, int(eid)),
+            )
+            row = cur.fetchone()
+        if not row:
+            return 0
+        if isinstance(row, dict):
+            v = row.get("view_count")
+        elif isinstance(row, (list, tuple)):
+            v = row[0] if row else None
+        else:
+            v = None
+        try:
+            return int(v) if v is not None else 0
+        except Exception:
+            return 0
+    except Exception:
+        return 0
+
+
+def _record_league_page_view(
+    db_conn,
+    league_id: int,
+    *,
+    kind: str,
+    entity_id: int = 0,
+    viewer_user_id: Optional[int] = None,
+    league_owner_user_id: Optional[int] = None,
+) -> None:
+    kind_s = str(kind or "").strip()
+    if kind_s not in LEAGUE_PAGE_VIEW_KINDS:
+        return
+    eid = int(entity_id or 0)
+    if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAM, LEAGUE_PAGE_VIEW_KIND_GAME} and eid <= 0:
+        return
+    if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAMS, LEAGUE_PAGE_VIEW_KIND_SCHEDULE}:
+        eid = 0
+
+    owner_id = league_owner_user_id
+    if owner_id is None:
+        owner_id = _get_league_owner_user_id(db_conn, int(league_id))
+    if viewer_user_id is not None and owner_id is not None and int(viewer_user_id) == int(owner_id):
+        return
+
+    try:
+        now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with db_conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO league_page_views(league_id, page_kind, entity_id, view_count, created_at, updated_at)
+                VALUES(%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE view_count=view_count+1, updated_at=VALUES(updated_at)
+                """,
+                (int(league_id), kind_s, int(eid), 1, now, now),
+            )
+        db_conn.commit()
+    except Exception:
+        try:
+            db_conn.rollback()
+        except Exception:
+            pass
+
+
 def to_dt(value: Any) -> Optional[dt.datetime]:
     """
     Parse a datetime from a DB value or string.
@@ -506,9 +615,9 @@ def create_app() -> Flask:
         try:
             v = int(raw)
         except Exception:
-            return jsonify({"ok": False, "error": "clip_len_s must be 10, 20, or 30"}), 400
-        if v not in {10, 20, 30}:
-            return jsonify({"ok": False, "error": "clip_len_s must be 10, 20, or 30"}), 400
+            return jsonify({"ok": False, "error": "clip_len_s must be one of: 15, 20, 30, 45, 60, 90"}), 400
+        if v not in {15, 20, 30, 45, 60, 90}:
+            return jsonify({"ok": False, "error": "clip_len_s must be one of: 15, 20, 30, 45, 60, 90"}), 400
         try:
             with g.db.cursor() as cur:
                 cur.execute("UPDATE users SET video_clip_len_s=%s WHERE id=%s", (int(v), int(session["user_id"])))
@@ -520,6 +629,51 @@ def create_app() -> Flask:
                 pass
             return jsonify({"ok": False, "error": str(e)}), 500
         return jsonify({"ok": True, "clip_len_s": int(v)})
+
+    @app.get("/api/leagues/<int:league_id>/page_views")
+    def api_league_page_views(league_id: int):
+        r = require_login()
+        if r:
+            return r
+        user_id = int(session.get("user_id") or 0)
+        if not user_id:
+            return jsonify({"ok": False, "error": "login_required"}), 401
+        with g.db.cursor() as cur:
+            cur.execute("SELECT owner_user_id FROM leagues WHERE id=%s", (int(league_id),))
+            row = cur.fetchone()
+        owner_id = None
+        if isinstance(row, dict):
+            owner_id = row.get("owner_user_id")
+        elif isinstance(row, (list, tuple)) and row:
+            owner_id = row[0]
+        try:
+            owner_id_i = int(owner_id) if owner_id is not None else None
+        except Exception:
+            owner_id_i = None
+        if owner_id_i is None:
+            return jsonify({"ok": False, "error": "not_found"}), 404
+        if int(owner_id_i) != int(user_id):
+            return jsonify({"ok": False, "error": "not_authorized"}), 403
+
+        kind = str(request.args.get("kind") or "").strip()
+        entity_id_raw = request.args.get("entity_id")
+        try:
+            entity_id = int(str(entity_id_raw or "0").strip() or "0")
+        except Exception:
+            entity_id = 0
+        try:
+            count = _get_league_page_view_count(g.db, int(league_id), kind=kind, entity_id=entity_id)
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify(
+            {
+                "ok": True,
+                "league_id": int(league_id),
+                "kind": kind,
+                "entity_id": int(entity_id),
+                "count": int(count),
+            }
+        )
 
     @app.route("/games")
     def games():
@@ -846,6 +1000,21 @@ def create_app() -> Flask:
             return r
         include_external = request.args.get("all", "0") == "1"
         league_id = session.get("league_id")
+        league_owner_user_id: Optional[int] = None
+        is_league_owner = False
+        if league_id:
+            league_owner_user_id = _get_league_owner_user_id(g.db, int(league_id))
+            is_league_owner = bool(
+                league_owner_user_id is not None and int(league_owner_user_id) == int(session["user_id"])
+            )
+            _record_league_page_view(
+                g.db,
+                int(league_id),
+                kind=LEAGUE_PAGE_VIEW_KIND_TEAMS,
+                entity_id=0,
+                viewer_user_id=int(session["user_id"]),
+                league_owner_user_id=league_owner_user_id,
+            )
         is_league_admin = False
         if league_id:
             try:
@@ -886,6 +1055,16 @@ def create_app() -> Flask:
             for dn in sorted(grouped.keys(), key=lambda s: s.lower()):
                 teams_sorted = sorted(grouped[dn], key=lambda tr: sort_key_team_standings(tr, stats.get(tr["id"], {})))
                 divisions.append({"name": dn, "teams": teams_sorted})
+        league_page_views = None
+        if league_id and is_league_owner:
+            league_page_views = {
+                "league_id": int(league_id),
+                "kind": LEAGUE_PAGE_VIEW_KIND_TEAMS,
+                "entity_id": 0,
+                "count": _get_league_page_view_count(
+                    g.db, int(league_id), kind=LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+                ),
+            }
         return render_template(
             "teams.html",
             teams=rows,
@@ -895,6 +1074,7 @@ def create_app() -> Flask:
             league_view=bool(league_id),
             current_user_id=int(session["user_id"]),
             is_league_admin=is_league_admin,
+            league_page_views=league_page_views,
         )
 
     @app.post("/leagues/recalc_div_ratings")
@@ -3310,7 +3490,9 @@ def create_app() -> Flask:
 
     def _is_public_league(league_id: int) -> Optional[dict]:
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute("SELECT id, name FROM leagues WHERE id=%s AND is_public=1", (league_id,))
+            cur.execute(
+                "SELECT id, name, owner_user_id FROM leagues WHERE id=%s AND is_public=1", (league_id,)
+            )
             return cur.fetchone()
 
     @app.get("/public/leagues")
@@ -3354,6 +3536,23 @@ def create_app() -> Flask:
         league = _is_public_league(league_id)
         if not league:
             return ("Not found", 404)
+        viewer_user_id = int(session.get("user_id") or 0) if "user_id" in session else 0
+        league_owner_user_id = None
+        try:
+            league_owner_user_id = int(league.get("owner_user_id")) if isinstance(league, dict) else None
+        except Exception:
+            league_owner_user_id = None
+        _record_league_page_view(
+            g.db,
+            int(league_id),
+            kind=LEAGUE_PAGE_VIEW_KIND_TEAMS,
+            entity_id=0,
+            viewer_user_id=(int(viewer_user_id) if viewer_user_id else None),
+            league_owner_user_id=league_owner_user_id,
+        )
+        is_league_owner = bool(
+            viewer_user_id and league_owner_user_id is not None and int(viewer_user_id) == int(league_owner_user_id)
+        )
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 """
@@ -3384,6 +3583,18 @@ def create_app() -> Flask:
             current_user_id=-1,
             public_league_id=int(league_id),
             is_league_admin=False,
+            league_page_views=(
+                {
+                    "league_id": int(league_id),
+                    "kind": LEAGUE_PAGE_VIEW_KIND_TEAMS,
+                    "entity_id": 0,
+                    "count": _get_league_page_view_count(
+                        g.db, int(league_id), kind=LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+                    ),
+                }
+                if is_league_owner
+                else None
+            ),
         )
 
     @app.get("/public/leagues/<int:league_id>/teams/<int:team_id>")
@@ -3391,6 +3602,15 @@ def create_app() -> Flask:
         league = _is_public_league(league_id)
         if not league:
             return ("Not found", 404)
+        viewer_user_id = int(session.get("user_id") or 0) if "user_id" in session else 0
+        league_owner_user_id = None
+        try:
+            league_owner_user_id = int(league.get("owner_user_id")) if isinstance(league, dict) else None
+        except Exception:
+            league_owner_user_id = None
+        is_league_owner = bool(
+            viewer_user_id and league_owner_user_id is not None and int(viewer_user_id) == int(league_owner_user_id)
+        )
         recent_n_raw = request.args.get("recent_n")
         try:
             recent_n = max(1, min(10, int(str(recent_n_raw or "5"))))
@@ -3410,6 +3630,14 @@ def create_app() -> Flask:
             team = cur.fetchone()
         if not team:
             return ("Not found", 404)
+        _record_league_page_view(
+            g.db,
+            int(league_id),
+            kind=LEAGUE_PAGE_VIEW_KIND_TEAM,
+            entity_id=int(team_id),
+            viewer_user_id=(int(viewer_user_id) if viewer_user_id else None),
+            league_owner_user_id=league_owner_user_id,
+        )
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute("SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC", (team_id,))
             players = cur.fetchall() or []
@@ -3568,6 +3796,18 @@ def create_app() -> Flask:
             player_stats_recent_coverage_total_games=recent_cov_total,
             game_type_filter_options=game_type_filter_options,
             game_type_filter_label=selected_label,
+            league_page_views=(
+                {
+                    "league_id": int(league_id),
+                    "kind": LEAGUE_PAGE_VIEW_KIND_TEAM,
+                    "entity_id": int(team_id),
+                    "count": _get_league_page_view_count(
+                        g.db, int(league_id), kind=LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+                    ),
+                }
+                if is_league_owner
+                else None
+            ),
         )
 
     @app.get("/public/leagues/<int:league_id>/schedule")
@@ -3575,6 +3815,23 @@ def create_app() -> Flask:
         league = _is_public_league(league_id)
         if not league:
             return ("Not found", 404)
+        viewer_user_id = int(session.get("user_id") or 0) if "user_id" in session else 0
+        league_owner_user_id = None
+        try:
+            league_owner_user_id = int(league.get("owner_user_id")) if isinstance(league, dict) else None
+        except Exception:
+            league_owner_user_id = None
+        _record_league_page_view(
+            g.db,
+            int(league_id),
+            kind=LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
+            entity_id=0,
+            viewer_user_id=(int(viewer_user_id) if viewer_user_id else None),
+            league_owner_user_id=league_owner_user_id,
+        )
+        is_league_owner = bool(
+            viewer_user_id and league_owner_user_id is not None and int(viewer_user_id) == int(league_owner_user_id)
+        )
         selected_division = (request.args.get("division") or "").strip() or None
         selected_team_id = request.args.get("team_id") or ""
         team_id_i: Optional[int] = None
@@ -3674,6 +3931,18 @@ def create_app() -> Flask:
             selected_team_id=str(team_id_i) if team_id_i is not None else "",
             can_add_game=False,
             public_league_id=int(league_id),
+            league_page_views=(
+                {
+                    "league_id": int(league_id),
+                    "kind": LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
+                    "entity_id": 0,
+                    "count": _get_league_page_view_count(
+                        g.db, int(league_id), kind=LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+                    ),
+                }
+                if is_league_owner
+                else None
+            ),
         )
 
     @app.get("/public/leagues/<int:league_id>/hky/games/<int:game_id>")
@@ -3681,6 +3950,15 @@ def create_app() -> Flask:
         league = _is_public_league(league_id)
         if not league:
             return ("Not found", 404)
+        viewer_user_id = int(session.get("user_id") or 0) if "user_id" in session else 0
+        league_owner_user_id = None
+        try:
+            league_owner_user_id = int(league.get("owner_user_id")) if isinstance(league, dict) else None
+        except Exception:
+            league_owner_user_id = None
+        is_league_owner = bool(
+            viewer_user_id and league_owner_user_id is not None and int(viewer_user_id) == int(league_owner_user_id)
+        )
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
                 """
@@ -3717,6 +3995,14 @@ def create_app() -> Flask:
         can_view_summary = bool(has_score or (sdt is None) or started)
         if not can_view_summary:
             return ("Not found", 404)
+        _record_league_page_view(
+            g.db,
+            int(league_id),
+            kind=LEAGUE_PAGE_VIEW_KIND_GAME,
+            entity_id=int(game_id),
+            viewer_user_id=(int(viewer_user_id) if viewer_user_id else None),
+            league_owner_user_id=league_owner_user_id,
+        )
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute("SELECT * FROM players WHERE team_id=%s ORDER BY jersey_number ASC, name ASC", (game["team1_id"],))
             team1_players = cur.fetchall() or []
@@ -3854,6 +4140,18 @@ def create_app() -> Flask:
             player_stats_cell_conflicts_by_pid=player_stats_cell_conflicts_by_pid,
             player_stats_import_meta=player_stats_import_meta,
             player_stats_import_warning=player_stats_import_warning,
+            league_page_views=(
+                {
+                    "league_id": int(league_id),
+                    "kind": LEAGUE_PAGE_VIEW_KIND_GAME,
+                    "entity_id": int(game_id),
+                    "count": _get_league_page_view_count(
+                        g.db, int(league_id), kind=LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+                    ),
+                }
+                if is_league_owner
+                else None
+            ),
         )
 
     @app.get("/leagues/<int:league_id>/members")
@@ -3958,6 +4256,13 @@ def create_app() -> Flask:
         recent_sort = str(request.args.get("recent_sort") or "points").strip() or "points"
         recent_dir = str(request.args.get("recent_dir") or "desc").strip().lower() or "desc"
         league_id = session.get("league_id")
+        league_owner_user_id: Optional[int] = None
+        is_league_owner = False
+        if league_id:
+            league_owner_user_id = _get_league_owner_user_id(g.db, int(league_id))
+            is_league_owner = bool(
+                league_owner_user_id is not None and int(league_owner_user_id) == int(session["user_id"])
+            )
         is_league_admin = False
         if league_id:
             try:
@@ -3980,6 +4285,15 @@ def create_app() -> Flask:
         if not team:
             flash("Not found", "error")
             return redirect(url_for("teams"))
+        if league_id:
+            _record_league_page_view(
+                g.db,
+                int(league_id),
+                kind=LEAGUE_PAGE_VIEW_KIND_TEAM,
+                entity_id=int(team_id),
+                viewer_user_id=int(session["user_id"]),
+                league_owner_user_id=league_owner_user_id,
+            )
         team_owner_id = int(team["user_id"])
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             if editable:
@@ -4159,6 +4473,16 @@ def create_app() -> Flask:
             {"label": gt, "checked": (selected_types is None) or (gt in selected_types)}
             for gt in game_type_options
         ]
+        league_page_views = None
+        if league_id and is_league_owner:
+            league_page_views = {
+                "league_id": int(league_id),
+                "kind": LEAGUE_PAGE_VIEW_KIND_TEAM,
+                "entity_id": int(team_id),
+                "count": _get_league_page_view_count(
+                    g.db, int(league_id), kind=LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+                ),
+            }
         return render_template(
             "team_detail.html",
             team=team,
@@ -4182,6 +4506,7 @@ def create_app() -> Flask:
             player_stats_recent_coverage_total_games=recent_cov_total,
             game_type_filter_options=game_type_filter_options,
             game_type_filter_label=selected_label,
+            league_page_views=league_page_views,
         )
 
     @app.route("/teams/<int:team_id>/edit", methods=["GET", "POST"])
@@ -4314,6 +4639,21 @@ def create_app() -> Flask:
         if r:
             return r
         league_id = session.get("league_id")
+        league_owner_user_id: Optional[int] = None
+        is_league_owner = False
+        if league_id:
+            league_owner_user_id = _get_league_owner_user_id(g.db, int(league_id))
+            is_league_owner = bool(
+                league_owner_user_id is not None and int(league_owner_user_id) == int(session["user_id"])
+            )
+            _record_league_page_view(
+                g.db,
+                int(league_id),
+                kind=LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
+                entity_id=0,
+                viewer_user_id=int(session["user_id"]),
+                league_owner_user_id=league_owner_user_id,
+            )
         selected_division = (request.args.get("division") or "").strip() or None
         selected_team_id = request.args.get("team_id") or ""
         team_id_i: Optional[int] = None
@@ -4432,6 +4772,16 @@ def create_app() -> Flask:
             except Exception:
                 g2["can_edit"] = bool(is_league_admin)
         games = sort_games_schedule_order(games or [])
+        league_page_views = None
+        if league_id and is_league_owner:
+            league_page_views = {
+                "league_id": int(league_id),
+                "kind": LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
+                "entity_id": 0,
+                "count": _get_league_page_view_count(
+                    g.db, int(league_id), kind=LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+                ),
+            }
         return render_template(
             "schedule.html",
             games=games,
@@ -4440,6 +4790,7 @@ def create_app() -> Flask:
             league_teams=league_teams,
             selected_division=selected_division or "",
             selected_team_id=str(team_id_i) if team_id_i is not None else "",
+            league_page_views=league_page_views,
         )
 
     @app.route("/schedule/new", methods=["GET", "POST"])
@@ -4753,6 +5104,13 @@ def create_app() -> Flask:
         if r:
             return r
         league_id = session.get("league_id")
+        league_owner_user_id: Optional[int] = None
+        is_league_owner = False
+        if league_id:
+            league_owner_user_id = _get_league_owner_user_id(g.db, int(league_id))
+            is_league_owner = bool(
+                league_owner_user_id is not None and int(league_owner_user_id) == int(session["user_id"])
+            )
         game = None
         with g.db.cursor(pymysql.cursors.DictCursor) as cur:
             cur.execute(
@@ -4802,6 +5160,15 @@ def create_app() -> Flask:
         can_view_summary = bool(has_score or (sdt is None) or started)
         if not can_view_summary:
             return ("Not found", 404)
+        if league_id:
+            _record_league_page_view(
+                g.db,
+                int(league_id),
+                kind=LEAGUE_PAGE_VIEW_KIND_GAME,
+                entity_id=int(game_id),
+                viewer_user_id=int(session["user_id"]),
+                league_owner_user_id=league_owner_user_id,
+            )
         # is_owner already computed above
         tts_linked = _extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
 
@@ -5086,6 +5453,18 @@ def create_app() -> Flask:
             player_stats_cell_conflicts_by_pid=player_stats_cell_conflicts_by_pid,
             player_stats_import_meta=player_stats_import_meta,
             player_stats_import_warning=player_stats_import_warning,
+            league_page_views=(
+                {
+                    "league_id": int(league_id),
+                    "kind": LEAGUE_PAGE_VIEW_KIND_GAME,
+                    "entity_id": int(game_id),
+                    "count": _get_league_page_view_count(
+                        g.db, int(league_id), kind=LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+                    ),
+                }
+                if (league_id and is_league_owner)
+                else None
+            ),
         )
 
     @app.route("/game_types", methods=["GET", "POST"])
@@ -5203,6 +5582,22 @@ def init_db():
               INDEX(league_id), INDEX(user_id),
               FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
               FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS league_page_views (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              league_id INT NOT NULL,
+              page_kind VARCHAR(32) NOT NULL,
+              entity_id INT NOT NULL DEFAULT 0,
+              view_count BIGINT NOT NULL DEFAULT 0,
+              created_at DATETIME NOT NULL,
+              updated_at DATETIME NOT NULL,
+              UNIQUE KEY uniq_page (league_id, page_kind, entity_id),
+              INDEX(league_id), INDEX(page_kind), INDEX(entity_id),
+              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
@@ -6762,10 +7157,10 @@ def sort_events_rows_default(rows: list[dict[str, str]]) -> list[dict[str, str]]
 def get_user_video_clip_len_s(db_conn, user_id: Optional[int]) -> int:
     """
     Per-user clip length preference for timeline video clips.
-    Defaults to 10 seconds when unset/unknown.
+    Defaults to 30 seconds when unset/unknown.
     """
     if not user_id:
-        return 10
+        return 30
     try:
         with db_conn.cursor() as cur:
             cur.execute("SELECT video_clip_len_s FROM users WHERE id=%s", (int(user_id),))
@@ -6779,11 +7174,11 @@ def get_user_video_clip_len_s(db_conn, user_id: Optional[int]) -> int:
             iv = int(v) if v is not None else None
         except Exception:
             iv = None
-        if iv in {10, 20, 30}:
+        if iv in {15, 20, 30, 45, 60, 90}:
             return int(iv)
     except Exception:
         pass
-    return 10
+    return 30
 
 
 def reset_league_data(db_conn, league_id: int, *, owner_user_id: Optional[int] = None) -> dict[str, int]:

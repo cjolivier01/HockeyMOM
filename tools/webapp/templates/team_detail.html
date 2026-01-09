@@ -16,6 +16,19 @@
     <h2 style="margin:0">{{ team['name'] }}</h2>
     {% if team['is_external'] %}<p class="muted" style="margin:.25rem 0 0">External team</p>{% endif %}
   </div>
+  {% if league_page_views %}
+    <div
+      data-hm-league-pageviews="1"
+      data-league-id="{{ league_page_views.league_id }}"
+      data-kind="{{ league_page_views.kind }}"
+      data-entity-id="{{ league_page_views.entity_id }}"
+      class="muted"
+      style="margin-left:auto;font-size:.85rem;white-space:nowrap;"
+      title="Live page views (excluding your own views as league owner)"
+    >
+      Views: <span data-role="count">{{ league_page_views.count }}</span>
+    </div>
+  {% endif %}
 </div>
 
 {% set has_coaches = (head_coaches is defined and head_coaches) or (assistant_coaches is defined and assistant_coaches) %}
