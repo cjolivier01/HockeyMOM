@@ -92,13 +92,15 @@ echo "[i] TEAM_ID=$TEAM_ID"
 
 # 6) Add a player
 echo "[i] Adding player"
-HTML=$(req POST -L \
+HTML=$(reqf -L \
   -d "name=Smoke Skater" -d "jersey_number=77" -d "position=F" -d "shoots=R" \
   "$BASE/teams/$TEAM_ID/players/new")
 echo "$HTML" | assert_contains "Smoke Skater"
 
 # 7) Create a game (use first available game type)
-GT_ID=$(reqf "$BASE/schedule/new" | sed -n 's#.*<option value=\"\([0-9]\+\)\">[^<].*#\1#p' | head -n1)
+GT_ID=$(
+  reqf "$BASE/schedule/new" | python3 -c 'import re, sys; html=sys.stdin.read(); m=re.search(r"<select name=\"game_type_id\">.*?<option value=\"(\d+)\"", html, re.S); print(m.group(1) if m else "")'
+)
 if [ -z "$GT_ID" ]; then echo "[!] No game type found" >&2; exit 1; fi
 echo "[i] GAME_TYPE=$GT_ID"
 
@@ -125,12 +127,23 @@ echo "$HTML" | assert_contains "Imported stats for"
 
 # 8) Set final score
 echo "[i] Setting final score"
-req POST -L \
+reqf -L \
   -d "team1_score=6" -d "team2_score=3" -d "is_final=on" \
   "$BASE/hky/games/$GAME_ID" >/dev/null
 
 # 9) Verify team record updated
-REC=$(reqf "$BASE/teams" | sed -n 's#.*Smoke Team</a></td><td>\([0-9]\+-[0-9]\+-[0-9]\+\)</td>.*#\1#p' | head -n1)
+REC=$(
+  reqf "$BASE/teams" | python3 -c '
+import re
+import sys
+
+team_id = sys.argv[1]
+html = sys.stdin.read()
+pat = "href=\"/teams/%s\".*?<td>\\s*\\d+\\s*</td>\\s*<td>\\s*(\\d+-\\d+-\\d+)\\s*</td>" % re.escape(team_id)
+m = re.search(pat, html, re.S)
+print(m.group(1) if m else "")
+' "$TEAM_ID"
+)
 echo "[i] Record: ${REC:-unknown}"
 if [ -z "$REC" ]; then
   echo "[!] Could not parse team record" >&2

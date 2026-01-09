@@ -32,6 +32,9 @@ This will:
 - Install a systemd unit `hm-webapp.service`
 - Install an Nginx site proxying `http://127.0.0.1:8008` and restart Nginx
 
+If nginx fails to start with `Address already in use`, something else is already bound to the nginx listen port (default: 80; common culprit: `apache2`).
+Either stop/disable the conflicting service, or re-run the installer with `--nginx-port <other-port>` (and optionally `--disable-apache2`).
+
 Deploy to Google Cloud (smallest VM)
 ------------------------------------
 This repo includes a helper that deploys the webapp + local MariaDB to a tiny Compute Engine VM (`e2-micro`) using the `gcloud` CLI.

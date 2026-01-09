@@ -3,7 +3,8 @@
 Fast redeploy helper for the GCE-based webapp deployment.
 
 This does NOT recreate the VM or rerun the full installer. It:
-  - copies updated `tools/webapp/app.py`, `templates/`, and `static/` to the VM's `/opt/hm-webapp/app/`
+  - copies updated `tools/webapp/app.py`, ORM files, `templates/`, and `static/` to the VM's `/opt/hm-webapp/app/`
+  - ensures Django is installed in `/opt/hm-webapp/venv` (required for ORM)
   - restarts `hm-webapp.service`
 
 If you changed Python dependencies or system packages, rerun `tools/webapp/deploy_gcp.py` instead.
@@ -72,8 +73,14 @@ def main() -> int:
             args.zone,
             "--command",
             "set -euo pipefail; "
+            "if ! /opt/hm-webapp/venv/bin/python -c 'import django' >/dev/null 2>&1; then "
+            "  sudo /opt/hm-webapp/venv/bin/python -m pip install django; "
+            "fi; "
             "sudo mkdir -p /opt/hm-webapp/app/templates /opt/hm-webapp/app/static; "
             "sudo cp /tmp/hm/tools/webapp/app.py /opt/hm-webapp/app/app.py; "
+            "sudo cp /tmp/hm/tools/webapp/django_orm.py /opt/hm-webapp/app/django_orm.py; "
+            "sudo cp /tmp/hm/tools/webapp/django_settings.py /opt/hm-webapp/app/django_settings.py; "
+            "sudo cp -r /tmp/hm/tools/webapp/django_app /opt/hm-webapp/app/; "
             "sudo cp /tmp/hm/tools/webapp/hockey_rankings.py /opt/hm-webapp/app/hockey_rankings.py; "
             "sudo cp /tmp/hm/tools/webapp/recalc_div_ratings.py /opt/hm-webapp/app/recalc_div_ratings.py; "
             "sudo cp -r /tmp/hm/tools/webapp/templates/. /opt/hm-webapp/app/templates/; "

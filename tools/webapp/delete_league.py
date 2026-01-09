@@ -18,30 +18,20 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 
-def load_db_cfg(config_path: str) -> dict:
-    with open(config_path, "r", encoding="utf-8") as fh:
-        cfg = json.load(fh)
-    return cfg.get("db", {})
-
-
-def connect_pymysql(db_cfg: dict):
+def _orm_modules(*, config_path: str):
     try:
-        import pymysql
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(
-            "pymysql is required; on a deployed server use `/opt/hm-webapp/venv/bin/python` to run this script"
-        ) from e
+        from tools.webapp import django_orm  # type: ignore
+    except Exception:  # pragma: no cover
+        import django_orm  # type: ignore
 
-    return pymysql.connect(
-        host=db_cfg.get("host", "127.0.0.1"),
-        port=int(db_cfg.get("port", 3306)),
-        user=db_cfg.get("user", "hmapp"),
-        password=db_cfg.get("pass", ""),
-        database=db_cfg.get("name", "hm_app_db"),
-        autocommit=False,
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.Cursor,
-    )
+    django_orm.setup_django(config_path=config_path)
+    django_orm.ensure_schema()
+    try:
+        from tools.webapp.django_app import models as m  # type: ignore
+    except Exception:  # pragma: no cover
+        from django_app import models as m  # type: ignore
+
+    return django_orm, m
 
 
 def _chunks(seq: list[int], n: int) -> Iterable[list[int]]:
@@ -87,84 +77,54 @@ def compute_purge_plan(
     )
 
 
-def _resolve_league(conn, *, league_id: Optional[int], league_name: Optional[str]) -> tuple[int, str]:
+def _resolve_league(m, *, league_id: Optional[int], league_name: Optional[str]) -> tuple[int, str]:
     if league_id is None and not league_name:
         raise ValueError("Must pass --league-id or --league-name")
 
-    with conn.cursor() as cur:
-        if league_id is not None:
-            cur.execute("SELECT id, name FROM leagues WHERE id=%s", (int(league_id),))
-        else:
-            cur.execute("SELECT id, name FROM leagues WHERE name=%s", (str(league_name),))
-        row = cur.fetchone()
-        if not row:
-            raise ValueError("League not found")
-        return int(row[0]), str(row[1])
+    if league_id is not None:
+        row = m.League.objects.filter(id=int(league_id)).values_list("id", "name").first()
+    else:
+        row = m.League.objects.filter(name=str(league_name)).values_list("id", "name").first()
+    if not row:
+        raise ValueError("League not found")
+    return int(row[0]), str(row[1])
 
 
-def _fetch_ids(conn, sql: str, params: tuple) -> list[int]:
-    with conn.cursor() as cur:
-        cur.execute(sql, params)
-        return [int(r[0]) for r in (cur.fetchall() or []) if r and r[0] is not None]
-
-
-def _fetch_shared_ids(conn, table: str, id_col: str, league_id: int, ids: list[int]) -> list[int]:
-    if not ids:
-        return []
-    shared: set[int] = set()
-    with conn.cursor() as cur:
-        for chunk in _chunks(ids, 900):
-            q = ",".join(["%s"] * len(chunk))
-            cur.execute(
-                f"SELECT DISTINCT {id_col} FROM {table} WHERE {id_col} IN ({q}) AND league_id<>%s",
-                tuple(chunk) + (int(league_id),),
-            )
-            shared.update(int(r[0]) for r in (cur.fetchall() or []) if r and r[0] is not None)
-    return sorted(shared)
-
-
-def _team_ref_counts_after_game_delete(conn, team_ids: list[int], delete_game_ids: list[int]) -> dict[int, int]:
+def _team_ref_counts_after_game_delete(m, team_ids: list[int], delete_game_ids: list[int]) -> dict[int, int]:
     if not team_ids:
         return {}
     counts: dict[int, int] = {int(t): 0 for t in team_ids}
     delete_set = {int(g) for g in delete_game_ids}
-    with conn.cursor() as cur:
-        for chunk in _chunks([int(t) for t in team_ids], 800):
-            q = ",".join(["%s"] * len(chunk))
-            cur.execute(
-                f"""
-                SELECT id, team1_id, team2_id
-                FROM hky_games
-                WHERE team1_id IN ({q}) OR team2_id IN ({q})
-                """,
-                tuple(chunk) + tuple(chunk),
-            )
-            for row in cur.fetchall() or []:
-                try:
-                    gid, t1, t2 = row
-                except Exception:
-                    continue
-                gid_i = int(gid)
-                if gid_i in delete_set:
-                    continue
-                if t1 is not None and int(t1) in counts:
-                    counts[int(t1)] += 1
-                if t2 is not None and int(t2) in counts:
-                    counts[int(t2)] += 1
+    from django.db.models import Q
+
+    for t1, t2, gid in m.HkyGame.objects.filter(
+        Q(team1_id__in=team_ids) | Q(team2_id__in=team_ids)
+    ).values_list("team1_id", "team2_id", "id"):
+        gid_i = int(gid)
+        if gid_i in delete_set:
+            continue
+        if t1 is not None and int(t1) in counts:
+            counts[int(t1)] += 1
+        if t2 is not None and int(t2) in counts:
+            counts[int(t2)] += 1
     return counts
 
 
-def plan_purge(conn, *, league_id: Optional[int], league_name: Optional[str]) -> PurgePlan:
-    lid, lname = _resolve_league(conn, league_id=league_id, league_name=league_name)
+def plan_purge(m, *, league_id: Optional[int], league_name: Optional[str]) -> PurgePlan:
+    lid, lname = _resolve_league(m, league_id=league_id, league_name=league_name)
 
-    league_game_ids = _fetch_ids(conn, "SELECT DISTINCT game_id FROM league_games WHERE league_id=%s", (lid,))
-    shared_game_ids = _fetch_shared_ids(conn, "league_games", "game_id", lid, league_game_ids)
-    delete_game_ids = sorted(set(league_game_ids) - set(shared_game_ids))
+    league_game_ids = list(m.LeagueGame.objects.filter(league_id=lid).values_list("game_id", flat=True))
+    shared_game_ids = set(
+        m.LeagueGame.objects.exclude(league_id=lid).filter(game_id__in=league_game_ids).values_list("game_id", flat=True)
+    )
+    delete_game_ids = sorted({int(g) for g in league_game_ids if g is not None and g not in shared_game_ids})
 
-    league_team_ids = _fetch_ids(conn, "SELECT DISTINCT team_id FROM league_teams WHERE league_id=%s", (lid,))
-    shared_team_ids = _fetch_shared_ids(conn, "league_teams", "team_id", lid, league_team_ids)
+    league_team_ids = list(m.LeagueTeam.objects.filter(league_id=lid).values_list("team_id", flat=True))
+    shared_team_ids = set(
+        m.LeagueTeam.objects.exclude(league_id=lid).filter(team_id__in=league_team_ids).values_list("team_id", flat=True)
+    )
 
-    ref_counts = _team_ref_counts_after_game_delete(conn, league_team_ids, delete_game_ids)
+    ref_counts = _team_ref_counts_after_game_delete(m, [int(t) for t in league_team_ids if t is not None], delete_game_ids)
     return compute_purge_plan(
         league_id=lid,
         league_name=lname,
@@ -176,32 +136,36 @@ def plan_purge(conn, *, league_id: Optional[int], league_name: Optional[str]) ->
     )
 
 
-def apply_purge(conn, plan: PurgePlan) -> dict:
+def apply_purge(m, plan: PurgePlan) -> dict:
     stats: dict[str, int] = {
         "delete_games": len(plan.delete_game_ids),
         "delete_teams": len(plan.delete_team_ids),
         "cleared_default_league": 0,
         "deleted_league": 0,
     }
-    with conn.cursor() as cur:
-        cur.execute("UPDATE users SET default_league_id=NULL WHERE default_league_id=%s", (int(plan.league_id),))
-        stats["cleared_default_league"] = int(cur.rowcount or 0)
+    from django.db import transaction
+
+    with transaction.atomic():
+        stats["cleared_default_league"] = int(
+            m.User.objects.filter(default_league_id=int(plan.league_id)).update(default_league=None)
+        )
 
         # Delete games first (teams are referenced with ON DELETE RESTRICT).
         for chunk in _chunks(plan.delete_game_ids, 500):
-            q = ",".join(["%s"] * len(chunk))
-            cur.execute(f"DELETE FROM hky_games WHERE id IN ({q})", tuple(int(x) for x in chunk))
+            m.HkyGame.objects.filter(id__in=[int(x) for x in chunk]).delete()
 
         # Delete teams (will cascade players + player_stats via FK).
         for chunk in _chunks(plan.delete_team_ids, 500):
-            q = ",".join(["%s"] * len(chunk))
-            cur.execute(f"DELETE FROM teams WHERE id IN ({q})", tuple(int(x) for x in chunk))
+            m.Team.objects.filter(id__in=[int(x) for x in chunk]).delete()
 
-        # Delete league row last (FK cascades league_members/league_games/league_teams).
-        cur.execute("DELETE FROM leagues WHERE id=%s", (int(plan.league_id),))
-        stats["deleted_league"] = int(cur.rowcount or 0)
+        # Delete league-associated rows even if DB constraints were created without FK cascades.
+        m.LeagueMember.objects.filter(league_id=int(plan.league_id)).delete()
+        m.LeaguePageView.objects.filter(league_id=int(plan.league_id)).delete()
+        m.LeagueGame.objects.filter(league_id=int(plan.league_id)).delete()
+        m.LeagueTeam.objects.filter(league_id=int(plan.league_id)).delete()
 
-    conn.commit()
+        deleted, _details = m.League.objects.filter(id=int(plan.league_id)).delete()
+        stats["deleted_league"] = int(deleted or 0)
     return stats
 
 
@@ -214,12 +178,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--force", action="store_true", help="Do not prompt for confirmation")
     args = ap.parse_args(argv)
 
-    db_cfg = load_db_cfg(args.config)
-    conn = connect_pymysql(db_cfg)
+    _django_orm, m = _orm_modules(config_path=str(args.config))
 
     try:
-        plan = plan_purge(conn, league_id=args.league_id, league_name=args.league_name)
-    except Exception as e:
+        plan = plan_purge(m, league_id=args.league_id, league_name=args.league_name)
+    except Exception as e:  # noqa: BLE001
         print(f"[!] {e}", file=sys.stderr)
         return 2
 
@@ -241,7 +204,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             print("Aborted.")
             return 1
 
-    stats = apply_purge(conn, plan)
+    stats = apply_purge(m, plan)
     print("Delete complete:", json.dumps(stats, indent=2, sort_keys=True))
     return 0
 

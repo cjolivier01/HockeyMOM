@@ -7,31 +7,20 @@ import os
 from typing import Any, Optional
 
 
-def _load_db_cfg(config_path: str) -> dict[str, Any]:
-    with open(config_path, "r", encoding="utf-8") as fh:
-        cfg = json.load(fh)
-    return dict(cfg.get("db", {}) or {})
+def _orm_modules(*, config_path: str):
+    try:
+        from tools.webapp import django_orm  # type: ignore
+    except Exception:  # pragma: no cover
+        import django_orm  # type: ignore
 
+    django_orm.setup_django(config_path=config_path)
+    django_orm.ensure_schema()
+    try:
+        from tools.webapp.django_app import models as m  # type: ignore
+    except Exception:  # pragma: no cover
+        from django_app import models as m  # type: ignore
 
-def _connect_pymysql(db_cfg: dict[str, Any]):
-    import pymysql
-
-    return pymysql.connect(
-        host=db_cfg.get("host", "127.0.0.1"),
-        port=int(db_cfg.get("port", 3306)),
-        user=db_cfg.get("user", "hmapp"),
-        password=db_cfg.get("pass", ""),
-        database=db_cfg.get("name", "hm_app_db"),
-        autocommit=False,
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.Cursor,
-    )
-
-
-def _list_league_ids(conn) -> list[int]:
-    with conn.cursor() as cur:
-        cur.execute("SELECT id FROM leagues ORDER BY id")
-        return [int(r[0]) for r in (cur.fetchall() or []) if r and r[0] is not None]
+    return django_orm, m
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -47,35 +36,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Import from deployed app module (this is intentionally coupled to the webapp code).
     import app as webapp_app  # type: ignore
 
-    db_cfg = _load_db_cfg(args.config)
-    conn = _connect_pymysql(db_cfg)
-    try:
-        league_ids = [int(args.league_id)] if int(args.league_id) > 0 else _list_league_ids(conn)
-        if not league_ids:
-            print("[i] No leagues found; nothing to do.")
-            return 0
-        ok = 0
-        fail = 0
-        for lid in league_ids:
-            try:
-                webapp_app.recompute_league_mhr_ratings(conn, int(lid))
-                ok += 1
-                print(f"[ok] Recomputed Ratings for league_id={lid}")
-            except Exception as e:  # noqa: BLE001
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-                fail += 1
-                print(f"[!] Failed recompute for league_id={lid}: {e}")
-        if fail:
-            return 2
+    _django_orm, m = _orm_modules(config_path=str(args.config))
+
+    league_ids = [int(args.league_id)] if int(args.league_id) > 0 else list(m.League.objects.order_by("id").values_list("id", flat=True))
+    if not league_ids:
+        print("[i] No leagues found; nothing to do.")
         return 0
-    finally:
+
+    ok = 0
+    fail = 0
+    for lid in league_ids:
         try:
-            conn.close()
-        except Exception:
-            pass
+            webapp_app.recompute_league_mhr_ratings(None, int(lid))
+            ok += 1
+            print(f"[ok] Recomputed Ratings for league_id={lid}")
+        except Exception as e:  # noqa: BLE001
+            fail += 1
+            print(f"[!] Failed recompute for league_id={lid}: {e}")
+    if fail:
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
