@@ -4090,6 +4090,118 @@ def _write_team_stats_from_long_shift_team(
         created_turnovers_cnt = int(ev_counts.get("CreatedTurnover", 0) or 0)
         giveaways_cnt = int(ev_counts.get("Giveaway", 0) or 0)
         takeaways_cnt = int(ev_counts.get("Takeaway", 0) or 0)
+
+        # Per-player stats file (for parity with primary sheet outputs).
+        try:
+            stats_lines: List[str] = []
+            stats_lines.append(f"Player: {_display_player_name(player_key)}")
+            stats_lines.append("")
+            stats_lines.append("Goals:")
+            stats_lines.append(f"  Goals: {goals_cnt}")
+            stats_lines.append(f"  Assists: {assists_cnt}")
+            stats_lines.append(f"  Points (G+A): {points_val}")
+            stats_lines.append(f"  OT Goals: {ot_goals_cnt}")
+            stats_lines.append(f"  OT Assists: {ot_assists_cnt}")
+            stats_lines.append(f"  GT Goals: {gt_goals_cnt}")
+            stats_lines.append(f"  GW Goals: {gw_goals_cnt}")
+            stats_lines.append("")
+            stats_lines.append(f"+/- (on-ice goals only): {plus_minus:+d}")
+            stats_lines.append(f"GF counted: {len(counted_gf)}")
+            stats_lines.append(f"GA counted: {len(counted_ga)}")
+
+            if include_shifts_in_stats and shift_summary:
+                stats_lines.append("")
+                stats_lines.append("Shifts (from long sheet):")
+                stats_lines.append(f"  Shifts: {shift_summary.get('num_shifts', 0)}")
+                stats_lines.append(f"  TOI (scoreboard): {shift_summary.get('toi_total', '0:00')}")
+                stats_lines.append(f"  Avg: {shift_summary.get('toi_avg', '0:00')}")
+                stats_lines.append(f"  Median: {shift_summary.get('toi_median', '0:00')}")
+                stats_lines.append(f"  Longest: {shift_summary.get('toi_longest', '0:00')}")
+                stats_lines.append(f"  Shortest: {shift_summary.get('toi_shortest', '0:00')}")
+
+            if per_period_toi_map:
+                stats_lines.append("")
+                stats_lines.append("Per-period:")
+                for period, toi in sorted(per_period_toi_map.items(), key=lambda x: int(x[0])):
+                    num_shifts = len(sb_by_period.get(int(period), []) or [])
+                    stats_lines.append(f"  Period {int(period)}: TOI={toi}, shifts={num_shifts}")
+
+            ev_map = per_player_goal_events.get(player_key, {}) or {}
+            goals_list = ev_map.get("goals") or []
+            assists_list = ev_map.get("assists") or []
+            if goals_list:
+                stats_lines.append("")
+                stats_lines.append("Goals timeline:")
+                for ev in sorted(
+                    goals_list, key=lambda e: (int(getattr(e, "period", 0) or 0), int(getattr(e, "t_sec", 0) or 0))
+                ):
+                    tags: List[str] = []
+                    if getattr(ev, "is_game_tying", False):
+                        tags.append("GT")
+                    if getattr(ev, "is_game_winning", False):
+                        tags.append("GW")
+                    tag_str = f" [{' '.join(tags)}]" if tags else ""
+                    stats_lines.append(f"  Period {int(ev.period)}, {ev.t_str}{tag_str}")
+            if assists_list:
+                stats_lines.append("")
+                stats_lines.append("Assists timeline:")
+                for ev in sorted(
+                    assists_list,
+                    key=lambda e: (int(getattr(e, "period", 0) or 0), int(getattr(e, "t_sec", 0) or 0)),
+                ):
+                    tags2: List[str] = []
+                    if getattr(ev, "is_game_tying", False):
+                        tags2.append("GT")
+                    if getattr(ev, "is_game_winning", False):
+                        tags2.append("GW")
+                    tag_str2 = f" [{' '.join(tags2)}]" if tags2 else ""
+                    stats_lines.append(f"  Period {int(ev.period)}, {ev.t_str}{tag_str2}")
+
+            if event_log_context is not None and ev_counts:
+                stats_lines.append("")
+                stats_lines.append("Event Counts:")
+                order = [
+                    "Shot",
+                    "SOG",
+                    "Goal",
+                    "Assist",
+                    "ExpectedGoal",
+                    "TurnoverForced",
+                    "CreatedTurnover",
+                    "Giveaway",
+                    "Takeaway",
+                    "ControlledEntry",
+                    "ControlledExit",
+                ]
+                for kind in order:
+                    if kind in ev_counts and int(ev_counts.get(kind, 0) or 0) > 0:
+                        stats_lines.append(f"  {_display_event_type(kind)}: {int(ev_counts.get(kind, 0) or 0)}")
+                for kind, cnt in sorted(ev_counts.items()):
+                    if kind in order:
+                        continue
+                    if int(cnt or 0) > 0:
+                        stats_lines.append(f"  {_display_event_type(str(kind))}: {int(cnt or 0)}")
+
+            if focus_team is not None and any(v > 0 for v in on_ice.values()):
+                stats_lines.append("")
+                stats_lines.append("On-ice team events (for/against):")
+                stats_lines.append(
+                    f"  ControlledEntry: {on_ice['controlled_entry_for']} for, {on_ice['controlled_entry_against']} against"
+                )
+                stats_lines.append(
+                    f"  ControlledExit: {on_ice['controlled_exit_for']} for, {on_ice['controlled_exit_against']} against"
+                )
+
+            if include_shifts_in_stats:
+                for period, pairs in sorted(sb_by_period.items()):
+                    stats_lines.append(f"Shifts in Period {period}: {len(pairs)}")
+
+            (stats_dir / f"{player_key}_stats.txt").write_text(
+                "\n".join(stats_lines) + "\n", encoding="utf-8"
+            )
+        except Exception:
+            pass
+
         row_map["shots"] = str(shots_cnt) if has_player_shots else ""
         row_map["sog"] = str(sog_cnt) if has_player_sog else ""
         row_map["expected_goals"] = str(expected_goals_cnt) if has_player_expected_goals else ""
@@ -4162,6 +4274,78 @@ def _write_team_stats_from_long_shift_team(
         focus_team=focus_team,
     )
 
+    # Best-effort scoreboard->video conversion segments derived from long-sheet shift times.
+    conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]] = {}
+    try:
+        for pk, sb_list in (sb_pairs_by_player or {}).items():
+            v_list = (video_pairs_by_player or {}).get(pk) or []
+            nseg = min(len(sb_list or []), len(v_list or []))
+            for idx in range(nseg):
+                try:
+                    per, sba, sbb = sb_list[idx]
+                    sva, svb = v_list[idx]
+                    p_i = int(per)
+                    s1 = parse_flex_time_to_seconds(str(sba))
+                    s2 = parse_flex_time_to_seconds(str(sbb))
+                    v1 = parse_flex_time_to_seconds(str(sva))
+                    v2 = parse_flex_time_to_seconds(str(svb))
+                    conv_segments_by_period.setdefault(p_i, []).append((s1, s2, v1, v2))
+                except Exception:
+                    continue
+    except Exception:
+        conv_segments_by_period = {}
+
+    # Goals windows + event summaries (mirror primary sheet output structure).
+    try:
+        _write_goal_window_files(outdir, goals2, conv_segments_by_period)
+    except Exception:
+        pass
+
+    if event_log_context is not None:
+        try:
+            _write_event_summaries_and_clips(
+                outdir,
+                stats_dir,
+                event_log_context,
+                conv_segments_by_period,
+                create_scripts=create_scripts,
+                focus_team=focus_team,
+            )
+            _write_player_event_highlights(
+                outdir,
+                event_log_context,
+                conv_segments_by_period,
+                sb_pairs_by_player.keys(),
+                create_scripts=create_scripts,
+            )
+            _write_player_combined_highlights(
+                outdir,
+                event_log_context=event_log_context,
+                conv_segments_by_period=conv_segments_by_period,
+                per_player_goal_events=per_player_goal_events,
+                player_keys=sb_pairs_by_player.keys(),
+                create_scripts=create_scripts,
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            _write_player_combined_highlights(
+                outdir,
+                event_log_context=None,
+                conv_segments_by_period=conv_segments_by_period,
+                per_player_goal_events=per_player_goal_events,
+                player_keys=sb_pairs_by_player.keys(),
+                create_scripts=create_scripts,
+            )
+        except Exception:
+            pass
+
+    try:
+        _write_clip_all_runner(outdir, create_scripts=create_scripts)
+    except Exception:
+        pass
+
     return outdir, stats_table_rows, period_list, per_player_goal_events, pair_on_ice_rows
 
 
@@ -4178,6 +4362,8 @@ def _write_opponent_team_stats_from_long_shifts(
     include_shifts_in_stats: bool,
     xls_path: Path,
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
+    create_scripts: bool = False,
+    skip_if_exists: bool = False,
 ) -> Optional[Path]:
     """
     Best-effort: when a '*-long*' sheet provides embedded shift tables for both teams, write
@@ -4241,8 +4427,8 @@ def _write_opponent_team_stats_from_long_shifts(
         include_shifts_in_stats=include_shifts_in_stats,
         xls_path=xls_path,
         t2s_rosters_by_side=t2s_rosters_by_side,
-        create_scripts=False,
-        skip_if_exists=True,
+        create_scripts=create_scripts,
+        skip_if_exists=skip_if_exists,
     )
     return outdir2
 
@@ -9482,7 +9668,7 @@ def process_sheet(
     # per-player stats under the opposite Home/Away subtree (primarily for webapp import).
     if long_shift_tables_by_team and shift_cmp_summary:
         try:
-            _write_opponent_team_stats_from_long_shifts(
+            opp_outdir = _write_opponent_team_stats_from_long_shifts(
                 game_out_root=outdir.parent.parent,
                 format_dir=format_dir,
                 our_side=str(t2s_side or ""),
@@ -9494,7 +9680,20 @@ def process_sheet(
                 include_shifts_in_stats=include_shifts_in_stats,
                 xls_path=xls_path,
                 t2s_rosters_by_side=t2s_rosters_by_side,
+                create_scripts=create_scripts,
+                skip_if_exists=False,
             )
+            # Mirror the combined event summary into the opponent subtree (it contains both Home/Away on-ice lists).
+            if opp_outdir is not None:
+                opp_stats = Path(opp_outdir) / "stats"
+                for fn in ("all_events_summary.csv", "all_events_summary.xlsx"):
+                    src = stats_dir / fn
+                    dst = opp_stats / fn
+                    try:
+                        if src.exists() and src.is_file():
+                            dst.write_bytes(src.read_bytes())
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -9821,7 +10020,7 @@ def process_long_only_sheets(
 
     # Write opponent player stats (when another embedded shift table exists).
     try:
-        _write_opponent_team_stats_from_long_shifts(
+        opp_outdir = _write_opponent_team_stats_from_long_shifts(
             game_out_root=outdir,
             format_dir=format_dir,
             our_side=side,
@@ -9833,7 +10032,20 @@ def process_long_only_sheets(
             include_shifts_in_stats=include_shifts_in_stats,
             xls_path=Path(primary_long_path),
             t2s_rosters_by_side=t2s_rosters_by_side,
+            create_scripts=create_scripts,
+            skip_if_exists=False,
         )
+        if opp_outdir is not None:
+            opp_stats = Path(opp_outdir) / "stats"
+            src_stats = our_outdir / "stats"
+            for fn in ("all_events_summary.csv", "all_events_summary.xlsx"):
+                src = src_stats / fn
+                dst = opp_stats / fn
+                try:
+                    if src.exists() and src.is_file():
+                        dst.write_bytes(src.read_bytes())
+                except Exception:
+                    pass
     except Exception:
         pass
 
