@@ -16,6 +16,19 @@
     <h2 style="margin:0">{{ team['name'] }}</h2>
     {% if team['is_external'] %}<p class="muted" style="margin:.25rem 0 0">External team</p>{% endif %}
   </div>
+  {% if league_page_views %}
+    <div
+      data-hm-league-pageviews="1"
+      data-league-id="{{ league_page_views.league_id }}"
+      data-kind="{{ league_page_views.kind }}"
+      data-entity-id="{{ league_page_views.entity_id }}"
+      class="muted"
+      style="margin-left:auto;font-size:.85rem;white-space:nowrap;"
+      title="Live page views (excluding your own views as league owner)"
+    >
+      Views: <span data-role="count">{{ league_page_views.count }}</span>
+    </div>
+  {% endif %}
 </div>
 
 {% set has_coaches = (head_coaches is defined and head_coaches) or (assistant_coaches is defined and assistant_coaches) %}
@@ -104,7 +117,7 @@
               </td>
               <td>
                 {% if g.get('game_video_url') %}
-                  <a href="{{ g.get('game_video_url') }}" target="_blank" rel="noopener noreferrer">Video</a>
+                  <a href="{{ g.get('game_video_url')|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">Video</a>
                 {% else %}
                   <span class="muted">—</span>
                 {% endif %}
@@ -188,6 +201,67 @@
 
 <h3>Player Stats (Skaters)</h3>
 <div class="card">
+  {% if game_type_filter_options is defined and (game_type_filter_options|length) %}
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:.5rem;">
+      <details id="player-stats-game-type-filter" style="position:relative;">
+        <summary class="btn">Game Types: {{ game_type_filter_label or 'All' }}</summary>
+        <div style="position:absolute;z-index:50;top:calc(100% + 6px);left:0;min-width:240px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:.6rem;opacity:1;">
+          <div class="muted" style="font-size:.85rem;margin-bottom:.35rem;">Filter player stats by game type</div>
+          {% for opt in (game_type_filter_options or []) %}
+            <label style="display:flex;align-items:center;gap:.5rem;padding:.2rem 0;">
+              <input class="gt-filter-cb" type="checkbox" value="{{ opt.get('label') }}" {% if opt.get('checked') %}checked{% endif %} />
+              <span>{{ opt.get('label') }}</span>
+            </label>
+          {% endfor %}
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;">
+            <button type="button" class="btn" id="gt-filter-apply">Apply</button>
+            <button type="button" class="btn" id="gt-filter-all">All</button>
+          </div>
+        </div>
+      </details>
+      <span class="muted">Applies to player stats tables only</span>
+    </div>
+    <script>
+      (function () {
+        var root = document.getElementById("player-stats-game-type-filter");
+        if (!root) return;
+        var applyBtn = document.getElementById("gt-filter-apply");
+        var allBtn = document.getElementById("gt-filter-all");
+        function getCbs() {
+          return Array.prototype.slice.call(root.querySelectorAll("input.gt-filter-cb") || []);
+        }
+        function applySelection(mode) {
+          var cbs = getCbs();
+          if (mode === "all") cbs.forEach(function (cb) { cb.checked = true; });
+          var checked = cbs.filter(function (cb) { return !!cb.checked; }).map(function (cb) { return String(cb.value || "").trim(); }).filter(Boolean);
+          var all = cbs.map(function (cb) { return String(cb.value || "").trim(); }).filter(Boolean);
+          var u = new URL(window.location.href);
+          u.searchParams.delete("gt");
+          // None checked or all checked => default to "All" (no filter param).
+          if (checked.length > 0 && checked.length < all.length) {
+            checked.forEach(function (v) { u.searchParams.append("gt", v); });
+          }
+          window.location.href = u.toString();
+        }
+        if (applyBtn) applyBtn.addEventListener("click", function (e) { e.preventDefault(); applySelection("apply"); try { root.open = false; } catch (e2) {} });
+        if (allBtn) allBtn.addEventListener("click", function (e) { e.preventDefault(); applySelection("all"); try { root.open = false; } catch (e2) {} });
+      })();
+    </script>
+  {% endif %}
+
+  {% if player_stats_sources is defined %}
+    <p class="muted" style="margin:.25rem 0 0 0;">
+      Sources: {% if player_stats_sources %}{{ ', '.join(player_stats_sources) }}{% else %}—{% endif %}
+    </p>
+  {% endif %}
+  {% if player_stats_coverage_total_games is defined %}
+    <p class="muted" style="margin:.35rem 0 .75rem 0;">
+      Stats may be incomplete. This selection has <strong>{{ player_stats_coverage_total_games }}</strong> completed games; column headers show <strong>(N)</strong> when a stat is available for only <strong>N</strong> of those games.
+      {% if player_stats_recent_coverage_total_games is defined and (recent_n is defined) %}
+        Recent table counts are over the last <strong>{{ player_stats_recent_coverage_total_games }}</strong> completed games (requested {{ recent_n }}).
+      {% endif %}
+    </p>
+  {% endif %}
   <div class="table-scroll">
     <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
       <thead>
@@ -195,8 +269,24 @@
           <th>#</th>
           <th>Name</th>
           <th>Pos</th>
-          {% for key, label in (player_stats_columns or []) %}
-            <th>{{ label }}</th>
+          {% for col in (player_stats_columns or []) %}
+            {% if col is mapping %}
+              {% set key = col.get('key') %}
+              {% set label = col.get('label') %}
+              {% set show_count = col.get('show_count') %}
+              {% set n_games = col.get('n_games') %}
+            {% else %}
+              {% set key = col[0] %}
+              {% set label = col[1] %}
+              {% set show_count = false %}
+              {% set n_games = 0 %}
+            {% endif %}
+            <th>
+              <div>{{ label }}</div>
+              {% if show_count %}
+                <div class="th-subnote">({{ n_games }} Games)</div>
+              {% endif %}
+            </th>
           {% endfor %}
         </tr>
       </thead>
@@ -206,7 +296,12 @@
             <td>{{ r.get('jersey_number') or '' }}</td>
             <td>{{ r.get('name') or '' }}</td>
             <td>{{ r.get('position') or '' }}</td>
-            {% for key, label in (player_stats_columns or []) %}
+            {% for col in (player_stats_columns or []) %}
+              {% if col is mapping %}
+                {% set key = col.get('key') %}
+              {% else %}
+                {% set key = col[0] %}
+              {% endif %}
               <td>{{ r.get(key)|fmt_stat }}</td>
             {% endfor %}
           </tr>
@@ -251,8 +346,24 @@
           <th><a href="{{ _sort_href('jersey_number') }}" style="text-decoration:none;color:inherit;">{{ _sort_label('jersey_number', '#') }}</a></th>
           <th><a href="{{ _sort_href('name') }}" style="text-decoration:none;color:inherit;">{{ _sort_label('name', 'Name') }}</a></th>
           <th><a href="{{ _sort_href('position') }}" style="text-decoration:none;color:inherit;">{{ _sort_label('position', 'Pos') }}</a></th>
-          {% for key, label in (recent_player_stats_columns or []) %}
-            <th><a href="{{ _sort_href(key) }}" style="text-decoration:none;color:inherit;">{{ _sort_label(key, label) }}</a></th>
+          {% for col in (recent_player_stats_columns or []) %}
+            {% if col is mapping %}
+              {% set key = col.get('key') %}
+              {% set label = col.get('label') %}
+              {% set show_count = col.get('show_count') %}
+              {% set n_games = col.get('n_games') %}
+            {% else %}
+              {% set key = col[0] %}
+              {% set label = col[1] %}
+              {% set show_count = false %}
+              {% set n_games = 0 %}
+            {% endif %}
+            <th>
+              <a href="{{ _sort_href(key) }}" style="text-decoration:none;color:inherit;">{{ _sort_label(key, label) }}</a>
+              {% if show_count %}
+                <div class="th-subnote">({{ n_games }} Games)</div>
+              {% endif %}
+            </th>
           {% endfor %}
         </tr>
       </thead>
@@ -262,7 +373,12 @@
             <td>{{ r.get('jersey_number') or '' }}</td>
             <td>{{ r.get('name') or '' }}</td>
             <td>{{ r.get('position') or '' }}</td>
-            {% for key, label in (recent_player_stats_columns or []) %}
+            {% for col in (recent_player_stats_columns or []) %}
+              {% if col is mapping %}
+                {% set key = col.get('key') %}
+              {% else %}
+                {% set key = col[0] %}
+              {% endif %}
               <td>{{ r.get(key)|fmt_stat }}</td>
             {% endfor %}
           </tr>

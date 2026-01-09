@@ -17,7 +17,7 @@ import numpy as np
 import torch
 
 import hockeymom.core as core
-from hmlib.hm_opts import copy_opts, hm_opts
+from hmlib.hm_opts import copy_opts, hm_opts, preferred_arg
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.stitching.image_remapper import ImageRemapper, RemapImageInfoEx
@@ -1233,11 +1233,9 @@ def blend_video(
                     fps = cap_1.fps
                     video_out = VideoOutput(
                         output_video_path=output_video,
-                        output_frame_width=video_dim_width,
-                        output_frame_height=video_dim_height,
                         fps=fps,
                         skip_final_save=skip_final_video_save,
-                        fourcc="auto",
+                        fourcc="nvenc_av1",
                         # batch_size=batch_size,
                         cache_size=queue_size,
                         name="StitchedOutput",
@@ -1358,7 +1356,7 @@ def main(args):
             device=fast_gpu,
             dtype=HalfFloatType if args.fp16 else torch.float,
             draw=args.draw,
-            minimize_blend=args.minimize_blend,
+            minimize_blend=preferred_arg(args.minimize_blend, True),
             blend_mode=args.blend_mode,
             use_cuda_pano=not args.python_blender,
         )

@@ -117,26 +117,24 @@ tr_selectors = dict(
         " tbody:nth-child(1) > tr:nth-child(n+2)"
     ),
     awayScoring=(
-        "body > div > div.d50l > div.d25l > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
+        # TimeToScore pages sometimes have leading tables before the .d50l/.d50r
+        # layout blocks, so avoid strict `body > div > ...` selectors.
+        "body div.d50l div.d25l table:nth-of-type(1) tr"
     ),
     homeScoring=(
-        "body > div > div.d50r > div.d25l > table:nth-child(1) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
+        "body div.d50r div.d25l table:nth-of-type(1) tr"
     ),
     awayPenalties=(
-        "body > div > div.d50l > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
+        "body div.d50l div.d25r table:nth-of-type(1) tr"
     ),
     homePenalties=(
-        "body > div > div.d50r > div.d25r > table:nth-child(1) >" " tbody:nth-child(1) > tr"
+        "body div.d50r div.d25r table:nth-of-type(1) tr"
     ),
     awayShootout=(
-        "body > div > div.d50l > div.d25l > table:nth-child(2) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
+        "body div.d50l div.d25l table:nth-of-type(2) tr"
     ),
     homeShootout=(
-        "body > div > div.d50r > div.d25l > table:nth-child(2) >"
-        " tbody:nth-child(1) > tr:nth-child(n+4)"
+        "body div.d50r div.d25l table:nth-of-type(2) tr"
     ),
 )
 
@@ -510,8 +508,14 @@ def scrape_game_stats(game_id: int):
     data: dict[str, Any] = {}
     for name, selector in td_selectors.items():
         ele = soup.select_one(selector)
-        if not ele and name == "scorekeeper":
-            raise MissingStatsError("Failed to read data for game. Has it happened yet?")
+        if not ele:
+            # Some games have a very sparse/empty scoresheet that omits these fields (and often all
+            # scoring/roster/penalty tables) even though the schedule shows a recorded result.
+            # Treat them as optional so callers can decide how to handle a "schedule-only" game.
+            if name in {"scorekeeper", "referee1", "referee2"}:
+                data[name] = ""
+                continue
+            raise MissingStatsError(f"Missing required field '{name}' for game {game_id}")
         val = ele.text.strip()
         if ":" in val:
             val = val.split(":", 1)[1]

@@ -235,7 +235,7 @@ def stitch_videos(
                 remapping_device=remapping_device,
                 dtype=dtype,
                 auto_adjust_exposure=auto_adjust_exposure,
-                minimize_blend=minimize_blend,
+                minimize_blend=preferred_arg(getattr(args, "minimize_blend", None), minimize_blend),
                 python_blender=python_blender,
                 post_stitch_rotate_degrees=post_stitch_rotate_degrees,
                 profiler=profiler,
@@ -316,6 +316,7 @@ def stitch_videos(
             # Thread through basic display flags so VideoOutPlugin can honor them.
             setattr(cam_args, "show_image", bool(getattr(args, "show_image", False)))
             setattr(cam_args, "show_scaled", getattr(args, "show_scaled", None))
+            setattr(cam_args, "output_video_bit_rate", getattr(args, "output_video_bit_rate", None))
         aspen_shared: Dict[str, Any] = {"device": encoder_device, "cam_args": cam_args}
         if profiler is not None:
             aspen_shared["profiler"] = profiler
@@ -522,7 +523,7 @@ def _main(args) -> None:
             output_stitched_video_file=args.output_file,
             blend_mode=args.blend_mode,
             ignore_clip_box=True,
-            cache_size=preferred_arg(args.stitch_cache_size, args.cache_size),
+            cache_size=0,
             remapping_device=remapping_device,
             decoder_device=decoder_device,
             encoder_device=encoder_device,

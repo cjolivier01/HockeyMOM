@@ -350,6 +350,25 @@ def should_aggregate_player_totals_from_rows():
     assert agg[11]["goals"] == 0 and agg[11]["assists"] == 2 and agg[11]["points"] == 2
 
 
+def should_compute_scoring_by_period_when_tts_source_is_multi_valued():
+    os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
+    os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
+    mod = _load_app_module()
+
+    rows = [
+        {"Event Type": "Goal", "Period": "1", "Team Side": "Home", "Source": "timetoscore,long"},
+        {"Event Type": "Goal", "Period": "1", "Team Side": "Away", "Source": "timetoscore"},
+        # When tts_linked=True, ignore non-TimeToScore goal rows.
+        {"Event Type": "Goal", "Period": "1", "Team Side": "Home", "Source": "long"},
+    ]
+    out = mod.compute_team_scoring_by_period_from_events(rows, tts_linked=True)
+    assert out[0]["period"] == 1
+    assert out[0]["team1_gf"] == 1
+    assert out[0]["team1_ga"] == 1
+    assert out[0]["team2_gf"] == 1
+    assert out[0]["team2_ga"] == 1
+
+
 def should_sort_standings_by_points_then_tiebreakers():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"

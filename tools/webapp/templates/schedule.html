@@ -6,9 +6,26 @@
 {% set return_to_amp = ('&return_to=' ~ (return_to|urlencode)) if return_to else '' %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
   <h2>Games Schedule</h2>
-  {% if can_add_game|default(True) %}
-    <a class="btn primary" href="/schedule/new">Add game</a>
-  {% endif %}
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;">
+    {% if league_page_views %}
+      <div
+        data-hm-league-pageviews="1"
+        data-league-id="{{ league_page_views.league_id }}"
+        data-kind="{{ league_page_views.kind }}"
+        data-entity-id="{{ league_page_views.entity_id }}"
+        class="muted"
+        style="font-size:.85rem;white-space:nowrap;"
+        title="Live page views (excluding your own views as league owner)"
+      >
+        Views: <span data-role="count">{{ league_page_views.count }}</span>
+      </div>
+    {% endif %}
+    <div>
+      {% if can_add_game|default(True) %}
+        <a class="btn primary" href="/schedule/new">Add game</a>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
 {% if league_view %}
@@ -111,7 +128,7 @@
       <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td>
         {% if g.get('game_video_url') %}
-          <a href="{{ g.get('game_video_url') }}" target="_blank" rel="noopener noreferrer">Video</a>
+          <a href="{{ g.get('game_video_url')|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">Video</a>
         {% else %}
           <span class="muted">—</span>
         {% endif %}

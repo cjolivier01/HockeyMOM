@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import TimeToScore data into the HockeyMOM webapp DB (no local sqlite cache).
+"""Import TimeToScore data into the HockeyMOM webapp DB (optionally using a local sqlite cache).
 
 This script scrapes TimeToScore directly via `hmlib.time2score` and upserts:
 - teams (as external teams owned by the specified user)
@@ -14,13 +14,17 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import base64
+import csv
+import io
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
+from contextlib import contextmanager
 
 
 def load_db_cfg(config_path: str) -> dict:
@@ -42,6 +46,78 @@ def connect_pymysql(db_cfg: dict):
         charset="utf8mb4",
         cursorclass=pymysql.cursors.Cursor,
     )
+
+
+def _parse_period_token(val: Any) -> Optional[int]:
+    s = str(val or "").strip()
+    if not s:
+        return None
+    sl = s.casefold()
+    if sl in {"ot", "overtime"}:
+        return 4
+    m = re.search(r"(\d+)", sl)
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+        return n if n > 0 else None
+    except Exception:
+        return None
+
+
+def _parse_mmss_to_seconds(val: Any, *, period_len_s: Optional[int] = None) -> Optional[int]:
+    s = str(val or "").strip()
+    if not s:
+        return None
+    m = re.match(r"^\s*(\d+):(\d{2})\s*$", s)
+    if not m:
+        # Some TimeToScore pages use '.' instead of ':' (e.g. "10.0" meaning "10:00").
+        m = re.match(r"^\s*(\d+)[.](\d{1,2})\s*$", s)
+        if not m:
+            return None
+        try:
+            a = int(m.group(1))
+            b = int(m.group(2))
+        except Exception:
+            return None
+
+        # Disambiguate:
+        #   - "10.0" => 10:00 (mm:ss)
+        #   - "54.8" (in a 15:00 period) => 54.8 seconds (ss.d)
+        # Heuristic: if the "minutes" part exceeds the period length in minutes, treat it as seconds.
+        try:
+            if period_len_s is not None and a > max(1, int(period_len_s) // 60):
+                return int(float(s))
+        except Exception:
+            pass
+        return a * 60 + b
+
+    try:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    except Exception:
+        return None
+
+
+def _to_csv_text(headers: list[str], rows: list[dict[str, Any]]) -> str:
+    if not headers:
+        return ""
+    out = io.StringIO()
+    w = csv.DictWriter(out, fieldnames=headers, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    for r in rows or []:
+        w.writerow({h: ("" if r.get(h) is None else str(r.get(h))) for h in headers})
+    return out.getvalue()
+
+
+@contextmanager
+def _working_directory(path: Path):
+    prev = Path.cwd()
+    path.mkdir(parents=True, exist_ok=True)
+    os.chdir(str(path))
+    try:
+        yield
+    finally:
+        os.chdir(str(prev))
 
 
 def ensure_defaults(conn) -> None:
@@ -188,7 +264,7 @@ def ensure_league(
     conn,
     name: str,
     owner_user_id: int,
-    is_shared: bool,
+    is_shared: Optional[bool],
     source: Optional[str],
     external_key: Optional[str],
 ) -> int:
@@ -198,16 +274,26 @@ def ensure_league(
         r = cur.fetchone()
         if r:
             league_id = int(r[0])
-            cur.execute(
-                "UPDATE leagues SET is_shared=%s, source=%s, external_key=%s, updated_at=%s WHERE id=%s",
-                (1 if is_shared else 0, source, external_key, dt.datetime.now().isoformat(), league_id),
-            )
-            conn.commit()
+            if is_shared is not None:
+                cur.execute(
+                    "UPDATE leagues SET is_shared=%s, source=%s, external_key=%s, updated_at=%s WHERE id=%s",
+                    (1 if bool(is_shared) else 0, source, external_key, dt.datetime.now().isoformat(), league_id),
+                )
+                conn.commit()
+            else:
+                cur.execute(
+                    "UPDATE leagues SET source=%s, external_key=%s, updated_at=%s WHERE id=%s",
+                    (source, external_key, dt.datetime.now().isoformat(), league_id),
+                )
+                conn.commit()
             return league_id
         now = dt.datetime.now().isoformat()
+        if is_shared is None:
+            # Default for TimeToScore imports: shared unless explicitly disabled.
+            is_shared = True
         cur.execute(
             "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
-            (name, owner_user_id, 1 if is_shared else 0, source, external_key, now),
+            (name, owner_user_id, 1 if bool(is_shared) else 0, source, external_key, now),
         )
         conn.commit()
         return int(cur.lastrowid)
@@ -694,7 +780,7 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
     league_name = str(payload.get("league_name") or "").strip()
     if not league_name:
         raise ValueError("league_name is required")
-    shared = bool(payload.get("shared", False))
+    shared: Optional[bool] = bool(payload["shared"]) if "shared" in payload else None
     replace = bool(payload.get("replace", False))
     owner_email = str(payload.get("owner_email") or "").strip().lower()
     owner_name = str(payload.get("owner_name") or owner_email).strip()
@@ -736,17 +822,22 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         row = cur.fetchone()
         if row:
             league_id = int(row[0])
-            want_shared = 1 if shared else 0
-            if int(row[1]) != want_shared:
+            if shared is not None:
+                want_shared = 1 if bool(shared) else 0
+            else:
+                want_shared = None
+            if want_shared is not None and int(row[1]) != want_shared:
                 cur.execute(
                     "UPDATE leagues SET is_shared=%s, updated_at=%s WHERE id=%s",
-                    (want_shared, dt.datetime.now().isoformat(), league_id),
+                    (int(want_shared), dt.datetime.now().isoformat(), league_id),
                 )
                 conn.commit()
         else:
+            if shared is None:
+                shared = True
             cur.execute(
                 "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
-                (league_name, owner_user_id, 1 if shared else 0, source, external_key, dt.datetime.now().isoformat()),
+                (league_name, owner_user_id, 1 if bool(shared) else 0, source, external_key, dt.datetime.now().isoformat()),
             )
             conn.commit()
             league_id = int(cur.lastrowid)
@@ -1075,6 +1166,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--game-id", dest="game_ids", action="append", default=[], help="Import specific game id (repeatable)")
     ap.add_argument("--games-file", default=None, help="File containing one game id per line")
     ap.add_argument("--limit", type=int, default=None, help="Max games to import (for testing)")
+    ap.add_argument(
+        "--hockey-db-dir",
+        type=Path,
+        default=Path.home() / ".cache" / "hockeymom",
+        help=(
+            "Directory for the local TimeToScore sqlite cache (hockey_league.db). "
+            "Used to avoid re-scraping game pages when possible (default: ~/.cache/hockeymom)."
+        ),
+    )
+    ap.add_argument(
+        "--scrape",
+        action="store_true",
+        help="Force re-scraping TimeToScore game pages (refreshed stats are written back to the local cache).",
+    )
 
     ap.add_argument(
         "--league-name",
@@ -1082,7 +1187,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="League name to import into (default: same as --source; created if missing)",
     )
     ap.add_argument("--league-owner-email", default=None, help="Owner of the league (defaults to --user-email)")
-    ap.add_argument("--shared", action="store_true", help="Mark the league as shared")
+    ap.add_argument(
+        "--shared",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Set whether the league is shared (default: leave unchanged; used for league creation if missing).",
+    )
     ap.add_argument("--share-with", action="append", default=[], help="Emails to add as league viewers (repeatable)")
 
     ap.add_argument(
@@ -1105,6 +1215,33 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=50,
         help="Games per REST batch request (only with --api-url).",
     )
+    ap.add_argument(
+        "--t2s-max-attempts",
+        type=int,
+        default=4,
+        help="Max scrape attempts per game when TimeToScore results look incomplete (throttling/HTML changes).",
+    )
+    ap.add_argument(
+        "--t2s-initial-backoff-s",
+        type=float,
+        default=1.0,
+        help="Initial backoff seconds between TimeToScore scrape attempts.",
+    )
+    ap.add_argument(
+        "--t2s-max-backoff-s",
+        type=float,
+        default=20.0,
+        help="Max backoff seconds between TimeToScore scrape attempts.",
+    )
+    ap.add_argument(
+        "--allow-schedule-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Allow importing schedule-only games when TimeToScore has a recorded score but the game page has "
+            "no usable boxscore (no roster/scoring/penalties)."
+        ),
+    )
 
     args = ap.parse_args(argv)
 
@@ -1118,6 +1255,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     from hmlib.time2score import direct as tts_direct
     from hmlib.time2score import normalize as tts_norm
+    from hmlib.time2score import database as tts_db
 
     rest_mode = bool(args.api_url)
     if rest_mode and (args.cleanup_only or args.refresh_team_metadata or args.share_with):
@@ -1159,6 +1297,37 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     season_id = int(args.season) or tts_direct.pick_current_season_id(args.source)
     log(f"Using source={args.source} season_id={season_id}")
+    hockey_db_dir = Path(args.hockey_db_dir).expanduser()
+
+    def _get_cached_stats(game_id: int) -> Optional[dict[str, Any]]:
+        try:
+            with _working_directory(hockey_db_dir):
+                db = tts_db.Database()
+                db.create_tables()
+                cached = db.get_cached_game_stats(str(args.source), int(game_id))
+                if cached:
+                    return cached
+                row = db.get_game(int(game_id))
+                if row and row.get("stats"):
+                    return row.get("stats")
+        except Exception:
+            return None
+        return None
+
+    def _set_cached_stats(game_id: int, stats: dict[str, Any]) -> None:
+        try:
+            with _working_directory(hockey_db_dir):
+                db = tts_db.Database()
+                db.create_tables()
+                db.set_cached_game_stats(
+                    str(args.source),
+                    int(game_id),
+                    season_id=int(season_id) if season_id is not None else None,
+                    stats=dict(stats or {}),
+                )
+        except Exception:
+            pass
+
     divs = tts_direct.list_divisions(args.source, season_id=season_id)
     if args.list_divisions:
         for d in sorted(divs, key=lambda x: (int(x.division_id), int(x.conference_id), x.name)):
@@ -1319,7 +1488,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             conn,
             league_name,
             owner_id,
-            bool(args.shared),
+            args.shared,
             source="timetoscore",
             external_key=f"{args.source}:{season_id}",
         )
@@ -1497,6 +1666,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     count = 0
     skipped = 0
     posted = 0
+    schedule_only = 0
     api_games_batch: list[dict[str, Any]] = []
     cleaned_team_ids: set[int] = set()
     started = time.time()
@@ -1510,7 +1680,6 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         payload = {
             "league_name": league_name,
-            "shared": bool(args.shared),
             "replace": bool(args.replace),
             "owner_email": owner_email,
             "owner_name": owner_email,
@@ -1518,6 +1687,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             "external_key": f"{args.source}:{season_id}",
             "games": api_games_batch,
         }
+        if args.shared is not None:
+            payload["shared"] = bool(args.shared)
         r = requests.post(f"{api_base}/api/import/hockey/games_batch", json=payload, headers=api_headers, timeout=180)
         r.raise_for_status()
         out = r.json()
@@ -1534,13 +1705,133 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.limit is not None and count >= int(args.limit):
             break
         fb = fallback_by_gid.get(int(gid))
-        try:
-            stats = tts_direct.scrape_game_stats(args.source, game_id=int(gid), season_id=season_id)
-        except Exception:
-            stats = {}
-            if not fb:
-                skipped += 1
-                continue
+        fb_hg = tts_norm.parse_int_or_none((fb or {}).get("homeGoals"))
+        fb_ag = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
+        fb_has_result = (fb_hg is not None) or (fb_ag is not None)
+        max_attempts = max(1, int(args.t2s_max_attempts or 1))
+        delay_s = max(0.0, float(args.t2s_initial_backoff_s or 0.0))
+        max_delay_s = max(0.0, float(args.t2s_max_backoff_s or 0.0))
+
+        schedule_only_game = False
+        stats: dict[str, Any] = {}
+        attempt = 0
+        if not bool(args.scrape):
+            cached = _get_cached_stats(int(gid))
+            if cached:
+                stats = dict(cached or {})
+
+        if not stats:
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    stats = tts_direct.scrape_game_stats(args.source, game_id=int(gid), season_id=season_id)
+                    if stats:
+                        _set_cached_stats(int(gid), stats)
+                except Exception as e:
+                    stats = {}
+                    # If the game has a recorded score in the schedule, missing stats should be treated as fatal
+                    # so we can fix the scraper and backfill correctly.
+                    if fb_has_result and attempt < max_attempts:
+                        sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
+                        log(
+                            f"Warning: scrape_game_stats failed (attempt {attempt}/{max_attempts}) "
+                            f"for source={args.source} season_id={season_id} game_id={gid} "
+                            f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}. "
+                            f"Retrying in {sleep_s:.1f}s..."
+                        )
+                        time.sleep(sleep_s)
+                        delay_s = min(max_delay_s, delay_s * 2.0) if max_delay_s else delay_s * 2.0
+                        continue
+                    if fb_has_result:
+                        if bool(args.allow_schedule_only) and type(e).__name__ == "MissingStatsError":
+                            schedule_only_game = True
+                            log(
+                                f"Warning: importing schedule-only game (missing boxscore after {attempt}/{max_attempts} attempts): "
+                                f"source={args.source} season_id={season_id} game_id={gid} "
+                                f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}"
+                            )
+                            break
+                        raise RuntimeError(
+                            f"TimeToScore scrape_game_stats failed for a game with a recorded result: "
+                            f"source={args.source} season_id={season_id} game_id={gid} "
+                            f"(fallback score homeGoals={fb_hg}, awayGoals={fb_ag}): {type(e).__name__}: {e}"
+                        ) from e
+                    break
+
+                # If the game has a non-zero score, we must be able to attribute per-player goals/assists
+                # from the TimeToScore payload. If not, retry (often throttling / partial HTML).
+                t1_score_try = tts_norm.parse_int_or_none(stats.get("homeGoals"))
+                t2_score_try = tts_norm.parse_int_or_none(stats.get("awayGoals"))
+                if t1_score_try is None and fb_hg is not None:
+                    t1_score_try = fb_hg
+                if t2_score_try is None and fb_ag is not None:
+                    t2_score_try = fb_ag
+                goal_total_try = int(t1_score_try or 0) + int(t2_score_try or 0)
+                ga_rows_try = [
+                    agg for agg in tts_norm.aggregate_goals_assists(stats) if str(agg.get("name") or "").strip()
+                ]
+                ga_sum_try = sum(int(r.get("goals") or 0) for r in ga_rows_try)
+                if goal_total_try > 0 and ga_sum_try == 0:
+                    has_any_boxscore_rows = False
+                    for k in (
+                        "homePlayers",
+                        "awayPlayers",
+                        "homeScoring",
+                        "awayScoring",
+                        "homePenalties",
+                        "awayPenalties",
+                        "homeShootout",
+                        "awayShootout",
+                        "homeSkaters",
+                        "awaySkaters",
+                        "home_skaters",
+                        "away_skaters",
+                    ):
+                        v = stats.get(k)
+                        if isinstance(v, list) and v:
+                            has_any_boxscore_rows = True
+                            break
+                    # If the page has *no* boxscore tables at all, it's often a permanent "schedule-only" game state.
+                    # Don't burn full backoff retries in that case.
+                    if (
+                        bool(args.allow_schedule_only)
+                        and not has_any_boxscore_rows
+                        and attempt >= min(max_attempts, 2)
+                    ):
+                        schedule_only_game = True
+                        log(
+                            f"Warning: importing schedule-only game (scored but no boxscore data after {attempt}/{max_attempts} attempts): "
+                            f"source={args.source} season_id={season_id} game_id={gid} "
+                            f"(homeGoals={t1_score_try}, awayGoals={t2_score_try})."
+                        )
+                        break
+                    if attempt < max_attempts:
+                        sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
+                        log(
+                            f"Warning: scored game but no scoring attribution (attempt {attempt}/{max_attempts}) "
+                            f"for source={args.source} season_id={season_id} game_id={gid} "
+                            f"(homeGoals={t1_score_try}, awayGoals={t2_score_try}; "
+                            f"homeScoring={len(stats.get('homeScoring') or [])}, awayScoring={len(stats.get('awayScoring') or [])}). "
+                            f"Retrying in {sleep_s:.1f}s..."
+                        )
+                        time.sleep(sleep_s)
+                        delay_s = min(max_delay_s, delay_s * 2.0) if max_delay_s else delay_s * 2.0
+                        continue
+                    raise RuntimeError(
+                        f"TimeToScore scrape returned a scored game but no scoring attribution: "
+                        f"source={args.source} season_id={season_id} game_id={gid} "
+                        f"(homeGoals={t1_score_try}, awayGoals={t2_score_try})."
+                    )
+                break
+
+        # If we forced a scrape, still persist the result.
+        if bool(args.scrape) and stats:
+            _set_cached_stats(int(gid), stats)
+
+        if not stats and not fb:
+            skipped += 1
+            continue
+        if schedule_only_game:
+            schedule_only += 1
 
         home_name = str(stats.get("home") or "").strip() or str((fb or {}).get("home") or "").strip()
         away_name = str(stats.get("away") or "").strip() or str((fb or {}).get("away") or "").strip()
@@ -1577,6 +1868,316 @@ def main(argv: Optional[list[str]] = None) -> int:
             t1_score = tts_norm.parse_int_or_none((fb or {}).get("homeGoals"))
         if t2_score is None and (fb or {}).get("awayGoals") is not None:
             t2_score = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
+
+        ga_rows = [agg for agg in tts_norm.aggregate_goals_assists(stats) if str(agg.get("name") or "").strip()]
+
+        # Build a basic events timeline from TimeToScore data (goals + penalties + PP/PK spans)
+        # so the webapp can show game events even before any spreadsheets are uploaded.
+        def _side_label(side: str) -> str:
+            return "Home" if str(side).strip().lower() == "home" else "Away"
+
+        def _norm_jersey(val: Any) -> Optional[str]:
+            s = str(val or "").strip()
+            if not s:
+                return None
+            m = re.search(r"(\d+)", s)
+            return m.group(1) if m else None
+
+        roster_home = list(tts_norm.extract_roster(stats, "home"))
+        roster_away = list(tts_norm.extract_roster(stats, "away"))
+        num_to_name_home = {str(m.group(1)): str(p.get("name") or "").strip() for p in roster_home if (m := re.search(r"(\d+)", str(p.get("number") or ""))) and str(p.get("name") or "").strip()}
+        num_to_name_away = {str(m.group(1)): str(p.get("name") or "").strip() for p in roster_away if (m := re.search(r"(\d+)", str(p.get("number") or ""))) and str(p.get("name") or "").strip()}
+
+        def _infer_period_len_s(stats_in: dict[str, Any]) -> int:
+            raw = str(stats_in.get("periodLength") or "").strip()
+            try:
+                v = int(float(raw))
+                if v > 0:
+                    return int(v) * 60
+            except Exception:
+                pass
+            return 15 * 60
+
+        period_len_s = _infer_period_len_s(stats)
+
+        # Collect raw penalty records per team and compute per-player PIM.
+        penalties_by_side: dict[str, list[dict[str, Any]]] = {"home": [], "away": []}
+        pim_by_player_name: dict[str, int] = {}
+        for side_key, roster_map in (("home", num_to_name_home), ("away", num_to_name_away)):
+            pen_rows = stats.get(f"{side_key}Penalties") or []
+            if not isinstance(pen_rows, list):
+                pen_rows = []
+            for prow in pen_rows:
+                if not isinstance(prow, dict):
+                    continue
+                per = _parse_period_token(prow.get("period"))
+                if per is None:
+                    continue
+                jersey = _norm_jersey(prow.get("number"))
+                minutes = tts_norm.parse_int_or_none(prow.get("minutes"))
+                start_txt = str(prow.get("start") or prow.get("offIce") or "").strip()
+                end_txt = str(prow.get("end") or prow.get("onIce") or "").strip()
+                start_s = _parse_mmss_to_seconds(start_txt, period_len_s=period_len_s)
+                end_s = _parse_mmss_to_seconds(end_txt, period_len_s=period_len_s)
+                inf = str(prow.get("infraction") or "").strip()
+                rec = {
+                    "side": side_key,
+                    "period": int(per),
+                    "jersey": jersey,
+                    "minutes": int(minutes) if minutes is not None else None,
+                    "start_txt": start_txt,
+                    "end_txt": end_txt,
+                    "start_s": start_s,
+                    "end_s": end_s,
+                    "infraction": inf,
+                }
+                penalties_by_side[side_key].append(rec)
+                if jersey and minutes is not None:
+                    nm = roster_map.get(jersey)
+                    if nm:
+                        pim_by_player_name[nm] = pim_by_player_name.get(nm, 0) + int(minutes)
+
+        # Build basic goal events from scoring tables when available.
+        goal_events: list[dict[str, Any]] = []
+        for side_key, roster_map in (("home", num_to_name_home), ("away", num_to_name_away)):
+            scoring = stats.get(f"{side_key}Scoring") or []
+            if not isinstance(scoring, list):
+                continue
+            for srow in scoring:
+                if not isinstance(srow, dict):
+                    continue
+                per = _parse_period_token(srow.get("period"))
+                if per is None:
+                    continue
+                time_txt = str(srow.get("time") or "").strip()
+                time_s = _parse_mmss_to_seconds(time_txt, period_len_s=period_len_s)
+                scorer_raw = srow.get("goal")
+                a1_raw = srow.get("assist1")
+                a2_raw = srow.get("assist2")
+
+                scorer_num = _norm_jersey(scorer_raw)
+                scorer_name = (
+                    roster_map.get(scorer_num) if scorer_num and scorer_num in roster_map else str(scorer_raw or "").strip()
+                )
+                a1_num = _norm_jersey(a1_raw)
+                a2_num = _norm_jersey(a2_raw)
+                a1_name = roster_map.get(a1_num) if a1_num and a1_num in roster_map else str(a1_raw or "").strip()
+                a2_name = roster_map.get(a2_num) if a2_num and a2_num in roster_map else str(a2_raw or "").strip()
+
+                assists_txt = ", ".join([x for x in [a1_name, a2_name] if x])
+                details = f"{scorer_name}" + (f" (A: {assists_txt})" if assists_txt else "")
+                goal_events.append(
+                    {
+                        "Event Type": "Goal",
+                        "Source": "timetoscore",
+                        "Team Side": _side_label(side_key),
+                        "For/Against": "For",
+                        "Team Rel": _side_label(side_key),
+                        "Team Raw": _side_label(side_key),
+                        "Period": int(per),
+                        "Game Time": time_txt,
+                        "Game Seconds": time_s if time_s is not None else "",
+                        "Game Seconds End": "",
+                        "Details": details,
+                        "Attributed Players": scorer_name if scorer_name else "",
+                        "Attributed Jerseys": scorer_num or "",
+                    }
+                )
+
+        # Determine per-period time mode and fill missing penalty end times (best-effort).
+        penalties_events_rows: list[dict[str, Any]] = []
+        for side_key, recs in penalties_by_side.items():
+            for rec in recs:
+                per = int(rec["period"])
+                start_s = rec.get("start_s")
+                end_s = rec.get("end_s")
+                minutes = rec.get("minutes")
+                if start_s is not None and end_s is None and minutes is not None:
+                    # Best-effort: assume the sheet uses a running/scoreboard clock and fill end time.
+                    # We'll refine direction after inferring elapsed-vs-remaining for the period.
+                    rec["end_s_guess_delta"] = int(minutes) * 60
+                penalties_events_rows.append(
+                    {
+                        "Event Type": "Penalty",
+                        "Source": "timetoscore",
+                        "Team Side": _side_label(side_key),
+                        "For/Against": "Against",
+                        "Team Rel": _side_label(side_key),
+                        "Team Raw": _side_label(side_key),
+                        "Period": per,
+                        "Game Time": rec.get("start_txt") or "",
+                        "Game Seconds": start_s if start_s is not None else "",
+                        "Game Seconds End": "",
+                        "Details": " ".join(
+                            [
+                                x
+                                for x in [
+                                    (f"#{rec.get('jersey')}" if rec.get("jersey") else ""),
+                                    str(rec.get("infraction") or "").strip(),
+                                    (f"{int(rec.get('minutes'))}m" if rec.get("minutes") is not None else ""),
+                                    (f"(end {rec.get('end_txt')})" if rec.get("end_txt") else ""),
+                                ]
+                                if x
+                            ]
+                        ).strip(),
+                        "Attributed Players": (
+                            num_to_name_home.get(str(rec.get("jersey"))) if side_key == "home" and rec.get("jersey") else
+                            num_to_name_away.get(str(rec.get("jersey"))) if side_key == "away" and rec.get("jersey") else
+                            ""
+                        ),
+                        "Attributed Jerseys": rec.get("jersey") or "",
+                    }
+                )
+
+        def _infer_time_mode(period: int) -> str:
+            times: list[int] = []
+            for ev in goal_events:
+                if int(ev.get("Period") or 0) != int(period):
+                    continue
+                gs = ev.get("Game Seconds")
+                if isinstance(gs, int):
+                    times.append(int(gs))
+            for row in penalties_events_rows:
+                if int(row.get("Period") or 0) != int(period):
+                    continue
+                gs = row.get("Game Seconds")
+                ge = row.get("Game Seconds End")
+                if isinstance(gs, int):
+                    times.append(int(gs))
+                if isinstance(ge, int):
+                    times.append(int(ge))
+            if not times:
+                return "elapsed"
+            near_zero = sum(1 for t in times if t <= 120)
+            near_high = sum(1 for t in times if t >= period_len_s - 120)
+            return "remaining" if near_high > near_zero else "elapsed"
+
+        # Fill missing end times using inferred mode.
+        mode_by_period: dict[int, str] = {}
+        for p in range(1, 6):
+            if any(int(r.get("Period") or 0) == p for r in penalties_events_rows) or any(int(g.get("Period") or 0) == p for g in goal_events):
+                mode_by_period[p] = _infer_time_mode(p)
+
+        for side_key, recs in penalties_by_side.items():
+            for rec in recs:
+                if rec.get("end_s") is not None:
+                    continue
+                start_s = rec.get("start_s")
+                if start_s is None:
+                    continue
+                delta = rec.get("end_s_guess_delta")
+                if not isinstance(delta, int) or delta <= 0:
+                    continue
+                per = int(rec["period"])
+                mode = mode_by_period.get(per, "elapsed")
+                if mode == "remaining":
+                    rec["end_s"] = max(0, int(start_s) - int(delta))
+                else:
+                    rec["end_s"] = min(int(period_len_s), int(start_s) + int(delta))
+
+        # Emit explicit "Penalty Expired" events for each penalty with a known end time.
+        penalty_expired_events_rows: list[dict[str, Any]] = []
+        for side_key, recs in penalties_by_side.items():
+            for rec in recs:
+                end_s = rec.get("end_s")
+                if end_s is None:
+                    continue
+                per = int(rec.get("period") or 0)
+                details = " ".join(
+                    [
+                        x
+                        for x in [
+                            "Expired",
+                            (f"#{rec.get('jersey')}" if rec.get("jersey") else ""),
+                            str(rec.get("infraction") or "").strip(),
+                            (f"{int(rec.get('minutes'))}m" if rec.get("minutes") is not None else ""),
+                        ]
+                        if x
+                    ]
+                ).strip()
+                penalty_expired_events_rows.append(
+                    {
+                        "Event Type": "Penalty Expired",
+                        "Source": "timetoscore",
+                        "Team Side": _side_label(side_key),
+                        "For/Against": "For",
+                        "Team Rel": _side_label(side_key),
+                        "Team Raw": _side_label(side_key),
+                        "Period": per,
+                        "Game Time": rec.get("end_txt") or "",
+                        "Game Seconds": int(end_s),
+                        "Game Seconds End": "",
+                        "Details": details,
+                        "Attributed Players": (
+                            num_to_name_home.get(str(rec.get("jersey"))) if side_key == "home" and rec.get("jersey") else
+                            num_to_name_away.get(str(rec.get("jersey"))) if side_key == "away" and rec.get("jersey") else
+                            ""
+                        ),
+                        "Attributed Jerseys": rec.get("jersey") or "",
+                    }
+                )
+
+        events_headers = [
+            "Event Type",
+            "Source",
+            "Team Raw",
+            "Team Side",
+            "For/Against",
+            "Team Rel",
+            "Period",
+            "Game Time",
+            "Game Seconds",
+            "Game Seconds End",
+            "Details",
+            "Attributed Players",
+            "Attributed Jerseys",
+        ]
+        events_rows = list(goal_events) + list(penalties_events_rows) + list(penalty_expired_events_rows)
+        events_rows.sort(
+            key=lambda r: (
+                int(r.get("Period") or 0),
+                int(r.get("Game Seconds") or 0) if str(r.get("Game Seconds") or "").strip() else 0,
+                str(r.get("Event Type") or ""),
+            )
+        )
+        events_csv_text = _to_csv_text(events_headers, events_rows)
+
+        # Merge per-player stats: goals/assists (when present) + PIM (when present).
+        stats_by_name: dict[str, dict[str, int]] = {}
+        for r in ga_rows:
+            nm = str(r.get("name") or "").strip()
+            if not nm:
+                continue
+            stats_by_name.setdefault(nm, {"goals": 0, "assists": 0, "pim": 0})
+            stats_by_name[nm]["goals"] = int(r.get("goals") or 0)
+            stats_by_name[nm]["assists"] = int(r.get("assists") or 0)
+        for nm, pim in pim_by_player_name.items():
+            if not nm:
+                continue
+            stats_by_name.setdefault(nm, {"goals": 0, "assists": 0, "pim": 0})
+            stats_by_name[nm]["pim"] = int(pim or 0)
+        player_stats_out = [
+            {"name": nm, "goals": int(v.get("goals") or 0), "assists": int(v.get("assists") or 0), "pim": int(v.get("pim") or 0)}
+            for nm, v in stats_by_name.items()
+            if (int(v.get("goals") or 0) + int(v.get("assists") or 0) + int(v.get("pim") or 0)) > 0
+        ]
+        player_stats_out.sort(key=lambda r: str(r.get("name") or "").casefold())
+
+        def _sum_pim(side_key: str) -> int:
+            return sum(int(r.get("minutes") or 0) for r in (penalties_by_side.get(side_key) or []) if r.get("minutes") is not None)
+
+        home_pim_total = _sum_pim("home")
+        away_pim_total = _sum_pim("away")
+
+        game_stats_json = {
+            "Home Score": t1_score if t1_score is not None else "",
+            "Away Score": t2_score if t2_score is not None else "",
+            "Home Penalties": str(len([r for r in penalties_by_side.get("home", []) if r.get("start_s") is not None])),
+            "Away Penalties": str(len([r for r in penalties_by_side.get("away", []) if r.get("start_s") is not None])),
+            "Home PIM": str(home_pim_total) if home_pim_total else "",
+            "Away PIM": str(away_pim_total) if away_pim_total else "",
+            "TTS Schedule Only": "1" if schedule_only_game else "",
+        }
 
         if rest_mode:
             game_div_name = home_div_name or fb_division_name
@@ -1631,15 +2232,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "away_logo_content_type": away_logo_ct,
                     "home_roster": list(tts_norm.extract_roster(stats, "home")),
                     "away_roster": list(tts_norm.extract_roster(stats, "away")),
-                    "player_stats": [
-                        {
-                            "name": str(agg.get("name") or "").strip(),
-                            "goals": int(agg.get("goals") or 0),
-                            "assists": int(agg.get("assists") or 0),
-                        }
-                        for agg in tts_norm.aggregate_goals_assists(stats)
-                        if str(agg.get("name") or "").strip()
-                    ],
+                    "player_stats": player_stats_out,
+                    "events_csv": events_csv_text,
+                    "game_stats": game_stats_json,
                 }
             )
             if len(api_games_batch) >= api_batch_size:
@@ -1846,7 +2441,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if rest_mode:
         _post_batch()
 
-    log(f"Import complete. Imported {count} games, skipped={skipped}.")
+    log(f"Import complete. Imported {count} games, skipped={skipped}, schedule_only={schedule_only}.")
     if (not rest_mode) and (not args.no_cleanup_bogus_players):
         try:
             assert conn is not None

@@ -2,7 +2,7 @@
 
 This file applies to the `scripts/` subtree.
 
-## `scripts/parse_shift_spreadsheet.py`
+## `scripts/parse_stats_inputs.py`
 
 Parses a per-game “shift spreadsheet” and produces:
 - Parent-facing per-player stats (CSV/XLSX/text), optionally including TOI/shift metrics.
@@ -17,27 +17,27 @@ It supports two spreadsheet “families”:
 
 Single game (pass the `stats/` dir; it will auto-discover files):
 ```bash
-python scripts/parse_shift_spreadsheet.py \
+python scripts/parse_stats_inputs.py \
   --input /home/colivier/RVideos/sharks-12-1-r2/stats \
   --outdir player_shifts
 ```
 
 Season run (file list can contain files *or directories*; optional `:HOME`/`:AWAY` per line):
 ```bash
-python scripts/parse_shift_spreadsheet.py \
+python scripts/parse_stats_inputs.py \
   --file-list /mnt/ripper-data/Videos/game_list.txt \
   --outdir season_stats
 ```
 
 Include TOI/shift counts in parent-facing outputs (off by default):
 ```bash
-python scripts/parse_shift_spreadsheet.py --input <game stats dir> --outdir <out> --shifts
+python scripts/parse_stats_inputs.py --input <game stats dir> --outdir <out> --shifts
 ```
 
 If `*-long*` team-color inference fails, force your team:
 ```bash
-python scripts/parse_shift_spreadsheet.py --input <game stats dir> --outdir <out> --dark   # Blue is “us”
-python scripts/parse_shift_spreadsheet.py --input <game stats dir> --outdir <out> --light  # White is “us”
+python scripts/parse_stats_inputs.py --input <game stats dir> --outdir <out> --dark   # Blue is “us”
+python scripts/parse_stats_inputs.py --input <game stats dir> --outdir <out> --light  # White is “us”
 ```
 
 ### Inputs
@@ -47,6 +47,7 @@ python scripts/parse_shift_spreadsheet.py --input <game stats dir> --outdir <out
 - If a directory is provided, it expands to:
   - exactly one “primary” (non-`*-long*`) shift sheet, and
   - zero or more `*-long*` sheets in the same dir.
+- If a directory contains **only** `*-long*` sheets, it will process from the embedded long-sheet shift tables.
 - You can also pass a game directory (it will try `<dir>/stats/`).
 - Directory inputs must contain exactly one “game label” (derived from filename); otherwise it errors and you should use `--file-list`.
 
@@ -127,7 +128,7 @@ Clip windows are centered on each event time and then merged when close together
 ### Architecture map (where to look in code)
 
 High-level flow (CLI):
-- Argument parsing is at the bottom of `parse_shift_spreadsheet.py`.
+- Argument parsing is at the bottom of `parse_stats_inputs.py`.
 - Inputs are expanded with `_parse_input_token()` and `_expand_dir_input_to_game_sheets()`.
 - Each primary sheet is processed via `process_sheet()` which:
   - parses shifts and/or event logs,

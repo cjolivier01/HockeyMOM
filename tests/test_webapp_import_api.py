@@ -46,6 +46,8 @@ class FakeConn:
         self.league_games: set[tuple[int, int]] = set()
         self.league_games_meta: dict[tuple[int, int], dict[str, Any]] = {}
         self.player_stats: dict[tuple[int, int], dict[str, Any]] = {}
+        self.hky_game_events: dict[int, dict[str, Any]] = {}
+        self.hky_game_stats: dict[int, dict[str, Any]] = {}
 
     def _alloc_id(self, table: str) -> int:
         nid = self._next_id[table]
@@ -514,7 +516,37 @@ class FakeCursor:
                     "player_id": int(player_id),
                     "goals": None,
                     "assists": None,
+                    "pim": None,
                 }
+            return 1
+
+        if q.startswith("INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists, pim) VALUES"):
+            user_id, team_id, game_id, player_id, goals, assists, pim = p
+            key = (int(game_id), int(player_id))
+            is_replace = "goals=VALUES(goals)" in q
+            if key not in self._conn.player_stats:
+                self._conn.player_stats[key] = {
+                    "user_id": int(user_id),
+                    "team_id": int(team_id),
+                    "game_id": int(game_id),
+                    "player_id": int(player_id),
+                    "goals": goals,
+                    "assists": assists,
+                    "pim": pim,
+                }
+                return 1
+            rec = self._conn.player_stats[key]
+            if is_replace:
+                rec["goals"] = goals
+                rec["assists"] = assists
+                rec["pim"] = pim
+            else:
+                if rec.get("goals") is None:
+                    rec["goals"] = goals
+                if rec.get("assists") is None:
+                    rec["assists"] = assists
+                if rec.get("pim") is None:
+                    rec["pim"] = pim
             return 1
 
         if q.startswith("INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists) VALUES"):
@@ -529,6 +561,7 @@ class FakeCursor:
                     "player_id": int(player_id),
                     "goals": goals,
                     "assists": assists,
+                    "pim": None,
                 }
                 return 1
             rec = self._conn.player_stats[key]
@@ -540,6 +573,43 @@ class FakeCursor:
                     rec["goals"] = goals
                 if rec.get("assists") is None:
                     rec["assists"] = assists
+            return 1
+
+        if q == "SELECT events_csv FROM hky_game_events WHERE game_id=%s":
+            gid = int(p[0])
+            ev = self._conn.hky_game_events.get(gid)
+            if ev:
+                self._rows = [as_row_tuple(ev.get("events_csv"))]
+            return 1
+
+        if q.startswith("INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at) VALUES"):
+            gid, events_csv, source_label, updated_at = p
+            gid_i = int(gid)
+            if "ON DUPLICATE KEY UPDATE" in q or gid_i not in self._conn.hky_game_events:
+                self._conn.hky_game_events[gid_i] = {
+                    "game_id": gid_i,
+                    "events_csv": str(events_csv),
+                    "source_label": str(source_label),
+                    "updated_at": updated_at,
+                }
+            return 1
+
+        if q == "SELECT stats_json FROM hky_game_stats WHERE game_id=%s":
+            gid = int(p[0])
+            row = self._conn.hky_game_stats.get(gid)
+            if row:
+                self._rows = [as_row_tuple(row.get("stats_json"))]
+            return 1
+
+        if q.startswith("INSERT INTO hky_game_stats(game_id, stats_json, updated_at) VALUES"):
+            gid, stats_json, updated_at = p
+            gid_i = int(gid)
+            if "ON DUPLICATE KEY UPDATE" in q or gid_i not in self._conn.hky_game_stats:
+                self._conn.hky_game_stats[gid_i] = {
+                    "game_id": gid_i,
+                    "stats_json": str(stats_json),
+                    "updated_at": updated_at,
+                }
             return 1
 
         if q == "SELECT division_name, division_id, conference_id FROM league_teams WHERE league_id=%s AND team_id=%s":
@@ -715,7 +785,8 @@ def should_import_game_and_be_non_destructive_without_replace(client_and_db, mon
     assert (lid, int(out["team2_id"])) in db.league_teams
     assert (lid, gid) in db.league_games
 
-    # Re-import with different scores/stats without replace should not overwrite existing scores/stats
+    # Re-import with different scores/stats without replace should not overwrite existing scores,
+    # but should still refresh TimeToScore-sourced goal/assist attribution.
     payload2 = dict(payload)
     payload2["game"] = dict(payload["game"])
     payload2["game"]["home_score"] = 9
@@ -728,10 +799,10 @@ def should_import_game_and_be_non_destructive_without_replace(client_and_db, mon
     g2 = db.hky_games_by_id[gid2]
     assert g2["team1_score"] == 1 and g2["team2_score"] == 2
 
-    # Player stats remain original (non-null) without replace
+    # Player stats are refreshed from TimeToScore without replace
     alice_pid = db.player_id_by_user_team_name[(out["owner_user_id"], out["team1_id"], "Alice")]
     ps = db.player_stats[(gid, alice_pid)]
-    assert ps["goals"] == 1 and ps["assists"] == 0
+    assert ps["goals"] == 7 and ps["assists"] == 7
 
 
 def should_persist_division_metadata_on_import(client_and_db, monkeypatch):

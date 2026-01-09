@@ -19,7 +19,13 @@ class Database:
         self._cursor = self._conn.cursor()
 
     def __del__(self):
-        self._conn.close()
+        self.close()
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
 
     def create_tables(self):
         """Create the Seasons table."""
@@ -90,6 +96,20 @@ class Database:
         FOREIGN KEY (season_id) REFERENCES Seasons(season_id),
         FOREIGN KEY (division_id, conference_id)
           REFERENCES Divisions(division_id, conference_id)
+    )
+    """
+        )
+
+        # Raw per-game cache: lets callers store game stats keyed only by game_id (no schedule/teams needed).
+        self._cursor.execute(
+            """
+    CREATE TABLE IF NOT EXISTS GameStatsCache (
+        source TEXT NOT NULL,
+        game_id INTEGER NOT NULL,
+        season_id INTEGER NULL,
+        stats TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (source, game_id)
     )
     """
         )
@@ -356,6 +376,38 @@ class Database:
         self._cursor.execute(query, (json.dumps(stats), game_id))
         self._conn.commit()
         return self._cursor.lastrowid
+
+    def get_cached_game_stats(self, source: str, game_id: int) -> dict[str, Any] | None:
+        try:
+            self._cursor.execute(
+                "SELECT stats FROM GameStatsCache WHERE source = ? AND game_id = ?",
+                (str(source or ""), int(game_id)),
+            )
+            row = self._cursor.fetchone()
+        except Exception:
+            row = None
+        if not row or not row[0]:
+            return None
+        try:
+            return json.loads(row[0])
+        except Exception:
+            return None
+
+    def set_cached_game_stats(
+        self, source: str, game_id: int, *, season_id: int | None, stats: dict[str, Any]
+    ) -> None:
+        fetched_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._cursor.execute(
+            "INSERT OR REPLACE INTO GameStatsCache(source, game_id, season_id, stats, fetched_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                str(source or ""),
+                int(game_id),
+                int(season_id) if season_id is not None else None,
+                json.dumps(stats),
+                fetched_at,
+            ),
+        )
+        self._conn.commit()
 
     # Helpers
     def ex(self, s: str):

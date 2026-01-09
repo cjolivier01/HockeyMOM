@@ -130,7 +130,7 @@ aspen:
   - When trimming with timestamps, decode-side `-t` is used and overlay uses `shortest=1` to ensure exact clip duration.
 
 **Shift Spreadsheet Parser**
-- Script: `scripts/parse_shift_spreadsheet.py`
+- Script: `scripts/parse_stats_inputs.py`
 - Inputs:
   - `--input` can be a single `.xls/.xlsx` file or a directory (it will auto-discover the primary shift sheet plus optional `*-long*` companion sheets).
   - `--file-list` accepts one file/dir per line or `t2s=<game_id>[:HOME|AWAY][:game_label]` for a TimeToScore-only game (comments starting with `#` are ignored).
@@ -157,6 +157,6 @@ aspen:
   - Per-player season summaries in `<outdir>/cumulative_per_player/`.
 - Examples:
   - Single game by stats directory:
-    - `python scripts/parse_shift_spreadsheet.py --input /home/colivier/Videos/sharks-12-1-r2/stats --outdir player_shifts`
+    - `python scripts/parse_stats_inputs.py --input /home/colivier/Videos/sharks-12-1-r2/stats --outdir player_shifts`
   - Season run from a list (files and/or directories):
-    - `python scripts/parse_shift_spreadsheet.py --file-list /mnt/ripper-data/Videos/game_list.txt --outdir season_stats`
+    - `python scripts/parse_stats_inputs.py --file-list /mnt/ripper-data/Videos/game_list.txt --outdir season_stats`

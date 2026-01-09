@@ -1,10 +1,10 @@
 # HockeyMOM WebApp: Import and View Shift Spreadsheet Stats
 
-This tutorial shows how to take the `stats/` outputs produced by `scripts/parse_shift_spreadsheet.py` (e.g. from `~/Videos/stockton-r3/stat` and `~/Videos/sharks-12-1-r2/stats`) and import them into the HockeyMOM WebApp so you can view them per game, per player, and aggregated on the team page.
+This tutorial shows how to take the `stats/` outputs produced by `scripts/parse_stats_inputs.py` (e.g. from `~/Videos/stockton-r3/stat` and `~/Videos/sharks-12-1-r2/stats`) and import them into the HockeyMOM WebApp so you can view them per game, per player, and aggregated on the team page.
 
 ## 1) Generate `stats/player_stats.csv` + `stats/game_stats.csv`
 
-Run `scripts/parse_shift_spreadsheet.py` on your game sheet (or game directory) and confirm that the output directory contains:
+Run `scripts/parse_stats_inputs.py` on your game sheet (or game directory) and confirm that the output directory contains:
 
 - `stats/player_stats.csv`
 - `stats/game_stats.csv` (optional but recommended)
@@ -57,4 +57,4 @@ What happens:
   - Ensure each player exists on the team in the webapp and has the correct jersey number.
   - Re-import after fixing jersey numbers.
 - Missing TOI/shifts columns in the imported table:
-  - Re-run `scripts/parse_shift_spreadsheet.py` with `--shifts` so it writes TOI/shift columns to `player_stats.csv`.
+  - Re-run `scripts/parse_stats_inputs.py` with `--shifts` so it writes TOI/shift columns to `player_stats.csv`.

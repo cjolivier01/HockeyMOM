@@ -1002,7 +1002,8 @@ class hm_opts(object):
         parser.add_argument(
             "--minimize-blend",
             type=int,
-            default=True,
+            default=None,
+            choices=[0, 1],
             help="Minimize blending compute to only blend (mostly) overlapping portions of frames",
         )
         parser.add_argument(
@@ -1089,7 +1090,9 @@ class hm_opts(object):
             help="How many iterations between log progress printing",
         )
         parser.add_argument(
-            "----output-video-bit-rate",
+            "--output-video-bit-rate",
+            "--output_video_bit_rate",
+            dest="output_video_bit_rate",
             type=int,
             default=None,
             help="Output video bit-rate",
@@ -1278,6 +1281,7 @@ class hm_opts(object):
             ("stitch_auto_adjust_exposure", "aspen.stitching.auto_adjust_exposure"),
             ("python_blender", "aspen.stitching.python_blender"),
             ("no_minimize_blend", "aspen.stitching.minimize_blend"),
+            ("minimize_blend", "aspen.stitching.minimize_blend"),
             ("no_cuda_streams", "aspen.stitching.no_cuda_streams"),
             ("stitch_rotate_degrees", "aspen.stitching.post_stitch_rotate_degrees"),
             ("fp16_stitch", "aspen.stitching.dtype"),
@@ -1321,6 +1325,7 @@ class hm_opts(object):
         "stitch_auto_adjust_exposure": bool,
         "python_blender": bool,
         "no_minimize_blend": {True: False},
+        "minimize_blend": bool,
         "no_cuda_streams": bool,
         "fp16_stitch": {True: "float16"},
         "skip_final_video_save": {True: True},

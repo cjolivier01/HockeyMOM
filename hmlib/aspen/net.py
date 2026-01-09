@@ -457,7 +457,18 @@ class AspenNet(torch.nn.Module):
         self._progress_last_sample_active = None
 
     def finalize(self) -> None:
-        """Invoke ``finalize`` on all plugins if they provide it."""
+        """Stop any threaded workers and invoke ``finalize`` on plugins.
+
+        In threaded mode, AspenNet executes plugins in background threads. Callers
+        typically use ``finalize()`` as an end-of-run cleanup hook, so we also
+        stop/join worker threads here to avoid leaving CUDA work running during
+        interpreter shutdown.
+        """
+        if self.threaded_trunks and getattr(self, "threads", None):
+            try:
+                self.stop(wait=True)
+            except Exception:
+                logger.exception("AspenNet stop failed during finalize")
         for node in self.nodes:
             finalize_fn = getattr(node.module, "finalize", None)
             if callable(finalize_fn):

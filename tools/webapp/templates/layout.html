@@ -323,5 +323,53 @@
       }
     })();
   </script>
+  <script>
+    (function () {
+      function initLeaguePageViews() {
+        var el = document.querySelector("[data-hm-league-pageviews='1']");
+        if (!el) return;
+        var leagueId = String(el.getAttribute("data-league-id") || "").trim();
+        var kind = String(el.getAttribute("data-kind") || "").trim();
+        var entityId = String(el.getAttribute("data-entity-id") || "0").trim() || "0";
+        var countEl = el.querySelector("[data-role='count']");
+        if (!leagueId || !kind || !countEl) return;
+
+        function refresh() {
+          var url =
+            "/api/leagues/" +
+            encodeURIComponent(leagueId) +
+            "/page_views?kind=" +
+            encodeURIComponent(kind) +
+            "&entity_id=" +
+            encodeURIComponent(entityId);
+          try {
+            fetch(url, { credentials: "same-origin" })
+              .then(function (r) {
+                return r.json().catch(function () {
+                  return {};
+                });
+              })
+              .then(function (j) {
+                if (j && j.ok && typeof j.count !== "undefined") {
+                  countEl.textContent = String(j.count);
+                }
+              })
+              .catch(function () {});
+          } catch (e) {}
+        }
+
+        refresh();
+        try {
+          window.setInterval(refresh, 5000);
+        } catch (e) {}
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initLeaguePageViews);
+      } else {
+        initLeaguePageViews();
+      }
+    })();
+  </script>
 </body>
 </html>

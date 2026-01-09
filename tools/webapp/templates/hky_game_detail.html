@@ -13,17 +13,22 @@
   <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
     <div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <img src="{{ base }}/media/team_logo/{{ game['team1_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
-        <strong>{{ game['team1_name'] }}</strong>
-        <span class="muted">vs</span>
-        <img src="{{ base }}/media/team_logo/{{ game['team2_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
-        <strong>{{ game['team2_name'] }}</strong>
+        <a href="{{ base }}/teams/{{ game['team2_id'] }}" style="display:inline-flex;align-items:center;gap:10px;text-decoration:none;color:inherit;">
+          <img src="{{ base }}/media/team_logo/{{ game['team2_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
+          <strong>{{ game['team2_name'] }}</strong>
+        </a>
+        <span class="muted">at</span>
+        <a href="{{ base }}/teams/{{ game['team1_id'] }}" style="display:inline-flex;align-items:center;gap:10px;text-decoration:none;color:inherit;">
+          <img src="{{ base }}/media/team_logo/{{ game['team1_id'] }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;" onerror="this.style.display='none'" />
+          <strong>{{ game['team1_name'] }}</strong>
+        </a>
       </div>
-      <div class="muted" style="margin-top:.5rem;">
-        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_date }}</span>
-        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_time }}</span>
-        {% if game.get('location') %}<span> | {{ game['location'] }}</span>{% endif %}
-      </div>
+	      <div class="muted" style="margin-top:.5rem;">
+	        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_date }}</span>
+	        <span class="nowrap">{{ (game.get('starts_at') or '')|fmt_time }}</span>
+	        {% if game.get('location') %}<span> | {{ game['location'] }}</span>{% endif %}
+	        {% if game.get('game_video_url') %}<span> | Video: <a class="game-video-link" href="{{ game['game_video_url']|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">link</a></span>{% endif %}
+	      </div>
       <div style="margin-top:.5rem;font-size:1.1rem;">
         {% if game.get('team1_score') is not none and game.get('team2_score') is not none %}
           <strong>{{ game['team1_score'] }} - {{ game['team2_score'] }}</strong>
@@ -33,35 +38,127 @@
         {% if game.get('is_final') %}<span class="muted"> (Final)</span>{% endif %}
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:.5rem;">
-      {% if public_league_id is not defined %}
-        {% if can_edit_game and not edit_mode %}
-          <a class="btn primary" href="/hky/games/{{ game['id'] }}?edit=1{{ return_to_q }}">Edit</a>
-        {% endif %}
-        {% if edit_mode %}
-          <a class="btn" href="/hky/games/{{ game['id'] }}{{ return_to_first_q }}">Cancel</a>
-        {% endif %}
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.5rem;">
+      {% if league_page_views %}
+        <div
+          data-hm-league-pageviews="1"
+          data-league-id="{{ league_page_views.league_id }}"
+          data-kind="{{ league_page_views.kind }}"
+          data-entity-id="{{ league_page_views.entity_id }}"
+          class="muted"
+          style="font-size:.85rem;white-space:nowrap;"
+          title="Live page views (excluding your own views as league owner)"
+        >
+          Views: <span data-role="count">{{ league_page_views.count }}</span>
+        </div>
       {% endif %}
-      <a class="btn" href="{{ back_href }}">Back</a>
+      <div style="display:flex;align-items:center;gap:.5rem;">
+        {% if public_league_id is not defined %}
+          {% if can_edit_game and not edit_mode %}
+            <a class="btn primary" href="/hky/games/{{ game['id'] }}?edit=1{{ return_to_q }}">Edit</a>
+          {% endif %}
+          {% if edit_mode %}
+            <a class="btn" href="/hky/games/{{ game['id'] }}{{ return_to_first_q }}">Cancel</a>
+          {% endif %}
+        {% endif %}
+        <a class="btn" href="{{ back_href }}">Back</a>
+      </div>
     </div>
   </div>
-</div>
+	</div>
 
-{% if game_stats %}
+	{% if game.get('game_video_url') %}
+	  <div id="event-video-pane" class="card" style="margin-top:1rem; display:none;">
+	    <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+	      <div>
+	        <strong>Video Clip</strong>
+	        <span id="event-video-pane-meta" class="muted" style="margin-left:.5rem;"></span>
+	      </div>
+	      <button type="button" class="btn" id="event-video-pane-close">Close</button>
+	    </div>
+	    <div style="margin-top:.75rem; width:100%; max-width: 980px;">
+	      <div style="position:relative; width:100%; aspect-ratio:16/9; background:#0b1220; border-radius:12px; overflow:hidden;">
+	        <iframe
+	          id="event-video-iframe"
+	          title="Game video clip"
+	          src=""
+	          style="position:absolute; inset:0; width:100%; height:100%; border:0;"
+	          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+	          allowfullscreen
+	        ></iframe>
+	      </div>
+	    </div>
+	    <p class="muted" style="margin:.75rem 0 0 0;">Tip: double-click an event row, or open the timeline tooltip and press Video to view a clip (2/3 before, 1/3 after the event).</p>
+	  </div>
+	{% endif %}
+	
+	{% if scoring_by_period_rows and (scoring_by_period_rows|length) %}
+	  <div class="card" style="margin-top:1rem;">
+    <h3 style="margin-top:0;">Scoring By Period</h3>
+    <div class="table-scroll">
+      <table class="table-grid table-nowrap">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>{{ game['team1_name'] }}</th>
+            <th>{{ game['team2_name'] }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set t1_gf = namespace(v=0) %}
+          {% set t2_gf = namespace(v=0) %}
+          {% for r in scoring_by_period_rows %}
+            {% set p = r.get('period') %}
+            {% set p_label = ('OT' if p == 4 else ('P' ~ p)) %}
+            {% set t1_gf.v = t1_gf.v + (r.get('team1_gf') or 0) %}
+            {% set t2_gf.v = t2_gf.v + (r.get('team2_gf') or 0) %}
+            <tr>
+              <td>{{ p_label }}</td>
+              <td>{{ (r.get('team1_gf') or 0) }}</td>
+              <td>{{ (r.get('team2_gf') or 0) }}</td>
+            </tr>
+          {% endfor %}
+          <tr style="font-weight:600;">
+            <td>Total</td>
+            <td>{{ t1_gf.v }}</td>
+            <td>{{ t2_gf.v }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted" style="margin:.5rem 0 0 0;">Derived from goal events (TimeToScore / uploaded events), not shifts.</p>
+  </div>
+{% endif %}
+
+{% if game_event_stats_rows and (game_event_stats_rows|length) %}
   <div class="card" style="margin-top:1rem;">
-    <h3 style="margin-top:0">Imported Game Stats</h3>
+    <h3 style="margin-top:0">Game Stats</h3>
     <p class="muted" style="margin-top:0">
-      Source: {{ game_stats.get('_label','') }}
-      {% if game_stats_updated_at %} | Updated: {{ game_stats_updated_at }}{% endif %}
+      Source: {% if events_meta and events_meta.get('sources') %}{{ events_meta.get('sources')|join(', ') }}{% elif events_meta and events_meta.get('source_label') %}{{ events_meta.get('source_label') }}{% else %}—{% endif %}
+      {% if events_meta and events_meta.get('updated_at') %} | Updated: {{ events_meta.get('updated_at') }}{% endif %}
     </p>
     <div class="table-scroll">
       <table class="table-grid table-sortable" data-sortable="1">
-        <thead><tr><th>Stat</th><th>Value</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Event Type</th>
+            <th>
+              <div>Home</div>
+              <div class="muted" style="font-weight:700;margin-top:.15rem;">{{ game['team1_name'] }}</div>
+            </th>
+            <th>
+              <div>Away</div>
+              <div class="muted" style="font-weight:700;margin-top:.15rem;">{{ game['team2_name'] }}</div>
+            </th>
+          </tr>
+        </thead>
         <tbody>
-          {% for k, v in game_stats.items() %}
-            {% if k != '_label' %}
-              <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
-            {% endif %}
+          {% for r in game_event_stats_rows %}
+            <tr>
+              <td>{{ r.get('event_type','') }}</td>
+              <td>{{ r.get('home','') }}</td>
+              <td>{{ r.get('away','') }}</td>
+            </tr>
           {% endfor %}
         </tbody>
       </table>
@@ -132,9 +229,9 @@
     {% endfor %}
   </div>
 
-  <h3 style="margin-top:1rem;">Player Stats</h3>
+  <h3 style="margin-top:1rem;">{% if player_stats_import_meta %}Imported Player Stats{% else %}Player Stats{% endif %}</h3>
   {% if player_stats_import_meta %}
-    <p class="muted" style="margin-top:0;">Imported Player Stats</p>
+    {# Source/updated lines below cover what the user needs here. #}
   {% endif %}
   {% if player_stats_import_meta %}
     <p class="muted" style="margin-top:0;">
@@ -145,10 +242,11 @@
   {% if player_stats_import_warning %}
     <p class="muted" style="margin-top:0;">Warning: {{ player_stats_import_warning }}</p>
   {% endif %}
-  {% for team_key, players in [('team1', team1_players), ('team2', team2_players)] %}
-    {% set is_team1 = (team_key == 'team1') %}
-    {% set team_name = game['team1_name'] if is_team1 else game['team2_name'] %}
-    {% set team_id = game['team1_id'] if is_team1 else game['team2_id'] %}
+
+	  {% for team_key, players in [('team1', team1_players), ('team2', team2_players)] %}
+	    {% set is_team1 = (team_key == 'team1') %}
+	    {% set team_name = game['team1_name'] if is_team1 else game['team2_name'] %}
+	    {% set team_id = game['team1_id'] if is_team1 else game['team2_id'] %}
     <h4 style="display:flex;align-items:center;gap:8px;margin-top:0.75rem;">
       <img src="{{ base }}/media/team_logo/{{ team_id }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
       <span>{{ team_name }}</span>
@@ -209,7 +307,7 @@
         <h3 style="margin:0 0 .25rem 0;">Import Shift Spreadsheet Stats</h3>
         <p class="muted" style="margin-top:0">
           Upload <code>stats/player_stats.csv</code> and optionally <code>stats/game_stats.csv</code> from
-          <code>scripts/parse_shift_spreadsheet.py</code>.
+          <code>scripts/parse_stats_inputs.py</code>.
         </p>
         <form method="post" action="/hky/games/{{ game['id'] }}/import_shift_stats{{ return_to_first_q }}" enctype="multipart/form-data">
           <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -238,12 +336,23 @@
   <h3 style="margin-top:0;">Game Events</h3>
   {% if events_meta %}
     <p class="muted" style="margin-top:0;">
-      {% if events_meta.get('source_label') %}Source: {{ events_meta.get('source_label') }}{% endif %}
+      {% if events_meta.get('sources') %}Sources: {{ ', '.join(events_meta.get('sources')) }}{% elif events_meta.get('source_label') %}Source: {{ events_meta.get('source_label') }}{% endif %}
       {% if events_meta.get('updated_at') %} | Updated: {{ events_meta.get('updated_at') }}{% endif %}
       {% if events_meta.get('count') is not none %} | Rows: {{ events_meta.get('count') }}{% endif %}
     </p>
   {% endif %}
   {% if events_rows and events_headers %}
+	    <div id="timeline-clip-controls" class="muted" style="margin:.25rem 0 .5rem 0; display:none; align-items:center; gap:.35rem; flex-wrap:wrap;">
+	      <label for="timeline-clip-len" class="muted" style="font-size:.85rem;">Clip Length</label>
+	      <select id="timeline-clip-len" style="padding:.25rem .5rem;border-radius:10px;">
+	        <option value="15">15s</option>
+	        <option value="20">20s</option>
+	        <option value="30" selected>30s</option>
+	        <option value="45">45s</option>
+	        <option value="60">60s</option>
+	        <option value="90">90s</option>
+	      </select>
+	    </div>
     <div class="events-timeline">
       <div class="events-timeline-header">
         <div class="muted">Timeline</div>
@@ -258,7 +367,26 @@
           var dataEl = document.getElementById("game-events-timeline-data");
           var svg = document.getElementById("game-events-timeline-svg");
           var legendEl = document.getElementById("game-events-timeline-legend");
+          var clipControlsEl = document.getElementById("timeline-clip-controls");
+          var clipLenEl = document.getElementById("timeline-clip-len");
           if (!dataEl || !svg || !legendEl) return;
+          var userClipLenS = {{ (user_video_clip_len_s if user_video_clip_len_s is not none else None)|tojson }};
+          var userIsLoggedIn = {{ (user_is_logged_in|default(false))|tojson }};
+
+	          var homeTeamName = {{ (game.get('team1_name') or 'Home')|tojson }};
+	          var awayTeamName = {{ (game.get('team2_name') or 'Away')|tojson }};
+	          var gameVideoUrl = {{ (game.get('game_video_url') or '')|tojson }};
+	
+	          var videoPane = document.getElementById("event-video-pane");
+	          var videoIframe = document.getElementById("event-video-iframe");
+	          var videoMeta = document.getElementById("event-video-pane-meta");
+	          var videoClose = document.getElementById("event-video-pane-close");
+	          if (videoClose) {
+	            videoClose.addEventListener("click", function () {
+	              if (videoIframe) videoIframe.src = "";
+	              if (videoPane) videoPane.style.display = "none";
+	            });
+	          }
 
           var eventsRows = [];
           try {
@@ -280,7 +408,27 @@
             return a * 3600 + b * 60 + c; // h:mm:ss
           }
 
-          function getValue(row, keys) {
+	          function parseTimeToSecondsLoose(s) {
+            var t = parseTimeToSeconds(s);
+            if (t !== null && isFinite(t)) return t;
+            s = String(s || "").trim();
+            if (!s) return null;
+            // Support TimeToScore dot formats:
+            //  - "10.0" => 10:00 (mm:ss with '.' separator)
+            //  - "54.8" => 54.8 seconds (scoreboard fractional seconds)
+            var m = s.match(/^(\d+)\.(\d{1,2})$/);
+            if (!m) return null;
+            var a = parseInt(m[1], 10);
+            var b = parseInt(m[2], 10);
+            if (!isFinite(a) || !isFinite(b)) return null;
+            if (a > 20) {
+              var f = parseFloat(s);
+              return isFinite(f) ? Math.floor(f) : null;
+            }
+            return a * 60 + b;
+          }
+
+	          function getValue(row, keys) {
             if (!row) return "";
             for (var i = 0; i < keys.length; i++) {
               var k = keys[i];
@@ -314,6 +462,10 @@
             if (sl === "shot") return "Shot";
             if (sl === "goal") return "Goal";
             if (sl === "assist") return "Assist";
+            if (sl === "penalty") return "Penalty";
+            if (sl === "penalty expired" || sl === "penaltyexpired") return "Penalty Expired";
+            if (sl === "powerplay" || sl === "power play" || sl === "pp") return "Power Play";
+            if (sl === "penaltykill" || sl === "penalty kill" || sl === "pk") return "Penalty Kill";
             if (sl.indexOf("rush") >= 0) return "Odd-Man Rush";
             if (sl === "controlledentry" || sl === "controlled entry") return "Controlled Entry";
             if (sl === "controlledexit" || sl === "controlled exit") return "Controlled Exit";
@@ -331,6 +483,10 @@
             if (sl === "xg" || sl === "expected goal" || sl === "expectedgoal" || sl === "expected goal (xg)" || sl.indexOf("xg") >= 0) return "xg";
             if (sl === "sog") return "sog";
             if (sl === "shot") return "shot";
+            if (sl === "penalty") return "penalty";
+            if (sl === "penalty expired") return "penalty_expired";
+            if (sl === "power play" || sl === "pp") return "pp";
+            if (sl === "penalty kill" || sl === "pk") return "pk";
             if (sl === "controlled entry") return "controlled_entry";
             if (sl === "controlled exit") return "controlled_exit";
             if (sl.indexOf("rush") >= 0) return "odd_man_rush";
@@ -356,24 +512,148 @@
           }
 
           function laneKey(iconKey) {
+            if (iconKey === "penalty" || iconKey === "pp" || iconKey === "pk") return "special_teams";
             if (isFinishFamily(iconKey)) return "finish";
             if (iconKey === "controlled_entry" || iconKey === "controlled_exit") return "transition";
             return iconKey;
           }
 
-          function parseSide(row) {
-            var tr = String(getValue(row, ["Team Rel", "TeamRel", "For/Against", "For Against", "Side"]) || "").trim();
+	          function parseSide(row) {
+            // Absolute side (Home/Away). Do NOT treat For/Against as a team; it's only a relative
+            // direction *with respect to* Home or Away.
+            var tr = String(getValue(row, ["Team Side", "TeamSide", "Team Rel", "TeamRel", "Side", "Team", "Team Raw", "TeamRaw"]) || "").trim();
             var trl = tr.toLowerCase();
-            if (trl === "for" || trl === "home" || trl === "team1") return "For";
-            if (trl === "against" || trl === "away" || trl === "team2") return "Against";
-            if (trl.indexOf("for") >= 0) return "For";
-            if (trl.indexOf("against") >= 0) return "Against";
+            if (trl === "home" || trl === "team1") return "Home";
+            if (trl === "away" || trl === "team2") return "Away";
+	            return "Neutral";
+	          }
+	
+	          function parseVideoSecondsFromRow(row) {
+	            var vs = String(getValue(row, ["Video Seconds", "VideoSeconds", "Video S", "VideoS"]) || "").trim();
+	            if (vs && vs.match(/^-?\d+$/)) {
+	              var n = parseInt(vs, 10);
+	              return isFinite(n) ? n : null;
+	            }
+	            var vt = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
+	            var t = parseTimeToSeconds(vt);
+	            return t !== null && isFinite(t) ? t : null;
+	          }
+	
+	          function extractYoutubeId(url) {
+	            if (!url) return null;
+	            try {
+	              var u = new URL(String(url));
+	              var host = String(u.hostname || "").toLowerCase();
+	              if (host === "youtu.be") {
+	                var p = String(u.pathname || "").replace(/^\//, "");
+	                return p ? p.split("/")[0] : null;
+	              }
+	              if (host.indexOf("youtube.com") >= 0 || host.indexOf("youtube-nocookie.com") >= 0) {
+	                var v = u.searchParams.get("v");
+	                if (v) return v;
+	                var path = String(u.pathname || "");
+	                var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
+	                return m ? m[1] : null;
+	              }
+	            } catch (e) {}
+	            return null;
+	          }
+	
+	          function buildYoutubeEmbedUrl(url, startSec, endSec) {
+	            var id = extractYoutubeId(url);
+	            if (!id) return null;
+	            var start = Math.max(0, Math.floor(startSec || 0));
+	            var end = Math.max(start + 1, Math.floor(endSec || 0));
+	            var params = new URLSearchParams();
+	            params.set("autoplay", "1");
+	            // Mobile browsers often block autoplay unless muted (even when initiated by a tap).
+	            params.set("mute", "1");
+	            // Enable JS API so we can request the highest available resolution.
+	            params.set("enablejsapi", "1");
+	            params.set("start", String(start));
+	            params.set("end", String(end));
+	            // Best-effort quality hint (YouTube may ignore based on bandwidth/device/player size).
+	            params.set("vq", "hd1080");
+	            params.set("rel", "0");
+	            params.set("modestbranding", "1");
+	            params.set("playsinline", "1");
+	            return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+	          }
 
-            var team = String(getValue(row, ["Team", "Team Raw", "TeamRaw"]) || "").trim().toLowerCase();
-            if (team === "home") return "For";
-            if (team === "away") return "Against";
-            return "Neutral";
-          }
+	          function requestYouTubeBestQuality(iframeEl) {
+	            try {
+	              if (!iframeEl || !iframeEl.contentWindow) return;
+	              var cmds = [
+	                { func: "setPlaybackQuality", args: ["highres"] },
+	                { func: "setPlaybackQuality", args: ["hd2160"] },
+	                { func: "setPlaybackQuality", args: ["hd1440"] },
+	                { func: "setPlaybackQuality", args: ["hd1080"] },
+	                { func: "setPlaybackQuality", args: ["hd720"] },
+	                { func: "setPlaybackQuality", args: ["large"] },
+	                { func: "setPlaybackQualityRange", args: ["highres", "hd1080"] },
+	              ];
+	              for (var i = 0; i < cmds.length; i++) {
+	                iframeEl.contentWindow.postMessage(
+	                  JSON.stringify({ event: "command", func: cmds[i].func, args: cmds[i].args || [] }),
+	                  "*"
+	                );
+	              }
+	            } catch (e) {}
+	          }
+	
+		          function openVideoClipForRow(row, opts) {
+		            opts = opts || {};
+		            if (!gameVideoUrl || !videoPane || !videoIframe) return false;
+		            var vs2 = parseVideoSecondsFromRow(row);
+		            if (vs2 === null || !isFinite(vs2)) return false;
+		            var totalClipS = (function () {
+		              var v = 30;
+		              try {
+		                if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
+		              } catch (e) {}
+		              if (!isFinite(v) || v <= 0) v = 30;
+		              if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
+		              return v;
+		            })();
+	            var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
+	            var postS = Math.max(0, totalClipS - preS);
+	            var start2 = Math.max(0, Math.floor(vs2 - preS));
+	            var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
+	            var embed = buildYoutubeEmbedUrl(gameVideoUrl, start2, end2);
+	            if (!embed) {
+	              try {
+	                var u2 = new URL(String(gameVideoUrl));
+	                u2.searchParams.set("t", String(start2) + "s");
+	                u2.searchParams.set("vq", u2.searchParams.get("vq") || "hd1080");
+	                window.open(u2.toString(), "_blank", "noopener");
+	              } catch (e) {
+	                window.open(String(gameVideoUrl), "_blank", "noopener");
+	              }
+	              return true;
+	            }
+	            videoIframe.src = embed;
+	            videoIframe.setAttribute("src", embed);
+	            // Best-effort: request highest available quality after navigation.
+	            try {
+	              requestYouTubeBestQuality(videoIframe);
+	              window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 250);
+	              window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 800);
+	            } catch (e) {}
+	            if (videoMeta) {
+	              var label = (opts.label ? String(opts.label) : "");
+	              var at = (opts.at ? String(opts.at) : "");
+	              var metaTxt = [];
+	              if (label) metaTxt.push(label);
+	              if (at) metaTxt.push(at);
+	              metaTxt.push(totalClipS + "s clip (" + preS + "s before, " + postS + "s after)");
+	              videoMeta.textContent = metaTxt.join(" • ");
+	            }
+	            videoPane.style.display = "block";
+	            try {
+	              videoPane.scrollIntoView({ behavior: "smooth", block: "start" });
+	            } catch (e) {}
+	            return true;
+	          }
 
           function svgEl(name, attrs) {
             var el = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -485,6 +765,12 @@
               circle(9.5, 14.5, 3.8, "#111827", "rgba(255,255,255,0.2)", 1);
               path("M13 12l8-6", "none", stroke, 2, "round", "round");
               path("M15 14l6-4", "none", stroke, 2, "round", "round");
+            } else if (icon === "penalty") {
+              // Penalty: yellow striped box (transparent background).
+              rect(6.3, 6.6, 11.4, 14.2, 2.2, "#fbbf24", "rgba(0,0,0,0.55)", 1.2);
+              path("M8.2 9.0l7.6 0", "none", "rgba(0,0,0,0.35)", 2.2, "round", "round");
+              path("M8.2 12.0l7.6 0", "none", "rgba(0,0,0,0.35)", 2.2, "round", "round");
+              path("M8.2 15.0l7.6 0", "none", "rgba(0,0,0,0.35)", 2.2, "round", "round");
             } else if (icon === "controlled_entry") {
               // Arrow into a "zone" bracket.
               rect(15.5, 7, 4.5, 10, 2, "rgba(0,0,0,0.0)", "#29c7a9", 2.2);
@@ -579,17 +865,54 @@
             while (legendEl.firstChild) legendEl.removeChild(legendEl.firstChild);
 
             var parsed = [];
-            for (var i = 0; i < eventsRows.length; i++) {
-              var r = eventsRows[i] || {};
-              var period = parsePeriod(getValue(r, ["Period"]));
-              if (period === null) continue;
+            var spans = [];
+            var penaltyStarts = [];
+            var penaltyEnds = [];
+
+            function extractPenaltyJersey(row) {
+              var j = String(
+                getValue(row, ["Attributed Jerseys", "AttributedJerseys", "Jersey #", "Jersey", "Jersey No", "JerseyNo", "Jersey Number"]) || ""
+              ).trim();
+              if (j && j.match(/^\d+$/)) return j;
+              var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
+              var m = det.match(/#\s*(\d+)/);
+              if (m) return m[1];
+              return "";
+            }
+
+            function parseEndWithinFromRow(row) {
+              var endRaw = String(getValue(row, ["Game Seconds End", "GameSecondsEnd", "End Game Seconds", "EndGameSeconds"]) || "").trim();
+              var endWithin = null;
+              if (endRaw && endRaw.match(/^-?\d+$/)) {
+                endWithin = parseInt(endRaw, 10);
+              } else {
+                endWithin = parseTimeToSecondsLoose(getValue(row, ["Game Time End", "GameTimeEnd", "End Time", "EndTime"]));
+              }
+              if (endWithin !== null && isFinite(endWithin) && endWithin > 1500) {
+                var endAlt = parseTimeToSecondsLoose(getValue(row, ["Game Time End", "GameTimeEnd", "End Time", "EndTime"]));
+                if (endAlt !== null && isFinite(endAlt)) endWithin = endAlt;
+                if (endWithin !== null && isFinite(endWithin) && endWithin > 1500) return null;
+              }
+              return endWithin !== null && isFinite(endWithin) ? endWithin : null;
+            }
+
+	            for (var i = 0; i < eventsRows.length; i++) {
+	              var r = eventsRows[i] || {};
+	              r.__rowIndex = i;
+	              var period = parsePeriod(getValue(r, ["Period"]));
+	              if (period === null) continue;
 
               var gs = String(getValue(r, ["Game Seconds", "GameSeconds"]) || "").trim();
               var tWithin = null;
               if (gs && gs.match(/^-?\d+$/)) {
                 tWithin = parseInt(gs, 10);
               } else {
-                tWithin = parseTimeToSeconds(getValue(r, ["Game Time", "GameTime", "Time"]));
+                tWithin = parseTimeToSecondsLoose(getValue(r, ["Game Time", "GameTime", "Time"]));
+              }
+              if (tWithin !== null && isFinite(tWithin) && tWithin > 1500) {
+                var tAlt = parseTimeToSecondsLoose(getValue(r, ["Game Time", "GameTime", "Time"]));
+                if (tAlt !== null && isFinite(tAlt)) tWithin = tAlt;
+                if (tWithin !== null && isFinite(tWithin) && tWithin > 1500) continue;
               }
               if (tWithin === null || !isFinite(tWithin)) continue;
               if (tWithin < 0) tWithin = 0;
@@ -600,6 +923,27 @@
 
               var side = parseSide(r);
               var ik = typeKey(label);
+              var ll = String(label).trim().toLowerCase();
+              if (ll === "penalty expired") {
+                penaltyEnds.push({
+                  period: period,
+                  tWithin: tWithin,
+                  side: side,
+                  jersey: extractPenaltyJersey(r),
+                  row: r,
+                });
+                continue; // don't draw an icon for expiry markers
+              }
+              if (ll === "penalty") {
+                penaltyStarts.push({
+                  period: period,
+                  tWithin: tWithin,
+                  side: side,
+                  jersey: extractPenaltyJersey(r),
+                  endWithin: parseEndWithinFromRow(r),
+                  row: r,
+                });
+              }
               parsed.push({
                 period: period,
                 tWithin: tWithin,
@@ -610,7 +954,7 @@
                 row: r,
               });
             }
-            if (parsed.length === 0) return;
+            if (parsed.length === 0 && spans.length === 0) return;
 
             // Suppress Shot/SOG/xG/Goal duplicates at the same instant and side (show best icon).
             var bestFinishByKey = {};
@@ -649,8 +993,23 @@
               }
             }
             maxPeriod = Math.max(3, maxPeriod);
-            // Heuristic: if times exceed a single period length, treat as absolute game seconds.
-            var looksAbsolute = maxWithinAll > 1500;
+            // Heuristic: treat times as absolute game seconds only when periods look like
+            // disjoint, increasing time ranges (avoids a single bad row collapsing all periods).
+            var looksAbsolute = (function () {
+              if (maxPeriod <= 1) return false;
+              var comparisons = 0;
+              var jumps = 0;
+              for (var pAbs = 2; pAbs <= maxPeriod; pAbs++) {
+                if (minWithinByPeriod[pAbs] === undefined) continue;
+                if (maxWithinByPeriod[pAbs - 1] === undefined) continue;
+                comparisons++;
+                if (minWithinByPeriod[pAbs] > (maxWithinByPeriod[pAbs - 1] + 60)) jumps++;
+              }
+              if (comparisons > 0) {
+                return jumps >= Math.max(1, Math.ceil(comparisons * 0.6));
+              }
+              return maxWithinAll > 3600;
+            })();
             function roundUp(n, step) {
               if (!isFinite(n) || n <= 0) return 0;
               return Math.ceil(n / step) * step;
@@ -690,32 +1049,326 @@
             for (var p2 = 0; p2 < durations.length; p2++) offsets.push(offsets[p2] + durations[p2]);
             var totalDuration = offsets[offsets.length - 1] || 1;
 
-            // Infer whether times are elapsed or remaining (per period); only used for non-absolute mode.
+            // Hockey game clocks typically count DOWN within each period ("remaining" time).
+            // Use that convention for timeline placement so events flow left-to-right in game order
+            // (i.e., decreasing Game Time from left to right).
+            //
+            // Note: earlier heuristics attempted to infer elapsed-vs-remaining per period, but that
+            // can flip in periods that only have late events, which makes a period appear reversed.
             var timeModeByPeriod = {};
             if (!looksAbsolute) {
               for (var pInf = 1; pInf <= maxPeriod; pInf++) {
-                var dInf = durations[pInf - 1] || 1200;
-                var nearZero = 0;
-                var nearHigh = 0;
-                var count = 0;
-                for (var z0 = 0; z0 < filtered.length; z0++) {
-                  if (filtered[z0].period !== pInf) continue;
-                  var tt = filtered[z0].tWithin;
-                  if (!isFinite(tt)) continue;
-                  count++;
-                  if (tt <= 120) nearZero++;
-                  if (tt >= dInf - 120) nearHigh++;
-                }
-                if (count < 5) {
-                  timeModeByPeriod[pInf] = "elapsed";
-                } else {
-                  timeModeByPeriod[pInf] = nearHigh > nearZero ? "remaining" : "elapsed";
-                }
+                timeModeByPeriod[pInf] = "remaining";
               }
             }
 
+            // Infer PP/PK spans from penalty windows: only when penalty counts differ (4v4 etc -> no span).
+            spans = [];
+	            (function inferSpansFromPenalties() {
+	              if (!penaltyStarts.length) return;
+
+	              var startsByPS = {};
+	              var endsByPS = {};
+	              var penaltyWindowsByPS = {};
+	              var goalsByPeriod = {};
+
+	              function keyPS(p, s) { return String(p) + "|" + String(s); }
+
+	              for (var g0 = 0; g0 < filtered.length; g0++) {
+	                var evg = filtered[g0];
+	                if (!evg || evg.iconKey !== "goal") continue;
+	                var p0 = evg.period;
+	                var el = withinToElapsed(p0, evg.tWithin);
+	                if (!isFinite(el)) continue;
+	                if (!goalsByPeriod[p0]) goalsByPeriod[p0] = [];
+	                goalsByPeriod[p0].push({ elapsed: el, side: evg.side });
+	              }
+	              for (var gp in goalsByPeriod) {
+	                if (!Object.prototype.hasOwnProperty.call(goalsByPeriod, gp)) continue;
+	                goalsByPeriod[gp].sort(function (a, b) { return a.elapsed - b.elapsed; });
+	              }
+
+	              function parsePenaltyMinutes(row) {
+	                var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
+	                var m = det.match(/\b(\d+)\s*m\b/i);
+	                if (m) {
+	                  var v = parseInt(m[1], 10);
+	                  return isFinite(v) ? v : null;
+	                }
+	                return null;
+	              }
+
+	              function parsePenaltyInfraction(row) {
+	                var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
+	                if (!det) return "";
+	                det = det.replace(/^Expired\b\s*/i, "");
+	                det = det.replace(/#\s*\d+\s*/g, "");
+	                det = det.replace(/\b\d+\s*m\b/gi, "");
+	                det = det.replace(/\(\s*end\s+[^\)]+\)/gi, "");
+	                det = det.replace(/\s+/g, " ").trim();
+	                return det;
+	              }
+
+	              function findGoalNear(period, otherSide, elapsed, tolS) {
+	                tolS = tolS || 2.0;
+	                var arr = goalsByPeriod[period] || [];
+	                for (var i = 0; i < arr.length; i++) {
+	                  var g = arr[i];
+	                  if (g.side !== otherSide) continue;
+	                  if (Math.abs(g.elapsed - elapsed) <= tolS) return true;
+	                }
+	                return false;
+	              }
+
+                function firstGoalBetween(period, otherSide, aEl, bEl) {
+                  var arr = goalsByPeriod[period] || [];
+                  for (var i = 0; i < arr.length; i++) {
+                    var g = arr[i];
+                    if (g.side !== otherSide) continue;
+                    if (g.elapsed >= aEl - 0.5 && g.elapsed <= bEl + 0.5) return g.elapsed;
+                  }
+                  return null;
+                }
+
+	              for (var a0 = 0; a0 < penaltyStarts.length; a0++) {
+	                var st = penaltyStarts[a0];
+	                var k = keyPS(st.period, st.side);
+	                if (!startsByPS[k]) startsByPS[k] = [];
+                startsByPS[k].push(st);
+              }
+              for (var e0 = 0; e0 < penaltyEnds.length; e0++) {
+                var en = penaltyEnds[e0];
+                var k2 = keyPS(en.period, en.side);
+	                if (!endsByPS[k2]) endsByPS[k2] = [];
+	                endsByPS[k2].push(en);
+	              }
+
+	              function buildPenaltyWindows(period, side) {
+	                var k = keyPS(period, side);
+	                if (penaltyWindowsByPS[k]) return penaltyWindowsByPS[k];
+	                var starts = (startsByPS[k] || []).slice();
+	                var ends = (endsByPS[k] || []).slice();
+	                for (var i = 0; i < starts.length; i++) starts[i]._startElapsed = withinToElapsed(period, starts[i].tWithin);
+	                for (var j = 0; j < ends.length; j++) ends[j]._endElapsed = withinToElapsed(period, ends[j].tWithin);
+	                starts.sort(function (a, b) { return a._startElapsed - b._startElapsed; });
+	                ends.sort(function (a, b) { return a._endElapsed - b._endElapsed; });
+
+	                var used = {};
+	                var wins = [];
+
+	                function firstUnusedEnd(afterElapsed, jersey) {
+	                  for (var k0 = 0; k0 < ends.length; k0++) {
+	                    if (used[k0]) continue;
+                    if (ends[k0]._endElapsed < afterElapsed) continue;
+                    if (jersey && ends[k0].jersey && String(ends[k0].jersey) !== String(jersey)) continue;
+                    used[k0] = true;
+                    return ends[k0];
+                  }
+                  return null;
+                }
+
+	                var d = durations[period - 1] || 1200;
+	                for (var s0 = 0; s0 < starts.length; s0++) {
+	                  var st = starts[s0];
+	                  var a = st._startElapsed;
+	                  var b = null;
+	                  var endWithin = null;
+	                  var endRow = null;
+	                  var pRow = st.row || {};
+	                  var minutes = parsePenaltyMinutes(pRow);
+	                  var affectsManpower = minutes === 2;
+	                  if (st.endWithin !== null && isFinite(st.endWithin)) {
+	                    b = withinToElapsed(period, st.endWithin);
+	                    endWithin = st.endWithin;
+	                  } else {
+	                    var match = firstUnusedEnd(a, st.jersey || "");
+	                    if (!match && (st.jersey || "")) match = firstUnusedEnd(a, "");
+	                    if (match) {
+	                      b = match._endElapsed;
+	                      endWithin = match.tWithin;
+	                      endRow = match.row || null;
+	                    }
+	                  }
+	                  if ((b === null || !isFinite(b)) && minutes !== null) {
+	                    b = a + minutes * 60;
+	                    endWithin = elapsedToWithin(period, b);
+	                  }
+	                  if (b === null || !isFinite(b)) continue;
+	                  var lo = Math.max(0, Math.min(d, Math.min(a, b)));
+	                  var hi = Math.max(0, Math.min(d, Math.max(a, b)));
+	                  if (hi <= lo) continue;
+	                  var infraction = parsePenaltyInfraction(pRow);
+	                  var player = String(getValue(pRow, ["Attributed Players", "Player", "Name"]) || "").trim();
+	                  var jersey = String(st.jersey || extractPenaltyJersey(pRow) || "").trim();
+	                  var expectedEnd = minutes !== null ? (lo + minutes * 60) : null;
+	                  var reason = "";
+	                  if (minutes !== null && expectedEnd !== null) {
+	                    var otherSide2 = side === "Home" ? "Away" : "Home";
+	                    var desiredHi = Math.min(d, expectedEnd);
+	                    if (affectsManpower) {
+	                      var gEnd = firstGoalBetween(period, otherSide2, lo, desiredHi);
+	                      if (gEnd !== null && isFinite(gEnd) && gEnd < desiredHi - 0.1) desiredHi = Math.max(lo, Math.min(d, gEnd));
+	                    }
+	                    if (Math.abs((hi - lo) - minutes * 60) > 5) {
+	                      hi = desiredHi;
+	                      endWithin = elapsedToWithin(period, hi);
+	                    }
+	                  }
+	                  if (minutes !== null && expectedEnd !== null) {
+	                    if (Math.abs(hi - expectedEnd) <= 2) {
+	                      reason = "Timed out";
+	                    } else if (hi < expectedEnd - 2) {
+	                      var otherSide = side === "Home" ? "Away" : "Home";
+	                      if (findGoalNear(period, otherSide, hi, 2.0)) {
+	                        reason = "Ended by goal";
+	                      } else if (hi >= d - 1) {
+	                        reason = period === maxPeriod ? "End of game" : "End of period";
+	                      } else {
+	                        reason = "Ended early";
+	                      }
+	                    } else if (hi >= d - 1) {
+	                      reason = period === maxPeriod ? "End of game" : "End of period";
+	                    }
+	                  } else if (hi >= d - 1) {
+	                    reason = period === maxPeriod ? "End of game" : "End of period";
+	                  }
+	                  var startLabel = secondsToLabel(st.tWithin);
+	                  var endLabel = endWithin !== null && isFinite(endWithin) ? secondsToLabel(endWithin) : secondsToLabel(elapsedToWithin(period, hi));
+	                  var lineParts = [];
+	                  if (jersey) lineParts.push("#" + jersey);
+	                  if (player) lineParts.push(player);
+	                  if (infraction) lineParts.push("— " + infraction);
+	                  if (minutes !== null) lineParts.push("(" + minutes + "m)");
+	                  lineParts.push(startLabel + "–" + endLabel);
+	                  lineParts.push("dur " + secondsToLabel(Math.max(0, hi - lo)));
+	                  if (reason) lineParts.push("[" + reason + "]");
+	                  wins.push({
+	                    period: period,
+	                    side: side,
+	                    lo: lo,
+	                    hi: hi,
+	                    startWithin: st.tWithin,
+	                    endWithin: endWithin,
+	                    affectsManpower: affectsManpower,
+	                    row: pRow,
+	                    endRow: endRow,
+	                    line: lineParts.join(" "),
+	                  });
+	                }
+	                penaltyWindowsByPS[k] = wins;
+	                return wins;
+	              }
+
+	              function buildIntervals(period, side) {
+	                var wins = buildPenaltyWindows(period, side);
+	                var ints = [];
+	                for (var i = 0; i < wins.length; i++) {
+	                  if (!wins[i].affectsManpower) continue;
+	                  ints.push([wins[i].lo, wins[i].hi]);
+	                }
+	                return ints;
+	              }
+
+	              function penaltiesTextForSpan(period, penalizedSide, aEl, bEl) {
+	                var wins = buildPenaltyWindows(period, penalizedSide) || [];
+	                var lines = [];
+	                for (var i = 0; i < wins.length; i++) {
+	                  var w = wins[i];
+	                  if (!w.affectsManpower) continue;
+	                  if (w.lo < bEl && w.hi > aEl) lines.push(w.line);
+	                }
+	                return lines.join("\\n");
+	              }
+
+	              function countActive(ints, t) {
+	                var c = 0;
+                for (var i = 0; i < ints.length; i++) {
+                  if (ints[i][0] <= t && t < ints[i][1]) c++;
+                }
+                return c;
+              }
+
+              for (var p = 1; p <= maxPeriod; p++) {
+                if (looksAbsolute) continue; // spans only supported in within-period mode
+                var d = durations[p - 1] || 1200;
+                var forInts = buildIntervals(p, "Home");
+                var againstInts = buildIntervals(p, "Away");
+                if (!forInts.length && !againstInts.length) continue;
+
+                var boundsObj = { 0: true };
+                boundsObj[String(d)] = true;
+                for (var ii = 0; ii < forInts.length; ii++) { boundsObj[String(forInts[ii][0])] = true; boundsObj[String(forInts[ii][1])] = true; }
+                for (var jj = 0; jj < againstInts.length; jj++) { boundsObj[String(againstInts[jj][0])] = true; boundsObj[String(againstInts[jj][1])] = true; }
+                var bounds = Object.keys(boundsObj).map(function (x) { return parseFloat(x); });
+                bounds.sort(function (a, b) { return a - b; });
+                if (bounds.length < 2) continue;
+
+                for (var bi = 0; bi < bounds.length - 1; bi++) {
+                  var a0 = bounds[bi];
+                  var b0 = bounds[bi + 1];
+                  if (b0 <= a0) continue;
+                  var mid = (a0 + b0) / 2.0;
+                  var forPen = countActive(forInts, mid);
+                  var againstPen = countActive(againstInts, mid);
+                  if (forPen === againstPen) continue;
+	                  var forSk = Math.max(3, 5 - forPen);
+	                  var againstSk = Math.max(3, 5 - againstPen);
+	                  var penalizedSide = forPen < againstPen ? "Away" : "Home";
+	                  var penaltiesText = penaltiesTextForSpan(p, penalizedSide, a0, b0);
+	                  if (forPen < againstPen) {
+	                    spans.push({
+	                      period: p,
+	                      startWithin: elapsedToWithin(p, a0),
+	                      endWithin: elapsedToWithin(p, b0),
+	                      typeLabel: "Power Play",
+	                      iconKey: "pp",
+	                      laneKey: "special_teams",
+	                      side: "Home",
+	                      row: { Details: forSk + "v" + againstSk },
+	                      penaltiesText: penaltiesText,
+	                    });
+	                    spans.push({
+	                      period: p,
+	                      startWithin: elapsedToWithin(p, a0),
+	                      endWithin: elapsedToWithin(p, b0),
+	                      typeLabel: "Penalty Kill",
+	                      iconKey: "pk",
+	                      laneKey: "special_teams",
+	                      side: "Away",
+	                      row: { Details: againstSk + "v" + forSk },
+	                      penaltiesText: penaltiesText,
+	                    });
+	                  } else {
+	                    spans.push({
+	                      period: p,
+	                      startWithin: elapsedToWithin(p, a0),
+	                      endWithin: elapsedToWithin(p, b0),
+	                      typeLabel: "Power Play",
+	                      iconKey: "pp",
+	                      laneKey: "special_teams",
+	                      side: "Away",
+	                      row: { Details: againstSk + "v" + forSk },
+	                      penaltiesText: penaltiesText,
+	                    });
+	                    spans.push({
+	                      period: p,
+	                      startWithin: elapsedToWithin(p, a0),
+	                      endWithin: elapsedToWithin(p, b0),
+	                      typeLabel: "Penalty Kill",
+	                      iconKey: "pk",
+	                      laneKey: "special_teams",
+	                      side: "Home",
+	                      row: { Details: forSk + "v" + againstSk },
+	                      penaltiesText: penaltiesText,
+	                    });
+	                  }
+	                }
+	              }
+            })();
+
             // Determine type ordering and side-specific row maps.
             var laneOrder = [
+              "special_teams",
               "finish",
               "transition",
               "odd_man_rush",
@@ -727,6 +1380,7 @@
             ];
             var iconOrder = [
               "goal",
+              "penalty",
               "xg",
               "sog",
               "shot",
@@ -764,11 +1418,20 @@
             var seenAgainst = {};
             for (var t0 = 0; t0 < filtered.length; t0++) {
               var e1 = filtered[t0];
-              if (e1.side === "For" && !seenFor[e1.laneKey]) {
+              if (e1.side === "Home" && !seenFor[e1.laneKey]) {
                 seenFor[e1.laneKey] = true;
               }
-              if (e1.side === "Against" && !seenAgainst[e1.laneKey]) {
+              if (e1.side === "Away" && !seenAgainst[e1.laneKey]) {
                 seenAgainst[e1.laneKey] = true;
+              }
+            }
+            for (var t1 = 0; t1 < spans.length; t1++) {
+              var s1 = spans[t1];
+              if (s1.side === "Home" && !seenFor[s1.laneKey]) {
+                seenFor[s1.laneKey] = true;
+              }
+              if (s1.side === "Away" && !seenAgainst[s1.laneKey]) {
+                seenAgainst[s1.laneKey] = true;
               }
             }
             for (var u = 0; u < laneOrder.length; u++) {
@@ -805,19 +1468,43 @@
               legendEl.appendChild(item);
             }
 
+            // Add legend markers for PP/PK spans when present.
+            var hasPP = false;
+            var hasPK = false;
+            for (var si = 0; si < spans.length; si++) {
+              if (spans[si].iconKey === "pp") hasPP = true;
+              if (spans[si].iconKey === "pk") hasPK = true;
+            }
+            function addSpanLegend(label, color) {
+              var item = document.createElement("div");
+              item.className = "events-timeline-legend-item";
+              var iconSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+              iconSvg.setAttribute("viewBox", "0 0 24 24");
+              iconSvg.setAttribute("aria-hidden", "true");
+              iconSvg.style.width = iconSize + "px";
+              iconSvg.style.height = iconSize + "px";
+              iconSvg.appendChild(svgEl("line", { x1: 2, y1: 12, x2: 22, y2: 12, stroke: color, "stroke-width": 5, "stroke-linecap": "round" }));
+              var labelSpan = document.createElement("span");
+              labelSpan.appendChild(document.createTextNode(label));
+              item.appendChild(iconSvg);
+              item.appendChild(labelSpan);
+              legendEl.appendChild(item);
+            }
+            if (hasPP) addSpanLegend("Power Play", "#22c55e");
+            if (hasPK) addSpanLegend("Penalty Kill", "#ef4444");
+
             // Layout
             var minW = isMobile ? 840 : 900;
             var containerW = svg.parentElement ? svg.parentElement.clientWidth : 0;
             var W = Math.max(minW, containerW || minW);
             var leftPad = 16;
             var rightPad = 16;
-            var topPad = 10;
-            var bottomPad = 14;
+            var topPad = 10 + 18;
+            var bottomPad = 14 + 18;
             var axisGap = isMobile ? 12 : 10;
             var rowSpacing = iconSize + (isMobile ? 14 : 12);
-            var labelH = 18;
             var axisY = topPad + typesFor.length * rowSpacing + axisGap;
-            var H = axisY + axisGap + typesAgainst.length * rowSpacing + labelH + bottomPad;
+            var H = axisY + axisGap + typesAgainst.length * rowSpacing + bottomPad;
             if (H < 90) H = 90;
 
             svg.setAttribute("viewBox", "0 0 " + W + " " + H);
@@ -836,6 +1523,15 @@
               if (elapsed < 0) elapsed = 0;
               if (elapsed > d) elapsed = d;
               return elapsed;
+            }
+            function elapsedToWithin(period, elapsed) {
+              var d = durations[period - 1] || 1200;
+              var mode = timeModeByPeriod[period] || "elapsed";
+              var tWithin = mode === "remaining" ? d - elapsed : elapsed;
+              if (!isFinite(tWithin)) tWithin = 0;
+              if (tWithin < 0) tWithin = 0;
+              if (tWithin > d) tWithin = d;
+              return tWithin;
             }
             function xForTime(period, tWithin) {
               var t = looksAbsolute ? tWithin : (offsets[period - 1] || 0) + withinToElapsed(period, tWithin);
@@ -868,31 +1564,31 @@
               })
             );
 
-            // For/Against labels
+            // Home/Away labels (outside the row regions so they never overlap icons)
             if (typesFor.length > 0) {
               var forText = svgEl("text", {
                 x: leftPad,
-                y: topPad + 12,
+                y: topPad - 6,
                 fill: "rgba(255,255,255,0.75)",
                 "font-size": 12,
                 "font-weight": 800,
                 "text-anchor": "start",
                 "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
               });
-              forText.appendChild(document.createTextNode("For"));
+              forText.appendChild(document.createTextNode("Home — " + (homeTeamName || "Home")));
               svg.appendChild(forText);
             }
             if (typesAgainst.length > 0) {
               var againstText = svgEl("text", {
                 x: leftPad,
-                y: axisY + axisGap + 12,
+                y: H - bottomPad + 14,
                 fill: "rgba(255,255,255,0.75)",
                 "font-size": 12,
                 "font-weight": 800,
                 "text-anchor": "start",
                 "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial",
               });
-              againstText.appendChild(document.createTextNode("Against"));
+              againstText.appendChild(document.createTextNode("Away — " + (awayTeamName || "Away")));
               svg.appendChild(againstText);
             }
 
@@ -945,30 +1641,138 @@
               return 0;
             });
 
+            // Enable clip-length control when at least one event has a video time.
+            var hasAnyVideo = false;
+            var isTouchDevice = (function () {
+              try {
+                if (window.matchMedia && window.matchMedia("(hover: none)").matches) return true;
+              } catch (e) {}
+              try {
+                return ("ontouchstart" in window) || (navigator && navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+              } catch (e) {
+                return false;
+              }
+            })();
+            try {
+              for (var vi = 0; vi < eventsRows.length; vi++) {
+                var vrow = eventsRows[vi] || {};
+                var vs = parseVideoSecondsFromRow(vrow);
+                if (vs !== null && isFinite(vs)) { hasAnyVideo = true; break; }
+              }
+            } catch (e) {}
+		            if (clipControlsEl && clipLenEl && gameVideoUrl && hasAnyVideo) {
+		              clipControlsEl.style.display = "flex";
+		              try {
+		                var sv = null;
+		                if (userClipLenS === 15 || userClipLenS === 20 || userClipLenS === 30 || userClipLenS === 45 || userClipLenS === 60 || userClipLenS === 90) {
+		                  sv = userClipLenS;
+		                } else {
+		                  var saved = localStorage.getItem("hm_clip_len_s");
+		                  if (saved) {
+		                    var lv = parseInt(String(saved), 10);
+		                    if (lv === 15 || lv === 20 || lv === 30 || lv === 45 || lv === 60 || lv === 90) sv = lv;
+		                  }
+		                }
+		                if (sv === 15 || sv === 20 || sv === 30 || sv === 45 || sv === 60 || sv === 90) clipLenEl.value = String(sv);
+		              } catch (e) {}
+		              if (clipLenEl) {
+		                clipLenEl.addEventListener("change", function () {
+		                  var v = 30;
+		                  try { v = parseInt(String(clipLenEl.value || "30"), 10); } catch (e) { v = 30; }
+		                  if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
+		                  if (!userIsLoggedIn) {
+		                    try { localStorage.setItem("hm_clip_len_s", String(v)); } catch (e) {}
+		                    return;
+		                  }
+                  try {
+                    fetch("/api/user/video_clip_len", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ clip_len_s: v }),
+                      credentials: "same-origin",
+                    })
+                      .then(function (r) { return r.json().catch(function () { return {}; }); })
+                      .then(function (j) { if (j && j.ok) userClipLenS = v; })
+                      .catch(function () {});
+                  } catch (e) {}
+                });
+              }
+            }
+
             var wrapEl = svg.parentElement || null;
             var tooltipEl = wrapEl ? wrapEl.querySelector(".events-timeline-tooltip") : null;
+            var tooltipHideTimer = null;
             if (wrapEl && !tooltipEl) {
               tooltipEl = document.createElement("div");
               tooltipEl.className = "events-timeline-tooltip";
               tooltipEl.style.display = "none";
-              wrapEl.appendChild(tooltipEl);
-              wrapEl.addEventListener("mouseleave", function () {
-                if (tooltipEl) tooltipEl.style.display = "none";
-                if (tooltipEl) tooltipEl.dataset.pinned = "0";
+              // Append to <body> and use `position: fixed` so the tooltip is never clipped by
+              // the timeline scroll container (common on mobile when the timeline is partially off-screen).
+              try { document.body.appendChild(tooltipEl); } catch (e) { wrapEl.appendChild(tooltipEl); }
+              tooltipEl.dataset.pinned = "0";
+              tooltipEl.dataset.hovering = "0";
+              tooltipEl.addEventListener("mouseenter", function () {
+                tooltipEl.dataset.hovering = "1";
               });
+              tooltipEl.addEventListener("mouseleave", function () {
+                tooltipEl.dataset.hovering = "0";
+                if (tooltipEl.dataset.pinned !== "1") tooltipEl.style.display = "none";
+              });
+              ["click", "mousedown", "touchstart", "pointerdown"].forEach(function (evt) {
+                tooltipEl.addEventListener(evt, function (e) {
+                  // Prevent underlying SVG icons from receiving the interaction.
+                  e.stopPropagation();
+                });
+              });
+              wrapEl.addEventListener("mouseleave", function () {
+                if (!tooltipEl) return;
+                if (tooltipEl.dataset.pinned === "1") return;
+                scheduleHideTooltip();
+              });
+              wrapEl.addEventListener("scroll", function () {
+                if (!tooltipEl) return;
+                tooltipEl.style.display = "none";
+                tooltipEl.dataset.pinned = "0";
+              }, { passive: true });
+              window.addEventListener("scroll", function () {
+                if (!tooltipEl) return;
+                tooltipEl.style.display = "none";
+                tooltipEl.dataset.pinned = "0";
+              }, { passive: true });
               document.addEventListener("click", function (e) {
                 if (!tooltipEl || tooltipEl.style.display === "none") return;
                 if (tooltipEl.dataset.pinned !== "1") return;
+                if (tooltipEl && tooltipEl.contains(e.target)) return;
                 if (wrapEl && wrapEl.contains(e.target)) return;
                 tooltipEl.style.display = "none";
                 tooltipEl.dataset.pinned = "0";
               });
             }
 
+            function scheduleHideTooltip() {
+              if (!tooltipEl) return;
+              if (tooltipHideTimer) clearTimeout(tooltipHideTimer);
+              tooltipHideTimer = setTimeout(function () {
+                if (!tooltipEl) return;
+                if (tooltipEl.dataset.pinned === "1") return;
+                if (tooltipEl.dataset.hovering === "1") return;
+                tooltipEl.style.display = "none";
+              }, 140);
+            }
+
+            function isDoubleTap(el) {
+              var now = Date.now();
+              var last = 0;
+              try { last = parseInt(String(el.getAttribute("data-last-tap") || "0"), 10) || 0; } catch (e) { last = 0; }
+              el.setAttribute("data-last-tap", String(now));
+              return last && (now - last) <= 350;
+            }
+
             function setTooltipContent(ev) {
               if (!tooltipEl) return;
               while (tooltipEl.firstChild) tooltipEl.removeChild(tooltipEl.firstChild);
 
+              var atTxt = "";
               var header = document.createElement("div");
               header.className = "events-timeline-tooltip-header";
 
@@ -988,13 +1792,21 @@
               header.appendChild(title);
               tooltipEl.appendChild(header);
 
-              var meta = document.createElement("div");
-              meta.className = "events-timeline-tooltip-meta";
-              var pLabel = ev.period === 4 ? "OT" : "P" + ev.period;
-              var timeTxt = String(getValue(ev.row, ["Game Time", "GameTime", "Time"]) || "").trim();
-              if (!timeTxt) timeTxt = secondsToLabel(ev.tWithin);
-              meta.appendChild(document.createTextNode(pLabel + " @ " + timeTxt));
-              tooltipEl.appendChild(meta);
+	              var meta = document.createElement("div");
+	              meta.className = "events-timeline-tooltip-meta";
+	              var pLabel = ev.period === 4 ? "OT" : "P" + ev.period;
+	              if (ev.startWithin !== undefined && ev.endWithin !== undefined && ev.startWithin !== null && ev.endWithin !== null) {
+	                atTxt = pLabel + " " + secondsToLabel(ev.startWithin);
+	                meta.appendChild(
+	                  document.createTextNode(pLabel + " " + secondsToLabel(ev.startWithin) + "–" + secondsToLabel(ev.endWithin))
+	                );
+	              } else {
+	                var timeTxt = String(getValue(ev.row, ["Game Time", "GameTime", "Time"]) || "").trim();
+	                if (!timeTxt) timeTxt = secondsToLabel(ev.tWithin);
+	                atTxt = pLabel + " " + timeTxt;
+	                meta.appendChild(document.createTextNode(pLabel + " @ " + timeTxt));
+	              }
+	              tooltipEl.appendChild(meta);
 
               function addLine(label, v) {
                 var s = String(v || "").trim();
@@ -1027,41 +1839,207 @@
                 tooltipEl.appendChild(line);
               }
 
-              addLine("Players", getValue(ev.row, ["Attributed Players"]));
-              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
-              addMultiline("On-Ice", getValue(ev.row, ["On-Ice Players"]));
-            }
+              function addSectionBlock(label, v) {
+                var items = splitList(v);
+                if (!items.length) return;
+                var wrap = document.createElement("div");
+                wrap.className = "events-timeline-tooltip-section";
+                var lab = document.createElement("div");
+                lab.className = "events-timeline-tooltip-section-label";
+                lab.textContent = String(label || "").trim() || "";
+                wrap.appendChild(lab);
+                var body = document.createElement("div");
+                body.className = "events-timeline-tooltip-line events-timeline-tooltip-pre";
+                var text = items.join("\n");
+                if (text.length > 700) text = text.slice(0, 697) + "...";
+                body.textContent = text;
+                wrap.appendChild(body);
+                tooltipEl.appendChild(wrap);
+              }
+
+	              addLine("Players", getValue(ev.row, ["Attributed Players"]));
+	              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
+	              addLine("Details", getValue(ev.row, ["Details"]));
+	              (function () {
+	                var onIceHome = getValue(ev.row, ["On-Ice Players (Home)", "On-Ice Home", "OnIceHome"]);
+	                var onIceAway = getValue(ev.row, ["On-Ice Players (Away)", "On-Ice Away", "OnIceAway"]);
+	                var onIceLegacy = getValue(ev.row, ["On-Ice Players", "OnIcePlayers"]);
+	                var hasSplit = String(onIceHome || "").trim() || String(onIceAway || "").trim();
+	                if (!hasSplit) {
+	                  addSectionBlock("On-Ice", onIceLegacy);
+	                  return;
+	                }
+	                var homeLabel = "On-Ice (Home — " + (homeTeamName || "Home") + ")";
+	                var awayLabel = "On-Ice (Away — " + (awayTeamName || "Away") + ")";
+	                if (String(ev.side || "") === "Away") {
+	                  addSectionBlock(awayLabel, onIceAway);
+	                  addSectionBlock(homeLabel, onIceHome);
+	                } else {
+	                  addSectionBlock(homeLabel, onIceHome);
+	                  addSectionBlock(awayLabel, onIceAway);
+	                }
+	              })();
+	              if (ev.penaltiesText) addMultiline("Penalties", ev.penaltiesText);
+
+                // Action buttons (mobile-friendly: tap icon to show tooltip, then press Video).
+                try {
+                  if (gameVideoUrl && videoPane && videoIframe) {
+                    var vs3 = parseVideoSecondsFromRow(ev.row || {});
+                    if (vs3 !== null && isFinite(vs3)) {
+                      var actions = document.createElement("div");
+                      actions.className = "events-timeline-tooltip-line";
+                      actions.style.marginTop = "0.35rem";
+                      var btn = document.createElement("button");
+                      btn.type = "button";
+                      btn.className = "btn secondary";
+                      btn.textContent = "Video";
+                      btn.style.padding = ".35rem .6rem";
+                      btn.style.borderRadius = "10px";
+                      btn.addEventListener("click", function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        openVideoClipForRow(ev.row || {}, { label: ev.typeLabel, at: atTxt });
+                      });
+                      actions.appendChild(btn);
+                      tooltipEl.appendChild(actions);
+                    }
+                  }
+                } catch (e) {}
+	            }
 
             function positionTooltip(clientX, clientY) {
-              if (!tooltipEl || !wrapEl) return;
-              var wrapRect = wrapEl.getBoundingClientRect();
-              var x = clientX - wrapRect.left + wrapEl.scrollLeft;
-              var y = clientY - wrapRect.top + wrapEl.scrollTop;
+              if (!tooltipEl) return;
+              var x = clientX;
+              var y = clientY;
               tooltipEl.style.display = "block";
               tooltipEl.style.left = x + "px";
               tooltipEl.style.top = y + "px";
+              try {
+                var mh = Math.max(80, Math.floor((window.innerHeight || 0) * 0.70));
+                if (isFinite(mh) && mh > 0) {
+                  tooltipEl.style.maxHeight = mh + "px";
+                  tooltipEl.style.overflowY = "auto";
+                  tooltipEl.style.webkitOverflowScrolling = "touch";
+                }
+              } catch (e) {}
               // Clamp after layout.
               var tw = tooltipEl.offsetWidth || 0;
               var th = tooltipEl.offsetHeight || 0;
-              var maxX = wrapEl.scrollLeft + wrapEl.clientWidth - 8;
-              var maxY = wrapEl.scrollTop + wrapEl.clientHeight - 8;
-              var left = Math.min(Math.max(wrapEl.scrollLeft + 8, x + 12), maxX - tw);
-              var top = Math.min(Math.max(wrapEl.scrollTop + 8, y + 12), maxY - th);
+              var maxX = (window.innerWidth || 0) - 8;
+              var maxY = (window.innerHeight || 0) - 8;
+              var left = Math.min(Math.max(8, x + 12), maxX - tw);
+              // Prefer showing below the cursor/tap; if it would overflow, flip above.
+              var preferredTop = y + 12;
+              if (preferredTop + th + 8 > (window.innerHeight || 0)) {
+                preferredTop = y - 12 - th;
+              }
+              var top = Math.min(Math.max(8, preferredTop), maxY - th);
               tooltipEl.style.left = left + "px";
               tooltipEl.style.top = top + "px";
             }
 
             var countsByKey = {};
+
+            // Draw PP/PK spans (behind icons).
+            function spanDrawY(side, laneKeyValue) {
+              var y = axisY;
+              if (side === "Home") {
+                var iy = yIndexFor[laneKeyValue];
+                if (iy === undefined) return null;
+                return axisY - axisGap - (iy + 0.5) * rowSpacing;
+              } else if (side === "Away") {
+                var ia = yIndexAgainst[laneKeyValue];
+                if (ia === undefined) return null;
+                return axisY + axisGap + (ia + 0.5) * rowSpacing;
+              }
+              return null;
+            }
+	            for (var sp = 0; sp < spans.length; sp++) {
+	              var sEv = spans[sp];
+	              var yS = spanDrawY(sEv.side, sEv.laneKey);
+	              if (yS === null) continue;
+	              var x1 = xForTime(sEv.period, sEv.startWithin);
+	              var x2 = xForTime(sEv.period, sEv.endWithin);
+	              var xa = Math.min(x1, x2);
+	              var xb = Math.max(x1, x2);
+	              if (!isFinite(xa) || !isFinite(xb) || xb <= xa) continue;
+	              var col = sEv.iconKey === "pp" ? "#22c55e" : "#ef4444";
+	              var ln = svgEl("line", { x1: xa, y1: yS, x2: xb, y2: yS, stroke: col, "stroke-width": 6, "stroke-linecap": "round", opacity: 0.85 });
+	              ln.style.cursor = "pointer";
+	              var spTitle = svgEl("title");
+	              var pLbl = sEv.period === 4 ? "OT" : "P" + sEv.period;
+	              spTitle.appendChild(document.createTextNode(sEv.typeLabel + " (" + sEv.side + ") • " + pLbl + " " + secondsToLabel(sEv.startWithin) + "–" + secondsToLabel(sEv.endWithin)));
+	              ln.appendChild(spTitle);
+	              (function (evCopy) {
+	                ln.addEventListener("mouseenter", function (e) {
+	                  if (!tooltipEl) return;
+	                  if (tooltipEl.dataset.pinned === "1") return;
+	                  setTooltipContent(evCopy);
+	                  positionTooltip(e.clientX, e.clientY);
+	                });
+	                ln.addEventListener("mousemove", function (e) {
+	                  if (!tooltipEl) return;
+	                  if (tooltipEl.dataset.pinned === "1") return;
+	                  positionTooltip(e.clientX, e.clientY);
+	                });
+	                ln.addEventListener("mouseleave", function () {
+	                  if (!tooltipEl) return;
+	                  if (tooltipEl.dataset.pinned === "1") return;
+	                  scheduleHideTooltip();
+	                });
+		                ln.addEventListener("click", function (e) {
+		                  if (isTouchDevice) {
+		                    var atTap = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
+		                    if (isDoubleTap(ln) && openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTap })) {
+		                      if (tooltipEl) {
+		                        tooltipEl.style.display = "none";
+		                        tooltipEl.dataset.pinned = "0";
+		                      }
+		                      e.stopPropagation();
+		                      return;
+		                    }
+		                  }
+		                  if (!isTouchDevice) {
+		                    var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
+		                    if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
+		                      if (tooltipEl) {
+		                        tooltipEl.style.display = "none";
+		                        tooltipEl.dataset.pinned = "0";
+		                      }
+		                      e.stopPropagation();
+		                      return;
+		                    }
+		                  }
+		                  if (!tooltipEl) return;
+		                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
+		                    tooltipEl.dataset.pinned = "1";
+		                    setTooltipContent(evCopy);
+		                    positionTooltip(e.clientX, e.clientY);
+	                  } else {
+	                    tooltipEl.style.display = "none";
+	                    tooltipEl.dataset.pinned = "0";
+	                  }
+	                  e.stopPropagation();
+	                });
+	                ln.addEventListener("dblclick", function (e) {
+	                  var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
+	                  openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt });
+	                  e.preventDefault();
+	                  e.stopPropagation();
+	                });
+	              })(sEv);
+	              svg.appendChild(ln);
+	            }
             for (var e2 = 0; e2 < drawList.length; e2++) {
               var ev3 = drawList[e2];
               var x = xForTime(ev3.period, ev3.tWithin);
 
               var y = axisY;
-              if (ev3.side === "For") {
+              if (ev3.side === "Home") {
                 var iy = yIndexFor[ev3.laneKey];
                 if (iy === undefined) continue;
                 y = axisY - axisGap - (iy + 0.5) * rowSpacing;
-              } else if (ev3.side === "Against") {
+              } else if (ev3.side === "Away") {
                 var ia = yIndexAgainst[ev3.laneKey];
                 if (ia === undefined) continue;
                 y = axisY + axisGap + (ia + 0.5) * rowSpacing;
@@ -1080,7 +2058,7 @@
 
               var title = [];
               title.push(ev3.typeLabel);
-              if (ev3.side === "For" || ev3.side === "Against") title.push(ev3.side);
+              if (ev3.side === "Home" || ev3.side === "Away") title.push(ev3.side);
               var timeTxt2 = String(getValue(ev3.row, ["Game Time", "GameTime", "Time"]) || "").trim();
               if (!timeTxt2) timeTxt2 = secondsToLabel(ev3.tWithin);
               title.push((ev3.period === 4 ? "OT" : "P" + ev3.period) + " @ " + timeTxt2);
@@ -1100,23 +2078,51 @@
                   if (tooltipEl.dataset.pinned === "1") return;
                   positionTooltip(e.clientX, e.clientY);
                 });
-                g.addEventListener("mouseleave", function () {
-                  if (!tooltipEl) return;
-                  if (tooltipEl.dataset.pinned === "1") return;
-                  tooltipEl.style.display = "none";
-                });
-                g.addEventListener("click", function (e) {
-                  if (!tooltipEl) return;
-                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
-                    tooltipEl.dataset.pinned = "1";
-                    setTooltipContent(evCopy);
-                    positionTooltip(e.clientX, e.clientY);
+	                g.addEventListener("mouseleave", function () {
+	                  if (!tooltipEl) return;
+	                  if (tooltipEl.dataset.pinned === "1") return;
+	                  scheduleHideTooltip();
+	                });
+		                g.addEventListener("click", function (e) {
+		                  if (isTouchDevice) {
+		                    var atTap = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
+		                    if (isDoubleTap(g) && openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTap })) {
+		                      if (tooltipEl) {
+		                        tooltipEl.style.display = "none";
+		                        tooltipEl.dataset.pinned = "0";
+		                      }
+		                      e.stopPropagation();
+		                      return;
+		                    }
+		                  }
+		                  if (!isTouchDevice) {
+		                    var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
+		                    if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
+		                      if (tooltipEl) {
+		                        tooltipEl.style.display = "none";
+		                        tooltipEl.dataset.pinned = "0";
+		                      }
+		                      e.stopPropagation();
+		                      return;
+		                    }
+		                  }
+		                  if (!tooltipEl) return;
+		                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
+		                    tooltipEl.dataset.pinned = "1";
+		                    setTooltipContent(evCopy);
+		                    positionTooltip(e.clientX, e.clientY);
                   } else {
                     tooltipEl.style.display = "none";
                     tooltipEl.dataset.pinned = "0";
                   }
                   e.stopPropagation();
                 });
+	                g.addEventListener("dblclick", function (e) {
+	                  var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
+	                  openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt });
+	                  e.preventDefault();
+	                  e.stopPropagation();
+	                });
               })(ev3);
 
               svg.appendChild(g);
@@ -1132,31 +2138,73 @@
 
           render();
           var resizeTimer = null;
-          window.addEventListener("resize", function () {
-            if (resizeTimer) window.clearTimeout(resizeTimer);
-            resizeTimer = window.setTimeout(render, 120);
-          });
-        })();
-      </script>
+	          window.addEventListener("resize", function () {
+	            if (resizeTimer) window.clearTimeout(resizeTimer);
+	            resizeTimer = window.setTimeout(render, 120);
+	          });
+
+	          function attachEventsTableVideoHandlers() {
+	            if (!gameVideoUrl || !videoPane || !videoIframe) return;
+	            var tbl = document.getElementById("game-events-table");
+	            if (!tbl) return;
+	            var trs = tbl.querySelectorAll("tbody tr[data-event-row-index]");
+	            for (var i = 0; i < trs.length; i++) {
+	              (function (tr) {
+	                tr.addEventListener("dblclick", function () {
+	                  var idx = parseInt(String(tr.getAttribute("data-event-row-index") || ""), 10);
+	                  if (!isFinite(idx) || idx < 0 || idx >= eventsRows.length) return;
+	                  var r = eventsRows[idx] || {};
+	                  var et = String(getValue(r, ["Event Type", "EventType", "Event", "Type"]) || "").trim();
+	                  var per = String(getValue(r, ["Period"]) || "").trim();
+	                  var gt = String(getValue(r, ["Game Time", "GameTime", "Time"]) || "").trim();
+	                  openVideoClipForRow(r, { label: et, at: (per ? ("P" + per + (gt ? (" " + gt) : "")) : "") });
+	                });
+	              })(trs[i]);
+	            }
+	          }
+	          if (document.readyState === "loading") {
+	            document.addEventListener("DOMContentLoaded", attachEventsTableVideoHandlers);
+	          } else {
+	            attachEventsTableVideoHandlers();
+	          }
+	        })();
+	      </script>
     </div>
-    <div class="table-scroll table-scroll-y">
-      <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
-        <thead>
+	    <div class="table-scroll table-scroll-y">
+	      <table id="game-events-table" class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
+	        <thead>
           <tr>
+            {% set has_home_on_ice = ('On-Ice Players (Home)' in events_headers) %}
+            {% set has_away_on_ice = ('On-Ice Players (Away)' in events_headers) %}
+            {% set has_any_split_on_ice = has_home_on_ice or has_away_on_ice %}
             {% for h in events_headers %}
-              <th>{{ h }}</th>
+              {% if h != 'Video Seconds' and h != 'VideoSeconds' and h != 'Game Seconds' and h != 'GameSeconds' and h != 'Game Seconds End' and h != 'GameSecondsEnd' %}
+                {% if has_any_split_on_ice and (h == 'On-Ice Players' or h == 'On-Ice Players (PM)') %}
+                  {# Hide legacy on-ice column when split Home/Away columns exist. #}
+                {% elif h == 'On-Ice Players (Home)' %}
+                  <th><div>On-Ice</div><div class="th-subnote">Home — {{ game['team1_name'] }}</div></th>
+                {% elif h == 'On-Ice Players (Away)' %}
+                  <th><div>On-Ice</div><div class="th-subnote">Away — {{ game['team2_name'] }}</div></th>
+                {% else %}
+                  <th>{{ h }}</th>
+                {% endif %}
+              {% endif %}
             {% endfor %}
           </tr>
         </thead>
-        <tbody>
-          {% for r in events_rows %}
-            <tr>
-              {% for h in events_headers %}
-                {% if h == 'On-Ice Players' or h == 'On-Ice Players (PM)' %}
-                  <td class="cell-pre">{{ r.get(h,'')|replace(',', '\n') }}</td>
-                {% else %}
-                  <td>{{ r.get(h,'') }}</td>
-                {% endif %}
+	        <tbody>
+	          {% for r in events_rows %}
+	            <tr data-event-row-index="{{ loop.index0 }}">
+	              {% for h in events_headers %}
+                  {% if h != 'Video Seconds' and h != 'VideoSeconds' and h != 'Game Seconds' and h != 'GameSeconds' and h != 'Game Seconds End' and h != 'GameSecondsEnd' %}
+	                  {% if has_any_split_on_ice and (h == 'On-Ice Players' or h == 'On-Ice Players (PM)') %}
+                      {# Hide legacy on-ice column when split Home/Away columns exist. #}
+	                  {% elif h == 'On-Ice Players' or h == 'On-Ice Players (PM)' or h == 'On-Ice Players (Home)' or h == 'On-Ice Players (Away)' %}
+	                    <td class="cell-pre">{{ r.get(h,'')|replace(',', '\n') }}</td>
+	                  {% else %}
+                      <td>{{ r.get(h,'') }}</td>
+                    {% endif %}
+                  {% endif %}
               {% endfor %}
             </tr>
           {% endfor %}
