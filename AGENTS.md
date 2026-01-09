@@ -23,7 +23,10 @@
   - `PYTHONPATH=$(pwd) python hmlib/cli/hmtrack.py --game-id=chicago-3 --async-post-processing=0 --async-video-out=0 --show-scaled=0.5 --camera-ui=1 --detector-trt-enable --detector-static-detections --detector-static-max-detections=800 --plot-tracking -t=5`
 
 ## Webapp Deployment Notes
-- Install via sudo: `python3 tools/webapp/install_webapp.py --watch-root /data/incoming --server-name _ --port 8008` (creates `/opt/hm-webapp/venv`, installs gunicorn/flask/pymysql, sets up `hm-webapp.service` and nginx proxy).
+- Webapp-specific agent notes live in `tools/webapp/AGENTS.md` (Flask + Django ORM, deployment, import flow, tests).
+- Install via sudo: `python3 tools/webapp/install_webapp.py --watch-root /data/incoming --server-name _ --port 8008` (creates `/opt/hm-webapp/venv`, installs gunicorn/flask/pymysql/django, sets up `hm-webapp.service` and nginx proxy).
+- Fast local redeploy: `tools/webapp/redeploy_local.sh` (copies code to `/opt/hm-webapp/app`, restarts services, verifies endpoints).
+- End-to-end local import: `./import_webapp.sh` (redeploy + reset + TimeToScore import via REST + shift spreadsheet upload).
 - DB setup: installer creates `hm_app_db` and user; ensure MariaDB is running/healthy before install. If prior DB state is corrupt, drop `hm_app_db` then rerun the installer.
 - Use the app venv for helpers: `/opt/hm-webapp/venv/bin/python tools/webapp/seed_demo.py --config /opt/hm-webapp/app/config.json --email demo@example.com --name "Demo User"` (same for reset/import scripts).
 - Watch root ownership: installer chowns the watch directory to the app user so uploads work.

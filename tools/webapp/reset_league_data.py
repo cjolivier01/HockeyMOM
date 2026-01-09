@@ -6,125 +6,57 @@ from typing import Optional
 from urllib.parse import urljoin
 
 
-def load_db_cfg(config_path: str) -> dict:
-    with open(config_path, "r", encoding="utf-8") as fh:
-        cfg = json.load(fh)
-    return cfg.get("db", {})
+def _orm_modules(*, config_path: str):
+    try:
+        from tools.webapp import django_orm  # type: ignore
+    except Exception:  # pragma: no cover
+        import django_orm  # type: ignore
+
+    django_orm.setup_django(config_path=config_path)
+    django_orm.ensure_schema()
+    try:
+        from tools.webapp.django_app import models as m  # type: ignore
+    except Exception:  # pragma: no cover
+        from django_app import models as m  # type: ignore
+
+    return django_orm, m
 
 
-def connect_pymysql(db_cfg: dict):
-    import pymysql
-
-    return pymysql.connect(
-        host=db_cfg.get("host", "127.0.0.1"),
-        port=int(db_cfg.get("port", 3306)),
-        user=db_cfg.get("user", "hmapp"),
-        password=db_cfg.get("pass", ""),
-        database=db_cfg.get("name", "hm_app_db"),
-        autocommit=False,
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.Cursor,
-    )
-
-
-def wipe_all(conn) -> dict:
+def wipe_all(m) -> dict:
     counts: dict = {}
-    with conn.cursor() as cur:
-        for table in (
-            "player_stats",
-            "league_games",
-            "hky_games",
-            "league_teams",
-            "players",
-            "teams",
-        ):
-            cur.execute(f"SELECT COUNT(*) FROM {table}")
-            counts[table] = int((cur.fetchone() or [0])[0])
-        # Delete in FK-safe order
-        cur.execute("DELETE FROM player_stats")
-        cur.execute("DELETE FROM league_games")
-        cur.execute("DELETE FROM hky_games")
-        cur.execute("DELETE FROM league_teams")
-        cur.execute("DELETE FROM players")
-        cur.execute("DELETE FROM teams")
-    conn.commit()
+    counts["player_stats"] = int(m.PlayerStat.objects.count())
+    counts["league_games"] = int(m.LeagueGame.objects.count())
+    counts["hky_games"] = int(m.HkyGame.objects.count())
+    counts["league_teams"] = int(m.LeagueTeam.objects.count())
+    counts["players"] = int(m.Player.objects.count())
+    counts["teams"] = int(m.Team.objects.count())
+
+    from django.db import transaction
+
+    with transaction.atomic():
+        # Delete in FK-safe order (teams are referenced with ON DELETE RESTRICT from hky_games).
+        m.PlayerStat.objects.all().delete()
+        m.PlayerPeriodStat.objects.all().delete()
+        m.HkyGameStat.objects.all().delete()
+        m.HkyGameEvent.objects.all().delete()
+        m.HkyGamePlayerStatsCsv.objects.all().delete()
+        m.LeagueGame.objects.all().delete()
+        m.HkyGame.objects.all().delete()
+        m.LeagueTeam.objects.all().delete()
+        m.Player.objects.all().delete()
+        m.Team.objects.all().delete()
     return counts
 
 
-def wipe_league(conn, league_id: int) -> dict:
-    # NOTE: This script historically used a more destructive implementation.
-    # The REST-backed implementation uses the webapp's safer logic (only deletes
-    # exclusive games/teams to avoid impacting other leagues).
-    stats = {"player_stats": 0, "league_games": 0, "hky_games": 0, "league_teams": 0, "players": 0, "teams": 0}
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM league_games WHERE league_id=%s", (league_id,))
-        stats["league_games"] = int((cur.fetchone() or [0])[0])
-        cur.execute("SELECT COUNT(*) FROM league_teams WHERE league_id=%s", (league_id,))
-        stats["league_teams"] = int((cur.fetchone() or [0])[0])
+def wipe_league(m, league_id: int) -> dict:
+    try:
+        from tools.webapp import app as webapp_app  # type: ignore
+    except Exception:  # pragma: no cover
+        import app as webapp_app  # type: ignore
 
-        cur.execute(
-            """
-            SELECT game_id
-            FROM league_games
-            WHERE league_id=%s
-              AND game_id NOT IN (SELECT game_id FROM league_games WHERE league_id<>%s)
-            """,
-            (league_id, league_id),
-        )
-        exclusive_game_ids = sorted({int(r[0]) for r in cur.fetchall() or []})
-        if exclusive_game_ids:
-            q = ",".join(["%s"] * len(exclusive_game_ids))
-            cur.execute(f"SELECT COUNT(*) FROM player_stats WHERE game_id IN ({q})", exclusive_game_ids)
-            stats["player_stats"] = int((cur.fetchone() or [0])[0])
-            cur.execute(f"SELECT COUNT(*) FROM hky_games WHERE id IN ({q})", exclusive_game_ids)
-            stats["hky_games"] = int((cur.fetchone() or [0])[0])
-
-        cur.execute(
-            """
-            SELECT team_id
-            FROM league_teams
-            WHERE league_id=%s
-              AND team_id NOT IN (SELECT team_id FROM league_teams WHERE league_id<>%s)
-            """,
-            (league_id, league_id),
-        )
-        exclusive_team_ids = sorted({int(r[0]) for r in cur.fetchall() or []})
-
-        # Remove mappings
-        cur.execute("DELETE FROM league_games WHERE league_id=%s", (league_id,))
-        cur.execute("DELETE FROM league_teams WHERE league_id=%s", (league_id,))
-
-        # Delete exclusive games (cascades to player_stats and hky_game_*).
-        if exclusive_game_ids:
-            q = ",".join(["%s"] * len(exclusive_game_ids))
-            cur.execute(f"DELETE FROM hky_games WHERE id IN ({q})", exclusive_game_ids)
-
-        # Delete safe external teams (and their players) that are not referenced by remaining games.
-        if exclusive_team_ids:
-            q = ",".join(["%s"] * len(exclusive_team_ids))
-            cur.execute(f"SELECT id, is_external FROM teams WHERE id IN ({q})", exclusive_team_ids)
-            eligible = [int(tid) for (tid, is_ext) in (cur.fetchall() or []) if int(is_ext or 0) == 1]
-            if eligible:
-                q2 = ",".join(["%s"] * len(eligible))
-                cur.execute(
-                    f"""
-                    SELECT DISTINCT team1_id AS tid FROM hky_games WHERE team1_id IN ({q2})
-                    UNION
-                    SELECT DISTINCT team2_id AS tid FROM hky_games WHERE team2_id IN ({q2})
-                    """,
-                    eligible * 2,
-                )
-                still_used = {int(r[0]) for r in (cur.fetchall() or [])}
-                safe_team_ids = sorted([tid for tid in eligible if tid not in still_used])
-                if safe_team_ids:
-                    q3 = ",".join(["%s"] * len(safe_team_ids))
-                    cur.execute(f"SELECT COUNT(*) FROM players WHERE team_id IN ({q3})", safe_team_ids)
-                    stats["players"] = int((cur.fetchone() or [0])[0])
-                    cur.execute(f"SELECT COUNT(*) FROM teams WHERE id IN ({q3})", safe_team_ids)
-                    stats["teams"] = int((cur.fetchone() or [0])[0])
-                    cur.execute(f"DELETE FROM teams WHERE id IN ({q3})", safe_team_ids)
-    conn.commit()
-    return stats
+    # Use the webapp's safer logic (only deletes exclusive games/teams to avoid impacting other leagues).
+    del m
+    return webapp_app.reset_league_data(None, int(league_id))
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -191,19 +123,16 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(json.dumps(r.json(), indent=2, sort_keys=True))
         return 0
 
-    db_cfg = load_db_cfg(args.config)
-    conn = connect_pymysql(db_cfg)
+    _django_orm, m = _orm_modules(config_path=str(args.config))
 
     # Resolve league id if name provided
     league_id = args.league_id
     if args.league_name and not league_id:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id FROM leagues WHERE name=%s", (args.league_name,))
-            row = cur.fetchone()
-            if not row:
-                print(f"[!] League named '{args.league_name}' not found", file=sys.stderr)
-                return 2
-            league_id = int(row[0])
+        row = m.League.objects.filter(name=str(args.league_name)).values_list("id", flat=True).first()
+        if row is None:
+            print(f"[!] League named '{args.league_name}' not found", file=sys.stderr)
+            return 2
+        league_id = int(row)
 
     scope = f"league_id={league_id}" if league_id else "ALL"
     if not force:
@@ -215,13 +144,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 1
 
     if league_id:
-        stats = wipe_league(conn, league_id)
+        stats = wipe_league(m, int(league_id))
         print(
             "Wiped league data:",
             json.dumps(stats, indent=2, sort_keys=True),
         )
     else:
-        counts = wipe_all(conn)
+        counts = wipe_all(m)
         print("Existing rows:", json.dumps(counts, indent=2, sort_keys=True))
         print("Wipe complete.")
     return 0

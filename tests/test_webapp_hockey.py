@@ -1,3 +1,4 @@
+import datetime as dt
 import importlib.util
 import os
 
@@ -193,41 +194,54 @@ def should_build_game_player_stats_table_preserves_unknown_imported_columns():
     assert all("shift" not in k for k in cell_text_by_pid[1].keys())
 
 
-def should_compute_team_stats_from_rows():
+def should_compute_team_stats_from_rows(webapp_db):
+    _django_orm, m = webapp_db
+
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
 
-    class _Cur:
-        def __init__(self, rows):
-            self._rows = rows
+    now = dt.datetime(2025, 1, 1, 0, 0, 0)
+    user = m.User.objects.create(
+        id=123,
+        email="u123@example.com",
+        password_hash="x",
+        name="Test User",
+        created_at=now,
+    )
+    t1 = m.Team.objects.create(id=1, user=user, name="Team 1", created_at=now)
+    t2 = m.Team.objects.create(id=2, user=user, name="Team 2", created_at=now)
+    t3 = m.Team.objects.create(id=3, user=user, name="Team 3", created_at=now)
 
-        def __enter__(self):
-            return self
+    m.HkyGame.objects.create(
+        user=user,
+        team1=t1,
+        team2=t2,
+        team1_score=3,
+        team2_score=1,
+        is_final=True,
+        created_at=now,
+    )  # win
+    m.HkyGame.objects.create(
+        user=user,
+        team1=t2,
+        team2=t1,
+        team1_score=2,
+        team2_score=2,
+        is_final=True,
+        created_at=now,
+    )  # tie
+    m.HkyGame.objects.create(
+        user=user,
+        team1=t3,
+        team2=t1,
+        team1_score=4,
+        team2_score=2,
+        is_final=True,
+        created_at=now,
+    )  # loss
 
-        def __exit__(self, exc_type, exc, tb):
-            pass
-
-        def execute(self, *_args, **_kwargs):
-            return 1
-
-        def fetchall(self):
-            return list(self._rows)
-
-    class _Conn:
-        def __init__(self, rows):
-            self._rows = rows
-
-        def cursor(self, *_args, **_kwargs):
-            return _Cur(self._rows)
-
-    # team_id=1: wins one, loses one, ties one
-    rows = [
-        {"team1_id": 1, "team2_id": 2, "team1_score": 3, "team2_score": 1},  # win
-        {"team1_id": 2, "team2_id": 1, "team1_score": 2, "team2_score": 2},  # tie
-        {"team1_id": 3, "team2_id": 1, "team1_score": 4, "team2_score": 2},  # loss
-    ]
-    stats = mod.compute_team_stats(_Conn(rows), team_id=1, user_id=123)
+    stats = mod.compute_team_stats(None, team_id=1, user_id=123)
     assert stats["wins"] == 1
     assert stats["losses"] == 1
     assert stats["ties"] == 1
@@ -236,71 +250,80 @@ def should_compute_team_stats_from_rows():
     assert stats["points"] == 1 * 2 + 1 * 1
 
 
-def should_compute_league_points_from_regular_only_but_keep_record_from_all_games():
+def should_compute_league_points_from_regular_only_but_keep_record_from_all_games(webapp_db):
+    _django_orm, m = webapp_db
+
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
 
-    class _Cur:
-        def __init__(self, rows):
-            self._rows = rows
+    now = dt.datetime(2025, 1, 1, 0, 0, 0)
+    user = m.User.objects.create(
+        id=123,
+        email="u123@example.com",
+        password_hash="x",
+        name="Test User",
+        created_at=now,
+    )
+    league = m.League.objects.create(
+        id=999,
+        name="Test League",
+        owner_user=user,
+        created_at=now,
+    )
 
-        def __enter__(self):
-            return self
+    t1 = m.Team.objects.create(id=1, user=user, name="Team 1", created_at=now)
+    t2 = m.Team.objects.create(id=2, user=user, name="Team 2", created_at=now)
+    t3 = m.Team.objects.create(id=3, user=user, name="Team 3", created_at=now, is_external=True)
 
-        def __exit__(self, exc_type, exc, tb):
-            pass
+    m.LeagueTeam.objects.bulk_create(
+        [
+            m.LeagueTeam(league=league, team=t1, division_name="12 AA"),
+            m.LeagueTeam(league=league, team=t2, division_name="12 AA"),
+            m.LeagueTeam(league=league, team=t3, division_name="External"),
+        ]
+    )
 
-        def execute(self, *_args, **_kwargs):
-            return 1
+    regular = m.GameType.objects.get(name="Regular Season")
+    preseason = m.GameType.objects.get(name="Preseason")
 
-        def fetchall(self):
-            return list(self._rows)
+    g1 = m.HkyGame.objects.create(
+        user=user,
+        team1=t1,
+        team2=t2,
+        team1_score=3,
+        team2_score=1,
+        is_final=True,
+        created_at=now,
+        game_type=regular,
+    )
+    m.LeagueGame.objects.create(league=league, game=g1, division_name="12 AA")
 
-    class _Conn:
-        def __init__(self, rows):
-            self._rows = rows
+    g2 = m.HkyGame.objects.create(
+        user=user,
+        team1=t2,
+        team2=t1,
+        team1_score=2,
+        team2_score=2,
+        is_final=True,
+        created_at=now,
+        game_type=preseason,
+    )
+    m.LeagueGame.objects.create(league=league, game=g2, division_name="12 AA")
 
-        def cursor(self, *_args, **_kwargs):
-            return _Cur(self._rows)
+    g3 = m.HkyGame.objects.create(
+        user=user,
+        team1=t1,
+        team2=t3,
+        team1_score=4,
+        team2_score=2,
+        is_final=True,
+        created_at=now,
+        game_type=regular,
+    )
+    m.LeagueGame.objects.create(league=league, game=g3, division_name="External")
 
-    # team_id=1:
-    # - Regular Season win (counts for points)
-    # - Preseason tie (does not count for points)
-    # - Regular Season win in External division (does not count for points)
-    rows = [
-        {
-            "team1_id": 1,
-            "team2_id": 2,
-            "team1_score": 3,
-            "team2_score": 1,
-            "game_type_name": "Regular Season",
-            "league_division_name": "12 AA",
-            "team1_league_division_name": "12 AA",
-            "team2_league_division_name": "12 AA",
-        },
-        {
-            "team1_id": 2,
-            "team2_id": 1,
-            "team1_score": 2,
-            "team2_score": 2,
-            "game_type_name": "Preseason",
-            "league_division_name": "12 AA",
-            "team1_league_division_name": "12 AA",
-            "team2_league_division_name": "12 AA",
-        },
-        {
-            "team1_id": 1,
-            "team2_id": 3,
-            "team1_score": 4,
-            "team2_score": 2,
-            "game_type_name": "Regular Season",
-            "league_division_name": "External",
-            "team1_league_division_name": "12 AA",
-            "team2_league_division_name": "External",
-        },
-    ]
-    stats = mod.compute_team_stats_league(_Conn(rows), team_id=1, league_id=999)
+    stats = mod.compute_team_stats_league(None, team_id=1, league_id=999)
     # Record/GF/GA include all games
     assert stats["wins"] == 2
     assert stats["losses"] == 0
@@ -313,39 +336,43 @@ def should_compute_league_points_from_regular_only_but_keep_record_from_all_game
     assert stats["points_total"] == 2 * 2 + 1 * 1
 
 
-def should_aggregate_player_totals_from_rows():
+def should_aggregate_player_totals_from_rows(webapp_db):
+    _django_orm, m = webapp_db
+
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
 
-    class _Cur:
-        def __init__(self, rows):
-            self._rows = rows
+    now = dt.datetime(2025, 1, 1, 0, 0, 0)
+    user = m.User.objects.create(
+        id=123,
+        email="u123@example.com",
+        password_hash="x",
+        name="Test User",
+        created_at=now,
+    )
+    team = m.Team.objects.create(id=1, user=user, name="Team 1", created_at=now)
+    opponent = m.Team.objects.create(id=2, user=user, name="Team 2", created_at=now)
+    game = m.HkyGame.objects.create(
+        user=user,
+        team1=team,
+        team2=opponent,
+        team1_score=1,
+        team2_score=0,
+        is_final=True,
+        created_at=now,
+    )
 
-        def __enter__(self):
-            return self
+    p10 = m.Player.objects.create(id=10, user=user, team=team, name="Player 10", created_at=now)
+    p11 = m.Player.objects.create(id=11, user=user, team=team, name="Player 11", created_at=now)
+    m.PlayerStat.objects.bulk_create(
+        [
+            m.PlayerStat(user=user, team=team, game=game, player=p10, goals=2, assists=1, pim=0, shots=5),
+            m.PlayerStat(user=user, team=team, game=game, player=p11, goals=0, assists=2, pim=2, shots=1),
+        ]
+    )
 
-        def __exit__(self, exc_type, exc, tb):
-            pass
-
-        def execute(self, *_args, **_kwargs):
-            return 1
-
-        def fetchall(self):
-            return list(self._rows)
-
-    class _Conn:
-        def __init__(self, rows):
-            self._rows = rows
-
-        def cursor(self, *_args, **_kwargs):
-            return _Cur(self._rows)
-
-    rows = [
-        {"player_id": 10, "goals": 2, "assists": 1, "pim": 0, "shots": 5},
-        {"player_id": 11, "goals": 0, "assists": 2, "pim": 2, "shots": 1},
-    ]
-    agg = mod.aggregate_players_totals(_Conn(rows), team_id=1, user_id=123)
+    agg = mod.aggregate_players_totals(None, team_id=1, user_id=123)
     assert agg[10]["goals"] == 2 and agg[10]["assists"] == 1 and agg[10]["points"] == 3
     assert agg[11]["goals"] == 0 and agg[11]["assists"] == 2 and agg[11]["points"] == 2
 

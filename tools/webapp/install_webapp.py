@@ -15,6 +15,51 @@ def sudo_write_text(path: str | Path, content: str):
     subprocess.run(cmd, input=content.encode(), check=True)
 
 
+def _sudo_capture_text(cmd: list[str]) -> str:
+    proc = subprocess.run(
+        ["sudo", *cmd],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+    )
+    return proc.stdout
+
+
+def _ensure_port_available_for_nginx(listen_port: int, *, disable_apache2: bool) -> None:
+    listeners = _sudo_capture_text(["ss", "-ltnHp", f"sport = :{listen_port}"]).strip()
+    if not listeners:
+        return
+
+    if '("nginx",' in listeners:
+        return
+
+    if '("apache2",' in listeners and disable_apache2:
+        print(f"apache2 is listening on port {listen_port}; stopping/disabling apache2 so nginx can bind...")
+        subprocess.run(["sudo", "systemctl", "disable", "--now", "apache2"], check=False)
+        listeners = _sudo_capture_text(["ss", "-ltnHp", f"sport = :{listen_port}"]).strip()
+        if not listeners:
+            return
+        if '("nginx",' in listeners:
+            return
+
+    msg = [
+        f"ERROR: Port {listen_port} is already in use, so nginx cannot bind to it.",
+        "",
+        "Current listeners:",
+        listeners,
+        "",
+        "Fix options:",
+        f"- Stop/disable the service using port {listen_port} (common culprit: apache2).",
+        f"- Or re-run this installer with `--nginx-port <other-port>`.",
+        "",
+    ]
+    if '("apache2",' in listeners and not disable_apache2:
+        msg.append("Tip: re-run with `--disable-apache2` to stop+disable apache2 automatically.")
+        msg.append("")
+    raise SystemExit("\n".join(msg))
+
+
 def main():
     ap = argparse.ArgumentParser(description="Install HockeyMOM WebApp (Flask + Nginx)")
     ap.add_argument("--install-root", default="/opt/hm-webapp")
@@ -22,9 +67,20 @@ def main():
     ap.add_argument("--watch-root", default="/data/incoming")
     ap.add_argument("--port", type=int, default=8008)
     ap.add_argument(
+        "--nginx-port",
+        type=int,
+        default=80,
+        help="Port nginx listens on (default: 80).",
+    )
+    ap.add_argument(
         "--bind-address",
         default="127.0.0.1",
         help="Bind address for gunicorn (default: 127.0.0.1). Use 0.0.0.0 to expose the app port.",
+    )
+    ap.add_argument(
+        "--disable-apache2",
+        action="store_true",
+        help="If apache2 is running and using the nginx listen port, stop+disable apache2 so nginx can start.",
     )
     ap.add_argument("--server-name", default="_")
     ap.add_argument("--client-max-body-size", default="500M")
@@ -73,6 +129,9 @@ def main():
     print("Copying webapp code...")
     subprocess.check_call(["sudo", "mkdir", "-p", str(app_dir)])
     _do_copy(repo_root / "tools/webapp/app.py", app_dir / "app.py")
+    _do_copy(repo_root / "tools/webapp/django_orm.py", app_dir / "django_orm.py")
+    _do_copy(repo_root / "tools/webapp/django_settings.py", app_dir / "django_settings.py")
+    _do_copy(repo_root / "tools/webapp/django_app", app_dir)
     _do_copy(repo_root / "tools/webapp/hockey_rankings.py", app_dir / "hockey_rankings.py")
     _do_copy(repo_root / "tools/webapp/recalc_div_ratings.py", app_dir / "recalc_div_ratings.py")
     subprocess.check_call(["sudo", "mkdir", "-p", str(templates_dir)])
@@ -131,7 +190,7 @@ def main():
             args.user,
             "bash",
             "-lc",
-            f"{python_bin} -m pip install --upgrade pip wheel flask gunicorn werkzeug pymysql",
+            f"{python_bin} -m pip install --upgrade pip wheel flask gunicorn werkzeug pymysql django",
         ]
     )
 
@@ -234,7 +293,7 @@ WantedBy=timers.target
     print("Writing nginx site...")
     nginx_conf = f"""
 server {{
-    listen 80 default_server;
+    listen {args.nginx_port} default_server;
     server_name {args.server_name};
     client_max_body_size {args.client_max_body_size};
 
@@ -261,10 +320,17 @@ server {{
     subprocess.check_call(["sudo", "systemctl", "daemon-reload"])
     subprocess.check_call(["sudo", "systemctl", "enable", "--now", SERVICE_NAME])
     subprocess.check_call(["sudo", "systemctl", "enable", "--now", "hm-webapp-div-ratings.timer"])
+
+    _ensure_port_available_for_nginx(args.nginx_port, disable_apache2=args.disable_apache2)
+    subprocess.check_call(["sudo", "systemctl", "enable", "--now", "nginx"])
+    subprocess.check_call(["sudo", "nginx", "-t"])
     subprocess.check_call(["sudo", "systemctl", "restart", "nginx"])
 
     print("Installed webapp:")
-    print("  http://localhost/")
+    if args.nginx_port == 80:
+        print("  http://localhost/")
+    else:
+        print(f"  http://localhost:{args.nginx_port}/")
     print(f"  install_root: {install_root}")
     print(f"  uploads root (watch): {args.watch_root}")
 
