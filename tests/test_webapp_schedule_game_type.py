@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import datetime as dt
 from typing import Any
 
 import pytest
@@ -15,133 +16,79 @@ def _load_app_module():
     return mod
 
 
-class _DummyPyMySQL:
-    class cursors:
-        DictCursor = object
-
-
-class FakeConn:
-    def cursor(self, cursorclass: Any = None):
-        return FakeCursor(dict_mode=cursorclass is not None)
-
-    def commit(self) -> None:
-        return None
-
-    def rollback(self) -> None:
-        return None
-
-    def close(self) -> None:
-        return None
-
-
-class FakeCursor:
-    def __init__(self, *, dict_mode: bool) -> None:
-        self._dict_mode = dict_mode
-        self._rows: list[Any] = []
-        self._idx = 0
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def execute(self, query: str, params: Any = None) -> int:
-        q = " ".join(str(query).split())
-        p = tuple(params or ())
-        self._rows = []
-        self._idx = 0
-
-        def d(row: dict[str, Any]) -> dict[str, Any]:
-            return dict(row)
-
-        # open_db() league access validation
-        if q.startswith("SELECT 1 FROM leagues l LEFT JOIN league_members m"):
-            self._rows = [(1,)]
-            return 1
-
-        # schedule() filter options
-        if q.startswith("SELECT DISTINCT division_name FROM league_teams"):
-            self._rows = [d({"division_name": "External"})]
-            return 1
-
-        if "SELECT DISTINCT t.id, t.name FROM league_teams lt JOIN teams t" in q:
-            self._rows = [d({"id": 1, "name": "Team A"})]
-            return 1
-
-        # schedule() games list query
-        if "FROM league_games lg" in q and "JOIN hky_games g" in q:
-            self._rows = [
-                d(
-                    {
-                        "id": 123,
-                        "user_id": 1,
-                        "team1_id": 1,
-                        "team2_id": 2,
-                        "team1_name": "Team A",
-                        "team2_name": "Team B",
-                        "division_name": "External",
-                        "game_type_name": None,
-                        "starts_at": None,
-                        "location": "",
-                        "team1_score": None,
-                        "team2_score": None,
-                        "is_final": 0,
-                    }
-                )
-            ]
-            return 1
-
-        # _is_league_admin()
-        if q.startswith("SELECT 1 FROM leagues WHERE id=%s AND owner_user_id=%s"):
-            self._rows = []
-            return 1
-        if q.startswith("SELECT 1 FROM league_members WHERE league_id=%s AND user_id=%s"):
-            self._rows = []
-            return 1
-
-        raise AssertionError(f"Unhandled SQL: {q!r} params={p!r}")
-
-    def fetchone(self) -> Any:
-        if self._idx >= len(self._rows):
-            return None
-        row = self._rows[self._idx]
-        self._idx += 1
-        return row
-
-    def fetchall(self) -> list[Any]:
-        if self._idx >= len(self._rows):
-            return []
-        out = self._rows[self._idx :]
-        self._idx = len(self._rows)
-        return out
-
-
 @pytest.fixture()
-def mod_and_app(monkeypatch):
+def mod_and_app(monkeypatch, webapp_db):
+    _django_orm, m = webapp_db
     monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
     mod = _load_app_module()
-    monkeypatch.setattr(mod, "pymysql", _DummyPyMySQL(), raising=False)
-    monkeypatch.setattr(mod, "get_db", lambda: FakeConn())
+
+    now = dt.datetime.now()
+    user = m.User.objects.create(email="u@example.com", password_hash="x", name="U", created_at=now)
+    league = m.League.objects.create(
+        id=42,
+        name="L",
+        owner_user_id=int(user.id),
+        is_shared=False,
+        is_public=False,
+        created_at=now,
+        updated_at=None,
+    )
+    team_a = m.Team.objects.create(
+        id=1,
+        user_id=int(user.id),
+        name="Team A",
+        is_external=True,
+        logo_path="",
+        created_at=now,
+        updated_at=None,
+    )
+    team_b = m.Team.objects.create(
+        id=2,
+        user_id=int(user.id),
+        name="Team B",
+        is_external=True,
+        logo_path="",
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueTeam.objects.create(league_id=int(league.id), team_id=int(team_a.id), division_name="External")
+    g = m.HkyGame.objects.create(
+        id=123,
+        user_id=int(user.id),
+        team1_id=int(team_a.id),
+        team2_id=int(team_b.id),
+        game_type_id=None,
+        starts_at=None,
+        location="",
+        notes=None,
+        team1_score=None,
+        team2_score=None,
+        is_final=False,
+        stats_imported_at=None,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(g.id), division_name="External", sort_order=None)
+
     app = mod.create_app()
     app.testing = True
-    return mod, app
+    return mod, app, int(user.id), int(league.id)
 
 
 def should_default_external_division_game_type_to_tournament_in_schedule_table(mod_and_app):
-    _mod, app = mod_and_app
+    _mod, app, user_id, league_id = mod_and_app
     client = app.test_client()
     with client.session_transaction() as sess:
-        sess["user_id"] = 1
+        sess["user_id"] = int(user_id)
         sess["user_email"] = "u@example.com"
-        sess["league_id"] = 42
+        sess["league_id"] = int(league_id)
     html = client.get("/schedule").get_data(as_text=True)
     assert ">Tournament<" in html
 
 
 def should_default_external_division_game_type_to_tournament_in_team_schedule_table(mod_and_app):
-    _mod, app = mod_and_app
+    _mod, app, _user_id, _league_id = mod_and_app
     with app.test_request_context("/teams/1"):
         html = render_template(
             "team_detail.html",
@@ -177,4 +124,3 @@ def should_default_external_division_game_type_to_tournament_in_team_schedule_ta
         )
     assert "<th>Type</th>" in html
     assert ">Tournament<" in html
-

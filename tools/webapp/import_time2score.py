@@ -15,6 +15,7 @@ import argparse
 import datetime as dt
 import base64
 import csv
+from functools import lru_cache
 import io
 import json
 import os
@@ -27,25 +28,95 @@ from urllib.parse import urlparse
 from contextlib import contextmanager
 
 
-def load_db_cfg(config_path: str) -> dict:
-    with open(config_path, "r", encoding="utf-8") as fh:
-        cfg = json.load(fh)
-    return cfg.get("db", {})
+@lru_cache(maxsize=1)
+def _orm_modules():
+    try:
+        from tools.webapp import django_orm  # type: ignore
+    except Exception:  # pragma: no cover
+        import django_orm  # type: ignore
+
+    django_orm.setup_django()
+    django_orm.ensure_schema()
+    django_orm.ensure_bootstrap_data()
+
+    try:
+        from tools.webapp.django_app import models as m  # type: ignore
+    except Exception:  # pragma: no cover
+        from django_app import models as m  # type: ignore
+
+    return django_orm, m
 
 
-def connect_pymysql(db_cfg: dict):
-    import pymysql
+def _parse_period_token(val: Any) -> Optional[int]:
+    s = str(val or "").strip()
+    if not s:
+        return None
+    sl = s.casefold()
+    if sl in {"ot", "overtime"}:
+        return 4
+    m = re.search(r"(\d+)", sl)
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+        return n if n > 0 else None
+    except Exception:
+        return None
 
-    return pymysql.connect(
-        host=db_cfg.get("host", "127.0.0.1"),
-        port=int(db_cfg.get("port", 3306)),
-        user=db_cfg.get("user", "hmapp"),
-        password=db_cfg.get("pass", ""),
-        database=db_cfg.get("name", "hm_app_db"),
-        autocommit=False,
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.Cursor,
-    )
+
+def _parse_mmss_to_seconds(val: Any, *, period_len_s: Optional[int] = None) -> Optional[int]:
+    s = str(val or "").strip()
+    if not s:
+        return None
+    m = re.match(r"^\s*(\d+):(\d{2})\s*$", s)
+    if not m:
+        # Some TimeToScore pages use '.' instead of ':' (e.g. "10.0" meaning "10:00").
+        m = re.match(r"^\s*(\d+)[.](\d{1,2})\s*$", s)
+        if not m:
+            return None
+        try:
+            a = int(m.group(1))
+            b = int(m.group(2))
+        except Exception:
+            return None
+
+        # Disambiguate:
+        #   - "10.0" => 10:00 (mm:ss)
+        #   - "54.8" (in a 15:00 period) => 54.8 seconds (ss.d)
+        # Heuristic: if the "minutes" part exceeds the period length in minutes, treat it as seconds.
+        try:
+            if period_len_s is not None and a > max(1, int(period_len_s) // 60):
+                return int(float(s))
+        except Exception:
+            pass
+        return a * 60 + b
+
+    try:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    except Exception:
+        return None
+
+
+def _to_csv_text(headers: list[str], rows: list[dict[str, Any]]) -> str:
+    if not headers:
+        return ""
+    out = io.StringIO()
+    w = csv.DictWriter(out, fieldnames=headers, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    for r in rows or []:
+        w.writerow({h: ("" if r.get(h) is None else str(r.get(h))) for h in headers})
+    return out.getvalue()
+
+
+@contextmanager
+def _working_directory(path: Path):
+    prev = Path.cwd()
+    path.mkdir(parents=True, exist_ok=True)
+    os.chdir(str(path))
+    try:
+        yield
+    finally:
+        os.chdir(str(prev))
 
 
 def _parse_period_token(val: Any) -> Optional[int]:
@@ -121,143 +192,21 @@ def _working_directory(path: Path):
 
 
 def ensure_defaults(conn) -> None:
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM game_types")
-        count = int((cur.fetchone() or [0])[0])
-        if count == 0:
-            for name in ("Preseason", "Regular Season", "Tournament", "Exhibition"):
-                cur.execute("INSERT INTO game_types(name, is_default) VALUES(%s,%s)", (name, 1))
-    conn.commit()
+    del conn
+    try:
+        django_orm, _m = _orm_modules()
+        django_orm.ensure_bootstrap_data()
+    except Exception:
+        return
 
 
 def ensure_league_schema(conn) -> None:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS leagues (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              name VARCHAR(255) UNIQUE NOT NULL,
-              owner_user_id INT NOT NULL,
-              is_shared TINYINT(1) NOT NULL DEFAULT 0,
-              is_public TINYINT(1) NOT NULL DEFAULT 0,
-              source VARCHAR(64) NULL,
-              external_key VARCHAR(255) NULL,
-              created_at DATETIME NOT NULL,
-              updated_at DATETIME NULL,
-              INDEX(owner_user_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-            """
-        )
-        # Best-effort migration for older installs.
-        for col_ddl in [
-            "is_public TINYINT(1) NOT NULL DEFAULT 0",
-        ]:
-            col = col_ddl.split(" ", 1)[0]
-            try:
-                cur.execute("SHOW COLUMNS FROM leagues LIKE %s", (col,))
-                exists = cur.fetchone()
-                if not exists:
-                    cur.execute(f"ALTER TABLE leagues ADD COLUMN {col_ddl}")
-            except Exception:
-                try:
-                    cur.execute(f"ALTER TABLE leagues ADD COLUMN {col_ddl}")
-                except Exception:
-                    pass
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS league_members (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              league_id INT NOT NULL,
-              user_id INT NOT NULL,
-              role VARCHAR(32) NOT NULL DEFAULT 'viewer',
-              created_at DATETIME NOT NULL,
-              UNIQUE KEY uniq_member (league_id, user_id),
-              INDEX(league_id), INDEX(user_id),
-              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
-              FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS league_teams (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              league_id INT NOT NULL,
-              team_id INT NOT NULL,
-              division_name VARCHAR(255) NULL,
-              division_id INT NULL,
-              conference_id INT NULL,
-              mhr_div_rating DOUBLE NULL,
-              mhr_rating DOUBLE NULL,
-              mhr_agd DOUBLE NULL,
-              mhr_sched DOUBLE NULL,
-              mhr_games INT NULL,
-              mhr_updated_at DATETIME NULL,
-              UNIQUE KEY uniq_league_team (league_id, team_id),
-              INDEX(league_id), INDEX(team_id),
-              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
-              FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE ON UPDATE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-            """
-        )
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS league_games (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              league_id INT NOT NULL,
-              game_id INT NOT NULL,
-              division_name VARCHAR(255) NULL,
-              division_id INT NULL,
-              conference_id INT NULL,
-              sort_order INT NULL,
-              UNIQUE KEY uniq_league_game (league_id, game_id),
-              INDEX(league_id), INDEX(game_id),
-              FOREIGN KEY(league_id) REFERENCES leagues(id) ON DELETE CASCADE ON UPDATE CASCADE,
-              FOREIGN KEY(game_id) REFERENCES hky_games(id) ON DELETE CASCADE ON UPDATE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-            """
-        )
-        # Best-effort migration for older installs.
-        for table in ("league_teams", "league_games"):
-            for col_ddl in [
-                "division_name VARCHAR(255) NULL",
-                "division_id INT NULL",
-                "conference_id INT NULL",
-                "sort_order INT NULL",
-            ]:
-                col = col_ddl.split(" ", 1)[0]
-                try:
-                    cur.execute(f"SHOW COLUMNS FROM {table} LIKE %s", (col,))
-                    exists = cur.fetchone()
-                    if not exists:
-                        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
-                except Exception:
-                    try:
-                        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col_ddl}")
-                    except Exception:
-                        pass
-
-        # Add rating columns (best-effort) so direct-DB imports work even if the webapp hasn't run yet.
-        for col_ddl in [
-            "mhr_div_rating DOUBLE NULL",
-            "mhr_rating DOUBLE NULL",
-            "mhr_agd DOUBLE NULL",
-            "mhr_sched DOUBLE NULL",
-            "mhr_games INT NULL",
-            "mhr_updated_at DATETIME NULL",
-        ]:
-            col = col_ddl.split(" ", 1)[0]
-            try:
-                cur.execute("SHOW COLUMNS FROM league_teams LIKE %s", (col,))
-                exists = cur.fetchone()
-                if not exists:
-                    cur.execute(f"ALTER TABLE league_teams ADD COLUMN {col_ddl}")
-            except Exception:
-                try:
-                    cur.execute(f"ALTER TABLE league_teams ADD COLUMN {col_ddl}")
-                except Exception:
-                    pass
-    conn.commit()
+    del conn
+    try:
+        django_orm, _m = _orm_modules()
+        django_orm.ensure_schema()
+    except Exception:
+        return
 
 
 def ensure_league(
@@ -268,60 +217,52 @@ def ensure_league(
     source: Optional[str],
     external_key: Optional[str],
 ) -> int:
-    ensure_league_schema(conn)
-    with conn.cursor() as cur:
-        cur.execute("SELECT id FROM leagues WHERE name=%s", (name,))
-        r = cur.fetchone()
-        if r:
-            league_id = int(r[0])
+    del conn
+    ensure_league_schema(None)
+    _django_orm, m = _orm_modules()
+    from django.db import transaction
+
+    now = dt.datetime.now()
+    with transaction.atomic():
+        league = m.League.objects.filter(name=str(name)).first()
+        if league:
+            updates: dict[str, Any] = {"source": source, "external_key": external_key, "updated_at": now}
             if is_shared is not None:
-                cur.execute(
-                    "UPDATE leagues SET is_shared=%s, source=%s, external_key=%s, updated_at=%s WHERE id=%s",
-                    (1 if bool(is_shared) else 0, source, external_key, dt.datetime.now().isoformat(), league_id),
-                )
-                conn.commit()
-            else:
-                cur.execute(
-                    "UPDATE leagues SET source=%s, external_key=%s, updated_at=%s WHERE id=%s",
-                    (source, external_key, dt.datetime.now().isoformat(), league_id),
-                )
-                conn.commit()
-            return league_id
-        now = dt.datetime.now().isoformat()
+                updates["is_shared"] = bool(is_shared)
+            m.League.objects.filter(id=league.id).update(**updates)
+            return int(league.id)
+
         if is_shared is None:
             # Default for TimeToScore imports: shared unless explicitly disabled.
             is_shared = True
-        cur.execute(
-            "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
-            (name, owner_user_id, 1 if bool(is_shared) else 0, source, external_key, now),
+        league = m.League.objects.create(
+            name=str(name),
+            owner_user_id=int(owner_user_id),
+            is_shared=bool(is_shared),
+            source=source,
+            external_key=external_key,
+            created_at=now,
         )
-        conn.commit()
-        return int(cur.lastrowid)
+        return int(league.id)
 
 
 def ensure_league_member(conn, league_id: int, user_id: int, role: str = "viewer") -> None:
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT IGNORE INTO league_members(league_id, user_id, role, created_at) VALUES(%s,%s,%s,%s)",
-            (league_id, user_id, role, dt.datetime.now().isoformat()),
-        )
-    conn.commit()
+    del conn
+    _django_orm, m = _orm_modules()
+    now = dt.datetime.now()
+    lm, created = m.LeagueMember.objects.get_or_create(
+        league_id=int(league_id),
+        user_id=int(user_id),
+        defaults={"role": str(role or "viewer"), "created_at": now},
+    )
+    if not created and role and str(lm.role or "") != str(role):
+        m.LeagueMember.objects.filter(id=lm.id).update(role=str(role))
 
 
 def map_team_to_league(conn, league_id: int, team_id: int) -> None:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO league_teams(league_id, team_id, division_name, division_id, conference_id)
-            VALUES(%s,%s,%s,%s,%s)
-            ON DUPLICATE KEY UPDATE
-              division_name=COALESCE(VALUES(division_name), division_name),
-              division_id=COALESCE(VALUES(division_id), division_id),
-              conference_id=COALESCE(VALUES(conference_id), conference_id)
-            """,
-            (league_id, team_id, None, None, None),
-        )
-    conn.commit()
+    del conn
+    _django_orm, m = _orm_modules()
+    m.LeagueTeam.objects.get_or_create(league_id=int(league_id), team_id=int(team_id))
 
 
 def map_team_to_league_with_division(
@@ -334,36 +275,30 @@ def map_team_to_league_with_division(
     conference_id: Optional[int],
 ) -> None:
     dn = (division_name or "").strip() or None
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO league_teams(league_id, team_id, division_name, division_id, conference_id)
-            VALUES(%s,%s,%s,%s,%s)
-            ON DUPLICATE KEY UPDATE
-              division_name=COALESCE(VALUES(division_name), division_name),
-              division_id=COALESCE(VALUES(division_id), division_id),
-              conference_id=COALESCE(VALUES(conference_id), conference_id)
-            """,
-            (league_id, team_id, dn, division_id, conference_id),
-        )
-    conn.commit()
+    del conn
+    _django_orm, m = _orm_modules()
+    lt, created = m.LeagueTeam.objects.get_or_create(
+        league_id=int(league_id),
+        team_id=int(team_id),
+        defaults={"division_name": dn, "division_id": division_id, "conference_id": conference_id},
+    )
+    if created:
+        return
+    updates: dict[str, Any] = {}
+    if dn is not None:
+        updates["division_name"] = dn
+    if division_id is not None:
+        updates["division_id"] = int(division_id)
+    if conference_id is not None:
+        updates["conference_id"] = int(conference_id)
+    if updates:
+        m.LeagueTeam.objects.filter(id=lt.id).update(**updates)
 
 
 def map_game_to_league(conn, league_id: int, game_id: int) -> None:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id, sort_order)
-            VALUES(%s,%s,%s,%s,%s,%s)
-            ON DUPLICATE KEY UPDATE
-              division_name=COALESCE(VALUES(division_name), division_name),
-              division_id=COALESCE(VALUES(division_id), division_id),
-              conference_id=COALESCE(VALUES(conference_id), conference_id),
-              sort_order=COALESCE(VALUES(sort_order), sort_order)
-            """,
-            (league_id, game_id, None, None, None, None),
-        )
-    conn.commit()
+    del conn
+    _django_orm, m = _orm_modules()
+    m.LeagueGame.objects.get_or_create(league_id=int(league_id), game_id=int(game_id))
 
 
 def map_game_to_league_with_division(
@@ -377,41 +312,48 @@ def map_game_to_league_with_division(
     sort_order: Optional[int] = None,
 ) -> None:
     dn = (division_name or "").strip() or None
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO league_games(league_id, game_id, division_name, division_id, conference_id, sort_order)
-            VALUES(%s,%s,%s,%s,%s,%s)
-            ON DUPLICATE KEY UPDATE
-              division_name=COALESCE(VALUES(division_name), division_name),
-              division_id=COALESCE(VALUES(division_id), division_id),
-              conference_id=COALESCE(VALUES(conference_id), conference_id),
-              sort_order=COALESCE(VALUES(sort_order), sort_order)
-            """,
-            (league_id, game_id, dn, division_id, conference_id, sort_order),
-        )
-    conn.commit()
+    del conn
+    _django_orm, m = _orm_modules()
+    lg, created = m.LeagueGame.objects.get_or_create(
+        league_id=int(league_id),
+        game_id=int(game_id),
+        defaults={"division_name": dn, "division_id": division_id, "conference_id": conference_id, "sort_order": sort_order},
+    )
+    if created:
+        return
+    updates: dict[str, Any] = {}
+    if dn is not None:
+        updates["division_name"] = dn
+    if division_id is not None:
+        updates["division_id"] = int(division_id)
+    if conference_id is not None:
+        updates["conference_id"] = int(conference_id)
+    if sort_order is not None:
+        updates["sort_order"] = int(sort_order)
+    if updates:
+        m.LeagueGame.objects.filter(id=lg.id).update(**updates)
 
 
 def ensure_user(conn, email: str, name: str | None = None, password_hash: str | None = None) -> int:
     email_norm = (email or "").strip().lower()
     if not email_norm:
         raise RuntimeError("user email is required")
-    with conn.cursor() as cur:
-        cur.execute("SELECT id FROM users WHERE email=%s", (email_norm,))
-        row = cur.fetchone()
-        if row:
-            return int(row[0])
-        if not password_hash:
-            raise RuntimeError(
-                f"User {email_norm!r} does not exist; pass --create-user and --password-hash to create it"
-            )
-        cur.execute(
-            "INSERT INTO users(email, password_hash, name, created_at) VALUES(%s,%s,%s,%s)",
-            (email_norm, password_hash, name or email_norm, dt.datetime.now().isoformat()),
+    del conn
+    _django_orm, m = _orm_modules()
+    user_id = m.User.objects.filter(email=email_norm).values_list("id", flat=True).first()
+    if user_id is not None:
+        return int(user_id)
+    if not password_hash:
+        raise RuntimeError(
+            f"User {email_norm!r} does not exist; pass --create-user and --password-hash to create it"
         )
-        conn.commit()
-        return int(cur.lastrowid)
+    user = m.User.objects.create(
+        email=email_norm,
+        password_hash=str(password_hash),
+        name=(name or email_norm),
+        created_at=dt.datetime.now(),
+    )
+    return int(user.id)
 
 
 def ensure_team(conn, user_id: int, name: str, *, is_external: bool = True) -> int:
@@ -425,23 +367,20 @@ def ensure_team(conn, user_id: int, name: str, *, is_external: bool = True) -> i
     nm = _norm_team_name(name or "")
     if not nm:
         nm = "UNKNOWN"
-    with conn.cursor() as cur:
-        cur.execute("SELECT id FROM teams WHERE user_id=%s AND name=%s", (user_id, nm))
-        row = cur.fetchone()
-        if row:
-            tid = int(row[0])
-            cur.execute(
-                "UPDATE teams SET is_external=%s, updated_at=%s WHERE id=%s",
-                (1 if is_external else 0, dt.datetime.now().isoformat(), tid),
-            )
-            conn.commit()
-            return tid
-        cur.execute(
-            "INSERT INTO teams(user_id, name, is_external, created_at) VALUES(%s,%s,%s,%s)",
-            (user_id, nm, 1 if is_external else 0, dt.datetime.now().isoformat()),
-        )
-        conn.commit()
-        return int(cur.lastrowid)
+    del conn
+    _django_orm, m = _orm_modules()
+    now = dt.datetime.now()
+    team = m.Team.objects.filter(user_id=int(user_id), name=str(nm)).first()
+    if team:
+        m.Team.objects.filter(id=team.id).update(is_external=bool(is_external), updated_at=now)
+        return int(team.id)
+    team = m.Team.objects.create(
+        user_id=int(user_id),
+        name=str(nm),
+        is_external=bool(is_external),
+        created_at=now,
+    )
+    return int(team.id)
 
 
 def _download_logo_bytes(url: str) -> tuple[bytes, Optional[str]]:
@@ -487,11 +426,13 @@ def _ensure_team_logo(
     replace: bool,
     tts_direct,
 ) -> None:
+    del conn
+    _django_orm, m = _orm_modules()
     try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT logo_path FROM teams WHERE id=%s", (team_db_id,))
-            row = cur.fetchone()
-        existing = str(row[0]) if row and row[0] else ""
+        existing = (
+            m.Team.objects.filter(id=int(team_db_id)).values_list("logo_path", flat=True).first()
+        )
+        existing = str(existing or "")
     except Exception:
         existing = ""
 
@@ -511,12 +452,9 @@ def _ensure_team_logo(
     dest = logo_dir / f"t2s_{source}_season{int(season_id)}_team{int(tts_team_id)}{ext}"
     if not dest.exists() or replace:
         dest.write_bytes(data)
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE teams SET logo_path=%s, updated_at=%s WHERE id=%s AND user_id=%s",
-            (str(dest), dt.datetime.now().isoformat(), team_db_id, team_owner_user_id),
-        )
-    conn.commit()
+    m.Team.objects.filter(id=int(team_db_id), user_id=int(team_owner_user_id)).update(
+        logo_path=str(dest), updated_at=dt.datetime.now()
+    )
 
 
 def _cleanup_numeric_named_players(conn, *, user_id: int, team_id: int) -> int:
@@ -525,56 +463,44 @@ def _cleanup_numeric_named_players(conn, *, user_id: int, team_id: int) -> int:
     Migrate any player_stats rows from bogus numeric-name players to the real player
     matching jersey_number, then delete the bogus player records if unused.
     """
+    del conn
+    _django_orm, m = _orm_modules()
+    from django.db import transaction
+
     moved = 0
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, name FROM players WHERE user_id=%s AND team_id=%s AND name REGEXP '^[0-9]+$'",
-            (user_id, team_id),
-        )
-        bogus = [(int(r[0]), str(r[1])) for r in (cur.fetchall() or [])]
-    for bogus_id, bogus_name in bogus:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id
-                FROM players
-                WHERE user_id=%s AND team_id=%s AND jersey_number=%s AND name NOT REGEXP '^[0-9]+$'
-                LIMIT 1
-                """,
-                (user_id, team_id, bogus_name),
-            )
-            row = cur.fetchone()
-        if not row:
-            continue
-        real_id = int(row[0])
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT game_id FROM player_stats WHERE player_id=%s",
-                (bogus_id,),
-            )
-            game_ids = [int(r[0]) for r in (cur.fetchall() or [])]
-        for gid in game_ids:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM player_stats WHERE game_id=%s AND player_id=%s",
-                    (gid, real_id),
+    bogus = list(
+        m.Player.objects.filter(user_id=int(user_id), team_id=int(team_id), name__regex=r"^[0-9]+$")
+        .values_list("id", "name")
+    )
+    if not bogus:
+        return 0
+
+    with transaction.atomic():
+        for bogus_id, bogus_name in bogus:
+            real_id = (
+                m.Player.objects.filter(
+                    user_id=int(user_id),
+                    team_id=int(team_id),
+                    jersey_number=str(bogus_name),
                 )
-                exists = cur.fetchone()
-                if exists:
-                    cur.execute("DELETE FROM player_stats WHERE game_id=%s AND player_id=%s", (gid, bogus_id))
+                .exclude(name__regex=r"^[0-9]+$")
+                .values_list("id", flat=True)
+                .first()
+            )
+            if real_id is None:
+                continue
+
+            bogus_stats = list(m.PlayerStat.objects.filter(player_id=int(bogus_id)).values_list("id", "game_id"))
+            for ps_id, gid in bogus_stats:
+                if m.PlayerStat.objects.filter(game_id=int(gid), player_id=int(real_id)).exists():
+                    m.PlayerStat.objects.filter(id=int(ps_id)).delete()
                 else:
-                    cur.execute(
-                        "UPDATE player_stats SET player_id=%s WHERE game_id=%s AND player_id=%s",
-                        (real_id, gid, bogus_id),
-                    )
+                    m.PlayerStat.objects.filter(id=int(ps_id)).update(player_id=int(real_id))
                     moved += 1
-            conn.commit()
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM player_stats WHERE player_id=%s", (bogus_id,))
-            cnt = int((cur.fetchone() or [0])[0])
-            if cnt == 0:
-                cur.execute("DELETE FROM players WHERE id=%s", (bogus_id,))
-                conn.commit()
+
+            if not m.PlayerStat.objects.filter(player_id=int(bogus_id)).exists():
+                m.Player.objects.filter(id=int(bogus_id)).delete()
+
     return moved
 
 
@@ -595,6 +521,10 @@ def upsert_hky_game(
     timetoscore_season_id: Optional[int] = None,
     timetoscore_source: Optional[str] = None,
 ) -> int:
+    del conn
+    _django_orm, m = _orm_modules()
+    from django.db import transaction
+
     # Standardize notes with JSON like the webapp import API, but keep backward
     # compatibility for matching older token formats.
     notes_json_fields: dict[str, Any] = {}
@@ -627,118 +557,94 @@ def upsert_hky_game(
             pass
         return existing
 
-    with conn.cursor() as cur:
-        gid: Optional[int] = None
-        if starts_at:
-            cur.execute(
-                "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND team1_id=%s AND team2_id=%s AND starts_at=%s",
-                (user_id, team1_id, team2_id, starts_at),
-            )
-            row = cur.fetchone()
-            if row:
-                gid = int(row[0])
+    def _parse_dt(raw: Optional[str]) -> Optional[dt.datetime]:
+        s = str(raw or "").strip()
+        if not s:
+            return None
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+            try:
+                return dt.datetime.strptime(s, fmt)
+            except Exception:
+                continue
+        try:
+            return dt.datetime.fromisoformat(s)
+        except Exception:
+            return None
 
-        if gid is None and timetoscore_game_id is not None:
+    starts_at_dt = _parse_dt(starts_at)
+    now = dt.datetime.now()
+
+    with transaction.atomic():
+        game = None
+        if starts_at_dt is not None:
+            game = m.HkyGame.objects.filter(
+                user_id=int(user_id),
+                team1_id=int(team1_id),
+                team2_id=int(team2_id),
+                starts_at=starts_at_dt,
+            ).first()
+
+        if game is None and timetoscore_game_id is not None:
             tts_int = int(timetoscore_game_id)
             token_plain = f"game_id={tts_int}"
             token_json_nospace = f"\"timetoscore_game_id\":{tts_int}"
             token_json_space = f"\"timetoscore_game_id\": {tts_int}"
             for token in (token_json_nospace, token_json_space, token_plain):
-                cur.execute(
-                    "SELECT id, notes, team1_score, team2_score FROM hky_games WHERE user_id=%s AND notes LIKE %s",
-                    (user_id, f"%{token}%"),
-                )
-                row = cur.fetchone()
-                if row:
-                    gid = int(row[0])
+                game = m.HkyGame.objects.filter(user_id=int(user_id), notes__contains=str(token)).first()
+                if game is not None:
                     break
 
-        if gid is None:
+        if game is None:
             merged_notes = json.dumps(notes_json_fields, sort_keys=True) if notes_json_fields else (notes or None)
-            cur.execute(
-                """
-                INSERT INTO hky_games(user_id, team1_id, team2_id, game_type_id, starts_at, location, team1_score, team2_score, is_final, notes, stats_imported_at, created_at)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """,
-                (
-                    user_id,
-                    team1_id,
-                    team2_id,
-                    game_type_id,
-                    starts_at,
-                    location,
-                    team1_score,
-                    team2_score,
-                    1 if (team1_score is not None and team2_score is not None) else 0,
-                    merged_notes,
-                    dt.datetime.now().isoformat(),
-                    dt.datetime.now().isoformat(),
-                ),
+            g = m.HkyGame.objects.create(
+                user_id=int(user_id),
+                team1_id=int(team1_id),
+                team2_id=int(team2_id),
+                game_type_id=(int(game_type_id) if game_type_id is not None else None),
+                starts_at=starts_at_dt,
+                location=location,
+                team1_score=team1_score,
+                team2_score=team2_score,
+                is_final=bool(team1_score is not None and team2_score is not None),
+                notes=merged_notes,
+                stats_imported_at=now,
+                created_at=now,
             )
-            conn.commit()
-            return int(cur.lastrowid)
+            return int(g.id)
 
-        cur.execute("SELECT notes, team1_score, team2_score FROM hky_games WHERE id=%s", (gid,))
-        row2 = cur.fetchone()
-        existing_notes = row2[0] if row2 else None
+        existing_notes = str(game.notes) if game.notes is not None else None
         merged_notes = _merge_notes(existing_notes, notes_json_fields) if notes_json_fields else (existing_notes or "")
 
+        updates: dict[str, Any] = {
+            "notes": merged_notes,
+            "stats_imported_at": now,
+            "updated_at": now,
+        }
+        if game_type_id is not None:
+            updates["game_type_id"] = int(game_type_id)
+        if location is not None:
+            updates["location"] = location
+
         if replace:
-            cur.execute(
-                """
-                UPDATE hky_games
-                SET game_type_id=COALESCE(%s, game_type_id),
-                    location=COALESCE(%s, location),
-                    team1_score=%s,
-                    team2_score=%s,
-                    is_final=CASE WHEN %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
-                    notes=%s,
-                    stats_imported_at=%s,
-                    updated_at=%s
-                WHERE id=%s
-                """,
-                (
-                    game_type_id,
-                    location,
-                    team1_score,
-                    team2_score,
-                    team1_score,
-                    team2_score,
-                    merged_notes,
-                    dt.datetime.now().isoformat(),
-                    dt.datetime.now().isoformat(),
-                    gid,
-                ),
-            )
+            updates["team1_score"] = team1_score
+            updates["team2_score"] = team2_score
+            if team1_score is not None and team2_score is not None:
+                updates["is_final"] = True
         else:
-            cur.execute(
-                """
-                UPDATE hky_games
-                SET game_type_id=COALESCE(%s, game_type_id),
-                    location=COALESCE(%s, location),
-                    team1_score=COALESCE(team1_score, %s),
-                    team2_score=COALESCE(team2_score, %s),
-                    is_final=CASE WHEN team1_score IS NULL AND team2_score IS NULL AND %s IS NOT NULL AND %s IS NOT NULL THEN 1 ELSE is_final END,
-                    notes=%s,
-                    stats_imported_at=%s,
-                    updated_at=%s
-                WHERE id=%s
-                """,
-                (
-                    game_type_id,
-                    location,
-                    team1_score,
-                    team2_score,
-                    team1_score,
-                    team2_score,
-                    merged_notes,
-                    dt.datetime.now().isoformat(),
-                    dt.datetime.now().isoformat(),
-                    gid,
-                ),
-            )
-        conn.commit()
-        return gid
+            if game.team1_score is None and team1_score is not None:
+                updates["team1_score"] = team1_score
+            if game.team2_score is None and team2_score is not None:
+                updates["team2_score"] = team2_score
+            if (
+                game.team1_score is None
+                and game.team2_score is None
+                and team1_score is not None
+                and team2_score is not None
+            ):
+                updates["is_final"] = True
+
+        m.HkyGame.objects.filter(id=int(game.id)).update(**updates)
+        return int(game.id)
 
 
 def ensure_player(
@@ -747,26 +653,31 @@ def ensure_player(
     nm = (name or "").strip()
     if not nm:
         nm = "UNKNOWN"
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, jersey_number, position FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
-            (user_id, team_id, nm),
-        )
-        row = cur.fetchone()
-        if row:
-            pid, old_num, old_pos = int(row[0]), row[1], row[2]
-            if jersey and not old_num:
-                cur.execute("UPDATE players SET jersey_number=%s WHERE id=%s", (jersey, pid))
-            if position and not old_pos:
-                cur.execute("UPDATE players SET position=%s WHERE id=%s", (position, pid))
-            conn.commit()
-            return pid
-        cur.execute(
-            "INSERT INTO players(user_id, team_id, name, jersey_number, position, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
-            (user_id, team_id, nm, jersey, position, dt.datetime.now().isoformat()),
-        )
-        conn.commit()
-        return int(cur.lastrowid)
+    del conn
+    _django_orm, m = _orm_modules()
+    now = dt.datetime.now()
+
+    p = m.Player.objects.filter(user_id=int(user_id), team_id=int(team_id), name=str(nm)).first()
+    if p:
+        updates: dict[str, Any] = {}
+        if jersey and not str(p.jersey_number or "").strip():
+            updates["jersey_number"] = str(jersey)
+        if position and not str(p.position or "").strip():
+            updates["position"] = str(position)
+        if updates:
+            updates["updated_at"] = now
+            m.Player.objects.filter(id=p.id).update(**updates)
+        return int(p.id)
+
+    p = m.Player.objects.create(
+        user_id=int(user_id),
+        team_id=int(team_id),
+        name=str(nm),
+        jersey_number=(str(jersey) if jersey else None),
+        position=(str(position) if position else None),
+        created_at=now,
+    )
+    return int(p.id)
 
 
 def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, Any]:
@@ -777,6 +688,10 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
     This is primarily used for regression testing equivalence between direct DB
     import and REST import.
     """
+    del conn
+    _django_orm, m = _orm_modules()
+    from django.db import transaction
+
     league_name = str(payload.get("league_name") or "").strip()
     if not league_name:
         raise ValueError("league_name is required")
@@ -793,56 +708,48 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
     # Best-effort: the deployed webapp DB already has these tables; in unit tests
     # we use a fake DB that doesn't implement DDL queries.
     try:
-        ensure_defaults(conn)
+        ensure_defaults(None)
     except Exception:
         pass
     try:
-        ensure_league_schema(conn)
+        ensure_league_schema(None)
     except Exception:
         pass
 
     # Ensure owner user exists (mirror webapp import behavior; do not require create-user flags here).
-    with conn.cursor() as cur:
-        cur.execute("SELECT id FROM users WHERE email=%s", (owner_email,))
-        r = cur.fetchone()
-        if r:
-            owner_user_id = int(r[0])
-        else:
-            # Deterministic placeholder hash; caller can update later.
-            cur.execute(
-                "INSERT INTO users(email, password_hash, name, created_at) VALUES(%s,%s,%s,%s)",
-                (owner_email, "imported", owner_name or owner_email, dt.datetime.now().isoformat()),
-            )
-            conn.commit()
-            owner_user_id = int(cur.lastrowid)
+    owner_user_id = m.User.objects.filter(email=owner_email).values_list("id", flat=True).first()
+    if owner_user_id is None:
+        user = m.User.objects.create(
+            email=owner_email,
+            password_hash="imported",
+            name=owner_name or owner_email,
+            created_at=dt.datetime.now(),
+        )
+        owner_user_id = int(user.id)
+    else:
+        owner_user_id = int(owner_user_id)
 
     # Ensure league exists.
-    with conn.cursor() as cur:
-        cur.execute("SELECT id, is_shared FROM leagues WHERE name=%s", (league_name,))
-        row = cur.fetchone()
-        if row:
-            league_id = int(row[0])
-            if shared is not None:
-                want_shared = 1 if bool(shared) else 0
-            else:
-                want_shared = None
-            if want_shared is not None and int(row[1]) != want_shared:
-                cur.execute(
-                    "UPDATE leagues SET is_shared=%s, updated_at=%s WHERE id=%s",
-                    (int(want_shared), dt.datetime.now().isoformat(), league_id),
-                )
-                conn.commit()
-        else:
-            if shared is None:
-                shared = True
-            cur.execute(
-                "INSERT INTO leagues(name, owner_user_id, is_shared, source, external_key, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
-                (league_name, owner_user_id, 1 if bool(shared) else 0, source, external_key, dt.datetime.now().isoformat()),
-            )
-            conn.commit()
-            league_id = int(cur.lastrowid)
+    now = dt.datetime.now()
+    league_row = m.League.objects.filter(name=league_name).values("id", "is_shared").first()
+    if league_row:
+        league_id = int(league_row["id"])
+        if shared is not None and bool(league_row.get("is_shared")) != bool(shared):
+            m.League.objects.filter(id=league_id).update(is_shared=bool(shared), updated_at=now)
+    else:
+        if shared is None:
+            shared = True
+        league = m.League.objects.create(
+            name=league_name,
+            owner_user_id=int(owner_user_id),
+            is_shared=bool(shared),
+            source=source,
+            external_key=external_key,
+            created_at=now,
+        )
+        league_id = int(league.id)
 
-    ensure_league_member(conn, league_id, owner_user_id, role="admin")
+    ensure_league_member(None, league_id, owner_user_id, role="admin")
 
     def _normalize_import_game_type_name(raw: Any) -> Optional[str]:
         s = str(raw or "").strip()
@@ -863,14 +770,8 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         nm = _normalize_import_game_type_name(name_any)
         if not nm:
             return None
-        with conn.cursor() as cur:
-            cur.execute("SELECT id FROM game_types WHERE name=%s", (nm,))
-            r = cur.fetchone()
-            if r:
-                return int(r[0])
-            cur.execute("INSERT INTO game_types(name, is_default) VALUES(%s,%s)", (nm, 0))
-            conn.commit()
-            return int(cur.lastrowid)
+        gt, _created = m.GameType.objects.get_or_create(name=str(nm), defaults={"is_default": False})
+        return int(gt.id)
 
     def _ensure_player_for_import(
         team_id: int, name: str, jersey_number: Optional[str], position: Optional[str]
@@ -878,27 +779,27 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         nm = (name or "").strip()
         if not nm:
             raise ValueError("player name is required")
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
-                (owner_user_id, team_id, nm),
-            )
-            row = cur.fetchone()
-            if row:
-                pid = int(row[0])
-                if jersey_number or position:
-                    cur.execute(
-                        "UPDATE players SET jersey_number=COALESCE(%s, jersey_number), position=COALESCE(%s, position), updated_at=%s WHERE id=%s",
-                        (jersey_number, position, dt.datetime.now().isoformat(), pid),
-                    )
-                    conn.commit()
-                return pid
-            cur.execute(
-                "INSERT INTO players(user_id, team_id, name, jersey_number, position, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
-                (owner_user_id, team_id, nm, jersey_number, position, dt.datetime.now().isoformat()),
-            )
-            conn.commit()
-            return int(cur.lastrowid)
+        now2 = dt.datetime.now()
+        p = m.Player.objects.filter(user_id=int(owner_user_id), team_id=int(team_id), name=str(nm)).first()
+        if p:
+            updates: dict[str, Any] = {}
+            if jersey_number is not None:
+                updates["jersey_number"] = str(jersey_number)
+            if position is not None:
+                updates["position"] = str(position)
+            if updates:
+                updates["updated_at"] = now2
+                m.Player.objects.filter(id=p.id).update(**updates)
+            return int(p.id)
+        p = m.Player.objects.create(
+            user_id=int(owner_user_id),
+            team_id=int(team_id),
+            name=str(nm),
+            jersey_number=(str(jersey_number) if jersey_number else None),
+            position=(str(position) if position else None),
+            created_at=now2,
+        )
+        return int(p.id)
 
     results: list[dict[str, Any]] = []
 
@@ -911,21 +812,22 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         return s
 
     def _league_team_div_meta(team_id: int) -> tuple[Optional[str], Optional[int], Optional[int]]:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT division_name, division_id, conference_id FROM league_teams WHERE league_id=%s AND team_id=%s",
-                (int(league_id), int(team_id)),
-            )
-            r = cur.fetchone()
+        r = (
+            m.LeagueTeam.objects.filter(league_id=int(league_id), team_id=int(team_id))
+            .values("division_name", "division_id", "conference_id")
+            .first()
+        )
         if not r:
             return None, None, None
-        dn = _clean_division_name(r[0])
+        dn = _clean_division_name(r.get("division_name"))
+        did = None
         try:
-            did = int(r[1]) if r[1] is not None else None
+            did = int(r.get("division_id")) if r.get("division_id") is not None else None
         except Exception:
             did = None
+        cid = None
         try:
-            cid = int(r[2]) if r[2] is not None else None
+            cid = int(r.get("conference_id")) if r.get("conference_id") is not None else None
         except Exception:
             cid = None
         return dn, did, cid
@@ -938,8 +840,8 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         if not home_name or not away_name:
             continue
 
-        team1_id = ensure_team(conn, owner_user_id, home_name, is_external=True)
-        team2_id = ensure_team(conn, owner_user_id, away_name, is_external=True)
+        team1_id = ensure_team(None, owner_user_id, home_name, is_external=True)
+        team2_id = ensure_team(None, owner_user_id, away_name, is_external=True)
 
         starts_at = str(game.get("starts_at") or "").strip() or None
         location = str(game.get("location") or "").strip() or None
@@ -953,7 +855,7 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         )
 
         gid = upsert_hky_game(
-            conn,
+            None,
             user_id=owner_user_id,
             team1_id=team1_id,
             team2_id=team2_id,
@@ -985,7 +887,7 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         away_div_name = _clean_division_name(game.get("away_division_name")) or division_name
 
         map_team_to_league_with_division(
-            conn,
+            None,
             league_id=league_id,
             team_id=team1_id,
             division_name=home_div_name,
@@ -993,7 +895,7 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
             conference_id=_int_or_none(game.get("home_conference_id")) or conference_id,
         )
         map_team_to_league_with_division(
-            conn,
+            None,
             league_id=league_id,
             team_id=team2_id,
             division_name=away_div_name,
@@ -1017,7 +919,7 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
                 effective_conf_id = effective_conf_id or t2_cid
 
         map_game_to_league_with_division(
-            conn,
+            None,
             league_id=league_id,
             game_id=gid,
             division_name=effective_div_name,
@@ -1027,6 +929,7 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         )
 
         # Rosters (optional).
+        roster_player_ids_by_team: dict[int, set[int]] = {int(team1_id): set(), int(team2_id): set()}
         for side_key, tid in (("home", team1_id), ("away", team2_id)):
             roster = game.get(f"{side_key}_roster") or []
             if not isinstance(roster, list):
@@ -1039,10 +942,30 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
                     continue
                 jersey = str(row.get("number") or "").strip() or None
                 pos = str(row.get("position") or "").strip() or None
-                _ensure_player_for_import(int(tid), nm, jersey, pos)
+                pid = _ensure_player_for_import(int(tid), nm, jersey, pos)
+                roster_player_ids_by_team[int(tid)].add(int(pid))
 
         # Minimal goals/assists stats.
         stats_rows = game.get("player_stats") or []
+
+        played = bool(game.get("is_final")) or (
+            team1_score is not None and team2_score is not None
+        ) or (isinstance(stats_rows, list) and bool(stats_rows))
+        if played:
+            to_create = []
+            for tid, pids in roster_player_ids_by_team.items():
+                for pid in sorted(pids):
+                    to_create.append(
+                        m.PlayerStat(
+                            user_id=int(owner_user_id),
+                            team_id=int(tid),
+                            game_id=int(gid),
+                            player_id=int(pid),
+                        )
+                    )
+            if to_create:
+                m.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
+
         if isinstance(stats_rows, list):
             for srow in stats_rows:
                 if not isinstance(srow, dict):
@@ -1055,44 +978,45 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
                 if goals == 0 and assists == 0:
                     continue
 
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
-                        (owner_user_id, team1_id, pname),
-                    )
-                    r1 = cur.fetchone()
-                    cur.execute(
-                        "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
-                        (owner_user_id, team2_id, pname),
-                    )
-                    r2 = cur.fetchone()
+                pid1 = (
+                    m.Player.objects.filter(user_id=int(owner_user_id), team_id=int(team1_id), name=str(pname))
+                    .values_list("id", flat=True)
+                    .first()
+                )
+                pid2 = (
+                    m.Player.objects.filter(user_id=int(owner_user_id), team_id=int(team2_id), name=str(pname))
+                    .values_list("id", flat=True)
+                    .first()
+                )
                 team_ref = team1_id
-                pid = int(r1[0]) if r1 else (int(r2[0]) if r2 else None)
-                if r2 and not r1:
+                pid = int(pid1) if pid1 is not None else (int(pid2) if pid2 is not None else None)
+                if pid2 is not None and pid1 is None:
                     team_ref = team2_id
                 if pid is None:
                     pid = _ensure_player_for_import(int(team_ref), pname, None, None)
 
-                with conn.cursor() as cur:
-                    if replace:
-                        cur.execute(
-                            """
-                            INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
-                            VALUES(%s,%s,%s,%s,%s,%s)
-                            ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists)
-                            """,
-                            (owner_user_id, team_ref, gid, pid, goals, assists),
-                        )
-                    else:
-                        cur.execute(
-                            """
-                            INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
-                            VALUES(%s,%s,%s,%s,%s,%s)
-                            ON DUPLICATE KEY UPDATE goals=COALESCE(goals, VALUES(goals)), assists=COALESCE(assists, VALUES(assists))
-                            """,
-                            (owner_user_id, team_ref, gid, pid, goals, assists),
-                        )
-                conn.commit()
+                with transaction.atomic():
+                    ps, created = m.PlayerStat.objects.get_or_create(
+                        game_id=int(gid),
+                        player_id=int(pid),
+                        defaults={
+                            "user_id": int(owner_user_id),
+                            "team_id": int(team_ref),
+                            "goals": int(goals),
+                            "assists": int(assists),
+                        },
+                    )
+                    if not created:
+                        if replace:
+                            m.PlayerStat.objects.filter(id=ps.id).update(goals=int(goals), assists=int(assists))
+                        else:
+                            updates3: dict[str, Any] = {}
+                            if ps.goals is None:
+                                updates3["goals"] = int(goals)
+                            if ps.assists is None:
+                                updates3["assists"] = int(assists)
+                            if updates3:
+                                m.PlayerStat.objects.filter(id=ps.id).update(**updates3)
 
         results.append({"game_id": int(gid), "team1_id": int(team1_id), "team2_id": int(team2_id)})
 
@@ -1264,11 +1188,20 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
 
     conn = None
+    m = None
     if not rest_mode:
-        log(f"Connecting to DB via config: {args.config}")
-        conn = connect_pymysql(load_db_cfg(args.config))
-        ensure_defaults(conn)
-        ensure_league_schema(conn)
+        log(f"Initializing ORM via config: {args.config}")
+        try:
+            from tools.webapp import django_orm  # type: ignore
+        except Exception:  # pragma: no cover
+            import django_orm  # type: ignore
+
+        django_orm.setup_django(config_path=str(args.config))
+        # Ensure the cached module view is based on this config.
+        _orm_modules.cache_clear()
+        ensure_league_schema(None)
+        ensure_defaults(None)
+        _django_orm, m = _orm_modules()
 
     logo_dir = None
     if (not args.no_import_logos) and (not rest_mode):
@@ -1280,10 +1213,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     user_id = None
     if not rest_mode:
-        assert conn is not None
         log(f"Resolving user: {args.user_email}")
         user_id = ensure_user(
-            conn,
+            None,
             args.user_email,
             name=args.user_name or args.user_email,
             password_hash=(args.password_hash if args.create_user else None),
@@ -1476,30 +1408,29 @@ def main(argv: Optional[list[str]] = None) -> int:
     owner_id = None
     league_id = None
     if not rest_mode:
-        assert conn is not None
         assert user_id is not None
         owner_id = ensure_user(
-            conn,
+            None,
             owner_email,
             name=owner_email,
             password_hash=(args.password_hash if args.create_user else None),
         )
         league_id = ensure_league(
-            conn,
+            None,
             league_name,
             owner_id,
             args.shared,
             source="timetoscore",
             external_key=f"{args.source}:{season_id}",
         )
-        ensure_league_member(conn, league_id, owner_id, role="admin")
-        ensure_league_member(conn, league_id, user_id, role="editor")
+        ensure_league_member(None, league_id, owner_id, role="admin")
+        ensure_league_member(None, league_id, user_id, role="editor")
         for em in args.share_with:
             try:
-                uid = ensure_user(conn, em, name=em, password_hash=None)
+                uid = ensure_user(None, em, name=em, password_hash=None)
             except RuntimeError:
                 continue
-            ensure_league_member(conn, league_id, uid, role="viewer")
+            ensure_league_member(None, league_id, uid, role="viewer")
 
     api_base = str(args.api_url or "").rstrip("/")
     api_headers: dict[str, str] = {}
@@ -1597,13 +1528,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             if not out.get("ok"):
                 raise RuntimeError(str(out))
         if (not rest_mode) and division_teams:
-            assert conn is not None
             assert league_id is not None
             assert user_id is not None
             for row in division_teams:
-                team_db_id = ensure_team(conn, user_id, row["name"], is_external=True)
+                team_db_id = ensure_team(None, user_id, row["name"], is_external=True)
                 map_team_to_league_with_division(
-                    conn,
+                    None,
                     league_id=league_id,
                     team_id=team_db_id,
                     division_name=row["division_name"],
@@ -1613,7 +1543,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if logo_dir is not None and row.get("tts_team_id") is not None:
                     try:
                         _ensure_team_logo(
-                            conn,
+                            None,
                             team_db_id=int(team_db_id),
                             team_owner_user_id=user_id,
                             source=str(args.source),
@@ -2250,17 +2180,17 @@ def main(argv: Optional[list[str]] = None) -> int:
                 )
             continue
 
-        assert conn is not None
         assert user_id is not None
         assert league_id is not None
 
-        team1_id = ensure_team(conn, user_id, home_name, is_external=True)
-        team2_id = ensure_team(conn, user_id, away_name, is_external=True)
+        assert m is not None
+        team1_id = ensure_team(None, user_id, home_name, is_external=True)
+        team2_id = ensure_team(None, user_id, away_name, is_external=True)
         if logo_dir is not None:
             try:
                 if home_tts_id is not None:
                     _ensure_team_logo(
-                        conn,
+                        None,
                         team_db_id=team1_id,
                         team_owner_user_id=user_id,
                         source=str(args.source),
@@ -2272,7 +2202,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     )
                 if away_tts_id is not None:
                     _ensure_team_logo(
-                        conn,
+                        None,
                         team_db_id=team2_id,
                         team_owner_user_id=user_id,
                         source=str(args.source),
@@ -2289,29 +2219,22 @@ def main(argv: Optional[list[str]] = None) -> int:
         game_type_name = str((fb or {}).get("type") or "").strip() or None
         game_type_id = None
         if game_type_name:
-            with conn.cursor() as cur:
-                # Map TimeToScore schedule Type to our canonical game type names.
-                sl = game_type_name.casefold()
-                if sl.startswith("regular"):
-                    nm = "Regular Season"
-                elif sl.startswith("preseason"):
-                    nm = "Preseason"
-                elif sl.startswith("exhibition"):
-                    nm = "Exhibition"
-                elif sl.startswith("tournament"):
-                    nm = "Tournament"
-                else:
-                    nm = game_type_name
-                cur.execute("SELECT id FROM game_types WHERE name=%s", (nm,))
-                r = cur.fetchone()
-                if r:
-                    game_type_id = int(r[0])
-                else:
-                    cur.execute("INSERT INTO game_types(name, is_default) VALUES(%s,%s)", (nm, 0))
-                    conn.commit()
-                    game_type_id = int(cur.lastrowid)
+            # Map TimeToScore schedule Type to our canonical game type names.
+            sl = game_type_name.casefold()
+            if sl.startswith("regular"):
+                nm = "Regular Season"
+            elif sl.startswith("preseason"):
+                nm = "Preseason"
+            elif sl.startswith("exhibition"):
+                nm = "Exhibition"
+            elif sl.startswith("tournament"):
+                nm = "Tournament"
+            else:
+                nm = game_type_name
+            gt, _created = m.GameType.objects.get_or_create(name=str(nm), defaults={"is_default": False})
+            game_type_id = int(gt.id)
         game_db_id = upsert_hky_game(
-            conn,
+            None,
             user_id=user_id,
             team1_id=team1_id,
             team2_id=team2_id,
@@ -2326,7 +2249,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
 
         map_team_to_league_with_division(
-            conn,
+            None,
             league_id=league_id,
             team_id=team1_id,
             division_name=home_div_name,
@@ -2334,7 +2257,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             conference_id=home_conf_id if home_conf_id is not None else fb_conference_id,
         )
         map_team_to_league_with_division(
-            conn,
+            None,
             league_id=league_id,
             team_id=team2_id,
             division_name=away_div_name,
@@ -2346,7 +2269,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         game_div_id = home_div_id if home_div_id is not None else fb_division_id
         game_conf_id = home_conf_id if home_conf_id is not None else fb_conference_id
         map_game_to_league_with_division(
-            conn,
+            None,
             league_id=league_id,
             game_id=game_db_id,
             division_name=game_div_name,
@@ -2375,10 +2298,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             )
         if not args.no_cleanup_bogus_players:
             if int(team1_id) not in cleaned_team_ids:
-                _cleanup_numeric_named_players(conn, user_id=user_id, team_id=int(team1_id))
+                _cleanup_numeric_named_players(None, user_id=user_id, team_id=int(team1_id))
                 cleaned_team_ids.add(int(team1_id))
             if int(team2_id) not in cleaned_team_ids:
-                _cleanup_numeric_named_players(conn, user_id=user_id, team_id=int(team2_id))
+                _cleanup_numeric_named_players(None, user_id=user_id, team_id=int(team2_id))
                 cleaned_team_ids.add(int(team2_id))
 
         # Minimal player stats (goals/assists). If we couldn't load boxscore stats, this will be empty.
@@ -2392,44 +2315,44 @@ def main(argv: Optional[list[str]] = None) -> int:
                 continue
 
             # Prefer matching by name within each team roster.
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
-                    (user_id, team1_id, pname),
-                )
-                r1 = cur.fetchone()
-                cur.execute(
-                    "SELECT id FROM players WHERE user_id=%s AND team_id=%s AND name=%s",
-                    (user_id, team2_id, pname),
-                )
-                r2 = cur.fetchone()
+            pid1 = (
+                m.Player.objects.filter(user_id=int(user_id), team_id=int(team1_id), name=str(pname))
+                .values_list("id", flat=True)
+                .first()
+            )
+            pid2 = (
+                m.Player.objects.filter(user_id=int(user_id), team_id=int(team2_id), name=str(pname))
+                .values_list("id", flat=True)
+                .first()
+            )
             team_ref = team1_id
-            pid = int(r1[0]) if r1 else (int(r2[0]) if r2 else None)
-            if r2 and not r1:
+            pid = int(pid1) if pid1 is not None else (int(pid2) if pid2 is not None else None)
+            if pid2 is not None and pid1 is None:
                 team_ref = team2_id
             if pid is None:
-                pid = ensure_player(conn, user_id=user_id, team_id=team_ref, name=pname, jersey=None, position=None)
+                pid = ensure_player(None, user_id=user_id, team_id=team_ref, name=pname, jersey=None, position=None)
 
-            with conn.cursor() as cur:
+            ps, created = m.PlayerStat.objects.get_or_create(
+                game_id=int(game_db_id),
+                player_id=int(pid),
+                defaults={
+                    "user_id": int(user_id),
+                    "team_id": int(team_ref),
+                    "goals": int(goals),
+                    "assists": int(assists),
+                },
+            )
+            if not created:
                 if args.replace:
-                    cur.execute(
-                        """
-                        INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
-                        VALUES(%s,%s,%s,%s,%s,%s)
-                        ON DUPLICATE KEY UPDATE goals=VALUES(goals), assists=VALUES(assists)
-                        """,
-                        (user_id, team_ref, game_db_id, pid, goals, assists),
-                    )
+                    m.PlayerStat.objects.filter(id=ps.id).update(goals=int(goals), assists=int(assists))
                 else:
-                    cur.execute(
-                        """
-                        INSERT INTO player_stats(user_id, team_id, game_id, player_id, goals, assists)
-                        VALUES(%s,%s,%s,%s,%s,%s)
-                        ON DUPLICATE KEY UPDATE goals=COALESCE(goals, VALUES(goals)), assists=COALESCE(assists, VALUES(assists))
-                        """,
-                        (user_id, team_ref, game_db_id, pid, goals, assists),
-                    )
-            conn.commit()
+                    updates4: dict[str, Any] = {}
+                    if ps.goals is None:
+                        updates4["goals"] = int(goals)
+                    if ps.assists is None:
+                        updates4["assists"] = int(assists)
+                    if updates4:
+                        m.PlayerStat.objects.filter(id=ps.id).update(**updates4)
 
         count += 1
         if count % 25 == 0 or count == total:
@@ -2444,22 +2367,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     log(f"Import complete. Imported {count} games, skipped={skipped}, schedule_only={schedule_only}.")
     if (not rest_mode) and (not args.no_cleanup_bogus_players):
         try:
-            assert conn is not None
             assert league_id is not None
             assert user_id is not None
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT DISTINCT lt.team_id
-                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
-                    WHERE lt.league_id=%s AND t.user_id=%s
-                    """,
-                    (league_id, user_id),
+            assert m is not None
+            all_team_ids = sorted(
+                set(
+                    m.LeagueTeam.objects.filter(league_id=int(league_id), team__user_id=int(user_id))
+                    .values_list("team_id", flat=True)
+                    .distinct()
                 )
-                all_team_ids = sorted({int(r[0]) for r in (cur.fetchall() or [])})
+            )
             moved_total = 0
             for tid in all_team_ids:
-                moved_total += _cleanup_numeric_named_players(conn, user_id=user_id, team_id=int(tid))
+                moved_total += _cleanup_numeric_named_players(None, user_id=user_id, team_id=int(tid))
             if moved_total:
                 log(f"Cleaned bogus numeric-name players: migrated {moved_total} stat rows.")
         except Exception:
@@ -2468,19 +2388,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         log("Refreshing league team metadata (divisions/logos)...")
         # Update league_teams divisions based on TimeToScore team list, and fill missing logos.
         try:
-            assert conn is not None
             assert league_id is not None
             assert user_id is not None
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT lt.team_id, t.name, t.logo_path
-                    FROM league_teams lt JOIN teams t ON lt.team_id=t.id
-                    WHERE lt.league_id=%s AND t.user_id=%s
-                    """,
-                    (league_id, user_id),
-                )
-                league_team_rows = list(cur.fetchall() or [])
+            assert m is not None
+            league_team_rows = list(
+                m.LeagueTeam.objects.filter(league_id=int(league_id), team__user_id=int(user_id))
+                .select_related("team")
+                .values_list("team_id", "team__name", "team__logo_path")
+            )
             updated_div = 0
             updated_logo = 0
             for team_db_id, team_name, logo_path in league_team_rows:
@@ -2491,22 +2406,16 @@ def main(argv: Optional[list[str]] = None) -> int:
                     base_name = base_name.rsplit("(", 1)[0].strip()
                 div_name, div_id, conf_id, tts_id = resolve_team_division_meta(base_name, None)
                 if div_name:
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            """
-                            UPDATE league_teams
-                            SET division_name=%s,
-                                division_id=COALESCE(%s, division_id),
-                                conference_id=COALESCE(%s, conference_id)
-                            WHERE league_id=%s AND team_id=%s
-                            """,
-                            (div_name, div_id, conf_id, league_id, int(team_db_id)),
-                        )
-                    conn.commit()
+                    updates: dict[str, Any] = {"division_name": str(div_name)}
+                    if div_id is not None:
+                        updates["division_id"] = int(div_id)
+                    if conf_id is not None:
+                        updates["conference_id"] = int(conf_id)
+                    m.LeagueTeam.objects.filter(league_id=int(league_id), team_id=int(team_db_id)).update(**updates)
                     updated_div += 1
                 if logo_dir is not None and (not logo_path) and tts_id is not None:
                     _ensure_team_logo(
-                        conn,
+                        None,
                         team_db_id=int(team_db_id),
                         team_owner_user_id=user_id,
                         source=str(args.source),
@@ -2518,20 +2427,33 @@ def main(argv: Optional[list[str]] = None) -> int:
                     )
                     updated_logo += 1
             # Also align league_games division to the home team division when possible.
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE league_games lg
-                      JOIN hky_games g ON lg.game_id=g.id
-                      JOIN league_teams lt ON lt.league_id=lg.league_id AND lt.team_id=g.team1_id
-                    SET lg.division_name=COALESCE(lt.division_name, lg.division_name),
-                        lg.division_id=COALESCE(lt.division_id, lg.division_id),
-                        lg.conference_id=COALESCE(lt.conference_id, lg.conference_id)
-                    WHERE lg.league_id=%s
-                    """,
-                    (league_id,),
+            league_team_meta = {
+                int(tid): (dn, did, cid)
+                for tid, dn, did, cid in m.LeagueTeam.objects.filter(league_id=int(league_id)).values_list(
+                    "team_id", "division_name", "division_id", "conference_id"
                 )
-            conn.commit()
+            }
+            league_games = list(m.LeagueGame.objects.filter(league_id=int(league_id)).select_related("game"))
+            to_update = []
+            for lg in league_games:
+                meta = league_team_meta.get(int(lg.game.team1_id))
+                if not meta:
+                    continue
+                dn, did, cid = meta
+                changed = False
+                if dn is not None:
+                    lg.division_name = dn
+                    changed = True
+                if did is not None:
+                    lg.division_id = int(did)
+                    changed = True
+                if cid is not None:
+                    lg.conference_id = int(cid)
+                    changed = True
+                if changed:
+                    to_update.append(lg)
+            if to_update:
+                m.LeagueGame.objects.bulk_update(to_update, ["division_name", "division_id", "conference_id"], batch_size=500)
             log(f"Refreshed teams: divisions_updated={updated_div} logos_checked={updated_logo}")
         except Exception:
             pass

@@ -122,15 +122,26 @@ fi
 
 echo "[i] Copying app.py, templates, and static to $APP_DIR (sudo required)"
 sudo install -m 0644 -D tools/webapp/app.py "$APP_DIR/app.py"
+sudo install -m 0644 -D tools/webapp/django_orm.py "$APP_DIR/django_orm.py"
+sudo install -m 0644 -D tools/webapp/django_settings.py "$APP_DIR/django_settings.py"
 sudo install -m 0644 -D tools/webapp/hockey_rankings.py "$APP_DIR/hockey_rankings.py"
 sudo install -m 0755 -D tools/webapp/recalc_div_ratings.py "$APP_DIR/recalc_div_ratings.py"
 sudo mkdir -p "$APP_DIR/templates" "$APP_DIR/static"
 sudo rsync -a tools/webapp/templates/ "$APP_DIR/templates/"
 sudo rsync -a tools/webapp/static/ "$APP_DIR/static/"
+sudo mkdir -p "$APP_DIR/django_app"
+sudo rsync -a tools/webapp/django_app/ "$APP_DIR/django_app/"
 
 CONFIG_JSON="$APP_DIR/config.json"
 if [ ! -f "$CONFIG_JSON" ]; then
   die "Missing $CONFIG_JSON; re-run installer (tools/webapp/install_webapp.py)."
+fi
+
+echo "[i] Ensuring Django is installed in the webapp venv"
+if ! /opt/hm-webapp/venv/bin/python -c "import django" >/dev/null 2>&1; then
+  echo "[i] Installing Django into /opt/hm-webapp/venv"
+  /opt/hm-webapp/venv/bin/python -m pip install -q django 2>/dev/null \
+    || sudo /opt/hm-webapp/venv/bin/python -m pip install django
 fi
 
 # Ensure gunicorn logs to journald (so Internal Server Error always has a traceback in `journalctl`).

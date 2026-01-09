@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import datetime as dt
 import os
 from typing import Any
 
@@ -17,102 +18,33 @@ def _load_app_module():
     return mod
 
 
-class _DummyPyMySQL:
-    class cursors:
-        DictCursor = object
-
-
-class FakeConn:
-    def __init__(self, *, admin_ok: bool) -> None:
-        self.admin_ok = bool(admin_ok)
-
-    def cursor(self, cursorclass: Any = None):
-        return FakeCursor(self, dict_mode=cursorclass is not None)
-
-    def commit(self) -> None:
-        return None
-
-    def rollback(self) -> None:
-        return None
-
-    def close(self) -> None:
-        return None
-
-
-class FakeCursor:
-    def __init__(self, conn: FakeConn, *, dict_mode: bool) -> None:
-        self._conn = conn
-        self._dict_mode = dict_mode
-        self._rows: list[Any] = []
-        self._idx = 0
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def execute(self, query: str, params: Any = None) -> int:
-        q = " ".join(str(query).split())
-        p = tuple(params or ())
-        self._rows = []
-        self._idx = 0
-
-        def t(*vals: Any) -> tuple[Any, ...]:
-            return tuple(vals)
-
-        def d(row: dict[str, Any]) -> dict[str, Any]:
-            return dict(row)
-
-        # open_db() league access validation
-        if q.startswith("SELECT 1 FROM leagues l LEFT JOIN league_members m"):
-            self._rows = [t(1)]
-            return 1
-
-        # inject_user_leagues() / leagues_index() query
-        if q.startswith("SELECT l.id, l.name, l.is_shared, l.is_public"):
-            self._rows = [d({"id": 1, "name": "L1", "is_shared": 0, "is_public": 0, "is_owner": 0, "is_admin": 1})]
-            return 1
-
-        # _is_league_admin() checks
-        if q == "SELECT 1 FROM leagues WHERE id=%s AND owner_user_id=%s":
-            self._rows = []
-            return 1
-        if q == "SELECT 1 FROM league_members WHERE league_id=%s AND user_id=%s AND role IN ('admin','owner')":
-            self._rows = [t(1)] if self._conn.admin_ok else []
-            return 1
-
-        raise AssertionError(f"Unhandled SQL: {q!r} params={p!r}")
-
-    def fetchone(self) -> Any:
-        if self._idx >= len(self._rows):
-            return None
-        row = self._rows[self._idx]
-        self._idx += 1
-        return row
-
-    def fetchall(self) -> list[Any]:
-        if self._idx >= len(self._rows):
-            return []
-        out = self._rows[self._idx :]
-        self._idx = len(self._rows)
-        return out
-
-
 @pytest.fixture()
-def mod_and_client(monkeypatch):
+def mod_and_client(monkeypatch, webapp_db):
+    _django_orm, m = webapp_db
     mod = _load_app_module()
-    monkeypatch.setattr(mod, "pymysql", _DummyPyMySQL(), raising=False)
-    fake_db = FakeConn(admin_ok=True)
-    monkeypatch.setattr(mod, "get_db", lambda: fake_db)
+
+    now = dt.datetime.now()
+    owner = m.User.objects.create(id=10, email="owner@example.com", password_hash="x", name="Owner", created_at=now)
+    admin = m.User.objects.create(id=20, email="admin@example.com", password_hash="x", name="Admin", created_at=now)
+    league = m.League.objects.create(
+        id=1,
+        name="L1",
+        owner_user_id=int(owner.id),
+        is_shared=False,
+        is_public=False,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueMember.objects.create(league_id=int(league.id), user_id=int(admin.id), role="admin", created_at=now)
+
     app = mod.create_app()
     app.testing = True
     client = app.test_client()
-    return mod, client
+    return mod, client, m
 
 
 def should_allow_league_admin_to_recalc_div_ratings_for_active_league(monkeypatch, mod_and_client):
-    mod, client = mod_and_client
+    mod, client, _m = mod_and_client
     called: list[int] = []
 
     def _fake_recompute(db_conn, league_id: int, *args: Any, **kwargs: Any):
@@ -132,13 +64,13 @@ def should_allow_league_admin_to_recalc_div_ratings_for_active_league(monkeypatc
 
 
 def should_reject_recalc_when_not_admin(monkeypatch, mod_and_client):
-    mod, _client = mod_and_client
-    # New app instance with a non-admin DB view.
-    fake_db = FakeConn(admin_ok=False)
-    monkeypatch.setattr(mod, "get_db", lambda: fake_db)
+    mod, _client, m = mod_and_client
     app = mod.create_app()
     app.testing = True
     client = app.test_client()
+
+    now = dt.datetime.now()
+    m.User.objects.create(id=99, email="u@example.com", password_hash="x", name="U", created_at=now)
 
     monkeypatch.setattr(
         mod,

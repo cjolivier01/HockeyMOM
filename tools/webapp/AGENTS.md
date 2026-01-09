@@ -1,0 +1,119 @@
+# `tools/webapp` Agent Guidelines
+
+This subtree contains the HockeyMOM Flask webapp plus its admin/import scripts. The webapp uses **Django ORM** (without
+running a full Django project) to access the database; do not re-introduce raw SQL access.
+
+## High-level layout
+
+- `tools/webapp/app.py`: Flask app + routes, plus shared hockey/league helper logic.
+- `tools/webapp/templates/`, `tools/webapp/static/`: UI templates/assets.
+- `tools/webapp/django_settings.py`: Minimal Django settings module (DB config + installed apps).
+- `tools/webapp/django_orm.py`: Django setup + schema/bootstrap helpers (no migrations).
+- `tools/webapp/django_app/`: Django app containing `models.py` mapping the existing DB schema.
+- Admin/import utilities:
+  - `tools/webapp/import_time2score.py`: TimeToScore scraper/importer (direct DB or REST).
+  - `tools/webapp/reset_league_data.py`, `tools/webapp/wipe_league.py`, `tools/webapp/delete_league.py`,
+    `tools/webapp/dedupe_league_teams.py`, `tools/webapp/recalc_div_ratings.py`, etc.
+- Deployment helpers:
+  - `tools/webapp/install_webapp.py`: system install (creates `/opt/hm-webapp/app` + venv + systemd + nginx).
+  - `tools/webapp/redeploy_local.sh`: copy code to `/opt/hm-webapp/app` + restart services.
+  - `tools/webapp/deploy_gcp.py`, `tools/webapp/redeploy_gcp.py`: GCP helpers.
+
+Related root-level helpers:
+- `./import_webapp.sh`: redeploy + reset + import + shift-spreadsheet upload.
+- `./gcp_import_webapp.sh`: similar flow for GCP.
+
+## Architecture: Flask + Django ORM (no raw SQL)
+
+### Key rule: avoid raw SQL
+- Do not add `cursor.execute(...)`, `pymysql.connect(...)`, or string SQL back into `tools/webapp`.
+- Use Django ORM/querysets for reads/writes and `transaction.atomic()` for multi-step updates.
+- If you need an aggregate/query that is awkward in ORM, prefer queryset annotations/subqueries first; only fall back to
+  database-specific SQL as a last resort (and keep it isolated/minimal).
+
+### How Django is embedded
+- `tools/webapp/django_orm.setup_django()` configures Django in-process and is safe to call multiple times.
+- `tools/webapp/app.py` lazily loads ORM modules via `_orm_modules()` (cached) so importing the Flask app does not require
+  a working DB in tests.
+- Schema management is done programmatically:
+  - `django_orm.ensure_schema()` creates missing tables and best-effort adds missing columns for older installs.
+  - There is no Django migration workflow here; keep schema changes small and additive unless you also handle upgrades.
+
+### MySQL/MariaDB backend notes
+- Django’s MySQL backend expects a `MySQLdb` module and validates a minimum `mysqlclient` version.
+- The webapp uses `pymysql.install_as_MySQLdb()` and may shim version metadata in `tools/webapp/django_orm.py` so Django
+  will accept older PyMySQL installs.
+- If the deployed service fails with `ImproperlyConfigured: mysqlclient ... required`, ensure:
+  - the updated `django_orm.py` is deployed to `/opt/hm-webapp/app`, and
+  - `hm-webapp` has been restarted (`sudo systemctl restart hm-webapp`).
+
+## Configuration
+
+### DB config (`config.json`)
+Most scripts accept `--config` (default: `/opt/hm-webapp/app/config.json`). The DB stanza is used by
+`tools/webapp/django_settings.py`:
+
+```json
+{
+  "db": {
+    "engine": "mysql",
+    "name": "hm_app_db",
+    "user": "hmapp",
+    "pass": "…",
+    "host": "127.0.0.1",
+    "port": 3306
+  },
+  "import_token": "optional"
+}
+```
+
+SQLite is supported for tests/dev (`engine: sqlite3`, with `name` pointing at a `.sqlite3` path).
+
+### Environment variables
+- `HM_DB_CONFIG`: path to the active `config.json` (used by Django settings and many scripts).
+- `HM_WEBAPP_SECRET`: Flask/Django secret (dev/test value is fine for local use).
+- `HM_WEBAPP_IMPORT_TOKEN`: if set, internal REST import/reset endpoints require this token.
+- `HM_WEBAPP_SKIP_DB_INIT`: tests set this to avoid eager DB init at import time.
+- `HM_WATCH_ROOT`: upload/watch directory (affects Jobs/DirWatcher integration).
+
+## Local deploy + import workflow
+
+Recommended end-to-end local workflow:
+- `./import_webapp.sh` (redeploy, reset, import TimeToScore via REST, upload shift spreadsheets).
+
+Quick “code-only” update:
+- `tools/webapp/redeploy_local.sh` (copies code to `/opt/hm-webapp/app` and restarts `hm-webapp` + `nginx`).
+
+Smoke UI validation (nginx front by default):
+- `bash tools/webapp/smoke_ui.sh` (registers a user, creates a team/player/game, imports a tiny CSV, verifies record).
+
+## Testing
+
+### Where tests live
+- Webapp tests are in `tests/test_webapp_*.py`.
+- Run: `pytest -q tests/test_webapp_*.py`.
+
+### Django settings are process-global
+Django cannot be “reconfigured” once initialized in a Python process. To avoid flakes:
+- Prefer using the shared fixtures in `tests/conftest.py` (`webapp_db`, `webapp_db_reset`) which configure Django to use a
+  sqlite DB.
+- Tests that call ORM-backed helpers should take `webapp_db` (or `webapp_orm_modules`) as a fixture dependency so Django
+  is initialized correctly before importing/using webapp modules.
+
+## Common troubleshooting
+
+- `500 Internal Server Error` in browser:
+  - Check logs: `sudo journalctl -u hm-webapp -n 200 --no-pager`.
+  - If the error references Django configuration, confirm `/opt/hm-webapp/venv` has Django installed.
+- Service health:
+  - `sudo systemctl status hm-webapp nginx mariadb --no-pager`
+  - `curl -I http://127.0.0.1:8008/teams` (gunicorn) and `curl -I http://127.0.0.1/teams` (nginx proxy)
+- If an old install is missing Django:
+  - `/opt/hm-webapp/venv/bin/python -m pip install django`
+
+## Code style and safety
+
+- Keep changes scoped: webapp code changes should stay within `tools/webapp/` + related tests/docs.
+- Prefer small, explicit ORM queries (`select_related`, `values`, `values_list`) to avoid N+1 performance issues.
+- When touching import/reset scripts, be careful with deletion order and FK constraints; use `transaction.atomic()` for
+  multi-table operations and keep plans idempotent when possible.
