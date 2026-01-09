@@ -8,11 +8,12 @@ DEPLOY_ONLY=0
 DROP_DB=0
 DROP_DB_ONLY=0
 SPREADSHEETS_ONLY=0
+PARSE_ONLY=0
 T2S_SCRAPE=0
 
 usage() {
   cat <<'EOF'
-Usage: ./import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only]
+Usage: ./import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--parse-only]
 
 Environment:
   WEBAPP_URL        Webapp base URL (default: http://127.0.0.1:8008)
@@ -24,6 +25,7 @@ Options:
   --drop-db         Drop (and recreate) the local webapp MariaDB database, then continue
   --drop-db-only    Drop (and recreate) the database, then exit (implies --drop-db)
   --spreadsheets-only  Seed only from shift spreadsheets (skip TimeToScore import; avoids T2S usage in parse_stats_inputs)
+  --parse-only      Only run scripts/parse_stats_inputs.py upload (skip reset + TimeToScore import); forces --webapp-replace
   --scrape          Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
 EOF
 }
@@ -34,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --drop-db) DROP_DB=1; shift ;;
     --drop-db-only) DROP_DB=1; DROP_DB_ONLY=1; shift ;;
     --spreadsheets-only|--no-time2score|--no-t2s) SPREADSHEETS_ONLY=1; shift ;;
+    --parse-only|--parse-stats-only|--spreadsheets-upload-only) PARSE_ONLY=1; shift ;;
     --scrape|--t2s-scrape) T2S_SCRAPE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *)
@@ -46,6 +49,14 @@ done
 
 if [[ "${DROP_DB_ONLY}" == "1" && "${DEPLOY_ONLY}" == "1" ]]; then
   echo "[!] --drop-db-only cannot be combined with --deploy-only" >&2
+  exit 2
+fi
+if [[ "${PARSE_ONLY}" == "1" && "${DEPLOY_ONLY}" == "1" ]]; then
+  echo "[!] --parse-only cannot be combined with --deploy-only" >&2
+  exit 2
+fi
+if [[ "${PARSE_ONLY}" == "1" && "${DROP_DB_ONLY}" == "1" ]]; then
+  echo "[!] --parse-only cannot be combined with --drop-db-only" >&2
   exit 2
 fi
 
@@ -129,19 +140,23 @@ if [[ "${DEPLOY_ONLY}" == "1" ]]; then
   exit 0
 fi
 
-echo "[i] Resetting league data"
-python3 tools/webapp/reset_league_data.py --force
-
-if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
-  echo "[i] --spreadsheets-only: skipping TimeToScore import"
+if [[ "${PARSE_ONLY}" == "1" ]]; then
+  echo "[i] --parse-only: skipping league reset and TimeToScore import"
 else
-  echo "[i] Importing TimeToScore (caha -> Norcal)"
-  # python3 tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
-  T2S_ARGS=()
-  if [[ "${T2S_SCRAPE}" == "1" ]]; then
-    T2S_ARGS+=( "--scrape" )
+  echo "[i] Resetting league data"
+  python3 tools/webapp/reset_league_data.py --force
+
+  if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
+    echo "[i] --spreadsheets-only: skipping TimeToScore import"
+  else
+    echo "[i] Importing TimeToScore (caha -> Norcal)"
+    # python3 tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
+    T2S_ARGS=()
+    if [[ "${T2S_SCRAPE}" == "1" ]]; then
+      T2S_ARGS+=( "--scrape" )
+    fi
+    python3 tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com
   fi
-  python3 tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com
 fi
 
 #echo "[i] Uploading shift spreadsheets"
@@ -160,6 +175,9 @@ fi
 SPREADSHEET_ARGS=()
 if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--no-time2score" )
+fi
+if [[ "${PARSE_ONLY}" == "1" ]]; then
+  SPREADSHEET_ARGS+=( "--webapp-replace" )
 fi
 python3 scripts/parse_stats_inputs.py \
   --file-list "${SHIFT_FILE_LIST}" \
