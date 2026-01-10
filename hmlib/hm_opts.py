@@ -225,6 +225,17 @@ class hm_opts(object):
             action="store_true",
             help="Skip copying audio to the rendered video",
         )
+        io.add_argument(
+            "--deploy-dir",
+            dest="deploy_dir",
+            type=str,
+            default=None,
+            help=(
+                "Optional directory to deploy output artifacts (video/CSVs) to on completion. "
+                "Full runs default to deploying into the game directory when this is omitted; "
+                "short -t runs only deploy when --deploy-dir is set."
+            ),
+        )
         # Feature caching flags moved to their own group
         io.add_argument(
             "--save-camera-data",
