@@ -242,6 +242,8 @@ class PlayTrackerPlugin(Plugin):
         # Optional external camera controller output (e.g., GPT/transformer trunk).
         if "camera_boxes" in data:
             results["camera_boxes"] = data["camera_boxes"]
+        if "camera_fast_boxes" in data:
+            results["camera_fast_boxes"] = data["camera_fast_boxes"]
 
         self._ensure_initialized(context, results)
         assert self._play_tracker is not None

@@ -23,6 +23,9 @@ from hmlib.camera.camera_transformer import CameraNorm, PositionalEncoding
 @dataclass(frozen=True)
 class CameraGPTConfig:
     d_in: int = 11
+    d_out: int = 3
+    feature_mode: str = "legacy_prev_slow"
+    include_pose: bool = False
     d_model: int = 128
     nhead: int = 4
     nlayers: int = 4
@@ -48,7 +51,7 @@ class CameraPanZoomGPT(nn.Module):
             nn.LayerNorm(int(cfg.d_model)),
             nn.Linear(int(cfg.d_model), int(cfg.d_model)),
             nn.ReLU(inplace=True),
-            nn.Linear(int(cfg.d_model), 3),
+            nn.Linear(int(cfg.d_model), int(cfg.d_out)),
             nn.Sigmoid(),
         )
 
@@ -78,6 +81,9 @@ def pack_gpt_checkpoint(
         "window": int(window),
         "model": {
             "d_in": int(cfg.d_in),
+            "d_out": int(cfg.d_out),
+            "feature_mode": str(cfg.feature_mode),
+            "include_pose": bool(cfg.include_pose),
             "d_model": int(cfg.d_model),
             "nhead": int(cfg.nhead),
             "nlayers": int(cfg.nlayers),
@@ -91,8 +97,12 @@ def unpack_gpt_checkpoint(ckpt: Dict[str, Any]) -> Tuple[Dict[str, Any], CameraN
     n = ckpt["norm"]
     window = int(ckpt.get("window", 16))
     model_cfg = ckpt.get("model") or {}
+    include_pose = model_cfg.get("include_pose", ckpt.get("include_pose", False))
     cfg = CameraGPTConfig(
         d_in=int(model_cfg.get("d_in", 11)),
+        d_out=int(model_cfg.get("d_out", 3)),
+        feature_mode=str(model_cfg.get("feature_mode", "legacy_prev_slow")),
+        include_pose=bool(include_pose),
         d_model=int(model_cfg.get("d_model", 128)),
         nhead=int(model_cfg.get("nhead", 4)),
         nlayers=int(model_cfg.get("nlayers", 4)),
@@ -104,4 +114,3 @@ def unpack_gpt_checkpoint(ckpt: Dict[str, Any]) -> Tuple[Dict[str, Any], CameraN
         max_players=int(n["max_players"]),
     )
     return sd, norm, window, cfg
-

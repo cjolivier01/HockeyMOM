@@ -195,6 +195,8 @@ class ApplyCameraPlugin(Plugin):
 
         # frame_ids = context.get("frame_ids")
         current_boxes = context.get("current_box")
+        if isinstance(current_boxes, StreamTensorBase):
+            current_boxes = unwrap_tensor(current_boxes)
 
         results: Dict[str, Any] = {}
         pano_size_wh = [image_width(img), image_height(img)]
@@ -232,6 +234,8 @@ class ApplyCameraPlugin(Plugin):
             if dataset_results is not None:
                 ez_data["dataset_results"] = dataset_results
             fast_boxes = context.get("current_fast_box_list")
+            if isinstance(fast_boxes, StreamTensorBase):
+                fast_boxes = unwrap_tensor(fast_boxes)
             if fast_boxes is not None:
                 ez_data["current_fast_box_list"] = fast_boxes
             ez_data = self._end_zones(ez_data)

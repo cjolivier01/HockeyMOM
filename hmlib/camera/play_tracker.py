@@ -76,6 +76,32 @@ def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
     return tlwhs
 
 
+def _fit_box_inside_bounds(box: torch.Tensor, bounds: torch.Tensor) -> torch.Tensor:
+    """Translate/scale a TLBR box so it fits inside bounds without clamping distortion."""
+    if not isinstance(box, torch.Tensor):
+        box = torch.as_tensor(box)
+    if not isinstance(bounds, torch.Tensor):
+        bounds = torch.as_tensor(bounds)
+    box = box.to(dtype=torch.float32, device=bounds.device)
+    bounds = bounds.to(dtype=torch.float32, device=box.device)
+
+    w = torch.clamp(box[2] - box[0], min=1.0)
+    h = torch.clamp(box[3] - box[1], min=1.0)
+    bw = torch.clamp(bounds[2] - bounds[0], min=1.0)
+    bh = torch.clamp(bounds[3] - bounds[1], min=1.0)
+
+    scale = torch.minimum(torch.tensor(1.0, device=box.device), torch.minimum(bw / w, bh / h))
+    w2 = w * scale
+    h2 = h * scale
+    half_w = w2 * 0.5
+    half_h = h2 * 0.5
+    cx = (box[0] + box[2]) * 0.5
+    cy = (box[1] + box[3]) * 0.5
+    cx = torch.clamp(cx, min=bounds[0] + half_w, max=bounds[2] - half_w)
+    cy = torch.clamp(cy, min=bounds[1] + half_h, max=bounds[3] - half_h)
+    return torch.stack([cx - half_w, cy - half_h, cx + half_w, cy + half_h])
+
+
 class BreakawayDetection:
     def __init__(self, config: dict):
         breakaway_detection = get_nested_value(config, "rink.camera.breakaway_detection", None)
@@ -406,9 +432,9 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.scale_dest_height = cam_cfg["follower_box_scale_height"]
             current_roi_aspect_config.fixed_aspect_ratio = self._final_aspect_ratio
 
-            # If we are not using the C++ PlayTracker, or if the controller is the transformer,
-            # initialize Python-side movers without creating the C++ PlayTracker.
-            if not self._cpp_playtracker or self._camera_controller == "transformer":
+            # If we are not using the C++ PlayTracker, or if the camera controller is external
+            # (e.g. transformer/GPT trunks), initialize Python-side movers without creating the C++ PlayTracker.
+            if not self._cpp_playtracker or self._camera_controller in ("transformer", "gpt"):
                 self._breakaway_detection = BreakawayDetection(self._game_config)
                 #
                 # Initialize `_current_roi` MovingBox with `current_roi_config`
@@ -1172,68 +1198,88 @@ class PlayTracker(torch.nn.Module):
                 image=online_im, tracking_ids=online_ids, bboxes_tlwh=online_tlwhs
             )
 
-            # Run ROI mover when using Python-only path; skip breakaway when C++ tracker or external cam boxes are used
-            # use_external_cam = results.get("camera_boxes") is not None
-            use_external_cam = None
-            if (self._playtracker is None) or use_external_cam:
-                # Only apply Python breakaway if no C++ tracker and no external camera controller and not transformer
-                if (
-                    (self._playtracker is None)
-                    and (not use_external_cam)
-                    and (self._camera_controller != "transformer")
-                ):
-                    current_box, online_im = self.calculate_breakaway(
-                        current_box=current_box,
-                        online_im=online_im,
-                        speed_adjust_box=self._current_roi,
-                        average_current_box=True,
+            # Run ROI mover when using the Python-only path. If an upstream trunk provides
+            # external camera boxes (e.g. GPT/transformer controller), treat them as final
+            # and skip the rule-based breakaway + ROI mover logic.
+            use_external_cam = results.get("camera_boxes") is not None
+            if self._playtracker is None:
+                if use_external_cam and current_box is not None:
+                    external_fast_boxes = results.get("camera_fast_boxes", None)
+                    fast_roi_bounding_box = None
+                    if external_fast_boxes is not None and frame_index < len(external_fast_boxes):
+                        fb = external_fast_boxes[frame_index]
+                        if not isinstance(fb, torch.Tensor):
+                            fb = torch.as_tensor(fb, dtype=torch.float32)
+                        fast_roi_bounding_box = fb.to(
+                            device=self._play_box.device, dtype=torch.float32, non_blocking=True
+                        )
+                    if fast_roi_bounding_box is None:
+                        fast_roi_bounding_box = current_box.clone()
+
+                    # Fit into arena without shrinking a single edge (avoids mixed resize up/down distortion).
+                    current_box = _fit_box_inside_bounds(current_box, self._play_box)
+                    fast_roi_bounding_box = _fit_box_inside_bounds(fast_roi_bounding_box, self._play_box)
+
+                    # Backup the last calculated box
+                    self._previous_cluster_union_box = current_box.clone()
+
+                    current_box_list.append(current_box)
+                    current_fast_box_list.append(fast_roi_bounding_box)
+                else:
+                    # Only apply Python breakaway if no external controller and not transformer.
+                    if (not use_external_cam) and (self._camera_controller != "transformer"):
+                        current_box, online_im = self.calculate_breakaway(
+                            current_box=current_box,
+                            online_im=online_im,
+                            speed_adjust_box=self._current_roi,
+                            average_current_box=True,
+                        )
+
+                    # Backup the last calculated box
+                    self._previous_cluster_union_box = current_box.clone()
+
+                    # Clamp to arena
+                    current_box = clamp_box(current_box, self._play_box)
+
+                    # Maybe set initial box sizes when --no-wide-start is enabled
+                    if self._no_wide_start and (not self._initial_box_applied):
+                        has_valid_cluster_box = bool(cluster_boxes_map)
+                        box_is_full_frame = torch.allclose(
+                            current_box.to(dtype=torch.float32, device=self._play_box.device),
+                            self._play_box,
+                        )
+                        if has_valid_cluster_box or (not box_is_full_frame):
+                            self.set_initial_tracking_box(current_box)
+
+                    # Apply through ROI moving boxes (fast follower + aspect follower)
+                    roi_input_box = (
+                        to_bbox(current_box, self._cpp_boxes)
+                        if isinstance(self._current_roi, PyLivingBox)
+                        else current_box
                     )
+                    fast_roi_bounding_box = self._current_roi.forward(roi_input_box)
+                    current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
 
-                # Backup the last calculated box
-                self._previous_cluster_union_box = current_box.clone()
+                    fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
+                    current_box = from_bbox(current_box)
 
-                # Clamp to arena
-                current_box = clamp_box(current_box, self._play_box)
+                    current_box_list.append(from_bbox(self._current_roi_aspect.bounding_box()))
+                    current_fast_box_list.append(from_bbox(self._current_roi.bounding_box()))
 
-                # Maybe set initial box sizes when --no-wide-start is enabled
-                if self._no_wide_start and (not self._initial_box_applied):
-                    has_valid_cluster_box = bool(cluster_boxes_map)
-                    box_is_full_frame = torch.allclose(
-                        current_box.to(dtype=torch.float32, device=self._play_box.device),
-                        self._play_box,
-                    )
-                    if has_valid_cluster_box or (not box_is_full_frame):
-                        self.set_initial_tracking_box(current_box)
-
-                # Apply through ROI moving boxes (fast follower + aspect follower)
-                roi_input_box = (
-                    to_bbox(current_box, self._cpp_boxes)
-                    if isinstance(self._current_roi, PyLivingBox)
-                    else current_box
-                )
-                fast_roi_bounding_box = self._current_roi.forward(roi_input_box)
-                current_box = self._current_roi_aspect.forward(fast_roi_bounding_box)
-
-                fast_roi_bounding_box = from_bbox(fast_roi_bounding_box)
-                current_box = from_bbox(current_box)
-
-                current_box_list.append(from_bbox(self._current_roi_aspect.bounding_box()))
-                current_fast_box_list.append(from_bbox(self._current_roi.bounding_box()))
-
-                if self._plot_moving_boxes:
-                    online_im = self._current_roi_aspect.draw(
-                        img=online_im,
-                        draw_thresholds=True,
-                        following_box=self._current_roi,
-                    )
-                    online_im = self._current_roi.draw(img=online_im)
-                    online_im = vis.plot_line(
-                        online_im,
-                        center(fast_roi_bounding_box),
-                        center(current_box),
-                        color=(255, 255, 255),
-                        thickness=2,
-                    )
+                    if self._plot_moving_boxes:
+                        online_im = self._current_roi_aspect.draw(
+                            img=online_im,
+                            draw_thresholds=True,
+                            following_box=self._current_roi,
+                        )
+                        online_im = self._current_roi.draw(img=online_im)
+                        online_im = vis.plot_line(
+                            online_im,
+                            center(fast_roi_bounding_box),
+                            center(current_box),
+                            color=(255, 255, 255),
+                            thickness=2,
+                        )
 
             if self._plot_speed:
                 vis.plot_frame_id_and_speeds(

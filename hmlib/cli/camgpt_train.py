@@ -15,9 +15,108 @@ from hmlib.camera.camera_gpt_dataset import (
     GameCsvPaths,
     resolve_csv_paths,
     scan_game_max_xy,
+    validate_csv_paths,
 )
 from hmlib.camera.camera_transformer import CameraNorm
 from hmlib.log import logger
+
+
+def _tlwh_to_tlbr(tlwh: torch.Tensor) -> torch.Tensor:
+    x1 = tlwh[..., 0]
+    y1 = tlwh[..., 1]
+    w = torch.clamp(tlwh[..., 2], min=1e-6)
+    h = torch.clamp(tlwh[..., 3], min=1e-6)
+    x2 = x1 + w
+    y2 = y1 + h
+    return torch.stack([x1, y1, x2, y2], dim=-1)
+
+
+def _mean_iou_tlwh(a_tlwh: torch.Tensor, b_tlwh: torch.Tensor) -> torch.Tensor:
+    a = _tlwh_to_tlbr(a_tlwh)
+    b = _tlwh_to_tlbr(b_tlwh)
+    ix1 = torch.maximum(a[..., 0], b[..., 0])
+    iy1 = torch.maximum(a[..., 1], b[..., 1])
+    ix2 = torch.minimum(a[..., 2], b[..., 2])
+    iy2 = torch.minimum(a[..., 3], b[..., 3])
+    iw = torch.clamp(ix2 - ix1, min=0.0)
+    ih = torch.clamp(iy2 - iy1, min=0.0)
+    inter = iw * ih
+    a_area = torch.clamp(a[..., 2] - a[..., 0], min=0.0) * torch.clamp(a[..., 3] - a[..., 1], min=0.0)
+    b_area = torch.clamp(b[..., 2] - b[..., 0], min=0.0) * torch.clamp(b[..., 3] - b[..., 1], min=0.0)
+    union = a_area + b_area - inter
+    iou = inter / torch.clamp(union, min=1e-6)
+    return iou.mean()
+
+
+def _diff1(x: torch.Tensor) -> torch.Tensor:
+    # [B,T,D] -> [B,T-1,D]
+    return x[:, 1:, :] - x[:, :-1, :]
+
+
+def _diff2(x: torch.Tensor) -> torch.Tensor:
+    # [B,T,D] -> [B,T-2,D]
+    return x[:, 2:, :] - 2.0 * x[:, 1:-1, :] + x[:, :-2, :]
+
+
+def _compute_losses(
+    pred: torch.Tensor,
+    y: torch.Tensor,
+    *,
+    w_l1: float,
+    w_iou: float,
+    w_vel: float,
+    w_acc: float,
+    fast_mult: float,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    metrics: dict[str, float] = {}
+    d_out = int(y.shape[-1])
+
+    if d_out == 8:
+        pred_slow = pred[..., :4]
+        y_slow = y[..., :4]
+        pred_fast = pred[..., 4:8]
+        y_fast = y[..., 4:8]
+
+        l1_slow = nn.functional.l1_loss(pred_slow, y_slow)
+        l1_fast = nn.functional.l1_loss(pred_fast, y_fast)
+        l1 = l1_slow + float(fast_mult) * l1_fast
+        metrics["l1_slow"] = float(l1_slow.detach().item())
+        metrics["l1_fast"] = float(l1_fast.detach().item())
+
+        iou_slow = _mean_iou_tlwh(pred_slow, y_slow)
+        iou_fast = _mean_iou_tlwh(pred_fast, y_fast)
+        iou_loss = (1.0 - iou_slow) + float(fast_mult) * (1.0 - iou_fast)
+        metrics["iou_slow"] = float(iou_slow.detach().item())
+        metrics["iou_fast"] = float(iou_fast.detach().item())
+
+        vel_slow = nn.functional.l1_loss(_diff1(pred_slow), _diff1(y_slow)) if pred.size(1) > 1 else pred.new_zeros(())
+        vel_fast = nn.functional.l1_loss(_diff1(pred_fast), _diff1(y_fast)) if pred.size(1) > 1 else pred.new_zeros(())
+        vel = vel_slow + float(fast_mult) * vel_fast
+        metrics["vel_slow"] = float(vel_slow.detach().item()) if pred.size(1) > 1 else 0.0
+        metrics["vel_fast"] = float(vel_fast.detach().item()) if pred.size(1) > 1 else 0.0
+
+        acc_slow = nn.functional.l1_loss(_diff2(pred_slow), _diff2(y_slow)) if pred.size(1) > 2 else pred.new_zeros(())
+        acc_fast = nn.functional.l1_loss(_diff2(pred_fast), _diff2(y_fast)) if pred.size(1) > 2 else pred.new_zeros(())
+        acc = acc_slow + float(fast_mult) * acc_fast
+        metrics["acc_slow"] = float(acc_slow.detach().item()) if pred.size(1) > 2 else 0.0
+        metrics["acc_fast"] = float(acc_fast.detach().item()) if pred.size(1) > 2 else 0.0
+
+    else:
+        l1 = nn.functional.l1_loss(pred, y)
+        metrics["l1"] = float(l1.detach().item())
+        iou_loss = pred.new_zeros(())
+        if d_out == 4:
+            iou = _mean_iou_tlwh(pred, y)
+            iou_loss = 1.0 - iou
+            metrics["iou"] = float(iou.detach().item())
+        vel = nn.functional.l1_loss(_diff1(pred), _diff1(y)) if pred.size(1) > 1 else pred.new_zeros(())
+        acc = nn.functional.l1_loss(_diff2(pred), _diff2(y)) if pred.size(1) > 2 else pred.new_zeros(())
+        metrics["vel"] = float(vel.detach().item()) if pred.size(1) > 1 else 0.0
+        metrics["acc"] = float(acc.detach().item()) if pred.size(1) > 2 else 0.0
+
+    loss = float(w_l1) * l1 + float(w_iou) * iou_loss + float(w_vel) * vel + float(w_acc) * acc
+    metrics["loss"] = float(loss.detach().item())
+    return loss, metrics
 
 
 def _split_and_strip(value: Optional[str]) -> List[str]:
@@ -51,7 +150,16 @@ def _load_game_ids(args: argparse.Namespace) -> List[str]:
 
 @torch.no_grad()
 def _eval_loss(
-    model: nn.Module, loader: DataLoader, device: torch.device, steps: int
+    model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    steps: int,
+    *,
+    w_l1: float,
+    w_iou: float,
+    w_vel: float,
+    w_acc: float,
+    fast_mult: float,
 ) -> float:
     model.eval()
     total = 0
@@ -59,12 +167,26 @@ def _eval_loss(
     it = iter(loader)
     for _ in range(int(steps)):
         batch = next(it)
-        x = batch["x"].to(device)
         y = batch["y"].to(device)
+        if "x" in batch:
+            x = batch["x"].to(device)
+        else:
+            base = batch["base"].to(device)
+            prev0 = batch["prev0"].to(device)
+            prev_y = torch.cat([prev0.unsqueeze(1), y[:, :-1, :]], dim=1)
+            x = torch.cat([base, prev_y], dim=-1)
         pred = model(x)
-        loss = nn.functional.l1_loss(pred, y)
-        loss_sum += float(loss.item()) * x.size(0)
-        total += x.size(0)
+        loss, _ = _compute_losses(
+            pred,
+            y,
+            w_l1=w_l1,
+            w_iou=w_iou,
+            w_vel=w_vel,
+            w_acc=w_acc,
+            fast_mult=fast_mult,
+        )
+        loss_sum += float(loss.item()) * int(x.size(0))
+        total += int(x.size(0))
     return loss_sum / max(1, total)
 
 
@@ -80,6 +202,43 @@ def main():
         help="Root directory containing <game-id>/ directories (default: $HOME/Videos)",
     )
     ap.add_argument("--seq-len", type=int, default=32, help="Sequence length in frames")
+    ap.add_argument(
+        "--target-mode",
+        type=str,
+        default="slow_fast_tlwh",
+        choices=["slow_center_h", "slow_tlwh", "slow_fast_tlwh"],
+        help="Training target format (slow camera only or slow+fast boxes).",
+    )
+    ap.add_argument(
+        "--feature-mode",
+        type=str,
+        default="base_prev_y",
+        choices=["legacy_prev_slow", "base_prev_y"],
+        help=(
+            "Input feature schema. 'base_prev_y' feeds previous camera target/prediction as input "
+            "(enables scheduled sampling and improves fast-box dynamics)."
+        ),
+    )
+    ap.add_argument(
+        "--no-pose",
+        dest="include_pose",
+        action="store_false",
+        default=True,
+        help="Disable pose.csv feature aggregation even if pose.csv exists.",
+    )
+    ap.add_argument(
+        "--scheduled-sampling",
+        action="store_true",
+        help="Enable scheduled sampling (only when --feature-mode=base_prev_y).",
+    )
+    ap.add_argument("--ss-prob-start", type=float, default=0.0, help="Scheduled-sampling prob at step 0.")
+    ap.add_argument("--ss-prob-end", type=float, default=0.3, help="Scheduled-sampling prob after warmup.")
+    ap.add_argument(
+        "--ss-warmup-steps",
+        type=int,
+        default=1000,
+        help="Linearly ramp scheduled-sampling prob over this many steps (0=immediate).",
+    )
     ap.add_argument("--steps", type=int, default=2000, help="Training optimizer steps")
     ap.add_argument(
         "--frames",
@@ -93,11 +252,49 @@ def main():
     ap.add_argument("--nhead", type=int, default=4)
     ap.add_argument("--nlayers", type=int, default=4)
     ap.add_argument("--dropout", type=float, default=0.1)
+    ap.add_argument("--loss-l1-weight", type=float, default=1.0, help="Weight for L1 loss.")
+    ap.add_argument("--loss-iou-weight", type=float, default=0.5, help="Weight for (1-IoU) box loss (TLWH modes only).")
+    ap.add_argument(
+        "--loss-vel-weight",
+        type=float,
+        default=0.2,
+        help="Weight for velocity matching loss (L1 on first differences).",
+    )
+    ap.add_argument(
+        "--loss-acc-weight",
+        type=float,
+        default=0.1,
+        help="Weight for acceleration matching loss (L1 on second differences).",
+    )
+    ap.add_argument(
+        "--fast-loss-mult",
+        type=float,
+        default=2.0,
+        help="Multiplier for fast-box losses when training slow_fast_tlwh.",
+    )
     ap.add_argument("--max-players", type=int, default=22)
     ap.add_argument("--val-split", type=float, default=0.1)
     ap.add_argument("--val-steps", type=int, default=50)
     ap.add_argument("--log-every", type=int, default=50)
     ap.add_argument("--eval-every", type=int, default=200)
+    ap.add_argument(
+        "--camera-csv-name",
+        type=str,
+        default=None,
+        help="Optional fixed camera CSV filename inside each <videos-root>/<game-id>/ (e.g. camera_annotated.csv).",
+    )
+    ap.add_argument(
+        "--camera-fast-csv-name",
+        type=str,
+        default=None,
+        help="Optional fixed fast camera CSV filename inside each <videos-root>/<game-id>/ (e.g. camera_fast_annotated.csv).",
+    )
+    ap.add_argument(
+        "--pose-csv-name",
+        type=str,
+        default=None,
+        help="Optional fixed pose CSV filename inside each <videos-root>/<game-id>/ (e.g. pose.csv).",
+    )
     ap.add_argument("--out", type=str, default="camera_gpt.pt")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", type=str, default=None)
@@ -118,20 +315,34 @@ def main():
         if not gdir.is_dir():
             logger.warning("Skipping %s (missing dir %s)", gid, gdir)
             continue
-        paths = resolve_csv_paths(game_id=gid, game_dir=str(gdir))
+        paths = resolve_csv_paths(
+            game_id=gid,
+            game_dir=str(gdir),
+            camera_csv_name=args.camera_csv_name,
+            camera_fast_csv_name=args.camera_fast_csv_name,
+            pose_csv_name=args.pose_csv_name,
+        )
         if paths is None:
             logger.warning("Skipping %s (missing tracking.csv/camera.csv)", gid)
+            continue
+        if args.target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
+            logger.warning("Skipping %s (missing camera_fast.csv for --target-mode=slow_fast_tlwh)", gid)
+            continue
+        try:
+            validate_csv_paths(paths)
+        except Exception as ex:
+            logger.warning("Skipping %s (bad CSV paths): %s", gid, ex)
             continue
         game_csvs.append(paths)
 
     if not game_csvs:
-        raise SystemExit("No usable games found (need tracking.csv + camera.csv).")
+        raise SystemExit("No usable games found (need tracking.csv + camera.csv [+ camera_fast.csv]).")
 
     # Use one normalization scale across all games for consistent training.
     max_x = 0.0
     max_y = 0.0
     for p in game_csvs:
-        mx, my = scan_game_max_xy(p.tracking_csv, p.camera_csv)
+        mx, my = scan_game_max_xy(p.tracking_csv, p.camera_csv, p.camera_fast_csv)
         max_x = max(max_x, float(mx))
         max_y = max(max_y, float(my))
     norm = CameraNorm(scale_x=max_x, scale_y=max_y, max_players=int(args.max_players))
@@ -149,6 +360,9 @@ def main():
         games=train_games,
         norm=norm,
         seq_len=int(args.seq_len),
+        target_mode=str(args.target_mode),
+        feature_mode=str(args.feature_mode),
+        include_pose=bool(args.include_pose),
         max_players_for_norm=int(args.max_players),
         seed=int(args.seed),
         max_cached_games=int(args.max_cached_games),
@@ -161,6 +375,9 @@ def main():
             games=val_games,
             norm=norm,
             seq_len=int(args.seq_len),
+            target_mode=str(args.target_mode),
+            feature_mode=str(args.feature_mode),
+            include_pose=bool(args.include_pose),
             max_players_for_norm=int(args.max_players),
             seed=int(args.seed) + 999,
             max_cached_games=max(1, int(args.max_cached_games // 2)),
@@ -173,7 +390,10 @@ def main():
         else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     )
     cfg = CameraGPTConfig(
-        d_in=11,
+        d_in=int(train_ds.feature_dim),
+        d_out=int(train_ds.target_dim),
+        feature_mode=str(args.feature_mode),
+        include_pose=bool(args.include_pose),
         d_model=int(args.d_model),
         nhead=int(args.nhead),
         nlayers=int(args.nlayers),
@@ -201,30 +421,94 @@ def main():
     for step in range(1, steps + 1):
         model.train()
         batch = next(it)
-        x = batch["x"].to(device)
         y = batch["y"].to(device)
+        if "x" in batch:
+            x = batch["x"].to(device)
+            pred = model(x)
+        else:
+            base = batch["base"].to(device)
+            prev0 = batch["prev0"].to(device)
+            if str(args.feature_mode) != "base_prev_y":
+                raise RuntimeError(
+                    "Dataset emitted base/prev0 but feature-mode is not base_prev_y; this is a bug."
+                )
 
-        pred = model(x)
-        loss = nn.functional.l1_loss(pred, y)
+            # Scheduled sampling: sometimes feed the model's previous prediction as the next-step input.
+            if args.scheduled_sampling:
+                p0 = float(args.ss_prob_start)
+                p1 = float(args.ss_prob_end)
+                warm = int(args.ss_warmup_steps)
+                if warm <= 0:
+                    p = p1
+                else:
+                    frac = float(min(max(step, 0), warm)) / float(warm)
+                    p = p0 + (p1 - p0) * frac
+                bsz, tlen, _ = base.shape
+                prev = prev0
+                preds = []
+                x_prefix = None
+                for t in range(int(tlen)):
+                    x_t = torch.cat([base[:, t, :], prev], dim=-1).unsqueeze(1)  # [B,1,D]
+                    x_prefix = x_t if x_prefix is None else torch.cat([x_prefix, x_t], dim=1)
+                    pred_t = model(x_prefix)[:, -1, :]
+                    preds.append(pred_t)
+                    if t + 1 < int(tlen):
+                        use_pred = torch.rand((bsz,), device=device) < float(p)
+                        prev = torch.where(use_pred[:, None], pred_t.detach(), y[:, t, :])
+                pred = torch.stack(preds, dim=1)
+                x = x_prefix
+            else:
+                prev_y = torch.cat([prev0.unsqueeze(1), y[:, :-1, :]], dim=1)
+                x = torch.cat([base, prev_y], dim=-1)
+                pred = model(x)
+        loss, metrics = _compute_losses(
+            pred,
+            y,
+            w_l1=float(args.loss_l1_weight),
+            w_iou=float(args.loss_iou_weight),
+            w_vel=float(args.loss_vel_weight),
+            w_acc=float(args.loss_acc_weight),
+            fast_mult=float(args.fast_loss_mult),
+        )
 
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
 
         if step % int(args.log_every) == 0 or step == 1:
-            logger.info("step %d/%d: train_l1=%.5f", step, steps, float(loss.item()))
+            msg = f"step {step}/{steps}: train_loss={metrics['loss']:.5f}"
+            if "l1_slow" in metrics:
+                msg += f" l1_slow={metrics['l1_slow']:.5f} l1_fast={metrics['l1_fast']:.5f}"
+                msg += f" iou_slow={metrics['iou_slow']:.4f} iou_fast={metrics['iou_fast']:.4f}"
+            else:
+                msg += f" l1={metrics.get('l1', float('nan')):.5f}"
+                if "iou" in metrics:
+                    msg += f" iou={metrics['iou']:.4f}"
+            logger.info(msg)
 
         do_eval = val_loader is not None and int(args.eval_every) > 0 and (
             step % int(args.eval_every) == 0 or step == steps
         )
         if do_eval:
-            val = _eval_loss(model, val_loader, device, steps=int(args.val_steps))
-            logger.info("step %d/%d: val_l1=%.5f", step, steps, float(val))
+            val = _eval_loss(
+                model,
+                val_loader,
+                device,
+                steps=int(args.val_steps),
+                w_l1=float(args.loss_l1_weight),
+                w_iou=float(args.loss_iou_weight),
+                w_vel=float(args.loss_vel_weight),
+                w_acc=float(args.loss_acc_weight),
+                fast_mult=float(args.fast_loss_mult),
+            )
+            logger.info("step %d/%d: val_loss=%.5f", step, steps, float(val))
             if val < best_val:
                 best_val = float(val)
                 ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg)
                 ckpt["step"] = int(step)
                 ckpt["games"] = [p.game_id for p in game_csvs]
+                ckpt["target_mode"] = str(args.target_mode)
+                ckpt["include_pose"] = bool(args.include_pose)
                 os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
                 torch.save(ckpt, args.out)
                 logger.info("Saved best checkpoint to %s", args.out)
@@ -233,6 +517,8 @@ def main():
         ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg)
         ckpt["step"] = int(steps)
         ckpt["games"] = [p.game_id for p in game_csvs]
+        ckpt["target_mode"] = str(args.target_mode)
+        ckpt["include_pose"] = bool(args.include_pose)
         os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
         torch.save(ckpt, args.out)
         logger.info("Saved checkpoint to %s", args.out)
@@ -240,4 +526,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

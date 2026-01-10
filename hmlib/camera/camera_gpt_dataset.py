@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 from collections import deque
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ import pandas as pd
 import torch
 from torch.utils.data import IterableDataset, get_worker_info
 
-from hmlib.camera.camera_transformer import CameraNorm, build_frame_features
+from hmlib.camera.camera_transformer import CameraNorm, build_frame_base_features, build_frame_features
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class GameCsvPaths:
     game_id: str
     tracking_csv: str
     camera_csv: str
+    camera_fast_csv: Optional[str] = None
     pose_csv: Optional[str] = None
 
 
@@ -67,7 +69,15 @@ def _read_camera_dataframe(camera_csv: str) -> pd.DataFrame:
     return cams
 
 
-def scan_game_max_xy(tracking_csv: str, camera_csv: str) -> Tuple[float, float]:
+def _read_pose_dataframe(pose_csv: str) -> pd.DataFrame:
+    poses = pd.read_csv(pose_csv, header=None)
+    poses.columns = ["Frame", "PoseJSON"]
+    return poses
+
+
+def scan_game_max_xy(
+    tracking_csv: str, camera_csv: str, camera_fast_csv: Optional[str] = None
+) -> Tuple[float, float]:
     """Return (max_x, max_y) across tracking + camera CSVs for a game."""
     max_x = float("nan")
     max_y = float("nan")
@@ -95,6 +105,19 @@ def scan_game_max_xy(tracking_csv: str, camera_csv: str) -> Tuple[float, float]:
         max_y = float(np.nanmax([max_y, float(np.nanmax(y2.to_numpy(dtype=np.float64)))]))
     except Exception:
         pass
+    if camera_fast_csv:
+        try:
+            cams = _read_camera_dataframe(camera_fast_csv)
+            x2 = pd.to_numeric(cams["BBox_X"], errors="coerce") + pd.to_numeric(
+                cams["BBox_W"], errors="coerce"
+            )
+            y2 = pd.to_numeric(cams["BBox_Y"], errors="coerce") + pd.to_numeric(
+                cams["BBox_H"], errors="coerce"
+            )
+            max_x = float(np.nanmax([max_x, float(np.nanmax(x2.to_numpy(dtype=np.float64)))]))
+            max_y = float(np.nanmax([max_y, float(np.nanmax(y2.to_numpy(dtype=np.float64)))]))
+        except Exception:
+            pass
     if not np.isfinite(max_x) or max_x <= 0:
         max_x = 1920.0
     if not np.isfinite(max_y) or max_y <= 0:
@@ -107,15 +130,89 @@ class _LoadedGame:
     game_id: str
     frames: list[int]
     tracks_by_frame: Dict[int, np.ndarray]
-    cam_by_frame: Dict[int, Tuple[float, float, float]]  # cx, cy, h_ratio (normalized)
+    cam_slow_tlwh_by_frame: Dict[int, np.ndarray]  # normalized TLWH
+    cam_fast_tlwh_by_frame: Dict[int, np.ndarray]  # normalized TLWH
+    pose_feat_by_frame: Dict[int, np.ndarray]
 
 
-def _load_game(paths: GameCsvPaths, norm: CameraNorm) -> _LoadedGame:
+def _pose_features_from_json(pose_json: str, norm: CameraNorm) -> np.ndarray:
+    """Return fixed-length pose features for a frame (zeros on missing/parse errors)."""
+    feat = np.zeros((8,), dtype=np.float32)
+    if not pose_json:
+        return feat
+    try:
+        obj = json.loads(pose_json)
+    except Exception:
+        return feat
+    preds = obj.get("predictions") if isinstance(obj, dict) else None
+    if not isinstance(preds, list) or not preds:
+        return feat
+    ds0 = preds[0] if isinstance(preds[0], dict) else None
+    if ds0 is None:
+        return feat
+
+    bboxes = ds0.get("bboxes")
+    bboxes_arr = None
+    try:
+        bboxes_arr = np.asarray(bboxes, dtype=np.float32).reshape(-1, 4) if bboxes is not None else None
+    except Exception:
+        bboxes_arr = None
+    if bboxes_arr is not None and bboxes_arr.size:
+        x1 = bboxes_arr[:, 0]
+        y1 = bboxes_arr[:, 1]
+        x2 = bboxes_arr[:, 2]
+        y2 = bboxes_arr[:, 3]
+        cx = (x1 + x2) * 0.5 / max(1e-6, float(norm.scale_x))
+        cy = (y1 + y2) * 0.5 / max(1e-6, float(norm.scale_y))
+        hh = (y2 - y1) / max(1e-6, float(norm.scale_y))
+        feat[0] = float(min(len(bboxes_arr) / max(1, int(norm.max_players)), 1.0))
+        feat[1] = float(np.clip(np.mean(cx), 0.0, 1.0))
+        feat[2] = float(np.clip(np.mean(cy), 0.0, 1.0))
+        feat[3] = float(np.clip(np.std(cx), 0.0, 1.0))
+        feat[4] = float(np.clip(np.std(cy), 0.0, 1.0))
+        feat[5] = float(np.clip(np.mean(hh), 0.0, 1.0))
+
+    # Scores: prefer keypoint_scores; fall back to bbox_scores or scores.
+    score = None
+    for key in ("keypoint_scores", "bbox_scores", "scores"):
+        val = ds0.get(key)
+        if val is None:
+            continue
+        try:
+            arr = np.asarray(val, dtype=np.float32)
+            if arr.size:
+                score = float(np.mean(arr))
+                break
+        except Exception:
+            continue
+    if score is not None:
+        feat[6] = float(np.clip(score, 0.0, 1.0))
+
+    # Fraction of keypoints above 0.5 if available.
+    kps = ds0.get("keypoint_scores")
+    if kps is not None:
+        try:
+            arr = np.asarray(kps, dtype=np.float32)
+            if arr.size:
+                feat[7] = float(np.mean(arr > 0.5))
+        except Exception:
+            pass
+    return feat
+
+
+def _load_game(paths: GameCsvPaths, norm: CameraNorm, target_mode: str, include_pose: bool) -> _LoadedGame:
     tracks = _read_tracking_dataframe(paths.tracking_csv)
     cams = _read_camera_dataframe(paths.camera_csv)
+    cams_fast = _read_camera_dataframe(paths.camera_fast_csv) if paths.camera_fast_csv else None
 
-    # Frames present in both tracking and camera.
-    frames = sorted(set(tracks["Frame"].unique()).intersection(set(cams["Frame"].unique())))
+    # Frames present in both tracking and (slow) camera.
+    frames_set = set(tracks["Frame"].unique()).intersection(set(cams["Frame"].unique()))
+    if target_mode == "slow_fast_tlwh":
+        if cams_fast is None:
+            frames_set = set()
+        else:
+            frames_set = frames_set.intersection(set(cams_fast["Frame"].unique()))
+    frames = sorted(frames_set)
     frames_int = [int(f) for f in frames]
 
     tracks_by_frame: Dict[int, np.ndarray] = {}
@@ -125,7 +222,7 @@ def _load_game(paths: GameCsvPaths, norm: CameraNorm) -> _LoadedGame:
             arr = group[["BBox_X", "BBox_Y", "BBox_W", "BBox_H"]].to_numpy(dtype=np.float32)
             tracks_by_frame[fid] = arr
 
-    cam_by_frame: Dict[int, Tuple[float, float, float]] = {}
+    cam_slow_tlwh_by_frame: Dict[int, np.ndarray] = {}
     if not cams.empty:
         for row in cams.itertuples(index=False):
             fid = int(getattr(row, "Frame"))
@@ -133,16 +230,44 @@ def _load_game(paths: GameCsvPaths, norm: CameraNorm) -> _LoadedGame:
             y = float(getattr(row, "BBox_Y"))
             w = float(getattr(row, "BBox_W"))
             h = float(getattr(row, "BBox_H"))
-            cx = (x + w / 2.0) / max(1e-6, float(norm.scale_x))
-            cy = (y + h / 2.0) / max(1e-6, float(norm.scale_y))
-            hr = h / max(1e-6, float(norm.scale_y))
-            cam_by_frame[fid] = (float(cx), float(cy), float(hr))
+            x1 = float(np.clip(x / max(1e-6, float(norm.scale_x)), 0.0, 1.0))
+            y1 = float(np.clip(y / max(1e-6, float(norm.scale_y)), 0.0, 1.0))
+            w1 = float(np.clip(w / max(1e-6, float(norm.scale_x)), 0.0, 1.0))
+            h1 = float(np.clip(h / max(1e-6, float(norm.scale_y)), 0.0, 1.0))
+            cam_slow_tlwh_by_frame[fid] = np.asarray([x1, y1, w1, h1], dtype=np.float32)
+
+    cam_fast_tlwh_by_frame: Dict[int, np.ndarray] = {}
+    if cams_fast is not None and not cams_fast.empty:
+        for row in cams_fast.itertuples(index=False):
+            fid = int(getattr(row, "Frame"))
+            x = float(getattr(row, "BBox_X"))
+            y = float(getattr(row, "BBox_Y"))
+            w = float(getattr(row, "BBox_W"))
+            h = float(getattr(row, "BBox_H"))
+            x1 = float(np.clip(x / max(1e-6, float(norm.scale_x)), 0.0, 1.0))
+            y1 = float(np.clip(y / max(1e-6, float(norm.scale_y)), 0.0, 1.0))
+            w1 = float(np.clip(w / max(1e-6, float(norm.scale_x)), 0.0, 1.0))
+            h1 = float(np.clip(h / max(1e-6, float(norm.scale_y)), 0.0, 1.0))
+            cam_fast_tlwh_by_frame[fid] = np.asarray([x1, y1, w1, h1], dtype=np.float32)
+
+    pose_feat_by_frame: Dict[int, np.ndarray] = {}
+    if include_pose and paths.pose_csv:
+        try:
+            poses = _read_pose_dataframe(paths.pose_csv)
+            for row in poses.itertuples(index=False):
+                fid = int(getattr(row, "Frame"))
+                pose_json = getattr(row, "PoseJSON")
+                pose_feat_by_frame[fid] = _pose_features_from_json(str(pose_json), norm=norm)
+        except Exception:
+            pose_feat_by_frame = {}
 
     return _LoadedGame(
         game_id=paths.game_id,
         frames=frames_int,
         tracks_by_frame=tracks_by_frame,
-        cam_by_frame=cam_by_frame,
+        cam_slow_tlwh_by_frame=cam_slow_tlwh_by_frame,
+        cam_fast_tlwh_by_frame=cam_fast_tlwh_by_frame,
+        pose_feat_by_frame=pose_feat_by_frame,
     )
 
 
@@ -154,6 +279,9 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
         games: list[GameCsvPaths],
         norm: CameraNorm,
         seq_len: int = 32,
+        target_mode: str = "slow_center_h",
+        feature_mode: str = "base_prev_y",
+        include_pose: bool = True,
         max_players_for_norm: int = 22,
         seed: int = 0,
         max_cached_games: int = 8,
@@ -166,22 +294,58 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
             max_players=int(max_players_for_norm),
         )
         self._seq_len = int(seq_len)
+        self._target_mode = str(target_mode)
+        self._feature_mode = str(feature_mode)
+        self._include_pose = bool(include_pose)
+        self._pose_feat_dim = 8 if self._include_pose else 0
         self._seed = int(seed)
         self._max_cached = int(max_cached_games)
         self._cache: Dict[str, _LoadedGame] = {}
         self._cache_order: deque[str] = deque()
+        if self._feature_mode not in {"legacy_prev_slow", "base_prev_y"}:
+            raise ValueError(f"Unknown feature_mode: {self._feature_mode}")
 
     @property
     def norm(self) -> CameraNorm:
         return self._norm
+
+    @property
+    def base_dim(self) -> int:
+        """Dimension of per-frame inputs excluding previous camera state."""
+        return 8 + int(self._pose_feat_dim)
+
+    @property
+    def feature_dim(self) -> int:
+        if self._feature_mode == "legacy_prev_slow":
+            return 11 + int(self._pose_feat_dim)
+        if self._feature_mode == "base_prev_y":
+            return int(self.base_dim) + int(self.target_dim)
+        raise ValueError(f"Unknown feature_mode: {self._feature_mode}")
+
+    @property
+    def target_dim(self) -> int:
+        if self._target_mode == "slow_center_h":
+            return 3
+        if self._target_mode == "slow_tlwh":
+            return 4
+        if self._target_mode == "slow_fast_tlwh":
+            return 8
+        raise ValueError(f"Unknown target_mode: {self._target_mode}")
 
     def _get_game(self, paths: GameCsvPaths) -> Optional[_LoadedGame]:
         game_id = paths.game_id
         cached = self._cache.get(game_id)
         if cached is not None:
             return cached
+        if self._target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
+            return None
         try:
-            loaded = _load_game(paths, norm=self._norm)
+            loaded = _load_game(
+                paths,
+                norm=self._norm,
+                target_mode=self._target_mode,
+                include_pose=self._include_pose,
+            )
         except Exception:
             return None
         if len(loaded.frames) < self._seq_len:
@@ -209,48 +373,163 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
 
             feats = []
             targets = []
-
-            prev = None
-            if start > 0:
-                prev = game.cam_by_frame.get(frames[start - 1])
-            if prev is None:
-                prev = game.cam_by_frame.get(seq_frames[0], (0.5, 0.5, 1.0))
-            prev_cx, prev_cy, prev_h = prev
+            prev0: Optional[np.ndarray] = None
+            if self._feature_mode == "base_prev_y":
+                prev_frame = frames[start - 1] if start > 0 else seq_frames[0]
+                prev_slow = game.cam_slow_tlwh_by_frame.get(prev_frame)
+                if prev_slow is None:
+                    prev_slow = np.asarray([0.0, 0.0, 1.0, 1.0], dtype=np.float32)
+                if self._target_mode == "slow_center_h":
+                    prev0 = np.asarray(
+                        [
+                            float(prev_slow[0] + prev_slow[2] * 0.5),
+                            float(prev_slow[1] + prev_slow[3] * 0.5),
+                            float(prev_slow[3]),
+                        ],
+                        dtype=np.float32,
+                    )
+                elif self._target_mode == "slow_tlwh":
+                    prev0 = prev_slow.astype(np.float32, copy=False)
+                elif self._target_mode == "slow_fast_tlwh":
+                    prev_fast = game.cam_fast_tlwh_by_frame.get(prev_frame)
+                    if prev_fast is None:
+                        prev_fast = prev_slow
+                    prev0 = np.concatenate(
+                        [
+                            prev_slow.astype(np.float32, copy=False),
+                            prev_fast.astype(np.float32, copy=False),
+                        ],
+                        axis=0,
+                    ).astype(np.float32, copy=False)
+                else:
+                    raise ValueError(f"Unknown target_mode: {self._target_mode}")
 
             for f in seq_frames:
                 tlwh = game.tracks_by_frame.get(f)
                 if tlwh is None:
                     tlwh = np.zeros((0, 4), dtype=np.float32)
-                feat = build_frame_features(
-                    tlwh=tlwh,
-                    norm=self._norm,
-                    prev_cam_center=(prev_cx, prev_cy),
-                    prev_cam_h=prev_h,
-                )
-                feats.append(feat)
-                cam = game.cam_by_frame.get(f, (prev_cx, prev_cy, prev_h))
-                targets.append(np.asarray(cam, dtype=np.float32))
-                prev_cx, prev_cy, prev_h = cam
+                if self._feature_mode == "legacy_prev_slow":
+                    # Teacher forcing on the slow camera state, for legacy checkpoints.
+                    prev_cx, prev_cy, prev_h = (0.0, 0.0, 0.0)
+                    if targets:
+                        y_prev = targets[-1]
+                        if self._target_mode == "slow_center_h":
+                            prev_cx, prev_cy, prev_h = float(y_prev[0]), float(y_prev[1]), float(y_prev[2])
+                        else:
+                            prev_slow = y_prev[:4]
+                            prev_cx = float(prev_slow[0] + prev_slow[2] * 0.5)
+                            prev_cy = float(prev_slow[1] + prev_slow[3] * 0.5)
+                            prev_h = float(prev_slow[3])
+                    elif start > 0:
+                        prev_slow = game.cam_slow_tlwh_by_frame.get(frames[start - 1])
+                        if prev_slow is not None and len(prev_slow) == 4:
+                            prev_cx = float(prev_slow[0] + prev_slow[2] * 0.5)
+                            prev_cy = float(prev_slow[1] + prev_slow[3] * 0.5)
+                            prev_h = float(prev_slow[3])
+                    feat = build_frame_features(
+                        tlwh=tlwh,
+                        norm=self._norm,
+                        prev_cam_center=(prev_cx, prev_cy),
+                        prev_cam_h=prev_h,
+                    )
+                else:
+                    feat = build_frame_base_features(tlwh=tlwh, norm=self._norm)
+                if self._include_pose:
+                    pose_feat = game.pose_feat_by_frame.get(f)
+                    if pose_feat is None:
+                        pose_feat = np.zeros((self._pose_feat_dim,), dtype=np.float32)
+                    feat = np.concatenate([feat, pose_feat.astype(np.float32, copy=False)], axis=0)
+                feats.append(feat.astype(np.float32, copy=False))
 
-            x = torch.from_numpy(np.stack(feats, axis=0))  # [T, D]
-            y = torch.from_numpy(np.stack(targets, axis=0))  # [T, 3]
-            yield {"x": x, "y": y}
+                slow_tlwh = game.cam_slow_tlwh_by_frame.get(f)
+                if slow_tlwh is None:
+                    slow_tlwh = np.asarray([0.0, 0.0, 1.0, 1.0], dtype=np.float32)
+
+                if self._target_mode == "slow_center_h":
+                    cx = float(slow_tlwh[0] + slow_tlwh[2] * 0.5)
+                    cy = float(slow_tlwh[1] + slow_tlwh[3] * 0.5)
+                    hr = float(slow_tlwh[3])
+                    y = np.asarray([cx, cy, hr], dtype=np.float32)
+                elif self._target_mode == "slow_tlwh":
+                    y = slow_tlwh.astype(np.float32, copy=False)
+                elif self._target_mode == "slow_fast_tlwh":
+                    fast_tlwh = game.cam_fast_tlwh_by_frame.get(f)
+                    if fast_tlwh is None:
+                        fast_tlwh = slow_tlwh
+                    y = np.concatenate(
+                        [slow_tlwh.astype(np.float32, copy=False), fast_tlwh.astype(np.float32, copy=False)],
+                        axis=0,
+                    )
+                else:
+                    raise ValueError(f"Unknown target_mode: {self._target_mode}")
+
+                targets.append(y.astype(np.float32, copy=False))
+
+            x = torch.from_numpy(np.stack(feats, axis=0))  # [T, D] (legacy) or base features
+            y = torch.from_numpy(np.stack(targets, axis=0))  # [T, target_dim]
+            out: Dict[str, torch.Tensor] = {"y": y}
+            if self._feature_mode == "legacy_prev_slow":
+                out["x"] = x
+            else:
+                out["base"] = x
+                assert prev0 is not None
+                out["prev0"] = torch.from_numpy(prev0.astype(np.float32, copy=False))
+            yield out
 
 
-def resolve_csv_paths(game_id: str, game_dir: str) -> Optional[GameCsvPaths]:
-    """Resolve required CSVs inside a game directory (latest suffix wins)."""
+def resolve_csv_paths(
+    game_id: str,
+    game_dir: str,
+    *,
+    tracking_csv_name: Optional[str] = None,
+    camera_csv_name: Optional[str] = None,
+    camera_fast_csv_name: Optional[str] = None,
+    pose_csv_name: Optional[str] = None,
+) -> Optional[GameCsvPaths]:
+    """Resolve required CSVs inside a game directory (latest suffix wins).
+
+    The optional ``*_csv_name`` arguments allow selecting fixed filenames such as
+    ``camera_annotated.csv`` produced by manual editing tools.
+    """
     from hmlib.datasets.dataframe import find_latest_dataframe_file
 
-    tracking = find_latest_dataframe_file(game_dir, "tracking")
-    camera = find_latest_dataframe_file(game_dir, "camera")
+    if tracking_csv_name:
+        tracking_path = str(Path(game_dir) / tracking_csv_name)
+        tracking = tracking_path if Path(tracking_path).is_file() else None
+    else:
+        tracking = find_latest_dataframe_file(game_dir, "tracking")
+
+    if camera_csv_name:
+        camera_path = str(Path(game_dir) / camera_csv_name)
+        camera = camera_path if Path(camera_path).is_file() else None
+    else:
+        camera = find_latest_dataframe_file(game_dir, "camera")
+
     if not tracking or not camera:
         return None
-    pose = find_latest_dataframe_file(game_dir, "pose")
-    return GameCsvPaths(game_id=game_id, tracking_csv=tracking, camera_csv=camera, pose_csv=pose)
+
+    if camera_fast_csv_name:
+        fast_path = str(Path(game_dir) / camera_fast_csv_name)
+        camera_fast = fast_path if Path(fast_path).is_file() else None
+    else:
+        camera_fast = find_latest_dataframe_file(game_dir, "camera_fast")
+
+    if pose_csv_name:
+        pose_path = str(Path(game_dir) / pose_csv_name)
+        pose = pose_path if Path(pose_path).is_file() else None
+    else:
+        pose = find_latest_dataframe_file(game_dir, "pose")
+
+    return GameCsvPaths(
+        game_id=game_id,
+        tracking_csv=tracking,
+        camera_csv=camera,
+        camera_fast_csv=camera_fast,
+        pose_csv=pose,
+    )
 
 
 def validate_csv_paths(paths: GameCsvPaths) -> None:
     for p in (paths.tracking_csv, paths.camera_csv):
         if not Path(p).is_file():
             raise FileNotFoundError(p)
-

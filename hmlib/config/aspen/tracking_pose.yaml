@@ -214,11 +214,11 @@ aspen:
     # setting controller: transformer|gpt and model_path to your checkpoint.
     camera_controller:
       class: hmlib.aspen.plugins.camera_controller_plugin.CameraControllerPlugin
-      depends: [tracker]
+      depends: [tracker, pose]
       params:
-        controller: rule
-        model_path: null
-        window: 8
+        controller: GLOBAL.rink.camera.controller
+        model_path: GLOBAL.rink.camera.camera_model
+        window: GLOBAL.rink.camera.camera_window
 
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin

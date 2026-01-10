@@ -1474,6 +1474,44 @@ class hm_opts(object):
             except Exception:
                 pass
 
+            # Camera controller/model/window: only override YAML when explicitly specified on CLI.
+            try:
+                if hasattr(opt, "camera_controller") and (
+                    _cli_spec("camera_controller")
+                    or get_nested_value(game_cfg, "rink.camera.controller", None) is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.controller",
+                        str(getattr(opt, "camera_controller")),
+                    )
+            except Exception:
+                pass
+            try:
+                if hasattr(opt, "camera_model") and (
+                    _cli_spec("camera_model")
+                    or get_nested_value(game_cfg, "rink.camera.camera_model", None) is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.camera_model",
+                        getattr(opt, "camera_model"),
+                    )
+            except Exception:
+                pass
+            try:
+                if hasattr(opt, "camera_window") and (
+                    _cli_spec("camera_window")
+                    or get_nested_value(game_cfg, "rink.camera.camera_window", None) is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.camera_window",
+                        int(getattr(opt, "camera_window")),
+                    )
+            except Exception:
+                pass
+
             # stop_on_dir_change_delay
             try:
                 if (
