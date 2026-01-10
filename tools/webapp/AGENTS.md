@@ -23,6 +23,8 @@ This subtree contains the HockeyMOM webapp plus its admin/import scripts. The we
 Related root-level helpers:
 - `./import_webapp.sh`: redeploy + reset + import + shift-spreadsheet upload.
 - `./gcp_import_webapp.sh`: similar flow for GCP.
+  - Both scripts will best-effort create a default webapp user from local `git config` (`user.email`/`user.name`)
+    with password `password` unless `--no-default-user` is specified (uses internal REST endpoint; may require token).
 
 ## Architecture: Django + Django ORM (no raw SQL)
 

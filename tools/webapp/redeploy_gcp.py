@@ -5,6 +5,7 @@ Fast redeploy helper for the GCE-based webapp deployment.
 This does NOT recreate the VM or rerun the full installer. It:
   - copies updated `tools/webapp/app.py`, ORM files, `templates/`, and `static/` to the VM's `/opt/hm-webapp/app/`
   - ensures Django is installed in `/opt/hm-webapp/venv`
+  - ensures the MariaDB login user `admin/admin` exists (idempotent)
   - restarts `hm-webapp.service`
 
 If you changed Python dependencies or system packages, rerun `tools/webapp/deploy_gcp.py` instead.
@@ -88,6 +89,18 @@ def main() -> int:
             "sudo cp -r /tmp/hm/tools/webapp/templates/. /opt/hm-webapp/app/templates/; "
             "sudo cp -r /tmp/hm/tools/webapp/static/. /opt/hm-webapp/app/static/; "
             "sudo chown -R colivier:colivier /opt/hm-webapp/app; "
+            "sudo systemctl start mariadb >/dev/null 2>&1 || sudo systemctl start mysql >/dev/null 2>&1 || true; "
+            "if sudo mysql --connect-timeout=5 -u root -e 'SELECT 1;' >/dev/null 2>&1; then "
+            "  sudo mysql --connect-timeout=5 -u root <<'SQL' || true\n"
+            "CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'admin';\n"
+            "CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'admin';\n"
+            "GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;\n"
+            "GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;\n"
+            "FLUSH PRIVILEGES;\n"
+            "SQL\n"
+            "else "
+            "  echo '[!] Warning: cannot connect to MariaDB as root; skipping DB admin user provisioning' >&2; "
+            "fi; "
             "sudo systemctl restart hm-webapp.service; "
             "sudo systemctl is-active hm-webapp.service",
         ]
