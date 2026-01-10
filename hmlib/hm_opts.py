@@ -401,15 +401,18 @@ class hm_opts(object):
         cam_ctrl.add_argument(
             "--camera-controller",
             type=str,
-            choices=["rule", "transformer"],
+            choices=["rule", "transformer", "gpt"],
             default="rule",
-            help="Select camera controller: rule-based PlayTracker or transformer model",
+            help="Select camera controller: rule-based PlayTracker, transformer, or GPT model",
         )
         cam_ctrl.add_argument(
             "--camera-model",
             type=str,
             default=None,
-            help="Path to transformer camera model checkpoint (.pt) produced by camtrain.py",
+            help=(
+                "Path to camera model checkpoint (.pt) produced by camtrain.py "
+                "(transformer) or camgpt_train.py (gpt)"
+            ),
         )
         cam_ctrl.add_argument(
             "--camera-window",
