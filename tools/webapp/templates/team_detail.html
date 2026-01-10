@@ -121,7 +121,7 @@
             <td>
               {% if g.game_type_name %}
                 {{ g.game_type_name }}
-              {% elif g.division_name|lower == "external" %}
+              {% elif g.division_name|is_external_division %}
                 Tournament
               {% endif %}
             </td>

@@ -59,6 +59,15 @@ def fmt_stat(value: Any) -> str:
         return str(value)
 
 
+@register.filter("is_external_division")
+def is_external_division(value: Any) -> bool:
+    logic = _import_logic()
+    try:
+        return bool(logic.is_external_division_name(value))
+    except Exception:
+        return False
+
+
 @register.filter("youtube_best_quality_url")
 def youtube_best_quality_url(url: Any) -> str:
     s = str(url or "").strip()
@@ -69,7 +78,9 @@ def youtube_best_quality_url(url: Any) -> str:
 
         u = urlparse(s)
         host = (u.hostname or "").lower()
-        is_youtube = ("youtube.com" in host) or ("youtu.be" in host) or ("youtube-nocookie.com" in host)
+        is_youtube = (
+            ("youtube.com" in host) or ("youtu.be" in host) or ("youtube-nocookie.com" in host)
+        )
         if not is_youtube:
             return s
         q = dict(parse_qsl(u.query or "", keep_blank_values=True))

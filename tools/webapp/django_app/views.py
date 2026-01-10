@@ -1041,6 +1041,38 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             g2["_game_type_label"] = logic._game_type_label_for_row(g2)
         except Exception:
             g2["_game_type_label"] = "Unknown"
+    # Tournament-only players: show them on game pages, but not on team/division-level roster/stats.
+    try:
+        tournament_game_ids: set[int] = {
+            int(g2.get("id"))
+            for g2 in (schedule_games or [])
+            if str(g2.get("_game_type_label") or "").strip().casefold() == "tournament"
+            and g2.get("id") is not None
+        }
+        player_ids_with_any_stats: set[int] = set()
+        player_ids_with_non_tournament_stats: set[int] = set()
+        for r0 in ps_rows or []:
+            try:
+                pid_i = int(r0.get("player_id"))
+                gid_i = int(r0.get("game_id"))
+            except Exception:
+                continue
+            player_ids_with_any_stats.add(pid_i)
+            if gid_i not in tournament_game_ids:
+                player_ids_with_non_tournament_stats.add(pid_i)
+        tournament_only_player_ids = (
+            player_ids_with_any_stats - player_ids_with_non_tournament_stats
+        )
+    except Exception:
+        tournament_only_player_ids = set()
+
+    if tournament_only_player_ids:
+        skaters = [p for p in skaters if int(p.get("id") or 0) not in tournament_only_player_ids]
+        goalies = [p for p in goalies if int(p.get("id") or 0) not in tournament_only_player_ids]
+        roster_players = list(skaters) + list(goalies)
+        ps_rows = [
+            r0 for r0 in ps_rows if int(r0.get("player_id") or 0) not in tournament_only_player_ids
+        ]
     game_type_options = logic._dedupe_preserve_str(
         [str(g2.get("_game_type_label") or "") for g2 in (schedule_games or [])]
     )
@@ -2978,6 +3010,38 @@ def public_league_team_detail(
             g2["_game_type_label"] = logic._game_type_label_for_row(g2)
         except Exception:
             g2["_game_type_label"] = "Unknown"
+    # Tournament-only players: show them on game pages, but not on team/division-level roster/stats.
+    try:
+        tournament_game_ids: set[int] = {
+            int(g2.get("id"))
+            for g2 in (schedule_games or [])
+            if str(g2.get("_game_type_label") or "").strip().casefold() == "tournament"
+            and g2.get("id") is not None
+        }
+        player_ids_with_any_stats: set[int] = set()
+        player_ids_with_non_tournament_stats: set[int] = set()
+        for r0 in ps_rows or []:
+            try:
+                pid_i = int(r0.get("player_id"))
+                gid_i = int(r0.get("game_id"))
+            except Exception:
+                continue
+            player_ids_with_any_stats.add(pid_i)
+            if gid_i not in tournament_game_ids:
+                player_ids_with_non_tournament_stats.add(pid_i)
+        tournament_only_player_ids = (
+            player_ids_with_any_stats - player_ids_with_non_tournament_stats
+        )
+    except Exception:
+        tournament_only_player_ids = set()
+
+    if tournament_only_player_ids:
+        skaters = [p for p in skaters if int(p.get("id") or 0) not in tournament_only_player_ids]
+        goalies = [p for p in goalies if int(p.get("id") or 0) not in tournament_only_player_ids]
+        roster_players = list(skaters) + list(goalies)
+        ps_rows = [
+            r0 for r0 in ps_rows if int(r0.get("player_id") or 0) not in tournament_only_player_ids
+        ]
     game_type_options = logic._dedupe_preserve_str(
         [str(g2.get("_game_type_label") or "") for g2 in (schedule_games or [])]
     )
@@ -4316,10 +4380,10 @@ def api_import_ensure_league(request: HttpRequest) -> JsonResponse:
     if auth:
         return auth
     payload = _json_body(request)
-    league_name = str(payload.get("league_name") or "Norcal")
+    league_name = str(payload.get("league_name") or "CAHA")
     shared = bool(payload["shared"]) if "shared" in payload else None
-    owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
-    owner_name = str(payload.get("owner_name") or "Norcal Import")
+    owner_email = str(payload.get("owner_email") or "caha-import@hockeymom.local")
+    owner_name = str(payload.get("owner_name") or "CAHA Import")
     source = payload.get("source")
     external_key = payload.get("external_key")
     owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
@@ -4342,11 +4406,11 @@ def api_import_teams(request: HttpRequest) -> JsonResponse:
     if auth:
         return auth
     payload = _json_body(request)
-    league_name = str(payload.get("league_name") or "Norcal")
+    league_name = str(payload.get("league_name") or "CAHA")
     shared = bool(payload["shared"]) if "shared" in payload else None
     replace = bool(payload.get("replace", False))
-    owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
-    owner_name = str(payload.get("owner_name") or "Norcal Import")
+    owner_email = str(payload.get("owner_email") or "caha-import@hockeymom.local")
+    owner_name = str(payload.get("owner_name") or "CAHA Import")
     owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
 
     teams = payload.get("teams") or []
@@ -4442,11 +4506,11 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
     if auth:
         return auth
     payload = _json_body(request)
-    league_name = str(payload.get("league_name") or "Norcal")
+    league_name = str(payload.get("league_name") or "CAHA")
     shared = bool(payload["shared"]) if "shared" in payload else None
     replace = bool(payload.get("replace", False))
-    owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
-    owner_name = str(payload.get("owner_name") or "Norcal Import")
+    owner_email = str(payload.get("owner_email") or "caha-import@hockeymom.local")
+    owner_name = str(payload.get("owner_name") or "CAHA Import")
     owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
     league_id = _ensure_league_for_import(
         league_name=league_name,
@@ -4723,11 +4787,11 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
     if auth:
         return auth
     payload = _json_body(request)
-    league_name = str(payload.get("league_name") or "Norcal")
+    league_name = str(payload.get("league_name") or "CAHA")
     shared = bool(payload["shared"]) if "shared" in payload else None
     replace = bool(payload.get("replace", False))
-    owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
-    owner_name = str(payload.get("owner_name") or "Norcal Import")
+    owner_email = str(payload.get("owner_email") or "caha-import@hockeymom.local")
+    owner_name = str(payload.get("owner_name") or "CAHA Import")
     owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
 
     games = payload.get("games") or []

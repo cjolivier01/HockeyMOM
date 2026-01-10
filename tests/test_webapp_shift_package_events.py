@@ -1144,7 +1144,7 @@ def should_create_external_game_via_shift_package_and_map_to_league(client_and_m
         {
             "external_game_key": "chicago-4",
             "owner_email": "owner@example.com",
-            "league_name": "Norcal",
+            "league_name": "CAHA",
             "division_name": "External",
             "sort_order": 7,
             "team_side": "home",
@@ -1167,11 +1167,11 @@ def should_create_external_game_via_shift_package_and_map_to_league(client_and_m
     assert int(g["team1_score"]) == 2
     assert int(g["team2_score"]) == 1
 
-    norcal = m.League.objects.filter(name="Norcal").values("id").first()
-    assert norcal is not None
-    assert int(norcal["id"]) >= 2
+    caha = m.League.objects.filter(name="CAHA").values("id").first()
+    assert caha is not None
+    assert int(caha["id"]) >= 2
     assert m.LeagueGame.objects.filter(
-        league_id=int(norcal["id"]), game_id=gid, sort_order=7
+        league_id=int(caha["id"]), game_id=gid, sort_order=7
     ).exists()
 
     assert m.Player.objects.filter(name="Charlie", jersey_number="13").exists()
@@ -1244,7 +1244,7 @@ def should_reuse_existing_league_team_by_name_and_preserve_division(client_and_m
     now = dt.datetime.now()
     m.League.objects.create(
         id=2,
-        name="Norcal",
+        name="CAHA",
         owner_user_id=10,
         is_shared=False,
         is_public=True,
@@ -1269,7 +1269,7 @@ def should_reuse_existing_league_team_by_name_and_preserve_division(client_and_m
         {
             "external_game_key": "tourny-1",
             "owner_email": "owner@example.com",
-            "league_name": "Norcal",
+            "league_name": "CAHA",
             "team_side": "home",
             "home_team_name": "Team A",
             "away_team_name": "Opponent X",
@@ -1310,7 +1310,7 @@ def should_match_league_team_names_case_and_punctuation_insensitive(client_and_m
     now = dt.datetime.now()
     m.League.objects.create(
         id=2,
-        name="Norcal",
+        name="CAHA",
         owner_user_id=10,
         is_shared=False,
         is_public=True,
@@ -1339,7 +1339,7 @@ def should_match_league_team_names_case_and_punctuation_insensitive(client_and_m
         {
             "external_game_key": "tourny-2",
             "owner_email": "owner@example.com",
-            "league_name": "Norcal",
+            "league_name": "CAHA",
             "team_side": "home",
             "home_team_name": "SAN JOSE JR. SHARKS 12AA–1",
             "away_team_name": "Opponent X",
@@ -1370,7 +1370,7 @@ def should_not_create_duplicate_external_teams_for_name_variants(client_and_mode
         {
             "external_game_key": "tourny-a",
             "owner_email": "owner@example.com",
-            "league_name": "Norcal",
+            "league_name": "CAHA",
             "team_side": "home",
             "home_team_name": "Team A",
             "away_team_name": "Arizona Coyotes 12AA",
@@ -1387,7 +1387,7 @@ def should_not_create_duplicate_external_teams_for_name_variants(client_and_mode
         {
             "external_game_key": "tourny-b",
             "owner_email": "owner@example.com",
-            "league_name": "Norcal",
+            "league_name": "CAHA",
             "team_side": "home",
             "home_team_name": "Team A",
             "away_team_name": "ARIZONA COYOTES 12AA",
@@ -1404,7 +1404,7 @@ def should_match_team_names_even_when_db_has_division_suffix_parens(client_and_m
     now = dt.datetime.now()
     m.League.objects.create(
         id=2,
-        name="Norcal",
+        name="CAHA",
         owner_user_id=10,
         is_shared=False,
         is_public=True,
@@ -1433,7 +1433,7 @@ def should_match_team_names_even_when_db_has_division_suffix_parens(client_and_m
         {
             "external_game_key": "tourny-parens",
             "owner_email": "owner@example.com",
-            "league_name": "Norcal",
+            "league_name": "CAHA",
             "team_side": "home",
             "home_team_name": "Team A",
             "away_team_name": "Opponent X",

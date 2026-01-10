@@ -6,7 +6,7 @@ This script scrapes TimeToScore directly via `hmlib.time2score` and upserts:
 - games (hky_games)
 - players + player_stats (goals/assists derived from TimeToScore game pages)
 
-By default it targets CAHA youth (league=3). SharksIce (adult, league=1) is also supported.
+By default it targets CAHA youth (TimeToScore `league=3`). SharksIce (adult, league=1) is also supported.
 """
 
 from __future__ import annotations
@@ -119,78 +119,6 @@ def _working_directory(path: Path):
         os.chdir(str(prev))
 
 
-def _parse_period_token(val: Any) -> Optional[int]:
-    s = str(val or "").strip()
-    if not s:
-        return None
-    sl = s.casefold()
-    if sl in {"ot", "overtime"}:
-        return 4
-    m = re.search(r"(\d+)", sl)
-    if not m:
-        return None
-    try:
-        n = int(m.group(1))
-        return n if n > 0 else None
-    except Exception:
-        return None
-
-
-def _parse_mmss_to_seconds(val: Any, *, period_len_s: Optional[int] = None) -> Optional[int]:
-    s = str(val or "").strip()
-    if not s:
-        return None
-    m = re.match(r"^\s*(\d+):(\d{2})\s*$", s)
-    if not m:
-        # Some TimeToScore pages use '.' instead of ':' (e.g. "10.0" meaning "10:00").
-        m = re.match(r"^\s*(\d+)[.](\d{1,2})\s*$", s)
-        if not m:
-            return None
-        try:
-            a = int(m.group(1))
-            b = int(m.group(2))
-        except Exception:
-            return None
-
-        # Disambiguate:
-        #   - "10.0" => 10:00 (mm:ss)
-        #   - "54.8" (in a 15:00 period) => 54.8 seconds (ss.d)
-        # Heuristic: if the "minutes" part exceeds the period length in minutes, treat it as seconds.
-        try:
-            if period_len_s is not None and a > max(1, int(period_len_s) // 60):
-                return int(float(s))
-        except Exception:
-            pass
-        return a * 60 + b
-
-    try:
-        return int(m.group(1)) * 60 + int(m.group(2))
-    except Exception:
-        return None
-
-
-def _to_csv_text(headers: list[str], rows: list[dict[str, Any]]) -> str:
-    if not headers:
-        return ""
-    out = io.StringIO()
-    w = csv.DictWriter(out, fieldnames=headers, extrasaction="ignore", lineterminator="\n")
-    w.writeheader()
-    for r in rows or []:
-        w.writerow({h: ("" if r.get(h) is None else str(r.get(h))) for h in headers})
-    return out.getvalue()
-
-
-@contextmanager
-def _working_directory(path: Path):
-    prev = Path.cwd()
-    path.mkdir(parents=True, exist_ok=True)
-    os.chdir(str(path))
-    try:
-        yield
-    finally:
-        os.chdir(str(prev))
-
-
 def ensure_defaults(conn) -> None:
     del conn
     try:
@@ -226,7 +154,11 @@ def ensure_league(
     with transaction.atomic():
         league = m.League.objects.filter(name=str(name)).first()
         if league:
-            updates: dict[str, Any] = {"source": source, "external_key": external_key, "updated_at": now}
+            updates: dict[str, Any] = {
+                "source": source,
+                "external_key": external_key,
+                "updated_at": now,
+            }
             if is_shared is not None:
                 updates["is_shared"] = bool(is_shared)
             m.League.objects.filter(id=league.id).update(**updates)
@@ -317,7 +249,12 @@ def map_game_to_league_with_division(
     lg, created = m.LeagueGame.objects.get_or_create(
         league_id=int(league_id),
         game_id=int(game_id),
-        defaults={"division_name": dn, "division_id": division_id, "conference_id": conference_id, "sort_order": sort_order},
+        defaults={
+            "division_name": dn,
+            "division_id": division_id,
+            "conference_id": conference_id,
+            "sort_order": sort_order,
+        },
     )
     if created:
         return
@@ -360,7 +297,13 @@ def ensure_team(conn, user_id: int, name: str, *, is_external: bool = True) -> i
     def _norm_team_name(s: str) -> str:
         # Normalize whitespace and common unicode variants to avoid duplicate teams that render identically in HTML.
         t = str(s or "").replace("\xa0", " ").strip()
-        t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
+        t = (
+            t.replace("\u2010", "-")
+            .replace("\u2011", "-")
+            .replace("\u2012", "-")
+            .replace("\u2013", "-")
+            .replace("\u2212", "-")
+        )
         t = " ".join(t.split())
         return t
 
@@ -421,6 +364,7 @@ def _ensure_team_logo(
     team_owner_user_id: int,
     source: str,
     season_id: int,
+    league_id: Optional[int],
     tts_team_id: int,
     logo_dir: Path,
     replace: bool,
@@ -440,7 +384,12 @@ def _ensure_team_logo(
         return
 
     try:
-        url = tts_direct.scrape_team_logo_url(str(source), season_id=int(season_id), team_id=int(tts_team_id))
+        url = tts_direct.scrape_team_logo_url(
+            str(source),
+            season_id=int(season_id),
+            team_id=int(tts_team_id),
+            league_id=int(league_id) if league_id is not None else None,
+        )
     except Exception:
         url = None
     if not url:
@@ -469,8 +418,9 @@ def _cleanup_numeric_named_players(conn, *, user_id: int, team_id: int) -> int:
 
     moved = 0
     bogus = list(
-        m.Player.objects.filter(user_id=int(user_id), team_id=int(team_id), name__regex=r"^[0-9]+$")
-        .values_list("id", "name")
+        m.Player.objects.filter(
+            user_id=int(user_id), team_id=int(team_id), name__regex=r"^[0-9]+$"
+        ).values_list("id", "name")
     )
     if not bogus:
         return 0
@@ -490,7 +440,9 @@ def _cleanup_numeric_named_players(conn, *, user_id: int, team_id: int) -> int:
             if real_id is None:
                 continue
 
-            bogus_stats = list(m.PlayerStat.objects.filter(player_id=int(bogus_id)).values_list("id", "game_id"))
+            bogus_stats = list(
+                m.PlayerStat.objects.filter(player_id=int(bogus_id)).values_list("id", "game_id")
+            )
             for ps_id, gid in bogus_stats:
                 if m.PlayerStat.objects.filter(game_id=int(gid), player_id=int(real_id)).exists():
                     m.PlayerStat.objects.filter(id=int(ps_id)).delete()
@@ -587,15 +539,21 @@ def upsert_hky_game(
         if game is None and timetoscore_game_id is not None:
             tts_int = int(timetoscore_game_id)
             token_plain = f"game_id={tts_int}"
-            token_json_nospace = f"\"timetoscore_game_id\":{tts_int}"
-            token_json_space = f"\"timetoscore_game_id\": {tts_int}"
+            token_json_nospace = f'"timetoscore_game_id":{tts_int}'
+            token_json_space = f'"timetoscore_game_id": {tts_int}'
             for token in (token_json_nospace, token_json_space, token_plain):
-                game = m.HkyGame.objects.filter(user_id=int(user_id), notes__contains=str(token)).first()
+                game = m.HkyGame.objects.filter(
+                    user_id=int(user_id), notes__contains=str(token)
+                ).first()
                 if game is not None:
                     break
 
         if game is None:
-            merged_notes = json.dumps(notes_json_fields, sort_keys=True) if notes_json_fields else (notes or None)
+            merged_notes = (
+                json.dumps(notes_json_fields, sort_keys=True)
+                if notes_json_fields
+                else (notes or None)
+            )
             g = m.HkyGame.objects.create(
                 user_id=int(user_id),
                 team1_id=int(team1_id),
@@ -613,7 +571,11 @@ def upsert_hky_game(
             return int(g.id)
 
         existing_notes = str(game.notes) if game.notes is not None else None
-        merged_notes = _merge_notes(existing_notes, notes_json_fields) if notes_json_fields else (existing_notes or "")
+        merged_notes = (
+            _merge_notes(existing_notes, notes_json_fields)
+            if notes_json_fields
+            else (existing_notes or "")
+        )
 
         updates: dict[str, Any] = {
             "notes": merged_notes,
@@ -770,7 +732,9 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         nm = _normalize_import_game_type_name(name_any)
         if not nm:
             return None
-        gt, _created = m.GameType.objects.get_or_create(name=str(nm), defaults={"is_default": False})
+        gt, _created = m.GameType.objects.get_or_create(
+            name=str(nm), defaults={"is_default": False}
+        )
         return int(gt.id)
 
     def _ensure_player_for_import(
@@ -780,7 +744,9 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         if not nm:
             raise ValueError("player name is required")
         now2 = dt.datetime.now()
-        p = m.Player.objects.filter(user_id=int(owner_user_id), team_id=int(team_id), name=str(nm)).first()
+        p = m.Player.objects.filter(
+            user_id=int(owner_user_id), team_id=int(team_id), name=str(nm)
+        ).first()
         if p:
             updates: dict[str, Any] = {}
             if jersey_number is not None:
@@ -848,10 +814,17 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         team1_score = int(game["home_score"]) if game.get("home_score") is not None else None
         team2_score = int(game["away_score"]) if game.get("away_score") is not None else None
 
-        tts_game_id = int(game["timetoscore_game_id"]) if game.get("timetoscore_game_id") is not None else None
+        tts_game_id = (
+            int(game["timetoscore_game_id"])
+            if game.get("timetoscore_game_id") is not None
+            else None
+        )
         season_id = int(game["season_id"]) if game.get("season_id") is not None else None
         game_type_id = _ensure_game_type_id(
-            game.get("game_type_name") or game.get("game_type") or game.get("timetoscore_type") or game.get("type")
+            game.get("game_type_name")
+            or game.get("game_type")
+            or game.get("timetoscore_type")
+            or game.get("type")
         )
 
         gid = upsert_hky_game(
@@ -904,8 +877,16 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         )
 
         effective_div_name = division_name or home_div_name or away_div_name
-        effective_div_id = division_id or _int_or_none(game.get("home_division_id")) or _int_or_none(game.get("away_division_id"))
-        effective_conf_id = conference_id or _int_or_none(game.get("home_conference_id")) or _int_or_none(game.get("away_conference_id"))
+        effective_div_id = (
+            division_id
+            or _int_or_none(game.get("home_division_id"))
+            or _int_or_none(game.get("away_division_id"))
+        )
+        effective_conf_id = (
+            conference_id
+            or _int_or_none(game.get("home_conference_id"))
+            or _int_or_none(game.get("away_conference_id"))
+        )
         if not effective_div_name:
             t1_dn, t1_did, t1_cid = _league_team_div_meta(int(team1_id))
             t2_dn, t2_did, t2_cid = _league_team_div_meta(int(team2_id))
@@ -929,7 +910,10 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         )
 
         # Rosters (optional).
-        roster_player_ids_by_team: dict[int, set[int]] = {int(team1_id): set(), int(team2_id): set()}
+        roster_player_ids_by_team: dict[int, set[int]] = {
+            int(team1_id): set(),
+            int(team2_id): set(),
+        }
         for side_key, tid in (("home", team1_id), ("away", team2_id)):
             roster = game.get(f"{side_key}_roster") or []
             if not isinstance(roster, list):
@@ -948,9 +932,11 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
         # Minimal goals/assists stats.
         stats_rows = game.get("player_stats") or []
 
-        played = bool(game.get("is_final")) or (
-            team1_score is not None and team2_score is not None
-        ) or (isinstance(stats_rows, list) and bool(stats_rows))
+        played = (
+            bool(game.get("is_final"))
+            or (team1_score is not None and team2_score is not None)
+            or (isinstance(stats_rows, list) and bool(stats_rows))
+        )
         if played:
             to_create = []
             for tid, pids in roster_player_ids_by_team.items():
@@ -979,12 +965,16 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
                     continue
 
                 pid1 = (
-                    m.Player.objects.filter(user_id=int(owner_user_id), team_id=int(team1_id), name=str(pname))
+                    m.Player.objects.filter(
+                        user_id=int(owner_user_id), team_id=int(team1_id), name=str(pname)
+                    )
                     .values_list("id", flat=True)
                     .first()
                 )
                 pid2 = (
-                    m.Player.objects.filter(user_id=int(owner_user_id), team_id=int(team2_id), name=str(pname))
+                    m.Player.objects.filter(
+                        user_id=int(owner_user_id), team_id=int(team2_id), name=str(pname)
+                    )
                     .values_list("id", flat=True)
                     .first()
                 )
@@ -1008,7 +998,9 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
                     )
                     if not created:
                         if replace:
-                            m.PlayerStat.objects.filter(id=ps.id).update(goals=int(goals), assists=int(assists))
+                            m.PlayerStat.objects.filter(id=ps.id).update(
+                                goals=int(goals), assists=int(assists)
+                            )
                         else:
                             updates3: dict[str, Any] = {}
                             if ps.goals is None:
@@ -1020,10 +1012,18 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
 
         results.append({"game_id": int(gid), "team1_id": int(team1_id), "team2_id": int(team2_id)})
 
-    return {"ok": True, "league_id": int(league_id), "owner_user_id": int(owner_user_id), "imported": len(results), "results": results}
+    return {
+        "ok": True,
+        "league_id": int(league_id),
+        "owner_user_id": int(owner_user_id),
+        "imported": len(results),
+        "results": results,
+    }
 
 
-def parse_starts_at(source: str, *, stats: dict[str, Any], fallback: Optional[dict[str, Any]]) -> Optional[str]:
+def parse_starts_at(
+    source: str, *, stats: dict[str, Any], fallback: Optional[dict[str, Any]]
+) -> Optional[str]:
     from hmlib.time2score import util as tutil
 
     date_s = str(stats.get("date") or "").strip()
@@ -1051,20 +1051,45 @@ def parse_starts_at(source: str, *, stats: dict[str, Any], fallback: Optional[di
 def main(argv: Optional[list[str]] = None) -> int:
     base_dir = Path(__file__).resolve().parents[1]
     default_cfg = os.environ.get("HM_DB_CONFIG") or str(base_dir / "config.json")
-    ap = argparse.ArgumentParser(description="Import TimeToScore into HockeyMOM webapp DB (no sqlite cache)")
+    ap = argparse.ArgumentParser(
+        description="Import TimeToScore into HockeyMOM webapp DB (no sqlite cache)"
+    )
     ap.add_argument("--config", default=default_cfg, help="Path to webapp DB config.json")
-    ap.add_argument("--source", choices=("caha", "sharksice"), default="caha", help="TimeToScore site")
+    ap.add_argument(
+        "--source", choices=("caha", "sharksice"), default="caha", help="TimeToScore site"
+    )
+    ap.add_argument(
+        "--t2s-league-id",
+        type=int,
+        default=None,
+        help=(
+            "TimeToScore `league=` id for CAHA imports (default: 3). "
+            "Examples: 3 (regular), 5 (tier teams), 18 (tournament-only)."
+        ),
+    )
     ap.add_argument("--season", type=int, default=0, help="Season id (0 = current/latest)")
     ap.add_argument("--list-seasons", action="store_true", help="List seasons and exit")
-    ap.add_argument("--list-divisions", action="store_true", help="List divisions for season and exit")
+    ap.add_argument(
+        "--list-divisions", action="store_true", help="List divisions for season and exit"
+    )
 
-    ap.add_argument("--user-email", required=True, help="Webapp user email that will own imported data")
+    ap.add_argument(
+        "--user-email", required=True, help="Webapp user email that will own imported data"
+    )
     ap.add_argument("--user-name", default=None, help="Name for user creation if missing")
-    ap.add_argument("--password-hash", default=None, help="Password hash for creating user if missing")
-    ap.add_argument("--create-user", action="store_true", help="Create user if missing (requires --password-hash)")
+    ap.add_argument(
+        "--password-hash", default=None, help="Password hash for creating user if missing"
+    )
+    ap.add_argument(
+        "--create-user",
+        action="store_true",
+        help="Create user if missing (requires --password-hash)",
+    )
 
     ap.add_argument("--replace", action="store_true", help="Overwrite existing scores/player_stats")
-    ap.add_argument("--no-import-logos", action="store_true", help="Skip downloading and saving team logos")
+    ap.add_argument(
+        "--no-import-logos", action="store_true", help="Skip downloading and saving team logos"
+    )
     ap.add_argument(
         "--logo-dir",
         default=None,
@@ -1085,9 +1110,27 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="Refresh league team divisions/logos from TimeToScore division lists (no game scraping).",
     )
-    ap.add_argument("--division", dest="divisions", action="append", default=[], help="Division filter token (repeatable)")
-    ap.add_argument("--team", dest="teams", action="append", default=[], help="Team substring filter (repeatable)")
-    ap.add_argument("--game-id", dest="game_ids", action="append", default=[], help="Import specific game id (repeatable)")
+    ap.add_argument(
+        "--division",
+        dest="divisions",
+        action="append",
+        default=[],
+        help="Division filter token (repeatable)",
+    )
+    ap.add_argument(
+        "--team",
+        dest="teams",
+        action="append",
+        default=[],
+        help="Team substring filter (repeatable)",
+    )
+    ap.add_argument(
+        "--game-id",
+        dest="game_ids",
+        action="append",
+        default=[],
+        help="Import specific game id (repeatable)",
+    )
     ap.add_argument("--games-file", default=None, help="File containing one game id per line")
     ap.add_argument("--limit", type=int, default=None, help="Max games to import (for testing)")
     ap.add_argument(
@@ -1110,14 +1153,21 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=None,
         help="League name to import into (default: same as --source; created if missing)",
     )
-    ap.add_argument("--league-owner-email", default=None, help="Owner of the league (defaults to --user-email)")
+    ap.add_argument(
+        "--league-owner-email", default=None, help="Owner of the league (defaults to --user-email)"
+    )
     ap.add_argument(
         "--shared",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Set whether the league is shared (default: leave unchanged; used for league creation if missing).",
     )
-    ap.add_argument("--share-with", action="append", default=[], help="Emails to add as league viewers (repeatable)")
+    ap.add_argument(
+        "--share-with",
+        action="append",
+        default=[],
+        help="Emails to add as league viewers (repeatable)",
+    )
 
     ap.add_argument(
         "--api-url",
@@ -1209,7 +1259,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             logo_dir = Path(str(args.logo_dir)).expanduser()
         else:
             preferred = Path("/opt/hm-webapp/app/instance/uploads/team_logos")
-            logo_dir = preferred if preferred.exists() else (base_dir / "instance" / "uploads" / "team_logos")
+            logo_dir = (
+                preferred
+                if preferred.exists()
+                else (base_dir / "instance" / "uploads" / "team_logos")
+            )
 
     user_id = None
     if not rest_mode:
@@ -1221,22 +1275,33 @@ def main(argv: Optional[list[str]] = None) -> int:
             password_hash=(args.password_hash if args.create_user else None),
         )
 
-    seasons = tts_direct.list_seasons(args.source)
+    t2s_league_id = int(args.t2s_league_id) if args.t2s_league_id is not None else None
+    if str(args.source or "").strip().lower() == "caha" and t2s_league_id is None:
+        t2s_league_id = 3
+
+    seasons = tts_direct.list_seasons(args.source, league_id=t2s_league_id)
     if args.list_seasons:
         for name, sid in sorted(seasons.items(), key=lambda kv: int(kv[1])):
             print(f"{sid}\t{name}")
         return 0
 
-    season_id = int(args.season) or tts_direct.pick_current_season_id(args.source)
-    log(f"Using source={args.source} season_id={season_id}")
+    season_id = int(args.season) or tts_direct.pick_current_season_id(
+        args.source, league_id=t2s_league_id
+    )
+    log(f"Using source={args.source} league_id={t2s_league_id} season_id={season_id}")
     hockey_db_dir = Path(args.hockey_db_dir).expanduser()
+    cache_source = (
+        f"{str(args.source).strip().lower()}:{int(t2s_league_id)}"
+        if t2s_league_id is not None
+        else str(args.source).strip().lower()
+    )
 
     def _get_cached_stats(game_id: int) -> Optional[dict[str, Any]]:
         try:
             with _working_directory(hockey_db_dir):
                 db = tts_db.Database()
                 db.create_tables()
-                cached = db.get_cached_game_stats(str(args.source), int(game_id))
+                cached = db.get_cached_game_stats(str(cache_source), int(game_id))
                 if cached:
                     return cached
                 row = db.get_game(int(game_id))
@@ -1252,7 +1317,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 db = tts_db.Database()
                 db.create_tables()
                 db.set_cached_game_stats(
-                    str(args.source),
+                    str(cache_source),
                     int(game_id),
                     season_id=int(season_id) if season_id is not None else None,
                     stats=dict(stats or {}),
@@ -1260,7 +1325,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         except Exception:
             pass
 
-    divs = tts_direct.list_divisions(args.source, season_id=season_id)
+    divs = tts_direct.list_divisions(args.source, season_id=season_id, league_id=t2s_league_id)
     if args.list_divisions:
         for d in sorted(divs, key=lambda x: (int(x.division_id), int(x.conference_id), x.name)):
             print(f"{d.division_id}:{d.conference_id}\t{d.name}\tteams={len(d.teams)}")
@@ -1269,7 +1334,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Used to disambiguate team names that appear in multiple divisions (common on CAHA).
     def _clean_team_name(name: str) -> str:
         t = str(name or "").replace("\xa0", " ").strip()
-        t = t.replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2212", "-")
+        t = (
+            t.replace("\u2010", "-")
+            .replace("\u2011", "-")
+            .replace("\u2012", "-")
+            .replace("\u2013", "-")
+            .replace("\u2212", "-")
+        )
         t = " ".join(t.split())
         return t
 
@@ -1284,8 +1355,109 @@ def main(argv: Optional[list[str]] = None) -> int:
     def _norm_div_key(name: str) -> str:
         return _clean_division_label(name).casefold()
 
+    def _is_external_division_name(name: Optional[str]) -> bool:
+        return str(name or "").strip().casefold().startswith("external")
+
+    # For CAHA, we may merge multiple TimeToScore `league=` ids into a single HockeyMOM league.
+    # To keep team-name disambiguation stable across imports (and to classify tournament-only teams),
+    # best-effort include additional CAHA leagues when computing duplicates / regular-team membership.
+    season_name: Optional[str] = None
+    try:
+        for nm, sid in (seasons or {}).items():
+            if int(sid) == int(season_id):
+                season_name = str(nm)
+                break
+    except Exception:
+        season_name = None
+
+    caha_league_id_i: Optional[int] = None
+    try:
+        caha_league_id_i = int(t2s_league_id) if t2s_league_id is not None else None
+    except Exception:
+        caha_league_id_i = None
+
+    def _try_list_caha_divisions(league_id: int) -> list[Any]:
+        if str(args.source or "").strip().lower() != "caha":
+            return []
+        try:
+            seasons2 = tts_direct.list_seasons("caha", league_id=int(league_id))
+        except Exception:
+            seasons2 = {}
+
+        season_id2: Optional[int] = None
+        if season_name and season_name in seasons2:
+            try:
+                season_id2 = int(seasons2[season_name])
+            except Exception:
+                season_id2 = None
+        if season_id2 is None:
+            try:
+                for _nm, _sid in (seasons2 or {}).items():
+                    if int(_sid) == int(season_id):
+                        season_id2 = int(_sid)
+                        break
+            except Exception:
+                season_id2 = None
+        if season_id2 is None:
+            season_id2 = int(season_id)
+        try:
+            return tts_direct.list_divisions(
+                "caha",
+                season_id=int(season_id2),
+                league_id=int(league_id),
+            )
+        except Exception:
+            return []
+
+    extra_divs_by_lid: dict[int, list[Any]] = {}
+    if str(args.source or "").strip().lower() == "caha" and caha_league_id_i is not None:
+        union_league_ids: list[int]
+        if caha_league_id_i in (3, 5):
+            union_league_ids = [3, 5]
+        elif caha_league_id_i == 18:
+            union_league_ids = [3, 5, 18]
+        else:
+            union_league_ids = [caha_league_id_i]
+
+        for lid in union_league_ids:
+            if int(lid) == int(caha_league_id_i):
+                extra_divs_by_lid[int(lid)] = list(divs or [])
+            else:
+                extra_divs_by_lid[int(lid)] = _try_list_caha_divisions(int(lid))
+
+    regular_team_by_div: set[tuple[str, str]] = set()
+    if str(args.source or "").strip().lower() == "caha" and caha_league_id_i == 18:
+        for lid in (3, 5):
+            for d in extra_divs_by_lid.get(int(lid), []):
+                dn = _clean_division_label(getattr(d, "name", "") or "")
+                if not dn:
+                    continue
+                for t in getattr(d, "teams", []) or []:
+                    nm = _clean_team_name((t or {}).get("name") or "")
+                    if nm:
+                        regular_team_by_div.add((_norm_team_key(nm), _norm_div_key(dn)))
+
+    def _effective_division_name_for_team(
+        team_name: str, division_name: Optional[str]
+    ) -> Optional[str]:
+        dn = _clean_division_label(division_name or "").strip() or None
+        if not dn:
+            return None
+        if str(args.source or "").strip().lower() == "caha" and caha_league_id_i == 18:
+            key = (_norm_team_key(team_name), _norm_div_key(dn))
+            if key not in regular_team_by_div:
+                return f"External {dn}".strip()
+        return dn
+
     team_name_counts: dict[str, int] = {}
-    for d in divs:
+    divs_for_name_counts: list[Any] = []
+    if extra_divs_by_lid:
+        for dl in extra_divs_by_lid.values():
+            divs_for_name_counts.extend(list(dl or []))
+    else:
+        divs_for_name_counts = list(divs or [])
+
+    for d in divs_for_name_counts:
         for t in d.teams:
             nm = _clean_team_name((t or {}).get("name") or "")
             if nm:
@@ -1302,7 +1474,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     division_teams: list[dict[str, Any]] = []
     seen_team_names: set[str] = set()
     for d in divs:
-        dn = str(d.name or "").strip() or None
+        dn_base = str(d.name or "").strip() or None
         try:
             did = int(d.division_id)
         except Exception:
@@ -1315,6 +1487,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             nm_raw = str((t or {}).get("name") or "").strip()
             if not nm_raw:
                 continue
+            dn = _effective_division_name_for_team(nm_raw, dn_base)
             nm = canonical_team_name(nm_raw, dn)
             key = nm.casefold()
             if key in seen_team_names:
@@ -1364,18 +1537,23 @@ def main(argv: Optional[list[str]] = None) -> int:
             return int(ids[0])
         return None
 
-    def resolve_team_division_meta(name: str, fallback_division_name: Optional[str]) -> tuple[Optional[str], Optional[int], Optional[int], Optional[int]]:
+    def resolve_team_division_meta(
+        name: str, fallback_division_name: Optional[str]
+    ) -> tuple[Optional[str], Optional[int], Optional[int], Optional[int]]:
         """Return (division_name, division_id, conference_id, team_tts_id)."""
         tts_id = resolve_tts_team_id(name, fallback_division_name)
         if tts_id is not None and int(tts_id) in tts_team_div_meta_by_id:
             dn, did, cid = tts_team_div_meta_by_id[int(tts_id)]
-            return dn or None, int(did), int(cid), int(tts_id)
+            dn_eff = _effective_division_name_for_team(name, dn)
+            return dn_eff, int(did), int(cid), int(tts_id)
         # If the team name is unique across all divisions, assign its division without relying on the game.
         ids = tts_team_ids_by_name.get(_norm_team_key(name or "")) or []
         if len(ids) == 1 and int(ids[0]) in tts_team_div_meta_by_id:
             dn, did, cid = tts_team_div_meta_by_id[int(ids[0])]
-            return dn or None, int(did), int(cid), int(ids[0])
-        return (fallback_division_name, None, None, int(tts_id) if tts_id is not None else None)
+            dn_eff = _effective_division_name_for_team(name, dn)
+            return dn_eff, int(did), int(cid), int(ids[0])
+        dn_eff = _effective_division_name_for_team(name, fallback_division_name)
+        return (dn_eff, None, None, int(tts_id) if tts_id is not None else None)
 
     # Division filter resolution
     allowed_divs: Optional[set[tuple[int, int]]] = None
@@ -1453,7 +1631,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         if tid_i in logo_url_cache:
             return logo_url_cache[tid_i]
         try:
-            u = tts_direct.scrape_team_logo_url(str(args.source), season_id=int(season_id), team_id=tid_i)
+            u = tts_direct.scrape_team_logo_url(
+                str(args.source),
+                season_id=int(season_id),
+                team_id=tid_i,
+                league_id=int(t2s_league_id) if t2s_league_id is not None else None,
+            )
         except Exception:
             u = None
         logo_url_cache[tid_i] = u
@@ -1522,7 +1705,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "external_key": f"{args.source}:{season_id}",
                 "teams": team_payload,
             }
-            r = requests.post(f"{api_base}/api/import/hockey/teams", json=payload, headers=api_headers, timeout=180)
+            r = requests.post(
+                f"{api_base}/api/import/hockey/teams",
+                json=payload,
+                headers=api_headers,
+                timeout=180,
+            )
             r.raise_for_status()
             out = r.json()
             if not out.get("ok"):
@@ -1548,6 +1736,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                             team_owner_user_id=user_id,
                             source=str(args.source),
                             season_id=int(season_id),
+                            league_id=int(t2s_league_id) if t2s_league_id is not None else None,
                             tts_team_id=int(row["tts_team_id"]),
                             logo_dir=Path(logo_dir),
                             replace=bool(args.replace),
@@ -1582,6 +1771,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             fallback_by_gid = tts_direct.iter_season_games(
                 args.source,
                 season_id=season_id,
+                league_id=int(t2s_league_id) if t2s_league_id is not None else None,
                 divisions=sorted(allowed_divs) if allowed_divs is not None else None,
                 team_name_substrings=args.teams,
                 progress_cb=log,
@@ -1619,13 +1809,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         }
         if args.shared is not None:
             payload["shared"] = bool(args.shared)
-        r = requests.post(f"{api_base}/api/import/hockey/games_batch", json=payload, headers=api_headers, timeout=180)
+        r = requests.post(
+            f"{api_base}/api/import/hockey/games_batch",
+            json=payload,
+            headers=api_headers,
+            timeout=180,
+        )
         r.raise_for_status()
         out = r.json()
         if not out.get("ok"):
             raise RuntimeError(str(out))
         posted += int(out.get("imported") or 0)
         api_games_batch = []
+
     for gid in game_ids:
         now = time.time()
         if (now - last_heartbeat) >= 30.0:
@@ -1653,7 +1849,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not stats:
             for attempt in range(1, max_attempts + 1):
                 try:
-                    stats = tts_direct.scrape_game_stats(args.source, game_id=int(gid), season_id=season_id)
+                    stats = tts_direct.scrape_game_stats(
+                        args.source, game_id=int(gid), season_id=season_id
+                    )
                     if stats:
                         _set_cached_stats(int(gid), stats)
                 except Exception as e:
@@ -1672,7 +1870,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                         delay_s = min(max_delay_s, delay_s * 2.0) if max_delay_s else delay_s * 2.0
                         continue
                     if fb_has_result:
-                        if bool(args.allow_schedule_only) and type(e).__name__ == "MissingStatsError":
+                        if (
+                            bool(args.allow_schedule_only)
+                            and type(e).__name__ == "MissingStatsError"
+                        ):
                             schedule_only_game = True
                             log(
                                 f"Warning: importing schedule-only game (missing boxscore after {attempt}/{max_attempts} attempts): "
@@ -1697,7 +1898,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                     t2_score_try = fb_ag
                 goal_total_try = int(t1_score_try or 0) + int(t2_score_try or 0)
                 ga_rows_try = [
-                    agg for agg in tts_norm.aggregate_goals_assists(stats) if str(agg.get("name") or "").strip()
+                    agg
+                    for agg in tts_norm.aggregate_goals_assists(stats)
+                    if str(agg.get("name") or "").strip()
                 ]
                 ga_sum_try = sum(int(r.get("goals") or 0) for r in ga_rows_try)
                 if goal_total_try > 0 and ga_sum_try == 0:
@@ -1763,8 +1966,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         if schedule_only_game:
             schedule_only += 1
 
-        home_name = str(stats.get("home") or "").strip() or str((fb or {}).get("home") or "").strip()
-        away_name = str(stats.get("away") or "").strip() or str((fb or {}).get("away") or "").strip()
+        home_name = (
+            str(stats.get("home") or "").strip() or str((fb or {}).get("home") or "").strip()
+        )
+        away_name = (
+            str(stats.get("away") or "").strip() or str((fb or {}).get("away") or "").strip()
+        )
         if not home_name or not away_name:
             skipped += 1
             continue
@@ -1773,25 +1980,41 @@ def main(argv: Optional[list[str]] = None) -> int:
         fb_division_id = None
         fb_conference_id = None
         try:
-            fb_division_id = int((fb or {}).get("division_id")) if (fb or {}).get("division_id") is not None else None
+            fb_division_id = (
+                int((fb or {}).get("division_id"))
+                if (fb or {}).get("division_id") is not None
+                else None
+            )
         except Exception:
             fb_division_id = None
         try:
-            fb_conference_id = int((fb or {}).get("conference_id")) if (fb or {}).get("conference_id") is not None else None
+            fb_conference_id = (
+                int((fb or {}).get("conference_id"))
+                if (fb or {}).get("conference_id") is not None
+                else None
+            )
         except Exception:
             fb_conference_id = None
 
         home_name_raw = str(home_name or "").strip()
         away_name_raw = str(away_name or "").strip()
-        home_div_name, home_div_id, home_conf_id, home_tts_id = resolve_team_division_meta(home_name_raw, fb_division_name)
-        away_div_name, away_div_id, away_conf_id, away_tts_id = resolve_team_division_meta(away_name_raw, fb_division_name)
+        home_div_name, home_div_id, home_conf_id, home_tts_id = resolve_team_division_meta(
+            home_name_raw, fb_division_name
+        )
+        away_div_name, away_div_id, away_conf_id, away_tts_id = resolve_team_division_meta(
+            away_name_raw, fb_division_name
+        )
 
         # Use per-team division for disambiguation, not the game's division block.
         home_name = canonical_team_name(home_name_raw, home_div_name)
         away_name = canonical_team_name(away_name_raw, away_div_name)
 
         starts_at = parse_starts_at(args.source, stats=stats, fallback=fb)
-        location = str(stats.get("location") or "").strip() or str((fb or {}).get("rink") or "").strip() or None
+        location = (
+            str(stats.get("location") or "").strip()
+            or str((fb or {}).get("rink") or "").strip()
+            or None
+        )
         t1_score = tts_norm.parse_int_or_none(stats.get("homeGoals"))
         t2_score = tts_norm.parse_int_or_none(stats.get("awayGoals"))
         if t1_score is None and (fb or {}).get("homeGoals") is not None:
@@ -1799,7 +2022,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         if t2_score is None and (fb or {}).get("awayGoals") is not None:
             t2_score = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
 
-        ga_rows = [agg for agg in tts_norm.aggregate_goals_assists(stats) if str(agg.get("name") or "").strip()]
+        ga_rows = [
+            agg
+            for agg in tts_norm.aggregate_goals_assists(stats)
+            if str(agg.get("name") or "").strip()
+        ]
 
         # Build a basic events timeline from TimeToScore data (goals + penalties + PP/PK spans)
         # so the webapp can show game events even before any spreadsheets are uploaded.
@@ -1815,8 +2042,18 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         roster_home = list(tts_norm.extract_roster(stats, "home"))
         roster_away = list(tts_norm.extract_roster(stats, "away"))
-        num_to_name_home = {str(m.group(1)): str(p.get("name") or "").strip() for p in roster_home if (m := re.search(r"(\d+)", str(p.get("number") or ""))) and str(p.get("name") or "").strip()}
-        num_to_name_away = {str(m.group(1)): str(p.get("name") or "").strip() for p in roster_away if (m := re.search(r"(\d+)", str(p.get("number") or ""))) and str(p.get("name") or "").strip()}
+        num_to_name_home = {
+            str(m.group(1)): str(p.get("name") or "").strip()
+            for p in roster_home
+            if (m := re.search(r"(\d+)", str(p.get("number") or "")))
+            and str(p.get("name") or "").strip()
+        }
+        num_to_name_away = {
+            str(m.group(1)): str(p.get("name") or "").strip()
+            for p in roster_away
+            if (m := re.search(r"(\d+)", str(p.get("number") or "")))
+            and str(p.get("name") or "").strip()
+        }
 
         def _infer_period_len_s(stats_in: dict[str, Any]) -> int:
             raw = str(stats_in.get("periodLength") or "").strip()
@@ -1887,12 +2124,22 @@ def main(argv: Optional[list[str]] = None) -> int:
 
                 scorer_num = _norm_jersey(scorer_raw)
                 scorer_name = (
-                    roster_map.get(scorer_num) if scorer_num and scorer_num in roster_map else str(scorer_raw or "").strip()
+                    roster_map.get(scorer_num)
+                    if scorer_num and scorer_num in roster_map
+                    else str(scorer_raw or "").strip()
                 )
                 a1_num = _norm_jersey(a1_raw)
                 a2_num = _norm_jersey(a2_raw)
-                a1_name = roster_map.get(a1_num) if a1_num and a1_num in roster_map else str(a1_raw or "").strip()
-                a2_name = roster_map.get(a2_num) if a2_num and a2_num in roster_map else str(a2_raw or "").strip()
+                a1_name = (
+                    roster_map.get(a1_num)
+                    if a1_num and a1_num in roster_map
+                    else str(a1_raw or "").strip()
+                )
+                a2_name = (
+                    roster_map.get(a2_num)
+                    if a2_num and a2_num in roster_map
+                    else str(a2_raw or "").strip()
+                )
 
                 assists_txt = ", ".join([x for x in [a1_name, a2_name] if x])
                 details = f"{scorer_name}" + (f" (A: {assists_txt})" if assists_txt else "")
@@ -1944,16 +2191,24 @@ def main(argv: Optional[list[str]] = None) -> int:
                                 for x in [
                                     (f"#{rec.get('jersey')}" if rec.get("jersey") else ""),
                                     str(rec.get("infraction") or "").strip(),
-                                    (f"{int(rec.get('minutes'))}m" if rec.get("minutes") is not None else ""),
+                                    (
+                                        f"{int(rec.get('minutes'))}m"
+                                        if rec.get("minutes") is not None
+                                        else ""
+                                    ),
                                     (f"(end {rec.get('end_txt')})" if rec.get("end_txt") else ""),
                                 ]
                                 if x
                             ]
                         ).strip(),
                         "Attributed Players": (
-                            num_to_name_home.get(str(rec.get("jersey"))) if side_key == "home" and rec.get("jersey") else
-                            num_to_name_away.get(str(rec.get("jersey"))) if side_key == "away" and rec.get("jersey") else
-                            ""
+                            num_to_name_home.get(str(rec.get("jersey")))
+                            if side_key == "home" and rec.get("jersey")
+                            else (
+                                num_to_name_away.get(str(rec.get("jersey")))
+                                if side_key == "away" and rec.get("jersey")
+                                else ""
+                            )
                         ),
                         "Attributed Jerseys": rec.get("jersey") or "",
                     }
@@ -1985,7 +2240,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         # Fill missing end times using inferred mode.
         mode_by_period: dict[int, str] = {}
         for p in range(1, 6):
-            if any(int(r.get("Period") or 0) == p for r in penalties_events_rows) or any(int(g.get("Period") or 0) == p for g in goal_events):
+            if any(int(r.get("Period") or 0) == p for r in penalties_events_rows) or any(
+                int(g.get("Period") or 0) == p for g in goal_events
+            ):
                 mode_by_period[p] = _infer_time_mode(p)
 
         for side_key, recs in penalties_by_side.items():
@@ -2020,7 +2277,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                             "Expired",
                             (f"#{rec.get('jersey')}" if rec.get("jersey") else ""),
                             str(rec.get("infraction") or "").strip(),
-                            (f"{int(rec.get('minutes'))}m" if rec.get("minutes") is not None else ""),
+                            (
+                                f"{int(rec.get('minutes'))}m"
+                                if rec.get("minutes") is not None
+                                else ""
+                            ),
                         ]
                         if x
                     ]
@@ -2039,9 +2300,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                         "Game Seconds End": "",
                         "Details": details,
                         "Attributed Players": (
-                            num_to_name_home.get(str(rec.get("jersey"))) if side_key == "home" and rec.get("jersey") else
-                            num_to_name_away.get(str(rec.get("jersey"))) if side_key == "away" and rec.get("jersey") else
-                            ""
+                            num_to_name_home.get(str(rec.get("jersey")))
+                            if side_key == "home" and rec.get("jersey")
+                            else (
+                                num_to_name_away.get(str(rec.get("jersey")))
+                                if side_key == "away" and rec.get("jersey")
+                                else ""
+                            )
                         ),
                         "Attributed Jerseys": rec.get("jersey") or "",
                     }
@@ -2062,7 +2327,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             "Attributed Players",
             "Attributed Jerseys",
         ]
-        events_rows = list(goal_events) + list(penalties_events_rows) + list(penalty_expired_events_rows)
+        events_rows = (
+            list(goal_events) + list(penalties_events_rows) + list(penalty_expired_events_rows)
+        )
         events_rows.sort(
             key=lambda r: (
                 int(r.get("Period") or 0),
@@ -2087,14 +2354,23 @@ def main(argv: Optional[list[str]] = None) -> int:
             stats_by_name.setdefault(nm, {"goals": 0, "assists": 0, "pim": 0})
             stats_by_name[nm]["pim"] = int(pim or 0)
         player_stats_out = [
-            {"name": nm, "goals": int(v.get("goals") or 0), "assists": int(v.get("assists") or 0), "pim": int(v.get("pim") or 0)}
+            {
+                "name": nm,
+                "goals": int(v.get("goals") or 0),
+                "assists": int(v.get("assists") or 0),
+                "pim": int(v.get("pim") or 0),
+            }
             for nm, v in stats_by_name.items()
             if (int(v.get("goals") or 0) + int(v.get("assists") or 0) + int(v.get("pim") or 0)) > 0
         ]
         player_stats_out.sort(key=lambda r: str(r.get("name") or "").casefold())
 
         def _sum_pim(side_key: str) -> int:
-            return sum(int(r.get("minutes") or 0) for r in (penalties_by_side.get(side_key) or []) if r.get("minutes") is not None)
+            return sum(
+                int(r.get("minutes") or 0)
+                for r in (penalties_by_side.get(side_key) or [])
+                if r.get("minutes") is not None
+            )
 
         home_pim_total = _sum_pim("home")
         away_pim_total = _sum_pim("away")
@@ -2102,17 +2378,45 @@ def main(argv: Optional[list[str]] = None) -> int:
         game_stats_json = {
             "Home Score": t1_score if t1_score is not None else "",
             "Away Score": t2_score if t2_score is not None else "",
-            "Home Penalties": str(len([r for r in penalties_by_side.get("home", []) if r.get("start_s") is not None])),
-            "Away Penalties": str(len([r for r in penalties_by_side.get("away", []) if r.get("start_s") is not None])),
+            "Home Penalties": str(
+                len([r for r in penalties_by_side.get("home", []) if r.get("start_s") is not None])
+            ),
+            "Away Penalties": str(
+                len([r for r in penalties_by_side.get("away", []) if r.get("start_s") is not None])
+            ),
             "Home PIM": str(home_pim_total) if home_pim_total else "",
             "Away PIM": str(away_pim_total) if away_pim_total else "",
             "TTS Schedule Only": "1" if schedule_only_game else "",
         }
 
         if rest_mode:
-            game_div_name = home_div_name or fb_division_name
-            game_div_id = home_div_id if home_div_id is not None else fb_division_id
-            game_conf_id = home_conf_id if home_conf_id is not None else fb_conference_id
+            # Prefer mapping tournament games involving an External division to that External division,
+            # otherwise keep the team's primary division.
+            if _is_external_division_name(home_div_name):
+                game_div_name = home_div_name
+                game_div_id = home_div_id if home_div_id is not None else fb_division_id
+                game_conf_id = home_conf_id if home_conf_id is not None else fb_conference_id
+            elif _is_external_division_name(away_div_name):
+                game_div_name = away_div_name
+                game_div_id = away_div_id if away_div_id is not None else fb_division_id
+                game_conf_id = away_conf_id if away_conf_id is not None else fb_conference_id
+            else:
+                game_div_name = home_div_name or away_div_name or fb_division_name
+                game_div_id = (
+                    home_div_id
+                    if home_div_id is not None
+                    else away_div_id if away_div_id is not None else fb_division_id
+                )
+                game_conf_id = (
+                    home_conf_id
+                    if home_conf_id is not None
+                    else away_conf_id if away_conf_id is not None else fb_conference_id
+                )
+
+            raw_t2s_type = str((fb or {}).get("type") or "").strip() or None
+            import_game_type_name = raw_t2s_type
+            if str(args.source or "").strip().lower() == "caha" and int(t2s_league_id or 0) == 18:
+                import_game_type_name = "Tournament"
 
             home_logo_url = _logo_url(home_tts_id)
             away_logo_url = _logo_url(away_tts_id)
@@ -2138,7 +2442,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 {
                     "home_name": home_name,
                     "away_name": away_name,
-                    "game_type_name": str((fb or {}).get("type") or "").strip() or None,
+                    "game_type_name": import_game_type_name,
+                    "timetoscore_type": raw_t2s_type,
                     "division_name": game_div_name,
                     "division_id": game_div_id,
                     "conference_id": game_conf_id,
@@ -2195,6 +2500,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         team_owner_user_id=user_id,
                         source=str(args.source),
                         season_id=int(season_id),
+                        league_id=int(t2s_league_id) if t2s_league_id is not None else None,
                         tts_team_id=int(home_tts_id),
                         logo_dir=Path(logo_dir),
                         replace=bool(args.replace),
@@ -2207,6 +2513,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         team_owner_user_id=user_id,
                         source=str(args.source),
                         season_id=int(season_id),
+                        league_id=int(t2s_league_id) if t2s_league_id is not None else None,
                         tts_team_id=int(away_tts_id),
                         logo_dir=Path(logo_dir),
                         replace=bool(args.replace),
@@ -2216,7 +2523,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                 pass
 
         notes = f"Imported from TimeToScore {args.source} game_id={gid}"
-        game_type_name = str((fb or {}).get("type") or "").strip() or None
+        raw_t2s_type = str((fb or {}).get("type") or "").strip() or None
+        game_type_name = raw_t2s_type
+        if str(args.source or "").strip().lower() == "caha" and int(t2s_league_id or 0) == 18:
+            game_type_name = "Tournament"
         game_type_id = None
         if game_type_name:
             # Map TimeToScore schedule Type to our canonical game type names.
@@ -2231,7 +2541,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 nm = "Tournament"
             else:
                 nm = game_type_name
-            gt, _created = m.GameType.objects.get_or_create(name=str(nm), defaults={"is_default": False})
+            gt, _created = m.GameType.objects.get_or_create(
+                name=str(nm), defaults={"is_default": False}
+            )
             game_type_id = int(gt.id)
         game_db_id = upsert_hky_game(
             None,
@@ -2316,12 +2628,16 @@ def main(argv: Optional[list[str]] = None) -> int:
 
             # Prefer matching by name within each team roster.
             pid1 = (
-                m.Player.objects.filter(user_id=int(user_id), team_id=int(team1_id), name=str(pname))
+                m.Player.objects.filter(
+                    user_id=int(user_id), team_id=int(team1_id), name=str(pname)
+                )
                 .values_list("id", flat=True)
                 .first()
             )
             pid2 = (
-                m.Player.objects.filter(user_id=int(user_id), team_id=int(team2_id), name=str(pname))
+                m.Player.objects.filter(
+                    user_id=int(user_id), team_id=int(team2_id), name=str(pname)
+                )
                 .values_list("id", flat=True)
                 .first()
             )
@@ -2330,7 +2646,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             if pid2 is not None and pid1 is None:
                 team_ref = team2_id
             if pid is None:
-                pid = ensure_player(None, user_id=user_id, team_id=team_ref, name=pname, jersey=None, position=None)
+                pid = ensure_player(
+                    None, user_id=user_id, team_id=team_ref, name=pname, jersey=None, position=None
+                )
 
             ps, created = m.PlayerStat.objects.get_or_create(
                 game_id=int(game_db_id),
@@ -2344,7 +2662,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             )
             if not created:
                 if args.replace:
-                    m.PlayerStat.objects.filter(id=ps.id).update(goals=int(goals), assists=int(assists))
+                    m.PlayerStat.objects.filter(id=ps.id).update(
+                        goals=int(goals), assists=int(assists)
+                    )
                 else:
                     updates4: dict[str, Any] = {}
                     if ps.goals is None:
@@ -2359,12 +2679,16 @@ def main(argv: Optional[list[str]] = None) -> int:
             elapsed = max(0.001, time.time() - started)
             rate = count / elapsed
             pct = (count / total * 100.0) if total else 100.0
-            log(f"Progress: {count}/{total} ({pct:.1f}%) games, skipped={skipped}, {rate:.2f} games/s")
+            log(
+                f"Progress: {count}/{total} ({pct:.1f}%) games, skipped={skipped}, {rate:.2f} games/s"
+            )
 
     if rest_mode:
         _post_batch()
 
-    log(f"Import complete. Imported {count} games, skipped={skipped}, schedule_only={schedule_only}.")
+    log(
+        f"Import complete. Imported {count} games, skipped={skipped}, schedule_only={schedule_only}."
+    )
     if (not rest_mode) and (not args.no_cleanup_bogus_players):
         try:
             assert league_id is not None
@@ -2372,14 +2696,18 @@ def main(argv: Optional[list[str]] = None) -> int:
             assert m is not None
             all_team_ids = sorted(
                 set(
-                    m.LeagueTeam.objects.filter(league_id=int(league_id), team__user_id=int(user_id))
+                    m.LeagueTeam.objects.filter(
+                        league_id=int(league_id), team__user_id=int(user_id)
+                    )
                     .values_list("team_id", flat=True)
                     .distinct()
                 )
             )
             moved_total = 0
             for tid in all_team_ids:
-                moved_total += _cleanup_numeric_named_players(None, user_id=user_id, team_id=int(tid))
+                moved_total += _cleanup_numeric_named_players(
+                    None, user_id=user_id, team_id=int(tid)
+                )
             if moved_total:
                 log(f"Cleaned bogus numeric-name players: migrated {moved_total} stat rows.")
         except Exception:
@@ -2411,7 +2739,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                         updates["division_id"] = int(div_id)
                     if conf_id is not None:
                         updates["conference_id"] = int(conf_id)
-                    m.LeagueTeam.objects.filter(league_id=int(league_id), team_id=int(team_db_id)).update(**updates)
+                    m.LeagueTeam.objects.filter(
+                        league_id=int(league_id), team_id=int(team_db_id)
+                    ).update(**updates)
                     updated_div += 1
                 if logo_dir is not None and (not logo_path) and tts_id is not None:
                     _ensure_team_logo(
@@ -2420,6 +2750,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         team_owner_user_id=user_id,
                         source=str(args.source),
                         season_id=int(season_id),
+                        league_id=int(t2s_league_id) if t2s_league_id is not None else None,
                         tts_team_id=int(tts_id),
                         logo_dir=Path(logo_dir),
                         replace=False,
@@ -2429,11 +2760,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             # Also align league_games division to the home team division when possible.
             league_team_meta = {
                 int(tid): (dn, did, cid)
-                for tid, dn, did, cid in m.LeagueTeam.objects.filter(league_id=int(league_id)).values_list(
-                    "team_id", "division_name", "division_id", "conference_id"
-                )
+                for tid, dn, did, cid in m.LeagueTeam.objects.filter(
+                    league_id=int(league_id)
+                ).values_list("team_id", "division_name", "division_id", "conference_id")
             }
-            league_games = list(m.LeagueGame.objects.filter(league_id=int(league_id)).select_related("game"))
+            league_games = list(
+                m.LeagueGame.objects.filter(league_id=int(league_id)).select_related("game")
+            )
             to_update = []
             for lg in league_games:
                 meta = league_team_meta.get(int(lg.game.team1_id))
@@ -2453,7 +2786,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if changed:
                     to_update.append(lg)
             if to_update:
-                m.LeagueGame.objects.bulk_update(to_update, ["division_name", "division_id", "conference_id"], batch_size=500)
+                m.LeagueGame.objects.bulk_update(
+                    to_update, ["division_name", "division_id", "conference_id"], batch_size=500
+                )
             log(f"Refreshed teams: divisions_updated={updated_div} logos_checked={updated_logo}")
         except Exception:
             pass

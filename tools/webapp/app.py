@@ -1911,10 +1911,10 @@ def create_app():
         if auth:
             return auth
         payload = request.get_json(silent=True) or {}
-        league_name = str(payload.get("league_name") or "Norcal")
+        league_name = str(payload.get("league_name") or "CAHA")
         shared = bool(payload["shared"]) if "shared" in payload else None
-        owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
-        owner_name = str(payload.get("owner_name") or "Norcal Import")
+        owner_email = str(payload.get("owner_email") or "caha-import@hockeymom.local")
+        owner_name = str(payload.get("owner_name") or "CAHA Import")
         source = payload.get("source")
         external_key = payload.get("external_key")
         owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
@@ -1934,11 +1934,11 @@ def create_app():
         if auth:
             return auth
         payload = request.get_json(silent=True) or {}
-        league_name = str(payload.get("league_name") or "Norcal")
+        league_name = str(payload.get("league_name") or "CAHA")
         shared = bool(payload["shared"]) if "shared" in payload else None
         replace = bool(payload.get("replace", False))
-        owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
-        owner_name = str(payload.get("owner_name") or "Norcal Import")
+        owner_email = str(payload.get("owner_email") or "caha-import@hockeymom.local")
+        owner_name = str(payload.get("owner_name") or "CAHA Import")
         owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
 
         teams = payload.get("teams") or []
@@ -2035,11 +2035,11 @@ def create_app():
         if auth:
             return auth
         payload = request.get_json(silent=True) or {}
-        league_name = str(payload.get("league_name") or "Norcal")
+        league_name = str(payload.get("league_name") or "CAHA")
         shared = bool(payload["shared"]) if "shared" in payload else None
         replace = bool(payload.get("replace", False))
-        owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
-        owner_name = str(payload.get("owner_name") or "Norcal Import")
+        owner_email = str(payload.get("owner_email") or "caha-import@hockeymom.local")
+        owner_name = str(payload.get("owner_name") or "CAHA Import")
         owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
         league_id = _ensure_league_for_import(
             league_name=league_name,
@@ -2326,11 +2326,11 @@ def create_app():
         if auth:
             return auth
         payload = request.get_json(silent=True) or {}
-        league_name = str(payload.get("league_name") or "Norcal")
+        league_name = str(payload.get("league_name") or "CAHA")
         shared = bool(payload["shared"]) if "shared" in payload else None
         replace = bool(payload.get("replace", False))
-        owner_email = str(payload.get("owner_email") or "norcal-import@hockeymom.local")
-        owner_name = str(payload.get("owner_name") or "Norcal Import")
+        owner_email = str(payload.get("owner_email") or "caha-import@hockeymom.local")
+        owner_name = str(payload.get("owner_name") or "CAHA Import")
         owner_user_id = _ensure_user_for_import(owner_email, name=owner_name)
 
         games = payload.get("games") or []
@@ -6729,6 +6729,10 @@ def sort_games_schedule_order(games: list[dict[str, Any]]) -> list[dict[str, Any
     return [g for _idx, g in sorted(list(enumerate(games or [])), key=_key)]
 
 
+def is_external_division_name(name: Any) -> bool:
+    return str(name or "").strip().casefold().startswith("external")
+
+
 def _league_game_is_cross_division_non_external_row(
     game_division_name: Optional[str],
     team1_division_name: Optional[str],
@@ -6741,7 +6745,7 @@ def _league_game_is_cross_division_non_external_row(
     d2 = str(team2_division_name or "").strip()
     if not d1 or not d2:
         return False
-    if d1.lower() == "external" or d2.lower() == "external":
+    if is_external_division_name(d1) or is_external_division_name(d2):
         return False
     return d1 != d2
 
@@ -8071,10 +8075,10 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
         d2 = str(r.get("team2_league_division_name") or "").strip()
         if not d1 or not d2:
             return False
-        if d1.lower() == "external" or d2.lower() == "external":
+        if is_external_division_name(d1) or is_external_division_name(d2):
             return False
         ld = str(r.get("league_division_name") or "").strip()
-        if ld.lower() == "external":
+        if is_external_division_name(ld):
             return False
         return d1 != d2
 
@@ -8090,7 +8094,7 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
             "team2_league_division_name",
         ):
             dn = str(r.get(key) or "").strip()
-            if dn.lower() == "external":
+            if is_external_division_name(dn):
                 return False
         return True
 
@@ -9063,7 +9067,7 @@ def _dedupe_preserve_str(items: list[str]) -> list[str]:
 
 def _game_type_label_for_row(game_row: dict[str, Any]) -> str:
     gt = str(game_row.get("game_type_name") or "").strip()
-    if not gt and str(game_row.get("division_name") or "").strip().lower() == "external":
+    if not gt and is_external_division_name(game_row.get("division_name")):
         return "Tournament"
     return gt or "Unknown"
 
@@ -9480,10 +9484,10 @@ def _league_game_is_cross_division_non_external(game_row: dict[str, Any]) -> boo
     d2 = str(game_row.get("team2_league_division_name") or "").strip()
     if not d1 or not d2:
         return False
-    if d1.lower() == "external" or d2.lower() == "external":
+    if is_external_division_name(d1) or is_external_division_name(d2):
         return False
     ld = str(game_row.get("division_name") or game_row.get("league_division_name") or "").strip()
-    if ld.lower() == "external":
+    if is_external_division_name(ld):
         return False
     return d1 != d2
 
