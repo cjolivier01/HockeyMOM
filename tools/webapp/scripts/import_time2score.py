@@ -1361,6 +1361,137 @@ def main(argv: Optional[list[str]] = None) -> int:
     def _is_external_division_name(name: Optional[str]) -> bool:
         return str(name or "").strip().casefold().startswith("external")
 
+    def _is_girls_division_name(name: Optional[str]) -> bool:
+        return str(name or "").strip().casefold().startswith("girls")
+
+    # Filter out Girls divisions at the source (we do not import them).
+    divs = [
+        d
+        for d in divs
+        if not _is_girls_division_name(_clean_division_label(getattr(d, "name", "") or "").strip())
+    ]
+
+    # Pre-discover schedule and per-team division preference so we can:
+    #  - ignore divisions with no games scheduled
+    #  - choose a stable team division when a team appears in multiple divisions
+    explicit_game_ids: list[int] = []
+    if args.games_file:
+        for line in Path(args.games_file).read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if s.isdigit():
+                explicit_game_ids.append(int(s))
+    for s in args.game_ids:
+        if str(s).strip().isdigit():
+            explicit_game_ids.append(int(s))
+
+    pre_fallback_by_gid: dict[int, dict[str, Any]] = {}
+    if not (args.cleanup_only or args.refresh_team_metadata) and not explicit_game_ids:
+        log("Discovering game ids from team schedules...")
+        pre_fallback_by_gid = tts_direct.iter_season_games(
+            args.source,
+            season_id=season_id,
+            league_id=int(t2s_league_id) if t2s_league_id is not None else None,
+            divisions=None,
+            team_name_substrings=args.teams,
+            progress_cb=log,
+            progress_every_teams=10,
+            heartbeat_seconds=30.0,
+        )
+
+    team_name_example_by_key: dict[str, str] = {}
+    div_name_example_by_key: dict[str, str] = {}
+    team_div_counts: dict[str, dict[str, int]] = {}
+    schedule_div_ids: set[tuple[int, int]] = set()
+    schedule_div_name_keys: set[str] = set()
+    if pre_fallback_by_gid:
+        for fb in pre_fallback_by_gid.values():
+            fb_div_name = (
+                _clean_division_label((fb or {}).get("division_name") or "").strip() or None
+            )
+            if _is_girls_division_name(fb_div_name):
+                continue
+            div_key = _norm_div_key(fb_div_name or "")
+            if div_key:
+                div_name_example_by_key.setdefault(div_key, fb_div_name or "")
+                schedule_div_name_keys.add(div_key)
+            try:
+                did = int((fb or {}).get("division_id"))
+                cid = int((fb or {}).get("conference_id"))
+                schedule_div_ids.add((did, cid))
+            except Exception:
+                pass
+            for side_key in ("home", "away"):
+                nm_raw = _clean_team_name((fb or {}).get(side_key) or "")
+                if not nm_raw:
+                    continue
+                tkey = _norm_team_key(nm_raw)
+                team_name_example_by_key.setdefault(tkey, nm_raw)
+                team_div_counts.setdefault(tkey, {})
+                team_div_counts[tkey][div_key] = team_div_counts[tkey].get(div_key, 0) + 1
+
+        pre_fallback_by_gid = {
+            int(gid): fb
+            for gid, fb in (pre_fallback_by_gid or {}).items()
+            if not _is_girls_division_name(
+                _clean_division_label((fb or {}).get("division_name") or "").strip() or None
+            )
+        }
+
+    # Filter out divisions with no games scheduled.
+    if pre_fallback_by_gid:
+        filtered_divs: list[Any] = []
+        for d in divs:
+            dn = _clean_division_label(getattr(d, "name", "") or "").strip()
+            key_id = (int(getattr(d, "division_id", 0)), int(getattr(d, "conference_id", 0)))
+            key_name = _norm_div_key(dn)
+            if key_id not in schedule_div_ids and key_name not in schedule_div_name_keys:
+                continue
+            filtered_divs.append(d)
+        divs = filtered_divs
+
+    div_meta_by_key: dict[str, tuple[str, Optional[int], Optional[int]]] = {}
+    for d in divs:
+        dn = _clean_division_label(getattr(d, "name", "") or "").strip()
+        if not dn:
+            continue
+        try:
+            did = int(getattr(d, "division_id", 0))
+        except Exception:
+            did = None
+        try:
+            cid = int(getattr(d, "conference_id", 0))
+        except Exception:
+            cid = None
+        div_meta_by_key.setdefault(_norm_div_key(dn), (dn, did, cid))
+
+    def _infer_division_key_from_team_name(name: str) -> Optional[str]:
+        nm = _clean_team_name(name or "")
+        m = re.search(
+            r"(?i)(?:^|\s)(\d{1,2})(?:u)?\s*(AAA|AA|BB|A|B)(?:\s*[-–—]?\s*\d+)?\s*$",
+            nm,
+        )
+        if not m:
+            return None
+        age = m.group(1)
+        level = m.group(2).upper()
+        return _norm_div_key(f"{age}{level}")
+
+    preferred_base_div_name_by_team_key: dict[str, str] = {}
+    if team_div_counts:
+        for tkey, counts in team_div_counts.items():
+            hint_key = _infer_division_key_from_team_name(team_name_example_by_key.get(tkey, ""))
+            if hint_key and (hint_key in counts or hint_key in div_meta_by_key):
+                chosen_key = hint_key
+            else:
+                chosen_key = max(counts.items(), key=lambda kv: (int(kv[1]), str(kv[0])))[0]
+            dn = None
+            if chosen_key in div_meta_by_key:
+                dn = div_meta_by_key[chosen_key][0]
+            elif chosen_key in div_name_example_by_key:
+                dn = div_name_example_by_key[chosen_key]
+            if dn:
+                preferred_base_div_name_by_team_key[tkey] = dn
+
     # For CAHA, we may merge multiple TimeToScore `league=` ids into a single HockeyMOM league.
     # To keep team-name disambiguation stable across imports (and to classify tournament-only teams),
     # best-effort include additional CAHA leagues when computing duplicates / regular-team membership.
@@ -1454,7 +1585,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             except Exception:
                 divs_i = []
             if divs_i:
-                return divs_i
+                return [
+                    d
+                    for d in divs_i
+                    if not _is_girls_division_name(
+                        _clean_division_label(getattr(d, "name", "") or "").strip() or None
+                    )
+                ]
         return []
 
     extra_divs_by_lid: dict[int, list[Any]] = {}
@@ -1553,7 +1690,15 @@ def main(argv: Optional[list[str]] = None) -> int:
             nm_raw = str((t or {}).get("name") or "").strip()
             if not nm_raw:
                 continue
-            dn = _effective_division_name_for_team(nm_raw, dn_base)
+            dn_pref = preferred_base_div_name_by_team_key.get(_norm_team_key(nm_raw))
+            dn_base_eff = dn_pref or dn_base
+            dn = _effective_division_name_for_team(nm_raw, dn_base_eff)
+            did_eff, cid_eff = did, cid
+            if dn_pref:
+                meta = div_meta_by_key.get(_norm_div_key(dn_pref))
+                if meta:
+                    did_eff = int(meta[1]) if meta[1] is not None else did_eff
+                    cid_eff = int(meta[2]) if meta[2] is not None else cid_eff
             nm = canonical_team_name(nm_raw, dn)
             key = nm.casefold()
             if key in seen_team_names:
@@ -1568,8 +1713,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                 {
                     "name": nm,
                     "division_name": dn,
-                    "division_id": did,
-                    "conference_id": cid,
+                    "division_id": did_eff,
+                    "conference_id": cid_eff,
                     "tts_team_id": tts_id,
                 }
             )
@@ -1607,19 +1752,33 @@ def main(argv: Optional[list[str]] = None) -> int:
         name: str, fallback_division_name: Optional[str]
     ) -> tuple[Optional[str], Optional[int], Optional[int], Optional[int]]:
         """Return (division_name, division_id, conference_id, team_tts_id)."""
+        tkey = _norm_team_key(name or "")
+        pref_dn = preferred_base_div_name_by_team_key.get(tkey)
         tts_id = resolve_tts_team_id(name, fallback_division_name)
         if tts_id is not None and int(tts_id) in tts_team_div_meta_by_id:
             dn, did, cid = tts_team_div_meta_by_id[int(tts_id)]
-            dn_eff = _effective_division_name_for_team(name, dn)
-            return dn_eff, int(did), int(cid), int(tts_id)
+            dn_base = pref_dn or dn
+            dn_eff = _effective_division_name_for_team(name, dn_base)
+            meta = div_meta_by_key.get(_norm_div_key(dn_base or "")) if dn_base else None
+            did_eff = int(meta[1]) if meta and meta[1] is not None else int(did)
+            cid_eff = int(meta[2]) if meta and meta[2] is not None else int(cid)
+            return dn_eff, did_eff, cid_eff, int(tts_id)
         # If the team name is unique across all divisions, assign its division without relying on the game.
-        ids = tts_team_ids_by_name.get(_norm_team_key(name or "")) or []
+        ids = tts_team_ids_by_name.get(tkey) or []
         if len(ids) == 1 and int(ids[0]) in tts_team_div_meta_by_id:
             dn, did, cid = tts_team_div_meta_by_id[int(ids[0])]
-            dn_eff = _effective_division_name_for_team(name, dn)
-            return dn_eff, int(did), int(cid), int(ids[0])
-        dn_eff = _effective_division_name_for_team(name, fallback_division_name)
-        return (dn_eff, None, None, int(tts_id) if tts_id is not None else None)
+            dn_base = pref_dn or dn
+            dn_eff = _effective_division_name_for_team(name, dn_base)
+            meta = div_meta_by_key.get(_norm_div_key(dn_base or "")) if dn_base else None
+            did_eff = int(meta[1]) if meta and meta[1] is not None else int(did)
+            cid_eff = int(meta[2]) if meta and meta[2] is not None else int(cid)
+            return dn_eff, did_eff, cid_eff, int(ids[0])
+        dn_base = pref_dn or (fallback_division_name or None)
+        dn_eff = _effective_division_name_for_team(name, dn_base)
+        meta = div_meta_by_key.get(_norm_div_key(dn_base or "")) if dn_base else None
+        did_eff = int(meta[1]) if meta and meta[1] is not None else None
+        cid_eff = int(meta[2]) if meta and meta[2] is not None else None
+        return (dn_eff, did_eff, cid_eff, int(tts_id) if tts_id is not None else None)
 
     # Division filter resolution
     allowed_divs: Optional[set[tuple[int, int]]] = None
@@ -1818,32 +1977,22 @@ def main(argv: Optional[list[str]] = None) -> int:
         game_ids = []
         fallback_by_gid = {}
     else:
-        # Build explicit game list if present
-        explicit_game_ids: list[int] = []
-        if args.games_file:
-            for line in Path(args.games_file).read_text(encoding="utf-8").splitlines():
-                s = line.strip()
-                if s.isdigit():
-                    explicit_game_ids.append(int(s))
-        for s in args.game_ids:
-            if str(s).strip().isdigit():
-                explicit_game_ids.append(int(s))
-
         if explicit_game_ids:
             game_ids = list(explicit_game_ids)
             fallback_by_gid = {}
         else:
-            log("Discovering game ids from team schedules...")
-            fallback_by_gid = tts_direct.iter_season_games(
-                args.source,
-                season_id=season_id,
-                league_id=int(t2s_league_id) if t2s_league_id is not None else None,
-                divisions=sorted(allowed_divs) if allowed_divs is not None else None,
-                team_name_substrings=args.teams,
-                progress_cb=log,
-                progress_every_teams=10,
-                heartbeat_seconds=30.0,
-            )
+            fallback_by_gid = dict(pre_fallback_by_gid or {})
+            if allowed_divs is not None and fallback_by_gid:
+                filtered = {}
+                for gid, fb in fallback_by_gid.items():
+                    try:
+                        did = int((fb or {}).get("division_id"))
+                        cid = int((fb or {}).get("conference_id"))
+                    except Exception:
+                        continue
+                    if (did, cid) in allowed_divs:
+                        filtered[int(gid)] = fb
+                fallback_by_gid = filtered
             game_ids = sorted(fallback_by_gid.keys())
 
     total = len(game_ids)

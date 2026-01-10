@@ -1066,7 +1066,8 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
     except Exception:
         tournament_only_player_ids = set()
 
-    if tournament_only_player_ids:
+    team_is_external = bool(team.get("is_external"))
+    if tournament_only_player_ids and not team_is_external:
         skaters = [p for p in skaters if int(p.get("id") or 0) not in tournament_only_player_ids]
         goalies = [p for p in goalies if int(p.get("id") or 0) not in tournament_only_player_ids]
         roster_players = list(skaters) + list(goalies)
@@ -3035,7 +3036,8 @@ def public_league_team_detail(
     except Exception:
         tournament_only_player_ids = set()
 
-    if tournament_only_player_ids:
+    team_is_external = bool(team.get("is_external"))
+    if tournament_only_player_ids and not team_is_external:
         skaters = [p for p in skaters if int(p.get("id") or 0) not in tournament_only_player_ids]
         goalies = [p for p in goalies if int(p.get("id") or 0) not in tournament_only_player_ids]
         roster_players = list(skaters) + list(goalies)

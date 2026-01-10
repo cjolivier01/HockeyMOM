@@ -8634,6 +8634,14 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     goalie_sa = _int0(sums.get("goalie_sa"))
 
     out: dict[str, Any] = dict(sums)
+    # Stat implications for display/aggregation:
+    #   Goals ⊆ xG ⊆ SOG ⊆ Shots
+    xg = max(xg, goals)
+    sog = max(sog, xg)
+    shots = max(shots, sog)
+    out["expected_goals"] = xg
+    out["sog"] = sog
+    out["shots"] = shots
     out["gp"] = gp
     out["points"] = points
     out["ppg"] = _rate_or_none(points, gp)
