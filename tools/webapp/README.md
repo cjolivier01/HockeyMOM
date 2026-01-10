@@ -80,6 +80,11 @@ Usage
   - If you select only one of your teams, enter an opponent name to auto-create an external team that is hidden from your team list by default
   - Edit a game to set scores and enter per-player stats (goals, assists, shots, PIM, +/-). Team standings are computed automatically from game results.
 
+Dev (repo)
+----------
+- Run a dev server: `cd tools/webapp && python3 manage.py runserver`
+- Project settings live in `tools/webapp/hm_webapp/settings.py` (`tools/webapp/django_settings.py` is a back-compat shim for installs/tests).
+
 Import Shift Spreadsheet Stats
 ------------------------------
 To import the `stats/player_stats.csv` + `stats/game_stats.csv` outputs written by `scripts/parse_stats_inputs.py` and view them per game/player/team:

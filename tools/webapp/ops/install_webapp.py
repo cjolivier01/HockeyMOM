@@ -136,11 +136,13 @@ def main():
     print("Copying webapp code...")
     subprocess.check_call(["sudo", "mkdir", "-p", str(app_dir)])
     _do_copy(repo_root / "tools/webapp/app.py", app_dir / "app.py")
+    _do_copy(repo_root / "tools/webapp/manage.py", app_dir / "manage.py")
     _do_copy(repo_root / "tools/webapp/django_orm.py", app_dir / "django_orm.py")
     _do_copy(repo_root / "tools/webapp/django_settings.py", app_dir / "django_settings.py")
     _do_copy(repo_root / "tools/webapp/urls.py", app_dir / "urls.py")
     _do_copy(repo_root / "tools/webapp/wsgi.py", app_dir / "wsgi.py")
     _do_copy(repo_root / "tools/webapp/django_app", app_dir)
+    _do_copy(repo_root / "tools/webapp/hm_webapp", app_dir)
     _do_copy(repo_root / "tools/webapp/hockey_rankings.py", app_dir / "hockey_rankings.py")
     _do_copy(repo_root / "tools/webapp/scripts/recalc_div_ratings.py", app_dir / "recalc_div_ratings.py")
     subprocess.check_call(["sudo", "mkdir", "-p", str(templates_dir)])
@@ -261,7 +263,7 @@ Environment=HM_WATCH_ROOT={args.watch_root}
 Environment=MSMTP_CONFIG=/etc/msmtprc
 Environment=MSMTPRC=/etc/msmtprc
 Environment=HM_DB_CONFIG={app_dir}/config.json
-Environment=DJANGO_SETTINGS_MODULE=django_settings
+Environment=DJANGO_SETTINGS_MODULE=hm_webapp.settings
 WorkingDirectory={app_dir}
 ExecStart={python_bin} -m gunicorn -b {args.bind_address}:{args.port} --access-logfile - --error-logfile - --capture-output --log-level info wsgi:application
 Restart=on-failure

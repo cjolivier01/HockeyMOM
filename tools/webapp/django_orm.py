@@ -9,8 +9,20 @@ def setup_django(*, config_path: Optional[str] = None) -> None:
     if config_path:
         os.environ["HM_DB_CONFIG"] = config_path
 
-    settings_module = "tools.webapp.django_settings" if __name__.startswith("tools.webapp.") else "django_settings"
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", settings_module)
+    if "DJANGO_SETTINGS_MODULE" not in os.environ:
+        if __name__.startswith("tools.webapp."):
+            settings_module = "tools.webapp.hm_webapp.settings"
+            legacy_module = "tools.webapp.django_settings"
+        else:
+            settings_module = "hm_webapp.settings"
+            legacy_module = "django_settings"
+
+        try:
+            __import__(settings_module)
+        except Exception:
+            settings_module = legacy_module
+
+        os.environ["DJANGO_SETTINGS_MODULE"] = settings_module
 
     try:
         import pymysql  # type: ignore

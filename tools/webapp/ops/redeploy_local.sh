@@ -146,6 +146,7 @@ fi
 
 echo "[i] Copying app.py, templates, and static to $APP_DIR (sudo required)"
 sudo install -m 0644 -D tools/webapp/app.py "$APP_DIR/app.py"
+sudo install -m 0755 -D tools/webapp/manage.py "$APP_DIR/manage.py"
 sudo install -m 0644 -D tools/webapp/django_orm.py "$APP_DIR/django_orm.py"
 sudo install -m 0644 -D tools/webapp/django_settings.py "$APP_DIR/django_settings.py"
 sudo install -m 0644 -D tools/webapp/urls.py "$APP_DIR/urls.py"
@@ -157,6 +158,8 @@ sudo rsync -a tools/webapp/templates/ "$APP_DIR/templates/"
 sudo rsync -a tools/webapp/static/ "$APP_DIR/static/"
 sudo mkdir -p "$APP_DIR/django_app"
 sudo rsync -a tools/webapp/django_app/ "$APP_DIR/django_app/"
+sudo mkdir -p "$APP_DIR/hm_webapp"
+sudo rsync -a tools/webapp/hm_webapp/ "$APP_DIR/hm_webapp/"
 
 CONFIG_JSON="$APP_DIR/config.json"
 if [ ! -f "$CONFIG_JSON" ]; then

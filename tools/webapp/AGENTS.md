@@ -5,10 +5,13 @@ This subtree contains the HockeyMOM webapp plus its admin/import scripts. The we
 
 ## High-level layout
 
+- `tools/webapp/manage.py`: Django management entrypoint (devserver/admin tasks).
+- `tools/webapp/hm_webapp/`: Django project package (`settings.py`, `urls.py`, `wsgi.py`).
 - `tools/webapp/app.py`: Shared hockey/league webapp logic (Django runtime + legacy Flask factory for tests).
-- `tools/webapp/wsgi.py`, `tools/webapp/urls.py`, `tools/webapp/django_app/views.py`: Django entrypoint, URL routing, and views.
+- `tools/webapp/django_app/views.py`: Django views (MVT) and REST endpoints.
 - `tools/webapp/templates/`, `tools/webapp/static/`: UI templates/assets.
-- `tools/webapp/django_settings.py`: Minimal Django settings module (DB config + installed apps).
+- `tools/webapp/hm_webapp/settings.py`: Minimal Django settings module (DB config + installed apps).
+- `tools/webapp/django_settings.py`, `tools/webapp/urls.py`, `tools/webapp/wsgi.py`: Back-compat shims for older installs/tests.
 - `tools/webapp/django_orm.py`: Django setup + schema/bootstrap helpers (no migrations).
 - `tools/webapp/django_app/`: Django app containing `models.py` mapping the existing DB schema.
 - Admin/import utilities:
@@ -38,7 +41,7 @@ Related root-level helpers:
 - `tools/webapp/django_orm.setup_django()` configures Django in-process and is safe to call multiple times.
 - `tools/webapp/app.py` still contains shared business logic and lazily loads ORM modules via `_orm_modules()` (cached),
   so importing it does not require a working DB in tests.
-- Deployment uses Django WSGI via `wsgi:application` (see `tools/webapp/wsgi.py`).
+- Deployment uses Django WSGI via `wsgi:application` (see `tools/webapp/hm_webapp/wsgi.py`).
 - Schema management is done programmatically:
   - `django_orm.ensure_schema()` creates missing tables and best-effort adds missing columns for older installs.
   - There is no Django migration workflow here; keep schema changes small and additive unless you also handle upgrades.
@@ -55,7 +58,7 @@ Related root-level helpers:
 
 ### DB config (`config.json`)
 Most scripts accept `--config` (default: `/opt/hm-webapp/app/config.json`). The DB stanza is used by
-`tools/webapp/django_settings.py`:
+`tools/webapp/hm_webapp/settings.py`:
 
 ```json
 {
