@@ -1,17 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
-import importlib.util
+import json
 
 import pytest
-
-
-def _load_app_module():
-    spec = importlib.util.spec_from_file_location("webapp_app", "tools/webapp/app.py")
-    mod = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(mod)  # type: ignore
-    return mod
 
 
 @pytest.fixture()
@@ -20,8 +12,7 @@ def client_and_models(monkeypatch, webapp_db):
     monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    mod = _load_app_module()
+    from django.test import Client
 
     now = dt.datetime.now()
     owner = m.User.objects.create(
@@ -159,29 +150,29 @@ def client_and_models(monkeypatch, webapp_db):
     m.PlayerStat.objects.create(game_id=int(g1001.id), player_id=1, user_id=int(owner.id), team_id=int(t201.id))
     m.PlayerStat.objects.create(game_id=int(g1002.id), player_id=2, user_id=int(owner.id), team_id=int(t202.id))
 
-    app = mod.create_app()
-    app.testing = True
-    return app.test_client(), m
+    return Client(), m
+
+
+def _post_json(client, path: str, payload: dict, **extra):
+    return client.post(path, data=json.dumps(payload), content_type="application/json", **extra)
 
 
 def should_require_import_auth_for_internal_reset_endpoint(client_and_models):
     client, _m = client_and_models
-    r = client.post(
-        "/api/internal/reset_league_data",
-        json={"owner_email": "cjolivier01@gmail.com", "league_name": "Norcal"},
-    )
+    r = _post_json(client, "/api/internal/reset_league_data", {"owner_email": "cjolivier01@gmail.com", "league_name": "Norcal"})
     assert r.status_code == 401
 
 
 def should_reset_league_data_via_hidden_api_and_preserve_shared_entities(client_and_models):
     client, m = client_and_models
-    r = client.post(
+    r = _post_json(
+        client,
         "/api/internal/reset_league_data",
-        json={"owner_email": "cjolivier01@gmail.com", "league_name": "Norcal"},
-        headers={"X-HM-Import-Token": "sekret"},
+        {"owner_email": "cjolivier01@gmail.com", "league_name": "Norcal"},
+        HTTP_X_HM_IMPORT_TOKEN="sekret",
     )
     assert r.status_code == 200
-    out = r.get_json()
+    out = json.loads(r.content.decode())
     assert out["ok"] is True
     assert int(out["league_id"]) == 1
 
@@ -196,4 +187,3 @@ def should_reset_league_data_via_hidden_api_and_preserve_shared_entities(client_
     # Exclusive team 201 was deleted; shared team 202 remains.
     assert not m.Team.objects.filter(id=201).exists()
     assert m.Team.objects.filter(id=202).exists()
-

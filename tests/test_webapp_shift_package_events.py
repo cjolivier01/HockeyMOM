@@ -768,14 +768,22 @@ class FakeCursor:
         return out
 
 
+def _post_json(client, path: str, payload: dict, *, token: str = "sekret"):
+    return client.post(
+        path,
+        data=json.dumps(payload),
+        content_type="application/json",
+        HTTP_X_HM_IMPORT_TOKEN=token,
+    )
+
+
 @pytest.fixture()
 def client_and_models(monkeypatch, webapp_db):
     _django_orm, m = webapp_db
     monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    mod = _load_app_module()
+    from django.test import Client
 
     now = dt.datetime.now()
     owner = m.User.objects.create(
@@ -869,29 +877,26 @@ def client_and_models(monkeypatch, webapp_db):
         created_at=now,
         updated_at=None,
     )
-
-    app = mod.create_app()
-    app.testing = True
-    return app.test_client(), m
+    return Client(), m
 
 
 def should_store_events_via_shift_package_and_render_public_game_page(client_and_models):
     client, m = client_and_models
     events1 = "Period,Time,Team,Event,Player,On-Ice Players\n1,13:45,Blue,Shot,#9 Alice,\"Alice,Bob\"\n"
     assert "\n" in events1
-    r = client.post(
+    r = _post_json(
+        client,
         "/api/import/hockey/shift_package",
-        json={"timetoscore_game_id": 123, "events_csv": events1, "source_label": "unit-test", "replace": False},
-        headers={"X-HM-Import-Token": "sekret"},
+        {"timetoscore_game_id": 123, "events_csv": events1, "source_label": "unit-test", "replace": False},
     )
     assert r.status_code == 200
-    assert r.get_json()["ok"] is True
+    assert json.loads(r.content)["ok"] is True
     row = m.HkyGameEvent.objects.filter(game_id=1001).values("events_csv").first()
     assert row is not None
     assert row["events_csv"] == events1
     assert "\n" in str(row["events_csv"])
 
-    html = client.get("/public/leagues/1/hky/games/1001").get_data(as_text=True)
+    html = client.get("/public/leagues/1/hky/games/1001").content.decode()
     assert "Game Events" in html
     assert "Shot" in html
     assert "#9 Alice" in html
@@ -909,13 +914,9 @@ def should_find_existing_game_when_notes_are_legacy_game_id_token(client_and_mod
 
     # Non-Goal events are allowed to be stored even for TimeToScore-linked games.
     events1 = "Period,Time,Team,Event\n1,00:10,Blue,Shot\n"
-    r = client.post(
-        "/api/import/hockey/shift_package",
-        json={"timetoscore_game_id": 123, "events_csv": events1, "replace": False},
-        headers={"X-HM-Import-Token": "sekret"},
-    )
+    r = _post_json(client, "/api/import/hockey/shift_package", {"timetoscore_game_id": 123, "events_csv": events1, "replace": False})
     assert r.status_code == 200
-    out = r.get_json()
+    out = json.loads(r.content)
     assert out["ok"] is True
     assert int(out["game_id"]) == 1001
     assert m.HkyGame.objects.count() == before_game_count
@@ -928,27 +929,15 @@ def should_not_overwrite_events_without_replace(client_and_models):
     client, m = client_and_models
     events1 = "Period,Time,Team,Event\n1,00:10,Blue,Shot\n"
     events2 = "Period,Time,Team,Event\n1,00:11,Blue,Shot\n"
-    r1 = client.post(
-        "/api/import/hockey/shift_package",
-        json={"timetoscore_game_id": 123, "events_csv": events1, "replace": False},
-        headers={"X-HM-Import-Token": "sekret"},
-    )
+    r1 = _post_json(client, "/api/import/hockey/shift_package", {"timetoscore_game_id": 123, "events_csv": events1, "replace": False})
     assert r1.status_code == 200
     assert m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first() == events1
 
-    r2 = client.post(
-        "/api/import/hockey/shift_package",
-        json={"timetoscore_game_id": 123, "events_csv": events2, "replace": False},
-        headers={"X-HM-Import-Token": "sekret"},
-    )
+    r2 = _post_json(client, "/api/import/hockey/shift_package", {"timetoscore_game_id": 123, "events_csv": events2, "replace": False})
     assert r2.status_code == 200
     assert m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first() == events1
 
-    r3 = client.post(
-        "/api/import/hockey/shift_package",
-        json={"timetoscore_game_id": 123, "events_csv": events2, "replace": True},
-        headers={"X-HM-Import-Token": "sekret"},
-    )
+    r3 = _post_json(client, "/api/import/hockey/shift_package", {"timetoscore_game_id": 123, "events_csv": events2, "replace": True})
     assert r3.status_code == 200
     assert m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first() == events2
 
@@ -956,20 +945,20 @@ def should_not_overwrite_events_without_replace(client_and_models):
 def should_store_player_stats_csv_via_shift_package_and_render_public_game_page(client_and_models):
     client, m = client_and_models
     player_stats_csv = "Player,Goals,Assists,Average Shift,Shifts,TOI Total\n9 Alice,1,0,0:45,12,12:34\n"
-    r = client.post(
+    r = _post_json(
+        client,
         "/api/import/hockey/shift_package",
-        json={"timetoscore_game_id": 123, "player_stats_csv": player_stats_csv, "source_label": "unit-test"},
-        headers={"X-HM-Import-Token": "sekret"},
+        {"timetoscore_game_id": 123, "player_stats_csv": player_stats_csv, "source_label": "unit-test"},
     )
     assert r.status_code == 200
-    assert r.get_json()["ok"] is True
+    assert json.loads(r.content)["ok"] is True
     stored = m.HkyGamePlayerStatsCsv.objects.filter(game_id=1001).values_list("player_stats_csv", flat=True).first()
     assert stored is not None
     assert "Average Shift" not in stored
     assert "Shifts" not in stored
     assert "TOI Total" not in stored
 
-    html = client.get("/public/leagues/1/hky/games/1001").get_data(as_text=True)
+    html = client.get("/public/leagues/1/hky/games/1001").content.decode()
     assert "Imported Player Stats" in html
     assert "Average Shift" not in html
     assert "Shifts" not in html
@@ -978,17 +967,17 @@ def should_store_player_stats_csv_via_shift_package_and_render_public_game_page(
 
 def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(client_and_models):
     client, m = client_and_models
-    r = client.post(
+    r = _post_json(
+        client,
         "/api/import/hockey/shift_package",
-        json={"timetoscore_game_id": 123, "game_video_url": "https://example.com/video", "source_label": "unit-test"},
-        headers={"X-HM-Import-Token": "sekret"},
+        {"timetoscore_game_id": 123, "game_video_url": "https://example.com/video", "source_label": "unit-test"},
     )
     assert r.status_code == 200
-    assert r.get_json()["ok"] is True
+    assert json.loads(r.content)["ok"] is True
     notes = str(m.HkyGame.objects.filter(id=1001).values_list("notes", flat=True).first() or "")
     assert "game_video_url" in notes
 
-    schedule_html = client.get("/public/leagues/1/schedule").get_data(as_text=True)
+    schedule_html = client.get("/public/leagues/1/schedule").content.decode()
     assert 'href="https://example.com/video"' in schedule_html
     assert 'target="_blank"' in schedule_html
 
@@ -999,9 +988,10 @@ def should_create_external_game_via_shift_package_and_map_to_league(client_and_m
     game_stats_csv = "Stat,chicago-4\nGoals For,2\nGoals Against,1\n"
     events_csv = "Period,Time,Team,Event Type\n1,12:00,Home,Shot\n"
 
-    r = client.post(
+    r = _post_json(
+        client,
         "/api/import/hockey/shift_package",
-        json={
+        {
             "external_game_key": "chicago-4",
             "owner_email": "owner@example.com",
             "league_name": "Norcal",
@@ -1015,10 +1005,9 @@ def should_create_external_game_via_shift_package_and_map_to_league(client_and_m
             "events_csv": events_csv,
             "replace": False,
         },
-        headers={"X-HM-Import-Token": "sekret"},
     )
     assert r.status_code == 200
-    out = r.get_json()
+    out = json.loads(r.content)
     assert out["ok"] is True
     gid = int(out["game_id"])
 
@@ -1038,15 +1027,16 @@ def should_create_external_game_via_shift_package_and_map_to_league(client_and_m
 
 def should_render_private_game_page_as_league_owner_when_not_game_owner(client_and_models):
     client, m = client_and_models
-    with client.session_transaction() as sess:
-        sess["user_id"] = 10
-        sess["user_email"] = "owner@example.com"
-        sess["league_id"] = 1
+    sess = client.session
+    sess["user_id"] = 10
+    sess["user_email"] = "owner@example.com"
+    sess["league_id"] = 1
+    sess.save()
 
     m.HkyGame.objects.filter(id=1001).update(user_id=11)
     r = client.get("/hky/games/1001?return_to=/teams/44")
     assert r.status_code == 200
-    html = r.get_data(as_text=True)
+    html = r.content.decode()
     assert "Game Summary" in html
 
 
@@ -1072,9 +1062,10 @@ def should_reuse_existing_league_team_by_name_and_preserve_division(client_and_m
     before_div = m.LeagueTeam.objects.filter(league_id=2, team_id=101).values("division_name").first()
     assert before_div and before_div["division_name"] == "10 B West"
 
-    r = client.post(
+    r = _post_json(
+        client,
         "/api/import/hockey/shift_package",
-        json={
+        {
             "external_game_key": "tourny-1",
             "owner_email": "owner@example.com",
             "league_name": "Norcal",
@@ -1083,10 +1074,9 @@ def should_reuse_existing_league_team_by_name_and_preserve_division(client_and_m
             "away_team_name": "Opponent X",
             "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
-        headers={"X-HM-Import-Token": "sekret"},
     )
     assert r.status_code == 200
-    out = r.get_json()
+    out = json.loads(r.content)
     assert out["ok"] is True
     gid = int(out["game_id"])
 
@@ -1134,9 +1124,10 @@ def should_match_league_team_names_case_and_punctuation_insensitive(client_and_m
     m.LeagueTeam.objects.create(league_id=2, team_id=int(sj.id), division_name="12AA", division_id=0, conference_id=0)
 
     before_team_count = m.Team.objects.count()
-    r = client.post(
+    r = _post_json(
+        client,
         "/api/import/hockey/shift_package",
-        json={
+        {
             "external_game_key": "tourny-2",
             "owner_email": "owner@example.com",
             "league_name": "Norcal",
@@ -1145,10 +1136,9 @@ def should_match_league_team_names_case_and_punctuation_insensitive(client_and_m
             "away_team_name": "Opponent X",
             "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
-        headers={"X-HM-Import-Token": "sekret"},
     )
     assert r.status_code == 200
-    out = r.get_json()
+    out = json.loads(r.content)
     assert out["ok"] is True
 
     assert m.Team.objects.count() == before_team_count + 1
@@ -1163,9 +1153,10 @@ def should_not_create_duplicate_external_teams_for_name_variants(client_and_mode
     client, m = client_and_models
     before_team_count = m.Team.objects.count()
 
-    r1 = client.post(
+    r1 = _post_json(
+        client,
         "/api/import/hockey/shift_package",
-        json={
+        {
             "external_game_key": "tourny-a",
             "owner_email": "owner@example.com",
             "league_name": "Norcal",
@@ -1174,15 +1165,15 @@ def should_not_create_duplicate_external_teams_for_name_variants(client_and_mode
             "away_team_name": "Arizona Coyotes 12AA",
             "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
-        headers={"X-HM-Import-Token": "sekret"},
     )
     assert r1.status_code == 200
-    assert r1.get_json()["ok"] is True
+    assert json.loads(r1.content)["ok"] is True
     assert m.Team.objects.count() == before_team_count + 1
 
-    r2 = client.post(
+    r2 = _post_json(
+        client,
         "/api/import/hockey/shift_package",
-        json={
+        {
             "external_game_key": "tourny-b",
             "owner_email": "owner@example.com",
             "league_name": "Norcal",
@@ -1191,10 +1182,9 @@ def should_not_create_duplicate_external_teams_for_name_variants(client_and_mode
             "away_team_name": "ARIZONA COYOTES 12AA",
             "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
-        headers={"X-HM-Import-Token": "sekret"},
     )
     assert r2.status_code == 200
-    assert r2.get_json()["ok"] is True
+    assert json.loads(r2.content)["ok"] is True
     assert m.Team.objects.count() == before_team_count + 1
 
 
@@ -1224,9 +1214,10 @@ def should_match_team_names_even_when_db_has_division_suffix_parens(client_and_m
     m.LeagueTeam.objects.create(league_id=2, team_id=int(tid.id), division_name="12AA", division_id=0, conference_id=0)
 
     before_team_count = m.Team.objects.count()
-    r = client.post(
+    r = _post_json(
+        client,
         "/api/import/hockey/shift_package",
-        json={
+        {
             "external_game_key": "tourny-parens",
             "owner_email": "owner@example.com",
             "league_name": "Norcal",
@@ -1235,10 +1226,9 @@ def should_match_team_names_even_when_db_has_division_suffix_parens(client_and_m
             "away_team_name": "Opponent X",
             "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
-        headers={"X-HM-Import-Token": "sekret"},
     )
     assert r.status_code == 200
-    out = r.get_json()
+    out = json.loads(r.content)
     assert out["ok"] is True
     gid = int(out["game_id"])
 

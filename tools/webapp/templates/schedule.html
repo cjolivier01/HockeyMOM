@@ -1,9 +1,7 @@
-{% extends 'layout.html' %}
+{% extends "layout.html" %}
+{% load webapp_tags %}
 {% block content %}
-{% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
-{% set return_to = request.full_path.rstrip('?') %}
-{% set return_to_q = ('?return_to=' ~ (return_to|urlencode)) if return_to else '' %}
-{% set return_to_amp = ('&return_to=' ~ (return_to|urlencode)) if return_to else '' %}
+{% with return_to=request.get_full_path %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
   <h2>Games Schedule</h2>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;">
@@ -21,22 +19,28 @@
       </div>
     {% endif %}
     <div>
-      {% if can_add_game|default(True) %}
+      {% if not public_league_id %}
         <a class="btn primary" href="/schedule/new">Add game</a>
       {% endif %}
     </div>
   </div>
 </div>
 
+{% if public_league_id %}
+  {% url "public_league_schedule" league_id=public_league_id as schedule_path %}
+{% else %}
+  {% url "schedule" as schedule_path %}
+{% endif %}
+
 {% if league_view %}
   <div class="card" style="margin-bottom:1rem;">
-    <form method="get" action="{{ base }}/schedule" style="display:flex;gap:1rem;flex-wrap:wrap;align-items:end;">
+    <form method="get" action="{{ schedule_path }}" style="display:flex;gap:1rem;flex-wrap:wrap;align-items:end;">
       <div class="form-row">
         <label class="muted">Division</label>
         <select name="division" id="division_select">
           <option value="">(All)</option>
           {% for d in divisions %}
-            <option value="{{ d }}" {% if selected_division==d %}selected{% endif %}>{{ d }}</option>
+            <option value="{{ d }}" {% if selected_division == d %}selected{% endif %}>{{ d }}</option>
           {% endfor %}
         </select>
       </div>
@@ -45,12 +49,12 @@
         <select name="team_id" id="team_select">
           <option value="">(All)</option>
           {% for t in league_teams %}
-            <option value="{{ t.id }}" {% if selected_team_id==(t.id|string) %}selected{% endif %}>{{ t.name }}</option>
+            <option value="{{ t.id }}" {% if selected_team_id == t.id|stringformat:"s" %}selected{% endif %}>{{ t.name }}</option>
           {% endfor %}
         </select>
       </div>
       <button class="btn" type="submit">Filter</button>
-      <a class="btn" href="{{ base }}/schedule">Clear</a>
+      <a class="btn" href="{{ schedule_path }}">Clear</a>
     </form>
     <script>
       (function() {
@@ -83,75 +87,85 @@
   </thead>
   <tbody>
     {% for g in games %}
+      {% with s1=g.team1_score s2=g.team2_score %}
       <tr>
-        {% if league_view %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
-        <td class="nowrap">{{ (g['starts_at'] or '')|fmt_date }}</td>
-        <td class="nowrap">{{ (g['starts_at'] or '')|fmt_time }}</td>
-        {% if public_league_id is defined %}
-          {% set game_href = base ~ '/hky/games/' ~ g['id'] ~ return_to_q %}
+        {% if league_view %}<td>{{ g.division_name|default_if_none:"" }}</td>{% endif %}
+        <td class="nowrap">{{ g.starts_at|fmt_date }}</td>
+        <td class="nowrap">{{ g.starts_at|fmt_time }}</td>
+
+        {% if public_league_id %}
+          {% url "public_hky_game_detail" league_id=public_league_id game_id=g.id as game_path %}
+          {% url "public_media_team_logo" league_id=public_league_id team_id=g.team1_id as team1_logo %}
+          {% url "public_media_team_logo" league_id=public_league_id team_id=g.team2_id as team2_logo %}
         {% else %}
-          {% set game_href = '/hky/games/' ~ g['id'] ~ return_to_q %}
+          {% url "hky_game_detail" game_id=g.id as game_path %}
+          {% url "media_team_logo" team_id=g.team1_id as team1_logo %}
+          {% url "media_team_logo" team_id=g.team2_id as team2_logo %}
         {% endif %}
-        {% set s1 = g.get('team1_score') %}
-        {% set s2 = g.get('team2_score') %}
-        {% set has_score = (s1 is not none and s2 is not none) %}
+
         <td>
-          {% if g.get('can_view_summary') %}<a href="{{ game_href }}" style="text-decoration:none;color:inherit;">{% endif %}
+          {% if g.can_view_summary %}<a href="{{ game_path }}?return_to={{ return_to|urlencode }}" style="text-decoration:none;color:inherit;">{% endif %}
           <span style="display:inline-flex;align-items:center;gap:6px;">
-            <img src="{{ base }}/media/team_logo/{{ g['team2_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-            {% if has_score and s2 > s1 %}
-              <strong>{{ g['team2_name'] }}</strong>
+            <img src="{{ team2_logo }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+            {% if s1 != None and s2 != None and s2 > s1 %}
+              <strong>{{ g.team2_name }}</strong>
             {% else %}
-              <span>{{ g['team2_name'] }}</span>
+              <span>{{ g.team2_name }}</span>
             {% endif %}
           </span>
-          {% if g.get('can_view_summary') %}</a>{% endif %}
+          {% if g.can_view_summary %}</a>{% endif %}
         </td>
+
         <td>
-          {% if g.get('can_view_summary') %}<a href="{{ game_href }}" style="text-decoration:none;color:inherit;">{% endif %}
+          {% if g.can_view_summary %}<a href="{{ game_path }}?return_to={{ return_to|urlencode }}" style="text-decoration:none;color:inherit;">{% endif %}
           <span style="display:inline-flex;align-items:center;gap:6px;">
-            <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-            {% if has_score and s1 > s2 %}
-              <strong>{{ g['team1_name'] }}</strong>
+            <img src="{{ team1_logo }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+            {% if s1 != None and s2 != None and s1 > s2 %}
+              <strong>{{ g.team1_name }}</strong>
             {% else %}
-              <span>{{ g['team1_name'] }}</span>
+              <span>{{ g.team1_name }}</span>
             {% endif %}
           </span>
-          {% if g.get('can_view_summary') %}</a>{% endif %}
+          {% if g.can_view_summary %}</a>{% endif %}
         </td>
-      {% set gt = g.get('game_type_name') %}
-      {% if not gt and (g.get('division_name') or '')|lower == 'external' %}
-        {% set gt = 'Tournament' %}
-      {% endif %}
-      <td>{{ gt or '' }}</td>
-      <td>{{ g['location'] or '' }}</td>
-      <td>{% if g['team1_score'] is not none and g['team2_score'] is not none %}{{ g['team1_score'] }} - {{ g['team2_score'] }}{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td>
-        {% if g.get('game_video_url') %}
-          <a href="{{ g.get('game_video_url')|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">Video</a>
-        {% else %}
-          <span class="muted">—</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if g.get('can_view_summary') %}
-          {% if public_league_id is defined %}
-            <a class="btn" href="{{ game_href }}">View</a>
+
+        <td>{% if g.game_type_name %}{{ g.game_type_name }}{% elif g.division_name|lower == "external" %}Tournament{% endif %}</td>
+        <td>{{ g.location|default_if_none:"" }}</td>
+        <td>
+          {% if s1 != None and s2 != None %}
+            {{ s1 }} - {{ s2 }}
           {% else %}
-            {% if g.get('can_edit') %}
-              <a class="btn" href="{{ game_href }}{{ '&' if ('?' in game_href) else '?' }}edit=1">Edit</a>
-            {% else %}
-              <a class="btn" href="{{ game_href }}">View</a>
-            {% endif %}
+            <span class="muted">—</span>
           {% endif %}
-        {% else %}
-          <span class="muted">—</span>
-        {% endif %}
-      </td>
+        </td>
+        <td>
+          {% if g.game_video_url %}
+            <a href="{{ g.game_video_url|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">Video</a>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if g.can_view_summary %}
+            {% if public_league_id %}
+              <a class="btn" href="{{ game_path }}?return_to={{ return_to|urlencode }}">View</a>
+            {% else %}
+              {% if g.can_edit %}
+                <a class="btn" href="{{ game_path }}?return_to={{ return_to|urlencode }}&edit=1">Edit</a>
+              {% else %}
+                <a class="btn" href="{{ game_path }}?return_to={{ return_to|urlencode }}">View</a>
+              {% endif %}
+            {% endif %}
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
       </tr>
-    {% else %}
+      {% endwith %}
+    {% empty %}
       <tr><td colspan="{% if league_view %}10{% else %}9{% endif %}" class="muted">No games yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>
+{% endwith %}
 {% endblock %}

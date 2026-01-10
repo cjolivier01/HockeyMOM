@@ -3,7 +3,7 @@ HockeyMOM WebApp (Uploads + Run)
 
 Overview
 --------
-Flask-based web app that lets users:
+Django-based web app (DTL + Django ORM) that lets users:
 - Create an account and log in
 - Create a new "game" (project) directory for uploads and trigger Slurm jobs via DirWatcher
 - NEW: Manage hockey teams and players, create games, and track stats
@@ -28,7 +28,7 @@ sudo python3 tools/webapp/install_webapp.py \
 
 This will:
 - Copy the app to `/opt/hm-webapp/app`
-- Create a venv + install Flask/Gunicorn
+- Create a venv + install Django/Gunicorn (and PyMySQL)
 - Install a systemd unit `hm-webapp.service`
 - Install an Nginx site proxying `http://127.0.0.1:8008` and restart Nginx
 

@@ -13,20 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
 
-from flask import (
-    Flask,
-    flash,
-    g,
-    jsonify,
-    redirect,
-    render_template,
-    request,
-    send_from_directory,
-    session,
-    url_for,
-)
-from werkzeug.security import check_password_hash, generate_password_hash
-from werkzeug.exceptions import HTTPException
+from werkzeug.security import generate_password_hash
 
 # Lazy import for pymysql to allow importing module without DB installed (e.g., tests)
 try:
@@ -241,7 +228,23 @@ def _load_or_create_app_secret() -> str:
 APP_SECRET = _load_or_create_app_secret()
 
 
-def create_app() -> Flask:
+def create_app():
+    # Lazily import Flask so this module remains importable in pure-Django deployments.
+    from flask import (  # type: ignore
+        Flask,
+        flash,
+        g,
+        jsonify,
+        redirect,
+        render_template,
+        request,
+        send_from_directory,
+        session,
+        url_for,
+    )
+    from werkzeug.exceptions import HTTPException
+    from werkzeug.security import check_password_hash
+
     base_dir = Path(__file__).resolve().parent
     app = Flask(
         __name__,
@@ -5747,7 +5750,8 @@ def create_game(user_id: int, name: str, email: str):
     # Create dedicated dir: <watch_root>/<user_id>_<timestamp>_<rand>
     ts = dt.datetime.now().strftime("%Y%m%d%H%M%S")
     token = secrets.token_hex(4)
-    d = Path(WATCH_ROOT) / f"game_{user_id}_{ts}_{token}"
+    watch_root = os.environ.get("HM_WATCH_ROOT", WATCH_ROOT)
+    d = Path(watch_root) / f"game_{user_id}_{ts}_{token}"
     d.mkdir(parents=True, exist_ok=True)
     # Create meta with user email
     try:
@@ -5825,11 +5829,21 @@ def save_team_logo(file_storage, team_id: int) -> Path:
     uploads = INSTANCE_DIR / "uploads" / "team_logos"
     uploads.mkdir(parents=True, exist_ok=True)
     # sanitize filename
-    fname = Path(file_storage.filename).name
+    fname = Path(str(getattr(file_storage, "filename", None) or getattr(file_storage, "name", "") or "")).name
+    if not fname:
+        fname = "logo"
     # prefix with team id and timestamp
     ts = dt.datetime.now().strftime("%Y%m%d%H%M%S")
     dest = uploads / f"team{team_id}_{ts}_{fname}"
-    file_storage.save(dest)
+    if hasattr(file_storage, "save"):
+        file_storage.save(dest)
+    elif hasattr(file_storage, "chunks"):
+        with dest.open("wb") as out:
+            for chunk in file_storage.chunks():  # type: ignore[attr-defined]
+                out.write(chunk)
+    else:
+        data = file_storage.read() if hasattr(file_storage, "read") else b""
+        dest.write_bytes(data or b"")
     return dest
 
 
@@ -5927,6 +5941,58 @@ def _sanitize_http_url(value: Optional[str]) -> Optional[str]:
     sl = s.lower()
     if sl.startswith("http://") or sl.startswith("https://"):
         return s
+    return None
+
+
+def _extract_game_video_url_from_notes(notes: Optional[str]) -> Optional[str]:
+    s = str(notes or "").strip()
+    if not s:
+        return None
+    try:
+        d = json.loads(s)
+        if isinstance(d, dict):
+            for k in ("game_video_url", "game_video", "video_url"):
+                v = d.get(k)
+                if v is not None and str(v).strip():
+                    return str(v).strip()
+    except Exception:
+        pass
+    m = re.search(r"(?:^|[\\s|,;])game_video_url\\s*=\\s*([^\\s|,;]+)", s, flags=re.IGNORECASE)
+    if m:
+        return str(m.group(1)).strip()
+    m = re.search(r"(?:^|[\\s|,;])game_video\\s*=\\s*([^\\s|,;]+)", s, flags=re.IGNORECASE)
+    if m:
+        return str(m.group(1)).strip()
+    return None
+
+
+def _extract_timetoscore_game_id_from_notes(notes: Optional[str]) -> Optional[int]:
+    s = str(notes or "").strip()
+    if not s:
+        return None
+    try:
+        d = json.loads(s)
+        if isinstance(d, dict):
+            v = d.get("timetoscore_game_id")
+            if v is not None:
+                try:
+                    return int(v)
+                except Exception:
+                    return None
+    except Exception:
+        pass
+    m = re.search(r"(?:^|[\\s|,;])game_id\\s*=\\s*(\\d+)", s, flags=re.IGNORECASE)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
+    m = re.search(r"\"timetoscore_game_id\"\\s*:\\s*(\\d+)", s)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
     return None
 
 
@@ -8746,7 +8812,6 @@ def _int_or_none(raw: Any) -> Optional[int]:
         return None
 
 
-app = create_app()
-
-if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8008, debug=True)
+if __name__ == "__main__":  # pragma: no cover
+    # Dev-only legacy entrypoint.
+    create_app().run(host="127.0.0.1", port=8008, debug=True)

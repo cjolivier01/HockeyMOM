@@ -19,6 +19,21 @@ TMP_DIR="${TMP_DIR:-/tmp}"
 
 echo "[i] Target: $BASE"
 
+get_csrf() {
+  # Fetch a page and extract the first CSRF token for POSTs.
+  local path="$1"
+  reqf "${BASE}${path}" | python3 -c '
+import re
+import sys
+
+html = sys.stdin.read()
+m = re.search(r"name=\"csrfmiddlewaretoken\" value=\"([^\"]+)\"", html)
+if not m:
+    raise SystemExit(2)
+print(m.group(1))
+'
+}
+
 req() {
   local method="$1"; shift
   curl -sS -c "$COOK_FILE" -b "$COOK_FILE" -X "$method" "$@"
@@ -44,21 +59,26 @@ fi
 
 rm -f "$COOK_FILE"
 
-# 1) Register user
+# 1) Register user (CSRF-protected)
 EMAIL="smoke_$(date +%s)@example.com"
 NAME="Smoke User"
 PASS="smokepw123"
 echo "[i] Registering $EMAIL"
+CSRF="$(get_csrf "/register")"
 REG_RESP=$(curl -sS -i -c "$COOK_FILE" -b "$COOK_FILE" -X POST \
-  -d "name=$NAME" -d "email=$EMAIL" -d "password=$PASS" \
+  -d "csrfmiddlewaretoken=$CSRF" -d "name=$NAME" -d "email=$EMAIL" -d "password=$PASS" \
   "$BASE/register")
 echo "$REG_RESP" | grep -q "^Location: /games" || true
 # Follow with an explicit GET to avoid POST -> 405 on /games via -L
 HTML=$(reqf "$BASE/games")
 echo "$HTML" | assert_contains "Your Games"
 
-# 2) Ensure Teams route exists before proceeding
-if ! curl -sSf "$BASE/teams/new" >/dev/null; then
+# 1b) Leagues page should render for logged-in user
+HTML=$(reqf "$BASE/leagues")
+echo "$HTML" | assert_contains "Create League"
+
+# 2) Ensure Teams route exists before proceeding (requires login)
+if ! reqf -sSf "$BASE/teams/new" >/dev/null; then
   echo "[!] /teams endpoints not found. Ensure the updated webapp is installed." >&2
   exit 1
 fi
@@ -73,7 +93,9 @@ base64 -d "$LOGO_B64" > "$LOGO_PNG"
 
 # 4) Create team with logo
 echo "[i] Creating team"
+CSRF="$(get_csrf "/teams/new")"
 HTML=$(reqf -L \
+  -F "csrfmiddlewaretoken=$CSRF" \
   -F "name=Smoke Team" \
   -F "logo=@$LOGO_PNG;type=image/png" \
   "$BASE/teams/new")
@@ -92,7 +114,9 @@ echo "[i] TEAM_ID=$TEAM_ID"
 
 # 6) Add a player
 echo "[i] Adding player"
+CSRF="$(get_csrf "/teams/$TEAM_ID/players/new")"
 HTML=$(reqf -L \
+  -d "csrfmiddlewaretoken=$CSRF" \
   -d "name=Smoke Skater" -d "jersey_number=77" -d "position=F" -d "shoots=R" \
   "$BASE/teams/$TEAM_ID/players/new")
 echo "$HTML" | assert_contains "Smoke Skater"
@@ -104,7 +128,9 @@ GT_ID=$(
 if [ -z "$GT_ID" ]; then echo "[!] No game type found" >&2; exit 1; fi
 echo "[i] GAME_TYPE=$GT_ID"
 
+CSRF="$(get_csrf "/schedule/new")"
 RESP=$(curl -sS -i -c "$COOK_FILE" -b "$COOK_FILE" -X POST \
+  -d "csrfmiddlewaretoken=$CSRF" \
   -d "team1_id=$TEAM_ID" -d "team2_id=" -d "opponent_name=Opp Smoke" \
   -d "game_type_id=$GT_ID" -d "starts_at=2025-01-02T12:00" -d "location=Smoke Rink" \
   "$BASE/schedule/new")
@@ -120,16 +146,20 @@ Player,Goals,Assists,Shots,SOG,xG,Plus Minus,Shifts,TOI Total,TOI Total (Video),
 77 Smoke Skater,1,0,2,1,0,1,5,5:00,5:00,5:00,5,1,0
 CSV
 
+CSRF="$(get_csrf "/hky/games/$GAME_ID?edit=1")"
 HTML=$(reqf -L \
+  -F "csrfmiddlewaretoken=$CSRF" \
   -F "player_stats_csv=@$PS_CSV;type=text/csv" \
   "$BASE/hky/games/$GAME_ID/import_shift_stats")
 echo "$HTML" | assert_contains "Imported stats for"
 
 # 8) Set final score
 echo "[i] Setting final score"
+CSRF="$(get_csrf "/hky/games/$GAME_ID?edit=1")"
 reqf -L \
+  -d "csrfmiddlewaretoken=$CSRF" \
   -d "team1_score=6" -d "team2_score=3" -d "is_final=on" \
-  "$BASE/hky/games/$GAME_ID" >/dev/null
+  "$BASE/hky/games/$GAME_ID?edit=1" >/dev/null
 
 # 9) Verify team record updated
 REC=$(

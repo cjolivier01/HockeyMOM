@@ -1,11 +1,12 @@
 # `tools/webapp` Agent Guidelines
 
-This subtree contains the HockeyMOM Flask webapp plus its admin/import scripts. The webapp uses **Django ORM** (without
-running a full Django project) to access the database; do not re-introduce raw SQL access.
+This subtree contains the HockeyMOM webapp plus its admin/import scripts. The webapp is now a **native Django app**
+(Django views + DTL templates) and uses the **Django ORM** to access the database; do not re-introduce raw SQL access.
 
 ## High-level layout
 
 - `tools/webapp/app.py`: Flask app + routes, plus shared hockey/league helper logic.
+- `tools/webapp/wsgi.py`, `tools/webapp/urls.py`, `tools/webapp/django_app/views.py`: Django entrypoint, URL routing, and views.
 - `tools/webapp/templates/`, `tools/webapp/static/`: UI templates/assets.
 - `tools/webapp/django_settings.py`: Minimal Django settings module (DB config + installed apps).
 - `tools/webapp/django_orm.py`: Django setup + schema/bootstrap helpers (no migrations).
@@ -22,8 +23,10 @@ running a full Django project) to access the database; do not re-introduce raw S
 Related root-level helpers:
 - `./import_webapp.sh`: redeploy + reset + import + shift-spreadsheet upload.
 - `./gcp_import_webapp.sh`: similar flow for GCP.
+  - Both scripts will best-effort create a default webapp user from local `git config` (`user.email`/`user.name`)
+    with password `password` unless `--no-default-user` is specified (uses internal REST endpoint; may require token).
 
-## Architecture: Flask + Django ORM (no raw SQL)
+## Architecture: Django + Django ORM (no raw SQL)
 
 ### Key rule: avoid raw SQL
 - Do not add `cursor.execute(...)`, `pymysql.connect(...)`, or string SQL back into `tools/webapp`.
@@ -33,8 +36,9 @@ Related root-level helpers:
 
 ### How Django is embedded
 - `tools/webapp/django_orm.setup_django()` configures Django in-process and is safe to call multiple times.
-- `tools/webapp/app.py` lazily loads ORM modules via `_orm_modules()` (cached) so importing the Flask app does not require
-  a working DB in tests.
+- `tools/webapp/app.py` still contains shared business logic and lazily loads ORM modules via `_orm_modules()` (cached),
+  so importing it does not require a working DB in tests.
+- Deployment uses Django WSGI via `wsgi:application` (see `tools/webapp/wsgi.py`).
 - Schema management is done programmatically:
   - `django_orm.ensure_schema()` creates missing tables and best-effort adds missing columns for older installs.
   - There is no Django migration workflow here; keep schema changes small and additive unless you also handle upgrades.
@@ -71,7 +75,7 @@ SQLite is supported for tests/dev (`engine: sqlite3`, with `name` pointing at a 
 
 ### Environment variables
 - `HM_DB_CONFIG`: path to the active `config.json` (used by Django settings and many scripts).
-- `HM_WEBAPP_SECRET`: Flask/Django secret (dev/test value is fine for local use).
+- `HM_WEBAPP_SECRET`: Django secret (dev/test value is fine for local use).
 - `HM_WEBAPP_IMPORT_TOKEN`: if set, internal REST import/reset endpoints require this token.
 - `HM_WEBAPP_SKIP_DB_INIT`: tests set this to avoid eager DB init at import time.
 - `HM_WATCH_ROOT`: upload/watch directory (affects Jobs/DirWatcher integration).

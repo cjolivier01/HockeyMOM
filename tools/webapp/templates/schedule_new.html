@@ -1,15 +1,16 @@
-{% extends 'layout.html' %}
+{% extends "layout.html" %}
 {% block content %}
 <div class="card" style="max-width:720px;">
   <h2>Add Game</h2>
   <form method="post">
+    {% csrf_token %}
     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
       <div class="form-row">
         <label class="muted">Your Team A</label>
         <select name="team1_id">
           <option value="">— Select —</option>
           {% for t in my_teams %}
-            <option value="{{ t['id'] }}">{{ t['name'] }}</option>
+            <option value="{{ t.id }}">{{ t.name }}</option>
           {% endfor %}
         </select>
       </div>
@@ -18,7 +19,7 @@
         <select name="team2_id">
           <option value="">— None —</option>
           {% for t in my_teams %}
-            <option value="{{ t['id'] }}">{{ t['name'] }}</option>
+            <option value="{{ t.id }}">{{ t.name }}</option>
           {% endfor %}
         </select>
       </div>
@@ -33,7 +34,7 @@
         <select name="game_type_id">
           <option value="">— Select —</option>
           {% for gt in game_types %}
-            <option value="{{ gt['id'] }}">{{ gt['name'] }}</option>
+            <option value="{{ gt.id }}">{{ gt.name }}</option>
           {% endfor %}
         </select>
         <div style="margin-top:.25rem"><a class="btn" href="/game_types">Manage types</a></div>
