@@ -19,6 +19,7 @@ from functools import lru_cache
 import io
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -1192,19 +1193,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument(
         "--t2s-max-attempts",
         type=int,
-        default=4,
+        default=6,
         help="Max scrape attempts per game when TimeToScore results look incomplete (throttling/HTML changes).",
     )
     ap.add_argument(
         "--t2s-initial-backoff-s",
         type=float,
-        default=1.0,
+        default=1.5,
         help="Initial backoff seconds between TimeToScore scrape attempts.",
     )
     ap.add_argument(
         "--t2s-max-backoff-s",
         type=float,
-        default=20.0,
+        default=30.0,
         help="Max backoff seconds between TimeToScore scrape attempts.",
     )
     ap.add_argument(
@@ -1342,6 +1343,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             .replace("\u2212", "-")
         )
         t = " ".join(t.split())
+        # Normalize spaced dash-index suffixes like "12A - 1" -> "12A-1".
+        t = re.sub(r"\s*-\s*(\d+)\s*$", r"-\1", t)
         return t
 
     def _norm_team_key(name: str) -> str:
@@ -1384,30 +1387,75 @@ def main(argv: Optional[list[str]] = None) -> int:
         except Exception:
             seasons2 = {}
 
-        season_id2: Optional[int] = None
-        if season_name and season_name in seasons2:
+        def _tokenize(s: str) -> set[str]:
+            return {t for t in re.findall(r"[0-9a-z]+", str(s or "").casefold()) if t}
+
+        base_name = str(season_name or "").strip()
+        base_tokens = _tokenize(base_name)
+        base_years = set(re.findall(r"(20\\d{2})", base_name))
+
+        # NOTE: CAHA season ids/names differ across league=3/5/18, so we try a small set of
+        # plausible seasons rather than assuming season_id matches across leagues.
+        season_ids_to_try: list[int] = []
+
+        if base_name and base_name in (seasons2 or {}):
             try:
-                season_id2 = int(seasons2[season_name])
+                season_ids_to_try.append(int(seasons2[base_name]))
             except Exception:
-                season_id2 = None
-        if season_id2 is None:
-            try:
-                for _nm, _sid in (seasons2 or {}).items():
-                    if int(_sid) == int(season_id):
-                        season_id2 = int(_sid)
-                        break
-            except Exception:
-                season_id2 = None
-        if season_id2 is None:
-            season_id2 = int(season_id)
+                pass
+
         try:
-            return tts_direct.list_divisions(
-                "caha",
-                season_id=int(season_id2),
-                league_id=int(league_id),
-            )
+            for _nm, _sid in (seasons2 or {}).items():
+                try:
+                    if int(_sid) == int(season_id):
+                        season_ids_to_try.append(int(_sid))
+                        break
+                except Exception:
+                    continue
         except Exception:
-            return []
+            pass
+
+        scored: list[tuple[int, int]] = []
+        if base_tokens and seasons2:
+            for nm, sid in seasons2.items():
+                try:
+                    sid_i = int(sid)
+                except Exception:
+                    continue
+                tok = _tokenize(str(nm))
+                score = len(base_tokens & tok)
+                if base_years and any(y in str(nm) for y in base_years):
+                    score += 50
+                scored.append((int(score), int(sid_i)))
+            scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+            for _score, sid_i in scored[:5]:
+                season_ids_to_try.append(int(sid_i))
+
+        try:
+            season_ids_to_try.append(int(season_id))
+        except Exception:
+            pass
+
+        seen_sids: set[int] = set()
+        ordered_sids: list[int] = []
+        for sid_i in season_ids_to_try:
+            if int(sid_i) in seen_sids:
+                continue
+            seen_sids.add(int(sid_i))
+            ordered_sids.append(int(sid_i))
+
+        for sid_i in ordered_sids:
+            try:
+                divs_i = tts_direct.list_divisions(
+                    "caha",
+                    season_id=int(sid_i),
+                    league_id=int(league_id),
+                )
+            except Exception:
+                divs_i = []
+            if divs_i:
+                return divs_i
+        return []
 
     extra_divs_by_lid: dict[int, list[Any]] = {}
     if str(args.source or "").strip().lower() == "caha" and caha_league_id_i is not None:
@@ -1425,7 +1473,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             else:
                 extra_divs_by_lid[int(lid)] = _try_list_caha_divisions(int(lid))
 
-    regular_team_by_div: set[tuple[str, str]] = set()
+    regular_team_names: set[str] = set()
     if str(args.source or "").strip().lower() == "caha" and caha_league_id_i == 18:
         for lid in (3, 5):
             for d in extra_divs_by_lid.get(int(lid), []):
@@ -1435,7 +1483,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 for t in getattr(d, "teams", []) or []:
                     nm = _clean_team_name((t or {}).get("name") or "")
                     if nm:
-                        regular_team_by_div.add((_norm_team_key(nm), _norm_div_key(dn)))
+                        regular_team_names.add(_norm_team_key(nm))
 
     def _effective_division_name_for_team(
         team_name: str, division_name: Optional[str]
@@ -1443,13 +1491,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         dn = _clean_division_label(division_name or "").strip() or None
         if not dn:
             return None
-        if str(args.source or "").strip().lower() == "caha" and caha_league_id_i == 18:
-            key = (_norm_team_key(team_name), _norm_div_key(dn))
-            if key not in regular_team_by_div:
+        if (
+            str(args.source or "").strip().lower() == "caha"
+            and caha_league_id_i == 18
+            and regular_team_names
+        ):
+            if _norm_team_key(team_name) not in regular_team_names:
                 return f"External {dn}".strip()
         return dn
 
-    team_name_counts: dict[str, int] = {}
+    # Map normalized team name -> set of division keys where that name appears.
+    # Used to disambiguate teams that genuinely share a name across multiple divisions.
+    div_keys_by_team_name: dict[str, set[str]] = {}
     divs_for_name_counts: list[Any] = []
     if extra_divs_by_lid:
         for dl in extra_divs_by_lid.values():
@@ -1458,17 +1511,30 @@ def main(argv: Optional[list[str]] = None) -> int:
         divs_for_name_counts = list(divs or [])
 
     for d in divs_for_name_counts:
-        for t in d.teams:
+        dn = _clean_division_label(getattr(d, "name", "") or "")
+        dn_key = _norm_div_key(dn)
+        for t in getattr(d, "teams", []) or []:
             nm = _clean_team_name((t or {}).get("name") or "")
-            if nm:
-                k = _norm_team_key(nm)
-                team_name_counts[k] = team_name_counts.get(k, 0) + 1
+            if not nm:
+                continue
+            div_keys_by_team_name.setdefault(_norm_team_key(nm), set()).add(dn_key)
 
     def canonical_team_name(name: str, division_name: Optional[str]) -> str:
         nm = _clean_team_name(name or "") or "UNKNOWN"
         dn = _clean_division_label(division_name or "")
-        if dn and team_name_counts.get(_norm_team_key(nm), 0) > 1:
-            return f"{nm} ({dn})"
+
+        # If the team name already encodes a division token (common on CAHA, e.g. "Sharks 12A-1"),
+        # avoid adding redundant "(<division>)" suffixes.
+        has_division_token = bool(
+            re.search(
+                r"(?i)(?:^|\\s)\\d{1,2}(?:u)?\\s*(?:AAA|AA|BB|A|B)(?:\\s*[-–—]?\\s*\\d+)?\\s*$",
+                nm,
+            )
+        )
+        if dn and not has_division_token:
+            divs_for_name = div_keys_by_team_name.get(_norm_team_key(nm)) or set()
+            if len(divs_for_name) > 1:
+                return f"{nm} ({dn})"
         return nm
 
     division_teams: list[dict[str, Any]] = []
@@ -1859,7 +1925,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                     # If the game has a recorded score in the schedule, missing stats should be treated as fatal
                     # so we can fix the scraper and backfill correctly.
                     if fb_has_result and attempt < max_attempts:
-                        sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
+                        base_sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
+                        jitter = random.uniform(0.85, 1.25)
+                        sleep_s = (
+                            min(max_delay_s, base_sleep_s * jitter)
+                            if max_delay_s
+                            else base_sleep_s * jitter
+                        )
                         log(
                             f"Warning: scrape_game_stats failed (attempt {attempt}/{max_attempts}) "
                             f"for source={args.source} season_id={season_id} game_id={gid} "
@@ -1938,7 +2010,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                         )
                         break
                     if attempt < max_attempts:
-                        sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
+                        base_sleep_s = min(max_delay_s, delay_s) if max_delay_s else delay_s
+                        jitter = random.uniform(0.85, 1.25)
+                        sleep_s = (
+                            min(max_delay_s, base_sleep_s * jitter)
+                            if max_delay_s
+                            else base_sleep_s * jitter
+                        )
                         log(
                             f"Warning: scored game but no scoring attribution (attempt {attempt}/{max_attempts}) "
                             f"for source={args.source} season_id={season_id} game_id={gid} "

@@ -12,6 +12,9 @@ SPREADSHEETS_ONLY=0
 PARSE_ONLY=0
 T2S_SCRAPE=0
 NO_DEFAULT_USER=0
+REBUILD=0
+T2S_LEAGUES=(3 5 18)
+T2S_LEAGUES_SET=0
 
 GIT_USER_EMAIL="$(git config --get user.email 2>/dev/null || true)"
 GIT_USER_NAME="$(git config --get user.name 2>/dev/null || true)"
@@ -33,10 +36,32 @@ Options:
   --drop-db         Drop (and recreate) the local webapp MariaDB database, then continue
   --drop-db-only    Drop (and recreate) the database, then exit (implies --drop-db)
   --no-default-user Skip auto-creating a default webapp user from git config (user.email/user.name)
+  --t2s-league ID   Only import these TimeToScore league ids (repeatable or comma-separated; default: 3,5,18)
+  --rebuild         Reset (delete) existing league hockey data before importing (destructive)
   --spreadsheets-only  Seed only from shift spreadsheets (skip TimeToScore import; avoids T2S usage in parse_stats_inputs)
   --parse-only      Only run scripts/parse_stats_inputs.py upload (skip reset + TimeToScore import); forces --webapp-replace
   --scrape          Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
 EOF
+}
+
+add_t2s_leagues() {
+  local raw="$1"
+  if [[ "${T2S_LEAGUES_SET}" == "0" ]]; then
+    T2S_LEAGUES=()
+    T2S_LEAGUES_SET=1
+  fi
+
+  local -a parts=()
+  IFS=',' read -ra parts <<<"${raw}"
+  local p
+  for p in "${parts[@]}"; do
+    p="${p//[[:space:]]/}"
+    if [[ -z "${p}" || ! "${p}" =~ ^[0-9]+$ ]]; then
+      echo "[!] Invalid --t2s-league value: ${raw}" >&2
+      exit 2
+    fi
+    T2S_LEAGUES+=( "${p}" )
+  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -45,6 +70,22 @@ while [[ $# -gt 0 ]]; do
     --drop-db) DROP_DB=1; shift ;;
     --drop-db-only) DROP_DB=1; DROP_DB_ONLY=1; shift ;;
     --no-default-user) NO_DEFAULT_USER=1; shift ;;
+    --rebuild) REBUILD=1; shift ;;
+    --t2s-league=*)
+      T2S_LEAGUE_RAW="${1#*=}"
+      shift
+      add_t2s_leagues "${T2S_LEAGUE_RAW}"
+      ;;
+    --t2s-league)
+      shift
+      if [[ $# -lt 1 ]]; then
+        echo "[!] --t2s-league requires an integer argument" >&2
+        exit 2
+      fi
+      T2S_LEAGUE_RAW="${1}"
+      shift
+      add_t2s_leagues "${T2S_LEAGUE_RAW}"
+      ;;
     --spreadsheets-only|--no-time2score|--no-t2s) SPREADSHEETS_ONLY=1; shift ;;
     --parse-only|--parse-stats-only|--spreadsheets-upload-only) PARSE_ONLY=1; shift ;;
     --scrape|--t2s-scrape) T2S_SCRAPE=1; shift ;;
@@ -245,21 +286,42 @@ if ! curl -sS -m 30 -f -X POST "${HDRS[@]}" --data "${LEAGUE_OWNER_PAYLOAD}" "${
 fi
 
 if [[ "${PARSE_ONLY}" == "1" ]]; then
+  if [[ "${REBUILD}" == "1" ]]; then
+    echo "[!] --parse-only ignores --rebuild (reset requires re-importing TimeToScore games first)" >&2
+  fi
   echo "[i] --parse-only: skipping league reset and TimeToScore import"
 else
-  echo "[i] Resetting league data"
-  ./p tools/webapp/scripts/reset_league_data.py --force
+  if [[ "${REBUILD}" == "1" ]]; then
+    echo "[i] Resetting league data (REST)"
+    RESET_PAYLOAD="$(LEAGUE_NAME="${LEAGUE_NAME}" OWNER_EMAIL="${OWNER_EMAIL}" python3 - <<'PY'
+import json
+import os
+
+print(
+    json.dumps(
+        {
+            "league_name": os.environ.get("LEAGUE_NAME") or "",
+            "owner_email": os.environ.get("OWNER_EMAIL") or "",
+        }
+    )
+)
+PY
+)"
+    curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RESET_PAYLOAD}" "${WEBAPP_URL}/api/internal/reset_league_data" >/dev/null
+  else
+    echo "[i] Skipping league reset (incremental import). Use --rebuild to wipe existing league data."
+  fi
 
   if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
     echo "[i] --spreadsheets-only: skipping TimeToScore import"
   else
-    echo "[i] Importing TimeToScore (caha league=3/5/18 -> ${LEAGUE_NAME})"
+    echo "[i] Importing TimeToScore (caha league=${T2S_LEAGUES[*]} -> ${LEAGUE_NAME})"
     # python3 tools/webapp/scripts/import_time2score.py --source=caha --league-name=CAHA --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
     T2S_ARGS=()
     if [[ "${T2S_SCRAPE}" == "1" ]]; then
       T2S_ARGS+=( "--scrape" )
     fi
-    for T2S_LEAGUE_ID in 3 5 18; do
+    for T2S_LEAGUE_ID in "${T2S_LEAGUES[@]}"; do
       echo "[i]   - CAHA TimeToScore league=${T2S_LEAGUE_ID}"
       ./p tools/webapp/scripts/import_time2score.py \
         --source=caha \

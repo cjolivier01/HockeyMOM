@@ -708,7 +708,7 @@ def teams(request: HttpRequest) -> HttpResponse:
             dn = str(t.get("division_name") or "").strip() or "Unknown Division"
             grouped.setdefault(dn, []).append(t)
         divisions = []
-        for dn in sorted(grouped.keys(), key=lambda s: s.lower()):
+        for dn in sorted(grouped.keys(), key=logic.division_sort_key):
             teams_sorted = sorted(
                 grouped[dn],
                 key=lambda tr: logic.sort_key_team_standings(tr, stats.get(int(tr["id"]), {})),
@@ -1365,8 +1365,8 @@ def schedule(request: HttpRequest) -> HttpResponse:
             .exclude(division_name="")
             .values_list("division_name", flat=True)
             .distinct()
-            .order_by("division_name")
         )
+        divisions.sort(key=logic.division_sort_key)
         if selected_division:
             league_teams = list(
                 m.Team.objects.filter(
@@ -2799,7 +2799,7 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
         dn = str(t.get("division_name") or "").strip() or "Unknown Division"
         grouped.setdefault(dn, []).append(t)
     divisions = []
-    for dn in sorted(grouped.keys(), key=lambda s: s.lower()):
+    for dn in sorted(grouped.keys(), key=logic.division_sort_key):
         teams_sorted = sorted(
             grouped[dn],
             key=lambda tr: logic.sort_key_team_standings(tr, stats.get(int(tr["id"]), {})),
@@ -3207,8 +3207,8 @@ def public_league_schedule(
         .exclude(division_name="")
         .values_list("division_name", flat=True)
         .distinct()
-        .order_by("division_name")
     )
+    divisions.sort(key=logic.division_sort_key)
     if selected_division:
         league_teams = list(
             m.Team.objects.filter(
@@ -4195,12 +4195,19 @@ def _map_game_to_league_for_import(
         return
 
     updates: dict[str, Any] = {}
-    if dn and dn.strip() and dn.strip().lower() != "external":
+    allow_div_update = True
+    if dn and logic.is_external_division_name(dn):
+        existing_dn = str(getattr(obj, "division_name", "") or "").strip()
+        if existing_dn and not logic.is_external_division_name(existing_dn):
+            allow_div_update = False
+
+    if dn and dn.strip() and dn.strip().lower() != "external" and allow_div_update:
         updates["division_name"] = dn
-    if division_id is not None:
-        updates["division_id"] = division_id
-    if conference_id is not None:
-        updates["conference_id"] = conference_id
+    if allow_div_update:
+        if division_id is not None:
+            updates["division_id"] = division_id
+        if conference_id is not None:
+            updates["conference_id"] = conference_id
     if sort_order is not None:
         updates["sort_order"] = sort_order
     if updates:
@@ -4227,12 +4234,19 @@ def _map_team_to_league_for_import(
     if created:
         return
     updates: dict[str, Any] = {}
-    if dn and dn.strip() and dn.strip().lower() != "external":
+    allow_div_update = True
+    if dn and logic.is_external_division_name(dn):
+        existing_dn = str(getattr(obj, "division_name", "") or "").strip()
+        if existing_dn and not logic.is_external_division_name(existing_dn):
+            allow_div_update = False
+
+    if dn and dn.strip() and dn.strip().lower() != "external" and allow_div_update:
         updates["division_name"] = dn
-    if division_id is not None:
-        updates["division_id"] = division_id
-    if conference_id is not None:
-        updates["conference_id"] = conference_id
+    if allow_div_update:
+        if division_id is not None:
+            updates["division_id"] = division_id
+        if conference_id is not None:
+            updates["conference_id"] = conference_id
     if updates:
         m.LeagueTeam.objects.filter(id=int(obj.id)).update(**updates)
 
