@@ -460,6 +460,11 @@ class PyNvVideoEncoder:
             "-bsf:v",
             setts_bsf,
         ]
+        if self.output_path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
+            # Make MP4/MOV outputs friendlier for Apple/iPhone playback and progressive download.
+            cmd += ["-movflags", "+faststart"]
+            if stream_format == "hevc":
+                cmd += ["-tag:v", "hvc1"]
         if muxer:
             cmd += ["-f", muxer]
         cmd.append(str(self.output_path))

@@ -239,6 +239,9 @@ class PlayTrackerPlugin(Plugin):
         for k in ("jersey_results", "action_results"):
             if k in data:
                 results[k] = data[k]
+        # Optional external camera controller output (e.g., GPT/transformer trunk).
+        if "camera_boxes" in data:
+            results["camera_boxes"] = data["camera_boxes"]
 
         self._ensure_initialized(context, results)
         assert self._play_tracker is not None
