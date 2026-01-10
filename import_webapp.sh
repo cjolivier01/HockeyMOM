@@ -55,6 +55,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ ! -x "./p" ]]; then
+  echo "[!] Missing executable: ./p" >&2
+  echo "    Run from repo root, or use ./run.sh / bazel run helpers." >&2
+  exit 2
+fi
+
 if [[ "${DROP_DB_ONLY}" == "1" && "${DEPLOY_ONLY}" == "1" ]]; then
   echo "[!] --drop-db-only cannot be combined with --deploy-only" >&2
   exit 2
@@ -198,7 +204,7 @@ if [[ "${PARSE_ONLY}" == "1" ]]; then
   echo "[i] --parse-only: skipping league reset and TimeToScore import"
 else
   echo "[i] Resetting league data"
-  python3 tools/webapp/scripts/reset_league_data.py --force
+  ./p tools/webapp/scripts/reset_league_data.py --force
 
   if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
     echo "[i] --spreadsheets-only: skipping TimeToScore import"
@@ -209,7 +215,7 @@ else
     if [[ "${T2S_SCRAPE}" == "1" ]]; then
       T2S_ARGS+=( "--scrape" )
     fi
-    python3 tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email "${OWNER_EMAIL}"
+    ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email "${OWNER_EMAIL}"
   fi
 fi
 
@@ -233,7 +239,7 @@ fi
 if [[ "${PARSE_ONLY}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--webapp-replace" )
 fi
-python3 scripts/parse_stats_inputs.py \
+./p scripts/parse_stats_inputs.py \
   --file-list "${SHIFT_FILE_LIST}" \
   --shifts \
   --no-scripts \

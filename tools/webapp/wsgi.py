@@ -1,26 +1,7 @@
 from __future__ import annotations
 
-import os
-
-from django.core.wsgi import get_wsgi_application
-
-
-def _default_settings_module() -> str:
-    return "tools.webapp.django_settings" if __name__.startswith("tools.webapp.") else "django_settings"
-
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", _default_settings_module())
-
-application = get_wsgi_application()
-
-# Best-effort DB/schema bootstrap (mirrors legacy startup behavior).
-if os.environ.get("HM_WEBAPP_SKIP_DB_INIT") != "1":  # pragma: no cover
-    try:
-        try:
-            from tools.webapp import app as logic  # type: ignore
-        except Exception:
-            import app as logic  # type: ignore
-
-        logic.init_db()
-    except Exception:
-        raise
+# Back-compat shim for older installs/tests that reference `wsgi:application`.
+try:
+    from tools.webapp.hm_webapp.wsgi import application  # type: ignore
+except Exception:  # pragma: no cover
+    from hm_webapp.wsgi import application  # type: ignore
