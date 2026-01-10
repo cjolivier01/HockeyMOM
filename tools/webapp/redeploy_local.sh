@@ -87,11 +87,11 @@ ensure_db_admin_user() {
     return 0
   fi
   echo "[i] Ensuring MariaDB login user admin/admin exists (requires sudo)"
-  if ! sudo mysql -u root >/dev/null 2>&1; then
+  if ! sudo mysql --connect-timeout=5 -u root -e "SELECT 1;" >/dev/null 2>&1; then
     echo "[!] Cannot connect to MariaDB as root via sudo; skipping DB admin user provisioning" >&2
     return 0
   fi
-  if ! sudo mysql -u root >/dev/null <<'SQL'
+  if ! sudo mysql --connect-timeout=5 -u root >/dev/null <<'SQL'
 CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'admin';
 CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'admin';
 GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;
