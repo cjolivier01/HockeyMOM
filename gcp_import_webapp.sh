@@ -303,3 +303,18 @@ fi
   "${TOKEN_ARGS[@]}" \
   --webapp-owner-email "${OWNER_EMAIL}" \
   --webapp-league-name "${LEAGUE_NAME}"
+
+echo "[i] Recalculating Ratings (REST)"
+RATINGS_PAYLOAD="$(
+  LEAGUE_NAME="${LEAGUE_NAME}" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({"league_name": os.environ["LEAGUE_NAME"]}))
+PY
+)"
+HDRS=( -H "Content-Type: application/json" )
+if [[ -n "${HM_WEBAPP_IMPORT_TOKEN:-}" ]]; then
+  HDRS+=( -H "Authorization: Bearer ${HM_WEBAPP_IMPORT_TOKEN}" -H "X-HM-Import-Token: ${HM_WEBAPP_IMPORT_TOKEN}" )
+fi
+curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RATINGS_PAYLOAD}" "${WEBAPP_URL}/api/internal/recalc_div_ratings" >/dev/null

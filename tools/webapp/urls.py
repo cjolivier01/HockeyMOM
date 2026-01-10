@@ -35,6 +35,7 @@ urlpatterns = [
     path("api/internal/reset_league_data", v.api_internal_reset_league_data, name="api_internal_reset_league_data"),
     path("api/internal/ensure_league_owner", v.api_internal_ensure_league_owner, name="api_internal_ensure_league_owner"),
     path("api/internal/ensure_user", v.api_internal_ensure_user, name="api_internal_ensure_user"),
+    path("api/internal/recalc_div_ratings", v.api_internal_recalc_div_ratings, name="api_internal_recalc_div_ratings"),
     # Legacy uploads/jobs UI
     path("games", v.games, name="games"),
     path("games/new", v.new_game, name="new_game"),

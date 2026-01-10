@@ -243,3 +243,31 @@ python3 scripts/parse_stats_inputs.py \
   ${WEB_ACCESS_KEY} \
   --webapp-owner-email "${OWNER_EMAIL}" \
   --webapp-league-name=Norcal
+
+echo "[i] Recalculating Ratings (REST)"
+IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"
+if [[ -z "${IMPORT_TOKEN}" ]]; then
+  IMPORT_TOKEN="$(python3 - <<'PY'
+import json
+from pathlib import Path
+
+cfg_path = Path("/opt/hm-webapp/app/config.json")
+try:
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+except Exception:
+    cfg = {}
+print(str(cfg.get("import_token") or "").strip())
+PY
+)"
+fi
+HDRS=( -H "Content-Type: application/json" )
+if [[ -n "${IMPORT_TOKEN}" ]]; then
+  HDRS+=( -H "Authorization: Bearer ${IMPORT_TOKEN}" -H "X-HM-Import-Token: ${IMPORT_TOKEN}" )
+fi
+RATINGS_PAYLOAD="$(python3 - <<'PY'
+import json
+
+print(json.dumps({"league_name": "Norcal"}))
+PY
+)"
+curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RATINGS_PAYLOAD}" "${WEBAPP_URL}/api/internal/recalc_div_ratings" >/dev/null
