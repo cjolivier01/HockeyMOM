@@ -3,6 +3,8 @@ import argparse
 import json
 import os
 import subprocess
+import time
+import urllib.request
 from pathlib import Path
 
 SERVICE_NAME = "hm-webapp.service"
@@ -94,6 +96,11 @@ def main():
         "--import-token",
         default="",
         help="If set, require this bearer token for /api/import/* endpoints (send via Authorization: Bearer ...).",
+    )
+    ap.add_argument(
+        "--no-default-user",
+        action="store_true",
+        help="Skip creating a default webapp user from git config (user.email/user.name).",
     )
     args = ap.parse_args()
 
@@ -203,6 +210,10 @@ CREATE USER IF NOT EXISTS '{args.db_user}'@'localhost' IDENTIFIED BY '{args.db_p
 CREATE USER IF NOT EXISTS '{args.db_user}'@'127.0.0.1' IDENTIFIED BY '{args.db_pass}';
 GRANT ALL PRIVILEGES ON `{args.db_name}`.* TO '{args.db_user}'@'localhost';
 GRANT ALL PRIVILEGES ON `{args.db_name}`.* TO '{args.db_user}'@'127.0.0.1';
+CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'admin';
+CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'admin';
+GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 """
     subprocess.check_call(["sudo", "bash", "-lc", f"cat <<'SQL' | mysql -u root\n{sql}\nSQL\n"])
@@ -332,6 +343,63 @@ WantedBy=timers.target
     subprocess.check_call(["sudo", "systemctl", "enable", "--now", "nginx"])
     subprocess.check_call(["sudo", "nginx", "-t"])
     subprocess.check_call(["sudo", "systemctl", "restart", "nginx"])
+
+    def _git_cfg(key: str) -> str:
+        try:
+            return subprocess.check_output(
+                ["sudo", "-H", "-u", args.user, "bash", "-lc", f"git config --get {key}"],
+                text=True,
+            ).strip()
+        except Exception:
+            return ""
+
+    def _wait_for_port(host: str, port: int, timeout_s: float = 30.0) -> bool:
+        import socket
+
+        start = time.time()
+        while time.time() - start < timeout_s:
+            try:
+                s = socket.socket()
+                s.settimeout(0.5)
+                s.connect((host, int(port)))
+                s.close()
+                return True
+            except Exception:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+                time.sleep(0.25)
+        return False
+
+    if not args.no_default_user:
+        email = _git_cfg("user.email")
+        name = _git_cfg("user.name")
+        if email and name:
+            host = "127.0.0.1"
+            if not _wait_for_port(host, int(args.port), timeout_s=20.0):
+                print("[!] Skipping default user creation: webapp port not reachable yet.")
+            else:
+                token = str(cfg.get("import_token") or "").strip()
+                headers = {"Content-Type": "application/json"}
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+                    headers["X-HM-Import-Token"] = token
+                body = json.dumps({"email": email, "name": name, "password": "password"}).encode("utf-8")
+                url = f"http://{host}:{int(args.port)}/api/internal/ensure_user"
+                try:
+                    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+                    with urllib.request.urlopen(req, timeout=20) as resp:
+                        out = json.loads(resp.read().decode("utf-8"))
+                    if out.get("ok"):
+                        created = bool(out.get("created"))
+                        print(
+                            f"[ok] Default webapp user ensured: {email} (password='password'){'' if created else ' (already existed)'}"
+                        )
+                    else:
+                        print(f"[!] Default user creation failed: {out}")
+                except Exception as e:
+                    print(f"[!] Default user creation failed: {e}")
 
     print("Installed webapp:")
     if args.nginx_port == 80:

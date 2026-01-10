@@ -5214,3 +5214,31 @@ def api_internal_ensure_league_owner(request: HttpRequest) -> JsonResponse:
             m.LeagueMember.objects.filter(id=int(member.id)).update(role="owner")
 
     return JsonResponse({"ok": True, "league_id": int(league_id), "owner_user_id": int(owner_user_id)})
+
+
+@csrf_exempt
+def api_internal_ensure_user(request: HttpRequest) -> JsonResponse:
+    auth = _require_import_auth(request)
+    if auth:
+        return auth
+    payload = _json_body(request)
+    email = str(payload.get("email") or payload.get("user_email") or "").strip().lower()
+    name = str(payload.get("name") or payload.get("user_name") or email).strip() or email
+    password = str(payload.get("password") or "password")
+    if not email:
+        return JsonResponse({"ok": False, "error": "email is required"}, status=400)
+    _django_orm, m = _orm_modules()
+    existing = m.User.objects.filter(email=email).values_list("id", flat=True).first()
+    if existing is not None:
+        return JsonResponse({"ok": True, "user_id": int(existing), "created": False})
+    pwd_hash = generate_password_hash(password)
+    now = dt.datetime.now()
+    u = m.User.objects.create(
+        email=email,
+        password_hash=pwd_hash,
+        name=name,
+        created_at=now,
+        default_league_id=None,
+        video_clip_len_s=None,
+    )
+    return JsonResponse({"ok": True, "user_id": int(u.id), "created": True})

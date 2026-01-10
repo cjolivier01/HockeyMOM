@@ -10,6 +10,12 @@ DROP_DB_ONLY=0
 SPREADSHEETS_ONLY=0
 PARSE_ONLY=0
 T2S_SCRAPE=0
+NO_DEFAULT_USER=0
+
+GIT_USER_EMAIL="$(git config --get user.email 2>/dev/null || true)"
+GIT_USER_NAME="$(git config --get user.name 2>/dev/null || true)"
+OWNER_EMAIL="${OWNER_EMAIL:-${GIT_USER_EMAIL:-cjolivier01@gmail.com}}"
+OWNER_NAME="${OWNER_NAME:-${GIT_USER_NAME:-$OWNER_EMAIL}}"
 
 usage() {
   cat <<'EOF'
@@ -24,6 +30,7 @@ Options:
   --deploy-only     Only redeploy/restart the webapp and exit (no reset/import/upload)
   --drop-db         Drop (and recreate) the local webapp MariaDB database, then continue
   --drop-db-only    Drop (and recreate) the database, then exit (implies --drop-db)
+  --no-default-user Skip auto-creating a default webapp user from git config (user.email/user.name)
   --spreadsheets-only  Seed only from shift spreadsheets (skip TimeToScore import; avoids T2S usage in parse_stats_inputs)
   --parse-only      Only run scripts/parse_stats_inputs.py upload (skip reset + TimeToScore import); forces --webapp-replace
   --scrape          Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
@@ -35,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     --deploy-only) DEPLOY_ONLY=1; shift ;;
     --drop-db) DROP_DB=1; shift ;;
     --drop-db-only) DROP_DB=1; DROP_DB_ONLY=1; shift ;;
+    --no-default-user) NO_DEFAULT_USER=1; shift ;;
     --spreadsheets-only|--no-time2score|--no-t2s) SPREADSHEETS_ONLY=1; shift ;;
     --parse-only|--parse-stats-only|--spreadsheets-upload-only) PARSE_ONLY=1; shift ;;
     --scrape|--t2s-scrape) T2S_SCRAPE=1; shift ;;
@@ -103,6 +111,10 @@ print(f"CREATE USER IF NOT EXISTS '{user_s}'@'localhost' IDENTIFIED BY '{pass_s}
 print(f"CREATE USER IF NOT EXISTS '{user_s}'@'127.0.0.1' IDENTIFIED BY '{pass_s}';")
 print(f"GRANT ALL PRIVILEGES ON `{name_i}`.* TO '{user_s}'@'localhost';")
 print(f"GRANT ALL PRIVILEGES ON `{name_i}`.* TO '{user_s}'@'127.0.0.1';")
+print("CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'admin';")
+print("CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'admin';")
+print("GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;")
+print("GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;")
 print("FLUSH PRIVILEGES;")
 PY
 
@@ -135,6 +147,48 @@ echo "[i] Redeploying local webapp"
 echo "[i] Verifying webapp endpoint"
 curl -sS -o /dev/null -m 10 -f -I "${WEBAPP_URL}/teams" >/dev/null
 
+if [[ "${NO_DEFAULT_USER}" == "0" && -n "${GIT_USER_EMAIL}" && -n "${GIT_USER_NAME}" ]]; then
+  echo "[i] Ensuring default webapp user from git config: ${GIT_USER_EMAIL} (password='password')"
+  IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"
+  if [[ -z "${IMPORT_TOKEN}" ]]; then
+    IMPORT_TOKEN="$(python3 - <<'PY'
+import json
+from pathlib import Path
+
+cfg_path = Path("/opt/hm-webapp/app/config.json")
+try:
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+except Exception:
+    cfg = {}
+print(str(cfg.get("import_token") or "").strip())
+PY
+)"
+  fi
+  HDRS=( -H "Content-Type: application/json" )
+  if [[ -n "${IMPORT_TOKEN}" ]]; then
+    HDRS+=( -H "Authorization: Bearer ${IMPORT_TOKEN}" -H "X-HM-Import-Token: ${IMPORT_TOKEN}" )
+  fi
+  PAYLOAD="$(GIT_USER_EMAIL="${GIT_USER_EMAIL}" GIT_USER_NAME="${GIT_USER_NAME}" python3 - <<'PY'
+import json
+import os
+
+print(
+    json.dumps(
+        {
+            "email": os.environ.get("GIT_USER_EMAIL") or "",
+            "name": os.environ.get("GIT_USER_NAME") or "",
+            "password": "password",
+        }
+    )
+)
+PY
+)"
+  if ! curl -sS -f -X POST "${HDRS[@]}" --data "${PAYLOAD}" "${WEBAPP_URL}/api/internal/ensure_user" >/dev/null; then
+    echo "[!] Failed to ensure default webapp user via ${WEBAPP_URL}/api/internal/ensure_user" >&2
+    echo "    Hint: if WEBAPP_URL points at nginx (port 80), you may need an import token; try WEBAPP_URL=http://127.0.0.1:8008" >&2
+  fi
+fi
+
 if [[ "${DEPLOY_ONLY}" == "1" ]]; then
   echo "[i] --deploy-only: skipping reset/import/upload"
   exit 0
@@ -155,7 +209,7 @@ else
     if [[ "${T2S_SCRAPE}" == "1" ]]; then
       T2S_ARGS+=( "--scrape" )
     fi
-    python3 tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com
+    python3 tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email "${OWNER_EMAIL}"
   fi
 fi
 
@@ -187,5 +241,5 @@ python3 scripts/parse_stats_inputs.py \
   --webapp-url="${WEBAPP_URL}" \
   "${SPREADSHEET_ARGS[@]}" \
   ${WEB_ACCESS_KEY} \
-  --webapp-owner-email cjolivier01@gmail.com \
+  --webapp-owner-email "${OWNER_EMAIL}" \
   --webapp-league-name=Norcal
