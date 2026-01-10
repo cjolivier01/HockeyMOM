@@ -43,9 +43,9 @@ All endpoints in this section require the import-token rules above.
 Create or update a league and ensure an owner user exists.
 
 Body:
-- `league_name` (string, default `"Norcal"`)
-- `owner_email` (string, default `"norcal-import@hockeymom.local"`)
-- `owner_name` (string, default `"Norcal Import"`)
+- `league_name` (string, default `"CAHA"`)
+- `owner_email` (string, default `"caha-import@hockeymom.local"`)
+- `owner_name` (string, default `"CAHA Import"`)
 - `shared` (bool, optional)
 - `source` (string, optional)
 - `external_key` (string, optional)
@@ -193,4 +193,3 @@ Get page-view counts for a league (owner-only).
 Query params:
 - `kind` (string)
 - `entity_id` (int, optional)
-

@@ -4,7 +4,7 @@ from tools.webapp.scripts.delete_league import compute_purge_plan
 def should_delete_all_unshared_games_and_teams():
     plan = compute_purge_plan(
         league_id=1,
-        league_name="Norcal",
+        league_name="CAHA",
         league_game_ids=[1, 2, 3],
         shared_game_ids=[],
         league_team_ids=[10, 11],

@@ -4,7 +4,7 @@ set -euo pipefail
 WEBAPP_URL="${WEBAPP_URL:-http://127.0.0.1:8008}"
 WEB_ACCESS_KEY="${WEB_ACCESS_KEY:-}"
 SHIFT_FILE_LIST="${SHIFT_FILE_LIST:-}"
-LEAGUE_NAME="${LEAGUE_NAME:-Norcal}"
+LEAGUE_NAME="${LEAGUE_NAME:-CAHA}"
 DEPLOY_ONLY=0
 DROP_DB=0
 DROP_DB_ONLY=0
@@ -26,7 +26,7 @@ Environment:
   WEBAPP_URL        Webapp base URL (default: http://127.0.0.1:8008)
   WEB_ACCESS_KEY    Optional token args passed through to import scripts
   SHIFT_FILE_LIST   Shift spreadsheet file list (default: ~/RVideos/game_list_long.txt if present, else ~/Videos/game_list_long.txt)
-  LEAGUE_NAME       League name to import into (default: Norcal)
+  LEAGUE_NAME       League name to import into (default: CAHA)
 
 Options:
   --deploy-only     Only redeploy/restart the webapp and exit (no reset/import/upload)
@@ -134,8 +134,8 @@ PY
 #   export WEB_ACCESS_KEY="--import-token=...secret..."
 # (Local dev defaults typically do not require a token.)
 
-# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com
-# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com --division 6:0
+# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=CAHA --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com
+# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=CAHA --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com --division 6:0
 
 # PROJECT_ID="sage-courier-241217"
 # REDEPLOY_WEB="python3 tools/webapp/ops/redeploy_gcp.py --project ${PROJECT_ID} --zone us-central1-a --instance hm-webapp"
@@ -253,13 +253,24 @@ else
   if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
     echo "[i] --spreadsheets-only: skipping TimeToScore import"
   else
-    echo "[i] Importing TimeToScore (caha -> ${LEAGUE_NAME})"
-    # python3 tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
+    echo "[i] Importing TimeToScore (caha league=3/5/18 -> ${LEAGUE_NAME})"
+    # python3 tools/webapp/scripts/import_time2score.py --source=caha --league-name=CAHA --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
     T2S_ARGS=()
     if [[ "${T2S_SCRAPE}" == "1" ]]; then
       T2S_ARGS+=( "--scrape" )
     fi
-    ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name="${LEAGUE_NAME}" --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email "${OWNER_EMAIL}"
+    for T2S_LEAGUE_ID in 3 5 18; do
+      echo "[i]   - CAHA TimeToScore league=${T2S_LEAGUE_ID}"
+      ./p tools/webapp/scripts/import_time2score.py \
+        --source=caha \
+        --t2s-league-id "${T2S_LEAGUE_ID}" \
+        --league-name="${LEAGUE_NAME}" \
+        --season 0 \
+        --api-url "${WEBAPP_URL}" \
+        "${T2S_ARGS[@]}" \
+        ${WEB_ACCESS_KEY} \
+        --user-email "${OWNER_EMAIL}"
+    done
   fi
 fi
 
@@ -319,7 +330,7 @@ import json
 
 import os
 
-print(json.dumps({"league_name": os.environ.get("LEAGUE_NAME") or "Norcal"}))
+print(json.dumps({"league_name": os.environ.get("LEAGUE_NAME") or "CAHA"}))
 PY
 )"
 curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RATINGS_PAYLOAD}" "${WEBAPP_URL}/api/internal/recalc_div_ratings" >/dev/null

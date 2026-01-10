@@ -9,7 +9,7 @@ WEBAPP_URL="${WEBAPP_URL:-https://www.jrsharks2013.org}"
 HM_WEBAPP_IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"
 
 # League/user defaults.
-LEAGUE_NAME="${LEAGUE_NAME:-Norcal}"
+LEAGUE_NAME="${LEAGUE_NAME:-CAHA}"
 NO_DEFAULT_USER=0
 
 GIT_USER_EMAIL="$(git config --get user.email 2>/dev/null || true)"
@@ -51,7 +51,7 @@ Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--sp
 Environment:
   WEBAPP_URL              Webapp base URL (default: https://www.jrsharks2013.org)
   HM_WEBAPP_IMPORT_TOKEN  Import token (required for reset/import/upload; not needed for --deploy-only)
-  LEAGUE_NAME             League name (default: Norcal)
+  LEAGUE_NAME             League name (default: CAHA)
   OWNER_EMAIL             League owner email (default: git config user.email, else cjolivier01@gmail.com)
   OWNER_NAME              League owner display name (default: git config user.name, else OWNER_EMAIL)
   SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/RVideos/game_list_long.txt if present, else ~/Videos/game_list_long.txt)
@@ -269,19 +269,23 @@ echo "[i] Resetting league data (REST)"
 if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
   echo "[i] --spreadsheets-only: skipping TimeToScore import"
 else
-  echo "[i] Importing TimeToScore (caha -> ${LEAGUE_NAME}) via REST"
+  echo "[i] Importing TimeToScore (caha league=3/5/18 -> ${LEAGUE_NAME}) via REST"
   T2S_ARGS=()
   if [[ "${T2S_SCRAPE}" == "1" ]]; then
     T2S_ARGS+=( "--scrape" )
   fi
-  ./p tools/webapp/scripts/import_time2score.py \
-    --source=caha \
-    --league-name="${LEAGUE_NAME}" \
-    --season 0 \
-    --api-url "${WEBAPP_URL}" \
-    "${T2S_ARGS[@]}" \
-    "${TOKEN_ARGS[@]}" \
-    --user-email "${OWNER_EMAIL}"
+  for T2S_LEAGUE_ID in 3 5 18; do
+    echo "[i]   - CAHA TimeToScore league=${T2S_LEAGUE_ID}"
+    ./p tools/webapp/scripts/import_time2score.py \
+      --source=caha \
+      --t2s-league-id "${T2S_LEAGUE_ID}" \
+      --league-name="${LEAGUE_NAME}" \
+      --season 0 \
+      --api-url "${WEBAPP_URL}" \
+      "${T2S_ARGS[@]}" \
+      "${TOKEN_ARGS[@]}" \
+      --user-email "${OWNER_EMAIL}"
+  done
 fi
 
 echo "[i] Uploading shift spreadsheets via REST"
