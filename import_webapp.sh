@@ -126,11 +126,11 @@ PY
 #   export WEB_ACCESS_KEY="--import-token=...secret..."
 # (Local dev defaults typically do not require a token.)
 
-# ./p tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com
-# ./p tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com --division 6:0
+# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com
+# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com --division 6:0
 
 # PROJECT_ID="sage-courier-241217"
-# REDEPLOY_WEB="python3 tools/webapp/redeploy_gcp.py --project ${PROJECT_ID} --zone us-central1-a --instance hm-webapp"
+# REDEPLOY_WEB="python3 tools/webapp/ops/redeploy_gcp.py --project ${PROJECT_ID} --zone us-central1-a --instance hm-webapp"
 # $REDEPLOY_WEB
 
 if [[ "${DROP_DB}" == "1" ]]; then
@@ -142,7 +142,7 @@ if [[ "${DROP_DB}" == "1" ]]; then
 fi
 
 echo "[i] Redeploying local webapp"
-./tools/webapp/redeploy_local.sh
+./tools/webapp/ops/redeploy_local.sh
 
 echo "[i] Verifying webapp endpoint"
 curl -sS -o /dev/null -m 10 -f -I "${WEBAPP_URL}/teams" >/dev/null
@@ -198,18 +198,18 @@ if [[ "${PARSE_ONLY}" == "1" ]]; then
   echo "[i] --parse-only: skipping league reset and TimeToScore import"
 else
   echo "[i] Resetting league data"
-  python3 tools/webapp/reset_league_data.py --force
+  python3 tools/webapp/scripts/reset_league_data.py --force
 
   if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
     echo "[i] --spreadsheets-only: skipping TimeToScore import"
   else
     echo "[i] Importing TimeToScore (caha -> Norcal)"
-    # python3 tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
+    # python3 tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
     T2S_ARGS=()
     if [[ "${T2S_SCRAPE}" == "1" ]]; then
       T2S_ARGS+=( "--scrape" )
     fi
-    python3 tools/webapp/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email "${OWNER_EMAIL}"
+    python3 tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email "${OWNER_EMAIL}"
   fi
 fi
 
@@ -243,3 +243,31 @@ python3 scripts/parse_stats_inputs.py \
   ${WEB_ACCESS_KEY} \
   --webapp-owner-email "${OWNER_EMAIL}" \
   --webapp-league-name=Norcal
+
+echo "[i] Recalculating Ratings (REST)"
+IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"
+if [[ -z "${IMPORT_TOKEN}" ]]; then
+  IMPORT_TOKEN="$(python3 - <<'PY'
+import json
+from pathlib import Path
+
+cfg_path = Path("/opt/hm-webapp/app/config.json")
+try:
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+except Exception:
+    cfg = {}
+print(str(cfg.get("import_token") or "").strip())
+PY
+)"
+fi
+HDRS=( -H "Content-Type: application/json" )
+if [[ -n "${IMPORT_TOKEN}" ]]; then
+  HDRS+=( -H "Authorization: Bearer ${IMPORT_TOKEN}" -H "X-HM-Import-Token: ${IMPORT_TOKEN}" )
+fi
+RATINGS_PAYLOAD="$(python3 - <<'PY'
+import json
+
+print(json.dumps({"league_name": "Norcal"}))
+PY
+)"
+curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RATINGS_PAYLOAD}" "${WEBAPP_URL}/api/internal/recalc_div_ratings" >/dev/null

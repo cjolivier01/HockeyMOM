@@ -40,7 +40,7 @@ def _chunks(ids: list[int], n: int = 500) -> Iterable[list[int]]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    base_dir = Path(__file__).resolve().parent
+    base_dir = Path(__file__).resolve().parents[1]
     default_cfg = os.environ.get("HM_DB_CONFIG") or str(base_dir / "config.json")
     ap = argparse.ArgumentParser(description="Wipe an entire league from the local HockeyMOM webapp DB")
     ap.add_argument("--config", default=default_cfg, help="Path to webapp config.json (DB creds)")

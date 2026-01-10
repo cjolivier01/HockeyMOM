@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Delete a league and its associated hockey data directly from the server DB.
+"""Delete a league and its associated hockey data directly from the webapp DB.
 
 This operates on the *database* used by the deployed webapp (default: /opt/hm-webapp/app/config.json).
 It does not use the REST API.

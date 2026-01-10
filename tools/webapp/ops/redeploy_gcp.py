@@ -8,7 +8,7 @@ This does NOT recreate the VM or rerun the full installer. It:
   - ensures the MariaDB login user `admin/admin` exists (idempotent)
   - restarts `hm-webapp.service`
 
-If you changed Python dependencies or system packages, rerun `tools/webapp/deploy_gcp.py` instead.
+If you changed Python dependencies or system packages, rerun `tools/webapp/ops/deploy_gcp.py` instead.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def main() -> int:
             "sudo cp /tmp/hm/tools/webapp/wsgi.py /opt/hm-webapp/app/wsgi.py; "
             "sudo cp -r /tmp/hm/tools/webapp/django_app /opt/hm-webapp/app/; "
             "sudo cp /tmp/hm/tools/webapp/hockey_rankings.py /opt/hm-webapp/app/hockey_rankings.py; "
-            "sudo cp /tmp/hm/tools/webapp/recalc_div_ratings.py /opt/hm-webapp/app/recalc_div_ratings.py; "
+            "sudo cp /tmp/hm/tools/webapp/scripts/recalc_div_ratings.py /opt/hm-webapp/app/recalc_div_ratings.py; "
             "sudo cp -r /tmp/hm/tools/webapp/templates/. /opt/hm-webapp/app/templates/; "
             "sudo cp -r /tmp/hm/tools/webapp/static/. /opt/hm-webapp/app/static/; "
             "sudo chown -R colivier:colivier /opt/hm-webapp/app; "

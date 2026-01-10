@@ -104,7 +104,7 @@ def main():
     )
     args = ap.parse_args()
 
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     install_root = Path(args.install_root)
     app_dir = install_root / "app"
     templates_dir = app_dir / "templates"
@@ -142,7 +142,7 @@ def main():
     _do_copy(repo_root / "tools/webapp/wsgi.py", app_dir / "wsgi.py")
     _do_copy(repo_root / "tools/webapp/django_app", app_dir)
     _do_copy(repo_root / "tools/webapp/hockey_rankings.py", app_dir / "hockey_rankings.py")
-    _do_copy(repo_root / "tools/webapp/recalc_div_ratings.py", app_dir / "recalc_div_ratings.py")
+    _do_copy(repo_root / "tools/webapp/scripts/recalc_div_ratings.py", app_dir / "recalc_div_ratings.py")
     subprocess.check_call(["sudo", "mkdir", "-p", str(templates_dir)])
     for t in (repo_root / "tools/webapp/templates").glob("*.html"):
         _do_copy(t, templates_dir / t.name)

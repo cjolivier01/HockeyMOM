@@ -3168,7 +3168,7 @@ def create_app():
     @app.post("/api/internal/reset_league_data")
     def api_internal_reset_league_data():
         """
-        Hidden administrative endpoint used by tools/webapp/reset_league_data.py.
+        Hidden administrative endpoint used by tools/webapp/scripts/reset_league_data.py.
         Requires import auth (token or localhost rules). Not linked from the UI.
         """
         auth = _require_import_auth()
@@ -7104,7 +7104,7 @@ def reset_league_data(db_conn, league_id: int, *, owner_user_id: Optional[int] =
       - users
       - league record and memberships
 
-    This is used by `tools/webapp/reset_league_data.py` and the hidden REST endpoint.
+    This is used by `tools/webapp/scripts/reset_league_data.py` and the hidden REST endpoint.
     """
     stats: dict[str, int] = {
         "player_stats": 0,

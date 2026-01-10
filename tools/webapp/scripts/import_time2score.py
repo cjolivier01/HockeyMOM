@@ -1049,7 +1049,7 @@ def parse_starts_at(source: str, *, stats: dict[str, Any], fallback: Optional[di
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    base_dir = Path(__file__).resolve().parent
+    base_dir = Path(__file__).resolve().parents[1]
     default_cfg = os.environ.get("HM_DB_CONFIG") or str(base_dir / "config.json")
     ap = argparse.ArgumentParser(description="Import TimeToScore into HockeyMOM webapp DB (no sqlite cache)")
     ap.add_argument("--config", default=default_cfg, help="Path to webapp DB config.json")
@@ -1173,7 +1173,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         ts = dt.datetime.now().strftime("%H:%M:%S")
         print(f"[{ts}] {msg}", flush=True)
 
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 

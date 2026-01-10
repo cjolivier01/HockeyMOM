@@ -133,7 +133,7 @@ def main():
     ap.add_argument(
         "--config",
         default=os.environ.get("HM_DB_CONFIG")
-        or str((Path(__file__).resolve().parent / "config.json")),
+        or str((Path(__file__).resolve().parents[1] / "config.json")),
     )
     ap.add_argument("--email", default="demo@example.com")
     ap.add_argument("--name", default="Demo User")

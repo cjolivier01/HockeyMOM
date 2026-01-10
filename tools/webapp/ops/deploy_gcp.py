@@ -7,7 +7,7 @@ It creates:
   - A Compute Engine VM (default: e2-micro)
   - A firewall rule allowing inbound HTTP (tcp:80) to the VM via a network tag
 
-Then it copies `tools/webapp` to the VM and runs `tools/webapp/install_webapp.py` there, which installs:
+Then it copies `tools/webapp` to the VM and runs `tools/webapp/ops/install_webapp.py` there, which installs:
   - nginx + gunicorn + Django app
   - MariaDB (local) + schema/user
 
@@ -321,7 +321,7 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
     install_cmd = [
         "sudo",
         "python3",
-        "/tmp/hm/tools/webapp/install_webapp.py",
+        "/tmp/hm/tools/webapp/ops/install_webapp.py",
         "--watch-root",
         args.watch_root,
         "--server-name",
