@@ -206,8 +206,8 @@ rink:
     unsticky_translation_size_ratio: 0.75
 
     # Camera controller (trunk) defaults
-    controller: rule         # or 'transformer'
-    camera_model: null       # path to transformer checkpoint (.pt)
+    controller: rule         # or 'transformer' / 'gpt'
+    camera_model: null       # path to camera checkpoint (.pt)
     camera_window: 8
 
     #

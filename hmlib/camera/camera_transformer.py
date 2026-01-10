@@ -31,19 +31,25 @@ def build_frame_features(
 ) -> np.ndarray:
     """Build a simple aggregated feature vector for one frame.
 
+    This is the legacy feature builder used by the original transformer camera model:
+    base player statistics (8 dims) + previous camera state (3 dims).
+    """
+    base = build_frame_base_features(tlwh=tlwh, norm=norm)
+    prev_cx, prev_cy = (0.0, 0.0) if prev_cam_center is None else prev_cam_center
+    prev_h = 0.0 if prev_cam_h is None else prev_cam_h
+    prev = np.asarray([prev_cx, prev_cy, prev_h], dtype=np.float32)
+    return np.concatenate([base, prev], axis=0).astype(np.float32, copy=False)
+
+
+def build_frame_base_features(tlwh: np.ndarray, norm: CameraNorm) -> np.ndarray:
+    """Build aggregated per-frame features that *exclude* previous camera state.
+
     Features (all normalized):
       - num_players (0..1)
       - mean cx, mean cy
       - std cx, std cy
       - min cx, max cx
       - group width ratio (max x_right - min x_left) / scale_x
-      - prev cam cx, cy, prev cam h (if provided else zeros)
-
-    @param tlwh: Array of `[x, y, w, h]` boxes for all players in the frame.
-    @param norm: :class:`CameraNorm` with scaling factors and max player count.
-    @param prev_cam_center: Optional previous camera center `(cx, cy)`.
-    @param prev_cam_h: Optional previous camera height/zoom value.
-    @return: Feature vector as a 1D NumPy array.
     """
     if tlwh is None or len(tlwh) == 0:
         n = 0
@@ -74,8 +80,6 @@ def build_frame_features(
             (float(np.max(lefts + tlwh[:, 2])) - float(np.min(lefts))) / max(1e-6, norm.scale_x)
         )
         group_width_ratio = np.clip(group_width_ratio, 0.0, 1.0)
-    prev_cx, prev_cy = (0.0, 0.0) if prev_cam_center is None else prev_cam_center
-    prev_h = 0.0 if prev_cam_h is None else prev_cam_h
     feat = np.array(
         [
             num_players,
@@ -86,9 +90,6 @@ def build_frame_features(
             min_cx,
             max_cx,
             group_width_ratio,
-            prev_cx,
-            prev_cy,
-            prev_h,
         ],
         dtype=np.float32,
     )
