@@ -168,11 +168,17 @@ class HkyGame(models.Model):
     team2_score = models.IntegerField(null=True, blank=True)
     is_final = models.BooleanField(default=False)
     stats_imported_at = models.DateTimeField(null=True, blank=True)
+    timetoscore_game_id = models.BigIntegerField(null=True, blank=True)
+    external_game_key = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "hky_games"
+        constraints = [
+            models.UniqueConstraint(fields=["timetoscore_game_id"], name="uniq_hky_tts_id"),
+            models.UniqueConstraint(fields=["user", "external_game_key"], name="uniq_hky_user_ext_key"),
+        ]
 
 
 class PlayerStat(models.Model):

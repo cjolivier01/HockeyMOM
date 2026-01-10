@@ -1432,49 +1432,82 @@ def create_app():
 
         starts_dt = to_dt(starts_at) if starts_at else None
 
-        existing_row = None
+        tts_int: Optional[int]
+        try:
+            tts_int = (
+                int(notes_json_fields["timetoscore_game_id"])
+                if notes_json_fields.get("timetoscore_game_id") is not None
+                else None
+            )
+        except Exception:
+            tts_int = None
+        ext_key = str(notes_json_fields.get("external_game_key") or "").strip() or None
+
+        existing_by_tts = None
+        if tts_int is not None:
+            existing_by_tts = (
+                m.HkyGame.objects.filter(timetoscore_game_id=int(tts_int))
+                .values("id", "notes", "team1_score", "team2_score", "timetoscore_game_id", "external_game_key")
+                .first()
+            )
+            if existing_by_tts is None:
+                token_json_nospace = f"\"timetoscore_game_id\":{int(tts_int)}"
+                token_json_space = f"\"timetoscore_game_id\": {int(tts_int)}"
+                token_plain = f"game_id={int(tts_int)}"
+                existing_by_tts = (
+                    m.HkyGame.objects.filter(
+                        Q(notes__contains=token_json_nospace)
+                        | Q(notes__contains=token_json_space)
+                        | Q(notes__contains=token_plain)
+                    )
+                    .values("id", "notes", "team1_score", "team2_score", "timetoscore_game_id", "external_game_key")
+                    .first()
+                )
+
+        existing_by_ext = None
+        if ext_key:
+            existing_by_ext = (
+                m.HkyGame.objects.filter(user_id=int(owner_user_id), external_game_key=str(ext_key))
+                .values("id", "notes", "team1_score", "team2_score", "timetoscore_game_id", "external_game_key")
+                .first()
+            )
+            if existing_by_ext is None:
+                try:
+                    ext_json = json.dumps(str(ext_key))
+                except Exception:
+                    ext_json = f"\"{str(ext_key)}\""
+                token1 = f"\"external_game_key\":{ext_json}"
+                token2 = f"\"external_game_key\": {ext_json}"
+                existing_by_ext = (
+                    m.HkyGame.objects.filter(user_id=int(owner_user_id))
+                    .filter(Q(notes__contains=token1) | Q(notes__contains=token2))
+                    .values("id", "notes", "team1_score", "team2_score", "timetoscore_game_id", "external_game_key")
+                    .first()
+                )
+
+        if existing_by_tts and existing_by_ext and int(existing_by_tts["id"]) != int(existing_by_ext["id"]):
+            _django_orm.merge_hky_games(keep_id=int(existing_by_tts["id"]), drop_id=int(existing_by_ext["id"]))
+            existing_by_tts = (
+                m.HkyGame.objects.filter(id=int(existing_by_tts["id"]))
+                .values("id", "notes", "team1_score", "team2_score", "timetoscore_game_id", "external_game_key")
+                .first()
+            )
+            existing_by_ext = None
+
+        existing_by_time = None
         if starts_dt is not None:
-            existing_row = (
+            existing_by_time = (
                 m.HkyGame.objects.filter(
                     user_id=int(owner_user_id),
                     team1_id=int(team1_id),
                     team2_id=int(team2_id),
                     starts_at=starts_dt,
                 )
-                .values("id", "notes", "team1_score", "team2_score")
+                .values("id", "notes", "team1_score", "team2_score", "timetoscore_game_id", "external_game_key")
                 .first()
             )
 
-        if existing_row is None and notes_json_fields.get("timetoscore_game_id") is not None:
-            try:
-                tts_int = int(notes_json_fields["timetoscore_game_id"])
-            except Exception:
-                tts_int = None
-            if tts_int is not None:
-                token1 = f"\"timetoscore_game_id\":{tts_int}"
-                token2 = f"\"timetoscore_game_id\": {tts_int}"
-                existing_row = (
-                    m.HkyGame.objects.filter(user_id=int(owner_user_id))
-                    .filter(Q(notes__contains=token1) | Q(notes__contains=token2))
-                    .values("id", "notes", "team1_score", "team2_score")
-                    .first()
-                )
-
-        if existing_row is None and notes_json_fields.get("external_game_key"):
-            ext = str(notes_json_fields.get("external_game_key") or "").strip()
-            if ext:
-                try:
-                    ext_json = json.dumps(ext)
-                except Exception:
-                    ext_json = f"\"{ext}\""
-                token1 = f"\"external_game_key\":{ext_json}"
-                token2 = f"\"external_game_key\": {ext_json}"
-                existing_row = (
-                    m.HkyGame.objects.filter(user_id=int(owner_user_id))
-                    .filter(Q(notes__contains=token1) | Q(notes__contains=token2))
-                    .values("id", "notes", "team1_score", "team2_score")
-                    .first()
-                )
+        existing_row = existing_by_tts or existing_by_ext or existing_by_time
 
         now = dt.datetime.now()
         if existing_row is None:
@@ -1491,6 +1524,8 @@ def create_app():
                 is_final=bool(team1_score is not None and team2_score is not None),
                 notes=notes,
                 stats_imported_at=now,
+                timetoscore_game_id=tts_int,
+                external_game_key=ext_key,
                 created_at=now,
                 updated_at=None,
             )
@@ -1507,6 +1542,10 @@ def create_app():
             "stats_imported_at": now,
             "updated_at": now,
         }
+        if tts_int is not None and existing_row.get("timetoscore_game_id") is None:
+            updates["timetoscore_game_id"] = int(tts_int)
+        if ext_key and not existing_row.get("external_game_key"):
+            updates["external_game_key"] = str(ext_key)
         if game_type_id is not None:
             updates["game_type_id"] = int(game_type_id)
         if location is not None:
@@ -2533,17 +2572,20 @@ def create_app():
 
         _django_orm, m = _orm_modules()
 
-        if resolved_game_id is None and tts_game_id is not None:
-            try:
-                tts_int = int(tts_game_id)
-            except Exception:
-                tts_int = None
-            if tts_int is not None:
+        from django.db.models import Q
+
+        tts_int: Optional[int]
+        try:
+            tts_int = int(tts_game_id) if tts_game_id is not None else None
+        except Exception:
+            tts_int = None
+
+        if resolved_game_id is None and tts_int is not None:
+            gid = m.HkyGame.objects.filter(timetoscore_game_id=int(tts_int)).values_list("id", flat=True).first()
+            if gid is None:
                 token_json_nospace = f"\"timetoscore_game_id\":{int(tts_int)}"
                 token_json_space = f"\"timetoscore_game_id\": {int(tts_int)}"
                 token_plain = f"game_id={int(tts_int)}"
-                from django.db.models import Q
-
                 gid = (
                     m.HkyGame.objects.filter(
                         Q(notes__contains=token_json_nospace)
@@ -2553,8 +2595,8 @@ def create_app():
                     .values_list("id", flat=True)
                     .first()
                 )
-                if gid is not None:
-                    resolved_game_id = int(gid)
+            if gid is not None:
+                resolved_game_id = int(gid)
 
         # External game flow: allow creating / matching games not in TimeToScore.
         if resolved_game_id is None and external_game_key and owner_email:
@@ -2609,22 +2651,26 @@ def create_app():
                         return cand
                 return matches[0]
 
-            try:
-                ext_json = json.dumps(external_game_key)
-            except Exception:
-                ext_json = f"\"{external_game_key}\""
-            tokens = [
-                f"\"external_game_key\":{ext_json}",
-                f"\"external_game_key\": {ext_json}",
-            ]
-            from django.db.models import Q
-
             gid = (
-                m.HkyGame.objects.filter(user_id=int(owner_user_id_for_create))
-                .filter(Q(notes__contains=tokens[0]) | Q(notes__contains=tokens[1]))
+                m.HkyGame.objects.filter(user_id=int(owner_user_id_for_create), external_game_key=str(external_game_key))
                 .values_list("id", flat=True)
                 .first()
             )
+            if gid is None:
+                try:
+                    ext_json = json.dumps(external_game_key)
+                except Exception:
+                    ext_json = f"\"{external_game_key}\""
+                tokens = [
+                    f"\"external_game_key\":{ext_json}",
+                    f"\"external_game_key\": {ext_json}",
+                ]
+                gid = (
+                    m.HkyGame.objects.filter(user_id=int(owner_user_id_for_create))
+                    .filter(Q(notes__contains=tokens[0]) | Q(notes__contains=tokens[1]))
+                    .values_list("id", flat=True)
+                    .first()
+                )
             if gid is not None:
                 resolved_game_id = int(gid)
             else:
@@ -2722,6 +2768,9 @@ def create_app():
 
                 starts_at = str(payload.get("starts_at") or "").strip() or None
                 location = str(payload.get("location") or "").strip() or None
+                notes_fields: dict[str, Any] = {"external_game_key": external_game_key}
+                if tts_int is not None:
+                    notes_fields["timetoscore_game_id"] = int(tts_int)
                 resolved_game_id = _upsert_game_for_import(
                     owner_user_id=owner_user_id_for_create,
                     team1_id=team1_id,
@@ -2732,7 +2781,7 @@ def create_app():
                     team1_score=team1_score,
                     team2_score=team2_score,
                     replace=replace,
-                    notes_json_fields={"external_game_key": external_game_key},
+                    notes_json_fields=notes_fields,
                     commit=False,
                 )
                 if not match_home:
@@ -2772,17 +2821,46 @@ def create_app():
         # Load game + teams
         game_row = (
             m.HkyGame.objects.filter(id=int(resolved_game_id))
-            .values("id", "team1_id", "team2_id", "user_id", "notes")
+            .values("id", "team1_id", "team2_id", "user_id", "notes", "timetoscore_game_id", "external_game_key")
             .first()
         )
         if not game_row:
             return jsonify({"ok": False, "error": "game not found"}), 404
 
+        key_fields: dict[str, Any] = {}
+        if tts_int is not None:
+            key_fields["timetoscore_game_id"] = int(tts_int)
+        if external_game_key:
+            key_fields["external_game_key"] = str(external_game_key)
+        if key_fields:
+            resolved_game_id = _upsert_game_for_import(
+                owner_user_id=int(game_row.get("user_id") or 0),
+                team1_id=int(game_row["team1_id"]),
+                team2_id=int(game_row["team2_id"]),
+                game_type_id=None,
+                starts_at=None,
+                location=None,
+                team1_score=None,
+                team2_score=None,
+                replace=False,
+                notes_json_fields=key_fields,
+                commit=False,
+            )
+            game_row = (
+                m.HkyGame.objects.filter(id=int(resolved_game_id))
+                .values("id", "team1_id", "team2_id", "user_id", "notes", "timetoscore_game_id", "external_game_key")
+                .first()
+            )
+            if not game_row:
+                return jsonify({"ok": False, "error": "game not found after merge"}), 404
+
         team1_id = int(game_row["team1_id"])
         team2_id = int(game_row["team2_id"])
         owner_user_id = int(game_row.get("user_id") or 0)
         tts_linked = bool(
-            tts_game_id is not None or _extract_timetoscore_game_id_from_notes(game_row.get("notes")) is not None
+            tts_int is not None
+            or game_row.get("timetoscore_game_id") is not None
+            or _extract_timetoscore_game_id_from_notes(game_row.get("notes")) is not None
         )
 
         player_stats_csv = payload.get("player_stats_csv")

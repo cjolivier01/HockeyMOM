@@ -1025,6 +1025,48 @@ def should_create_external_game_via_shift_package_and_map_to_league(client_and_m
     assert m.Player.objects.filter(name="Charlie", jersey_number="13").exists()
 
 
+def should_merge_external_game_key_into_tts_game_when_both_keys_provided(client_and_models):
+    client, m = client_and_models
+    events_csv = "Period,Time,Team,Event Type\n1,12:00,Home,Shot\n"
+
+    r1 = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "external_game_key": "game-123",
+            "owner_email": "owner@example.com",
+            "league_id": 1,
+            "team_side": "home",
+            "home_team_name": "Team A",
+            "away_team_name": "Team B",
+            "events_csv": events_csv,
+            "replace": False,
+        },
+    )
+    assert r1.status_code == 200
+    out1 = json.loads(r1.content)
+    assert out1["ok"] is True
+    gid_ext = int(out1["game_id"])
+    assert gid_ext != 1001
+    assert m.HkyGame.objects.filter(id=gid_ext, external_game_key="game-123").exists()
+
+    r2 = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {"timetoscore_game_id": 123, "external_game_key": "game-123", "events_csv": events_csv, "replace": False},
+    )
+    assert r2.status_code == 200
+    out2 = json.loads(r2.content)
+    assert out2["ok"] is True
+    assert int(out2["game_id"]) == 1001
+    assert not m.HkyGame.objects.filter(id=gid_ext).exists()
+
+    g = m.HkyGame.objects.filter(id=1001).values("timetoscore_game_id", "external_game_key").first()
+    assert g is not None
+    assert int(g.get("timetoscore_game_id") or 0) == 123
+    assert str(g.get("external_game_key") or "") == "game-123"
+
+
 def should_render_private_game_page_as_league_owner_when_not_game_owner(client_and_models):
     client, m = client_and_models
     sess = client.session
