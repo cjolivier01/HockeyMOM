@@ -79,6 +79,30 @@ wait_for_tcp() {
   done
 }
 
+ensure_db_admin_user() {
+  local db_host="$1"
+  local db_port="$2"
+  if [[ "$db_host" != "127.0.0.1" && "$db_host" != "localhost" ]]; then
+    echo "[i] Skipping DB admin user provisioning (remote DB host=${db_host}:${db_port})"
+    return 0
+  fi
+  echo "[i] Ensuring MariaDB login user admin/admin exists (requires sudo)"
+  if ! sudo mysql -u root >/dev/null 2>&1; then
+    echo "[!] Cannot connect to MariaDB as root via sudo; skipping DB admin user provisioning" >&2
+    return 0
+  fi
+  if ! sudo mysql -u root >/dev/null <<'SQL'
+CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'admin';
+CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'admin';
+GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+SQL
+  then
+    echo "[!] Failed to provision DB admin user (admin/admin). Try: sudo mysql -u root" >&2
+  fi
+}
+
 curl_ok() {
   local url="$1"
   local code
@@ -222,6 +246,8 @@ fi
 if ! wait_for_tcp "$DB_HOST" "$DB_PORT" 20; then
   die "DB still not reachable on ${DB_HOST}:${DB_PORT}. Check: sudo journalctl -u mariadb -n 200 --no-pager"
 fi
+
+ensure_db_admin_user "$DB_HOST" "$DB_PORT"
 
 echo "[i] Starting hm-webapp and nginx"
 sudo systemctl restart hm-webapp
