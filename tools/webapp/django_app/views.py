@@ -1041,7 +1041,6 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             g2["_game_type_label"] = logic._game_type_label_for_row(g2)
         except Exception:
             g2["_game_type_label"] = "Unknown"
-
     # Tournament-only players: show them on game pages, but not on team/division-level roster/stats.
     try:
         tournament_game_ids: set[int] = {
@@ -1074,7 +1073,6 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
         ps_rows = [
             r0 for r0 in ps_rows if int(r0.get("player_id") or 0) not in tournament_only_player_ids
         ]
-
     game_type_options = logic._dedupe_preserve_str(
         [str(g2.get("_game_type_label") or "") for g2 in (schedule_games or [])]
     )
@@ -3012,7 +3010,6 @@ def public_league_team_detail(
             g2["_game_type_label"] = logic._game_type_label_for_row(g2)
         except Exception:
             g2["_game_type_label"] = "Unknown"
-
     # Tournament-only players: show them on game pages, but not on team/division-level roster/stats.
     try:
         tournament_game_ids: set[int] = {
@@ -3045,7 +3042,6 @@ def public_league_team_detail(
         ps_rows = [
             r0 for r0 in ps_rows if int(r0.get("player_id") or 0) not in tournament_only_player_ids
         ]
-
     game_type_options = logic._dedupe_preserve_str(
         [str(g2.get("_game_type_label") or "") for g2 in (schedule_games or [])]
     )
