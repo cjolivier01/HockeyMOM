@@ -170,7 +170,7 @@ Body (choose one):
 
 Optional tuning:
 - `max_goal_diff` (int, default `7`)
-- `min_games` (int, default `5`)
+- `min_games` (int, default `4`)
 
 Response:
 - `league_ids` (list of ints) on success

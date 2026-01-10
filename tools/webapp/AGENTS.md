@@ -24,10 +24,11 @@ This subtree contains the HockeyMOM webapp plus its admin/import scripts. The we
   - `tools/webapp/ops/deploy_gcp.py`, `tools/webapp/ops/redeploy_gcp.py`: GCP helpers.
 
 Related root-level helpers:
-- `./import_webapp.sh`: redeploy + reset + import + shift-spreadsheet upload.
+- `./import_webapp.sh`: redeploy + import + shift-spreadsheet upload (add `--rebuild` to reset league data first).
 - `./gcp_import_webapp.sh`: similar flow for GCP.
   - Both scripts will best-effort create a default webapp user from local `git config` (`user.email`/`user.name`)
     with password `password` unless `--no-default-user` is specified (uses internal REST endpoint; may require token).
+  - Both scripts support `--t2s-league` (import a subset of TimeToScore league ids) and `--rebuild` (reset league data first).
 
 ## Architecture: Django + Django ORM (no raw SQL)
 
@@ -86,7 +87,7 @@ SQLite is supported for tests/dev (`engine: sqlite3`, with `name` pointing at a 
 ## Local deploy + import workflow
 
 Recommended end-to-end local workflow:
-- `./import_webapp.sh` (redeploy, reset, import TimeToScore via REST, upload shift spreadsheets).
+- `./import_webapp.sh` (redeploy, import TimeToScore via REST, upload shift spreadsheets; add `--rebuild` to reset league data first).
 
 Quick “code-only” update:
 - `tools/webapp/ops/redeploy_local.sh` (copies code to `/opt/hm-webapp/app` and restarts `hm-webapp` + `nginx`).

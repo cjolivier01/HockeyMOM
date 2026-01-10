@@ -1076,7 +1076,7 @@ def create_app():
                 dn = str(t.get("division_name") or "").strip() or "Unknown Division"
                 grouped.setdefault(dn, []).append(t)
             divisions = []
-            for dn in sorted(grouped.keys(), key=lambda s: s.lower()):
+            for dn in sorted(grouped.keys(), key=division_sort_key):
                 teams_sorted = sorted(
                     grouped[dn], key=lambda tr: sort_key_team_standings(tr, stats.get(tr["id"], {}))
                 )
@@ -1707,12 +1707,19 @@ def create_app():
             return
 
         updates: dict[str, Any] = {}
-        if dn and dn.strip() and dn.strip().lower() != "external":
+        allow_div_update = True
+        if dn and is_external_division_name(dn):
+            existing_dn = str(getattr(obj, "division_name", "") or "").strip()
+            if existing_dn and not is_external_division_name(existing_dn):
+                allow_div_update = False
+
+        if dn and dn.strip() and dn.strip().lower() != "external" and allow_div_update:
             updates["division_name"] = dn
-        if division_id is not None:
-            updates["division_id"] = division_id
-        if conference_id is not None:
-            updates["conference_id"] = conference_id
+        if allow_div_update:
+            if division_id is not None:
+                updates["division_id"] = division_id
+            if conference_id is not None:
+                updates["conference_id"] = conference_id
         if updates:
             m.LeagueTeam.objects.filter(id=int(obj.id)).update(**updates)
 
@@ -1742,12 +1749,19 @@ def create_app():
             return
 
         updates: dict[str, Any] = {}
-        if dn and dn.strip() and dn.strip().lower() != "external":
+        allow_div_update = True
+        if dn and is_external_division_name(dn):
+            existing_dn = str(getattr(obj, "division_name", "") or "").strip()
+            if existing_dn and not is_external_division_name(existing_dn):
+                allow_div_update = False
+
+        if dn and dn.strip() and dn.strip().lower() != "external" and allow_div_update:
             updates["division_name"] = dn
-        if division_id is not None:
-            updates["division_id"] = division_id
-        if conference_id is not None:
-            updates["conference_id"] = conference_id
+        if allow_div_update:
+            if division_id is not None:
+                updates["division_id"] = division_id
+            if conference_id is not None:
+                updates["conference_id"] = conference_id
         if sort_order is not None:
             updates["sort_order"] = sort_order
         if updates:
@@ -3963,7 +3977,7 @@ def create_app():
             dn = str(t.get("division_name") or "").strip() or "Unknown Division"
             grouped.setdefault(dn, []).append(t)
         divisions = []
-        for dn in sorted(grouped.keys(), key=lambda s: s.lower()):
+        for dn in sorted(grouped.keys(), key=division_sort_key):
             teams_sorted = sorted(
                 grouped[dn], key=lambda tr: sort_key_team_standings(tr, stats.get(tr["id"], {}))
             )
@@ -6733,6 +6747,38 @@ def is_external_division_name(name: Any) -> bool:
     return str(name or "").strip().casefold().startswith("external")
 
 
+def division_sort_key(division_name: Any) -> tuple:
+    """
+    Sort key for league division names.
+
+    Primary ordering:
+      - age (10U/12AA/etc) ascending
+      - level ordering: AAA, AA, A, BB, B, (everything else)
+      - non-External before External (within the same age/level)
+      - then lexicographic as a stable tie-breaker
+    """
+    raw = str(division_name or "").strip()
+    if not raw:
+        return (999, 99, 1, "", "")
+
+    external = is_external_division_name(raw)
+    base = raw
+    if external:
+        base = re.sub(r"(?i)^external\s*", "", base).strip()
+
+    age = parse_age_from_division_name(base)
+    age_key = int(age) if age is not None else 999
+
+    m = re.search(
+        r"(?i)(?:^|\b)\d{1,2}(?:u)?\s*(AAA|AA|BB|A|B)(?=\b|\s|$|[-–—])",
+        base,
+    )
+    level_token = str(m.group(1)).upper() if m else ""
+    level_rank = {"AAA": 0, "AA": 1, "A": 2, "BB": 3, "B": 4}.get(level_token, 99)
+
+    return (age_key, int(level_rank), 1 if external else 0, base.casefold(), raw.casefold())
+
+
 def _league_game_is_cross_division_non_external_row(
     game_division_name: Optional[str],
     team1_division_name: Optional[str],
@@ -6751,7 +6797,7 @@ def _league_game_is_cross_division_non_external_row(
 
 
 def recompute_league_mhr_ratings(
-    db_conn, league_id: int, *, max_goal_diff: int = 7, min_games: int = 5
+    db_conn, league_id: int, *, max_goal_diff: int = 7, min_games: int = 4
 ) -> dict[int, dict[str, Any]]:
     """
     Recompute and persist MyHockeyRankings-like ratings for teams in a league.
