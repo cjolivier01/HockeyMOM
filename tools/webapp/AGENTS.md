@@ -5,20 +5,20 @@ This subtree contains the HockeyMOM webapp plus its admin/import scripts. The we
 
 ## High-level layout
 
-- `tools/webapp/app.py`: Flask app + routes, plus shared hockey/league helper logic.
+- `tools/webapp/app.py`: Shared hockey/league webapp logic (Django runtime + legacy Flask factory for tests).
 - `tools/webapp/wsgi.py`, `tools/webapp/urls.py`, `tools/webapp/django_app/views.py`: Django entrypoint, URL routing, and views.
 - `tools/webapp/templates/`, `tools/webapp/static/`: UI templates/assets.
 - `tools/webapp/django_settings.py`: Minimal Django settings module (DB config + installed apps).
 - `tools/webapp/django_orm.py`: Django setup + schema/bootstrap helpers (no migrations).
 - `tools/webapp/django_app/`: Django app containing `models.py` mapping the existing DB schema.
 - Admin/import utilities:
-  - `tools/webapp/import_time2score.py`: TimeToScore scraper/importer (direct DB or REST).
-  - `tools/webapp/reset_league_data.py`, `tools/webapp/wipe_league.py`, `tools/webapp/delete_league.py`,
-    `tools/webapp/dedupe_league_teams.py`, `tools/webapp/recalc_div_ratings.py`, etc.
+  - `tools/webapp/scripts/import_time2score.py`: TimeToScore scraper/importer (direct DB or REST).
+  - `tools/webapp/scripts/reset_league_data.py`, `tools/webapp/scripts/wipe_league.py`, `tools/webapp/scripts/delete_league.py`,
+    `tools/webapp/scripts/dedupe_league_teams.py`, `tools/webapp/scripts/recalc_div_ratings.py`, etc.
 - Deployment helpers:
-  - `tools/webapp/install_webapp.py`: system install (creates `/opt/hm-webapp/app` + venv + systemd + nginx).
-  - `tools/webapp/redeploy_local.sh`: copy code to `/opt/hm-webapp/app` + restart services.
-  - `tools/webapp/deploy_gcp.py`, `tools/webapp/redeploy_gcp.py`: GCP helpers.
+  - `tools/webapp/ops/install_webapp.py`: system install (creates `/opt/hm-webapp/app` + venv + systemd + nginx).
+  - `tools/webapp/ops/redeploy_local.sh`: copy code to `/opt/hm-webapp/app` + restart services.
+  - `tools/webapp/ops/deploy_gcp.py`, `tools/webapp/ops/redeploy_gcp.py`: GCP helpers.
 
 Related root-level helpers:
 - `./import_webapp.sh`: redeploy + reset + import + shift-spreadsheet upload.
@@ -86,10 +86,10 @@ Recommended end-to-end local workflow:
 - `./import_webapp.sh` (redeploy, reset, import TimeToScore via REST, upload shift spreadsheets).
 
 Quick “code-only” update:
-- `tools/webapp/redeploy_local.sh` (copies code to `/opt/hm-webapp/app` and restarts `hm-webapp` + `nginx`).
+- `tools/webapp/ops/redeploy_local.sh` (copies code to `/opt/hm-webapp/app` and restarts `hm-webapp` + `nginx`).
 
 Smoke UI validation (nginx front by default):
-- `bash tools/webapp/smoke_ui.sh` (registers a user, creates a team/player/game, imports a tiny CSV, verifies record).
+- `bash tools/webapp/ops/smoke_ui.sh` (registers a user, creates a team/player/game, imports a tiny CSV, verifies record).
 
 ## Testing
 

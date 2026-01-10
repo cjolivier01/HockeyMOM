@@ -20,7 +20,7 @@ Prereqs:
 Install and start:
 
 ```
-sudo python3 tools/webapp/install_webapp.py \
+sudo python3 tools/webapp/ops/install_webapp.py \
   --watch-root /data/incoming \
   --server-name _ \
   --port 8008
@@ -47,13 +47,13 @@ This repo includes a helper that deploys the webapp + local MariaDB to a tiny Co
 2) Deploy:
 
 ```
-python3 tools/webapp/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a
+python3 tools/webapp/ops/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a
 ```
 
 3) Delete everything created by the script:
 
 ```
-python3 tools/webapp/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --delete
+python3 tools/webapp/ops/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --delete
 ```
 
 Redeploy (code-only)
@@ -61,14 +61,14 @@ Redeploy (code-only)
 If you only changed `tools/webapp/app.py` / templates / static assets, you can do a fast redeploy that just copies files to the VM and restarts the service:
 
 ```
-python3 tools/webapp/redeploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --instance hm-webapp
+python3 tools/webapp/ops/redeploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --instance hm-webapp
 ```
 
 Uninstall
 ---------
 
 ```
-sudo python3 tools/webapp/uninstall_webapp.py
+sudo python3 tools/webapp/ops/uninstall_webapp.py
 ```
 
 Usage
@@ -91,7 +91,7 @@ Demo Data
 To quickly demo the Teams/Schedule features, seed sample data into your configured DB:
 
 ```
-python3 tools/webapp/seed_demo.py --config /opt/hm-webapp/app/config.json \
+python3 tools/webapp/scripts/seed_demo.py --config /opt/hm-webapp/app/config.json \
   --email demo@example.com --name "Demo User"
 ```
 
@@ -108,7 +108,7 @@ Use the import script to populate teams and games from the CAHA TimeToScore site
 Example usage:
 
 ```
-python3 tools/webapp/import_time2score.py \
+python3 tools/webapp/scripts/import_time2score.py \
   --config /opt/hm-webapp/app/config.json \
   --source caha \
   --season 0 \
@@ -139,7 +139,7 @@ Import "Norcal"
 To import CAHA/TimeToScore into a league named `Norcal`, use `import_time2score.py` with league flags:
 
 ```
-python3 tools/webapp/import_time2score.py \
+python3 tools/webapp/scripts/import_time2score.py \
   --config /opt/hm-webapp/app/config.json \
   --source caha \
   --season 0 \
@@ -158,13 +158,13 @@ Examples:
 
 ```
 # Wipe everything (prompts for confirmation)
-python3 tools/webapp/reset_league_data.py --config /opt/hm-webapp/app/config.json
+python3 tools/webapp/scripts/reset_league_data.py --config /opt/hm-webapp/app/config.json
 
 # Wipe only a specific league by name
-python3 tools/webapp/reset_league_data.py --config /opt/hm-webapp/app/config.json --league-name CAHA-Current-12U
+python3 tools/webapp/scripts/reset_league_data.py --config /opt/hm-webapp/app/config.json --league-name CAHA-Current-12U
 
 # Non-interactive
-python3 tools/webapp/reset_league_data.py --config /opt/hm-webapp/app/config.json --force
+python3 tools/webapp/scripts/reset_league_data.py --config /opt/hm-webapp/app/config.json --force
 ```
 
 What it does:

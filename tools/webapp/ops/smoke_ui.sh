@@ -9,7 +9,7 @@ set -euo pipefail
 # - Sets a final score and verifies team record updates
 #
 # Usage:
-#   tools/webapp/smoke_ui.sh [BASE_URL]
+#   tools/webapp/ops/smoke_ui.sh [BASE_URL]
 #
 #  BASE_URL defaults to http://127.0.0.1 (nginx front).
 

@@ -5,7 +5,7 @@ TimeToScore sometimes emits team names with invisible differences (NBSP vs space
 unicode hyphen variants, etc). HTML renders those the same, so they look like
 duplicates in the league UI. This tool merges such duplicates in-place.
 
-This operates directly on the server DB (no REST API).
+This operates directly on the webapp DB (no REST API).
 """
 
 from __future__ import annotations

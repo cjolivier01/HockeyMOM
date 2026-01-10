@@ -16,7 +16,7 @@ def _load_webapp_module():
 
 
 def _load_importer_module():
-    spec = importlib.util.spec_from_file_location("import_time2score_mod", "tools/webapp/import_time2score.py")
+    spec = importlib.util.spec_from_file_location("import_time2score_mod", "tools/webapp/scripts/import_time2score.py")
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(mod)  # type: ignore
@@ -188,4 +188,3 @@ def should_import_time2score_direct_and_rest_end_in_equivalent_state(monkeypatch
     snap_direct = _snapshot_state(m)
 
     assert snap_direct == snap_rest
-

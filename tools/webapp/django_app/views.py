@@ -5242,3 +5242,47 @@ def api_internal_ensure_user(request: HttpRequest) -> JsonResponse:
         video_clip_len_s=None,
     )
     return JsonResponse({"ok": True, "user_id": int(u.id), "created": True})
+
+
+@csrf_exempt
+def api_internal_recalc_div_ratings(request: HttpRequest) -> JsonResponse:
+    auth = _require_import_auth(request)
+    if auth:
+        return auth
+    payload = _json_body(request)
+    league_id_raw = payload.get("league_id") or payload.get("lid") or request.GET.get("league_id")
+    league_name = str(payload.get("league_name") or payload.get("name") or request.GET.get("league_name") or "").strip()
+    max_goal_diff_raw = payload.get("max_goal_diff") or payload.get("maxGoalDiff") or None
+    min_games_raw = payload.get("min_games") or payload.get("minGames") or None
+
+    max_goal_diff = int(max_goal_diff_raw) if max_goal_diff_raw is not None else 7
+    min_games = int(min_games_raw) if min_games_raw is not None else 5
+
+    _django_orm, m = _orm_modules()
+
+    league_ids: list[int]
+    if league_id_raw:
+        try:
+            league_ids = [int(league_id_raw)]
+        except Exception:
+            return JsonResponse({"ok": False, "error": "invalid league_id"}, status=400)
+    elif league_name:
+        row = m.League.objects.filter(name=league_name).values("id").first()
+        if not row:
+            return JsonResponse({"ok": False, "error": "league_not_found"}, status=404)
+        league_ids = [int(row["id"])]
+    else:
+        league_ids = list(m.League.objects.order_by("id").values_list("id", flat=True))
+
+    ok_ids: list[int] = []
+    failed: list[dict[str, Any]] = []
+    for lid in league_ids:
+        try:
+            logic.recompute_league_mhr_ratings(None, int(lid), max_goal_diff=max_goal_diff, min_games=min_games)
+            ok_ids.append(int(lid))
+        except Exception as e:  # noqa: BLE001
+            failed.append({"league_id": int(lid), "error": str(e)})
+
+    if failed:
+        return JsonResponse({"ok": False, "league_ids_ok": ok_ids, "failed": failed}, status=500)
+    return JsonResponse({"ok": True, "league_ids": ok_ids})

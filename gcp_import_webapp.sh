@@ -192,7 +192,7 @@ if [[ "${DROP_DB}" == "1" ]]; then
 fi
 
 echo "[i] Redeploying GCP webapp (code-only)"
-python3 tools/webapp/redeploy_gcp.py --project "${PROJECT_ID}" --zone "${ZONE}" --instance "${INSTANCE}"
+python3 tools/webapp/ops/redeploy_gcp.py --project "${PROJECT_ID}" --zone "${ZONE}" --instance "${INSTANCE}"
 
 echo "[i] Verifying webapp endpoint"
 curl -sS -o /dev/null -m 15 -f -I "${WEBAPP_URL}/" >/dev/null
@@ -259,7 +259,7 @@ curl -sS -m 30 -f \
   -d "${LEAGUE_OWNER_PAYLOAD}" >/dev/null
 
 echo "[i] Resetting league data (REST)"
-./p tools/webapp/reset_league_data.py \
+./p tools/webapp/scripts/reset_league_data.py \
   --force \
   --webapp-url "${WEBAPP_URL}" \
   "${RESET_TOKEN_ARGS[@]}" \
@@ -274,7 +274,7 @@ else
   if [[ "${T2S_SCRAPE}" == "1" ]]; then
     T2S_ARGS+=( "--scrape" )
   fi
-  ./p tools/webapp/import_time2score.py \
+  ./p tools/webapp/scripts/import_time2score.py \
     --source=caha \
     --league-name="${LEAGUE_NAME}" \
     --season 0 \
@@ -303,3 +303,18 @@ fi
   "${TOKEN_ARGS[@]}" \
   --webapp-owner-email "${OWNER_EMAIL}" \
   --webapp-league-name "${LEAGUE_NAME}"
+
+echo "[i] Recalculating Ratings (REST)"
+RATINGS_PAYLOAD="$(
+  LEAGUE_NAME="${LEAGUE_NAME}" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({"league_name": os.environ["LEAGUE_NAME"]}))
+PY
+)"
+HDRS=( -H "Content-Type: application/json" )
+if [[ -n "${HM_WEBAPP_IMPORT_TOKEN:-}" ]]; then
+  HDRS+=( -H "Authorization: Bearer ${HM_WEBAPP_IMPORT_TOKEN}" -H "X-HM-Import-Token: ${HM_WEBAPP_IMPORT_TOKEN}" )
+fi
+curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RATINGS_PAYLOAD}" "${WEBAPP_URL}/api/internal/recalc_div_ratings" >/dev/null

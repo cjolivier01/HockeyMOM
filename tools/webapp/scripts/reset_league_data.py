@@ -60,9 +60,7 @@ def wipe_league(m, league_id: int) -> dict:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    ap = argparse.ArgumentParser(
-        description="Reset hockey data (teams/players/games/stats) without touching users or permissions"
-    )
+    ap = argparse.ArgumentParser(description="Reset imported hockey data without touching users or permissions")
     ap.add_argument("--config", default="/opt/hm-webapp/app/config.json")
     ap.add_argument("--force", action="store_true", help="Do not prompt for confirmation")
     ap.add_argument("--yes", "-y", action="store_true", help="Alias for --force")

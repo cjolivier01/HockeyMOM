@@ -34,7 +34,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = ap.parse_args(argv)
 
     # Import from deployed app module (this is intentionally coupled to the webapp code).
-    import app as webapp_app  # type: ignore
+    try:
+        from tools.webapp import app as webapp_app  # type: ignore
+    except Exception:  # pragma: no cover
+        import app as webapp_app  # type: ignore
 
     _django_orm, m = _orm_modules(config_path=str(args.config))
 

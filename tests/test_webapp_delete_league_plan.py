@@ -1,4 +1,4 @@
-from tools.webapp.delete_league import compute_purge_plan
+from tools.webapp.scripts.delete_league import compute_purge_plan
 
 
 def should_delete_all_unshared_games_and_teams():
@@ -39,4 +39,3 @@ def should_preserve_teams_shared_or_still_referenced():
         team_ref_counts_after_game_delete={10: 0, 11: 0, 12: 2},
     )
     assert plan.delete_team_ids == [10]
-

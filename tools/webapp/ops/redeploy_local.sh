@@ -8,8 +8,8 @@ set -euo pipefail
 # - Optionally runs the smoke UI script when RUN_SMOKE=1
 #
 # Usage:
-#   tools/webapp/redeploy_local.sh
-#   RUN_SMOKE=1 tools/webapp/redeploy_local.sh
+#   tools/webapp/ops/redeploy_local.sh
+#   RUN_SMOKE=1 tools/webapp/ops/redeploy_local.sh
 
 APP_DIR="/opt/hm-webapp/app"
 SMOKE="${RUN_SMOKE:-0}"
@@ -141,7 +141,7 @@ fi
 
 echo "[i] Validating sudo access"
 if ! sudo -n true 2>/dev/null; then
-  die "sudo requires a password/tty. Run: sudo -v  (in a terminal), then re-run: tools/webapp/redeploy_local.sh"
+  die "sudo requires a password/tty. Run: sudo -v  (in a terminal), then re-run: tools/webapp/ops/redeploy_local.sh"
 fi
 
 echo "[i] Copying app.py, templates, and static to $APP_DIR (sudo required)"
@@ -151,7 +151,7 @@ sudo install -m 0644 -D tools/webapp/django_settings.py "$APP_DIR/django_setting
 sudo install -m 0644 -D tools/webapp/urls.py "$APP_DIR/urls.py"
 sudo install -m 0644 -D tools/webapp/wsgi.py "$APP_DIR/wsgi.py"
 sudo install -m 0644 -D tools/webapp/hockey_rankings.py "$APP_DIR/hockey_rankings.py"
-sudo install -m 0755 -D tools/webapp/recalc_div_ratings.py "$APP_DIR/recalc_div_ratings.py"
+sudo install -m 0755 -D tools/webapp/scripts/recalc_div_ratings.py "$APP_DIR/recalc_div_ratings.py"
 sudo mkdir -p "$APP_DIR/templates" "$APP_DIR/static"
 sudo rsync -a tools/webapp/templates/ "$APP_DIR/templates/"
 sudo rsync -a tools/webapp/static/ "$APP_DIR/static/"
@@ -160,7 +160,7 @@ sudo rsync -a tools/webapp/django_app/ "$APP_DIR/django_app/"
 
 CONFIG_JSON="$APP_DIR/config.json"
 if [ ! -f "$CONFIG_JSON" ]; then
-  die "Missing $CONFIG_JSON; re-run installer (tools/webapp/install_webapp.py)."
+  die "Missing $CONFIG_JSON; re-run installer (tools/webapp/ops/install_webapp.py)."
 fi
 
 echo "[i] Ensuring Django is installed in the webapp venv"
@@ -309,7 +309,7 @@ fi
 
 if [ "$SMOKE" = "1" ]; then
   echo "[i] Running smoke UI script"
-  bash tools/webapp/smoke_ui.sh
+  bash tools/webapp/ops/smoke_ui.sh
 fi
 
 echo "[ok] Redeploy complete"
