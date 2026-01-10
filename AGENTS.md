@@ -32,7 +32,8 @@
 - Watch root ownership: installer chowns the watch directory to the app user so uploads work.
 
 ## Coding Style & Naming Conventions
-- Python: Black (line length 120) and isort; run `./format.sh` before committing.
+- Python: Black (see `pyproject.toml`) and isort; run `./format.sh` before committing.
+- Before finalizing changes, run `python -m black` and `ruff check` on any modified/new Python files and fix issues until clean.
 - Typing: mypy is configured; prefer typed public APIs in `hmlib/`.
 - Naming: modules and functions `snake_case`; classes `PascalCase`; constants `UPPER_SNAKE`.
 - C/C++: follow `.clang-format`; standard set to C++17 in CMake.

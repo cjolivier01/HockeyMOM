@@ -4,6 +4,7 @@ set -euo pipefail
 WEBAPP_URL="${WEBAPP_URL:-http://127.0.0.1:8008}"
 WEB_ACCESS_KEY="${WEB_ACCESS_KEY:-}"
 SHIFT_FILE_LIST="${SHIFT_FILE_LIST:-}"
+LEAGUE_NAME="${LEAGUE_NAME:-Norcal}"
 DEPLOY_ONLY=0
 DROP_DB=0
 DROP_DB_ONLY=0
@@ -25,6 +26,7 @@ Environment:
   WEBAPP_URL        Webapp base URL (default: http://127.0.0.1:8008)
   WEB_ACCESS_KEY    Optional token args passed through to import scripts
   SHIFT_FILE_LIST   Shift spreadsheet file list (default: ~/RVideos/game_list_long.txt if present, else ~/Videos/game_list_long.txt)
+  LEAGUE_NAME       League name to import into (default: Norcal)
 
 Options:
   --deploy-only     Only redeploy/restart the webapp and exit (no reset/import/upload)
@@ -200,6 +202,48 @@ if [[ "${DEPLOY_ONLY}" == "1" ]]; then
   exit 0
 fi
 
+echo "[i] Ensuring league '${LEAGUE_NAME}' is shared and owned by ${OWNER_EMAIL}"
+IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"
+if [[ -z "${IMPORT_TOKEN}" ]]; then
+  IMPORT_TOKEN="$(python3 - <<'PY'
+import json
+from pathlib import Path
+
+cfg_path = Path("/opt/hm-webapp/app/config.json")
+try:
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+except Exception:
+    cfg = {}
+print(str(cfg.get("import_token") or "").strip())
+PY
+)"
+fi
+HDRS=( -H "Content-Type: application/json" )
+if [[ -n "${IMPORT_TOKEN}" ]]; then
+  HDRS+=( -H "Authorization: Bearer ${IMPORT_TOKEN}" -H "X-HM-Import-Token: ${IMPORT_TOKEN}" )
+fi
+LEAGUE_OWNER_PAYLOAD="$(
+  LEAGUE_NAME="${LEAGUE_NAME}" OWNER_EMAIL="${OWNER_EMAIL}" OWNER_NAME="${OWNER_NAME}" python3 - <<'PY'
+import json
+import os
+
+print(
+    json.dumps(
+        {
+            "league_name": os.environ.get("LEAGUE_NAME") or "",
+            "owner_email": os.environ.get("OWNER_EMAIL") or "",
+            "owner_name": os.environ.get("OWNER_NAME") or "",
+            "shared": True,
+        }
+    )
+)
+PY
+)"
+if ! curl -sS -m 30 -f -X POST "${HDRS[@]}" --data "${LEAGUE_OWNER_PAYLOAD}" "${WEBAPP_URL}/api/internal/ensure_league_owner" >/dev/null; then
+  echo "[!] Failed to ensure league ownership via ${WEBAPP_URL}/api/internal/ensure_league_owner" >&2
+  echo "    Hint: if WEBAPP_URL points at nginx (port 80), you may need an import token; try WEBAPP_URL=http://127.0.0.1:8008" >&2
+fi
+
 if [[ "${PARSE_ONLY}" == "1" ]]; then
   echo "[i] --parse-only: skipping league reset and TimeToScore import"
 else
@@ -209,13 +253,13 @@ else
   if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
     echo "[i] --spreadsheets-only: skipping TimeToScore import"
   else
-    echo "[i] Importing TimeToScore (caha -> Norcal)"
+    echo "[i] Importing TimeToScore (caha -> ${LEAGUE_NAME})"
     # python3 tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
     T2S_ARGS=()
     if [[ "${T2S_SCRAPE}" == "1" ]]; then
       T2S_ARGS+=( "--scrape" )
     fi
-    ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email "${OWNER_EMAIL}"
+    ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name="${LEAGUE_NAME}" --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email "${OWNER_EMAIL}"
   fi
 fi
 
@@ -248,7 +292,7 @@ fi
   "${SPREADSHEET_ARGS[@]}" \
   ${WEB_ACCESS_KEY} \
   --webapp-owner-email "${OWNER_EMAIL}" \
-  --webapp-league-name=Norcal
+  --webapp-league-name="${LEAGUE_NAME}"
 
 echo "[i] Recalculating Ratings (REST)"
 IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"
@@ -270,10 +314,12 @@ HDRS=( -H "Content-Type: application/json" )
 if [[ -n "${IMPORT_TOKEN}" ]]; then
   HDRS+=( -H "Authorization: Bearer ${IMPORT_TOKEN}" -H "X-HM-Import-Token: ${IMPORT_TOKEN}" )
 fi
-RATINGS_PAYLOAD="$(python3 - <<'PY'
+RATINGS_PAYLOAD="$(LEAGUE_NAME="${LEAGUE_NAME}" python3 - <<'PY'
 import json
 
-print(json.dumps({"league_name": "Norcal"}))
+import os
+
+print(json.dumps({"league_name": os.environ.get("LEAGUE_NAME") or "Norcal"}))
 PY
 )"
 curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RATINGS_PAYLOAD}" "${WEBAPP_URL}/api/internal/recalc_div_ratings" >/dev/null

@@ -124,3 +124,4 @@ Django cannot be “reconfigured” once initialized in a Python process. To avo
 - Prefer small, explicit ORM queries (`select_related`, `values`, `values_list`) to avoid N+1 performance issues.
 - When touching import/reset scripts, be careful with deletion order and FK constraints; use `transaction.atomic()` for
   multi-table operations and keep plans idempotent when possible.
+- Before finalizing changes, run `python -m black` and `ruff check` on any modified/new Python files and fix issues until clean.
