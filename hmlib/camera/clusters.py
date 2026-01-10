@@ -79,6 +79,8 @@ class ClusterSnapshot:
                 return
 
         labels: torch.Tensor = self.calculate_labels(center_points, self._cpp_clusters)
+        if labels.device != ids.device:
+            labels = labels.to(device=ids.device)
 
         self._cluster_label_ids: List[torch.Tensor] = list()
         for i in range(self._num_clusters):
