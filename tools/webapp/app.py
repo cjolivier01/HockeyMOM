@@ -6751,7 +6751,7 @@ def _league_game_is_cross_division_non_external_row(
 
 
 def recompute_league_mhr_ratings(
-    db_conn, league_id: int, *, max_goal_diff: int = 7, min_games: int = 5
+    db_conn, league_id: int, *, max_goal_diff: int = 7, min_games: int = 4
 ) -> dict[int, dict[str, Any]]:
     """
     Recompute and persist MyHockeyRankings-like ratings for teams in a league.

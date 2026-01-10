@@ -6115,7 +6115,7 @@ def api_internal_recalc_div_ratings(request: HttpRequest) -> JsonResponse:
     min_games_raw = payload.get("min_games") or payload.get("minGames") or None
 
     max_goal_diff = int(max_goal_diff_raw) if max_goal_diff_raw is not None else 7
-    min_games = int(min_games_raw) if min_games_raw is not None else 5
+    min_games = int(min_games_raw) if min_games_raw is not None else 4
 
     _django_orm, m = _orm_modules()
 
