@@ -124,6 +124,8 @@ echo "[i] Copying app.py, templates, and static to $APP_DIR (sudo required)"
 sudo install -m 0644 -D tools/webapp/app.py "$APP_DIR/app.py"
 sudo install -m 0644 -D tools/webapp/django_orm.py "$APP_DIR/django_orm.py"
 sudo install -m 0644 -D tools/webapp/django_settings.py "$APP_DIR/django_settings.py"
+sudo install -m 0644 -D tools/webapp/urls.py "$APP_DIR/urls.py"
+sudo install -m 0644 -D tools/webapp/wsgi.py "$APP_DIR/wsgi.py"
 sudo install -m 0644 -D tools/webapp/hockey_rankings.py "$APP_DIR/hockey_rankings.py"
 sudo install -m 0755 -D tools/webapp/recalc_div_ratings.py "$APP_DIR/recalc_div_ratings.py"
 sudo mkdir -p "$APP_DIR/templates" "$APP_DIR/static"
@@ -146,9 +148,57 @@ fi
 
 # Ensure gunicorn logs to journald (so Internal Server Error always has a traceback in `journalctl`).
 if sudo test -f "$SERVICE_FILE"; then
+  if sudo grep -q -- "app:app" "$SERVICE_FILE"; then
+    echo "[i] Updating $SERVICE_FILE gunicorn entrypoint to Django WSGI (wsgi:application)"
+    sudo perl -0777 -i -pe 's/^(ExecStart=.*?gunicorn\\b[^\\n]*?)\\s+app:app\\s*$/\\1 wsgi:application/m' "$SERVICE_FILE"
+  fi
   if ! sudo grep -q -- "--error-logfile" "$SERVICE_FILE"; then
     echo "[i] Updating $SERVICE_FILE to capture gunicorn output"
-    sudo perl -0777 -i -pe 's/^(ExecStart=.*?gunicorn\\b[^\\n]*?)\\s+app:app\\s*$/\\1 --access-logfile - --error-logfile - --capture-output --log-level info app:app/m' "$SERVICE_FILE"
+    sudo perl -0777 -i -pe 's/^(ExecStart=.*?gunicorn\\b[^\\n]*?)\\s+wsgi:application\\s*$/\\1 --access-logfile - --error-logfile - --capture-output --log-level info wsgi:application/m' "$SERVICE_FILE"
+  fi
+fi
+
+# Ensure nginx serves /static/ directly for the Django UI.
+NGINX_SITE="/etc/nginx/sites-available/hm-webapp"
+if sudo test -f "$NGINX_SITE"; then
+  if ! sudo grep -q "location /static/" "$NGINX_SITE"; then
+    echo "[i] Updating $NGINX_SITE to serve /static/ from $APP_DIR/static"
+    sudo python3 - "$NGINX_SITE" "$APP_DIR" <<'PY'
+import os
+import re
+import sys
+import tempfile
+
+path = sys.argv[1]
+app_dir = sys.argv[2].rstrip("/")
+
+with open(path, "r", encoding="utf-8") as fh:
+    text = fh.read()
+
+if "location /static/" in text:
+    raise SystemExit(0)
+
+insert = f\"\"\"\n    location /static/ {{\n        alias {app_dir}/static/;\n    }}\n\"\"\".rstrip()
+
+m = re.search(r\"\\n\\}\\s*$\", text, flags=re.S)
+if not m:
+    raise SystemExit(0)
+
+text2 = text[: m.start()] + \"\\n\\n\" + insert + \"\\n\" + text[m.start() :]
+
+dir_name = os.path.dirname(path) or \".\"
+fd, tmp = tempfile.mkstemp(prefix=\"hm-webapp-nginx-\", dir=dir_name)
+try:
+    with os.fdopen(fd, \"w\", encoding=\"utf-8\") as fh:
+        fh.write(text2)
+    os.replace(tmp, path)
+finally:
+    try:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    except Exception:
+        pass
+PY
   fi
 fi
 

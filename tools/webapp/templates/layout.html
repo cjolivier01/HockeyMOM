@@ -16,7 +16,7 @@
       </a>
       <nav class="nav-links">
         <a href="/public/leagues">Public Leagues</a>
-        {% if session.get('user_id') %}
+        {% if request.session.user_id %}
           <a href="/games">Jobs: Upload</a>
           <a href="/teams">Teams</a>
           <a href="/schedule">Schedule</a>
@@ -31,23 +31,29 @@
     </div>
   </header>
   <div class="container">
-    {% if session.get('user_id') and user_leagues %}
+    {% if request.session.user_id and user_leagues %}
       <form method="post" action="/league/select" style="margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+        {% csrf_token %}
         <label for="league_id">League:</label>
         <select name="league_id" id="league_id" onchange="this.form.submit()">
           <option value="">(My Data)</option>
           {% for L in user_leagues %}
-            <option value="{{ L.id }}" {% if selected_league_id==L.id %}selected{% endif %}>{{ L.name }}{% if L.is_shared %} (shared){% endif %}</option>
+            <option value="{{ L.id }}" {% if selected_league_id == L.id %}selected{% endif %}>{{ L.name }}{% if L.is_shared %} (shared){% endif %}</option>
           {% endfor %}
         </select>
       </form>
     {% endif %}
-    {% for m in get_flashed_messages(category_filter=['error']) %}
-      <div class="flash error">{{ m }}</div>
-    {% endfor %}
-    {% for m in get_flashed_messages(category_filter=['success']) %}
-      <div class="flash success">{{ m }}</div>
-    {% endfor %}
+    {% if messages %}
+      {% for message in messages %}
+        {% if "error" in message.tags %}
+          <div class="flash error">{{ message }}</div>
+        {% elif "success" in message.tags %}
+          <div class="flash success">{{ message }}</div>
+        {% else %}
+          <div class="flash">{{ message }}</div>
+        {% endif %}
+      {% endfor %}
+    {% endif %}
     {% block content %}{% endblock %}
   </div>
   <script>

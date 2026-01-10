@@ -1,25 +1,15 @@
 from __future__ import annotations
 
-import importlib.util
 import datetime as dt
 
 import pytest
-
-
-def _load_app_module():
-    spec = importlib.util.spec_from_file_location("webapp_app", "tools/webapp/app.py")
-    mod = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(mod)  # type: ignore
-    return mod
-
 
 @pytest.fixture()
 def client(monkeypatch, webapp_db):
     _django_orm, m = webapp_db
     monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
-    mod = _load_app_module()
+    from django.test import Client
 
     now = dt.datetime.now()
     user = m.User.objects.create(email="u@example.com", password_hash="x", name="U", created_at=now)
@@ -88,18 +78,17 @@ def client(monkeypatch, webapp_db):
     m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(g_future.id), division_name="DivA", sort_order=None)
     m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(g_unknown.id), division_name="DivA", sort_order=None)
 
-    app = mod.create_app()
-    app.testing = True
-    c = app.test_client()
-    with c.session_transaction() as sess:
-        sess["user_id"] = int(user.id)
-        sess["user_email"] = "u@example.com"
-        sess["league_id"] = int(league.id)
+    c = Client()
+    sess = c.session
+    sess["user_id"] = int(user.id)
+    sess["user_email"] = "u@example.com"
+    sess["league_id"] = int(league.id)
+    sess.save()
     return c
 
 
 def should_hide_view_links_for_future_unplayed_games_but_allow_unknown_date_games(client):
-    html = client.get("/schedule").get_data(as_text=True)
+    html = client.get("/schedule").content.decode()
     assert 'href="/hky/games/123"' not in html
     assert 'href="/hky/games/124?return_to=/schedule"' in html
 
@@ -107,7 +96,7 @@ def should_hide_view_links_for_future_unplayed_games_but_allow_unknown_date_game
 def should_sort_schedule_games_by_time_within_date(monkeypatch):
     monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
-    mod = _load_app_module()
+    from tools.webapp import app as mod
 
     games = [
         {"id": 1, "starts_at": "2026-01-01 15:00:00", "sort_order": 200, "created_at": "2026-01-01 00:00:00"},

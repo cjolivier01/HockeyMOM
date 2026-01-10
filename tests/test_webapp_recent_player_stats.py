@@ -47,16 +47,24 @@ def should_compute_recent_player_totals_per_player_by_schedule_order():
     assert p11["ppg"] == 1.0
 
 
-def should_render_recent_player_stats_section_in_team_template():
+def should_render_recent_player_stats_section_in_team_template(webapp_test_config_path):
     mod = _load_app_module()
-    app = mod.create_app()
-    app.testing = True
+    from tools.webapp import django_orm
 
-    from flask import render_template
+    django_orm.setup_django(config_path=str(webapp_test_config_path))
+
+    from django.template.loader import render_to_string
+    from django.test import RequestFactory
 
     team = {"id": 101, "name": "Team A", "logo_path": None, "is_external": 1, "user_id": 10}
     players = [{"id": 501, "name": "Player 1", "jersey_number": "9", "position": "F"}]
-    cols = mod.PLAYER_STATS_DISPLAY_COLUMNS
+    cols = [
+        {"key": "gp", "label": "GP", "n_games": 0, "total_games": 0, "show_count": False},
+        {"key": "goals", "label": "Goals", "n_games": 0, "total_games": 0, "show_count": False},
+        {"key": "assists", "label": "Assists", "n_games": 0, "total_games": 0, "show_count": False},
+        {"key": "points", "label": "Points", "n_games": 0, "total_games": 0, "show_count": False},
+        {"key": "ppg", "label": "PPG", "n_games": 0, "total_games": 0, "show_count": False},
+    ]
     row = {
         "player_id": 501,
         "jersey_number": "9",
@@ -69,22 +77,27 @@ def should_render_recent_player_stats_section_in_team_template():
         "ppg": 1.0,
     }
 
-    with app.test_request_context("/teams/101?recent_n=5&recent_sort=points&recent_dir=desc"):
-        html = render_template(
-            "team_detail.html",
-            team=team,
-            players=players,
-            player_stats_columns=cols,
-            player_stats_rows=[row],
-            recent_player_stats_columns=cols,
-            recent_player_stats_rows=[row],
-            recent_n=5,
-            recent_sort="points",
-            recent_dir="desc",
-            tstats={"wins": 0, "losses": 0, "ties": 0, "gf": 0, "ga": 0, "points": 0},
-            schedule_games=[],
-            editable=False,
-        )
+    rf = RequestFactory()
+    request = rf.get("/teams/101", {"recent_n": "5", "recent_sort": "points", "recent_dir": "desc"})
+    request.session = {}
+    html = render_to_string(
+        "team_detail.html",
+        {
+            "team": team,
+            "players": players,
+            "player_stats_columns": cols,
+            "player_stats_rows": [row],
+            "recent_player_stats_columns": cols,
+            "recent_player_stats_rows": [row],
+            "recent_n": 5,
+            "recent_sort": "points",
+            "recent_dir": "desc",
+            "tstats": {"wins": 0, "losses": 0, "ties": 0, "gf": 0, "ga": 0, "points": 0},
+            "schedule_games": [],
+            "editable": False,
+        },
+        request=request,
+    )
 
     assert "Recent Player Stats  -- Are They On a Roll?" in html
     assert "data-freeze-cols=\"2\"" in html

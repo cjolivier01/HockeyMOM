@@ -57,8 +57,12 @@ def _import_models():
 
 def _all_models() -> list[Type]:
     m = _import_models()
+    try:
+        from django.contrib.sessions.models import Session
+    except Exception:  # pragma: no cover
+        Session = None  # type: ignore
 
-    return [
+    models: list[Type] = [
         m.User,
         m.League,
         m.LeagueMember,
@@ -78,6 +82,9 @@ def _all_models() -> list[Type]:
         m.LeagueTeam,
         m.LeagueGame,
     ]
+    if Session is not None:
+        models.append(Session)
+    return models
 
 
 def ensure_schema() -> None:

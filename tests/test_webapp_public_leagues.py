@@ -1,17 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
-import importlib.util
 
 import pytest
-
-
-def _load_app_module():
-    spec = importlib.util.spec_from_file_location("webapp_app", "tools/webapp/app.py")
-    mod = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(mod)  # type: ignore
-    return mod
 
 
 @pytest.fixture()
@@ -19,15 +10,17 @@ def client(monkeypatch, webapp_db):
     _django_orm, m = webapp_db
     monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
-    mod = _load_app_module()
+    from django.test import Client
+
+    from tools.webapp import app as logic
 
     # Avoid needing to assert standings/league-wide player totals in this unit test.
     monkeypatch.setattr(
-        mod,
+        logic,
         "compute_team_stats_league",
         lambda *_args, **_kwargs: {"wins": 0, "losses": 0, "ties": 0, "gf": 0, "ga": 0, "points": 0},
     )
-    monkeypatch.setattr(mod, "aggregate_players_totals_league", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(logic, "aggregate_players_totals_league", lambda *_args, **_kwargs: {})
 
     now = dt.datetime.now()
     owner = m.User.objects.create(id=10, email="owner@example.com", password_hash="x", name="Owner", created_at=now)
@@ -179,58 +172,54 @@ def client(monkeypatch, webapp_db):
         assists=0,
     )
 
-    app = mod.create_app()
-    app.testing = True
-    return app.test_client()
+    return Client()
 
 
 def should_list_public_leagues_without_login(client):
     r = client.get("/public/leagues")
     assert r.status_code == 200
-    assert "Public League" in r.get_data(as_text=True)
-    assert "Private League" not in r.get_data(as_text=True)
+    html = r.content.decode()
+    assert "Public League" in html
+    assert "Private League" not in html
 
 
 def should_allow_public_league_teams_schedule_and_game_pages_without_login(client):
     r1 = client.get("/public/leagues/1/teams")
     assert r1.status_code == 200
-    html = r1.get_data(as_text=True)
+    html = r1.content.decode()
     assert "10 B West" in html
     assert "Team A" in html
 
     r2 = client.get("/public/leagues/1/schedule")
     assert r2.status_code == 200
-    html2 = r2.get_data(as_text=True)
+    html2 = r2.content.decode()
     assert "Team A" in html2 and "Team B" in html2
 
     r3 = client.get("/public/leagues/1/hky/games/1001")
     assert r3.status_code == 200
-    assert "Team A" in r3.get_data(as_text=True)
+    assert "Team A" in r3.content.decode()
 
 
 def should_hide_future_unplayed_game_pages_in_public_schedule(client):
-    html = client.get("/public/leagues/1/schedule").get_data(as_text=True)
+    html = client.get("/public/leagues/1/schedule").content.decode()
     assert "/public/leagues/1/hky/games/1002" not in html
     assert client.get("/public/leagues/1/hky/games/1002").status_code == 404
 
 
 def should_hide_cross_division_timetoscore_games_from_public_views(client):
-    html = client.get("/public/leagues/1/schedule").get_data(as_text=True)
+    html = client.get("/public/leagues/1/schedule").content.decode()
     assert "/public/leagues/1/hky/games/1003" not in html
     assert client.get("/public/leagues/1/hky/games/1003").status_code == 404
 
 
 def should_return_to_entry_page_when_viewing_game_from_team_page(client):
-    team_html = client.get("/public/leagues/1/teams/101").get_data(as_text=True)
+    team_html = client.get("/public/leagues/1/teams/101").content.decode()
     assert "/public/leagues/1/hky/games/1001?return_to=/public/leagues/1/teams/101" in team_html
 
-    game_html = client.get("/public/leagues/1/hky/games/1001?return_to=/public/leagues/1/teams/101").get_data(
-        as_text=True
-    )
+    game_html = client.get("/public/leagues/1/hky/games/1001?return_to=/public/leagues/1/teams/101").content.decode()
     assert 'href="/public/leagues/1/teams/101"' in game_html
 
 
 def should_reject_private_league_public_routes(client):
     r = client.get("/public/leagues/2/teams")
     assert r.status_code == 404
-

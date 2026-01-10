@@ -8,7 +8,7 @@ It creates:
   - A firewall rule allowing inbound HTTP (tcp:80) to the VM via a network tag
 
 Then it copies `tools/webapp` to the VM and runs `tools/webapp/install_webapp.py` there, which installs:
-  - nginx + gunicorn + Flask app
+  - nginx + gunicorn + Django app
   - MariaDB (local) + schema/user
 
 Use --delete to remove the VM and firewall rule created by this script.

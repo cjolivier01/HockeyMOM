@@ -55,6 +55,7 @@ def _reset_webapp_db(django_orm, m) -> None:
     from werkzeug.security import generate_password_hash
 
     from django.db import transaction
+    from django.contrib.sessions.models import Session
 
     with transaction.atomic():
         m.LeagueGame.objects.all().delete()
@@ -75,6 +76,7 @@ def _reset_webapp_db(django_orm, m) -> None:
         m.Reset.objects.all().delete()
         m.GameType.objects.all().delete()
         m.User.objects.all().delete()
+        Session.objects.all().delete()
 
     django_orm.ensure_bootstrap_data(default_admin_password_hash=generate_password_hash("admin"))
 

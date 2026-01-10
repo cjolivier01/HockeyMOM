@@ -61,7 +61,7 @@ def _ensure_port_available_for_nginx(listen_port: int, *, disable_apache2: bool)
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Install HockeyMOM WebApp (Flask + Nginx)")
+    ap = argparse.ArgumentParser(description="Install HockeyMOM WebApp (Django + Nginx)")
     ap.add_argument("--install-root", default="/opt/hm-webapp")
     ap.add_argument("--user", default=os.environ.get("SUDO_USER") or os.environ.get("USER"))
     ap.add_argument("--watch-root", default="/data/incoming")
@@ -131,6 +131,8 @@ def main():
     _do_copy(repo_root / "tools/webapp/app.py", app_dir / "app.py")
     _do_copy(repo_root / "tools/webapp/django_orm.py", app_dir / "django_orm.py")
     _do_copy(repo_root / "tools/webapp/django_settings.py", app_dir / "django_settings.py")
+    _do_copy(repo_root / "tools/webapp/urls.py", app_dir / "urls.py")
+    _do_copy(repo_root / "tools/webapp/wsgi.py", app_dir / "wsgi.py")
     _do_copy(repo_root / "tools/webapp/django_app", app_dir)
     _do_copy(repo_root / "tools/webapp/hockey_rankings.py", app_dir / "hockey_rankings.py")
     _do_copy(repo_root / "tools/webapp/recalc_div_ratings.py", app_dir / "recalc_div_ratings.py")
@@ -190,7 +192,7 @@ def main():
             args.user,
             "bash",
             "-lc",
-            f"{python_bin} -m pip install --upgrade pip wheel flask gunicorn werkzeug pymysql django",
+            f"{python_bin} -m pip install --upgrade pip wheel gunicorn werkzeug pymysql django",
         ]
     )
 
@@ -235,7 +237,7 @@ FLUSH PRIVILEGES;
     print("Writing systemd service...")
     unit = f"""
 [Unit]
-Description=HockeyMOM WebApp (Flask via gunicorn)
+Description=HockeyMOM WebApp (Django via gunicorn)
 After=network-online.target
 Wants=network-online.target
 
@@ -248,8 +250,9 @@ Environment=HM_WATCH_ROOT={args.watch_root}
 Environment=MSMTP_CONFIG=/etc/msmtprc
 Environment=MSMTPRC=/etc/msmtprc
 Environment=HM_DB_CONFIG={app_dir}/config.json
+Environment=DJANGO_SETTINGS_MODULE=django_settings
 WorkingDirectory={app_dir}
-ExecStart={python_bin} -m gunicorn -b {args.bind_address}:{args.port} --access-logfile - --error-logfile - --capture-output --log-level info app:app
+ExecStart={python_bin} -m gunicorn -b {args.bind_address}:{args.port} --access-logfile - --error-logfile - --capture-output --log-level info wsgi:application
 Restart=on-failure
 RestartSec=3
 
@@ -292,15 +295,19 @@ WantedBy=timers.target
 
     print("Writing nginx site...")
     nginx_conf = f"""
-server {{
-    listen {args.nginx_port} default_server;
-    server_name {args.server_name};
-    client_max_body_size {args.client_max_body_size};
+	server {{
+	    listen {args.nginx_port} default_server;
+	    server_name {args.server_name};
+	    client_max_body_size {args.client_max_body_size};
 
-    location / {{
-        proxy_pass http://127.0.0.1:{args.port};
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+	    location /static/ {{
+	        alias {static_dir}/;
+	    }}
+
+	    location / {{
+	        proxy_pass http://127.0.0.1:{args.port};
+	        proxy_set_header Host $host;
+	        proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }}
