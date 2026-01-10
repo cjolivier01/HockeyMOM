@@ -112,14 +112,15 @@ def _extract_timetoscore_game_id_from_notes(notes: Optional[str]) -> Optional[in
             if v is not None:
                 return int(v)
     except Exception:
+        # If notes are not valid JSON (or not a dict), fall back to regex-based extraction below.
         pass
-    m1 = re.search(r"(?:^|[\\s|,;])game_id\\s*=\\s*(\\d+)", s, flags=re.IGNORECASE)
+    m1 = re.search(r"(?:^|[\s,;|])game_id\s*=\s*(\d+)", s, flags=re.IGNORECASE)
     if m1:
         try:
             return int(m1.group(1))
         except Exception:
             return None
-    m2 = re.search(r"\"timetoscore_game_id\"\\s*:\\s*(\\d+)", s)
+    m2 = re.search(r'"timetoscore_game_id"\s*:\s*(\d+)', s)
     if m2:
         try:
             return int(m2.group(1))
@@ -140,8 +141,9 @@ def _extract_external_game_key_from_notes(notes: Optional[str]) -> Optional[str]
                 out = str(v).strip()
                 return out or None
     except Exception:
+        # If notes are not valid JSON (or not a dict), fall back to regex-based extraction below.
         pass
-    m1 = re.search(r"\"external_game_key\"\\s*:\\s*\"([^\"]+)\"", s)
+    m1 = re.search(r'"external_game_key"\s*:\s*"([^"]+)"', s)
     if m1:
         out = str(m1.group(1)).strip()
         return out or None
@@ -164,6 +166,7 @@ def _merge_notes_text(keep: Optional[str], drop: Optional[str]) -> Optional[str]
                     a[k] = v
             return json.dumps(a, sort_keys=True)
     except Exception:
+        # If JSON parsing/merging fails, fall back to simple string merging below.
         pass
     if drop_s in keep_s:
         return keep_s
