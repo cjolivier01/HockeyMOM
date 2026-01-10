@@ -180,42 +180,58 @@ def merge_hky_games(*, keep_id: int, drop_id: int) -> None:
     from django.db import transaction
 
     with transaction.atomic():
-        keep = m.HkyGame.objects.filter(id=int(keep_id)).values(
-            "id",
-            "notes",
-            "timetoscore_game_id",
-            "external_game_key",
-            "starts_at",
-            "location",
-            "team1_score",
-            "team2_score",
-            "is_final",
-            "stats_imported_at",
-            "game_type_id",
-        ).first()
-        drop = m.HkyGame.objects.filter(id=int(drop_id)).values(
-            "id",
-            "notes",
-            "timetoscore_game_id",
-            "external_game_key",
-            "starts_at",
-            "location",
-            "team1_score",
-            "team2_score",
-            "is_final",
-            "stats_imported_at",
-            "game_type_id",
-        ).first()
+        keep = (
+            m.HkyGame.objects.filter(id=int(keep_id))
+            .values(
+                "id",
+                "notes",
+                "timetoscore_game_id",
+                "external_game_key",
+                "starts_at",
+                "location",
+                "team1_score",
+                "team2_score",
+                "is_final",
+                "stats_imported_at",
+                "game_type_id",
+            )
+            .first()
+        )
+        drop = (
+            m.HkyGame.objects.filter(id=int(drop_id))
+            .values(
+                "id",
+                "notes",
+                "timetoscore_game_id",
+                "external_game_key",
+                "starts_at",
+                "location",
+                "team1_score",
+                "team2_score",
+                "is_final",
+                "stats_imported_at",
+                "game_type_id",
+            )
+            .first()
+        )
         if not keep or not drop:
             return
 
-        keep_has_ps = set(m.PlayerStat.objects.filter(game_id=int(keep_id)).values_list("player_id", flat=True))
+        keep_has_ps = set(
+            m.PlayerStat.objects.filter(game_id=int(keep_id)).values_list("player_id", flat=True)
+        )
         m.PlayerStat.objects.filter(game_id=int(drop_id), player_id__in=keep_has_ps).delete()
         m.PlayerStat.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
 
-        keep_has_pps = set(m.PlayerPeriodStat.objects.filter(game_id=int(keep_id)).values_list("player_id", "period"))
+        keep_has_pps = set(
+            m.PlayerPeriodStat.objects.filter(game_id=int(keep_id)).values_list(
+                "player_id", "period"
+            )
+        )
         for pid, period in keep_has_pps:
-            m.PlayerPeriodStat.objects.filter(game_id=int(drop_id), player_id=int(pid), period=int(period)).delete()
+            m.PlayerPeriodStat.objects.filter(
+                game_id=int(drop_id), player_id=int(pid), period=int(period)
+            ).delete()
         m.PlayerPeriodStat.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
 
         if m.HkyGameStat.objects.filter(game_id=int(keep_id)).exists():
@@ -231,9 +247,13 @@ def merge_hky_games(*, keep_id: int, drop_id: int) -> None:
         if m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(keep_id)).exists():
             m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(drop_id)).delete()
         else:
-            m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
+            m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(drop_id)).update(
+                game_id=int(keep_id)
+            )
 
-        keep_leagues = set(m.LeagueGame.objects.filter(game_id=int(keep_id)).values_list("league_id", flat=True))
+        keep_leagues = set(
+            m.LeagueGame.objects.filter(game_id=int(keep_id)).values_list("league_id", flat=True)
+        )
         m.LeagueGame.objects.filter(game_id=int(drop_id), league_id__in=keep_leagues).delete()
         m.LeagueGame.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
 
@@ -266,7 +286,9 @@ def merge_hky_games(*, keep_id: int, drop_id: int) -> None:
         # Delete the duplicate first so UNIQUE constraints on the key fields don't block updating the kept row.
         m.HkyGame.objects.filter(id=int(drop_id)).delete()
         if updates:
-            m.HkyGame.objects.filter(id=int(keep_id)).update(**updates, updated_at=dt.datetime.now())
+            m.HkyGame.objects.filter(id=int(keep_id)).update(
+                **updates, updated_at=dt.datetime.now()
+            )
 
 
 def backfill_hky_game_keys() -> None:
@@ -282,7 +304,9 @@ def backfill_hky_game_keys() -> None:
         gid = int(row["id"])
         tts_id = _extract_timetoscore_game_id_from_notes(row.get("notes"))
         if tts_id is not None:
-            m.HkyGame.objects.filter(id=int(gid), timetoscore_game_id__isnull=True).update(timetoscore_game_id=int(tts_id))
+            m.HkyGame.objects.filter(id=int(gid), timetoscore_game_id__isnull=True).update(
+                timetoscore_game_id=int(tts_id)
+            )
 
     for row in list(
         m.HkyGame.objects.filter(external_game_key__isnull=True)
@@ -293,7 +317,9 @@ def backfill_hky_game_keys() -> None:
         gid = int(row["id"])
         ext = _extract_external_game_key_from_notes(row.get("notes"))
         if ext:
-            m.HkyGame.objects.filter(id=int(gid), external_game_key__isnull=True).update(external_game_key=str(ext))
+            m.HkyGame.objects.filter(id=int(gid), external_game_key__isnull=True).update(
+                external_game_key=str(ext)
+            )
 
 
 def dedupe_hky_games() -> None:
@@ -305,13 +331,20 @@ def dedupe_hky_games() -> None:
 
     with transaction.atomic():
         tts_dups = (
-            m.HkyGame.objects.filter(timetoscore_game_id__isnull=False).values("timetoscore_game_id").annotate(n=Count("id")).filter(n__gt=1)
+            m.HkyGame.objects.filter(timetoscore_game_id__isnull=False)
+            .values("timetoscore_game_id")
+            .annotate(n=Count("id"))
+            .filter(n__gt=1)
         )
         for row in list(tts_dups):
             tts_id = row.get("timetoscore_game_id")
             if tts_id is None:
                 continue
-            ids = list(m.HkyGame.objects.filter(timetoscore_game_id=int(tts_id)).values_list("id", flat=True).order_by("id"))
+            ids = list(
+                m.HkyGame.objects.filter(timetoscore_game_id=int(tts_id))
+                .values_list("id", flat=True)
+                .order_by("id")
+            )
             if len(ids) < 2:
                 continue
             keep_id = int(ids[0])
@@ -331,7 +364,9 @@ def dedupe_hky_games() -> None:
             if uid is None or not ek:
                 continue
             ids = list(
-                m.HkyGame.objects.filter(user_id=int(uid), external_game_key=str(ek)).values_list("id", flat=True).order_by("id")
+                m.HkyGame.objects.filter(user_id=int(uid), external_game_key=str(ek))
+                .values_list("id", flat=True)
+                .order_by("id")
             )
             if len(ids) < 2:
                 continue
@@ -356,13 +391,17 @@ def ensure_schema() -> None:
     # Best-effort: add missing columns for older installs.
     for model in _all_models():
         table = model._meta.db_table
-        if table not in existing_tables and table not in set(connection.introspection.table_names()):
+        if table not in existing_tables and table not in set(
+            connection.introspection.table_names()
+        ):
             continue
 
         with connection.cursor() as cursor:
             desc = connection.introspection.get_table_description(cursor, table)
         existing_cols = {c.name for c in desc or []}
-        missing_fields = [f for f in model._meta.local_fields if getattr(f, "column", None) not in existing_cols]
+        missing_fields = [
+            f for f in model._meta.local_fields if getattr(f, "column", None) not in existing_cols
+        ]
         if not missing_fields:
             continue
 

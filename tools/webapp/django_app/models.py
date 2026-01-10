@@ -84,7 +84,9 @@ class Game(models.Model):
 
 
 class Job(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="jobs", db_constraint=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="jobs", db_constraint=False
+    )
     game_id = models.IntegerField(null=True, blank=True)
     dir_path = models.TextField()
     slurm_job_id = models.CharField(max_length=64, null=True, blank=True)
@@ -110,7 +112,9 @@ class Reset(models.Model):
 
 
 class Team(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="teams", db_constraint=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="teams", db_constraint=False
+    )
     name = models.CharField(max_length=255)
     logo_path = models.TextField(null=True, blank=True)
     is_external = models.BooleanField(default=False)
@@ -125,7 +129,9 @@ class Team(models.Model):
 
 
 class Player(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="players", db_constraint=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="players", db_constraint=False
+    )
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="players")
     name = models.CharField(max_length=255)
     jersey_number = models.CharField(max_length=16, null=True, blank=True)
@@ -147,7 +153,9 @@ class GameType(models.Model):
 
 
 class HkyGame(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="hky_games", db_constraint=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="hky_games", db_constraint=False
+    )
     team1 = models.ForeignKey(
         Team,
         on_delete=models.RESTRICT,
@@ -177,12 +185,16 @@ class HkyGame(models.Model):
         db_table = "hky_games"
         constraints = [
             models.UniqueConstraint(fields=["timetoscore_game_id"], name="uniq_hky_tts_id"),
-            models.UniqueConstraint(fields=["user", "external_game_key"], name="uniq_hky_user_ext_key"),
+            models.UniqueConstraint(
+                fields=["user", "external_game_key"], name="uniq_hky_user_ext_key"
+            ),
         ]
 
 
 class PlayerStat(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="player_stats", db_constraint=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="player_stats", db_constraint=False
+    )
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="player_stats")
     game = models.ForeignKey(HkyGame, on_delete=models.CASCADE, related_name="player_stats")
     player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="stats")
