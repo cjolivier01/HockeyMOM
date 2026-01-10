@@ -121,7 +121,11 @@ python3 tools/webapp/scripts/import_time2score.py \
 ```
 
 Flags:
-- `--source`: `caha` (league=3) or `sharksice` (league=1)
+- `--source`: `caha` (CAHA/TimeToScore) or `sharksice` (SharksIce adult, league=1)
+- `--t2s-league-id`: CAHA TimeToScore `league=` id (default: 3). Common values:
+  - `3`: CAHA regular season
+  - `5`: CAHA tier teams
+  - `18`: CAHA tournaments (imported as game type "Tournament")
 - `--season`: season id (0 = current/latest)
 - `--user-email`: user that will own imported teams/games (teams marked is_external=1)
 - `--division`: filter to only divisions you want (repeatable). Accepts:
@@ -139,9 +143,9 @@ Flags:
 - Non-destructive by default:
   - `--replace` overwrites existing game scores and `player_stats`; otherwise importer only fills missing values.
 
-Import "Norcal"
----------------
-To import CAHA/TimeToScore into a league named `Norcal`, use `import_time2score.py` with league flags:
+Import "CAHA"
+-------------
+To import CAHA/TimeToScore into a league named `CAHA`, use `import_time2score.py` with league flags:
 
 ```
 python3 tools/webapp/scripts/import_time2score.py \
@@ -149,7 +153,7 @@ python3 tools/webapp/scripts/import_time2score.py \
   --source caha \
   --season 0 \
   --user-email demo@example.com \
-  --league-name Norcal \
+  --league-name CAHA \
   --shared
 ```
 

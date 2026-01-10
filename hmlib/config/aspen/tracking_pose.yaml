@@ -152,7 +152,7 @@ aspen:
     save_detections:
       class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [detector]
-      enabled: false
+      enabled: true
       params: {}
 
     ice_config:
@@ -188,7 +188,7 @@ aspen:
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [tracker]
-      enabled: false
+      enabled: true
       params: {}
 
     pose:
@@ -210,15 +210,15 @@ aspen:
       enabled: false
       params: {}
 
-    # Optional camera controller (rule-based by default). Enable transformer by
-    # setting controller: transformer and model_path to your checkpoint.
+    # Optional camera controller (rule-based by default). Enable transformer/GPT by
+    # setting controller: transformer|gpt and model_path to your checkpoint.
     camera_controller:
       class: hmlib.aspen.plugins.camera_controller_plugin.CameraControllerPlugin
-      depends: [tracker]
+      depends: [tracker, pose]
       params:
-        controller: rule
-        model_path: null
-        window: 8
+        controller: GLOBAL.rink.camera.controller
+        model_path: GLOBAL.rink.camera.camera_model
+        window: GLOBAL.rink.camera.camera_window
 
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
@@ -243,7 +243,7 @@ aspen:
     save_camera:
       class: hmlib.aspen.plugins.save_plugins.SaveCameraPlugin
       depends: [play_tracker]
-      enabled: false
+      enabled: true
       params: {}
 
     apply_camera:

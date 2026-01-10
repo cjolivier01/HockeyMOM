@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from typing import List, Union
 
 from hmlib.log import get_logger
@@ -176,6 +177,34 @@ def copy_audio(
             assert len(input_audio) == 1
             input_audio = input_audio[0]
         audio_source = input_audio
+
+    output_suffix = Path(output_video).suffix.lower()
+    output_is_mp4 = output_suffix in {".mp4", ".m4v", ".mov"}
+    video_codec = None
+    if output_is_mp4:
+        try:
+            video_codec = (
+                subprocess.check_output(
+                    [
+                        "ffprobe",
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-select_streams",
+                        "v:0",
+                        "-show_entries",
+                        "stream=codec_name",
+                        "-of",
+                        "default=noprint_wrappers=1:nokey=1",
+                        input_video,
+                    ]
+                )
+                .decode("utf-8", errors="ignore")
+                .strip()
+                .lower()
+            )
+        except Exception:
+            video_codec = None
     command = [
         "ffmpeg",
         "-y",
@@ -193,6 +222,11 @@ def copy_audio(
         "-map",
         "0:a:0",
     ]
+    if output_is_mp4:
+        # Improve compatibility with iOS/macOS players and streaming.
+        command += ["-movflags", "+faststart"]
+        if video_codec in {"hevc", "h265"}:
+            command += ["-tag:v", "hvc1"]
     if shortest:
         command.append("-shortest")
 

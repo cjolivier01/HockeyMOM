@@ -285,13 +285,21 @@ class PyNvVideoEncoder:
                     self._ffmpeg_proc.stdin.write(bytearray(bitstream))
 
         if self._backend in {"pyav", "raw"}:
-            if self._bitstream_path is not None:
+            bitstream_path = self._bitstream_path
+            bitstream_file = self._bitstream_file
+            self._bitstream_file = None
+            # Close the sidecar bitstream file before remuxing so ffmpeg/PyAV
+            # sees a fully flushed file on disk.
+            if bitstream_file is not None:
+                try:
+                    bitstream_file.flush()
+                finally:
+                    bitstream_file.close()
+            if bitstream_path is not None:
                 if self._backend == "pyav":
-                    self._mux_bitstream_file_with_pyav(self._bitstream_path)
+                    self._mux_bitstream_file_with_pyav(bitstream_path)
                 elif self._backend == "raw":
-                    self._mux_bitstream_file_with_ffmpeg(self._bitstream_path)
-                self._bitstream_file.close()
-                self._bitstream_file = None
+                    self._mux_bitstream_file_with_ffmpeg(bitstream_path)
         else:
             assert self._bitstream_file is None
             if self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
@@ -426,6 +434,12 @@ class PyNvVideoEncoder:
             expected_duration = None
         muxer = self._container_format()
 
+        fps = Fraction(self.fps).limit_denominator(1001)
+        fps_str = f"{fps.numerator}/{fps.denominator}" if fps.denominator != 1 else str(fps.numerator)
+        time_base = Fraction(fps.denominator, fps.numerator)
+        time_base_str = f"{time_base.numerator}/{time_base.denominator}"
+        setts_bsf = f"setts=pts=N:dts=N:duration=1:time_base={time_base_str}"
+
         cmd = [
             ffmpeg,
             "-y",
@@ -435,19 +449,22 @@ class PyNvVideoEncoder:
             "-progress",
             "pipe:2",
             "-nostats",
-            "-fflags",
-            "+genpts",
-            "-r",
-            str(self.fps),
-            # "-f",
-            # stream_format,
+            "-f",
+            stream_format,
+            "-framerate",
+            fps_str,
             "-i",
             str(bitstream_path),
             "-c:v",
             "copy",
-            "-vsync",
-            "cfr",
+            "-bsf:v",
+            setts_bsf,
         ]
+        if self.output_path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
+            # Make MP4/MOV outputs friendlier for Apple/iPhone playback and progressive download.
+            cmd += ["-movflags", "+faststart"]
+            if stream_format == "hevc":
+                cmd += ["-tag:v", "hvc1"]
         if muxer:
             cmd += ["-f", muxer]
         cmd.append(str(self.output_path))

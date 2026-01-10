@@ -129,7 +129,7 @@
           {% if g.can_view_summary %}</a>{% endif %}
         </td>
 
-        <td>{% if g.game_type_name %}{{ g.game_type_name }}{% elif g.division_name|lower == "external" %}Tournament{% endif %}</td>
+        <td>{% if g.game_type_name %}{{ g.game_type_name }}{% elif g.division_name|is_external_division %}Tournament{% endif %}</td>
         <td>{{ g.location|default_if_none:"" }}</td>
         <td>
           {% if s1 != None and s2 != None %}

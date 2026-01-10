@@ -47,6 +47,7 @@ from hmlib.tasks.tracking import run_mmtrack
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
+from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import time_to_frame
@@ -1055,56 +1056,116 @@ def _main(args, num_gpu):
             )
 
         #
-        # Now add the audio and copy CSVs alongside with matching -x suffix
+        # Optional: add audio for full runs
         #
-        if (
-            not args.max_time
-            and not args.max_frames
-            and not args.no_audio
-            and output_video_path
-            and os.path.exists(output_video_path)
+        dest_path = None
+        is_truncated_run = bool(args.max_time or args.max_frames)
+
+        if (not is_truncated_run) and (not args.no_audio) and output_video_path and os.path.exists(
+            output_video_path
         ):
-            dest_path = transfer_audio(
-                game_id=args.game_id,
-                input_av_files=input_video_files,
-                video_source_file=output_video_path,
-                output_av_path=args.output_video,
-            )
-
-            # Mirror CSVs into the same game directory with the same index suffix
             try:
-                game_video_dir = get_game_dir(args.game_id)
-                if game_video_dir and os.path.isdir(game_video_dir):
-                    # Determine numeric suffix used for the video filename (e.g., -3)
-                    dest_name = os.path.basename(str(dest_path))
-                    base, ext = os.path.splitext(dest_name)
-                    suffix_num = None
-                    # Extract trailing -N if present
-                    dash_idx = base.rfind("-")
-                    if dash_idx != -1:
-                        tail = base[dash_idx + 1 :]
-                        if tail.isdigit():
-                            suffix_num = int(tail)
+                output_av_path = args.output_video
+                deploy_dir = getattr(args, "deploy_dir", None)
+                if output_av_path is None and deploy_dir:
+                    os.makedirs(deploy_dir, exist_ok=True)
+                    file_name = os.path.basename(output_video_path)
+                    file_name = str(add_suffix_to_filename(file_name, "-with-audio"))
+                    base_name, extension = os.path.splitext(file_name)
+                    if extension == ".mkv":
+                        extension = ".mp4"
+                    output_av_path = None
+                    for i in range(1000):
+                        if i:
+                            fname = f"{base_name}-{i}{extension}"
+                        else:
+                            fname = f"{base_name}{extension}"
+                        candidate = os.path.join(deploy_dir, fname)
+                        if not os.path.exists(candidate):
+                            output_av_path = candidate
+                            break
+                    if output_av_path is None:
+                        raise RuntimeError("Could not find a free deploy filename for output video")
 
-                    def with_index(name: str) -> str:
-                        root, cext = os.path.splitext(name)
-                        if suffix_num is None or suffix_num == 0:
-                            return f"{root}{cext}"
-                        return f"{root}-{suffix_num}{cext}"
+                dest_path = transfer_audio(
+                    game_id=args.game_id,
+                    input_av_files=input_video_files,
+                    video_source_file=output_video_path,
+                    output_av_path=output_av_path,
+                )
+            except Exception:
+                logger.exception("Failed to transfer audio; continuing without audio.")
+                dest_path = None
 
-                    if args.save_camera_data:
-                        src = os.path.join(results_folder, "camera.csv")
-                        if os.path.exists(src):
-                            dst_name = with_index("camera.csv")
-                            dst = os.path.join(game_video_dir, dst_name)
-                            try:
-                                shutil.copy2(src, dst)
-                            except Exception:
-                                traceback.print_exc()
-                else:
-                    logger.info("Game directory not found; skipping CSV mirroring.")
+        #
+        # Deploy CSV artifacts to the game directory (full run) or --deploy-dir (explicit).
+        #
+        deploy_dir = getattr(args, "deploy_dir", None)
+        target_deploy_dir = None
+        if deploy_dir:
+            target_deploy_dir = deploy_dir
+        elif not is_truncated_run:
+            target_deploy_dir = args.game_dir if args.game_dir and os.path.isdir(args.game_dir) else None
+
+        if target_deploy_dir:
+            os.makedirs(target_deploy_dir, exist_ok=True)
+            csv_names = []
+            try:
+                for name in os.listdir(results_folder):
+                    if not name.endswith(".csv"):
+                        continue
+                    src_path = os.path.join(results_folder, name)
+                    if os.path.isfile(src_path):
+                        csv_names.append(name)
             except Exception:
                 traceback.print_exc()
+                csv_names = []
+
+            def extract_suffix_num(path: Optional[os.PathLike | str]) -> Optional[int]:
+                if not path:
+                    return None
+                base = os.path.splitext(os.path.basename(str(path)))[0]
+                dash_idx = base.rfind("-")
+                if dash_idx == -1:
+                    return None
+                tail = base[dash_idx + 1 :]
+                if tail.isdigit():
+                    return int(tail)
+                return None
+
+            def with_index(name: str, suffix_num: int) -> str:
+                root, ext = os.path.splitext(name)
+                if suffix_num <= 0:
+                    return f"{root}{ext}"
+                return f"{root}-{suffix_num}{ext}"
+
+            def choose_free_suffix(names: List[str]) -> int:
+                for i in range(0, 1000):
+                    collision = False
+                    for name in names:
+                        if os.path.exists(os.path.join(target_deploy_dir, with_index(name, i))):
+                            collision = True
+                            break
+                    if not collision:
+                        return i
+                raise RuntimeError("Could not find a free suffix for CSV deployment")
+
+            suffix_num = extract_suffix_num(dest_path)
+            if suffix_num is not None and csv_names:
+                for name in csv_names:
+                    if os.path.exists(os.path.join(target_deploy_dir, with_index(name, suffix_num))):
+                        suffix_num = None
+                        break
+            if suffix_num is None and csv_names:
+                suffix_num = choose_free_suffix(csv_names)
+
+            for name in csv_names:
+                src_path = os.path.join(results_folder, name)
+                dst_path = os.path.join(target_deploy_dir, with_index(name, int(suffix_num or 0)))
+                try:
+                    shutil.copy2(src_path, dst_path)
+                except Exception:
+                    traceback.print_exc()
         logger.info("Completed")
     except Exception as ex:
         print(ex)

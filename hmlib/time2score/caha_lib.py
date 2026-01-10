@@ -25,7 +25,10 @@ GAME_URL = TIMETOSCORE_URL + "oss-scoresheet"
 DIVISION_URL = TIMETOSCORE_URL + "display-league-stats"
 MAIN_STATS_URL = TIMETOSCORE_URL + "display-stats"
 
-# CAHA youth league id
+# Default CAHA youth league id (TimeToScore `league=` query param).
+#
+# The CAHA site hosts multiple "leagues" under the same domain (e.g. regular season vs tier teams vs tournaments).
+# Most callers use the default `league=3`, but higher-level code may override via function kwargs.
 CAHA_LEAGUE = 3
 STAT_CLASS = 1  # youth
 
@@ -121,21 +124,11 @@ tr_selectors = dict(
         # layout blocks, so avoid strict `body > div > ...` selectors.
         "body div.d50l div.d25l table:nth-of-type(1) tr"
     ),
-    homeScoring=(
-        "body div.d50r div.d25l table:nth-of-type(1) tr"
-    ),
-    awayPenalties=(
-        "body div.d50l div.d25r table:nth-of-type(1) tr"
-    ),
-    homePenalties=(
-        "body div.d50r div.d25r table:nth-of-type(1) tr"
-    ),
-    awayShootout=(
-        "body div.d50l div.d25l table:nth-of-type(2) tr"
-    ),
-    homeShootout=(
-        "body div.d50r div.d25l table:nth-of-type(2) tr"
-    ),
+    homeScoring=("body div.d50r div.d25l table:nth-of-type(1) tr"),
+    awayPenalties=("body div.d50l div.d25r table:nth-of-type(1) tr"),
+    homePenalties=("body div.d50r div.d25r table:nth-of-type(1) tr"),
+    awayShootout=("body div.d50l div.d25l table:nth-of-type(2) tr"),
+    homeShootout=("body div.d50r div.d25l table:nth-of-type(2) tr"),
 )
 
 columns = dict(
@@ -302,16 +295,17 @@ def _first_table_with_team_column(soup) -> str | None:
     return None
 
 
-@util.cache_json("seasons_caha")
-def scrape_seasons():
+@util.cache_json("seasons_caha_{league_id}")
+def scrape_seasons(*, league_id: int = CAHA_LEAGUE):
     """Scrape season ids for CAHA youth.
 
     The CAHA site does not expose a season <select> on the main page.
     We discover season ids by scanning links for a `season=` query param
     and mark the max as Current. If none found, return only Current=0.
     """
+    league_id_i = int(league_id) if int(league_id) > 0 else int(CAHA_LEAGUE)
     soup = util.get_html(
-        MAIN_STATS_URL, params={"league": str(CAHA_LEAGUE), "stat_class": str(STAT_CLASS)}
+        MAIN_STATS_URL, params={"league": str(league_id_i), "stat_class": str(STAT_CLASS)}
     )
     season_ids: dict[str, int] = {}
     seasons: set[int] = set()
@@ -349,7 +343,7 @@ def _unique_division_links(soup) -> list[tuple[int, int, str]]:
     return results
 
 
-def scrape_season_divisions(season_id: int):
+def scrape_season_divisions(season_id: int, *, league_id: int = CAHA_LEAGUE):
     """Scrape divisions and teams for a season on CAHA youth.
 
     CAHA's display-league-stats pages often omit standings tables. Instead,
@@ -357,7 +351,8 @@ def scrape_season_divisions(season_id: int):
     linking to "Division Player Stats" for each (level, conf). We parse teams
     directly from that page, bounded within the same table section.
     """
-    params = {"league": str(CAHA_LEAGUE), "stat_class": str(STAT_CLASS)}
+    league_id_i = int(league_id) if int(league_id) > 0 else int(CAHA_LEAGUE)
+    params = {"league": str(league_id_i), "stat_class": str(STAT_CLASS)}
     if season_id and season_id > 0:
         params["season"] = str(season_id)
     soup = util.get_html(MAIN_STATS_URL, params=params)
@@ -458,13 +453,14 @@ def scrape_season_divisions(season_id: int):
     return divisions
 
 
-@util.cache_json("seasons/{season_id}/teams/{team_id}")
-def get_team(season_id: int, team_id: int, reload: bool = False):
+@util.cache_json("seasons/{season_id}/leagues/{league_id}/teams/{team_id}")
+def get_team(season_id: int, team_id: int, *, league_id: int = CAHA_LEAGUE, reload: bool = False):
     """Get team info (schedule and results) for CAHA youth.
 
     CAHA may not require a season param for current schedule; include when >0.
     """
-    params = {"team": int(team_id), "league": CAHA_LEAGUE, "stat_class": STAT_CLASS}
+    league_id_i = int(league_id) if int(league_id) > 0 else int(CAHA_LEAGUE)
+    params = {"team": int(team_id), "league": league_id_i, "stat_class": STAT_CLASS}
     if season_id and season_id > 0:
         params["season"] = int(season_id)
     info: dict[str, Any] = {}
@@ -534,13 +530,14 @@ def scrape_game_stats(game_id: int):
     return data
 
 
-def scrape_league_schedule(season_id: int) -> list[dict[str, Any]]:
+def scrape_league_schedule(season_id: int, *, league_id: int = CAHA_LEAGUE) -> list[dict[str, Any]]:
     """Scrape the CAHA league schedule page for a full season.
 
     This page contains all games (including results/scores when available) and links to the game id.
     Example: https://stats.caha.timetoscore.com/display-schedule.php?stat_class=1&league=3&season=31
     """
-    params = {"league": str(CAHA_LEAGUE), "stat_class": str(STAT_CLASS)}
+    league_id_i = int(league_id) if int(league_id) > 0 else int(CAHA_LEAGUE)
+    params = {"league": str(league_id_i), "stat_class": str(STAT_CLASS)}
     if season_id and season_id > 0:
         params["season"] = str(season_id)
     soup = util.get_html(TIMETOSCORE_URL + "display-schedule.php", params=params)
@@ -606,7 +603,7 @@ def scrape_league_schedule(season_id: int) -> list[dict[str, Any]]:
 
 
 def sync_seasons(db: Database):
-    seasons = scrape_seasons()
+    seasons = scrape_seasons(league_id=int(CAHA_LEAGUE))
     for name, season_id in seasons.items():
         db.add_season(season_id, name)
     if "Current" not in seasons:
@@ -718,7 +715,7 @@ def sync_season_teams(db: Database, season: int):
     game_ids: set[int] = set()
     for team in teams:
         logger.info("Syncing %s season %d...", team["name"], season)
-        team_info = get_team(season_id=season, team_id=team["team_id"])  # type: ignore[arg-type]
+        team_info = get_team(season_id=season, team_id=team["team_id"], league_id=int(CAHA_LEAGUE))  # type: ignore[arg-type]
         games = team_info.pop("games", [])
         for game in games:
             if game["id"] in game_ids:

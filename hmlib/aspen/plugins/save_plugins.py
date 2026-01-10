@@ -13,6 +13,7 @@ from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
 from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.tracking_utils.utils import get_track_mask
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 
 from .base import Plugin
 
@@ -538,13 +539,18 @@ class SaveCameraPlugin(SavePluginBase):
         enabled: bool = True,
         work_dir_key: str = "work_dir",
         output_filename: str = "camera.csv",
+        fast_output_filename: str = "camera_fast.csv",
+        save_fast: bool = True,
         write_interval: int = 100,
     ):
         super().__init__(enabled=enabled)
         self._work_dir_key = work_dir_key
         self._output_filename = output_filename
+        self._fast_output_filename = fast_output_filename
+        self._save_fast = bool(save_fast)
         self._write_interval = write_interval
         self._camera_dataframe: Optional[CameraTrackingDataFrame] = None
+        self._camera_fast_dataframe: Optional[CameraTrackingDataFrame] = None
 
     def _ensure_dataframe(self, context: Dict[str, Any]) -> Optional[CameraTrackingDataFrame]:
         if self._camera_dataframe is not None:
@@ -561,38 +567,88 @@ class SaveCameraPlugin(SavePluginBase):
         self._camera_dataframe.write_interval = self._write_interval
         return self._camera_dataframe
 
+    def _ensure_fast_dataframe(self, context: Dict[str, Any]) -> Optional[CameraTrackingDataFrame]:
+        if not self._save_fast:
+            return None
+        if self._camera_fast_dataframe is not None:
+            return self._camera_fast_dataframe
+        work_dir = _ctx_value(context, self._work_dir_key)
+        if not work_dir:
+            return None
+        os.makedirs(work_dir, exist_ok=True)
+        output_path = os.path.join(work_dir, self._fast_output_filename)
+        self._camera_fast_dataframe = CameraTrackingDataFrame(
+            output_file=output_path,
+            input_batch_size=1,
+        )
+        self._camera_fast_dataframe.write_interval = self._write_interval
+        return self._camera_fast_dataframe
+
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
 
         df = self._ensure_dataframe(context)
-        if df is None:
+        fast_df = self._ensure_fast_dataframe(context)
+        if df is None and fast_df is None:
             return {}
 
         frame_id0 = int(context.get("frame_id", -1))
         current_box = context.get("current_box")
-        if current_box is None:
-            return {"camera_dataframe": df}
+        current_fast_box = context.get("current_fast_box_list")
+
+        def _to_tlbr_array(box_obj: Any) -> Optional[np.ndarray]:
+            if box_obj is None:
+                return None
+            if isinstance(box_obj, StreamTensorBase):
+                try:
+                    box_obj = unwrap_tensor(box_obj)
+                except Exception:
+                    return None
+            try:
+                if hasattr(box_obj, "detach"):
+                    arr = box_obj.detach().cpu().numpy()
+                else:
+                    arr = np.asarray(box_obj)
+            except Exception:
+                return None
+            if arr.ndim == 1:
+                arr = arr.reshape(1, -1)
+            if arr.ndim != 2 or arr.shape[1] != 4:
+                return None
+            return arr.astype(np.float32, copy=False)
 
         try:
-            if hasattr(current_box, "detach"):
-                tlbr = current_box.detach().cpu().numpy()
-            else:
-                tlbr = np.asarray(current_box)
-            if tlbr.ndim == 1:
-                tlbr = tlbr.reshape(1, -1)
-            df.add_frame_records(frame_id=frame_id0, tlbr=tlbr)
+            tlbr = _to_tlbr_array(current_box)
+            if df is not None and tlbr is not None and frame_id0 >= 0:
+                for i in range(int(tlbr.shape[0])):
+                    df.add_frame_records(frame_id=frame_id0 + i, tlbr=tlbr[i : i + 1])
         except Exception:
             pass
 
-        return {"camera_dataframe": df}
+        try:
+            tlbr_fast = _to_tlbr_array(current_fast_box)
+            if fast_df is not None and tlbr_fast is not None and frame_id0 >= 0:
+                for i in range(int(tlbr_fast.shape[0])):
+                    fast_df.add_frame_records(frame_id=frame_id0 + i, tlbr=tlbr_fast[i : i + 1])
+        except Exception:
+            pass
+
+        out: Dict[str, Any] = {}
+        if df is not None:
+            out["camera_dataframe"] = df
+        if fast_df is not None:
+            out["camera_fast_dataframe"] = fast_df
+        return out
 
     def input_keys(self):
-        return {"frame_id", "current_box", "shared"}
+        return {"frame_id", "current_box", "current_fast_box_list", "shared"}
 
     def output_keys(self):
-        return {"camera_dataframe"}
+        return {"camera_dataframe", "camera_fast_dataframe"}
 
     def finalize(self):
         if self._camera_dataframe is not None:
             self._camera_dataframe.close()
+        if self._camera_fast_dataframe is not None:
+            self._camera_fast_dataframe.close()

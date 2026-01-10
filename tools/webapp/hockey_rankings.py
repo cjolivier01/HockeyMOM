@@ -33,7 +33,7 @@ def compute_mhr_like_ratings(
     *,
     games: list[GameScore],
     max_goal_diff: int = 7,
-    min_games_for_rating: int = 5,
+    min_games_for_rating: int = 4,
     damping: float = 0.85,
     max_iter: int = 2000,
     tol: float = 1e-8,
@@ -141,7 +141,9 @@ def compute_mhr_like_ratings(
     return out
 
 
-def scale_ratings_to_0_99_9(results: dict[int, dict[str, Any]], *, key: str = "rating") -> dict[int, dict[str, Any]]:
+def scale_ratings_to_0_99_9(
+    results: dict[int, dict[str, Any]], *, key: str = "rating"
+) -> dict[int, dict[str, Any]]:
     """
     Return a shallow-copied results dict with `key` shifted into a non-negative range
     with the top rated team being exactly 99.9.
@@ -450,7 +452,9 @@ def normalize_ratings_to_0_99_9_age_aware(
     return out
 
 
-def filter_games_ignore_cross_age(games: list[GameScore], *, team_age: dict[int, Optional[int]]) -> list[GameScore]:
+def filter_games_ignore_cross_age(
+    games: list[GameScore], *, team_age: dict[int, Optional[int]]
+) -> list[GameScore]:
     """
     Return only games where both teams have a known age and the ages match.
     This implements "ignore games that cross an age boundary" for rating computations.

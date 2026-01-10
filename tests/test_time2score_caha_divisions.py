@@ -37,7 +37,10 @@ def should_map_numeric_scorers_to_roster_names():
     from hmlib.time2score import normalize
 
     stats = {
-        "homePlayers": [{"number": "88", "position": "F", "name": "Alice"}, {"number": "76", "position": "D", "name": "Bob"}],
+        "homePlayers": [
+            {"number": "88", "position": "F", "name": "Alice"},
+            {"number": "76", "position": "D", "name": "Bob"},
+        ],
         "awayPlayers": [],
         "homeScoring": [{"goal": "88", "assist1": "76", "assist2": ""}],
         "awayScoring": [],
@@ -52,7 +55,8 @@ def should_parse_caha_league_schedule_rows_with_scores(monkeypatch):
     from hmlib.time2score import direct
     from hmlib.time2score import caha_lib
 
-    def fake_scrape_season_divisions(*, season_id: int):  # noqa: ARG001
+    def fake_scrape_season_divisions(*, season_id: int, league_id: int = 3):  # noqa: ARG001
+        del league_id
         return [
             {
                 "name": "12 A",
@@ -70,7 +74,7 @@ def should_parse_caha_league_schedule_rows_with_scores(monkeypatch):
                 "date": "Sun Aug 24",
                 "time": "8:45 AM",
                 "rink": "Stockton",
-                "league": "Norcal",
+                "league": "CAHA",
                 "level": "12U A",
                 "away": "Away Team",
                 "awayGoals": "1",

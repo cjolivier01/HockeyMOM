@@ -35,7 +35,7 @@ def client_and_models(monkeypatch, webapp_db):
     )
     m.League.objects.create(
         id=1,
-        name="Norcal",
+        name="CAHA",
         owner_user_id=int(owner.id),
         is_shared=False,
         is_public=False,
@@ -117,9 +117,15 @@ def client_and_models(monkeypatch, webapp_db):
         updated_at=None,
     )
 
-    m.LeagueGame.objects.create(league_id=1, game_id=int(g1001.id), division_name=None, sort_order=None)
-    m.LeagueGame.objects.create(league_id=1, game_id=int(g1002.id), division_name=None, sort_order=None)
-    m.LeagueGame.objects.create(league_id=2, game_id=int(g1002.id), division_name=None, sort_order=None)  # shared game
+    m.LeagueGame.objects.create(
+        league_id=1, game_id=int(g1001.id), division_name=None, sort_order=None
+    )
+    m.LeagueGame.objects.create(
+        league_id=1, game_id=int(g1002.id), division_name=None, sort_order=None
+    )
+    m.LeagueGame.objects.create(
+        league_id=2, game_id=int(g1002.id), division_name=None, sort_order=None
+    )  # shared game
 
     m.LeagueTeam.objects.create(league_id=1, team_id=int(t201.id))
     m.LeagueTeam.objects.create(league_id=1, team_id=int(t202.id))
@@ -147,8 +153,12 @@ def client_and_models(monkeypatch, webapp_db):
         created_at=now,
         updated_at=None,
     )
-    m.PlayerStat.objects.create(game_id=int(g1001.id), player_id=1, user_id=int(owner.id), team_id=int(t201.id))
-    m.PlayerStat.objects.create(game_id=int(g1002.id), player_id=2, user_id=int(owner.id), team_id=int(t202.id))
+    m.PlayerStat.objects.create(
+        game_id=int(g1001.id), player_id=1, user_id=int(owner.id), team_id=int(t201.id)
+    )
+    m.PlayerStat.objects.create(
+        game_id=int(g1002.id), player_id=2, user_id=int(owner.id), team_id=int(t202.id)
+    )
 
     return Client(), m
 
@@ -159,7 +169,11 @@ def _post_json(client, path: str, payload: dict, **extra):
 
 def should_require_import_auth_for_internal_reset_endpoint(client_and_models):
     client, _m = client_and_models
-    r = _post_json(client, "/api/internal/reset_league_data", {"owner_email": "cjolivier01@gmail.com", "league_name": "Norcal"})
+    r = _post_json(
+        client,
+        "/api/internal/reset_league_data",
+        {"owner_email": "cjolivier01@gmail.com", "league_name": "CAHA"},
+    )
     assert r.status_code == 401
 
 
@@ -168,7 +182,7 @@ def should_reset_league_data_via_hidden_api_and_preserve_shared_entities(client_
     r = _post_json(
         client,
         "/api/internal/reset_league_data",
-        {"owner_email": "cjolivier01@gmail.com", "league_name": "Norcal"},
+        {"owner_email": "cjolivier01@gmail.com", "league_name": "CAHA"},
         HTTP_X_HM_IMPORT_TOKEN="sekret",
     )
     assert r.status_code == 200

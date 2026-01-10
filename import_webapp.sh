@@ -4,7 +4,7 @@ set -euo pipefail
 WEBAPP_URL="${WEBAPP_URL:-http://127.0.0.1:8008}"
 WEB_ACCESS_KEY="${WEB_ACCESS_KEY:-}"
 SHIFT_FILE_LIST="${SHIFT_FILE_LIST:-}"
-LEAGUE_NAME="${LEAGUE_NAME:-Norcal}"
+LEAGUE_NAME="${LEAGUE_NAME:-CAHA}"
 DEPLOY_ONLY=0
 DROP_DB=0
 DROP_DB_ONLY=0
@@ -12,6 +12,9 @@ SPREADSHEETS_ONLY=0
 PARSE_ONLY=0
 T2S_SCRAPE=0
 NO_DEFAULT_USER=0
+REBUILD=0
+T2S_LEAGUES=(3 5 18)
+T2S_LEAGUES_SET=0
 
 GIT_USER_EMAIL="$(git config --get user.email 2>/dev/null || true)"
 GIT_USER_NAME="$(git config --get user.name 2>/dev/null || true)"
@@ -26,17 +29,39 @@ Environment:
   WEBAPP_URL        Webapp base URL (default: http://127.0.0.1:8008)
   WEB_ACCESS_KEY    Optional token args passed through to import scripts
   SHIFT_FILE_LIST   Shift spreadsheet file list (default: ~/RVideos/game_list_long.txt if present, else ~/Videos/game_list_long.txt)
-  LEAGUE_NAME       League name to import into (default: Norcal)
+  LEAGUE_NAME       League name to import into (default: CAHA)
 
 Options:
   --deploy-only     Only redeploy/restart the webapp and exit (no reset/import/upload)
   --drop-db         Drop (and recreate) the local webapp MariaDB database, then continue
   --drop-db-only    Drop (and recreate) the database, then exit (implies --drop-db)
   --no-default-user Skip auto-creating a default webapp user from git config (user.email/user.name)
+  --t2s-league ID   Only import these TimeToScore league ids (repeatable or comma-separated; default: 3,5,18)
+  --rebuild         Reset (delete) existing league hockey data before importing (destructive)
   --spreadsheets-only  Seed only from shift spreadsheets (skip TimeToScore import; avoids T2S usage in parse_stats_inputs)
   --parse-only      Only run scripts/parse_stats_inputs.py upload (skip reset + TimeToScore import); forces --webapp-replace
   --scrape          Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
 EOF
+}
+
+add_t2s_leagues() {
+  local raw="$1"
+  if [[ "${T2S_LEAGUES_SET}" == "0" ]]; then
+    T2S_LEAGUES=()
+    T2S_LEAGUES_SET=1
+  fi
+
+  local -a parts=()
+  IFS=',' read -ra parts <<<"${raw}"
+  local p
+  for p in "${parts[@]}"; do
+    p="${p//[[:space:]]/}"
+    if [[ -z "${p}" || ! "${p}" =~ ^[0-9]+$ ]]; then
+      echo "[!] Invalid --t2s-league value: ${raw}" >&2
+      exit 2
+    fi
+    T2S_LEAGUES+=( "${p}" )
+  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -45,6 +70,22 @@ while [[ $# -gt 0 ]]; do
     --drop-db) DROP_DB=1; shift ;;
     --drop-db-only) DROP_DB=1; DROP_DB_ONLY=1; shift ;;
     --no-default-user) NO_DEFAULT_USER=1; shift ;;
+    --rebuild) REBUILD=1; shift ;;
+    --t2s-league=*)
+      T2S_LEAGUE_RAW="${1#*=}"
+      shift
+      add_t2s_leagues "${T2S_LEAGUE_RAW}"
+      ;;
+    --t2s-league)
+      shift
+      if [[ $# -lt 1 ]]; then
+        echo "[!] --t2s-league requires an integer argument" >&2
+        exit 2
+      fi
+      T2S_LEAGUE_RAW="${1}"
+      shift
+      add_t2s_leagues "${T2S_LEAGUE_RAW}"
+      ;;
     --spreadsheets-only|--no-time2score|--no-t2s) SPREADSHEETS_ONLY=1; shift ;;
     --parse-only|--parse-stats-only|--spreadsheets-upload-only) PARSE_ONLY=1; shift ;;
     --scrape|--t2s-scrape) T2S_SCRAPE=1; shift ;;
@@ -134,8 +175,8 @@ PY
 #   export WEB_ACCESS_KEY="--import-token=...secret..."
 # (Local dev defaults typically do not require a token.)
 
-# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com
-# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com --division 6:0
+# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=CAHA --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com
+# ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name=CAHA --season 0 --config /opt/hm-webapp/app/config.json --user-email cjolivier01@gmail.com --division 6:0
 
 # PROJECT_ID="sage-courier-241217"
 # REDEPLOY_WEB="python3 tools/webapp/ops/redeploy_gcp.py --project ${PROJECT_ID} --zone us-central1-a --instance hm-webapp"
@@ -245,21 +286,53 @@ if ! curl -sS -m 30 -f -X POST "${HDRS[@]}" --data "${LEAGUE_OWNER_PAYLOAD}" "${
 fi
 
 if [[ "${PARSE_ONLY}" == "1" ]]; then
+  if [[ "${REBUILD}" == "1" ]]; then
+    echo "[!] --parse-only ignores --rebuild (reset requires re-importing TimeToScore games first)" >&2
+  fi
   echo "[i] --parse-only: skipping league reset and TimeToScore import"
 else
-  echo "[i] Resetting league data"
-  ./p tools/webapp/scripts/reset_league_data.py --force
+  if [[ "${REBUILD}" == "1" ]]; then
+    echo "[i] Resetting league data (REST)"
+    RESET_PAYLOAD="$(LEAGUE_NAME="${LEAGUE_NAME}" OWNER_EMAIL="${OWNER_EMAIL}" python3 - <<'PY'
+import json
+import os
+
+print(
+    json.dumps(
+        {
+            "league_name": os.environ.get("LEAGUE_NAME") or "",
+            "owner_email": os.environ.get("OWNER_EMAIL") or "",
+        }
+    )
+)
+PY
+)"
+    curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RESET_PAYLOAD}" "${WEBAPP_URL}/api/internal/reset_league_data" >/dev/null
+  else
+    echo "[i] Skipping league reset (incremental import). Use --rebuild to wipe existing league data."
+  fi
 
   if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
     echo "[i] --spreadsheets-only: skipping TimeToScore import"
   else
-    echo "[i] Importing TimeToScore (caha -> ${LEAGUE_NAME})"
-    # python3 tools/webapp/scripts/import_time2score.py --source=caha --league-name=Norcal --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
+    echo "[i] Importing TimeToScore (caha league=${T2S_LEAGUES[*]} -> ${LEAGUE_NAME})"
+    # python3 tools/webapp/scripts/import_time2score.py --source=caha --league-name=CAHA --season 0 --api-url "${WEBAPP_URL}" ${WEB_ACCESS_KEY} --user-email cjolivier01@gmail.com --division 6:0
     T2S_ARGS=()
     if [[ "${T2S_SCRAPE}" == "1" ]]; then
       T2S_ARGS+=( "--scrape" )
     fi
-    ./p tools/webapp/scripts/import_time2score.py --source=caha --league-name="${LEAGUE_NAME}" --season 0 --api-url "${WEBAPP_URL}" "${T2S_ARGS[@]}" ${WEB_ACCESS_KEY} --user-email "${OWNER_EMAIL}"
+    for T2S_LEAGUE_ID in "${T2S_LEAGUES[@]}"; do
+      echo "[i]   - CAHA TimeToScore league=${T2S_LEAGUE_ID}"
+      ./p tools/webapp/scripts/import_time2score.py \
+        --source=caha \
+        --t2s-league-id "${T2S_LEAGUE_ID}" \
+        --league-name="${LEAGUE_NAME}" \
+        --season 0 \
+        --api-url "${WEBAPP_URL}" \
+        "${T2S_ARGS[@]}" \
+        ${WEB_ACCESS_KEY} \
+        --user-email "${OWNER_EMAIL}"
+    done
   fi
 fi
 
@@ -319,7 +392,7 @@ import json
 
 import os
 
-print(json.dumps({"league_name": os.environ.get("LEAGUE_NAME") or "Norcal"}))
+print(json.dumps({"league_name": os.environ.get("LEAGUE_NAME") or "CAHA"}))
 PY
 )"
 curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RATINGS_PAYLOAD}" "${WEBAPP_URL}/api/internal/recalc_div_ratings" >/dev/null

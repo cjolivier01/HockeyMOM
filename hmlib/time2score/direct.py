@@ -38,9 +38,16 @@ def _module_for_source(source: str):
     raise ValueError(f"Unknown time2score source {source!r} (expected 'caha' or 'sharksice')")
 
 
-def list_seasons(source: str) -> dict[str, int]:
+def list_seasons(source: str, *, league_id: Optional[int] = None) -> dict[str, int]:
     mod = _module_for_source(source)
-    seasons = mod.scrape_seasons()
+    src = str(source or "").strip().lower()
+    if src == "caha":
+        league_id_i = (
+            int(league_id) if league_id is not None and int(league_id) > 0 else int(mod.CAHA_LEAGUE)
+        )
+        seasons = mod.scrape_seasons(league_id=league_id_i)
+    else:
+        seasons = mod.scrape_seasons()
     out: dict[str, int] = {}
     for k, v in (seasons or {}).items():
         try:
@@ -50,17 +57,26 @@ def list_seasons(source: str) -> dict[str, int]:
     return out
 
 
-def pick_current_season_id(source: str) -> int:
-    seasons = list_seasons(source)
+def pick_current_season_id(source: str, *, league_id: Optional[int] = None) -> int:
+    seasons = list_seasons(source, league_id=league_id)
     if "Current" in seasons and int(seasons["Current"]) > 0:
         return int(seasons["Current"])
     nonzero = [int(v) for v in seasons.values() if int(v) > 0]
     return max(nonzero) if nonzero else 0
 
 
-def list_divisions(source: str, *, season_id: int) -> list[Division]:
+def list_divisions(
+    source: str, *, season_id: int, league_id: Optional[int] = None
+) -> list[Division]:
     mod = _module_for_source(source)
-    divs = mod.scrape_season_divisions(season_id=int(season_id))
+    src = str(source or "").strip().lower()
+    if src == "caha":
+        league_id_i = (
+            int(league_id) if league_id is not None and int(league_id) > 0 else int(mod.CAHA_LEAGUE)
+        )
+        divs = mod.scrape_season_divisions(season_id=int(season_id), league_id=league_id_i)
+    else:
+        divs = mod.scrape_season_divisions(season_id=int(season_id))
     out: list[Division] = []
     for d in divs or []:
         try:
@@ -82,6 +98,7 @@ def iter_season_games(
     source: str,
     *,
     season_id: int,
+    league_id: Optional[int] = None,
     divisions: Optional[Iterable[tuple[int, int]]] = None,
     team_name_substrings: Optional[Iterable[str]] = None,
     progress_cb: Optional[Callable[[str], None]] = None,
@@ -107,7 +124,7 @@ def iter_season_games(
     team_filters = [_norm(x) for x in (team_name_substrings or []) if str(x or "").strip()]
 
     games_by_id: dict[int, dict[str, Any]] = {}
-    divs_list = list_divisions(source, season_id=int(season_id))
+    divs_list = list_divisions(source, season_id=int(season_id), league_id=league_id)
 
     # CAHA youth exposes a league-wide schedule page that includes scores and game ids.
     # Prefer it to avoid slow per-team traversal and to capture scores even when boxscore pages are missing.
@@ -129,7 +146,10 @@ def iter_season_games(
 
         total_rows = 0
         try:
-            schedule_rows = mod.scrape_league_schedule(season_id=int(season_id))  # type: ignore[attr-defined]
+            if league_id is not None:
+                schedule_rows = mod.scrape_league_schedule(season_id=int(season_id), league_id=int(league_id))  # type: ignore[attr-defined]
+            else:
+                schedule_rows = mod.scrape_league_schedule(season_id=int(season_id))  # type: ignore[attr-defined]
         except Exception:
             schedule_rows = []
         total_rows = len(schedule_rows)
@@ -240,7 +260,15 @@ def iter_season_games(
                 elif heartbeat_seconds > 0 and (now - last_beat) >= float(heartbeat_seconds):
                     progress_cb(f"Discovered schedules: {processed_teams}/{total_teams} teams...")
                     last_beat = now
-            info = mod.get_team(season_id=int(season_id), team_id=tid_i)
+            if str(source or "").strip().lower() == "caha":
+                league_id_i = (
+                    int(league_id)
+                    if league_id is not None and int(league_id) > 0
+                    else int(mod.CAHA_LEAGUE)
+                )
+                info = mod.get_team(season_id=int(season_id), team_id=tid_i, league_id=league_id_i)
+            else:
+                info = mod.get_team(season_id=int(season_id), team_id=tid_i)
             for g in list((info or {}).get("games") or []):
                 try:
                     gid = int(g.get("id"))
@@ -256,7 +284,17 @@ def iter_season_games(
                 existing = games_by_id.get(gid) or {}
                 # Prefer non-empty names / start_time / rink.
                 merged = dict(existing)
-                for k2 in ("home", "away", "start_time", "rink", "league", "level", "type", "homeGoals", "awayGoals"):
+                for k2 in (
+                    "home",
+                    "away",
+                    "start_time",
+                    "rink",
+                    "league",
+                    "level",
+                    "type",
+                    "homeGoals",
+                    "awayGoals",
+                ):
                     v2 = g.get(k2)
                     if merged.get(k2) in ("", None) and v2 not in ("", None):
                         merged[k2] = v2
@@ -267,14 +305,20 @@ def iter_season_games(
     return games_by_id
 
 
-def scrape_game_stats(source: str, *, game_id: int, season_id: Optional[int] = None) -> dict[str, Any]:
+def scrape_game_stats(
+    source: str, *, game_id: int, season_id: Optional[int] = None
+) -> dict[str, Any]:
     mod = _module_for_source(source)
     if source.strip().lower() in ("sharksice", "sharks_ice", "siahl"):
-        return mod.scrape_game_stats(int(game_id), season_id=int(season_id) if season_id is not None else None)
+        return mod.scrape_game_stats(
+            int(game_id), season_id=int(season_id) if season_id is not None else None
+        )
     return mod.scrape_game_stats(int(game_id))
 
 
-def scrape_team_logo_url(source: str, *, season_id: int, team_id: int) -> Optional[str]:
+def scrape_team_logo_url(
+    source: str, *, season_id: int, team_id: int, league_id: Optional[int] = None
+) -> Optional[str]:
     """Best-effort scrape of the team logo URL from the team schedule page."""
     mod = _module_for_source(source)
     # Import here to avoid cycles; util already depends on requests/bs4.
@@ -283,7 +327,14 @@ def scrape_team_logo_url(source: str, *, season_id: int, team_id: int) -> Option
     params: dict[str, str] = {}
     src = str(source or "").strip().lower()
     if src == "caha":
-        params = {"team": str(int(team_id)), "league": str(mod.CAHA_LEAGUE), "stat_class": str(mod.STAT_CLASS)}
+        league_id_i = (
+            int(league_id) if league_id is not None and int(league_id) > 0 else int(mod.CAHA_LEAGUE)
+        )
+        params = {
+            "team": str(int(team_id)),
+            "league": str(league_id_i),
+            "stat_class": str(mod.STAT_CLASS),
+        }
         if int(season_id) > 0:
             params["season"] = str(int(season_id))
     else:
@@ -311,7 +362,11 @@ def scrape_team_logo_url(source: str, *, season_id: int, team_id: int) -> Option
     def _score(u: str) -> tuple[int, int]:
         ul = u.lower()
         has_logo = 1 if ("logo" in ul or "/logos/" in ul or "/logo/" in ul) else 0
-        looks_img = 1 if any(ul.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")) else 0
+        looks_img = (
+            1
+            if any(ul.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"))
+            else 0
+        )
         return (has_logo, looks_img)
 
     # Prefer explicit logo-like URLs; otherwise if there's a single image on the page (common on CAHA),

@@ -90,7 +90,9 @@ def _resolve_league(m, *, league_id: Optional[int], league_name: Optional[str]) 
     return int(row[0]), str(row[1])
 
 
-def _team_ref_counts_after_game_delete(m, team_ids: list[int], delete_game_ids: list[int]) -> dict[int, int]:
+def _team_ref_counts_after_game_delete(
+    m, team_ids: list[int], delete_game_ids: list[int]
+) -> dict[int, int]:
     if not team_ids:
         return {}
     counts: dict[int, int] = {int(t): 0 for t in team_ids}
@@ -113,18 +115,30 @@ def _team_ref_counts_after_game_delete(m, team_ids: list[int], delete_game_ids: 
 def plan_purge(m, *, league_id: Optional[int], league_name: Optional[str]) -> PurgePlan:
     lid, lname = _resolve_league(m, league_id=league_id, league_name=league_name)
 
-    league_game_ids = list(m.LeagueGame.objects.filter(league_id=lid).values_list("game_id", flat=True))
+    league_game_ids = list(
+        m.LeagueGame.objects.filter(league_id=lid).values_list("game_id", flat=True)
+    )
     shared_game_ids = set(
-        m.LeagueGame.objects.exclude(league_id=lid).filter(game_id__in=league_game_ids).values_list("game_id", flat=True)
+        m.LeagueGame.objects.exclude(league_id=lid)
+        .filter(game_id__in=league_game_ids)
+        .values_list("game_id", flat=True)
     )
-    delete_game_ids = sorted({int(g) for g in league_game_ids if g is not None and g not in shared_game_ids})
+    delete_game_ids = sorted(
+        {int(g) for g in league_game_ids if g is not None and g not in shared_game_ids}
+    )
 
-    league_team_ids = list(m.LeagueTeam.objects.filter(league_id=lid).values_list("team_id", flat=True))
+    league_team_ids = list(
+        m.LeagueTeam.objects.filter(league_id=lid).values_list("team_id", flat=True)
+    )
     shared_team_ids = set(
-        m.LeagueTeam.objects.exclude(league_id=lid).filter(team_id__in=league_team_ids).values_list("team_id", flat=True)
+        m.LeagueTeam.objects.exclude(league_id=lid)
+        .filter(team_id__in=league_team_ids)
+        .values_list("team_id", flat=True)
     )
 
-    ref_counts = _team_ref_counts_after_game_delete(m, [int(t) for t in league_team_ids if t is not None], delete_game_ids)
+    ref_counts = _team_ref_counts_after_game_delete(
+        m, [int(t) for t in league_team_ids if t is not None], delete_game_ids
+    )
     return compute_purge_plan(
         league_id=lid,
         league_name=lname,
@@ -170,10 +184,14 @@ def apply_purge(m, plan: PurgePlan) -> dict:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="Delete a league and associated hockey data from the server DB")
-    ap.add_argument("--config", default="/opt/hm-webapp/app/config.json", help="Webapp config.json with DB cfg")
+    ap = argparse.ArgumentParser(
+        description="Delete a league and associated hockey data from the server DB"
+    )
+    ap.add_argument(
+        "--config", default="/opt/hm-webapp/app/config.json", help="Webapp config.json with DB cfg"
+    )
     ap.add_argument("--league-id", type=int, default=None, help="League id to delete")
-    ap.add_argument("--league-name", default=None, help="League name to delete (e.g. Norcal)")
+    ap.add_argument("--league-name", default=None, help="League name to delete (e.g. CAHA)")
     ap.add_argument("--dry-run", action="store_true", help="Print what would be deleted, then exit")
     ap.add_argument("--force", action="store_true", help="Do not prompt for confirmation")
     args = ap.parse_args(argv)

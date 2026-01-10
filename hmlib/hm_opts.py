@@ -225,6 +225,17 @@ class hm_opts(object):
             action="store_true",
             help="Skip copying audio to the rendered video",
         )
+        io.add_argument(
+            "--deploy-dir",
+            dest="deploy_dir",
+            type=str,
+            default=None,
+            help=(
+                "Optional directory to deploy output artifacts (video/CSVs) to on completion. "
+                "Full runs default to deploying into the game directory when this is omitted; "
+                "short -t runs only deploy when --deploy-dir is set."
+            ),
+        )
         # Feature caching flags moved to their own group
         io.add_argument(
             "--save-camera-data",
@@ -390,15 +401,18 @@ class hm_opts(object):
         cam_ctrl.add_argument(
             "--camera-controller",
             type=str,
-            choices=["rule", "transformer"],
+            choices=["rule", "transformer", "gpt"],
             default="rule",
-            help="Select camera controller: rule-based PlayTracker or transformer model",
+            help="Select camera controller: rule-based PlayTracker, transformer, or GPT model",
         )
         cam_ctrl.add_argument(
             "--camera-model",
             type=str,
             default=None,
-            help="Path to transformer camera model checkpoint (.pt) produced by camtrain.py",
+            help=(
+                "Path to camera model checkpoint (.pt) produced by camtrain.py "
+                "(transformer) or camgpt_train.py (gpt)"
+            ),
         )
         cam_ctrl.add_argument(
             "--camera-window",
@@ -1457,6 +1471,44 @@ class hm_opts(object):
                 cfg_val = get_nested_value(game_cfg, "rink.tracking.cam_ignore_largest", None)
                 if cfg_val is not None and not _cli_spec("cam_ignore_largest"):
                     opt.cam_ignore_largest = bool(cfg_val)
+            except Exception:
+                pass
+
+            # Camera controller/model/window: only override YAML when explicitly specified on CLI.
+            try:
+                if hasattr(opt, "camera_controller") and (
+                    _cli_spec("camera_controller")
+                    or get_nested_value(game_cfg, "rink.camera.controller", None) is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.controller",
+                        str(getattr(opt, "camera_controller")),
+                    )
+            except Exception:
+                pass
+            try:
+                if hasattr(opt, "camera_model") and (
+                    _cli_spec("camera_model")
+                    or get_nested_value(game_cfg, "rink.camera.camera_model", None) is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.camera_model",
+                        getattr(opt, "camera_model"),
+                    )
+            except Exception:
+                pass
+            try:
+                if hasattr(opt, "camera_window") and (
+                    _cli_spec("camera_window")
+                    or get_nested_value(game_cfg, "rink.camera.camera_window", None) is None
+                ):
+                    set_nested_value(
+                        game_cfg,
+                        "rink.camera.camera_window",
+                        int(getattr(opt, "camera_window")),
+                    )
             except Exception:
                 pass
 
