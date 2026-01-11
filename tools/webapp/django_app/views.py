@@ -712,8 +712,10 @@ def _load_game_events_for_display(
                     create_missing_players=False,
                 )
             except Exception:
+                # Best-effort: ignore legacy CSV backfill failures so UI still renders.
                 pass
     except Exception:
+        # Best-effort: keep UI working even if DB tables/queries are unavailable.
         pass
 
     headers, rows, meta = _from_db()
@@ -734,6 +736,7 @@ def _load_game_events_for_display(
                 },
             )
     except Exception:
+        # Best-effort: keep UI working even if legacy CSV parsing fails.
         pass
     return [], [], None
 
@@ -923,6 +926,7 @@ def _overlay_game_player_stats_from_event_rows(
             stats_by_pid[pid]["ga_counted"] = int(ga)
             stats_by_pid[pid]["plus_minus"] = int(gf) - int(ga)
     except Exception:
+        # Best-effort: this overlay is optional and should not break page rendering.
         pass
 
 
@@ -3327,6 +3331,7 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
                 game_id=int(game_id), stats_by_pid=stats_by_pid
             )
         except Exception:
+            # Best-effort: event-derived overlays are optional and should not break page rendering.
             pass
 
     game_stats = None
@@ -4950,6 +4955,7 @@ def public_hky_game_detail(
     try:
         _overlay_game_player_stats_from_event_rows(game_id=int(game_id), stats_by_pid=stats_by_pid)
     except Exception:
+        # Best-effort: event-derived overlays are optional and should not break page rendering.
         pass
 
     game_stats = None
@@ -4969,6 +4975,7 @@ def public_hky_game_detail(
     try:
         events_headers, events_rows = logic.normalize_game_events_csv(events_headers, events_rows)
     except Exception:
+        # Best-effort: keep UI working even if legacy CSV normalization fails.
         pass
     events_rows = logic.filter_events_rows_prefer_timetoscore_for_goal_assist(
         events_rows, tts_linked=tts_linked
@@ -4982,6 +4989,7 @@ def public_hky_game_detail(
         )
         events_rows = logic.sort_events_rows_default(events_rows)
     except Exception:
+        # Best-effort: keep UI working even if video-time normalization fails.
         pass
     if events_meta is not None:
         try:
@@ -4990,6 +4998,7 @@ def public_hky_game_detail(
                 events_rows, fallback_source_label=str(events_meta.get("source_label") or "")
             )
         except Exception:
+            # Best-effort: event source summary is optional and should not break page rendering.
             pass
 
     scoring_by_period_rows = logic.compute_team_scoring_by_period_from_events(
@@ -6592,6 +6601,7 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                             create_missing_players=False,
                         )
                     except Exception:
+                        # Best-effort: keep the import working even if event-row upsert fails.
                         pass
                 else:
                     existing_ev = (
@@ -6614,6 +6624,7 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                                 create_missing_players=False,
                             )
                         except Exception:
+                            # Best-effort: keep the import working even if event-row upsert fails.
                             pass
                     else:
                         merged_csv, merged_source = logic.merge_events_csv_prefer_timetoscore(
@@ -6645,6 +6656,7 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                                 create_missing_players=False,
                             )
                         except Exception:
+                            # Best-effort: keep the import working even if event-row upsert fails.
                             pass
 
             if isinstance(game_stats_json, dict) and game_stats_json:
@@ -7284,6 +7296,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                                     events_csv=merged_csv, updated_at=now
                                 )
                             except Exception:
+                                # Best-effort: keep the import working even if merge persistence fails.
                                 pass
 
                 # Persist per-event rows (normalized DB table) from the stored/merged CSV.
@@ -7301,6 +7314,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                             create_missing_players=bool(create_missing_players),
                         )
                 except Exception:
+                    # Best-effort: keep the import working even if event-row upsert fails.
                     pass
 
             if isinstance(game_stats_csv, str) and game_stats_csv.strip():
