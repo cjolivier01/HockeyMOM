@@ -56,6 +56,10 @@ cc_library(
     ],
     include_prefix = INCLUDE_PREFIX,
     visibility = ["//visibility:public"],
+    defines = [
+        # Match the ABI used by the vendored PyTorch wheels.
+        "_GLIBCXX_USE_CXX11_ABI=0",
+    ],
     deps = [
         "@eigen",
     ],

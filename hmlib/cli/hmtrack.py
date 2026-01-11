@@ -21,7 +21,6 @@ from mmcv.transforms import Compose
 import hmlib
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
-from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.config import (
     get_clip_box,
@@ -59,6 +58,14 @@ def make_parser(parser: argparse.ArgumentParser = None):
     if parser is None:
         parser = argparse.ArgumentParser("HockeyMOM Tracking")
     parser = hm_opts.parser(parser)
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help=(
+            "Validate that key dependencies can be imported and that the game directory can be "
+            "resolved, then exit (does not require a working CUDA runtime)."
+        ),
+    )
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
@@ -286,7 +293,9 @@ class _StitchRotationController:
             try:
                 val = get_nested_value(self._config, "game.stitching.stitch-rotate-degrees", None)
                 if val is None:
-                    val = get_nested_value(self._config, "game.stitching.stitch_rotate_degrees", None)
+                    val = get_nested_value(
+                        self._config, "game.stitching.stitch_rotate_degrees", None
+                    )
                 if val is not None:
                     return float(val)
             except Exception:
@@ -307,6 +316,7 @@ class _StitchRotationController:
 
 def _main(args, num_gpu):
     dataloader = None
+    postprocessor = None
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
 
@@ -384,9 +394,9 @@ def _main(args, num_gpu):
         except Exception:
             args.game_dir = None
 
-        tracking_data_path = getattr(args, "input_tracking_data", None) or find_latest_dataframe_file(
-            args.game_dir, "tracking"
-        )
+        tracking_data_path = getattr(
+            args, "input_tracking_data", None
+        ) or find_latest_dataframe_file(args.game_dir, "tracking")
         detection_data_path = getattr(
             args, "input_detection_data", None
         ) or find_latest_dataframe_file(args.game_dir, "detections")
@@ -604,7 +614,12 @@ def _main(args, num_gpu):
                         "tracker",
                         {
                             "class": "hmlib.aspen.plugins.tracker_plugin.TrackerPlugin",
-                            "depends": ["detector", "ice_boundaries", "model_factory", "boundaries"],
+                            "depends": [
+                                "detector",
+                                "ice_boundaries",
+                                "model_factory",
+                                "boundaries",
+                            ],
                             "params": {},
                         },
                     )
@@ -679,9 +694,11 @@ def _main(args, num_gpu):
             # For Aspen-built model, boundaries will be applied by BoundariesPlugin.
             # Put boundary inputs into config dict so run_mmtrack can pass to Aspen shared.
             # Recompute tuned boundary lines from game_config (legacy behavior of DefaultArguments).
-            game_bound_cfg = game_config.get("game", {}).get("boundaries", {}) if isinstance(
-                game_config, dict
-            ) else {}
+            game_bound_cfg = (
+                game_config.get("game", {}).get("boundaries", {})
+                if isinstance(game_config, dict)
+                else {}
+            )
             top_border_lines = game_bound_cfg.get("upper", []) or []
             bottom_border_lines = game_bound_cfg.get("lower", []) or []
             upper_tune_position = game_bound_cfg.get("upper_tune_position", []) or []
@@ -789,6 +806,7 @@ def _main(args, num_gpu):
                         "frame_offset": rfo,
                     },
                 }
+
                 def _set_runtime_arg(name: str, value: Any) -> None:
                     setattr(args, name, value)
                     if hasattr(args, "initial_args") and isinstance(args.initial_args, dict):
@@ -1061,8 +1079,11 @@ def _main(args, num_gpu):
         dest_path = None
         is_truncated_run = bool(args.max_time or args.max_frames)
 
-        if (not is_truncated_run) and (not args.no_audio) and output_video_path and os.path.exists(
-            output_video_path
+        if (
+            (not is_truncated_run)
+            and (not args.no_audio)
+            and output_video_path
+            and os.path.exists(output_video_path)
         ):
             try:
                 output_av_path = args.output_video
@@ -1105,7 +1126,9 @@ def _main(args, num_gpu):
         if deploy_dir:
             target_deploy_dir = deploy_dir
         elif not is_truncated_run:
-            target_deploy_dir = args.game_dir if args.game_dir and os.path.isdir(args.game_dir) else None
+            target_deploy_dir = (
+                args.game_dir if args.game_dir and os.path.isdir(args.game_dir) else None
+            )
 
         if target_deploy_dir:
             os.makedirs(target_deploy_dir, exist_ok=True)
@@ -1153,7 +1176,9 @@ def _main(args, num_gpu):
             suffix_num = extract_suffix_num(dest_path)
             if suffix_num is not None and csv_names:
                 for name in csv_names:
-                    if os.path.exists(os.path.join(target_deploy_dir, with_index(name, suffix_num))):
+                    if os.path.exists(
+                        os.path.join(target_deploy_dir, with_index(name, suffix_num))
+                    ):
                         suffix_num = None
                         break
             if suffix_num is None and csv_names:
@@ -1258,6 +1283,26 @@ def main():
     args.game_config = game_config
 
     args = configure_model(config=args.game_config, args=args)
+
+    if getattr(args, "smoke_test", False):
+        game_dir = None
+        if getattr(args, "game_id", None):
+            try:
+                game_dir = get_game_dir(args.game_id, assert_exists=False)
+            except Exception:
+                game_dir = None
+
+        # Validate imports for the pieces hmtrack expects to have available.
+        import mmengine  # noqa: F401
+        import mmcv  # noqa: F401
+        import mmdet  # noqa: F401
+        import mmpose  # noqa: F401
+        import mmyolo  # noqa: F401
+        import lightglue  # noqa: F401
+        import hockeymom._hockeymom  # noqa: F401
+
+        print(f"Smoke test OK. game_id={getattr(args, 'game_id', None)} game_dir={game_dir}")
+        return 0
 
     if args.game_id:
         num_gpus = 1

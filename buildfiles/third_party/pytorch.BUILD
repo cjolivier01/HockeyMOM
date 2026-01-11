@@ -15,6 +15,11 @@ cc_library(
     name = "libtorch",
     srcs = [":libtorch_so_files"],
     hdrs = glob(["include/**/*.h*"]),
+    defines = [
+        # Must match `torch._C._GLIBCXX_USE_CXX11_ABI` for the installed torch.
+        # PyTorch wheels are commonly built with the old ABI (0).
+        "_GLIBCXX_USE_CXX11_ABI=0",
+    ],
     includes = [
         "include",
         "include/torch/csrc/api/include",
@@ -38,6 +43,9 @@ filegroup(
 cc_library(
     name = "libtorch_python",
     srcs = ["lib/libtorch_python.so"],
+    defines = [
+        "_GLIBCXX_USE_CXX11_ABI=0",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         ":libtorch",

@@ -33,6 +33,23 @@ def _docker_env() -> dict[str, str]:
     return env
 
 
+def _has_nvidia_gpu() -> bool:
+    # Best-effort: if /dev/nvidiactl exists, NVIDIA driver is loaded.
+    if Path("/dev/nvidiactl").exists():
+        return True
+    # Fallback: nvidia-smi should succeed if a usable NVIDIA GPU/driver is present.
+    try:
+        subprocess.run(
+            ["nvidia-smi", "-L"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+        return True
+    except Exception:
+        return False
+
+
 def _docker_bridge_interface_exists() -> bool:
     # Docker's default bridge network typically uses an interface named "docker0".
     # If that interface is missing, `docker run`/`docker build` with bridge networking
@@ -40,7 +57,15 @@ def _docker_bridge_interface_exists() -> bool:
     return Path("/sys/class/net/docker0").exists()
 
 
-def _default_network() -> str:
+def _default_build_network() -> str:
+    # For `docker build` (BuildKit), valid network modes include: default, host, none.
+    # "bridge" is a `docker run` network mode and fails with:
+    #   network mode "bridge" not supported by buildkit
+    return "default" if _docker_bridge_interface_exists() else "host"
+
+
+def _default_run_network() -> str:
+    # For `docker run`, "bridge" is the typical default network.
     return "bridge" if _docker_bridge_interface_exists() else "host"
 
 
@@ -48,11 +73,15 @@ def cmd_build(args: argparse.Namespace) -> None:
     repo_root = _repo_root()
     tag = args.tag or _read_default_tag(repo_root)
 
+    network = args.network
+    if network == "bridge":
+        network = "default"
+
     build_cmd = [
         "docker",
         "build",
         "--network",
-        args.network,
+        network,
         "-f",
         str(repo_root / "env" / "Dockerfile"),
         "-t",
@@ -82,18 +111,31 @@ def cmd_run(args: argparse.Namespace) -> None:
     repo_root = _repo_root()
     tag = args.tag or _read_default_tag(repo_root)
 
-    docker_cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "-it",
-        "--gpus",
-        "all",
-        "--network",
-        args.network,
-        "--shm-size",
-        args.shm_size,
-    ]
+    network = args.network
+    if network == "default":
+        network = "bridge"
+
+    docker_cmd = ["docker", "run", "--rm", "-i"]
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        docker_cmd.append("-t")
+    docker_cmd += ["--network", network, "--shm-size", args.shm_size]
+
+    gpus: str | None
+    if args.gpus == "auto":
+        gpus = "all" if _has_nvidia_gpu() else None
+        if gpus is None:
+            print(
+                "NOTE: No NVIDIA GPU/driver detected on the host; running without Docker GPU flags. "
+                "Use --gpus=all to force.",
+                file=sys.stderr,
+            )
+    elif args.gpus in ("none", ""):
+        gpus = None
+    else:
+        gpus = args.gpus
+
+    if gpus is not None:
+        docker_cmd += ["--gpus", gpus]
 
     if args.name:
         docker_cmd += ["--name", args.name]
@@ -108,6 +150,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         docker_cmd += ["-e", "PYTHONPATH=/workspace/hm:/workspace/hm/src"]
 
     cmd = args.command if args.command else ["bash"]
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
     docker_cmd.append(tag)
     docker_cmd += cmd
 
@@ -117,7 +161,16 @@ def cmd_run(args: argparse.Namespace) -> None:
 def main(argv: list[str]) -> int:
     repo_root = _repo_root()
     default_tag = _read_default_tag(repo_root)
-    default_network = _default_network()
+    default_build_network = _default_build_network()
+    default_run_network = _default_run_network()
+
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--tag", default=default_tag, help=f"Docker tag (default: {default_tag})")
+    common.add_argument(
+        "--username", default=os.environ.get("USER", "hm"), help="Username in image"
+    )
+    common.add_argument("--uid", type=int, default=os.getuid(), help="UID for user in image")
+    common.add_argument("--gid", type=int, default=os.getgid(), help="GID for user in image")
 
     parser = argparse.ArgumentParser(
         prog="hm_cuda_container.py",
@@ -125,20 +178,15 @@ def main(argv: list[str]) -> int:
             "Build and run a CUDA Docker image with HockeyMOM fully installed (Bazel-built wheels). "
             "By default, only $HOME/Videos is mounted into the container."
         ),
+        parents=[common],
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
-
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--tag", default=default_tag, help=f"Docker tag (default: {default_tag})")
-    common.add_argument("--username", default=os.environ.get("USER", "hm"), help="Username in image")
-    common.add_argument("--uid", type=int, default=os.getuid(), help="UID for user in image")
-    common.add_argument("--gid", type=int, default=os.getgid(), help="GID for user in image")
 
     build = subparsers.add_parser("build", parents=[common], help="Build the CUDA image")
     build.add_argument(
         "--network",
-        default=default_network,
-        help=f"Docker networking mode for build containers (default: {default_network})",
+        default=default_build_network,
+        help=f"Docker networking mode for build containers (default: {default_build_network})",
     )
     build.add_argument(
         "--cuda-base",
@@ -151,13 +199,27 @@ def main(argv: list[str]) -> int:
     build.add_argument("--torchaudio-version", default="2.4.1")
     build.set_defaults(func=cmd_build)
 
-    run = subparsers.add_parser("run", parents=[common], help="Run the CUDA container with GPU access")
+    run = subparsers.add_parser(
+        "run", parents=[common], help="Run the CUDA container with GPU access"
+    )
     run.add_argument(
         "--network",
-        default=default_network,
-        help=f"Docker networking mode for the container (default: {default_network})",
+        default=default_run_network,
+        help=f"Docker networking mode for the container (default: {default_run_network})",
     )
     run.add_argument("--name", default=None, help="Optional container name")
+    run.add_argument(
+        "--gpus",
+        default="auto",
+        help='Docker --gpus value (default: auto; use "none" to disable)',
+    )
+    run.add_argument(
+        "--no-gpus",
+        dest="gpus",
+        action="store_const",
+        const="none",
+        help="Disable GPU access (omit --gpus)",
+    )
     run.add_argument(
         "--videos-mount",
         default=str(Path.home() / "Videos"),

@@ -84,6 +84,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libxcb1-dev \
   libxcb-shm0-dev \
   libxcb-xfixes0-dev \
+  libopencv-dev \
+  libgstreamer1.0-dev \
+  libgstreamer-plugins-base1.0-dev \
+  libgstrtspserver-1.0-dev \
+  libsoup2.4-dev \
+  libjson-glib-dev \
+  libnvinfer-dev \
   texinfo \
   zlib1g-dev \
   libavformat-dev \
@@ -93,6 +100,44 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libswscale-dev \
   libswresample-dev \
   && rm -rf /var/lib/apt/lists/*
+
+####################################################################
+#
+# Build OpenCV (old C++11 ABI) for Torch extensions
+#
+####################################################################
+# PyTorch wheels are built with `_GLIBCXX_USE_CXX11_ABI=0`, and our native
+# extensions link against OpenCV. Build an ABI-compatible OpenCV into /usr/local.
+WORKDIR /tmp
+RUN git clone https://github.com/opencv/opencv.git \
+  && cd opencv \
+  && git checkout 4.6.0 \
+  && mkdir -p build \
+  && cd build \
+  && cmake -DCMAKE_BUILD_TYPE=Release \
+           -DCMAKE_INSTALL_PREFIX=/usr/local \
+           -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0" \
+           -DBUILD_SHARED_LIBS=ON \
+           -DBUILD_LIST=core,calib3d,features2d,highgui,imgcodecs,imgproc,video,videoio \
+           -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
+           -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF \
+           -DBUILD_JAVA=OFF \
+           -DWITH_CUDA=OFF \
+           -DWITH_QT=OFF \
+           -DWITH_OPENGL=OFF \
+           .. \
+  && make -j"$(nproc)" \
+  && make -j"$(nproc)" install \
+  && ldconfig \
+  # Ensure linkers/runtime resolve to our ABI-compatible OpenCV in /usr/local
+  # (the distro `libopencv-dev` also provides unversioned `libopencv_*.so` in /lib).
+  && for lib in core calib3d features2d highgui imgcodecs imgproc video videoio; do \
+       ln -sf "/usr/local/lib/libopencv_${lib}.so" "/lib/x86_64-linux-gnu/libopencv_${lib}.so"; \
+       ln -sf "/usr/local/lib/libopencv_${lib}.so" "/usr/lib/x86_64-linux-gnu/libopencv_${lib}.so"; \
+     done \
+  && ldconfig \
+  && cd /tmp \
+  && rm -rf opencv
 
 ####################################################################
 #
@@ -131,7 +176,9 @@ RUN wget -O /tmp/miniforge.sh \
 
 ENV CONDA_PREFIX=${CONDA_DIR}/envs/hm
 ENV PATH=${CONDA_PREFIX}/bin:${CONDA_DIR}/bin:$PATH
-ENV LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}
+# Avoid putting the conda environment first in `LD_LIBRARY_PATH`: it can break
+# system tools (e.g. git) by forcing them to load conda's OpenSSL.
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/compat:/usr/local/nvidia/lib64:/usr/local/nvidia/lib
 
 RUN pip install --no-cache-dir -U pip setuptools wheel
 
@@ -151,7 +198,7 @@ RUN curl -fsSL -o /usr/local/bin/bazelisk \
 #
 ####################################################################
 WORKDIR /tmp
-RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git \
+RUN git clone https://github.com/FFmpeg/nv-codec-headers.git \
   && cd nv-codec-headers \
   && git checkout n11.1.5.3 \
   && make -j"$(nproc)" install \
@@ -205,7 +252,7 @@ RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg \
 
 ####################################################################
 #
-# Build VIGRA (patched) for Hugin
+# Build VIGRA for Enblend/Hugin
 #
 ####################################################################
 WORKDIR /tmp
@@ -214,9 +261,10 @@ RUN git clone https://github.com/cjolivier01/vigra \
   && git checkout colivier/hm \
   && mkdir -p build \
   && cd build \
-  && ../cfig \
+  && cmake -DCMAKE_BUILD_TYPE=Release -DWITH_OPENEXR=ON -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu .. \
   && make -j"$(nproc)" \
   && make -j"$(nproc)" install \
+  && ldconfig \
   && cd /tmp \
   && rm -rf vigra
 
@@ -256,13 +304,75 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Build + install native tools and wheels
 #
 ####################################################################
-RUN cd /opt/hm/src/hm/external/hugin \
-  && bazelisk run //:install_tree -- --prefix=/usr/local
+# Build only the Hugin CLI tools used by HockeyMOM.
+# The upstream CMake install rules assume a full build, so we build the
+# needed targets and manually install the resulting binaries + huginbase.
+RUN set -eux; \
+  HUGIN_BUILD_DIR="/tmp/hugin_cli_build"; \
+  rm -rf "${HUGIN_BUILD_DIR}"; \
+  cmake -S /opt/hm/src/hm/external/hugin -B "${HUGIN_BUILD_DIR}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DDISABLE_DPKG=ON \
+    -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON; \
+  cmake --build "${HUGIN_BUILD_DIR}" -- -j"$(nproc)" pto_gen autooptimiser nona; \
+  install -m 0755 "${HUGIN_BUILD_DIR}/src/tools/pto_gen" /usr/local/bin/pto_gen; \
+  install -m 0755 "${HUGIN_BUILD_DIR}/src/tools/autooptimiser" /usr/local/bin/autooptimiser; \
+  install -m 0755 "${HUGIN_BUILD_DIR}/src/tools/nona" /usr/local/bin/nona; \
+  mkdir -p /usr/local/lib/hugin; \
+  cp -a "${HUGIN_BUILD_DIR}/src/hugin_base/libhuginbase.so"* /usr/local/lib/hugin/; \
+  ldconfig
 
-RUN cd /opt/hm/src/hm \
+# rules_python's hermetic Python toolchain refuses to run as root.
+USER "${USERNAME}"
+RUN export HOME="/home/${USERNAME}" \
+  && cd /opt/hm/src/hm \
   && ./run.sh //hockeymom:bdist_wheel \
-  && ./run.sh //hmlib:bdist_wheel \
+  && ./run.sh //hmlib:bdist_wheel
+
+USER root
+RUN cd /opt/hm/src/hm \
   && pip install --no-cache-dir dist/hockeymom-*.whl dist/hmlib-*.whl
+
+####################################################################
+#
+# Install local Python packages (OpenMMLab + xmodels)
+#
+####################################################################
+RUN set -eux; \
+  export CUDA_HOME=/usr/local/cuda; \
+  export FORCE_CUDA=1; \
+  export MMCV_WITH_OPS=1; \
+  export TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6;8.9;9.0"; \
+  export MAX_JOBS="$(nproc)"; \
+  WHEEL_DIR="/tmp/local_wheels"; \
+  rm -rf "${WHEEL_DIR}"; \
+  mkdir -p "${WHEEL_DIR}"; \
+  build_install() { \
+    local src="$1"; \
+    local glob="$2"; \
+    pip wheel --no-build-isolation --no-deps -w "${WHEEL_DIR}" "${src}"; \
+    pip install --no-cache-dir --no-build-isolation "${WHEEL_DIR}"/${glob}; \
+    rm -f "${WHEEL_DIR}"/${glob}; \
+  }; \
+  \
+  build_install /opt/hm/src/hm/openmm/mmengine "mmengine-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmcv "mmcv-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmdetection "mmdet-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmsegmentation "mmsegmentation-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmpretrain "mmpretrain-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmyolo "mmyolo-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmaction2 "mmaction2-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmrotate/src/e2cnn "e2cnn-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmrotate "mmrotate-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmocr "mmocr-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmpose "mmpose-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmhuman3d "mmhuman3d-*.whl"; \
+  build_install /opt/hm/src/hm/openmm/mmeval "mmeval-*.whl"; \
+  build_install /opt/hm/src/hm/xmodels/LightGlue "lightglue-*.whl"; \
+  build_install /opt/hm/src/hm/xmodels/str/parseq "strhub-*.whl"; \
+  \
+  rm -rf "${WHEEL_DIR}"
 
 ####################################################################
 #
@@ -272,7 +382,5 @@ RUN cd /opt/hm/src/hm \
 USER "${USERNAME}"
 WORKDIR /home/"${USERNAME}"
 RUN mkdir -p "/home/${USERNAME}/Videos"
-
-ENV PYTHONPATH=/opt/hm/src/hm:/opt/hm/src/hm/src
 
 CMD ["/bin/bash"]
