@@ -58,7 +58,7 @@ cc_library(
     visibility = ["//visibility:public"],
     defines = [
         # Match the ABI used by the vendored PyTorch wheels.
-        "_GLIBCXX_USE_CXX11_ABI=0",
+        "_GLIBCXX_USE_CXX11_ABI=1",
     ],
     deps = [
         "@eigen",

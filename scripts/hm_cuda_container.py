@@ -22,9 +22,21 @@ def _read_default_tag(repo_root: Path) -> str:
     return "hm-cuda"
 
 
-def _run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+def _run(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
     print("+", shlex.join(cmd))
-    subprocess.run(cmd, cwd=str(cwd) if cwd is not None else None, env=env, check=True)
+    return subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd is not None else None,
+        env=env,
+        check=check,
+        text=True,
+    )
 
 
 def _docker_env() -> dict[str, str]:
@@ -104,7 +116,7 @@ def cmd_build(args: argparse.Namespace) -> None:
         f"TORCHAUDIO_VERSION={args.torchaudio_version}",
         str(repo_root),
     ]
-    _run(build_cmd, env=_docker_env())
+    _run(build_cmd, env=_docker_env(), check=True)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -136,6 +148,8 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     if gpus is not None:
         docker_cmd += ["--gpus", gpus]
+        # Ensure NVIDIA Container Toolkit mounts NVENC/NVDEC libs (e.g. libnvidia-encode.so.1).
+        docker_cmd += ["-e", "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video"]
 
     if args.name:
         docker_cmd += ["--name", args.name]
@@ -155,7 +169,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     docker_cmd.append(tag)
     docker_cmd += cmd
 
-    _run(docker_cmd)
+    proc = _run(docker_cmd, check=False)
+    if proc.returncode:
+        raise SystemExit(proc.returncode)
 
 
 def main(argv: list[str]) -> int:
@@ -193,10 +209,10 @@ def main(argv: list[str]) -> int:
         default="nvidia/cuda:12.4.1-devel-ubuntu22.04",
         help="Base CUDA image (must include nvcc for CUDA builds)",
     )
-    build.add_argument("--torch-index-url", default="https://download.pytorch.org/whl/cu124")
-    build.add_argument("--torch-version", default="2.4.1")
-    build.add_argument("--torchvision-version", default="0.19.1")
-    build.add_argument("--torchaudio-version", default="2.4.1")
+    build.add_argument("--torch-index-url", default="https://download.pytorch.org/whl/cu128")
+    build.add_argument("--torch-version", default="2.7.1+cu128")
+    build.add_argument("--torchvision-version", default="0.22.1+cu128")
+    build.add_argument("--torchaudio-version", default="2.7.1+cu128")
     build.set_defaults(func=cmd_build)
 
     run = subparsers.add_parser(

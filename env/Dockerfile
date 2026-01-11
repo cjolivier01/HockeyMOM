@@ -103,21 +103,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ####################################################################
 #
-# Build OpenCV (old C++11 ABI) for Torch extensions
+# Build OpenCV (C++11 ABI) for Torch extensions
 #
 ####################################################################
-# PyTorch wheels are built with `_GLIBCXX_USE_CXX11_ABI=0`, and our native
+# PyTorch cu128 wheels are built with `_GLIBCXX_USE_CXX11_ABI=1`, and our native
 # extensions link against OpenCV. Build an ABI-compatible OpenCV into /usr/local.
 WORKDIR /tmp
 RUN git clone https://github.com/opencv/opencv.git \
   && cd opencv \
   && git checkout 4.6.0 \
   && mkdir -p build \
-  && cd build \
-  && cmake -DCMAKE_BUILD_TYPE=Release \
-           -DCMAKE_INSTALL_PREFIX=/usr/local \
-           -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0" \
-           -DBUILD_SHARED_LIBS=ON \
+	  && cd build \
+	  && cmake -DCMAKE_BUILD_TYPE=Release \
+	           -DCMAKE_INSTALL_PREFIX=/usr/local \
+	           -DBUILD_SHARED_LIBS=ON \
            -DBUILD_LIST=core,calib3d,features2d,highgui,imgcodecs,imgproc,video,videoio \
            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
            -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF \
@@ -178,7 +177,10 @@ ENV CONDA_PREFIX=${CONDA_DIR}/envs/hm
 ENV PATH=${CONDA_PREFIX}/bin:${CONDA_DIR}/bin:$PATH
 # Avoid putting the conda environment first in `LD_LIBRARY_PATH`: it can break
 # system tools (e.g. git) by forcing them to load conda's OpenSSL.
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/compat:/usr/local/nvidia/lib64:/usr/local/nvidia/lib
+# Avoid `/usr/local/cuda/compat` here: it can override the host-mounted `libcuda.so`
+# and trigger "unsupported display driver / cuda driver combination" (Error 803).
+# Keep Torch's shared libraries discoverable for our native extensions.
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib64:/usr/local/nvidia/lib:${CONDA_PREFIX}/lib:${CONDA_PREFIX}/lib/python3.10/site-packages/torch/lib
 
 RUN pip install --no-cache-dir -U pip setuptools wheel
 
@@ -282,12 +284,12 @@ RUN chown -R "${UID}:${GID}" /opt/hm
 # Python deps (runtime + build)
 #
 ####################################################################
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
-ARG TORCH_VERSION=2.4.1
-ARG TORCHVISION_VERSION=0.19.1
-ARG TORCHAUDIO_VERSION=2.4.1
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
+ARG TORCH_VERSION=2.7.1+cu128
+ARG TORCHVISION_VERSION=0.22.1+cu128
+ARG TORCHAUDIO_VERSION=2.7.1+cu128
 
-RUN pip install --no-cache-dir --index-url "${TORCH_INDEX_URL}" \
+RUN pip install --no-cache-dir --index-url https://pypi.org/simple --extra-index-url "${TORCH_INDEX_URL}" \
     "torch==${TORCH_VERSION}" \
     "torchvision==${TORCHVISION_VERSION}" \
     "torchaudio==${TORCHAUDIO_VERSION}"
@@ -326,7 +328,9 @@ RUN set -eux; \
 # rules_python's hermetic Python toolchain refuses to run as root.
 USER "${USERNAME}"
 RUN export HOME="/home/${USERNAME}" \
+  && rm -rf "${HOME}/.cache/bazel" \
   && cd /opt/hm/src/hm \
+  && rm -rf dist && mkdir -p dist \
   && ./run.sh //hockeymom:bdist_wheel \
   && ./run.sh //hmlib:bdist_wheel
 
@@ -343,7 +347,7 @@ RUN set -eux; \
   export CUDA_HOME=/usr/local/cuda; \
   export FORCE_CUDA=1; \
   export MMCV_WITH_OPS=1; \
-  export TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6;8.9;9.0"; \
+  export TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6;8.9;9.0+PTX"; \
   export MAX_JOBS="$(nproc)"; \
   WHEEL_DIR="/tmp/local_wheels"; \
   rm -rf "${WHEEL_DIR}"; \
