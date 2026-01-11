@@ -128,7 +128,7 @@
             <td>{{ g.location|default_if_none:"" }}</td>
             <td>
               {% if s1 != None and s2 != None %}
-                {{ s1 }} - {{ s2 }}
+                {{ s2 }} - {{ s1 }}
               {% else %}
                 <span class="muted">—</span>
               {% endif %}
