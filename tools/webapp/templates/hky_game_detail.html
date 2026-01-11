@@ -296,7 +296,15 @@
           {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
           <tr>
             <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td data-player-cell="name">{{ p.name|default_if_none:"" }}</td>
+            <td data-player-cell="name">
+              {% with has_events=player_has_events_by_pid|get_item:p.id %}
+                {% if has_events %}
+                  <button type="button" class="btn secondary player-events-btn" title="Show underlying events">{{ p.name|default_if_none:"" }}</button>
+                {% else %}
+                  {{ p.name|default_if_none:"" }}
+                {% endif %}
+              {% endwith %}
+            </td>
             {% for c in game_player_stats_columns %}
               {% with cid=c.id %}
                 {% if edit_mode and not public_league_id %}
@@ -346,7 +354,15 @@
           {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
           <tr>
             <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td data-player-cell="name">{{ p.name|default_if_none:"" }}</td>
+            <td data-player-cell="name">
+              {% with has_events=player_has_events_by_pid|get_item:p.id %}
+                {% if has_events %}
+                  <button type="button" class="btn secondary player-events-btn" title="Show underlying events">{{ p.name|default_if_none:"" }}</button>
+                {% else %}
+                  {{ p.name|default_if_none:"" }}
+                {% endif %}
+              {% endwith %}
+            </td>
             {% for c in game_player_stats_columns %}
               {% with cid=c.id %}
                 {% if edit_mode and not public_league_id %}
@@ -765,6 +781,8 @@
 	            } catch (e) {}
 	            return true;
 	          }
+
+	          try { window.hmOpenVideoClipForRow = openVideoClipForRow; } catch (e) {}
 
           function svgEl(name, attrs) {
             var el = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -2432,6 +2450,8 @@
       gfga: ["goal"],
     };
 
+    var PLAYER_EVENTS_SCOPE_LABEL = String("{{ game.team2_name|escapejs }} at {{ game.team1_name|escapejs }}{% if game.starts_at %} {{ game.starts_at|date:'Y-m-d' }}{% endif %}" || "").trim();
+
     function buildEventsTable(container, rows) {
       var wrap = document.createElement("div");
       wrap.className = "table-scroll";
@@ -2454,11 +2474,44 @@
         var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
         var details = String(getValue(row, ["Details"]) || "").trim();
         var src = String(getValue(row, ["Source"]) || "").trim();
-        [period, tGame, tVideo, details, src].forEach(function (v) {
-          var td = document.createElement("td");
-          td.textContent = v;
-          tr.appendChild(td);
-        });
+
+        var tdP = document.createElement("td");
+        tdP.textContent = period;
+        tr.appendChild(tdP);
+
+        var tdT = document.createElement("td");
+        tdT.textContent = tGame;
+        tr.appendChild(tdT);
+
+        var tdV = document.createElement("td");
+        if (tVideo && typeof window.hmOpenVideoClipForRow === "function") {
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn secondary";
+          btn.style.padding = ".25rem .55rem";
+          btn.style.fontSize = ".85rem";
+          btn.textContent = tVideo;
+          btn.addEventListener("click", function () {
+            var et = String(getValue(row, ["Event Type", "Event"]) || "").trim();
+            var atTxt = "";
+            if (period) atTxt = "P" + period + (tGame ? (" " + tGame) : "");
+            else if (tGame) atTxt = tGame;
+            try { window.hmOpenVideoClipForRow(row, { label: et, at: atTxt }); } catch (e) {}
+          });
+          tdV.appendChild(btn);
+        } else {
+          tdV.textContent = tVideo || "";
+        }
+        tr.appendChild(tdV);
+
+        var tdD = document.createElement("td");
+        tdD.textContent = details;
+        tr.appendChild(tdD);
+
+        var tdS = document.createElement("td");
+        tdS.textContent = src;
+        tr.appendChild(tdS);
+
         tbody.appendChild(tr);
       });
       table.appendChild(tbody);
@@ -2627,8 +2680,9 @@
       var bodyEl = document.getElementById("events-drilldown-body");
       if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
 
-      titleEl.textContent = playerName + (playerJersey ? " (#" + extractJersey(playerJersey) + ")" : "");
-      subtitleEl.textContent = statLabel ? (statLabel + " events") : "Events";
+      titleEl.textContent = "Player Events — " + (PLAYER_EVENTS_SCOPE_LABEL || "Game");
+      var pLabel = playerName + (playerJersey ? " (#" + extractJersey(playerJersey) + ")" : "");
+      subtitleEl.textContent = statLabel ? (pLabel + " • " + statLabel) : pLabel;
       bodyEl.innerHTML = "";
 
       if (!filtered.length && !onIceGoals.length) {
@@ -2779,11 +2833,13 @@
         if (!nameTxt) return;
 
         if (nameCell) {
-          nameCell.title = "Double-click to show events";
-          nameCell.style.cursor = "pointer";
-          nameCell.addEventListener("dblclick", function () {
-            openDrilldown({ playerName: nameTxt, playerJersey: jerseyTxt, teamSide: side, statKey: "", statLabel: "" });
-          });
+          var btn = nameCell.querySelector("button.player-events-btn");
+          if (btn) {
+            btn.addEventListener("click", function (e) {
+              e.preventDefault();
+              openDrilldown({ playerName: nameTxt, playerJersey: jerseyTxt, teamSide: side, statKey: "", statLabel: "" });
+            });
+          }
         }
 
         tr.querySelectorAll("td[data-stat-key]").forEach(function (td) {

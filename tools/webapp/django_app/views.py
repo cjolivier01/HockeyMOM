@@ -1541,6 +1541,48 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
     eligible_game_ids = [int(g2["id"]) for g2 in eligible_games if g2.get("id") is not None]
     eligible_game_ids_set = set(eligible_game_ids)
 
+    recent_n_raw = request.GET.get("recent_n")
+    recent_n: Optional[int] = None
+    if recent_n_raw is not None and str(recent_n_raw).strip():
+        try:
+            recent_n = int(str(recent_n_raw).strip())
+        except Exception:
+            return JsonResponse({"ok": False, "error": "invalid recent_n"}, status=400)
+        recent_n = max(1, min(10, recent_n))
+
+    # Optional scoping: restrict to the player's most recent N eligible games.
+    if recent_n is not None and eligible_game_ids:
+        order_idx: dict[int, int] = {}
+        for idx, gid in enumerate(eligible_game_ids):
+            order_idx[int(gid)] = int(idx)
+
+        pid_game_ids_raw = list(
+            m.PlayerStat.objects.filter(
+                player_id=int(player_id),
+                game_id__in=eligible_game_ids,
+            )
+            .values_list("game_id", flat=True)
+            .distinct()
+        )
+        pid_games_with_order: list[tuple[int, int]] = []
+        for gid in pid_game_ids_raw:
+            try:
+                gid_i = int(gid)
+            except Exception:
+                continue
+            idx = order_idx.get(gid_i)
+            if idx is None:
+                continue
+            pid_games_with_order.append((int(idx), int(gid_i)))
+
+        pid_games_with_order.sort(key=lambda t: t[0], reverse=True)
+        chosen_ids = [gid for _idx, gid in pid_games_with_order[: int(recent_n)]]
+        eligible_game_ids = [int(gid) for gid in chosen_ids]
+        eligible_game_ids_set = set(eligible_game_ids)
+        eligible_games = [
+            g2 for g2 in eligible_games if int(g2.get("id") or 0) in eligible_game_ids_set
+        ]
+
     if not eligible_game_ids:
         return JsonResponse(
             {
@@ -2254,6 +2296,16 @@ def new_team(request: HttpRequest) -> HttpResponse:
     return render(request, "team_new.html")
 
 
+def _player_totals_has_any_events(stats: dict[str, Any]) -> bool:
+    for k in logic.PLAYER_STATS_SUM_KEYS:
+        try:
+            if int(stats.get(k) or 0) != 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: no cover
     from django.contrib import messages
 
@@ -2592,6 +2644,12 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
     player_stats_rows = logic.sort_players_table_default(
         logic.build_player_stats_table_rows(skaters, player_totals)
     )
+    for r0 in player_stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = _player_totals_has_any_events(player_totals.get(pid_i) or {})
     player_stats_columns = logic.filter_player_stats_display_columns_for_rows(
         logic.PLAYER_STATS_DISPLAY_COLUMNS, player_stats_rows
     )
@@ -2613,6 +2671,12 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
         sort_key=recent_sort,
         sort_dir=recent_dir,
     )
+    for r0 in recent_player_stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = _player_totals_has_any_events(recent_totals.get(pid_i) or {})
     recent_player_stats_columns = logic.filter_player_stats_display_columns_for_rows(
         logic.PLAYER_STATS_DISPLAY_COLUMNS, recent_player_stats_rows
     )
@@ -3523,6 +3587,84 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             ),
         }
 
+    player_has_events_by_pid: dict[int, bool] = {}
+    try:
+        home_by_jersey: dict[str, list[int]] = {}
+        for p in team1_skaters_sorted or []:
+            try:
+                pid_i = int(p.get("id"))
+            except Exception:
+                continue
+            j = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j:
+                home_by_jersey.setdefault(j, []).append(pid_i)
+            player_has_events_by_pid[pid_i] = False
+
+        away_by_jersey: dict[str, list[int]] = {}
+        for p in team2_skaters_sorted or []:
+            try:
+                pid_i = int(p.get("id"))
+            except Exception:
+                continue
+            j = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j:
+                away_by_jersey.setdefault(j, []).append(pid_i)
+            player_has_events_by_pid[pid_i] = False
+
+        def _num_set(raw: Any) -> set[str]:
+            if not raw:
+                return set()
+            return {str(int(x)) for x in re.findall(r"([0-9]+)", str(raw))}
+
+        for row in events_rows or []:
+            side_raw = (
+                str(
+                    row.get("Team Side")
+                    or row.get("TeamSide")
+                    or row.get("Team Rel")
+                    or row.get("TeamRel")
+                    or row.get("Team")
+                    or ""
+                )
+                .strip()
+                .lower()
+            )
+            side = ""
+            if side_raw in {"home", "team1"}:
+                side = "home"
+            elif side_raw in {"away", "team2"}:
+                side = "away"
+
+            # Attributed events (team-side specific).
+            attr = _num_set(row.get("Attributed Jerseys") or row.get("AttributedJerseys"))
+            if attr and side:
+                jmap = home_by_jersey if side == "home" else away_by_jersey
+                for j in attr:
+                    for pid_i in jmap.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+
+            # On-ice columns can be split Home/Away or a single legacy column.
+            on_home = row.get("On-Ice Players (Home)") or row.get("On-Ice Players Home")
+            on_away = row.get("On-Ice Players (Away)") or row.get("On-Ice Players Away")
+            if on_home:
+                for j in _num_set(on_home):
+                    for pid_i in home_by_jersey.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+            if on_away:
+                for j in _num_set(on_away):
+                    for pid_i in away_by_jersey.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+
+            if not on_home and not on_away and side:
+                on_generic = row.get("On-Ice Players") or row.get("On-Ice Players (PM)")
+                if on_generic:
+                    jmap = home_by_jersey if side == "home" else away_by_jersey
+                    for j in _num_set(on_generic):
+                        for pid_i in jmap.get(j, []):
+                            player_has_events_by_pid[int(pid_i)] = True
+    except Exception:
+        player_has_events_by_pid = {}
+
     return render(
         request,
         "hky_game_detail.html",
@@ -3555,6 +3697,7 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "player_stats_cell_conflicts_by_pid": player_stats_cell_conflicts_by_pid,
             "player_stats_import_meta": player_stats_import_meta,
             "player_stats_import_warning": player_stats_import_warning,
+            "player_has_events_by_pid": player_has_events_by_pid,
             "league_page_views": league_page_views,
         },
     )
@@ -4522,6 +4665,12 @@ def public_league_team_detail(
     player_stats_rows = logic.sort_players_table_default(
         logic.build_player_stats_table_rows(skaters, player_totals)
     )
+    for r0 in player_stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = _player_totals_has_any_events(player_totals.get(pid_i) or {})
     player_stats_columns = logic.filter_player_stats_display_columns_for_rows(
         logic.PLAYER_STATS_DISPLAY_COLUMNS, player_stats_rows
     )
@@ -4543,6 +4692,12 @@ def public_league_team_detail(
         sort_key=recent_sort,
         sort_dir=recent_dir,
     )
+    for r0 in recent_player_stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = _player_totals_has_any_events(recent_totals.get(pid_i) or {})
     recent_player_stats_columns = logic.filter_player_stats_display_columns_for_rows(
         logic.PLAYER_STATS_DISPLAY_COLUMNS, recent_player_stats_rows
     )
@@ -5068,6 +5223,82 @@ def public_hky_game_detail(
             ),
         }
 
+    player_has_events_by_pid: dict[int, bool] = {}
+    try:
+        home_by_jersey: dict[str, list[int]] = {}
+        for p in team1_skaters_sorted or []:
+            try:
+                pid_i = int(p.get("id"))
+            except Exception:
+                continue
+            j = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j:
+                home_by_jersey.setdefault(j, []).append(pid_i)
+            player_has_events_by_pid[pid_i] = False
+
+        away_by_jersey: dict[str, list[int]] = {}
+        for p in team2_skaters_sorted or []:
+            try:
+                pid_i = int(p.get("id"))
+            except Exception:
+                continue
+            j = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j:
+                away_by_jersey.setdefault(j, []).append(pid_i)
+            player_has_events_by_pid[pid_i] = False
+
+        def _num_set(raw: Any) -> set[str]:
+            if not raw:
+                return set()
+            return {str(int(x)) for x in re.findall(r"([0-9]+)", str(raw))}
+
+        for row in events_rows or []:
+            side_raw = (
+                str(
+                    row.get("Team Side")
+                    or row.get("TeamSide")
+                    or row.get("Team Rel")
+                    or row.get("TeamRel")
+                    or row.get("Team")
+                    or ""
+                )
+                .strip()
+                .lower()
+            )
+            side = ""
+            if side_raw in {"home", "team1"}:
+                side = "home"
+            elif side_raw in {"away", "team2"}:
+                side = "away"
+
+            attr = _num_set(row.get("Attributed Jerseys") or row.get("AttributedJerseys"))
+            if attr and side:
+                jmap = home_by_jersey if side == "home" else away_by_jersey
+                for j in attr:
+                    for pid_i in jmap.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+
+            on_home = row.get("On-Ice Players (Home)") or row.get("On-Ice Players Home")
+            on_away = row.get("On-Ice Players (Away)") or row.get("On-Ice Players Away")
+            if on_home:
+                for j in _num_set(on_home):
+                    for pid_i in home_by_jersey.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+            if on_away:
+                for j in _num_set(on_away):
+                    for pid_i in away_by_jersey.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+
+            if not on_home and not on_away and side:
+                on_generic = row.get("On-Ice Players") or row.get("On-Ice Players (PM)")
+                if on_generic:
+                    jmap = home_by_jersey if side == "home" else away_by_jersey
+                    for j in _num_set(on_generic):
+                        for pid_i in jmap.get(j, []):
+                            player_has_events_by_pid[int(pid_i)] = True
+    except Exception:
+        player_has_events_by_pid = {}
+
     return render(
         request,
         "hky_game_detail.html",
@@ -5103,6 +5334,7 @@ def public_hky_game_detail(
             "player_stats_cell_conflicts_by_pid": player_stats_cell_conflicts_by_pid,
             "player_stats_import_meta": player_stats_import_meta,
             "player_stats_import_warning": player_stats_import_warning,
+            "player_has_events_by_pid": player_has_events_by_pid,
             "league_page_views": league_page_views,
         },
     )

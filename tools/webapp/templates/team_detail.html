@@ -313,13 +313,18 @@
           <tr>
             <td>{{ r.jersey_number|default_if_none:"" }}</td>
             <td>
-              <a
-                href="#"
-                class="player-events-link"
-                data-player-id="{{ r.player_id }}"
-                style="text-decoration:none;color:inherit;"
-                title="Show underlying events"
-              >{{ r.name|default_if_none:"" }}</a>
+              {% if r.has_events %}
+                <button
+                  type="button"
+                  class="btn secondary player-events-link"
+                  data-player-id="{{ r.player_id }}"
+                  data-scope="all"
+                  data-scope-label="{{ game_type_filter_label|default:'All' }}"
+                  title="Show underlying events"
+                >{{ r.name|default_if_none:"" }}</button>
+              {% else %}
+                {{ r.name|default_if_none:"" }}
+              {% endif %}
             </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in player_stats_columns %}
@@ -386,13 +391,19 @@
           <tr>
             <td>{{ r.jersey_number|default_if_none:"" }}</td>
             <td>
-              <a
-                href="#"
-                class="player-events-link"
-                data-player-id="{{ r.player_id }}"
-                style="text-decoration:none;color:inherit;"
-                title="Show underlying events"
-              >{{ r.name|default_if_none:"" }}</a>
+              {% if r.has_events %}
+                <button
+                  type="button"
+                  class="btn secondary player-events-link"
+                  data-player-id="{{ r.player_id }}"
+                  data-scope="recent"
+                  data-recent-n="{{ recent_n|default:'5' }}"
+                  data-scope-label="Last {{ recent_n|default:'5' }} Games"
+                  title="Show underlying events"
+                >{{ r.name|default_if_none:"" }}</button>
+              {% else %}
+                {{ r.name|default_if_none:"" }}
+              {% endif %}
             </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in recent_player_stats_columns %}
@@ -608,20 +619,36 @@
       bodyEl.appendChild(p);
     }
 
-    function buildApiUrl(playerId) {
+    function buildApiUrl(playerId, opts) {
+      opts = opts || {};
       var api = new URL("/api/hky/teams/" + String(teamId) + "/players/" + String(playerId) + "/events", window.location.origin);
       var cur = new URL(window.location.href);
       cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+      var rn = null;
+      try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
+      if (rn !== null && isFinite(rn) && rn > 0) {
+        rn = Math.max(1, Math.min(10, rn));
+        api.searchParams.set("recent_n", String(rn));
+      }
       if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
       return api;
     }
 
-    function loadPlayer(playerId) {
-      titleEl.textContent = "Loading…";
+    function normScopeLabel(s) {
+      var t = String(s || "").trim();
+      if (!t) return "All";
+      if (t === "Tournament") return "Tournaments";
+      return t;
+    }
+
+    function loadPlayer(playerId, opts) {
+      opts = opts || {};
+      var scopeLabel = normScopeLabel(opts.scopeLabel);
+      titleEl.textContent = "Player Events — " + scopeLabel;
       subtitleEl.textContent = "";
       bodyEl.innerHTML = "<p class=\"muted\">Loading events…</p>";
       showModal();
-      var api = buildApiUrl(playerId);
+      var api = buildApiUrl(playerId, opts);
       fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
         return resp.json().then(function (data) {
           if (!resp.ok || !data || !data.ok) {
@@ -629,8 +656,11 @@
             showError("Unable to load events (" + err + ").");
             return;
           }
-          titleEl.textContent = String(data.player_name || "Player") + (data.jersey_number ? (" (#" + String(data.jersey_number) + ")") : "");
-          subtitleEl.textContent = "Eligible games: " + String(data.eligible_games || 0);
+          titleEl.textContent = "Player Events — " + scopeLabel;
+          subtitleEl.textContent =
+            String(data.player_name || "Player") +
+            (data.jersey_number ? (" (#" + String(data.jersey_number) + ")") : "") +
+            " • Eligible games: " + String(data.eligible_games || 0);
           bodyEl.innerHTML = "";
 
           var onIce = Array.isArray(data.on_ice_goals) ? data.on_ice_goals : [];
@@ -755,13 +785,17 @@
 	      });
     }
 
-    document.querySelectorAll("a.player-events-link").forEach(function (a) {
+    document.querySelectorAll(".player-events-link").forEach(function (a) {
       a.style.cursor = "pointer";
       a.addEventListener("click", function (e) {
         e.preventDefault();
         var pid = a.getAttribute("data-player-id");
         if (!pid) return;
-        loadPlayer(pid);
+        loadPlayer(pid, {
+          recentN: a.getAttribute("data-recent-n"),
+          scopeLabel: a.getAttribute("data-scope-label"),
+          scope: a.getAttribute("data-scope"),
+        });
       });
     });
   })();
