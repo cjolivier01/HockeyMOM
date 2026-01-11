@@ -37,6 +37,7 @@ from hockey_rankings import (  # noqa: E402
     GameScore,
     compute_mhr_like_ratings,
     parse_age_from_division_name,
+    parse_level_from_division_name,
     filter_games_ignore_cross_age,
     scale_ratings_to_0_99_9_by_component,
 )
@@ -6748,6 +6749,7 @@ def recompute_league_mhr_ratings(
     )
 
     team_age: dict[int, Optional[int]] = {}
+    team_level: dict[int, Optional[str]] = {}
     for r in league_team_rows:
         try:
             tid = int(r.get("team_id"))
@@ -6758,6 +6760,10 @@ def recompute_league_mhr_ratings(
         if age is None:
             age = parse_age_from_division_name(str(r.get("team__name") or "").strip())
         team_age[tid] = age
+        lvl = parse_level_from_division_name(dn)
+        if lvl is None:
+            lvl = parse_level_from_division_name(str(r.get("team__name") or "").strip())
+        team_level[tid] = lvl
 
     games: list[GameScore] = []
     for team1_id, team2_id, team1_score, team2_score in m.LeagueGame.objects.filter(
@@ -6782,6 +6788,25 @@ def recompute_league_mhr_ratings(
         except Exception:
             continue
 
+    # Eligibility rule: A team cannot have an MHR rating unless it has played at least one game
+    # against another team in the same age group (age + level when known).
+    age_group_games: dict[int, int] = {}
+    for g in games:
+        a = int(g.team1_id)
+        b = int(g.team2_id)
+        age_a = team_age.get(a)
+        age_b = team_age.get(b)
+        if age_a is None or age_b is None:
+            continue
+        if int(age_a) != int(age_b):
+            continue
+        lvl_a = str(team_level.get(a) or "").strip().upper() or None
+        lvl_b = str(team_level.get(b) or "").strip().upper() or None
+        if lvl_a is not None and lvl_b is not None and lvl_a != lvl_b:
+            continue
+        age_group_games[a] = int(age_group_games.get(a, 0)) + 1
+        age_group_games[b] = int(age_group_games.get(b, 0)) + 1
+
     # Ignore cross-age games when computing ratings (no cross-age coupling).
     games_same_age = filter_games_ignore_cross_age(games, team_age=team_age)
 
@@ -6804,10 +6829,18 @@ def recompute_league_mhr_ratings(
         rating = row_norm.get("rating")
         # Use raw AGD/SCHED/GAMES from the base computation (before shifting).
         row_base = computed.get(tid) or {}
-        lt.mhr_rating = float(rating) if rating is not None else None
-        lt.mhr_agd = float(row_base.get("agd")) if row_base.get("agd") is not None else None
-        lt.mhr_sched = float(row_base.get("sched")) if row_base.get("sched") is not None else None
-        lt.mhr_games = int(row_base.get("games")) if row_base.get("games") is not None else 0
+        if int(age_group_games.get(tid, 0)) <= 0:
+            lt.mhr_rating = None
+            lt.mhr_agd = None
+            lt.mhr_sched = None
+            lt.mhr_games = 0
+        else:
+            lt.mhr_rating = float(rating) if rating is not None else None
+            lt.mhr_agd = float(row_base.get("agd")) if row_base.get("agd") is not None else None
+            lt.mhr_sched = (
+                float(row_base.get("sched")) if row_base.get("sched") is not None else None
+            )
+            lt.mhr_games = int(row_base.get("games")) if row_base.get("games") is not None else 0
         lt.mhr_updated_at = now
     if league_team_objs:
         with transaction.atomic():
