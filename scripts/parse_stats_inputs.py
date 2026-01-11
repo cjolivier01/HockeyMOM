@@ -1681,23 +1681,30 @@ def _load_input_entries_from_yaml_file_list(
     YAML variant of `--file-list`.
 
     Supported shapes:
-    - A list of strings (each string is treated like a legacy file-list line, including optional `|key=value` metadata)
-    - A dict with `games:` containing a list of entries
+    - A dict with `games:` containing a list of entries (recommended)
+    - A list of entries
+      - Each entry may be a mapping (recommended), or
+      - a legacy string line (back-compat; supports optional `|key=value` metadata).
 
     Entry formats:
-    - string: "/path/to/stats:HOME | owner_email=... | league=..."
+    - string (legacy): "/path/to/stats:HOME | owner_email=... | league=..."
     - mapping:
-        token: "<legacy token string>"
-        meta: {owner_email: "...", league: "..."}
+        path: "/path/to/stats"              # required for spreadsheets
+        side: HOME|AWAY                     # optional
+        label: "my-game-label"              # optional
+        # Metadata can be provided either:
+        #   - as a nested `meta:` / `metadata:` mapping, or
+        #   - as direct subkeys on the mapping (any key not in the reserved set).
+        meta:
+          home_team: "San Jose Jr Sharks 12AA-2"
+          away_team: "Stockton Colts 12AA"
+          date: "2025-12-07"
+          time: "16:15"
+          game_video: "https://youtu.be/..."
       or:
-        path: "/path/to/stats"
-        side: HOME|AWAY
-        meta: {...}
-      or:
-        t2s: 51602
-        side: HOME|AWAY
-        label: "stockton-r2"
-        meta: {...}
+        t2s: 51602                          # TimeToScore-only (no spreadsheets)
+        side: HOME|AWAY                     # optional
+        label: "stockton-r2"                # optional
     """
 
     raw = file_list_path.read_text(encoding="utf-8", errors="ignore").lstrip("\ufeff")
@@ -1711,6 +1718,8 @@ def _load_input_entries_from_yaml_file_list(
 
     if not isinstance(entries, list):
         raise ValueError("YAML file-list must be a list or a dict containing a 'games' list")
+
+    warned_pipe_meta = False
 
     def _merge_meta(a: dict[str, str], b: dict[str, str]) -> dict[str, str]:
         out = dict(a or {})
@@ -1736,6 +1745,12 @@ def _load_input_entries_from_yaml_file_list(
             line = item.strip().lstrip("\ufeff")
             if not line or line.startswith("#"):
                 continue
+            if not warned_pipe_meta and "|" in line:
+                warned_pipe_meta = True
+                print(
+                    "[warn] YAML file-list uses legacy `|key=value` metadata separators; prefer mapping entries with subkeys.",
+                    file=sys.stderr,
+                )
             parts = [p.strip() for p in str(line).split("|") if p.strip()]
             token = parts[0] if parts else ""
             meta: dict[str, str] = {}
@@ -1777,11 +1792,17 @@ def _load_input_entries_from_yaml_file_list(
             "side",
             "label",
             "meta",
+            "metadata",
         }
         meta: dict[str, str] = {}
         if isinstance(item.get("meta"), dict):
             meta = _merge_meta(
                 meta, {str(k): str(v) for k, v in item["meta"].items() if v is not None}
+            )
+        if isinstance(item.get("metadata"), dict):
+            meta = _merge_meta(
+                meta,
+                {str(k): str(v) for k, v in item["metadata"].items() if v is not None},
             )
         for k, v in item.items():
             kk = str(k or "").strip()
@@ -1793,6 +1814,12 @@ def _load_input_entries_from_yaml_file_list(
 
         if item.get("token"):
             token = str(item.get("token") or "").strip()
+            if not warned_pipe_meta and "|" in token:
+                warned_pipe_meta = True
+                print(
+                    "[warn] YAML file-list uses legacy `token: '... |key=value'` metadata separators; prefer mapping entries with subkeys.",
+                    file=sys.stderr,
+                )
             parts = [p.strip() for p in token.split("|") if p.strip()]
             token0 = parts[0] if parts else ""
             meta_inline: dict[str, str] = {}
@@ -10774,12 +10801,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--file-list",
         type=Path,
         default=None,
-        help="Path to a text or YAML file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
-        "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
-        "You can append ':HOME' or ':AWAY' per line. "
-        "You can also append metadata like '|key=value' (e.g. owner_email/league/home_team/away_team/division/date/home_logo/away_logo) for webapp upload. "
-        "To force a game to be treated as non-TimeToScore even if its filename ends with a T2S id, add '|no_t2s=1'. "
-        "Lines may also be 't2s=<game_id>[:HOME|AWAY][:game_label]' to process a TimeToScore-only game with no spreadsheets.",
+        help=(
+            "Path to a text or YAML file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
+            "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
+            "You can append ':HOME' or ':AWAY' per line. "
+            "For YAML (.yaml/.yml), prefer mapping entries with subkeys (e.g., path/side/date/time/home_team/away_team/game_video); "
+            "legacy '|key=value' metadata is still supported but deprecated. "
+            "To force a game to be treated as non-TimeToScore even if its filename ends with a T2S id: "
+            "in YAML add 'no_t2s: 1' (or under metadata/meta); in text file-lists add '|no_t2s=1'. "
+            "Lines may also be 't2s=<game_id>[:HOME|AWAY][:game_label]' to process a TimeToScore-only game with no spreadsheets."
+        ),
     )
     p.add_argument(
         "--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet)."
@@ -11489,7 +11520,8 @@ def main() -> None:
         if missing_external_meta:
             print(
                 "Error: --upload-webapp external games require per-game metadata for team names.\n"
-                "Add `|home_team=...|away_team=...` to the corresponding lines in --file-list for:\n"
+                "Add `home_team` and `away_team` metadata for these games in --file-list "
+                "(YAML: mapping keys or under `metadata:`; text: `|home_team=...|away_team=...`):\n"
                 "  - " + "\n  - ".join(missing_external_meta),
                 file=sys.stderr,
             )
@@ -11497,7 +11529,8 @@ def main() -> None:
         if missing_external_date:
             print(
                 "Error: --upload-webapp requires a resolvable game date for external games.\n"
-                "Add `|date=YYYY-MM-DD` (and optional `|time=HH:MM`) to the corresponding lines in --file-list for:\n"
+                "Add `date` (and optional `time`) metadata for these games in --file-list "
+                "(YAML: mapping keys or under `metadata:`; text: `|date=...|time=...`):\n"
                 "  - " + "\n  - ".join(missing_external_date),
                 file=sys.stderr,
             )
@@ -12006,7 +12039,8 @@ def main() -> None:
             if starts_at is None:
                 print(
                     "Error: --upload-webapp requires a resolvable game date.\n"
-                    "Provide `|date=YYYY-MM-DD` (and optional `|time=HH:MM`) in --file-list, or ensure TimeToScore provides start_time.\n"
+                    "Provide `date` (and optional `time`) metadata in --file-list (YAML mapping preferred; "
+                    "text file-lists can use `|date=...|time=...`), or ensure TimeToScore provides start_time.\n"
                     f"  Game: {label} (t2s={t2s_id})",
                     file=sys.stderr,
                 )
@@ -12121,7 +12155,8 @@ def main() -> None:
                             missing.append("away_team")
                         try:
                             print(
-                                f"[webapp] Skipping external game '{label}': missing {', '.join(missing)} (add |key=value in --file-list).",
+                                f"[webapp] Skipping external game '{label}': missing {', '.join(missing)} "
+                                "(add metadata in --file-list: YAML mapping keys, or legacy `|key=value` in text file-lists).",
                                 file=sys.stderr,
                             )
                         except Exception:
