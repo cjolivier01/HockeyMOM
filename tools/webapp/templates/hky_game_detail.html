@@ -2564,6 +2564,7 @@
 
 	    function buildShotChainTables(rows) {
 	      var goals = [];
+	      var assists = [];
 	      var xg = [];
 	      var sog = [];
 	      var shot = [];
@@ -2574,6 +2575,8 @@
 	          xg.push(withDetailsTag(row, "Goal"));
 	          sog.push(withDetailsTag(row, "Goal"));
 	          shot.push(withDetailsTag(row, "Goal"));
+	        } else if (k === "assist") {
+	          assists.push(row);
 	        } else if (k === "expectedgoal") {
 	          xg.push(withDetailsTag(row, "xG"));
 	          sog.push(withDetailsTag(row, "xG"));
@@ -2585,7 +2588,7 @@
 	          shot.push(row);
 	        }
 	      });
-	      return { goals: goals, xg: xg, sog: sog, shot: shot };
+	      return { goals: goals, assists: assists, xg: xg, sog: sog, shot: shot };
 	    }
 
 	    function extractNumberSet(raw) {
@@ -2719,6 +2722,7 @@
 	            var chain = buildShotChainTables(filtered);
 	            [
 	              ["Goals", chain.goals],
+	              ["Assists", chain.assists],
 	              ["xG (Expected Goal)", chain.xg],
 	              ["SOG", chain.sog],
 	              ["Shot", chain.shot],
@@ -2733,7 +2737,7 @@
 	              buildEventsTable(bodyEl, rows);
 	            });
 
-	            var chainKeys = { goal: true, expectedgoal: true, sog: true, shot: true };
+	            var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
 	            var remaining = filtered.filter(function (row) {
 	              return !chainKeys[normTypeKey(getValue(row, ["Event Type", "Event"]))];
 	            });

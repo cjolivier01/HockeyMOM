@@ -426,6 +426,38 @@
     </div>
     <button id="team-player-events-close" class="btn" type="button">Close</button>
   </div>
+  <div id="team-player-events-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.10);">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+      <div>
+        <strong>Video Clip</strong>
+        <span id="team-player-events-video-meta" class="muted" style="margin-left:.5rem;"></span>
+      </div>
+      <div style="display:flex; align-items:center; gap:.5rem;">
+        <a
+          id="team-player-events-video-open-link"
+          class="btn"
+          href=""
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:none;"
+        >Open on YouTube</a>
+        <button type="button" class="btn" id="team-player-events-video-close">Close</button>
+      </div>
+    </div>
+    <div style="margin-top:.75rem; width:100%; max-width: 900px;">
+      <div style="position:relative; width:100%; aspect-ratio:16/9; background:#0b1220; border-radius:12px; overflow:hidden;">
+        <iframe
+          id="team-player-events-video-iframe"
+          title="Game video clip"
+          src=""
+          style="position:absolute; inset:0; width:100%; height:100%; border:0;"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+        ></iframe>
+      </div>
+    </div>
+    <p class="muted" style="margin:.75rem 0 0 0;">Tip: goals/assists show 20s before and 10s after; other events show 10s before and 10s after.</p>
+  </div>
   <div id="team-player-events-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
 </dialog>
 
@@ -561,8 +593,18 @@
 	        var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
 	        var hasVideoTime = videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
 	        var videoLabel = hasVideoTime ? (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) : "";
-	        var videoHref = (r.video_url && hasVideoTime) ? urlWithTime(r.video_url, videoSeconds) : "";
-	        var videoCell = videoHref ? el("a", { href: videoHref, target: "_blank", rel: "noopener noreferrer" }, videoLabel) : el("span", { className: "muted" }, "");
+	        var videoCell = el("span", { className: "muted" }, "");
+	        if (r.video_url && hasVideoTime) {
+	          var btn = el(
+	            "button",
+	            { type: "button", className: "btn secondary", style: "padding:.25rem .55rem;font-size:.85rem;" },
+	            videoLabel
+	          );
+	          btn.addEventListener("click", function () {
+	            openVideoClipForEventRow(r);
+	          });
+	          videoCell = btn;
+	        }
 	
 	        addRow(tbody, opts.rowCells(r, { gameCell: gameCell, videoCell: videoCell }));
 	      });
@@ -595,16 +637,130 @@
 	      return copy;
 	    }
 
+	    function extractYoutubeId(url) {
+	      if (!url) return null;
+	      try {
+	        var u = new URL(String(url), window.location.origin);
+	        var host = String(u.hostname || "").toLowerCase();
+	        if (host === "youtu.be") {
+	          var p = String(u.pathname || "").replace(/^\\//, "");
+	          return p ? p.split("/")[0] : null;
+	        }
+	        var v = u.searchParams.get("v");
+	        if (v) return v;
+	        var path = String(u.pathname || "");
+	        var m = path.match(/\\/embed\\/([^/?#]+)/) || path.match(/\\/shorts\\/([^/?#]+)/);
+	        return m ? m[1] : null;
+	      } catch (e) {}
+	      return null;
+	    }
+
+	    function buildYoutubeWatchUrl(url, startSec) {
+	      var id = extractYoutubeId(url);
+	      if (!id) return null;
+	      var start = Math.max(0, Math.floor(startSec || 0));
+	      try {
+	        var w = new URL("https://www.youtube.com/watch");
+	        w.searchParams.set("v", String(id));
+	        w.searchParams.set("t", String(start) + "s");
+	        w.searchParams.set("autoplay", "1");
+	        w.searchParams.set("vq", "hd1080");
+	        return w.toString();
+	      } catch (e) {
+	        return null;
+	      }
+	    }
+
+	    function buildYoutubeEmbedUrl(url, startSec, endSec) {
+	      var id = extractYoutubeId(url);
+	      if (!id) return null;
+	      var start = Math.max(0, Math.floor(startSec || 0));
+	      var end = Math.max(start + 1, Math.floor(endSec || 0));
+	      var params = new URLSearchParams();
+	      params.set("autoplay", "1");
+	      params.set("mute", "1");
+	      params.set("enablejsapi", "1");
+	      params.set("origin", String(window.location.origin || ""));
+	      params.set("start", String(start));
+	      params.set("end", String(end));
+	      params.set("vq", "hd1080");
+	      params.set("rel", "0");
+	      params.set("modestbranding", "1");
+	      params.set("playsinline", "1");
+	      return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+	    }
+
+	    function clipTimingForEvent(r) {
+	      var kindKey = normTypeKey(r.event_type_key || r.event_type || r.kind || "");
+	      if (kindKey === "onicegoal") kindKey = "goal";
+	      var isGoalOrAssist = kindKey === "goal" || kindKey === "assist";
+	      var pre = isGoalOrAssist ? 20 : 10;
+	      var dur = isGoalOrAssist ? 30 : 20;
+	      return { pre: pre, dur: dur, kindKey: kindKey };
+	    }
+
+	    function openVideoClipForEventRow(r) {
+	      if (!videoPane || !videoIframe) return false;
+	      if (!r || !r.video_url) return false;
+	      var vs2 = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
+	      if (vs2 === null || vs2 === undefined) return false;
+	      var vs = parseInt(String(vs2), 10);
+	      if (!isFinite(vs) || vs < 0) return false;
+
+	      var timing = clipTimingForEvent(r);
+	      var start2 = Math.max(0, Math.floor(vs - timing.pre));
+	      var end2 = Math.max(start2 + 1, start2 + timing.dur);
+
+	      var watchUrl = buildYoutubeWatchUrl(r.video_url, start2);
+	      if (videoOpen) {
+	        videoOpen.href = watchUrl || "";
+	        videoOpen.style.display = watchUrl ? "" : "none";
+	      }
+	      var embed = buildYoutubeEmbedUrl(r.video_url, start2, end2);
+	      if (!embed) {
+	        try {
+	          window.open(urlWithTime(r.video_url, start2), "_blank", "noopener");
+	        } catch (e) {}
+	        return true;
+	      }
+	      videoIframe.src = embed;
+	      videoIframe.setAttribute("src", embed);
+	      if (videoMeta) {
+	        var tLabel = timing.kindKey ? timing.kindKey.toUpperCase() : "";
+	        var at = (String(r.video_time || "").trim() || fmtSecondsToTime(vs));
+	        videoMeta.textContent = (tLabel ? (tLabel + " • ") : "") + at + " • " + timing.dur + "s clip";
+	      }
+	      videoPane.style.display = "block";
+	      return true;
+	    }
+
 	    var teamId = {{ team.id|default:"0" }};
 	    var publicLeagueId = {{ public_league_id|default:"null" }};
 	    var dlg = document.getElementById("team-player-events-modal");
 	    var titleEl = document.getElementById("team-player-events-title");
 	    var subtitleEl = document.getElementById("team-player-events-subtitle");
     var bodyEl = document.getElementById("team-player-events-body");
+    var videoPane = document.getElementById("team-player-events-video-pane");
+    var videoIframe = document.getElementById("team-player-events-video-iframe");
+    var videoMeta = document.getElementById("team-player-events-video-meta");
+    var videoOpen = document.getElementById("team-player-events-video-open-link");
+    var videoClose = document.getElementById("team-player-events-video-close");
     var closeBtn = document.getElementById("team-player-events-close");
     if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
 
+    function closeVideo() {
+      if (videoIframe) videoIframe.src = "";
+      if (videoOpen) {
+        videoOpen.href = "";
+        videoOpen.style.display = "none";
+      }
+      if (videoPane) videoPane.style.display = "none";
+      if (videoMeta) videoMeta.textContent = "";
+    }
+    if (videoClose) videoClose.addEventListener("click", closeVideo);
+
     function closeModal() {
+      closeVideo();
       try { dlg.close(); } catch (e) { dlg.open = false; }
     }
     if (closeBtn) closeBtn.addEventListener("click", closeModal);
@@ -647,6 +803,7 @@
       titleEl.textContent = "Player Events — " + scopeLabel;
       subtitleEl.textContent = "";
       bodyEl.innerHTML = "<p class=\"muted\">Loading events…</p>";
+      closeVideo();
       showModal();
       var api = buildApiUrl(playerId, opts);
       fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
@@ -704,6 +861,7 @@
 	            });
 
 	            var goals = [];
+	            var assists = [];
 	            var xg = [];
 	            var sog = [];
 	            var shot = [];
@@ -714,6 +872,8 @@
 	                xg.push(withDetailsTag(r, "Goal"));
 	                sog.push(withDetailsTag(r, "Goal"));
 	                shot.push(withDetailsTag(r, "Goal"));
+	              } else if (k === "assist") {
+	                assists.push(r);
 	              } else if (k === "expectedgoal") {
 	                xg.push(withDetailsTag(r, "xG"));
 	                sog.push(withDetailsTag(r, "xG"));
@@ -728,6 +888,7 @@
 
 	            [
 	              ["Goals", goals],
+	              ["Assists", assists],
 	              ["xG (Expected Goal)", xg],
 	              ["SOG", sog],
 	              ["Shot", shot],
@@ -752,7 +913,7 @@
 	              });
 	            });
 
-	            var chainKeys = { goal: true, expectedgoal: true, sog: true, shot: true };
+	            var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
 	            var remaining = filtered.filter(function (r) {
 	              var k = normTypeKey(r.event_type_key || r.event_type);
 	              return !chainKeys[k];
