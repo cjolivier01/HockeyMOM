@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -82,6 +83,724 @@ def _json_body(request: HttpRequest) -> dict[str, Any]:
         return json.loads(raw.decode("utf-8"))
     except Exception:
         return {}
+
+
+def _event_type_key(raw: Any) -> str:
+    """
+    Stable key for event types across sources (e.g. "Expected Goal" vs "ExpectedGoal").
+    """
+    s = str(raw or "").strip().casefold()
+    return re.sub(r"[^a-z0-9]+", "", s)
+
+
+def _norm_ws(raw: Any) -> str:
+    return " ".join(str(raw or "").strip().split())
+
+
+def _ival(raw: Any) -> Optional[int]:
+    try:
+        if raw is None:
+            return None
+        s = str(raw).strip()
+        if not s:
+            return None
+        return int(float(s))
+    except Exception:
+        return None
+
+
+def _normalize_team_side(raw: Any) -> tuple[Optional[str], Optional[str]]:
+    """
+    Returns (side_norm, side_label) where:
+      - side_norm is "home" / "away" / None
+      - side_label is "Home" / "Away" / None (for storage/display)
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return None, None
+    cf = s.casefold()
+    if cf in {"home", "team1"}:
+        return "home", "Home"
+    if cf in {"away", "team2"}:
+        return "away", "Away"
+    return None, s
+
+
+def _best_effort_side_from_row(row: dict[str, str]) -> tuple[Optional[str], Optional[str]]:
+    for k in (
+        "Team Side",
+        "TeamSide",
+        "Side",
+        "Team Rel",
+        "TeamRel",
+        "Team Raw",
+        "TeamRaw",
+        "Team",
+    ):
+        if k in row and str(row.get(k) or "").strip():
+            return _normalize_team_side(row.get(k))
+    return None, None
+
+
+def _events_group_rank(event_type_key: str) -> Optional[int]:
+    """
+    Rank within the shot implication chain used for de-duplication:
+      Goal > ExpectedGoal > SOG > Shot
+    """
+    k = str(event_type_key or "").casefold()
+    if k == "goal":
+        return 3
+    if k == "expectedgoal":
+        return 2
+    if k == "sog":
+        return 1
+    if k == "shot":
+        return 0
+    return None
+
+
+def _compute_event_import_key(
+    *,
+    event_type_key: str,
+    period: Optional[int],
+    game_seconds: Optional[int],
+    team_side_norm: Optional[str],
+    jersey_norm: Optional[str],
+    event_id: Optional[int],
+    details: Optional[str],
+    game_seconds_end: Optional[int],
+) -> str:
+    """
+    Compute a stable import key for idempotent upserts.
+    """
+    parts = [
+        str(event_type_key or ""),
+        str(int(period)) if period is not None else "",
+        str(int(game_seconds)) if game_seconds is not None else "",
+        str(team_side_norm or ""),
+        str(jersey_norm or ""),
+    ]
+
+    # Penalties may have multiple simultaneous infractions for the same player.
+    if str(event_type_key or "").casefold() in {"penalty", "penaltyexpired"}:
+        parts.append(_norm_ws(details))
+        parts.append(str(int(game_seconds_end)) if game_seconds_end is not None else "")
+    elif event_id is not None:
+        parts.append(str(int(event_id)))
+
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
+
+
+def _upsert_game_event_rows_from_events_csv(
+    *,
+    game_id: int,
+    events_csv: str,
+    replace: bool,
+    create_missing_players: bool = False,
+) -> dict[str, Any]:
+    """
+    Parse a merged events CSV and upsert normalized per-row events into DB tables.
+    """
+    _django_orm, m = _orm_modules()
+    from django.db import transaction
+
+    now = dt.datetime.now()
+    headers, rows = logic.parse_events_csv(str(events_csv or ""))
+    if not headers or not rows:
+        return {"ok": True, "created": 0, "updated": 0, "linked_players": 0}
+
+    game = (
+        m.HkyGame.objects.filter(id=int(game_id))
+        .values("id", "team1_id", "team2_id", "user_id")
+        .first()
+    )
+    if not game:
+        return {"ok": False, "error": "game_not_found"}
+    team1_id = int(game["team1_id"])
+    team2_id = int(game["team2_id"])
+    owner_user_id = int(game.get("user_id") or 0)
+
+    # Preload players for jersey/name resolution.
+    players = list(
+        m.Player.objects.filter(team_id__in=[team1_id, team2_id]).values(
+            "id", "team_id", "name", "jersey_number", "position"
+        )
+    )
+    jersey_to_pids: dict[tuple[int, str], list[int]] = {}
+    name_to_pids: dict[tuple[int, str], list[int]] = {}
+    for p in players:
+        tid = int(p.get("team_id") or 0)
+        pid = int(p.get("id") or 0)
+        if not tid or not pid:
+            continue
+        jn = logic.normalize_jersey_number(p.get("jersey_number"))
+        if jn:
+            jersey_to_pids.setdefault((tid, jn), []).append(pid)
+        nn = logic.normalize_player_name(str(p.get("name") or ""))
+        if nn:
+            name_to_pids.setdefault((tid, nn), []).append(pid)
+
+    # Ensure event types exist.
+    needed_types: dict[str, str] = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        raw_type = str(r.get("Event Type") or r.get("Event") or "").strip()
+        if not raw_type:
+            continue
+        k = _event_type_key(raw_type)
+        if k:
+            needed_types.setdefault(k, raw_type)
+    if needed_types:
+        existing_keys = set(
+            m.HkyEventType.objects.filter(key__in=list(needed_types.keys())).values_list(
+                "key", flat=True
+            )
+        )
+        to_create = [
+            m.HkyEventType(key=k, name=needed_types[k], created_at=now)
+            for k in needed_types
+            if k not in existing_keys
+        ]
+        if to_create:
+            m.HkyEventType.objects.bulk_create(to_create, ignore_conflicts=True)
+    type_by_key: dict[str, int] = {
+        str(k): int(i)
+        for k, i in m.HkyEventType.objects.filter(key__in=list(needed_types.keys())).values_list(
+            "key", "id"
+        )
+    }
+
+    suppressed_keys: set[str] = set(
+        str(k)
+        for k in m.HkyGameEventSuppression.objects.filter(game_id=int(game_id)).values_list(
+            "import_key", flat=True
+        )
+    )
+
+    parsed: list[dict[str, Any]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        raw_type = str(r.get("Event Type") or r.get("Event") or "").strip()
+        et_key = _event_type_key(raw_type)
+        et_id = type_by_key.get(et_key)
+        if not raw_type or not et_key or et_id is None:
+            continue
+
+        event_id = _ival(r.get("Event ID") or r.get("EventID"))
+        period = _ival(r.get("Period"))
+        game_seconds = _ival(r.get("Game Seconds") or r.get("GameSeconds"))
+        if game_seconds is None:
+            game_seconds = logic.parse_duration_seconds(
+                r.get("Game Time") or r.get("GameTime") or r.get("Time")
+            )
+        game_seconds_end = _ival(r.get("Game Seconds End") or r.get("GameSecondsEnd"))
+        video_seconds = _ival(r.get("Video Seconds") or r.get("VideoSeconds"))
+        if video_seconds is None:
+            video_seconds = logic.parse_duration_seconds(r.get("Video Time") or r.get("VideoTime"))
+
+        side_norm, side_label = _best_effort_side_from_row(r)
+        if side_norm == "home":
+            team_id = team1_id
+        elif side_norm == "away":
+            team_id = team2_id
+        else:
+            team_id = None
+
+        player_cell = _norm_ws(r.get("Player"))
+        attributed_jerseys = _norm_ws(r.get("Attributed Jerseys") or r.get("AttributedJerseys"))
+        if not attributed_jerseys and player_cell:
+            attributed_jerseys = player_cell
+        jersey_norm = logic.normalize_jersey_number(attributed_jerseys)
+        attributed_players = _norm_ws(r.get("Attributed Players") or r.get("AttributedPlayers"))
+        if not attributed_players and player_cell:
+            # Common legacy encoding: "#9 Alice" or "9 Alice"
+            attributed_players = re.sub(r"^#?\s*\d+\s*", "", str(player_cell)).strip()
+
+        player_id: Optional[int] = None
+        if team_id is not None and jersey_norm:
+            candidates = jersey_to_pids.get((int(team_id), str(jersey_norm)), [])
+            if len(set(candidates)) == 1:
+                player_id = int(list(set(candidates))[0])
+        if player_id is None and team_id is not None and attributed_players:
+            name_norm = logic.normalize_player_name(attributed_players)
+            candidates = name_to_pids.get((int(team_id), name_norm), [])
+            if len(set(candidates)) == 1:
+                player_id = int(list(set(candidates))[0])
+
+        if (
+            player_id is None
+            and create_missing_players
+            and team_id is not None
+            and attributed_players
+        ):
+            try:
+                pid = _ensure_player_for_import(
+                    int(owner_user_id),
+                    int(team_id),
+                    str(attributed_players),
+                    jersey_norm,
+                    None,
+                    commit=False,
+                )
+                player_id = int(pid)
+            except Exception:
+                player_id = None
+
+        details = _norm_ws(r.get("Details"))
+        import_key = _compute_event_import_key(
+            event_type_key=et_key,
+            period=period,
+            game_seconds=game_seconds,
+            team_side_norm=side_norm,
+            jersey_norm=jersey_norm,
+            event_id=event_id,
+            details=details,
+            game_seconds_end=game_seconds_end,
+        )
+        if suppressed_keys and import_key in suppressed_keys:
+            continue
+
+        parsed.append(
+            {
+                "import_key": import_key,
+                "event_type_key": et_key,
+                "event_type_id": int(et_id),
+                "team_side_norm": side_norm,
+                "team_id": int(team_id) if team_id is not None else None,
+                "player_id": int(player_id) if player_id is not None else None,
+                "source": _norm_ws(r.get("Source")),
+                "event_id": event_id,
+                "team_raw": _norm_ws(r.get("Team Raw") or r.get("TeamRaw") or r.get("Team")),
+                "team_side": side_label or _norm_ws(r.get("Team Side") or r.get("TeamSide")),
+                "for_against": _norm_ws(r.get("For/Against") or r.get("ForAgainst")),
+                "team_rel": _norm_ws(r.get("Team Rel") or r.get("TeamRel")),
+                "period": int(period) if period is not None else None,
+                "game_time": _norm_ws(r.get("Game Time") or r.get("GameTime") or r.get("Time")),
+                "video_time": _norm_ws(r.get("Video Time") or r.get("VideoTime")),
+                "game_seconds": int(game_seconds) if game_seconds is not None else None,
+                "game_seconds_end": (
+                    int(game_seconds_end) if game_seconds_end is not None else None
+                ),
+                "video_seconds": int(video_seconds) if video_seconds is not None else None,
+                "details": details or None,
+                "attributed_players": attributed_players or None,
+                "attributed_jerseys": attributed_jerseys or None,
+                "jersey_norm": jersey_norm,
+                "on_ice_players": _norm_ws(r.get("On-Ice Players") or r.get("OnIce Players"))
+                or None,
+                "on_ice_players_home": _norm_ws(
+                    r.get("On-Ice Players (Home)") or r.get("OnIce Players (Home)")
+                )
+                or None,
+                "on_ice_players_away": _norm_ws(
+                    r.get("On-Ice Players (Away)") or r.get("OnIce Players (Away)")
+                )
+                or None,
+            }
+        )
+
+    # De-duplicate redundant shot implication rows (Goal > ExpectedGoal > SOG > Shot) at the same instant/player/side.
+    chain_keys = {"goal", "expectedgoal", "sog", "shot"}
+    groups: dict[
+        tuple[Optional[int], Optional[int], Optional[str], Optional[str]],
+        list[dict[str, Any]],
+    ] = {}
+    for rec in parsed:
+        if str(rec.get("event_type_key") or "") not in chain_keys:
+            continue
+        groups.setdefault(
+            (
+                rec.get("period"),
+                rec.get("game_seconds"),
+                str(rec.get("team_side_norm") or ""),
+                str(rec.get("jersey_norm") or ""),
+            ),
+            [],
+        ).append(rec)
+
+    to_drop: set[str] = set()
+    for inst_list in groups.values():
+        if len(inst_list) <= 1:
+            continue
+        ranks = [_events_group_rank(str(r.get("event_type_key") or "")) for r in inst_list]
+        best = max([r for r in ranks if r is not None], default=None)
+        if best is None:
+            continue
+        for rec in inst_list:
+            rnk = _events_group_rank(str(rec.get("event_type_key") or ""))
+            if rnk is None or rnk < best:
+                to_drop.add(str(rec.get("import_key") or ""))
+
+    if to_drop:
+        parsed = [rec for rec in parsed if str(rec.get("import_key") or "") not in to_drop]
+
+    with transaction.atomic():
+        if replace:
+            m.HkyGameEventRow.objects.filter(game_id=int(game_id)).delete()
+
+        existing: dict[str, int] = {
+            str(k): int(i)
+            for i, k in m.HkyGameEventRow.objects.filter(game_id=int(game_id)).values_list(
+                "id", "import_key"
+            )
+        }
+
+        to_create: list[Any] = []
+        to_update: list[Any] = []
+        linked: set[tuple[int, int]] = set()
+
+        for rec in parsed:
+            import_key = str(rec["import_key"])
+            pk = existing.get(import_key)
+            if pk is None:
+                to_create.append(
+                    m.HkyGameEventRow(
+                        game_id=int(game_id),
+                        event_type_id=int(rec["event_type_id"]),
+                        import_key=import_key,
+                        team_id=rec.get("team_id"),
+                        player_id=rec.get("player_id"),
+                        source=rec.get("source") or None,
+                        event_id=rec.get("event_id"),
+                        team_raw=rec.get("team_raw") or None,
+                        team_side=rec.get("team_side") or None,
+                        for_against=rec.get("for_against") or None,
+                        team_rel=rec.get("team_rel") or None,
+                        period=rec.get("period"),
+                        game_time=rec.get("game_time") or None,
+                        video_time=rec.get("video_time") or None,
+                        game_seconds=rec.get("game_seconds"),
+                        game_seconds_end=rec.get("game_seconds_end"),
+                        video_seconds=rec.get("video_seconds"),
+                        details=rec.get("details") or None,
+                        attributed_players=rec.get("attributed_players") or None,
+                        attributed_jerseys=rec.get("attributed_jerseys") or None,
+                        on_ice_players=rec.get("on_ice_players") or None,
+                        on_ice_players_home=rec.get("on_ice_players_home") or None,
+                        on_ice_players_away=rec.get("on_ice_players_away") or None,
+                        created_at=now,
+                        updated_at=None,
+                    )
+                )
+            else:
+                to_update.append(
+                    m.HkyGameEventRow(
+                        id=int(pk),
+                        game_id=int(game_id),
+                        event_type_id=int(rec["event_type_id"]),
+                        import_key=import_key,
+                        team_id=rec.get("team_id"),
+                        player_id=rec.get("player_id"),
+                        source=rec.get("source") or None,
+                        event_id=rec.get("event_id"),
+                        team_raw=rec.get("team_raw") or None,
+                        team_side=rec.get("team_side") or None,
+                        for_against=rec.get("for_against") or None,
+                        team_rel=rec.get("team_rel") or None,
+                        period=rec.get("period"),
+                        game_time=rec.get("game_time") or None,
+                        video_time=rec.get("video_time") or None,
+                        game_seconds=rec.get("game_seconds"),
+                        game_seconds_end=rec.get("game_seconds_end"),
+                        video_seconds=rec.get("video_seconds"),
+                        details=rec.get("details") or None,
+                        attributed_players=rec.get("attributed_players") or None,
+                        attributed_jerseys=rec.get("attributed_jerseys") or None,
+                        on_ice_players=rec.get("on_ice_players") or None,
+                        on_ice_players_home=rec.get("on_ice_players_home") or None,
+                        on_ice_players_away=rec.get("on_ice_players_away") or None,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            if rec.get("player_id") is not None and rec.get("team_id") is not None:
+                linked.add((int(rec["player_id"]), int(rec["team_id"])))
+
+        created = 0
+        updated = 0
+        if to_create:
+            m.HkyGameEventRow.objects.bulk_create(to_create, ignore_conflicts=True, batch_size=500)
+            created = len(to_create)
+        if to_update:
+            m.HkyGameEventRow.objects.bulk_update(
+                to_update,
+                [
+                    "event_type",
+                    "import_key",
+                    "team",
+                    "player",
+                    "source",
+                    "event_id",
+                    "team_raw",
+                    "team_side",
+                    "for_against",
+                    "team_rel",
+                    "period",
+                    "game_time",
+                    "video_time",
+                    "game_seconds",
+                    "game_seconds_end",
+                    "video_seconds",
+                    "details",
+                    "attributed_players",
+                    "attributed_jerseys",
+                    "on_ice_players",
+                    "on_ice_players_home",
+                    "on_ice_players_away",
+                    "updated_at",
+                ],
+                batch_size=500,
+            )
+            updated = len(to_update)
+
+        linked_players = 0
+        if linked:
+            to_link = [
+                m.HkyGamePlayer(
+                    game_id=int(game_id),
+                    player_id=int(pid),
+                    team_id=int(tid),
+                    created_at=now,
+                    updated_at=None,
+                )
+                for pid, tid in sorted(linked)
+            ]
+            if to_link:
+                m.HkyGamePlayer.objects.bulk_create(to_link, ignore_conflicts=True, batch_size=500)
+                linked_players = len(to_link)
+
+    return {"ok": True, "created": created, "updated": updated, "linked_players": linked_players}
+
+
+def _load_game_events_for_display(
+    *,
+    game_id: int,
+    backfill_from_csv: bool = True,
+) -> tuple[list[str], list[dict[str, str]], Optional[dict[str, Any]]]:
+    """
+    Prefer normalized DB event rows; optionally backfill them from legacy stored CSV.
+    Returns (headers, rows, meta) suitable for the existing templates/JS.
+    """
+    _django_orm, m = _orm_modules()
+
+    def _from_db() -> tuple[list[str], list[dict[str, str]], Optional[dict[str, Any]]]:
+        qs = (
+            m.HkyGameEventRow.objects.filter(game_id=int(game_id))
+            .select_related("event_type")
+            .order_by("period", "game_seconds", "id")
+        )
+        qs = qs.exclude(
+            import_key__in=m.HkyGameEventSuppression.objects.filter(
+                game_id=int(game_id)
+            ).values_list("import_key", flat=True)
+        )
+        if not qs.exists():
+            return [], [], None
+
+        raw_rows = list(
+            qs.values(
+                "event_type__name",
+                "event_id",
+                "source",
+                "team_raw",
+                "team_side",
+                "for_against",
+                "team_rel",
+                "period",
+                "game_time",
+                "video_time",
+                "game_seconds",
+                "game_seconds_end",
+                "video_seconds",
+                "details",
+                "attributed_players",
+                "attributed_jerseys",
+                "on_ice_players",
+                "on_ice_players_home",
+                "on_ice_players_away",
+                "created_at",
+                "updated_at",
+            )
+        )
+
+        headers = [
+            "Event Type",
+            "Event ID",
+            "Source",
+            "Team Raw",
+            "Team Side",
+            "For/Against",
+            "Team Rel",
+            "Period",
+            "Game Time",
+            "Video Time",
+            "Game Seconds",
+            "Game Seconds End",
+            "Video Seconds",
+            "Details",
+            "Attributed Players",
+            "Attributed Jerseys",
+            "On-Ice Players",
+            "On-Ice Players (Home)",
+            "On-Ice Players (Away)",
+        ]
+
+        out_rows: list[dict[str, str]] = []
+        max_ts: Optional[dt.datetime] = None
+        for r in raw_rows:
+            ts = r.get("updated_at") or r.get("created_at")
+            if isinstance(ts, dt.datetime):
+                max_ts = ts if max_ts is None else max(max_ts, ts)
+
+            out_rows.append(
+                {
+                    "Event Type": str(r.get("event_type__name") or "").strip(),
+                    "Event ID": "" if r.get("event_id") is None else str(int(r["event_id"])),
+                    "Source": str(r.get("source") or "").strip(),
+                    "Team Raw": str(r.get("team_raw") or "").strip(),
+                    "Team Side": str(r.get("team_side") or "").strip(),
+                    "For/Against": str(r.get("for_against") or "").strip(),
+                    "Team Rel": str(r.get("team_rel") or "").strip(),
+                    "Period": "" if r.get("period") is None else str(int(r["period"])),
+                    "Game Time": str(r.get("game_time") or "").strip(),
+                    "Video Time": str(r.get("video_time") or "").strip(),
+                    "Game Seconds": (
+                        "" if r.get("game_seconds") is None else str(int(r["game_seconds"]))
+                    ),
+                    "Game Seconds End": (
+                        "" if r.get("game_seconds_end") is None else str(int(r["game_seconds_end"]))
+                    ),
+                    "Video Seconds": (
+                        "" if r.get("video_seconds") is None else str(int(r["video_seconds"]))
+                    ),
+                    "Details": str(r.get("details") or "").strip(),
+                    "Attributed Players": str(r.get("attributed_players") or "").strip(),
+                    "Attributed Jerseys": str(r.get("attributed_jerseys") or "").strip(),
+                    "On-Ice Players": str(r.get("on_ice_players") or "").strip(),
+                    "On-Ice Players (Home)": str(r.get("on_ice_players_home") or "").strip(),
+                    "On-Ice Players (Away)": str(r.get("on_ice_players_away") or "").strip(),
+                }
+            )
+
+        meta = {"source_label": "db", "updated_at": max_ts, "count": len(out_rows)}
+        return headers, out_rows, meta
+
+    headers, rows, meta = _from_db()
+    if rows:
+        return headers, rows, meta
+
+    if not backfill_from_csv:
+        return [], [], None
+
+    # Backfill from legacy stored CSV (best-effort), then retry.
+    try:
+        erow = (
+            m.HkyGameEvent.objects.filter(game_id=int(game_id))
+            .values("events_csv", "source_label")
+            .first()
+        )
+        csv_text = str(erow.get("events_csv") or "").strip() if erow else ""
+        if csv_text:
+            try:
+                _upsert_game_event_rows_from_events_csv(
+                    game_id=int(game_id),
+                    events_csv=csv_text,
+                    replace=False,
+                    create_missing_players=False,
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    headers, rows, meta = _from_db()
+    if rows:
+        return headers, rows, meta
+
+    # Last-resort fallback: keep UI working even if DB tables are unavailable.
+    try:
+        if erow and csv_text:
+            parsed_headers, parsed_rows = logic.parse_events_csv(csv_text)
+            return (
+                parsed_headers,
+                parsed_rows,
+                {
+                    "source_label": erow.get("source_label"),
+                    "updated_at": None,
+                    "count": len(parsed_rows),
+                },
+            )
+    except Exception:
+        pass
+    return [], [], None
+
+
+def _overlay_game_player_stats_from_event_rows(
+    *, game_id: int, stats_by_pid: dict[int, dict[str, Any]]
+) -> None:
+    """
+    Best-effort: compute Goals/Assists/Shots/SOG/xG from normalized event rows and overlay onto the
+    per-game `stats_by_pid` dict used by the game detail view.
+    """
+    _django_orm, m = _orm_modules()
+    from django.db.models import Count
+
+    rows = list(
+        m.HkyGameEventRow.objects.filter(
+            game_id=int(game_id),
+            player_id__isnull=False,
+            event_type__key__in=["goal", "assist", "expectedgoal", "sog", "shot"],
+        )
+        .exclude(
+            import_key__in=m.HkyGameEventSuppression.objects.filter(
+                game_id=int(game_id)
+            ).values_list("import_key", flat=True)
+        )
+        .values("player_id", "event_type__key")
+        .annotate(n=Count("id"))
+    )
+    if not rows:
+        return
+
+    counts: dict[int, dict[str, int]] = {}
+    for r in rows:
+        try:
+            pid = int(r.get("player_id") or 0)
+        except Exception:
+            continue
+        if pid <= 0:
+            continue
+        k = str(r.get("event_type__key") or "").strip().casefold()
+        try:
+            n = int(r.get("n") or 0)
+        except Exception:
+            n = 0
+        if not k:
+            continue
+        counts.setdefault(pid, {})
+        counts[pid][k] = counts[pid].get(k, 0) + max(0, int(n))
+
+    for pid, c in counts.items():
+        goals = int(c.get("goal") or 0)
+        assists = int(c.get("assist") or 0)
+        xg_direct = int(c.get("expectedgoal") or 0)
+        sog_direct = int(c.get("sog") or 0)
+        shots_direct = int(c.get("shot") or 0)
+
+        # Stat implications:
+        #   Goals ⊆ xG ⊆ SOG ⊆ Shots
+        xg = goals + xg_direct
+        sog = xg + sog_direct
+        shots = sog + shots_direct
+
+        stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
+        stats_by_pid[pid]["goals"] = int(goals)
+        stats_by_pid[pid]["assists"] = int(assists)
+        stats_by_pid[pid]["expected_goals"] = int(xg)
+        stats_by_pid[pid]["sog"] = int(sog)
+        stats_by_pid[pid]["shots"] = int(shots)
 
 
 # ----------------------------
@@ -317,6 +1036,154 @@ def api_league_page_views(request: HttpRequest, league_id: int) -> JsonResponse:
             "kind": kind,
             "entity_id": int(entity_id),
             "count": int(count),
+        }
+    )
+
+
+def api_hky_game_events(request: HttpRequest, game_id: int) -> JsonResponse:
+    """
+    Query normalized per-row game events.
+
+    Auth: requires a logged-in session and access to the game (owner or selected-league view).
+    """
+    if request.method != "GET":
+        return JsonResponse({"ok": False, "error": "method_not_allowed"}, status=405)
+
+    session_uid = _session_user_id(request)
+    if not session_uid:
+        return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+
+    _django_orm, m = _orm_modules()
+
+    owned = (
+        m.HkyGame.objects.filter(id=int(game_id), user_id=int(session_uid))
+        .values_list("id", flat=True)
+        .first()
+    )
+    if owned is None:
+        league_id = request.session.get("league_id")
+        try:
+            league_id_i = int(league_id) if league_id is not None else None
+        except Exception:
+            league_id_i = None
+        if (
+            league_id_i is None
+            or not m.LeagueGame.objects.filter(
+                league_id=int(league_id_i), game_id=int(game_id)
+            ).exists()
+        ):
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+
+    qs = (
+        m.HkyGameEventRow.objects.filter(game_id=int(game_id))
+        .select_related("event_type")
+        .order_by("period", "game_seconds", "id")
+    )
+    qs = qs.exclude(
+        import_key__in=m.HkyGameEventSuppression.objects.filter(game_id=int(game_id)).values_list(
+            "import_key", flat=True
+        )
+    )
+
+    # Filters
+    player_id = request.GET.get("player_id")
+    if player_id is not None and str(player_id).strip():
+        try:
+            qs = qs.filter(player_id=int(player_id))
+        except Exception:
+            return JsonResponse({"ok": False, "error": "invalid player_id"}, status=400)
+
+    period = request.GET.get("period")
+    if period is not None and str(period).strip():
+        try:
+            qs = qs.filter(period=int(period))
+        except Exception:
+            return JsonResponse({"ok": False, "error": "invalid period"}, status=400)
+
+    event_type = request.GET.get("event_type")
+    if event_type is not None and str(event_type).strip():
+        et_key = _event_type_key(event_type)
+        if et_key:
+            qs = qs.filter(event_type__key=str(et_key))
+        else:
+            return JsonResponse({"ok": False, "error": "invalid event_type"}, status=400)
+
+    limit_raw = request.GET.get("limit")
+    limit = 2000
+    if limit_raw is not None and str(limit_raw).strip():
+        try:
+            limit = int(limit_raw)
+        except Exception:
+            return JsonResponse({"ok": False, "error": "invalid limit"}, status=400)
+    limit = max(1, min(int(limit), 5000))
+
+    rows = list(
+        qs[:limit].values(
+            "id",
+            "import_key",
+            "event_type__name",
+            "source",
+            "event_id",
+            "team_id",
+            "player_id",
+            "team_raw",
+            "team_side",
+            "for_against",
+            "team_rel",
+            "period",
+            "game_time",
+            "video_time",
+            "game_seconds",
+            "game_seconds_end",
+            "video_seconds",
+            "details",
+            "attributed_players",
+            "attributed_jerseys",
+            "on_ice_players",
+            "on_ice_players_home",
+            "on_ice_players_away",
+            "created_at",
+            "updated_at",
+        )
+    )
+    out: list[dict[str, Any]] = []
+    for r0 in rows:
+        out.append(
+            {
+                "id": int(r0["id"]),
+                "import_key": str(r0.get("import_key") or ""),
+                "event_type": str(r0.get("event_type__name") or ""),
+                "source": str(r0.get("source") or ""),
+                "event_id": r0.get("event_id"),
+                "team_id": r0.get("team_id"),
+                "player_id": r0.get("player_id"),
+                "team_raw": str(r0.get("team_raw") or ""),
+                "team_side": str(r0.get("team_side") or ""),
+                "for_against": str(r0.get("for_against") or ""),
+                "team_rel": str(r0.get("team_rel") or ""),
+                "period": r0.get("period"),
+                "game_time": str(r0.get("game_time") or ""),
+                "video_time": str(r0.get("video_time") or ""),
+                "game_seconds": r0.get("game_seconds"),
+                "game_seconds_end": r0.get("game_seconds_end"),
+                "video_seconds": r0.get("video_seconds"),
+                "details": str(r0.get("details") or ""),
+                "attributed_players": str(r0.get("attributed_players") or ""),
+                "attributed_jerseys": str(r0.get("attributed_jerseys") or ""),
+                "on_ice_players": str(r0.get("on_ice_players") or ""),
+                "on_ice_players_home": str(r0.get("on_ice_players_home") or ""),
+                "on_ice_players_away": str(r0.get("on_ice_players_away") or ""),
+                "created_at": r0.get("created_at"),
+                "updated_at": r0.get("updated_at"),
+            }
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "game_id": int(game_id),
+            "count": int(len(out)),
+            "events": out,
         }
     )
 
@@ -1844,6 +2711,13 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
     team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
     team2_roster = list(team2_skaters) + list(team2_goalies) + list(team2_hc) + list(team2_ac)
     stats_by_pid = {r0["player_id"]: r0 for r0 in stats_rows}
+    if not edit_mode:
+        try:
+            _overlay_game_player_stats_from_event_rows(
+                game_id=int(game_id), stats_by_pid=stats_by_pid
+            )
+        except Exception:
+            pass
 
     game_stats = None
     game_stats_updated_at = None
@@ -1856,24 +2730,7 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
     game_stats = logic.filter_game_stats_for_display(game_stats)
     period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
 
-    events_headers: list[str] = []
-    events_rows: list[dict[str, str]] = []
-    events_meta: Optional[dict[str, Any]] = None
-    try:
-        erow = (
-            m.HkyGameEvent.objects.filter(game_id=int(game_id))
-            .values("events_csv", "source_label", "updated_at")
-            .first()
-        )
-        if erow and str(erow.get("events_csv") or "").strip():
-            events_headers, events_rows = logic.parse_events_csv(str(erow.get("events_csv") or ""))
-            events_meta = {
-                "source_label": erow.get("source_label"),
-                "updated_at": erow.get("updated_at"),
-                "count": len(events_rows),
-            }
-    except Exception:
-        events_headers, events_rows, events_meta = [], [], None
+    events_headers, events_rows, events_meta = _load_game_events_for_display(game_id=int(game_id))
 
     try:
         events_headers, events_rows = logic.normalize_game_events_csv(events_headers, events_rows)
@@ -3511,6 +4368,10 @@ def public_hky_game_detail(
     team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
     team2_roster = list(team2_skaters) + list(team2_goalies) + list(team2_hc) + list(team2_ac)
     stats_by_pid = {r0["player_id"]: r0 for r0 in stats_rows}
+    try:
+        _overlay_game_player_stats_from_event_rows(game_id=int(game_id), stats_by_pid=stats_by_pid)
+    except Exception:
+        pass
 
     game_stats = None
     game_stats_updated_at = None
@@ -3525,40 +4386,32 @@ def public_hky_game_detail(
     period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
     tts_linked = logic._extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
 
-    events_headers: list[str] = []
-    events_rows: list[dict[str, str]] = []
-    events_meta: Optional[dict[str, Any]] = None
+    events_headers, events_rows, events_meta = _load_game_events_for_display(game_id=int(game_id))
     try:
-        erow = (
-            m.HkyGameEvent.objects.filter(game_id=int(game_id))
-            .values("events_csv", "source_label", "updated_at")
-            .first()
-        )
-        if erow and str(erow.get("events_csv") or "").strip():
-            events_headers, events_rows = logic.parse_events_csv(str(erow.get("events_csv") or ""))
-            events_headers, events_rows = logic.normalize_game_events_csv(
-                events_headers, events_rows
-            )
-            events_rows = logic.filter_events_rows_prefer_timetoscore_for_goal_assist(
-                events_rows, tts_linked=tts_linked
-            )
-            events_headers, events_rows = logic.normalize_events_video_time_for_display(
-                events_headers, events_rows
-            )
-            events_headers, events_rows = logic.filter_events_headers_drop_empty_on_ice_split(
-                events_headers, events_rows
-            )
-            events_rows = logic.sort_events_rows_default(events_rows)
-            events_meta = {
-                "source_label": erow.get("source_label"),
-                "updated_at": erow.get("updated_at"),
-                "count": len(events_rows),
-                "sources": logic.summarize_event_sources(
-                    events_rows, fallback_source_label=str(erow.get("source_label") or "")
-                ),
-            }
+        events_headers, events_rows = logic.normalize_game_events_csv(events_headers, events_rows)
     except Exception:
-        events_headers, events_rows, events_meta = [], [], None
+        pass
+    events_rows = logic.filter_events_rows_prefer_timetoscore_for_goal_assist(
+        events_rows, tts_linked=tts_linked
+    )
+    try:
+        events_headers, events_rows = logic.normalize_events_video_time_for_display(
+            events_headers, events_rows
+        )
+        events_headers, events_rows = logic.filter_events_headers_drop_empty_on_ice_split(
+            events_headers, events_rows
+        )
+        events_rows = logic.sort_events_rows_default(events_rows)
+    except Exception:
+        pass
+    if events_meta is not None:
+        try:
+            events_meta["count"] = len(events_rows)
+            events_meta["sources"] = logic.summarize_event_sources(
+                events_rows, fallback_source_label=str(events_meta.get("source_label") or "")
+            )
+        except Exception:
+            pass
 
     scoring_by_period_rows = logic.compute_team_scoring_by_period_from_events(
         events_rows, tts_linked=tts_linked
@@ -5166,6 +6019,15 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                             "updated_at": now2,
                         },
                     )
+                    try:
+                        _upsert_game_event_rows_from_events_csv(
+                            game_id=int(gid),
+                            events_csv=str(events_csv),
+                            replace=True,
+                            create_missing_players=False,
+                        )
+                    except Exception:
+                        pass
                 else:
                     existing_ev = (
                         m.HkyGameEvent.objects.filter(game_id=int(gid))
@@ -5179,6 +6041,15 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                             source_label="timetoscore",
                             updated_at=now2,
                         )
+                        try:
+                            _upsert_game_event_rows_from_events_csv(
+                                game_id=int(gid),
+                                events_csv=str(events_csv),
+                                replace=False,
+                                create_missing_players=False,
+                            )
+                        except Exception:
+                            pass
                     else:
                         merged_csv, merged_source = logic.merge_events_csv_prefer_timetoscore(
                             existing_csv=str(existing_ev.get("events_csv") or ""),
@@ -5201,6 +6072,15 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                                 "updated_at": now2,
                             },
                         )
+                        try:
+                            _upsert_game_event_rows_from_events_csv(
+                                game_id=int(gid),
+                                events_csv=str(merged_csv),
+                                replace=False,
+                                create_missing_players=False,
+                            )
+                        except Exception:
+                            pass
 
             if isinstance(game_stats_json, dict) and game_stats_json:
                 try:
@@ -5841,6 +6721,23 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                             except Exception:
                                 pass
 
+                # Persist per-event rows (normalized DB table) from the stored/merged CSV.
+                try:
+                    stored_csv = (
+                        m.HkyGameEvent.objects.filter(game_id=int(resolved_game_id))
+                        .values_list("events_csv", flat=True)
+                        .first()
+                    )
+                    if isinstance(stored_csv, str) and stored_csv.strip():
+                        _upsert_game_event_rows_from_events_csv(
+                            game_id=int(resolved_game_id),
+                            events_csv=str(stored_csv),
+                            replace=bool(replace),
+                            create_missing_players=bool(create_missing_players),
+                        )
+                except Exception:
+                    pass
+
             if isinstance(player_stats_csv, str) and player_stats_csv.strip():
                 try:
                     player_stats_csv = logic.sanitize_player_stats_csv_for_storage(player_stats_csv)
@@ -6163,3 +7060,312 @@ def api_internal_recalc_div_ratings(request: HttpRequest) -> JsonResponse:
     if failed:
         return JsonResponse({"ok": False, "league_ids_ok": ok_ids, "failed": failed}, status=500)
     return JsonResponse({"ok": True, "league_ids": ok_ids})
+
+
+@csrf_exempt
+def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
+    """
+    Persist idempotent event corrections:
+      - `suppress`: hide an imported event key for a game (prevents re-import from re-adding it)
+      - `upsert`: insert/update an event row (typically paired with suppress of the original)
+
+    Payload:
+      {
+        "corrections": [
+          {
+            "game_id": 1001 | null,
+            "timetoscore_game_id": 123 | null,
+            "suppress": [ {event spec...}, ... ],
+            "upsert": [ {event spec...}, ... ]
+          }
+        ]
+      }
+    """
+    auth = _require_import_auth(request)
+    if auth:
+        return auth
+    payload = _json_body(request)
+    corrections = payload.get("corrections")
+    if not isinstance(corrections, list) or not corrections:
+        return JsonResponse(
+            {"ok": False, "error": "corrections must be a non-empty list"}, status=400
+        )
+
+    create_missing_players = bool(payload.get("create_missing_players", False))
+
+    _django_orm, m = _orm_modules()
+    from django.db import transaction
+
+    def _resolve_game_id(c: dict[str, Any]) -> Optional[int]:
+        gid_raw = c.get("game_id")
+        if gid_raw is not None and str(gid_raw).strip():
+            try:
+                return int(gid_raw)
+            except Exception:
+                return None
+        tts_raw = c.get("timetoscore_game_id") or c.get("tts_game_id")
+        if tts_raw is None or not str(tts_raw).strip():
+            return None
+        try:
+            tts_i = int(tts_raw)
+        except Exception:
+            return None
+        gid = (
+            m.HkyGame.objects.filter(timetoscore_game_id=int(tts_i))
+            .values_list("id", flat=True)
+            .first()
+        )
+        if gid is not None:
+            return int(gid)
+        token = f'"timetoscore_game_id":{int(tts_i)}'
+        gid = m.HkyGame.objects.filter(notes__contains=token).values_list("id", flat=True).first()
+        return int(gid) if gid is not None else None
+
+    def _norm_side(raw: Any) -> tuple[Optional[str], Optional[str]]:
+        side_norm, side_label = _normalize_team_side(raw)
+        if side_norm in {"home", "away"}:
+            return side_norm, side_label
+        return None, side_label
+
+    def _event_spec_import_key(ev: dict[str, Any]) -> tuple[str, Optional[str], Optional[str]]:
+        et_raw = str(ev.get("event_type") or ev.get("event") or "").strip()
+        et_key = _event_type_key(et_raw)
+        if not et_key:
+            raise ValueError("event_type is required")
+        period = _ival(ev.get("period"))
+        game_seconds = _ival(ev.get("game_seconds"))
+        if game_seconds is None:
+            game_seconds = logic.parse_duration_seconds(ev.get("game_time") or ev.get("time"))
+        game_seconds_end = _ival(ev.get("game_seconds_end"))
+        side_norm, side_label = _norm_side(ev.get("team_side") or ev.get("side") or ev.get("team"))
+        jersey_norm = logic.normalize_jersey_number(
+            ev.get("jersey")
+            or ev.get("attributed_jerseys")
+            or ev.get("player")
+            or ev.get("attributed_players")
+        )
+        details = _norm_ws(ev.get("details"))
+        event_id = _ival(ev.get("event_id"))
+        return (
+            _compute_event_import_key(
+                event_type_key=et_key,
+                period=period,
+                game_seconds=game_seconds,
+                team_side_norm=side_norm,
+                jersey_norm=jersey_norm,
+                event_id=event_id,
+                details=details,
+                game_seconds_end=game_seconds_end,
+            ),
+            side_norm,
+            side_label,
+        )
+
+    stats = {"suppressed": 0, "unsuppressed": 0, "upserted": 0, "deleted_existing": 0}
+    now = dt.datetime.now()
+
+    with transaction.atomic():
+        for idx, c in enumerate(corrections):
+            if not isinstance(c, dict):
+                return JsonResponse(
+                    {"ok": False, "error": f"corrections[{idx}] must be an object"}, status=400
+                )
+            gid = _resolve_game_id(c)
+            if gid is None:
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "error": f"corrections[{idx}] missing/invalid game_id or timetoscore_game_id",
+                    },
+                    status=400,
+                )
+
+            game_row = (
+                m.HkyGame.objects.filter(id=int(gid))
+                .values("id", "team1_id", "team2_id", "user_id")
+                .first()
+            )
+            if not game_row:
+                return JsonResponse({"ok": False, "error": f"game_not_found: {gid}"}, status=404)
+
+            team1_id = int(game_row["team1_id"])
+            team2_id = int(game_row["team2_id"])
+            owner_user_id = int(game_row.get("user_id") or 0)
+
+            suppress_list = c.get("suppress") or []
+            if suppress_list:
+                if not isinstance(suppress_list, list):
+                    return JsonResponse(
+                        {"ok": False, "error": f"corrections[{idx}].suppress must be a list"},
+                        status=400,
+                    )
+                for ev in suppress_list:
+                    if not isinstance(ev, dict):
+                        continue
+                    import_key, _side_norm, _side_label = _event_spec_import_key(ev)
+                    reason = str(ev.get("reason") or c.get("reason") or "").strip() or None
+                    obj, created = m.HkyGameEventSuppression.objects.get_or_create(
+                        game_id=int(gid),
+                        import_key=str(import_key),
+                        defaults={"reason": reason, "created_at": now, "updated_at": None},
+                    )
+                    if not created and reason and str(getattr(obj, "reason", "") or "") != reason:
+                        m.HkyGameEventSuppression.objects.filter(id=int(obj.id)).update(
+                            reason=reason, updated_at=now
+                        )
+                    stats["suppressed"] += 1
+                    stats["deleted_existing"] += m.HkyGameEventRow.objects.filter(
+                        game_id=int(gid), import_key=str(import_key)
+                    ).delete()[0]
+
+            upsert_list = c.get("upsert") or []
+            if upsert_list:
+                if not isinstance(upsert_list, list):
+                    return JsonResponse(
+                        {"ok": False, "error": f"corrections[{idx}].upsert must be a list"},
+                        status=400,
+                    )
+                for ev in upsert_list:
+                    if not isinstance(ev, dict):
+                        continue
+                    et_raw = str(ev.get("event_type") or ev.get("event") or "").strip()
+                    et_key = _event_type_key(et_raw)
+                    if not et_key:
+                        continue
+                    et_obj, _ = m.HkyEventType.objects.get_or_create(
+                        key=str(et_key),
+                        defaults={"name": et_raw or et_key, "created_at": now},
+                    )
+                    import_key, side_norm, side_label = _event_spec_import_key(ev)
+
+                    team_id = ev.get("team_id")
+                    if team_id is not None and str(team_id).strip():
+                        try:
+                            team_id = int(team_id)
+                        except Exception:
+                            team_id = None
+                    elif side_norm == "home":
+                        team_id = team1_id
+                    elif side_norm == "away":
+                        team_id = team2_id
+                    else:
+                        team_id = None
+
+                    player_id = ev.get("player_id")
+                    if player_id is not None and str(player_id).strip():
+                        try:
+                            player_id = int(player_id)
+                        except Exception:
+                            player_id = None
+                    else:
+                        jersey_norm = logic.normalize_jersey_number(
+                            ev.get("jersey") or ev.get("attributed_jerseys") or ev.get("player")
+                        )
+                        player_name = str(
+                            ev.get("attributed_players") or ev.get("player_name") or ""
+                        ).strip()
+                        if team_id is not None and jersey_norm:
+                            player_id = (
+                                m.Player.objects.filter(
+                                    team_id=int(team_id), jersey_number=str(jersey_norm)
+                                )
+                                .values_list("id", flat=True)
+                                .first()
+                            )
+                            player_id = int(player_id) if player_id is not None else None
+                        if player_id is None and team_id is not None and player_name:
+                            player_id = (
+                                m.Player.objects.filter(team_id=int(team_id), name=str(player_name))
+                                .values_list("id", flat=True)
+                                .first()
+                            )
+                            player_id = int(player_id) if player_id is not None else None
+                        if (
+                            player_id is None
+                            and create_missing_players
+                            and team_id is not None
+                            and player_name
+                        ):
+                            try:
+                                player_id = _ensure_player_for_import(
+                                    int(owner_user_id),
+                                    int(team_id),
+                                    str(player_name),
+                                    jersey_norm,
+                                    None,
+                                    commit=False,
+                                )
+                            except Exception:
+                                player_id = None
+
+                    period = _ival(ev.get("period"))
+                    game_time = _norm_ws(ev.get("game_time") or ev.get("time"))
+                    game_seconds = _ival(ev.get("game_seconds"))
+                    if game_seconds is None:
+                        game_seconds = logic.parse_duration_seconds(game_time)
+                    game_seconds_end = _ival(ev.get("game_seconds_end"))
+                    video_time = _norm_ws(ev.get("video_time"))
+                    video_seconds = _ival(ev.get("video_seconds"))
+                    if video_seconds is None:
+                        video_seconds = logic.parse_duration_seconds(video_time)
+
+                    details = _norm_ws(ev.get("details")) or None
+                    attributed_players = _norm_ws(ev.get("attributed_players")) or None
+                    attributed_jerseys = (
+                        _norm_ws(ev.get("attributed_jerseys") or ev.get("player")) or None
+                    )
+                    source = str(ev.get("source") or "correction").strip() or "correction"
+
+                    m.HkyGameEventRow.objects.update_or_create(
+                        game_id=int(gid),
+                        import_key=str(import_key),
+                        defaults={
+                            "event_type_id": int(et_obj.id),
+                            "team_id": int(team_id) if team_id is not None else None,
+                            "player_id": int(player_id) if player_id is not None else None,
+                            "source": source,
+                            "event_id": _ival(ev.get("event_id")),
+                            "team_raw": _norm_ws(ev.get("team_raw") or ev.get("team")) or None,
+                            "team_side": side_label
+                            or _norm_ws(ev.get("team_side") or ev.get("side"))
+                            or None,
+                            "for_against": _norm_ws(ev.get("for_against")) or None,
+                            "team_rel": _norm_ws(ev.get("team_rel")) or None,
+                            "period": int(period) if period is not None else None,
+                            "game_time": game_time or None,
+                            "video_time": video_time or None,
+                            "game_seconds": int(game_seconds) if game_seconds is not None else None,
+                            "game_seconds_end": (
+                                int(game_seconds_end) if game_seconds_end is not None else None
+                            ),
+                            "video_seconds": (
+                                int(video_seconds) if video_seconds is not None else None
+                            ),
+                            "details": details,
+                            "attributed_players": attributed_players,
+                            "attributed_jerseys": attributed_jerseys,
+                            "on_ice_players": _norm_ws(ev.get("on_ice_players")) or None,
+                            "on_ice_players_home": _norm_ws(ev.get("on_ice_players_home")) or None,
+                            "on_ice_players_away": _norm_ws(ev.get("on_ice_players_away")) or None,
+                            "created_at": now,
+                            "updated_at": now,
+                        },
+                    )
+                    stats["upserted"] += 1
+
+                    m.HkyGameEventSuppression.objects.filter(
+                        game_id=int(gid), import_key=str(import_key)
+                    ).delete()
+
+                    if player_id is not None and team_id is not None:
+                        m.HkyGamePlayer.objects.get_or_create(
+                            game_id=int(gid),
+                            player_id=int(player_id),
+                            defaults={
+                                "team_id": int(team_id),
+                                "created_at": now,
+                                "updated_at": None,
+                            },
+                        )
+
+    return JsonResponse({"ok": True, "stats": stats})

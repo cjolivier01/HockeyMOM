@@ -49,6 +49,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 
 import pandas as pd
+import yaml
 
 # Ensure repo root is on sys.path so optional `hmlib.*` imports work when running
 # this script directly from `scripts/`.
@@ -1671,6 +1672,185 @@ def _parse_input_token_with_meta(
     if base_dir and not p.is_absolute():
         p = (base_dir / p).resolve()
     return p, side, meta
+
+
+def _load_input_entries_from_yaml_file_list(
+    file_list_path: Path, *, base_dir: Path, use_t2s: bool
+) -> List[InputEntry]:
+    """
+    YAML variant of `--file-list`.
+
+    Supported shapes:
+    - A list of strings (each string is treated like a legacy file-list line, including optional `|key=value` metadata)
+    - A dict with `games:` containing a list of entries
+
+    Entry formats:
+    - string: "/path/to/stats:HOME | owner_email=... | league=..."
+    - mapping:
+        token: "<legacy token string>"
+        meta: {owner_email: "...", league: "..."}
+      or:
+        path: "/path/to/stats"
+        side: HOME|AWAY
+        meta: {...}
+      or:
+        t2s: 51602
+        side: HOME|AWAY
+        label: "stockton-r2"
+        meta: {...}
+    """
+
+    raw = file_list_path.read_text(encoding="utf-8", errors="ignore").lstrip("\ufeff")
+    data = yaml.safe_load(raw) if raw.strip() else None
+    if data is None:
+        return []
+
+    entries: Any = data
+    if isinstance(data, dict):
+        entries = data.get("games") or data.get("entries") or []
+
+    if not isinstance(entries, list):
+        raise ValueError("YAML file-list must be a list or a dict containing a 'games' list")
+
+    def _merge_meta(a: dict[str, str], b: dict[str, str]) -> dict[str, str]:
+        out = dict(a or {})
+        for k, v in (b or {}).items():
+            kk = str(k or "").strip().lower()
+            vv = str(v or "").strip()
+            if not kk or not vv:
+                continue
+            if kk in out and str(out[kk]) != vv:
+                raise ValueError(f"conflicting metadata for key '{kk}': {out[kk]!r} vs {vv!r}")
+            out[kk] = vv
+        return out
+
+    def _parse_side(raw_side: Any) -> Optional[str]:
+        s = str(raw_side or "").strip().upper()
+        if s in {"HOME", "AWAY"}:
+            return s.lower()
+        return None
+
+    out_entries: List[InputEntry] = []
+    for idx, item in enumerate(entries):
+        if isinstance(item, str):
+            line = item.strip().lstrip("\ufeff")
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in str(line).split("|") if p.strip()]
+            token = parts[0] if parts else ""
+            meta: dict[str, str] = {}
+            for seg in parts[1:]:
+                if "=" not in seg:
+                    continue
+                k, v = seg.split("=", 1)
+                kk = str(k or "").strip().lower()
+                vv = str(v or "").strip()
+                if kk and vv:
+                    meta[kk] = vv
+
+            t2s_only = _parse_t2s_only_token(token)
+            if t2s_only is not None:
+                if not use_t2s:
+                    print(f"[no-time2score] Skipping file-list entry: {token}", file=sys.stderr)
+                    continue
+                t2s_id, side, label = t2s_only
+                out_entries.append(
+                    InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta)
+                )
+                continue
+
+            p, side, inline_meta = _parse_input_token_with_meta(token, base_dir=base_dir)
+            out_entries.append(InputEntry(path=p, side=side, meta=_merge_meta(meta, inline_meta)))
+            continue
+
+        if not isinstance(item, dict):
+            raise ValueError(f"YAML games[{idx}] must be a string or mapping")
+
+        # Allow top-level key/value pairs as metadata (in addition to an explicit `meta:` map).
+        reserved = {
+            "token",
+            "path",
+            "file",
+            "dir",
+            "t2s",
+            "timetoscore_game_id",
+            "side",
+            "label",
+            "meta",
+        }
+        meta: dict[str, str] = {}
+        if isinstance(item.get("meta"), dict):
+            meta = _merge_meta(
+                meta, {str(k): str(v) for k, v in item["meta"].items() if v is not None}
+            )
+        for k, v in item.items():
+            kk = str(k or "").strip()
+            if not kk or kk in reserved:
+                continue
+            if v is None:
+                continue
+            meta[str(kk).strip().lower()] = str(v).strip()
+
+        if item.get("token"):
+            token = str(item.get("token") or "").strip()
+            parts = [p.strip() for p in token.split("|") if p.strip()]
+            token0 = parts[0] if parts else ""
+            meta_inline: dict[str, str] = {}
+            for seg in parts[1:]:
+                if "=" not in seg:
+                    continue
+                k, v = seg.split("=", 1)
+                kk = str(k or "").strip().lower()
+                vv = str(v or "").strip()
+                if kk and vv:
+                    meta_inline[kk] = vv
+            meta = _merge_meta(meta, meta_inline)
+
+            t2s_only = _parse_t2s_only_token(token0)
+            if t2s_only is not None:
+                if not use_t2s:
+                    print(f"[no-time2score] Skipping file-list entry: {token0}", file=sys.stderr)
+                    continue
+                t2s_id, side, label = t2s_only
+                out_entries.append(
+                    InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta)
+                )
+                continue
+
+            p, side, inline_meta = _parse_input_token_with_meta(token0, base_dir=base_dir)
+            out_entries.append(InputEntry(path=p, side=side, meta=_merge_meta(meta, inline_meta)))
+            continue
+
+        if item.get("t2s") is not None or item.get("timetoscore_game_id") is not None:
+            if not use_t2s:
+                print(f"[no-time2score] Skipping YAML t2s entry at games[{idx}]", file=sys.stderr)
+                continue
+            t2s_raw = (
+                item.get("t2s") if item.get("t2s") is not None else item.get("timetoscore_game_id")
+            )
+            try:
+                t2s_id = int(t2s_raw)
+            except Exception:
+                raise ValueError(f"invalid t2s id at games[{idx}]: {t2s_raw!r}") from None
+            side = _parse_side(item.get("side"))
+            label = str(item.get("label") or "").strip() or None
+            out_entries.append(
+                InputEntry(path=None, side=side, t2s_id=int(t2s_id), label=label, meta=meta)
+            )
+            continue
+
+        path_token = str(item.get("path") or item.get("file") or item.get("dir") or "").strip()
+        if not path_token:
+            raise ValueError(f"missing 'path'/'file' for games[{idx}]")
+        side_hint = _parse_side(item.get("side"))
+        if side_hint and not re.search(r"(?i):(?:home|away)(?::|$)", path_token):
+            path_token = f"{path_token}:{side_hint.upper()}"
+        p, side, inline_meta = _parse_input_token_with_meta(path_token, base_dir=base_dir)
+        out_entries.append(
+            InputEntry(path=p, side=side or side_hint, meta=_merge_meta(meta, inline_meta))
+        )
+
+    return out_entries
 
 
 def _is_spreadsheet_input_path(path: Path) -> bool:
@@ -10594,7 +10774,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--file-list",
         type=Path,
         default=None,
-        help="Path to a text file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
+        help="Path to a text or YAML file containing one .xls/.xlsx path or directory per line (comments/# allowed). "
         "Directories are expanded to the primary sheet plus optional '*-long*' companion sheets. "
         "You can append ':HOME' or ':AWAY' per line. "
         "You can also append metadata like '|key=value' (e.g. owner_email/league/home_team/away_team/division/date/home_logo/away_logo) for webapp upload. "
@@ -10700,6 +10880,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Upload per-game CSV outputs (player_stats/game_stats/all_events_summary) to the HockeyMOM webapp via REST.",
     )
     p.add_argument(
+        "--corrections-yaml",
+        type=Path,
+        default=None,
+        help=(
+            "Apply event corrections to the webapp via REST from a YAML file (requires --upload-webapp). "
+            "The YAML may be a list of correction objects, or a mapping containing `corrections:`."
+        ),
+    )
+    p.add_argument(
         "--webapp-url",
         type=str,
         default="http://127.0.0.1:8008",
@@ -10741,6 +10930,59 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Division name to use for external games when uploading to the webapp (default: External).",
     )
     return p
+
+
+def _apply_event_corrections_to_webapp(
+    *,
+    webapp_url: str,
+    webapp_token: Optional[str],
+    corrections_yaml: Path,
+) -> Dict[str, Any]:
+    try:
+        import requests  # type: ignore
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"requests is required for --corrections-yaml: {e}") from e
+
+    data_raw = corrections_yaml.read_text(encoding="utf-8", errors="ignore").lstrip("\ufeff")
+    data = yaml.safe_load(data_raw) if data_raw.strip() else None
+    if data is None:
+        return {}
+    create_missing_players = False
+    if isinstance(data, dict):
+        create_missing_players = bool(data.get("create_missing_players", False))
+        corrections = data.get("corrections")
+    else:
+        corrections = data
+    if not isinstance(corrections, list) or not corrections:
+        raise ValueError("corrections YAML must contain a non-empty list (or `corrections:` list)")
+
+    headers: Dict[str, str] = {}
+    if webapp_token:
+        tok = str(webapp_token).strip()
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+            headers["X-HM-Import-Token"] = tok
+
+    base = str(webapp_url or "").rstrip("/")
+    req_payload: Dict[str, Any] = {"corrections": corrections}
+    if create_missing_players:
+        req_payload["create_missing_players"] = True
+    r = requests.post(
+        f"{base}/api/internal/apply_event_corrections",
+        json=req_payload,
+        headers=headers,
+        timeout=60,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"apply_event_corrections failed: {r.status_code}: {r.text}")
+    try:
+        payload = r.json()
+    except Exception:  # noqa: BLE001
+        payload = None
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        raise RuntimeError(f"apply_event_corrections failed: {payload!r}")
+    stats = payload.get("stats")
+    return stats if isinstance(stats, dict) else {}
 
 
 def _upload_shift_package_to_webapp(
@@ -10871,6 +11113,9 @@ def main() -> None:
     create_scripts = not args.no_scripts
     include_shifts_in_stats = bool(getattr(args, "shifts", False))
     write_events_summary = include_shifts_in_stats or bool(getattr(args, "upload_webapp", False))
+    if getattr(args, "corrections_yaml", None) and not getattr(args, "upload_webapp", False):
+        print("Error: --corrections-yaml requires --upload-webapp.", file=sys.stderr)
+        sys.exit(2)
     focus_team_override: Optional[str] = None
     if getattr(args, "light", False):
         focus_team_override = "White"
@@ -10898,51 +11143,66 @@ def main() -> None:
         try:
             file_list_path = args.file_list.expanduser()
             base_dir = file_list_path.resolve().parent
-            with file_list_path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    # Strip UTF-8 BOM if present (common when files are created on Windows).
-                    line = line.lstrip("\ufeff")
-                    if not line or line.startswith("#"):
-                        continue
-                    parts = [p.strip() for p in str(line).split("|") if p.strip()]
-                    token = parts[0] if parts else ""
-                    meta: dict[str, str] = {}
-                    for seg in parts[1:]:
-                        if "=" not in seg:
+            if file_list_path.suffix.lower() in {".yaml", ".yml"}:
+                input_entries.extend(
+                    _load_input_entries_from_yaml_file_list(
+                        file_list_path, base_dir=base_dir, use_t2s=use_t2s
+                    )
+                )
+            else:
+                with file_list_path.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        # Strip UTF-8 BOM if present (common when files are created on Windows).
+                        line = line.lstrip("\ufeff")
+                        if not line or line.startswith("#"):
                             continue
-                        k, v = seg.split("=", 1)
-                        kk = str(k or "").strip().lower()
-                        vv = str(v or "").strip()
-                        if kk:
-                            meta[kk] = vv
+                        parts = [p.strip() for p in str(line).split("|") if p.strip()]
+                        token = parts[0] if parts else ""
+                        meta: dict[str, str] = {}
+                        for seg in parts[1:]:
+                            if "=" not in seg:
+                                continue
+                            k, v = seg.split("=", 1)
+                            kk = str(k or "").strip().lower()
+                            vv = str(v or "").strip()
+                            if kk:
+                                meta[kk] = vv
 
-                    t2s_only = _parse_t2s_only_token(token)
-                    if t2s_only is not None:
-                        if not use_t2s:
-                            print(
-                                f"[no-time2score] Skipping file-list entry: {token}",
-                                file=sys.stderr,
+                        t2s_only = _parse_t2s_only_token(token)
+                        if t2s_only is not None:
+                            if not use_t2s:
+                                print(
+                                    f"[no-time2score] Skipping file-list entry: {token}",
+                                    file=sys.stderr,
+                                )
+                                continue
+                            t2s_id, side, label = t2s_only
+                            input_entries.append(
+                                InputEntry(
+                                    path=None,
+                                    side=side,
+                                    t2s_id=t2s_id,
+                                    label=label,
+                                    meta=meta,
+                                )
                             )
                             continue
-                        t2s_id, side, label = t2s_only
-                        input_entries.append(
-                            InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta)
+                        p, side, inline_meta = _parse_input_token_with_meta(
+                            token, base_dir=base_dir
                         )
-                        continue
-                    p, side, inline_meta = _parse_input_token_with_meta(token, base_dir=base_dir)
-                    merged_meta = dict(meta or {})
-                    for k, v in (inline_meta or {}).items():
-                        kk = str(k or "").strip().lower()
-                        vv = str(v or "").strip()
-                        if not kk or not vv:
-                            continue
-                        if kk in merged_meta and str(merged_meta[kk]) != vv:
-                            raise ValueError(
-                                f"conflicting metadata for key '{kk}': {merged_meta[kk]!r} vs {vv!r}"
-                            )
-                        merged_meta[kk] = vv
-                    input_entries.append(InputEntry(path=p, side=side, meta=merged_meta))
+                        merged_meta = dict(meta or {})
+                        for k, v in (inline_meta or {}).items():
+                            kk = str(k or "").strip().lower()
+                            vv = str(v or "").strip()
+                            if not kk or not vv:
+                                continue
+                            if kk in merged_meta and str(merged_meta[kk]) != vv:
+                                raise ValueError(
+                                    f"conflicting metadata for key '{kk}': {merged_meta[kk]!r} vs {vv!r}"
+                                )
+                            merged_meta[kk] = vv
+                        input_entries.append(InputEntry(path=p, side=side, meta=merged_meta))
         except Exception as e:
             print(f"Error reading --file-list: {e}", file=sys.stderr)
             sys.exit(2)
@@ -10984,6 +11244,20 @@ def main() -> None:
         input_entries.append(InputEntry(path=p, side=side, meta=merged_meta))
 
     if not input_entries:
+        # Corrections-only mode (no games processed).
+        if getattr(args, "corrections_yaml", None):
+            stats = _apply_event_corrections_to_webapp(
+                webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
+                or "http://127.0.0.1:8008",
+                webapp_token=(
+                    getattr(args, "webapp_token", None)
+                    or getattr(args, "import_token", None)
+                    or None
+                ),
+                corrections_yaml=Path(getattr(args, "corrections_yaml")).expanduser(),
+            )
+            print(f"[webapp] Applied event corrections: {stats}")
+            return
         # Allow a TimeToScore-only run by specifying just `--t2s`.
         if t2s_arg_id is not None:
             input_entries.append(
@@ -11946,6 +12220,17 @@ def main() -> None:
                 "'|owner_email=you@example.com|league=CAHA|home_team=...|away_team=...' for non-TimeToScore games.",
                 file=sys.stderr,
             )
+
+    if getattr(args, "corrections_yaml", None):
+        stats = _apply_event_corrections_to_webapp(
+            webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
+            or "http://127.0.0.1:8008",
+            webapp_token=(
+                getattr(args, "webapp_token", None) or getattr(args, "import_token", None) or None
+            ),
+            corrections_yaml=Path(getattr(args, "corrections_yaml")).expanduser(),
+        )
+        print(f"[webapp] Applied event corrections: {stats}")
 
     _print_game_inputs_rich_summary(results)
 

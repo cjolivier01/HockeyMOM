@@ -93,6 +93,10 @@ def _all_models() -> list[Type]:
         m.HkyGameStat,
         m.HkyGameEvent,
         m.HkyGamePlayerStatsCsv,
+        m.HkyEventType,
+        m.HkyGameEventRow,
+        m.HkyGamePlayer,
+        m.HkyGameEventSuppression,
         m.LeagueTeam,
         m.LeagueGame,
     ]
@@ -253,6 +257,37 @@ def merge_hky_games(*, keep_id: int, drop_id: int) -> None:
             m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(drop_id)).update(
                 game_id=int(keep_id)
             )
+
+        keep_event_keys = set(
+            m.HkyGameEventRow.objects.filter(game_id=int(keep_id)).values_list(
+                "import_key", flat=True
+            )
+        )
+        if keep_event_keys:
+            m.HkyGameEventRow.objects.filter(
+                game_id=int(drop_id), import_key__in=keep_event_keys
+            ).delete()
+        m.HkyGameEventRow.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
+
+        keep_game_player_ids = set(
+            m.HkyGamePlayer.objects.filter(game_id=int(keep_id)).values_list("player_id", flat=True)
+        )
+        if keep_game_player_ids:
+            m.HkyGamePlayer.objects.filter(
+                game_id=int(drop_id), player_id__in=keep_game_player_ids
+            ).delete()
+        m.HkyGamePlayer.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
+
+        keep_supp_keys = set(
+            m.HkyGameEventSuppression.objects.filter(game_id=int(keep_id)).values_list(
+                "import_key", flat=True
+            )
+        )
+        if keep_supp_keys:
+            m.HkyGameEventSuppression.objects.filter(
+                game_id=int(drop_id), import_key__in=keep_supp_keys
+            ).delete()
+        m.HkyGameEventSuppression.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
 
         keep_leagues = set(
             m.LeagueGame.objects.filter(game_id=int(keep_id)).values_list("league_id", flat=True)

@@ -272,12 +272,12 @@
     <span>{{ game.team1_name }}</span>
   </h4>
   <div class="table-scroll">
-    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2" data-player-stats-table="1" data-team-side="home">
       <thead>
         <tr>
           <th>#</th><th>Name</th>
           {% for c in game_player_stats_columns %}
-            <th>{{ c.label }}</th>
+            <th data-stat-key="{{ c.id }}">{{ c.label }}</th>
           {% endfor %}
         </tr>
       </thead>
@@ -286,25 +286,25 @@
           {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
           <tr>
             <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td>{{ p.name|default_if_none:"" }}</td>
+            <td data-player-cell="name">{{ p.name|default_if_none:"" }}</td>
             {% for c in game_player_stats_columns %}
               {% with cid=c.id %}
                 {% if edit_mode and not public_league_id %}
                   {% if cid == "goals" %}
-                    <td><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "assists" %}
-                    <td><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "shots" %}
-                    <td><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "pim" %}
-                    <td><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "plus_minus" %}
-                    <td><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
                   {% else %}
-                    <td {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
+                    <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
                   {% endif %}
                 {% else %}
-                  <td {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
+                  <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
                 {% endif %}
               {% endwith %}
             {% endfor %}
@@ -322,12 +322,12 @@
     <span>{{ game.team2_name }}</span>
   </h4>
   <div class="table-scroll">
-    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2" data-player-stats-table="1" data-team-side="away">
       <thead>
         <tr>
           <th>#</th><th>Name</th>
           {% for c in game_player_stats_columns %}
-            <th>{{ c.label }}</th>
+            <th data-stat-key="{{ c.id }}">{{ c.label }}</th>
           {% endfor %}
         </tr>
       </thead>
@@ -336,25 +336,25 @@
           {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
           <tr>
             <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td>{{ p.name|default_if_none:"" }}</td>
+            <td data-player-cell="name">{{ p.name|default_if_none:"" }}</td>
             {% for c in game_player_stats_columns %}
               {% with cid=c.id %}
                 {% if edit_mode and not public_league_id %}
                   {% if cid == "goals" %}
-                    <td><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "assists" %}
-                    <td><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "shots" %}
-                    <td><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "pim" %}
-                    <td><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "plus_minus" %}
-                    <td><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
                   {% else %}
-                    <td {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
+                    <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
                   {% endif %}
                 {% else %}
-                  <td {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
+                  <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
                 {% endif %}
               {% endwith %}
             {% endfor %}
@@ -2297,5 +2297,263 @@
     <p class="muted">No game events uploaded yet.</p>
   {% endif %}
 </div>
+
+<dialog id="events-drilldown-modal" style="max-width:900px;width:95vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
+  <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
+    <div>
+      <div id="events-drilldown-title" style="font-weight:700;"></div>
+      <div id="events-drilldown-subtitle" class="muted" style="font-size:.9rem;"></div>
+    </div>
+    <button id="events-drilldown-close" class="btn" type="button">Close</button>
+  </div>
+  <div id="events-drilldown-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
+</dialog>
+
+<script>
+  (function () {
+    function normTypeKey(s) {
+      return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+    }
+    function normName(s) {
+      return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+    }
+    function extractJersey(s) {
+      var m = String(s || "").match(/(\d+)/);
+      if (!m) return "";
+      var n = parseInt(m[1], 10);
+      return isFinite(n) ? String(n) : m[1];
+    }
+    function parseTimeToSeconds(s) {
+      s = String(s || "").trim();
+      if (!s) return null;
+      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+      if (!m) return null;
+      var a = parseInt(m[1], 10);
+      var b = parseInt(m[2], 10);
+      var c = m[3] ? parseInt(m[3], 10) : null;
+      if (!isFinite(a) || !isFinite(b)) return null;
+      if (c === null) return a * 60 + b;
+      if (!isFinite(c)) return null;
+      return a * 3600 + b * 60 + c;
+    }
+    function getValue(row, keys) {
+      if (!row) return "";
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
+        var kl = String(k).toLowerCase();
+        for (var kk in row) {
+          if (!Object.prototype.hasOwnProperty.call(row, kk)) continue;
+          if (String(kk).toLowerCase() === kl) return row[kk];
+        }
+      }
+      return "";
+    }
+    function rowSide(row) {
+      var s = String(getValue(row, ["Team Side", "TeamSide", "Side", "Team Rel", "TeamRel", "Team"])).trim().toLowerCase();
+      if (s === "home" || s === "team1") return "home";
+      if (s === "away" || s === "team2") return "away";
+      return "";
+    }
+    function rowPeriod(row) {
+      var p = parseInt(String(getValue(row, ["Period"])).trim(), 10);
+      return isFinite(p) ? p : null;
+    }
+    function rowGameSeconds(row) {
+      var gs = parseInt(String(getValue(row, ["Game Seconds", "GameSeconds"])).trim(), 10);
+      if (isFinite(gs)) return gs;
+      return parseTimeToSeconds(getValue(row, ["Game Time", "GameTime", "Time"]));
+    }
+
+    var dataEl = document.getElementById("game-events-timeline-data");
+    if (!dataEl) return;
+    var eventsRows = [];
+    try {
+      eventsRows = JSON.parse(dataEl.textContent || "[]") || [];
+    } catch (e) {
+      eventsRows = [];
+    }
+    if (!Array.isArray(eventsRows) || eventsRows.length === 0) return;
+
+    var STAT_TO_EVENT_TYPE_KEYS = {
+      goals: ["goal"],
+      assists: ["assist"],
+      expected_goals: ["expectedgoal", "goal"],
+      sog: ["sog", "expectedgoal", "goal"],
+      shots: ["shot", "sog", "expectedgoal", "goal"],
+      pim: ["penalty"],
+    };
+
+    function buildEventsTable(container, rows) {
+      var table = document.createElement("table");
+      table.className = "table-nowrap table-grid";
+      var thead = document.createElement("thead");
+      var trh = document.createElement("tr");
+      ["Time", "Video", "Event", "Details", "Source"].forEach(function (h) {
+        var th = document.createElement("th");
+        th.textContent = h;
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+      var tbody = document.createElement("tbody");
+      rows.forEach(function (row) {
+        var tr = document.createElement("tr");
+        var tGame = String(getValue(row, ["Game Time", "GameTime", "Time"]) || "").trim();
+        var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
+        var et = String(getValue(row, ["Event Type", "Event"]) || "").trim();
+        var details = String(getValue(row, ["Details"]) || "").trim();
+        var src = String(getValue(row, ["Source"]) || "").trim();
+        [tGame, tVideo, et, details, src].forEach(function (v) {
+          var td = document.createElement("td");
+          td.textContent = v;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    function openDrilldown(opts) {
+      opts = opts || {};
+      var playerName = String(opts.playerName || "").trim();
+      var playerJersey = String(opts.playerJersey || "").trim();
+      var playerNameNorm = normName(playerName);
+      var side = String(opts.teamSide || "").trim().toLowerCase();
+      var statKey = String(opts.statKey || "").trim();
+      var statLabel = String(opts.statLabel || "").trim();
+
+      var allowedTypeKeys = null;
+      if (statKey && STAT_TO_EVENT_TYPE_KEYS[statKey]) {
+        allowedTypeKeys = {};
+        STAT_TO_EVENT_TYPE_KEYS[statKey].forEach(function (k) {
+          allowedTypeKeys[normTypeKey(k)] = true;
+        });
+      }
+
+      var filtered = eventsRows.filter(function (row) {
+        if (side) {
+          var rs = rowSide(row);
+          if (rs && rs !== side) return false;
+        }
+        var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+        if (allowedTypeKeys && !allowedTypeKeys[etKey]) return false;
+
+        var rowJ = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
+        if (playerJersey && rowJ && rowJ === extractJersey(playerJersey)) return true;
+        var rowP = normName(getValue(row, ["Attributed Players", "AttributedPlayers", "Player", "Name"]));
+        if (playerNameNorm && rowP && rowP === playerNameNorm) return true;
+        return false;
+      });
+
+      filtered.sort(function (a, b) {
+        var pa = rowPeriod(a) || 0;
+        var pb = rowPeriod(b) || 0;
+        if (pa !== pb) return pa - pb;
+        var ga = rowGameSeconds(a);
+        var gb = rowGameSeconds(b);
+        ga = ga === null ? 0 : ga;
+        gb = gb === null ? 0 : gb;
+        if (ga !== gb) return ga - gb;
+        return normTypeKey(getValue(a, ["Event Type", "Event"])) < normTypeKey(getValue(b, ["Event Type", "Event"])) ? -1 : 1;
+      });
+
+      var dlg = document.getElementById("events-drilldown-modal");
+      var titleEl = document.getElementById("events-drilldown-title");
+      var subtitleEl = document.getElementById("events-drilldown-subtitle");
+      var bodyEl = document.getElementById("events-drilldown-body");
+      if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
+
+      titleEl.textContent = playerName + (playerJersey ? " (#" + extractJersey(playerJersey) + ")" : "");
+      subtitleEl.textContent = statLabel ? (statLabel + " events") : "Events";
+      bodyEl.innerHTML = "";
+
+      if (!filtered.length) {
+        var p = document.createElement("p");
+        p.className = "muted";
+        p.textContent = "No events matched this selection.";
+        bodyEl.appendChild(p);
+      } else {
+        var byPeriod = {};
+        filtered.forEach(function (row) {
+          var p = rowPeriod(row);
+          var k = p === null ? "?" : String(p);
+          if (!byPeriod[k]) byPeriod[k] = [];
+          byPeriod[k].push(row);
+        });
+        Object.keys(byPeriod).sort(function (a, b) {
+          var ia = a === "?" ? 999 : parseInt(a, 10);
+          var ib = b === "?" ? 999 : parseInt(b, 10);
+          return ia - ib;
+        }).forEach(function (k) {
+          var h = document.createElement("h4");
+          h.style.margin = "0.75rem 0 0.35rem 0";
+          h.textContent = (k === "?" ? "Unknown Period" : ("Period " + k));
+          bodyEl.appendChild(h);
+          buildEventsTable(bodyEl, byPeriod[k]);
+        });
+      }
+
+      try {
+        dlg.showModal();
+      } catch (e) {
+        dlg.open = true;
+      }
+    }
+
+    var closeBtn = document.getElementById("events-drilldown-close");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", function () {
+        var dlg = document.getElementById("events-drilldown-modal");
+        if (!dlg) return;
+        try { dlg.close(); } catch (e) { dlg.open = false; }
+      });
+    }
+
+    document.querySelectorAll('table[data-player-stats-table="1"]').forEach(function (table) {
+      var side = String(table.getAttribute("data-team-side") || "").trim().toLowerCase();
+      var headerByKey = {};
+      table.querySelectorAll("thead th[data-stat-key]").forEach(function (th) {
+        var k = String(th.getAttribute("data-stat-key") || "").trim();
+        if (k) headerByKey[k] = String(th.textContent || "").trim();
+      });
+
+      table.querySelectorAll("tbody tr").forEach(function (tr) {
+        var tds = tr.querySelectorAll("td");
+        if (tds.length < 2) return;
+        var jerseyTxt = String(tds[0].textContent || "").trim();
+        var nameCell = tr.querySelector('td[data-player-cell="name"]') || tds[1];
+        var nameTxt = String(nameCell.textContent || "").trim();
+        if (!nameTxt) return;
+
+        if (nameCell) {
+          nameCell.title = "Double-click to show events";
+          nameCell.style.cursor = "pointer";
+          nameCell.addEventListener("dblclick", function () {
+            openDrilldown({ playerName: nameTxt, playerJersey: jerseyTxt, teamSide: side, statKey: "", statLabel: "" });
+          });
+        }
+
+        tr.querySelectorAll("td[data-stat-key]").forEach(function (td) {
+          var statKey = String(td.getAttribute("data-stat-key") || "").trim();
+          if (!statKey) return;
+          if (!STAT_TO_EVENT_TYPE_KEYS[statKey]) return;
+          td.title = "Double-click to show events";
+          td.style.cursor = "pointer";
+          td.addEventListener("dblclick", function () {
+            openDrilldown({
+              playerName: nameTxt,
+              playerJersey: jerseyTxt,
+              teamSide: side,
+              statKey: statKey,
+              statLabel: headerByKey[statKey] || statKey,
+            });
+          });
+        });
+      });
+    });
+  })();
+</script>
 {% endwith %}
 {% endblock %}

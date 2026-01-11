@@ -306,6 +306,102 @@ class HkyGamePlayerStatsCsv(models.Model):
         db_table = "hky_game_player_stats_csv"
 
 
+class HkyEventType(models.Model):
+    # A stable normalized key for matching across sources (e.g. "Expected Goal" vs "ExpectedGoal").
+    key = models.CharField(max_length=64, unique=True)
+    name = models.CharField(max_length=64)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "hky_event_types"
+
+
+class HkyGameEventRow(models.Model):
+    game = models.ForeignKey(HkyGame, on_delete=models.CASCADE, related_name="event_rows")
+    event_type = models.ForeignKey(HkyEventType, on_delete=models.RESTRICT, related_name="events")
+
+    # Idempotency key for upserting events from repeated imports.
+    import_key = models.CharField(max_length=64)
+
+    # Optional resolved references for querying/aggregation.
+    team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True)
+    player = models.ForeignKey(Player, on_delete=models.SET_NULL, null=True, blank=True)
+
+    # Columns mirroring `all_events_summary.csv` and TimeToScore event CSVs.
+    source = models.CharField(max_length=255, null=True, blank=True)
+    event_id = models.IntegerField(null=True, blank=True)
+    team_raw = models.CharField(max_length=64, null=True, blank=True)
+    team_side = models.CharField(max_length=16, null=True, blank=True)
+    for_against = models.CharField(max_length=16, null=True, blank=True)
+    team_rel = models.CharField(max_length=16, null=True, blank=True)
+    period = models.IntegerField(null=True, blank=True)
+    game_time = models.CharField(max_length=32, null=True, blank=True)
+    video_time = models.CharField(max_length=32, null=True, blank=True)
+    game_seconds = models.IntegerField(null=True, blank=True)
+    game_seconds_end = models.IntegerField(null=True, blank=True)
+    video_seconds = models.IntegerField(null=True, blank=True)
+    details = models.TextField(null=True, blank=True)
+    attributed_players = models.TextField(null=True, blank=True)
+    attributed_jerseys = models.TextField(null=True, blank=True)
+    on_ice_players = models.TextField(null=True, blank=True)
+    on_ice_players_home = models.TextField(null=True, blank=True)
+    on_ice_players_away = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "hky_game_event_rows"
+        constraints = [
+            models.UniqueConstraint(fields=["game", "import_key"], name="uniq_game_import_key"),
+        ]
+        indexes = [
+            models.Index(fields=["game", "event_type"], name="idx_event_game_type"),
+            models.Index(fields=["game", "player"], name="idx_event_game_player"),
+            models.Index(fields=["game", "period", "game_seconds"], name="idx_event_game_time"),
+        ]
+
+
+class HkyGamePlayer(models.Model):
+    """
+    Cross-reference table for knowing which players were present in a game.
+    This is intentionally separate from PlayerStat so that "present but no stats" is representable.
+    """
+
+    game = models.ForeignKey(HkyGame, on_delete=models.CASCADE, related_name="player_links")
+    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="game_links")
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="game_player_links")
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "hky_game_players"
+        constraints = [
+            models.UniqueConstraint(fields=["game", "player"], name="uniq_game_player_link"),
+        ]
+
+
+class HkyGameEventSuppression(models.Model):
+    """
+    Records event keys that should be ignored for a game (idempotent correction mechanism).
+    Ingesters should skip suppressed keys, and views should exclude suppressed events.
+    """
+
+    game = models.ForeignKey(HkyGame, on_delete=models.CASCADE, related_name="event_suppressions")
+    import_key = models.CharField(max_length=64)
+    reason = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "hky_game_event_suppressions"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["game", "import_key"], name="uniq_game_event_suppression"
+            ),
+        ]
+
+
 class LeagueTeam(models.Model):
     league = models.ForeignKey(League, on_delete=models.CASCADE, related_name="league_teams")
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="league_teams")
