@@ -442,36 +442,68 @@
       if (!isFinite(a) || !isFinite(b)) return null;
       if (c === null) return a * 60 + b;
       if (!isFinite(c)) return null;
-      return a * 3600 + b * 60 + c;
-    }
+	      return a * 3600 + b * 60 + c;
+	    }
 
-    function fmtDate(value) {
-      var s = String(value || "").trim();
-      if (!s) return "";
-      var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+	    function fmtSecondsToTime(seconds) {
+	      var sec = parseInt(String(seconds), 10);
+	      if (!isFinite(sec) || sec < 0) return "";
+	      var h = Math.floor(sec / 3600);
+	      var m = Math.floor((sec % 3600) / 60);
+	      var s = sec % 60;
+	      if (h > 0) return String(h) + ":" + (m < 10 ? "0" + String(m) : String(m)) + ":" + (s < 10 ? "0" + String(s) : String(s));
+	      return String(m) + ":" + (s < 10 ? "0" + String(s) : String(s));
+	    }
+
+	    function fmtDate(value) {
+	      var s = String(value || "").trim();
+	      if (!s) return "";
+	      var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
       return m ? m[1] : s;
     }
 
-    function urlWithTime(url, seconds) {
-      if (!url) return "";
-      if (seconds === null || seconds === undefined) return String(url);
-      var sec = parseInt(String(seconds), 10);
-      if (!isFinite(sec) || sec < 0) return String(url);
-      try {
-        var u = new URL(String(url), window.location.origin);
-        var host = String(u.hostname || "").toLowerCase();
-        var isYouTube = host.indexOf("youtube.com") >= 0 || host.indexOf("youtu.be") >= 0 || host.indexOf("youtube-nocookie.com") >= 0;
-        if (isYouTube) {
-          u.searchParams.set("t", String(sec));
-          u.searchParams.set("vq", "hd1080");
-          return u.toString();
-        }
-        u.hash = "t=" + String(sec);
-        return u.toString();
-      } catch (e) {
-        return String(url);
-      }
-    }
+	    function urlWithTime(url, seconds) {
+	      if (!url) return "";
+	      if (seconds === null || seconds === undefined) return String(url);
+	      var sec = parseInt(String(seconds), 10);
+	      if (!isFinite(sec) || sec < 0) return String(url);
+	      try {
+	        var u = new URL(String(url), window.location.origin);
+	        var host = String(u.hostname || "").toLowerCase();
+	        var isYouTube = host.indexOf("youtube.com") >= 0 || host.indexOf("youtu.be") >= 0 || host.indexOf("youtube-nocookie.com") >= 0;
+	        if (isYouTube) {
+	          // Prefer a standard watch URL so it plays reliably in a new tab, even if embed URLs are stored.
+	          var id = null;
+	          if (host === "youtu.be") {
+	            var p = String(u.pathname || "").replace(/^\//, "");
+	            id = p ? p.split("/")[0] : null;
+	          } else {
+	            id = u.searchParams.get("v");
+	            if (!id) {
+	              var path = String(u.pathname || "");
+	              var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
+	              id = m ? m[1] : null;
+	            }
+	          }
+	          if (id) {
+	            var w = new URL("https://www.youtube.com/watch");
+	            w.searchParams.set("v", String(id));
+	            w.searchParams.set("t", String(sec) + "s");
+	            w.searchParams.set("autoplay", "1");
+	            w.searchParams.set("vq", "hd1080");
+	            return w.toString();
+	          }
+	          u.searchParams.set("t", String(sec) + "s");
+	          u.searchParams.set("autoplay", "1");
+	          u.searchParams.set("vq", "hd1080");
+	          return u.toString();
+	        }
+	        u.hash = "t=" + String(sec);
+	        return u.toString();
+	      } catch (e) {
+	        return String(url);
+	      }
+	    }
 
     function el(tag, attrs, text) {
       var node = document.createElement(tag);
@@ -509,19 +541,20 @@
       });
       thead.appendChild(trh);
       table.appendChild(thead);
-      var tbody = document.createElement("tbody");
-      (rows || []).forEach(function (r) {
-        var gameLabel = (fmtDate(r.game_starts_at) || "Game") + " vs " + String(r.opponent || "").trim();
-        if (String(r.game_type || "").trim()) gameLabel += " (" + String(r.game_type || "").trim() + ")";
-        var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
-
-        var videoLabel = String(r.video_time || "").trim() || (r.video_url ? "Video" : "");
-        var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
-        var videoHref = r.video_url ? urlWithTime(r.video_url, videoSeconds) : "";
-        var videoCell = videoHref ? el("a", { href: videoHref, target: "_blank", rel: "noopener noreferrer" }, videoLabel) : el("span", { className: "muted" }, "—");
-
-        addRow(tbody, opts.rowCells(r, { gameCell: gameCell, videoCell: videoCell }));
-      });
+	      var tbody = document.createElement("tbody");
+	      (rows || []).forEach(function (r) {
+	        var gameLabel = (fmtDate(r.game_starts_at) || "Game") + " vs " + String(r.opponent || "").trim();
+	        if (String(r.game_type || "").trim()) gameLabel += " (" + String(r.game_type || "").trim() + ")";
+	        var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
+	
+	        var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
+	        var hasVideoTime = videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
+	        var videoLabel = hasVideoTime ? (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) : "";
+	        var videoHref = (r.video_url && hasVideoTime) ? urlWithTime(r.video_url, videoSeconds) : "";
+	        var videoCell = videoHref ? el("a", { href: videoHref, target: "_blank", rel: "noopener noreferrer" }, videoLabel) : el("span", { className: "muted" }, "");
+	
+	        addRow(tbody, opts.rowCells(r, { gameCell: gameCell, videoCell: videoCell }));
+	      });
       table.appendChild(tbody);
       wrap.appendChild(table);
       container.appendChild(wrap);
