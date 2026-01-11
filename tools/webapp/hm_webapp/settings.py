@@ -120,12 +120,18 @@ TIME_ZONE = "UTC"
 APPEND_SLASH = False
 
 ROOT_URLCONF = "tools.webapp.hm_webapp.urls" if IS_REPO else "hm_webapp.urls"
-WSGI_APPLICATION = "tools.webapp.hm_webapp.wsgi.application" if IS_REPO else "hm_webapp.wsgi.application"
+WSGI_APPLICATION = (
+    "tools.webapp.hm_webapp.wsgi.application" if IS_REPO else "hm_webapp.wsgi.application"
+)
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    ("tools.webapp.django_app.middleware.LeagueSessionMiddleware" if IS_REPO else "django_app.middleware.LeagueSessionMiddleware"),
+    (
+        "tools.webapp.django_app.middleware.LeagueSessionMiddleware"
+        if IS_REPO
+        else "django_app.middleware.LeagueSessionMiddleware"
+    ),
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -164,3 +170,6 @@ MESSAGE_STORAGE = "django.contrib.messages.storage.cookie.CookieStorage"
 # Match legacy 500MB upload limit (nginx config uses the same default).
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024 * 500
 
+# YouTube embeds now require a referrer; Django's default (`same-origin`) breaks embedded playback and can trigger
+# "Error 153" in the iframe player. Use the modern browser default behavior.
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
