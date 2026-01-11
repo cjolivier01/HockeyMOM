@@ -21,6 +21,7 @@ import json
 import os
 import random
 import re
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -1191,6 +1192,51 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Games per REST batch request (only with --api-url).",
     )
     ap.add_argument(
+        "--api-timeout-s",
+        type=float,
+        default=180.0,
+        help="Requests timeout (seconds) for REST API calls (only with --api-url).",
+    )
+    ap.add_argument(
+        "--api-max-retries",
+        type=int,
+        default=3,
+        help="Max retries for transient REST failures (only with --api-url).",
+    )
+    ap.add_argument(
+        "--api-retry-backoff-s",
+        type=float,
+        default=2.0,
+        help="Initial backoff (seconds) between REST retries (only with --api-url).",
+    )
+    ap.add_argument(
+        "--api-split-on-error",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "If a REST batch request fails, recursively split the batch to isolate the failing game(s). "
+            "(only with --api-url)."
+        ),
+    )
+    ap.add_argument(
+        "--api-skip-failed-games",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "When a single-game REST request still fails after retries/splitting, skip it and continue. "
+            "(only with --api-url)."
+        ),
+    )
+    ap.add_argument(
+        "--api-failure-dir",
+        type=Path,
+        default=None,
+        help=(
+            "If set, write failing REST payloads to this directory for debugging (only with --api-url). "
+            "Note: payloads may be large."
+        ),
+    )
+    ap.add_argument(
         "--t2s-max-attempts",
         type=int,
         default=6,
@@ -1918,6 +1964,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             api_headers["Authorization"] = f"Bearer {tok}"
             api_headers["X-HM-Import-Token"] = tok
     api_batch_size = max(1, int(args.api_batch_size or 1))
+    api_timeout_s = max(1.0, float(args.api_timeout_s or 1.0))
+    api_max_retries = max(0, int(args.api_max_retries or 0))
+    api_retry_backoff_s = max(0.0, float(args.api_retry_backoff_s or 0.0))
+    api_split_on_error = bool(args.api_split_on_error)
+    api_skip_failed_games = bool(args.api_skip_failed_games)
+    api_failure_dir: Optional[Path] = args.api_failure_dir
 
     logo_url_cache: dict[int, Optional[str]] = {}
     logo_b64_cache: dict[int, Optional[str]] = {}
@@ -2082,34 +2134,205 @@ def main(argv: Optional[list[str]] = None) -> int:
     started = time.time()
     last_heartbeat = started
 
+    class _RestPostError(RuntimeError):
+        def __init__(
+            self,
+            message: str,
+            *,
+            status_code: Optional[int] = None,
+            response_text: Optional[str] = None,
+        ) -> None:
+            super().__init__(message)
+            self.status_code = status_code
+            self.response_text = response_text
+
+    def _t2s_game_ids(batch: list[dict[str, Any]]) -> list[int]:
+        out: list[int] = []
+        for g in batch:
+            try:
+                gid = g.get("timetoscore_game_id")
+                if gid is None:
+                    continue
+                out.append(int(gid))
+            except Exception:
+                continue
+        return out
+
+    def _format_t2s_ids(ids: list[int]) -> str:
+        if not ids:
+            return "[]"
+        if len(ids) <= 10:
+            return str(ids)
+        return f"{ids[:5]}...{ids[-5:]} (n={len(ids)})"
+
+    def _write_failure_payload(batch: list[dict[str, Any]], err: _RestPostError) -> Optional[Path]:
+        if not api_failure_dir:
+            return None
+        try:
+            api_failure_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return None
+
+        def _sanitize_game(g: dict[str, Any]) -> dict[str, Any]:
+            out = dict(g)
+            for k in ("home_logo_b64", "away_logo_b64"):
+                if k in out and isinstance(out.get(k), str) and out.get(k):
+                    out[k] = f"[omitted {len(str(out[k]))} chars]"
+            return out
+
+        payload = {
+            "api_url": f"{api_base}/api/import/hockey/games_batch",
+            "error": str(err),
+            "status_code": err.status_code,
+            "timetoscore_game_ids": _t2s_game_ids(batch),
+            "request": {
+                "league_name": league_name,
+                "replace": bool(args.replace),
+                "owner_email": owner_email,
+                "owner_name": owner_email,
+                "source": "timetoscore",
+                "external_key": f"{args.source}:{season_id}",
+                "shared": bool(args.shared) if args.shared is not None else None,
+                "games": [_sanitize_game(g) for g in batch],
+            },
+        }
+        suffix = secrets.token_hex(4)
+        p = (
+            api_failure_dir
+            / f"t2s_games_batch_failed_{dt.datetime.now():%Y%m%d_%H%M%S}_{suffix}.json"
+        )
+        try:
+            p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+            return p
+        except Exception:
+            return None
+
     def _post_batch() -> None:
-        nonlocal posted, api_games_batch
+        nonlocal posted, skipped, api_games_batch, api_batch_size
         if not rest_mode or not api_games_batch:
             return
         import requests
 
-        payload = {
-            "league_name": league_name,
-            "replace": bool(args.replace),
-            "owner_email": owner_email,
-            "owner_name": owner_email,
-            "source": "timetoscore",
-            "external_key": f"{args.source}:{season_id}",
-            "games": api_games_batch,
-        }
-        if args.shared is not None:
-            payload["shared"] = bool(args.shared)
-        r = requests.post(
-            f"{api_base}/api/import/hockey/games_batch",
-            json=payload,
-            headers=api_headers,
-            timeout=180,
-        )
-        r.raise_for_status()
-        out = r.json()
-        if not out.get("ok"):
-            raise RuntimeError(str(out))
-        posted += int(out.get("imported") or 0)
+        def _post_once(batch: list[dict[str, Any]]) -> int:
+            payload = {
+                "league_name": league_name,
+                "replace": bool(args.replace),
+                "owner_email": owner_email,
+                "owner_name": owner_email,
+                "source": "timetoscore",
+                "external_key": f"{args.source}:{season_id}",
+                "games": batch,
+            }
+            if args.shared is not None:
+                payload["shared"] = bool(args.shared)
+
+            url = f"{api_base}/api/import/hockey/games_batch"
+            try:
+                r = requests.post(url, json=payload, headers=api_headers, timeout=api_timeout_s)
+            except requests.RequestException as e:
+                raise _RestPostError(
+                    f"REST request failed: {type(e).__name__}: {e}",
+                    status_code=None,
+                    response_text=None,
+                ) from e
+
+            text = ""
+            try:
+                text = str(r.text or "")
+            except Exception:
+                text = ""
+            out: Any
+            try:
+                out = r.json()
+            except Exception:
+                out = None
+
+            if int(r.status_code) >= 400:
+                detail = out if isinstance(out, dict) else (text[:1000] if text else "<no body>")
+                raise _RestPostError(
+                    f"HTTP {int(r.status_code)} from {url}: {detail}",
+                    status_code=int(r.status_code),
+                    response_text=text,
+                )
+
+            if not isinstance(out, dict):
+                raise _RestPostError(
+                    f"Unexpected non-JSON response from {url}: {text[:1000] if text else '<no body>'}",
+                    status_code=int(r.status_code),
+                    response_text=text,
+                )
+            if not out.get("ok"):
+                raise _RestPostError(
+                    f"REST API returned ok=false: {out}",
+                    status_code=int(r.status_code),
+                    response_text=text,
+                )
+            return int(out.get("imported") or 0)
+
+        def _is_retryable(err: _RestPostError) -> bool:
+            sc = err.status_code
+            if sc is None:
+                return True
+            return int(sc) in {408, 429, 500, 502, 503, 504}
+
+        def _post_with_fallback(batch: list[dict[str, Any]]) -> None:
+            nonlocal posted, skipped, api_batch_size
+            ids = _t2s_game_ids(batch)
+            ids_s = _format_t2s_ids(ids)
+            max_attempts = max(1, api_max_retries)
+            last_err: Optional[_RestPostError] = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    imported = _post_once(batch)
+                    posted += int(imported)
+                    return
+                except _RestPostError as e:
+                    last_err = e
+                    # For nginx 504s, retries at the same batch size usually just waste time; split instead.
+                    if int(e.status_code or 0) == 504 and api_split_on_error and len(batch) > 1:
+                        break
+                    if attempt >= max_attempts or not _is_retryable(e):
+                        break
+                    sleep_s = api_retry_backoff_s * (2.0 ** float(attempt - 1))
+                    log(
+                        f"Warning: REST post failed (attempt {attempt}/{max_attempts}; "
+                        f"batch_size={len(batch)} timetoscore_game_ids={ids_s}): {e}. "
+                        f"Retrying in {sleep_s:.1f}s..."
+                    )
+                    time.sleep(sleep_s)
+
+            assert last_err is not None
+            failure_path = _write_failure_payload(batch, last_err)
+            if failure_path:
+                log(f"Saved failing REST payload: {failure_path}")
+
+            if api_split_on_error and len(batch) > 1:
+                new_size = max(1, len(batch) // 2)
+                if new_size < api_batch_size:
+                    api_batch_size = new_size
+                    log(
+                        f"Reducing --api-batch-size to {api_batch_size} due to REST failures (was larger)."
+                    )
+                mid = len(batch) // 2
+                log(
+                    f"REST batch failed; splitting batch_size={len(batch)} timetoscore_game_ids={ids_s} "
+                    f"into {mid}+{len(batch) - mid}..."
+                )
+                _post_with_fallback(batch[:mid])
+                _post_with_fallback(batch[mid:])
+                return
+
+            if api_skip_failed_games:
+                skipped += len(batch)
+                log(
+                    f"Warning: skipping {len(batch)} game(s) due to REST failure "
+                    f"(timetoscore_game_ids={ids_s}): {last_err}"
+                )
+                return
+
+            raise last_err
+
+        _post_with_fallback(api_games_batch)
         api_games_batch = []
 
     for gid in game_ids:
@@ -2988,9 +3211,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     if rest_mode:
         _post_batch()
 
-    log(
-        f"Import complete. Imported {count} games, skipped={skipped}, schedule_only={schedule_only}."
-    )
+    if rest_mode:
+        log(
+            f"Import complete. Scraped {count} games, posted={posted}, skipped={skipped}, schedule_only={schedule_only}."
+        )
+    else:
+        log(
+            f"Import complete. Imported {count} games, skipped={skipped}, schedule_only={schedule_only}."
+        )
     if (not rest_mode) and (not args.no_cleanup_bogus_players):
         try:
             assert league_id is not None

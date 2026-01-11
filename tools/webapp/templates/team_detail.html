@@ -643,13 +643,13 @@
 	        var u = new URL(String(url), window.location.origin);
 	        var host = String(u.hostname || "").toLowerCase();
 	        if (host === "youtu.be") {
-	          var p = String(u.pathname || "").replace(/^\\//, "");
+	          var p = String(u.pathname || "").replace(/^\//, "");
 	          return p ? p.split("/")[0] : null;
 	        }
 	        var v = u.searchParams.get("v");
 	        if (v) return v;
 	        var path = String(u.pathname || "");
-	        var m = path.match(/\\/embed\\/([^/?#]+)/) || path.match(/\\/shorts\\/([^/?#]+)/);
+	        var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
 	        return m ? m[1] : null;
 	      } catch (e) {}
 	      return null;

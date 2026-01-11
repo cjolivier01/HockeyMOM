@@ -14,6 +14,7 @@ NO_DEFAULT_USER=0
 REBUILD=0
 T2S_LEAGUES=(3 5 18)
 T2S_LEAGUES_SET=0
+T2S_API_BATCH_SIZE="${T2S_API_BATCH_SIZE:-10}"
 
 GIT_USER_EMAIL="$(git config --get user.email 2>/dev/null || true)"
 GIT_USER_NAME="$(git config --get user.name 2>/dev/null || true)"
@@ -66,6 +67,7 @@ Environment:
   OWNER_EMAIL             League owner email (default: git config user.email, else cjolivier01@gmail.com)
   OWNER_NAME              League owner display name (default: git config user.name, else OWNER_EMAIL)
   SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/RVideos/game_list_long.yaml if present, else ~/Videos/game_list_long.yaml, else .txt)
+  T2S_API_BATCH_SIZE      TimeToScore REST batch size for /api/import/hockey/games_batch (default: 10; lower avoids nginx 504 timeouts)
   PROJECT_ID              GCP project id (default: sage-courier-241217)
   ZONE                    GCE zone (default: us-central1-a)
   INSTANCE                GCE instance name (default: hm-webapp)
@@ -378,16 +380,17 @@ else
   fi
   for T2S_LEAGUE_ID in "${T2S_LEAGUES[@]}"; do
     echo "[i]   - CAHA TimeToScore league=${T2S_LEAGUE_ID}"
-    ./p tools/webapp/scripts/import_time2score.py \
-      --source=caha \
-      --t2s-league-id "${T2S_LEAGUE_ID}" \
-      --league-name="${LEAGUE_NAME}" \
-      --season 0 \
-      --api-url "${WEBAPP_URL}" \
-      "${T2S_ARGS[@]}" \
-      "${TOKEN_ARGS[@]}" \
-      --user-email "${OWNER_EMAIL}"
-  done
+	    ./p tools/webapp/scripts/import_time2score.py \
+	      --source=caha \
+	      --t2s-league-id "${T2S_LEAGUE_ID}" \
+	      --league-name="${LEAGUE_NAME}" \
+	      --season 0 \
+	      --api-url "${WEBAPP_URL}" \
+	      --api-batch-size "${T2S_API_BATCH_SIZE}" \
+	      "${T2S_ARGS[@]}" \
+	      "${TOKEN_ARGS[@]}" \
+	      --user-email "${OWNER_EMAIL}"
+	  done
 fi
 
 echo "[i] Uploading shift spreadsheets via REST"
