@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -1184,6 +1185,458 @@ def api_hky_game_events(request: HttpRequest, game_id: int) -> JsonResponse:
             "game_id": int(game_id),
             "count": int(len(out)),
             "events": out,
+        }
+    )
+
+
+def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: int) -> JsonResponse:
+    """
+    Return underlying event rows contributing to a player's stats on a team's page.
+
+    Supports:
+      - attributed events (player_id match), and
+      - on-ice goal events (Goal rows where the player's jersey is listed as on-ice).
+
+    Auth:
+      - Logged-in session is required for private leagues/teams.
+      - For public leagues, `league_id` can be passed as a query param and will be honored without login.
+    """
+    if request.method != "GET":
+        return JsonResponse({"ok": False, "error": "method_not_allowed"}, status=405)
+
+    _django_orm, m = _orm_modules()
+    session_uid = _session_user_id(request)
+
+    league_id_param = request.GET.get("league_id") or request.GET.get("lid")
+    league_id_session = request.session.get("league_id")
+    league_id_raw = league_id_param if league_id_param is not None else league_id_session
+    try:
+        league_id_i = int(league_id_raw) if league_id_raw is not None else None
+    except Exception:
+        league_id_i = None
+
+    public_mode = False
+    if not session_uid:
+        if league_id_i is None:
+            return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+        if not _is_public_league(int(league_id_i)):
+            return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+        public_mode = True
+    else:
+        # If a league id is selected, ensure membership to prevent leaking league data.
+        if league_id_i is not None:
+            from django.db.models import Q
+
+            ok = (
+                m.League.objects.filter(id=int(league_id_i))
+                .filter(
+                    Q(is_shared=True)
+                    | Q(owner_user_id=int(session_uid))
+                    | Q(members__user_id=int(session_uid))
+                )
+                .exists()
+            )
+            if not ok:
+                return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+
+    if (
+        league_id_i is not None
+        and not m.LeagueTeam.objects.filter(
+            league_id=int(league_id_i), team_id=int(team_id)
+        ).exists()
+    ):
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+
+    # Validate player/team relationship.
+    prow = (
+        m.Player.objects.filter(id=int(player_id), team_id=int(team_id))
+        .values("id", "team_id", "name", "jersey_number", "position")
+        .first()
+    )
+    if not prow:
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+
+    player_name = str(prow.get("name") or "").strip()
+    player_pos = str(prow.get("position") or "").strip()
+    jersey_norm = logic.normalize_jersey_number(prow.get("jersey_number"))
+
+    def _on_ice_numbers(raw: Optional[str]) -> set[str]:
+        if not raw:
+            return set()
+        return {str(int(x)) for x in re.findall(r"([0-9]+)", str(raw))}
+
+    # Determine schedule games and apply the same game-type and "eligible game" filtering as the team page.
+    schedule_games: list[dict[str, Any]] = []
+    if league_id_i is not None:
+        league_team_div_map = {
+            int(tid): (str(dn).strip() if dn is not None else None)
+            for tid, dn in m.LeagueTeam.objects.filter(league_id=int(league_id_i)).values_list(
+                "team_id", "division_name"
+            )
+        }
+        from django.db.models import Q
+
+        schedule_rows_raw = list(
+            m.LeagueGame.objects.filter(league_id=int(league_id_i))
+            .filter(Q(game__team1_id=int(team_id)) | Q(game__team2_id=int(team_id)))
+            .select_related("game", "game__team1", "game__team2", "game__game_type")
+            .values(
+                "game_id",
+                "division_name",
+                "sort_order",
+                "game__user_id",
+                "game__team1_id",
+                "game__team2_id",
+                "game__game_type_id",
+                "game__starts_at",
+                "game__location",
+                "game__notes",
+                "game__team1_score",
+                "game__team2_score",
+                "game__is_final",
+                "game__team1__name",
+                "game__team2__name",
+                "game__game_type__name",
+            )
+        )
+        for r0 in schedule_rows_raw:
+            t1 = int(r0["game__team1_id"])
+            t2 = int(r0["game__team2_id"])
+            schedule_games.append(
+                {
+                    "id": int(r0["game_id"]),
+                    "user_id": int(r0["game__user_id"]),
+                    "team1_id": t1,
+                    "team2_id": t2,
+                    "game_type_id": r0.get("game__game_type_id"),
+                    "starts_at": r0.get("game__starts_at"),
+                    "location": r0.get("game__location"),
+                    "notes": r0.get("game__notes"),
+                    "team1_score": r0.get("game__team1_score"),
+                    "team2_score": r0.get("game__team2_score"),
+                    "is_final": r0.get("game__is_final"),
+                    "team1_name": r0.get("game__team1__name"),
+                    "team2_name": r0.get("game__team2__name"),
+                    "game_type_name": r0.get("game__game_type__name"),
+                    "division_name": r0.get("division_name"),
+                    "sort_order": r0.get("sort_order"),
+                    "team1_league_division_name": league_team_div_map.get(t1),
+                    "team2_league_division_name": league_team_div_map.get(t2),
+                }
+            )
+        schedule_games = [
+            g2
+            for g2 in (schedule_games or [])
+            if not logic._league_game_is_cross_division_non_external(g2)
+        ]
+        schedule_games = logic.sort_games_schedule_order(schedule_games or [])
+    else:
+        if not session_uid:
+            return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+        team_owned = (
+            m.Team.objects.filter(id=int(team_id), user_id=int(session_uid))
+            .values_list("id", flat=True)
+            .first()
+        )
+        if team_owned is None:
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+        from django.db.models import Q
+
+        schedule_rows = list(
+            m.HkyGame.objects.filter(user_id=int(session_uid))
+            .filter(Q(team1_id=int(team_id)) | Q(team2_id=int(team_id)))
+            .select_related("team1", "team2", "game_type")
+            .values(
+                "id",
+                "user_id",
+                "team1_id",
+                "team2_id",
+                "game_type_id",
+                "starts_at",
+                "location",
+                "notes",
+                "team1_score",
+                "team2_score",
+                "is_final",
+                "team1__name",
+                "team2__name",
+                "game_type__name",
+            )
+        )
+        for r0 in schedule_rows:
+            schedule_games.append(
+                {
+                    "id": int(r0["id"]),
+                    "user_id": int(r0["user_id"]),
+                    "team1_id": int(r0["team1_id"]),
+                    "team2_id": int(r0["team2_id"]),
+                    "game_type_id": r0.get("game_type_id"),
+                    "starts_at": r0.get("starts_at"),
+                    "location": r0.get("location"),
+                    "notes": r0.get("notes"),
+                    "team1_score": r0.get("team1_score"),
+                    "team2_score": r0.get("team2_score"),
+                    "is_final": r0.get("is_final"),
+                    "team1_name": r0.get("team1__name"),
+                    "team2_name": r0.get("team2__name"),
+                    "game_type_name": r0.get("game_type__name"),
+                }
+            )
+        schedule_games = logic.sort_games_schedule_order(schedule_games or [])
+
+    for g2 in schedule_games or []:
+        try:
+            g2["_game_type_label"] = logic._game_type_label_for_row(g2)
+        except Exception:
+            g2["_game_type_label"] = "Unknown"
+        try:
+            g2["game_video_url"] = logic._sanitize_http_url(
+                logic._extract_game_video_url_from_notes(g2.get("notes"))
+            )
+        except Exception:
+            g2["game_video_url"] = None
+
+    game_type_options = logic._dedupe_preserve_str(
+        [str(g2.get("_game_type_label") or "") for g2 in (schedule_games or [])]
+    )
+    selected_types = logic._parse_selected_game_type_labels(
+        available=game_type_options, args=request.GET
+    )
+    stats_schedule_games = (
+        list(schedule_games or [])
+        if selected_types is None
+        else [
+            g2
+            for g2 in (schedule_games or [])
+            if str(g2.get("_game_type_label") or "") in selected_types
+        ]
+    )
+    eligible_games = [g2 for g2 in stats_schedule_games if logic._game_has_recorded_result(g2)]
+    eligible_game_ids = [int(g2["id"]) for g2 in eligible_games if g2.get("id") is not None]
+    eligible_game_ids_set = set(eligible_game_ids)
+
+    if not eligible_game_ids:
+        return JsonResponse(
+            {
+                "ok": True,
+                "team_id": int(team_id),
+                "player_id": int(player_id),
+                "player_name": player_name,
+                "jersey_number": jersey_norm or "",
+                "position": player_pos,
+                "eligible_games": 0,
+                "events": [],
+                "on_ice_goals": [],
+            }
+        )
+
+    games_by_id: dict[int, dict[str, Any]] = {
+        int(g2["id"]): dict(g2) for g2 in eligible_games if g2.get("id") is not None
+    }
+
+    def _game_paths(gid: int) -> tuple[Optional[str], Optional[str]]:
+        game_url = None
+        video_url = None
+        g2 = games_by_id.get(int(gid)) or {}
+        video_url = str(g2.get("game_video_url") or "").strip() or None
+        try:
+            if public_mode and league_id_i is not None:
+                game_url = reverse(
+                    "public_hky_game_detail",
+                    kwargs={"league_id": int(league_id_i), "game_id": int(gid)},
+                )
+            else:
+                game_url = reverse("hky_game_detail", kwargs={"game_id": int(gid)})
+        except Exception:
+            game_url = None
+        return game_url, video_url
+
+    qs = (
+        m.HkyGameEventRow.objects.filter(game_id__in=eligible_game_ids)
+        .select_related("event_type")
+        .order_by("game_id", "period", "game_seconds", "id")
+    )
+    qs = qs.exclude(
+        import_key__in=m.HkyGameEventSuppression.objects.filter(
+            game_id__in=eligible_game_ids
+        ).values_list("import_key", flat=True)
+    )
+
+    limit_raw = request.GET.get("limit")
+    limit = 4000
+    if limit_raw is not None and str(limit_raw).strip():
+        try:
+            limit = int(limit_raw)
+        except Exception:
+            return JsonResponse({"ok": False, "error": "invalid limit"}, status=400)
+    limit = max(1, min(int(limit), 10000))
+
+    # Attributed events: direct player attribution.
+    attributed_rows = list(
+        qs.filter(player_id=int(player_id))[:limit].values(
+            "id",
+            "import_key",
+            "game_id",
+            "event_type__name",
+            "event_type__key",
+            "source",
+            "event_id",
+            "team_id",
+            "team_raw",
+            "team_side",
+            "for_against",
+            "team_rel",
+            "period",
+            "game_time",
+            "video_time",
+            "game_seconds",
+            "video_seconds",
+            "details",
+            "attributed_players",
+            "attributed_jerseys",
+        )
+    )
+
+    events_out: list[dict[str, Any]] = []
+    for r0 in attributed_rows:
+        gid = int(r0.get("game_id") or 0)
+        if gid not in eligible_game_ids_set:
+            continue
+        g2 = games_by_id.get(int(gid)) or {}
+        game_url, video_url = _game_paths(int(gid))
+        events_out.append(
+            {
+                "kind": "attributed",
+                "game_id": int(gid),
+                "game_starts_at": g2.get("starts_at"),
+                "game_type": str(g2.get("_game_type_label") or ""),
+                "opponent": (
+                    str(g2.get("team2_name") or "")
+                    if int(g2.get("team1_id") or 0) == int(team_id)
+                    else str(g2.get("team1_name") or "")
+                ),
+                "game_url": game_url,
+                "video_url": video_url,
+                "event_id": r0.get("event_id"),
+                "event_type": str(r0.get("event_type__name") or ""),
+                "event_type_key": str(r0.get("event_type__key") or ""),
+                "team_side": str(r0.get("team_side") or ""),
+                "period": r0.get("period"),
+                "game_time": str(r0.get("game_time") or ""),
+                "video_time": str(r0.get("video_time") or ""),
+                "game_seconds": r0.get("game_seconds"),
+                "video_seconds": r0.get("video_seconds"),
+                "details": str(r0.get("details") or ""),
+                "for_against": str(r0.get("for_against") or ""),
+                "source": str(r0.get("source") or ""),
+            }
+        )
+
+    # On-ice goal events (for GF/GA and plus/minus drilldown).
+    goal_rows = list(
+        qs.filter(event_type__key="goal")[:limit].values(
+            "id",
+            "import_key",
+            "game_id",
+            "event_type__name",
+            "event_type__key",
+            "source",
+            "event_id",
+            "team_id",
+            "team_side",
+            "period",
+            "game_time",
+            "video_time",
+            "game_seconds",
+            "video_seconds",
+            "details",
+            "attributed_players",
+            "attributed_jerseys",
+            "on_ice_players",
+            "on_ice_players_home",
+            "on_ice_players_away",
+        )
+    )
+
+    on_ice_goals_out: list[dict[str, Any]] = []
+    if jersey_norm:
+        for r0 in goal_rows:
+            gid = int(r0.get("game_id") or 0)
+            if gid not in eligible_game_ids_set:
+                continue
+            g2 = games_by_id.get(int(gid)) or {}
+            if int(g2.get("team1_id") or 0) == int(team_id):
+                on_ice_raw = str(r0.get("on_ice_players_home") or "").strip() or str(
+                    r0.get("on_ice_players") or ""
+                )
+            elif int(g2.get("team2_id") or 0) == int(team_id):
+                on_ice_raw = str(r0.get("on_ice_players_away") or "").strip() or str(
+                    r0.get("on_ice_players") or ""
+                )
+            else:
+                continue
+            on_ice = _on_ice_numbers(on_ice_raw)
+            if jersey_norm not in on_ice:
+                continue
+            scoring_team_id = r0.get("team_id")
+            try:
+                scoring_team_id_i = int(scoring_team_id) if scoring_team_id is not None else None
+            except Exception:
+                scoring_team_id_i = None
+            rel = None
+            if scoring_team_id_i is not None:
+                rel = "For" if int(scoring_team_id_i) == int(team_id) else "Against"
+            game_url, video_url = _game_paths(int(gid))
+            on_ice_goals_out.append(
+                {
+                    "kind": "on_ice_goal",
+                    "for_against": rel or "",
+                    "game_id": int(gid),
+                    "game_starts_at": g2.get("starts_at"),
+                    "game_type": str(g2.get("_game_type_label") or ""),
+                    "opponent": (
+                        str(g2.get("team2_name") or "")
+                        if int(g2.get("team1_id") or 0) == int(team_id)
+                        else str(g2.get("team1_name") or "")
+                    ),
+                    "game_url": game_url,
+                    "video_url": video_url,
+                    "period": r0.get("period"),
+                    "game_time": str(r0.get("game_time") or ""),
+                    "video_time": str(r0.get("video_time") or ""),
+                    "video_seconds": r0.get("video_seconds"),
+                    "details": str(r0.get("details") or ""),
+                    "source": str(r0.get("source") or ""),
+                }
+            )
+
+    # Sort by date (if known), then by game/time.
+    def _ev_sort_key(e: dict[str, Any]) -> tuple:
+        gid = int(e.get("game_id") or 0)
+        g2 = games_by_id.get(gid) or {}
+        return (
+            0 if g2.get("starts_at") is not None else 1,
+            str(g2.get("starts_at") or ""),
+            gid,
+            int(e.get("period") or 0) if str(e.get("period") or "").strip() else 0,
+            str(e.get("game_time") or ""),
+            str(e.get("event_type") or ""),
+        )
+
+    events_out.sort(key=_ev_sort_key)
+    on_ice_goals_out.sort(key=_ev_sort_key)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "team_id": int(team_id),
+            "player_id": int(player_id),
+            "player_name": player_name,
+            "jersey_number": jersey_norm or "",
+            "position": player_pos,
+            "eligible_games": int(len(eligible_game_ids)),
+            "events": events_out,
+            "on_ice_goals": on_ice_goals_out,
         }
     )
 

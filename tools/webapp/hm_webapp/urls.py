@@ -33,6 +33,11 @@ urlpatterns = [
     ),
     path("api/hky/games/<int:game_id>/events", v.api_hky_game_events, name="api_hky_game_events"),
     path(
+        "api/hky/teams/<int:team_id>/players/<int:player_id>/events",
+        v.api_hky_team_player_events,
+        name="api_hky_team_player_events",
+    ),
+    path(
         "api/import/hockey/ensure_league",
         v.api_import_ensure_league,
         name="api_import_ensure_league",

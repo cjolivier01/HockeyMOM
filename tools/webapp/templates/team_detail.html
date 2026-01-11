@@ -312,7 +312,15 @@
         {% for r in player_stats_rows %}
           <tr>
             <td>{{ r.jersey_number|default_if_none:"" }}</td>
-            <td>{{ r.name|default_if_none:"" }}</td>
+            <td>
+              <a
+                href="#"
+                class="player-events-link"
+                data-player-id="{{ r.player_id }}"
+                style="text-decoration:none;color:inherit;"
+                title="Show underlying events"
+              >{{ r.name|default_if_none:"" }}</a>
+            </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in player_stats_columns %}
               <td>{{ r|get_item:col.key|fmt_stat }}</td>
@@ -377,7 +385,15 @@
         {% for r in recent_player_stats_rows %}
           <tr>
             <td>{{ r.jersey_number|default_if_none:"" }}</td>
-            <td>{{ r.name|default_if_none:"" }}</td>
+            <td>
+              <a
+                href="#"
+                class="player-events-link"
+                data-player-id="{{ r.player_id }}"
+                style="text-decoration:none;color:inherit;"
+                title="Show underlying events"
+              >{{ r.name|default_if_none:"" }}</a>
+            </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in recent_player_stats_columns %}
               <td>{{ r|get_item:col.key|fmt_stat }}</td>
@@ -390,6 +406,260 @@
     </table>
   </div>
 </div>
+
+<dialog id="team-player-events-modal" style="max-width:960px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
+  <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
+    <div>
+      <div id="team-player-events-title" style="font-weight:700;"></div>
+      <div id="team-player-events-subtitle" class="muted" style="font-size:.9rem;"></div>
+    </div>
+    <button id="team-player-events-close" class="btn" type="button">Close</button>
+  </div>
+  <div id="team-player-events-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
+</dialog>
+
+<style>
+  #team-player-events-body table.team-player-events-table th,
+  #team-player-events-body table.team-player-events-table td {
+    padding: .45rem .65rem;
+    font-size: .88rem;
+  }
+</style>
+
+<script>
+  (function () {
+    function parseTimeToSeconds(s) {
+      s = String(s || "").trim();
+      if (!s) return null;
+      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+      if (!m) return null;
+      var a = parseInt(m[1], 10);
+      var b = parseInt(m[2], 10);
+      var c = m[3] ? parseInt(m[3], 10) : null;
+      if (!isFinite(a) || !isFinite(b)) return null;
+      if (c === null) return a * 60 + b;
+      if (!isFinite(c)) return null;
+      return a * 3600 + b * 60 + c;
+    }
+
+    function fmtDate(value) {
+      var s = String(value || "").trim();
+      if (!s) return "";
+      var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+      return m ? m[1] : s;
+    }
+
+    function urlWithTime(url, seconds) {
+      if (!url) return "";
+      if (seconds === null || seconds === undefined) return String(url);
+      var sec = parseInt(String(seconds), 10);
+      if (!isFinite(sec) || sec < 0) return String(url);
+      try {
+        var u = new URL(String(url), window.location.origin);
+        var host = String(u.hostname || "").toLowerCase();
+        var isYouTube = host.indexOf("youtube.com") >= 0 || host.indexOf("youtu.be") >= 0 || host.indexOf("youtube-nocookie.com") >= 0;
+        if (isYouTube) {
+          u.searchParams.set("t", String(sec));
+          u.searchParams.set("vq", "hd1080");
+          return u.toString();
+        }
+        u.hash = "t=" + String(sec);
+        return u.toString();
+      } catch (e) {
+        return String(url);
+      }
+    }
+
+    function el(tag, attrs, text) {
+      var node = document.createElement(tag);
+      if (attrs) {
+        Object.keys(attrs).forEach(function (k) {
+          if (k === "className") node.className = attrs[k];
+          else if (k === "text") node.textContent = String(attrs[k] || "");
+          else node.setAttribute(k, String(attrs[k]));
+        });
+      }
+      if (text !== undefined && text !== null) node.textContent = String(text);
+      return node;
+    }
+
+    function addRow(tbody, cols) {
+      var tr = document.createElement("tr");
+      cols.forEach(function (c) {
+        var td = document.createElement("td");
+        if (c && c.nodeType) td.appendChild(c);
+        else td.textContent = String(c || "");
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    }
+
+    function renderEventsTable(container, rows, opts) {
+      var wrap = document.createElement("div");
+      wrap.className = "table-scroll";
+      var table = document.createElement("table");
+      table.className = "table-nowrap table-grid team-player-events-table";
+      var thead = document.createElement("thead");
+      var trh = document.createElement("tr");
+      (opts.headers || []).forEach(function (h) {
+        trh.appendChild(el("th", null, h));
+      });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+      var tbody = document.createElement("tbody");
+      (rows || []).forEach(function (r) {
+        var gameLabel = (fmtDate(r.game_starts_at) || "Game") + " vs " + String(r.opponent || "").trim();
+        if (String(r.game_type || "").trim()) gameLabel += " (" + String(r.game_type || "").trim() + ")";
+        var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
+
+        var videoLabel = String(r.video_time || "").trim() || (r.video_url ? "Video" : "");
+        var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
+        var videoHref = r.video_url ? urlWithTime(r.video_url, videoSeconds) : "";
+        var videoCell = videoHref ? el("a", { href: videoHref, target: "_blank", rel: "noopener noreferrer" }, videoLabel) : el("span", { className: "muted" }, "—");
+
+        addRow(tbody, opts.rowCells(r, { gameCell: gameCell, videoCell: videoCell }));
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      container.appendChild(wrap);
+    }
+
+    function groupRows(rows, keyFn) {
+      var order = [];
+      var groups = {};
+      (rows || []).forEach(function (r) {
+        var label = String(keyFn(r) || "").trim() || "Unknown";
+        var k = label.toLowerCase();
+        if (!Object.prototype.hasOwnProperty.call(groups, k)) {
+          groups[k] = { label: label, rows: [] };
+          order.push(k);
+        }
+        groups[k].rows.push(r);
+      });
+      return { order: order, groups: groups };
+    }
+
+    var teamId = {{ team.id|default:"0" }};
+    var publicLeagueId = {{ public_league_id|default:"null" }};
+    var dlg = document.getElementById("team-player-events-modal");
+    var titleEl = document.getElementById("team-player-events-title");
+    var subtitleEl = document.getElementById("team-player-events-subtitle");
+    var bodyEl = document.getElementById("team-player-events-body");
+    var closeBtn = document.getElementById("team-player-events-close");
+    if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
+
+    function closeModal() {
+      try { dlg.close(); } catch (e) { dlg.open = false; }
+    }
+    if (closeBtn) closeBtn.addEventListener("click", closeModal);
+
+    function showModal() {
+      try { dlg.showModal(); } catch (e) { dlg.open = true; }
+    }
+
+    function showError(msg) {
+      bodyEl.innerHTML = "";
+      var p = el("p", { className: "muted" }, msg || "Error");
+      bodyEl.appendChild(p);
+    }
+
+    function buildApiUrl(playerId) {
+      var api = new URL("/api/hky/teams/" + String(teamId) + "/players/" + String(playerId) + "/events", window.location.origin);
+      var cur = new URL(window.location.href);
+      cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+      if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
+      return api;
+    }
+
+    function loadPlayer(playerId) {
+      titleEl.textContent = "Loading…";
+      subtitleEl.textContent = "";
+      bodyEl.innerHTML = "<p class=\"muted\">Loading events…</p>";
+      showModal();
+      var api = buildApiUrl(playerId);
+      fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
+        return resp.json().then(function (data) {
+          if (!resp.ok || !data || !data.ok) {
+            var err = (data && data.error) ? String(data.error) : ("HTTP " + String(resp.status || ""));
+            showError("Unable to load events (" + err + ").");
+            return;
+          }
+          titleEl.textContent = String(data.player_name || "Player") + (data.jersey_number ? (" (#" + String(data.jersey_number) + ")") : "");
+          subtitleEl.textContent = "Eligible games: " + String(data.eligible_games || 0);
+          bodyEl.innerHTML = "";
+
+          var onIce = Array.isArray(data.on_ice_goals) ? data.on_ice_goals : [];
+          var attributed = Array.isArray(data.events) ? data.events : [];
+
+          if (!onIce.length && !attributed.length) {
+            bodyEl.appendChild(el("p", { className: "muted" }, "No matching events for this player in the selected games."));
+            return;
+          }
+
+          if (onIce.length) {
+            bodyEl.appendChild(el("h4", { style: "margin:.25rem 0 .5rem 0;" }, "On-Ice Goals (For/Against)"));
+            var og = groupRows(onIce, function (r) {
+              var fa = String(r.for_against || "").trim();
+              return fa ? ("Goals " + fa) : "Goals";
+            });
+            og.order.forEach(function (k) {
+              var g = og.groups[k];
+              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+              renderEventsTable(bodyEl, g.rows, {
+                headers: ["Game", "P", "Time", "Video", "Details", "Source"],
+                rowCells: function (r, ctx) {
+                  return [
+                    ctx.gameCell,
+                    String(r.period || ""),
+                    String(r.game_time || ""),
+                    ctx.videoCell,
+                    String(r.details || ""),
+                    String(r.source || ""),
+                  ];
+                },
+              });
+            });
+          }
+
+          if (attributed.length) {
+            bodyEl.appendChild(el("h4", { style: "margin:1rem 0 .5rem 0;" }, "Attributed Events"));
+            var eg = groupRows(attributed, function (r) { return r.event_type; });
+            eg.order.forEach(function (k) {
+              var g = eg.groups[k];
+              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+              renderEventsTable(bodyEl, g.rows, {
+                headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+                rowCells: function (r, ctx) {
+                  return [
+                    ctx.gameCell,
+                    String(r.period || ""),
+                    String(r.game_time || ""),
+                    ctx.videoCell,
+                    String(r.for_against || ""),
+                    String(r.details || ""),
+                    String(r.source || ""),
+                  ];
+                },
+              });
+            });
+          }
+        });
+      }).catch(function (e) {
+        showError("Unable to load events (" + String(e || "error") + ").");
+      });
+    }
+
+    document.querySelectorAll("a.player-events-link").forEach(function (a) {
+      a.style.cursor = "pointer";
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pid = a.getAttribute("data-player-id");
+        if (!pid) return;
+        loadPlayer(pid);
+      });
+    });
+  })();
+</script>
 
 {% endwith %}
 {% endblock %}
