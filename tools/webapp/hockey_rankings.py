@@ -33,7 +33,7 @@ def compute_mhr_like_ratings(
     *,
     games: list[GameScore],
     max_goal_diff: int = 7,
-    min_games_for_rating: int = 4,
+    min_games_for_rating: int = 2,
     damping: float = 0.85,
     max_iter: int = 2000,
     tol: float = 1e-8,

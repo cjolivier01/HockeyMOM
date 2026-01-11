@@ -2116,13 +2116,31 @@ def teams(request: HttpRequest) -> HttpResponse:
                 "mhr_updated_at",
             )
         )
+        schedule_team_ids: Optional[set[int]] = None
+        if any("girls" in str(r0.get("team__name") or "").lower() for r0 in rows_raw):
+            schedule_team_ids = set()
+            for t1_id, t2_id in m.LeagueGame.objects.filter(league_id=int(league_id)).values_list(
+                "game__team1_id", "game__team2_id"
+            ):
+                if t1_id is not None:
+                    schedule_team_ids.add(int(t1_id))
+                if t2_id is not None:
+                    schedule_team_ids.add(int(t2_id))
         rows: list[dict[str, Any]] = []
         for r0 in rows_raw:
+            tid = int(r0["team_id"])
+            name = str(r0.get("team__name") or "")
+            if (
+                schedule_team_ids is not None
+                and "girls" in name.lower()
+                and tid not in schedule_team_ids
+            ):
+                continue
             rows.append(
                 {
-                    "id": int(r0["team_id"]),
+                    "id": tid,
                     "user_id": int(r0["team__user_id"]),
-                    "name": r0.get("team__name"),
+                    "name": name,
                     "logo_path": r0.get("team__logo_path"),
                     "is_external": bool(r0.get("team__is_external")),
                     "created_at": r0.get("team__created_at"),
@@ -7550,7 +7568,7 @@ def api_internal_recalc_div_ratings(request: HttpRequest) -> JsonResponse:
     min_games_raw = payload.get("min_games") or payload.get("minGames") or None
 
     max_goal_diff = int(max_goal_diff_raw) if max_goal_diff_raw is not None else 7
-    min_games = int(min_games_raw) if min_games_raw is not None else 4
+    min_games = int(min_games_raw) if min_games_raw is not None else 2
 
     _django_orm, m = _orm_modules()
 
