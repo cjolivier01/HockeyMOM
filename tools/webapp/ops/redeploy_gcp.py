@@ -14,6 +14,7 @@ If you changed Python dependencies or system packages, rerun `tools/webapp/ops/d
 from __future__ import annotations
 
 import argparse
+import textwrap
 import shlex
 import subprocess
 
@@ -73,38 +74,56 @@ def main() -> int:
             "--zone",
             args.zone,
             "--command",
-            "set -euo pipefail; "
-            "if ! /opt/hm-webapp/venv/bin/python -c 'import django' >/dev/null 2>&1; then "
-            "  sudo /opt/hm-webapp/venv/bin/python -m pip install django; "
-            "fi; "
-            "sudo mkdir -p /opt/hm-webapp/app/templates /opt/hm-webapp/app/static; "
-            "sudo cp /tmp/hm/tools/webapp/app.py /opt/hm-webapp/app/app.py; "
-            "sudo cp /tmp/hm/tools/webapp/manage.py /opt/hm-webapp/app/manage.py; "
-            "sudo cp /tmp/hm/tools/webapp/django_orm.py /opt/hm-webapp/app/django_orm.py; "
-            "sudo cp /tmp/hm/tools/webapp/django_settings.py /opt/hm-webapp/app/django_settings.py; "
-            "sudo cp /tmp/hm/tools/webapp/urls.py /opt/hm-webapp/app/urls.py; "
-            "sudo cp /tmp/hm/tools/webapp/wsgi.py /opt/hm-webapp/app/wsgi.py; "
-            "sudo cp -r /tmp/hm/tools/webapp/django_app /opt/hm-webapp/app/; "
-            "sudo cp -r /tmp/hm/tools/webapp/hm_webapp /opt/hm-webapp/app/; "
-            "sudo cp /tmp/hm/tools/webapp/hockey_rankings.py /opt/hm-webapp/app/hockey_rankings.py; "
-            "sudo cp /tmp/hm/tools/webapp/scripts/recalc_div_ratings.py /opt/hm-webapp/app/recalc_div_ratings.py; "
-            "sudo cp -r /tmp/hm/tools/webapp/templates/. /opt/hm-webapp/app/templates/; "
-            "sudo cp -r /tmp/hm/tools/webapp/static/. /opt/hm-webapp/app/static/; "
-            "sudo chown -R colivier:colivier /opt/hm-webapp/app; "
-            "sudo systemctl start mariadb >/dev/null 2>&1 || sudo systemctl start mysql >/dev/null 2>&1 || true; "
-            "if sudo mysql --connect-timeout=5 -u root -e 'SELECT 1;' >/dev/null 2>&1; then "
-            "  sudo mysql --connect-timeout=5 -u root <<'SQL' || true\n"
-            "CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'admin';\n"
-            "CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'admin';\n"
-            "GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;\n"
-            "GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;\n"
-            "FLUSH PRIVILEGES;\n"
-            "SQL\n"
-            "else "
-            "  echo '[!] Warning: cannot connect to MariaDB as root; skipping DB admin user provisioning' >&2; "
-            "fi; "
-            "sudo systemctl restart hm-webapp.service; "
-            "sudo systemctl is-active hm-webapp.service",
+            textwrap.dedent(
+                """
+                set -euo pipefail
+
+                if ! /opt/hm-webapp/venv/bin/python -c 'import django' >/dev/null 2>&1; then
+                  sudo /opt/hm-webapp/venv/bin/python -m pip install django
+                fi
+
+                sudo mkdir -p /opt/hm-webapp/app/templates /opt/hm-webapp/app/static
+                sudo cp /tmp/hm/tools/webapp/app.py /opt/hm-webapp/app/app.py
+                sudo cp /tmp/hm/tools/webapp/manage.py /opt/hm-webapp/app/manage.py
+                sudo cp /tmp/hm/tools/webapp/django_orm.py /opt/hm-webapp/app/django_orm.py
+                sudo cp /tmp/hm/tools/webapp/django_settings.py /opt/hm-webapp/app/django_settings.py
+                sudo cp /tmp/hm/tools/webapp/urls.py /opt/hm-webapp/app/urls.py
+                sudo cp /tmp/hm/tools/webapp/wsgi.py /opt/hm-webapp/app/wsgi.py
+                sudo cp -r /tmp/hm/tools/webapp/django_app /opt/hm-webapp/app/
+                sudo cp -r /tmp/hm/tools/webapp/hm_webapp /opt/hm-webapp/app/
+                sudo cp /tmp/hm/tools/webapp/hockey_rankings.py /opt/hm-webapp/app/hockey_rankings.py
+                sudo cp /tmp/hm/tools/webapp/scripts/recalc_div_ratings.py /opt/hm-webapp/app/recalc_div_ratings.py
+                sudo cp -r /tmp/hm/tools/webapp/templates/. /opt/hm-webapp/app/templates/
+                sudo cp -r /tmp/hm/tools/webapp/static/. /opt/hm-webapp/app/static/
+                sudo chown -R colivier:colivier /opt/hm-webapp/app
+
+                # Upgrade old Flask-based systemd service to Django (idempotent).
+                if sudo test -f /etc/systemd/system/hm-webapp.service && sudo grep -Fq "app:app" /etc/systemd/system/hm-webapp.service; then
+                  sudo sed -i 's|Description=HockeyMOM WebApp (Flask via gunicorn)|Description=HockeyMOM WebApp (Django via gunicorn)|g' /etc/systemd/system/hm-webapp.service || true
+                  sudo sed -i 's|app:app|wsgi:application|g' /etc/systemd/system/hm-webapp.service
+                  if ! sudo grep -q '^Environment=DJANGO_SETTINGS_MODULE=' /etc/systemd/system/hm-webapp.service; then
+                    sudo sed -i '/^Environment=HM_DB_CONFIG=/a Environment=DJANGO_SETTINGS_MODULE=hm_webapp.settings' /etc/systemd/system/hm-webapp.service || true
+                  fi
+                  sudo systemctl daemon-reload
+                fi
+
+                sudo systemctl start mariadb >/dev/null 2>&1 || sudo systemctl start mysql >/dev/null 2>&1 || true
+                if sudo mysql --connect-timeout=5 -u root -e 'SELECT 1;' >/dev/null 2>&1; then
+                  sudo mysql --connect-timeout=5 -u root <<'SQL' || true
+                CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'admin';
+                CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'admin';
+                GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;
+                GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;
+                FLUSH PRIVILEGES;
+                SQL
+                else
+                  echo '[!] Warning: cannot connect to MariaDB as root; skipping DB admin user provisioning' >&2
+                fi
+
+                sudo systemctl restart hm-webapp.service
+                sudo systemctl is-active hm-webapp.service
+                """
+            ).strip(),
         ]
     )
     return 0
