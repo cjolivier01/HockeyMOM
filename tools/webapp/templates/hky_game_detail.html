@@ -2447,11 +2447,11 @@
       });
     }
 
-    function groupRows(rows, labelFn) {
-      var order = [];
-      var groups = {};
-      (rows || []).forEach(function (r) {
-        var label = String(labelFn(r) || "").trim() || "Unknown";
+	    function groupRows(rows, labelFn) {
+	      var order = [];
+	      var groups = {};
+	      (rows || []).forEach(function (r) {
+	        var label = String(labelFn(r) || "").trim() || "Unknown";
         var k = label.toLowerCase();
         if (!Object.prototype.hasOwnProperty.call(groups, k)) {
           groups[k] = { label: label, rows: [] };
@@ -2459,13 +2459,48 @@
         }
         groups[k].rows.push(r);
       });
-      return { order: order, groups: groups };
-    }
+	      return { order: order, groups: groups };
+	    }
 
-    function extractNumberSet(raw) {
-      var s = String(raw || "");
-      var out = {};
-      var m = s.match(/(\d+)/g);
+	    function withDetailsTag(row, tag) {
+	      var copy = Object.assign({}, row);
+	      var base = String(getValue(row, ["Details"]) || "").trim();
+	      var t = String(tag || "").trim();
+	      if (!t) return copy;
+	      copy["Details"] = base ? (t + " — " + base) : t;
+	      return copy;
+	    }
+
+	    function buildShotChainTables(rows) {
+	      var goals = [];
+	      var xg = [];
+	      var sog = [];
+	      var shot = [];
+	      (rows || []).forEach(function (row) {
+	        var k = normTypeKey(getValue(row, ["Event Type", "Event"]));
+	        if (k === "goal") {
+	          goals.push(row);
+	          xg.push(withDetailsTag(row, "Goal"));
+	          sog.push(withDetailsTag(row, "Goal"));
+	          shot.push(withDetailsTag(row, "Goal"));
+	        } else if (k === "expectedgoal") {
+	          xg.push(withDetailsTag(row, "xG"));
+	          sog.push(withDetailsTag(row, "xG"));
+	          shot.push(withDetailsTag(row, "xG"));
+	        } else if (k === "sog") {
+	          sog.push(withDetailsTag(row, "SOG"));
+	          shot.push(withDetailsTag(row, "SOG"));
+	        } else if (k === "shot") {
+	          shot.push(row);
+	        }
+	      });
+	      return { goals: goals, xg: xg, sog: sog, shot: shot };
+	    }
+
+	    function extractNumberSet(raw) {
+	      var s = String(raw || "");
+	      var out = {};
+	      var m = s.match(/(\d+)/g);
       if (!m) return out;
       m.forEach(function (v) {
         try {
@@ -2498,10 +2533,10 @@
       }
 
       var filtered = [];
-      if (showAttributedEvents) {
-        filtered = eventsRows.filter(function (row) {
-          if (side) {
-            var rs = rowSide(row);
+	      if (showAttributedEvents) {
+	        filtered = eventsRows.filter(function (row) {
+	          if (side) {
+	            var rs = rowSide(row);
             if (rs && rs !== side) return false;
           }
           var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
@@ -2511,10 +2546,13 @@
           if (playerJersey && rowJ && rowJ === extractJersey(playerJersey)) return true;
           var rowP = normName(getValue(row, ["Attributed Players", "AttributedPlayers", "Player", "Name"]));
           if (playerNameNorm && rowP && rowP === playerNameNorm) return true;
-          return false;
-        });
-        sortRowsByPeriodAndGameClockDesc(filtered);
-      }
+	          return false;
+	        });
+	        sortRowsByPeriodAndGameClockDesc(filtered);
+	        filtered = filtered.filter(function (row) {
+	          return normTypeKey(getValue(row, ["Event Type", "Event"])) !== "penaltyexpired";
+	        });
+	      }
 
       var onIceGoals = [];
       var playerJerseyNorm = extractJersey(playerJersey);
@@ -2584,19 +2622,91 @@
           });
         }
 
-        if (filtered.length) {
-          var byType = groupRows(filtered, function (r) {
-            return getValue(r, ["Event Type", "Event"]);
-          });
-          byType.order.forEach(function (k) {
-            var h = document.createElement("h4");
-            h.style.margin = "0.75rem 0 0.35rem 0";
-            h.textContent = byType.groups[k].label;
-            bodyEl.appendChild(h);
-            buildEventsTable(bodyEl, byType.groups[k].rows);
-          });
-        }
-      }
+	        if (filtered.length) {
+	          if (!statKey) {
+	            var chain = buildShotChainTables(filtered);
+	            [
+	              ["Goals", chain.goals],
+	              ["xG (Expected Goal)", chain.xg],
+	              ["SOG", chain.sog],
+	              ["Shot", chain.shot],
+	            ].forEach(function (pair) {
+	              var label = pair[0];
+	              var rows = pair[1] || [];
+	              if (!rows.length) return;
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = label;
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, rows);
+	            });
+
+	            var chainKeys = { goal: true, expectedgoal: true, sog: true, shot: true };
+	            var remaining = filtered.filter(function (row) {
+	              return !chainKeys[normTypeKey(getValue(row, ["Event Type", "Event"]))];
+	            });
+	            if (remaining.length) {
+	              var byType = groupRows(remaining, function (r) {
+	                return getValue(r, ["Event Type", "Event"]);
+	              });
+	              byType.order.forEach(function (k) {
+	                var h = document.createElement("h4");
+	                h.style.margin = "0.75rem 0 0.35rem 0";
+	                h.textContent = byType.groups[k].label;
+	                bodyEl.appendChild(h);
+	                buildEventsTable(bodyEl, byType.groups[k].rows);
+	              });
+	            }
+	          } else if (statKey === "expected_goals") {
+	            var xgRows = buildShotChainTables(filtered).xg;
+	            if (xgRows.length) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = "xG (Expected Goal)";
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, xgRows);
+	            }
+	          } else if (statKey === "sog") {
+	            var sogRows = buildShotChainTables(filtered).sog;
+	            if (sogRows.length) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = "SOG";
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, sogRows);
+	            }
+	          } else if (statKey === "shots") {
+	            var shotRows = buildShotChainTables(filtered).shot;
+	            if (shotRows.length) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = "Shot";
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, shotRows);
+	            }
+	          } else if (statKey === "goals") {
+	            var goalRows = buildShotChainTables(filtered).goals;
+	            if (goalRows.length) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = "Goals";
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, goalRows);
+	            }
+	          } else {
+	            var byType = groupRows(filtered, function (r) {
+	              return getValue(r, ["Event Type", "Event"]);
+	            });
+	            byType.order.forEach(function (k) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = byType.groups[k].label;
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, byType.groups[k].rows);
+	            });
+	          }
+	        }
+	      }
 
       try {
         dlg.showModal();

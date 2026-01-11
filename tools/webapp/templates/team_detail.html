@@ -427,11 +427,14 @@
 </style>
 
 <script>
-  (function () {
-    function parseTimeToSeconds(s) {
-      s = String(s || "").trim();
-      if (!s) return null;
-      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+	  (function () {
+	    function normTypeKey(s) {
+	      return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+	    }
+	    function parseTimeToSeconds(s) {
+	      s = String(s || "").trim();
+	      if (!s) return null;
+	      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
       if (!m) return null;
       var a = parseInt(m[1], 10);
       var b = parseInt(m[2], 10);
@@ -524,11 +527,11 @@
       container.appendChild(wrap);
     }
 
-    function groupRows(rows, keyFn) {
-      var order = [];
-      var groups = {};
-      (rows || []).forEach(function (r) {
-        var label = String(keyFn(r) || "").trim() || "Unknown";
+	    function groupRows(rows, keyFn) {
+	      var order = [];
+	      var groups = {};
+	      (rows || []).forEach(function (r) {
+	        var label = String(keyFn(r) || "").trim() || "Unknown";
         var k = label.toLowerCase();
         if (!Object.prototype.hasOwnProperty.call(groups, k)) {
           groups[k] = { label: label, rows: [] };
@@ -536,14 +539,23 @@
         }
         groups[k].rows.push(r);
       });
-      return { order: order, groups: groups };
-    }
+	      return { order: order, groups: groups };
+	    }
 
-    var teamId = {{ team.id|default:"0" }};
-    var publicLeagueId = {{ public_league_id|default:"null" }};
-    var dlg = document.getElementById("team-player-events-modal");
-    var titleEl = document.getElementById("team-player-events-title");
-    var subtitleEl = document.getElementById("team-player-events-subtitle");
+	    function withDetailsTag(r, tag) {
+	      var copy = Object.assign({}, r);
+	      var base = String(r.details || "").trim();
+	      var t = String(tag || "").trim();
+	      if (!t) return copy;
+	      copy.details = base ? (t + " — " + base) : t;
+	      return copy;
+	    }
+
+	    var teamId = {{ team.id|default:"0" }};
+	    var publicLeagueId = {{ public_league_id|default:"null" }};
+	    var dlg = document.getElementById("team-player-events-modal");
+	    var titleEl = document.getElementById("team-player-events-title");
+	    var subtitleEl = document.getElementById("team-player-events-subtitle");
     var bodyEl = document.getElementById("team-player-events-body");
     var closeBtn = document.getElementById("team-player-events-close");
     if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
@@ -621,32 +633,93 @@
             });
           }
 
-          if (attributed.length) {
-            bodyEl.appendChild(el("h4", { style: "margin:1rem 0 .5rem 0;" }, "Attributed Events"));
-            var eg = groupRows(attributed, function (r) { return r.event_type; });
-            eg.order.forEach(function (k) {
-              var g = eg.groups[k];
-              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
-              renderEventsTable(bodyEl, g.rows, {
-                headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
-                rowCells: function (r, ctx) {
-                  return [
-                    ctx.gameCell,
-                    String(r.period || ""),
-                    String(r.game_time || ""),
-                    ctx.videoCell,
-                    String(r.for_against || ""),
-                    String(r.details || ""),
-                    String(r.source || ""),
-                  ];
-                },
-              });
-            });
-          }
-        });
-      }).catch(function (e) {
-        showError("Unable to load events (" + String(e || "error") + ").");
-      });
+	          if (attributed.length) {
+	            bodyEl.appendChild(el("h4", { style: "margin:1rem 0 .5rem 0;" }, "Attributed Events"));
+	            var filtered = attributed.filter(function (r) {
+	              var k = normTypeKey(r.event_type_key || r.event_type);
+	              return k !== "penaltyexpired";
+	            });
+
+	            var goals = [];
+	            var xg = [];
+	            var sog = [];
+	            var shot = [];
+	            filtered.forEach(function (r) {
+	              var k = normTypeKey(r.event_type_key || r.event_type);
+	              if (k === "goal") {
+	                goals.push(r);
+	                xg.push(withDetailsTag(r, "Goal"));
+	                sog.push(withDetailsTag(r, "Goal"));
+	                shot.push(withDetailsTag(r, "Goal"));
+	              } else if (k === "expectedgoal") {
+	                xg.push(withDetailsTag(r, "xG"));
+	                sog.push(withDetailsTag(r, "xG"));
+	                shot.push(withDetailsTag(r, "xG"));
+	              } else if (k === "sog") {
+	                sog.push(withDetailsTag(r, "SOG"));
+	                shot.push(withDetailsTag(r, "SOG"));
+	              } else if (k === "shot") {
+	                shot.push(r);
+	              }
+	            });
+
+	            [
+	              ["Goals", goals],
+	              ["xG (Expected Goal)", xg],
+	              ["SOG", sog],
+	              ["Shot", shot],
+	            ].forEach(function (pair) {
+	              var label = pair[0];
+	              var rows = pair[1] || [];
+	              if (!rows.length) return;
+	              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, label));
+	              renderEventsTable(bodyEl, rows, {
+	                headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+	                rowCells: function (r, ctx) {
+	                  return [
+	                    ctx.gameCell,
+	                    String(r.period || ""),
+	                    String(r.game_time || ""),
+	                    ctx.videoCell,
+	                    String(r.for_against || ""),
+	                    String(r.details || ""),
+	                    String(r.source || ""),
+	                  ];
+	                },
+	              });
+	            });
+
+	            var chainKeys = { goal: true, expectedgoal: true, sog: true, shot: true };
+	            var remaining = filtered.filter(function (r) {
+	              var k = normTypeKey(r.event_type_key || r.event_type);
+	              return !chainKeys[k];
+	            });
+	            if (remaining.length) {
+	              var eg = groupRows(remaining, function (r) { return r.event_type; });
+	              eg.order.forEach(function (k) {
+	                var g = eg.groups[k];
+	                bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+	                renderEventsTable(bodyEl, g.rows, {
+	                  headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+	                  rowCells: function (r, ctx) {
+	                    return [
+	                      ctx.gameCell,
+	                      String(r.period || ""),
+	                      String(r.game_time || ""),
+	                      ctx.videoCell,
+	                      String(r.for_against || ""),
+	                      String(r.details || ""),
+	                      String(r.source || ""),
+	                    ];
+	                  },
+	                });
+	              });
+	            }
+	          }
+	        });
+	      }).catch(function (e) {
+	        showError("Unable to load events (" + String(e || "error") + ").");
+	      });
     }
 
     document.querySelectorAll("a.player-events-link").forEach(function (a) {
