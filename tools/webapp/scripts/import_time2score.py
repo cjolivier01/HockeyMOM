@@ -1356,7 +1356,40 @@ def main(argv: Optional[list[str]] = None) -> int:
         return t
 
     def _norm_div_key(name: str) -> str:
-        return _clean_division_label(name).casefold()
+        # Normalize common variants:
+        #   - "10U B West" == "10 B West"
+        #   - "12 AA" == "12AA"
+        t = _clean_division_label(name).casefold()
+        t = re.sub(r"(?i)(\d)u\b", r"\1", t)  # "10U" -> "10"
+        t = re.sub(r"\s+", "", t)
+        return t
+
+    def _base_div_token_from_div_key(div_key: str) -> Optional[str]:
+        """
+        Extract a base token like "12aa" or "10b" from a normalized division key like:
+          - "12aa", "12aaa", "10beast", "10bwest", "14bb", ...
+        """
+        s = str(div_key or "").strip().casefold()
+        m = re.match(r"^(\d{1,2})(aaa|aa|bb|a|b)\b", s)
+        if not m:
+            return None
+        try:
+            age_i = int(m.group(1))
+        except Exception:
+            return None
+        lvl = str(m.group(2) or "").casefold()
+        return f"{age_i}{lvl}"
+
+    def _format_division_name_from_base_token(base_token: str) -> Optional[str]:
+        m = re.match(r"^(\d{1,2})(aaa|aa|bb|a|b)$", str(base_token or "").strip().casefold())
+        if not m:
+            return None
+        try:
+            age_i = int(m.group(1))
+        except Exception:
+            return None
+        lvl = str(m.group(2) or "").upper()
+        return f"{age_i} {lvl}"
 
     def _is_external_division_name(name: Optional[str]) -> bool:
         return str(name or "").strip().casefold().startswith("external")
@@ -1480,15 +1513,43 @@ def main(argv: Optional[list[str]] = None) -> int:
     if team_div_counts:
         for tkey, counts in team_div_counts.items():
             hint_key = _infer_division_key_from_team_name(team_name_example_by_key.get(tkey, ""))
-            if hint_key and (hint_key in counts or hint_key in div_meta_by_key):
-                chosen_key = hint_key
-            else:
+            chosen_key: Optional[str] = None
+            if hint_key:
+                # Prefer a division that matches the base token encoded in the team name
+                # (e.g. "Tri Valley ... 12AA-1" should stay 12AA even if it plays 12AAA exhibitions).
+                candidates = {
+                    k
+                    for k in (
+                        set(counts.keys())
+                        | set(div_meta_by_key.keys())
+                        | set(div_name_example_by_key.keys())
+                    )
+                    if _base_div_token_from_div_key(k) == hint_key
+                }
+                if candidates:
+                    chosen_key = max(
+                        candidates,
+                        key=lambda k: (
+                            int(counts.get(k, 0)),
+                            1 if k in div_meta_by_key else 0,
+                            str(k),
+                        ),
+                    )
+                else:
+                    # No known division matches the team's encoded token; still honor the token.
+                    chosen_key = str(hint_key)
+            elif counts:
                 chosen_key = max(counts.items(), key=lambda kv: (int(kv[1]), str(kv[0])))[0]
+
+            if not chosen_key:
+                continue
             dn = None
             if chosen_key in div_meta_by_key:
                 dn = div_meta_by_key[chosen_key][0]
             elif chosen_key in div_name_example_by_key:
                 dn = div_name_example_by_key[chosen_key]
+            elif hint_key and chosen_key == hint_key:
+                dn = _format_division_name_from_base_token(str(hint_key))
             if dn:
                 preferred_base_div_name_by_team_key[tkey] = dn
 
@@ -1699,6 +1760,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                 if meta:
                     did_eff = int(meta[1]) if meta[1] is not None else did_eff
                     cid_eff = int(meta[2]) if meta[2] is not None else cid_eff
+                elif _norm_div_key(dn_pref) != _norm_div_key(dn_base or ""):
+                    # Avoid sending mismatched ids (e.g. a 12AA team that appears on a 12AAA exhibition schedule).
+                    did_eff = None
+                    cid_eff = None
             nm = canonical_team_name(nm_raw, dn)
             key = nm.casefold()
             if key in seen_team_names:
@@ -1760,8 +1825,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             dn_base = pref_dn or dn
             dn_eff = _effective_division_name_for_team(name, dn_base)
             meta = div_meta_by_key.get(_norm_div_key(dn_base or "")) if dn_base else None
-            did_eff = int(meta[1]) if meta and meta[1] is not None else int(did)
-            cid_eff = int(meta[2]) if meta and meta[2] is not None else int(cid)
+            pref_overrides = bool(pref_dn and _norm_div_key(pref_dn) != _norm_div_key(dn))
+            if meta is None and pref_overrides:
+                did_eff = None
+                cid_eff = None
+            else:
+                did_eff = int(meta[1]) if meta and meta[1] is not None else int(did)
+                cid_eff = int(meta[2]) if meta and meta[2] is not None else int(cid)
             return dn_eff, did_eff, cid_eff, int(tts_id)
         # If the team name is unique across all divisions, assign its division without relying on the game.
         ids = tts_team_ids_by_name.get(tkey) or []
@@ -1770,8 +1840,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             dn_base = pref_dn or dn
             dn_eff = _effective_division_name_for_team(name, dn_base)
             meta = div_meta_by_key.get(_norm_div_key(dn_base or "")) if dn_base else None
-            did_eff = int(meta[1]) if meta and meta[1] is not None else int(did)
-            cid_eff = int(meta[2]) if meta and meta[2] is not None else int(cid)
+            pref_overrides = bool(pref_dn and _norm_div_key(pref_dn) != _norm_div_key(dn))
+            if meta is None and pref_overrides:
+                did_eff = None
+                cid_eff = None
+            else:
+                did_eff = int(meta[1]) if meta and meta[1] is not None else int(did)
+                cid_eff = int(meta[2]) if meta and meta[2] is not None else int(cid)
             return dn_eff, did_eff, cid_eff, int(ids[0])
         dn_base = pref_dn or (fallback_division_name or None)
         dn_eff = _effective_division_name_for_team(name, dn_base)

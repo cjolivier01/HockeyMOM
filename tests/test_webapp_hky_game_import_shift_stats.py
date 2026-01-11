@@ -13,7 +13,9 @@ def client_and_db(monkeypatch, webapp_db):
     from django.test import Client
 
     now = dt.datetime.now()
-    owner = m.User.objects.create(id=10, email="owner@example.com", password_hash="x", name="Owner", created_at=now)
+    owner = m.User.objects.create(
+        id=10, email="owner@example.com", password_hash="x", name="Owner", created_at=now
+    )
     t1 = m.Team.objects.create(
         id=101,
         user_id=int(owner.id),
@@ -78,16 +80,20 @@ def should_import_shift_stats_player_csv_into_game(client_and_db):
     )
     f = SimpleUploadedFile("player_stats.csv", csv_text.encode("utf-8"), content_type="text/csv")
 
-    r = client.post("/hky/games/1001/import_shift_stats?return_to=/schedule", {"player_stats_csv": f})
+    r = client.post(
+        "/hky/games/1001/import_shift_stats?return_to=/schedule", {"player_stats_csv": f}
+    )
     assert r.status_code == 302
 
-    ps = m.PlayerStat.objects.filter(game_id=1001, player_id=501).values("goals", "assists", "shots", "sog").first()
+    ps = (
+        m.PlayerStat.objects.filter(game_id=1001, player_id=501)
+        .values("goals", "assists", "shots", "sog")
+        .first()
+    )
     assert ps is not None
     assert ps["goals"] == 1
     assert ps["assists"] == 0
     assert ps["shots"] == 2
     assert ps["sog"] == 1
 
-    assert m.HkyGamePlayerStatsCsv.objects.filter(game_id=1001).exists()
     assert m.HkyGame.objects.filter(id=1001).exclude(stats_imported_at=None).exists()
-

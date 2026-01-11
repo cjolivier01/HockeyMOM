@@ -77,18 +77,28 @@
 	</div>
 
 	{% if game.game_video_url %}
-	  <div id="event-video-pane" class="card" style="margin-top:1rem; display:none;">
-	    <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
-	      <div>
-	        <strong>Video Clip</strong>
-	        <span id="event-video-pane-meta" class="muted" style="margin-left:.5rem;"></span>
-	      </div>
-	      <button type="button" class="btn" id="event-video-pane-close">Close</button>
-	    </div>
-	    <div style="margin-top:.75rem; width:100%; max-width: 980px;">
-	      <div style="position:relative; width:100%; aspect-ratio:16/9; background:#0b1220; border-radius:12px; overflow:hidden;">
-	        <iframe
-	          id="event-video-iframe"
+		  <div id="event-video-pane" class="card" style="margin-top:1rem; display:none;">
+		    <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+		      <div>
+		        <strong>Video Clip</strong>
+		        <span id="event-video-pane-meta" class="muted" style="margin-left:.5rem;"></span>
+		      </div>
+		      <div style="display:flex; align-items:center; gap:.5rem;">
+		        <a
+		          id="event-video-open-link"
+		          class="btn"
+		          href=""
+		          target="_blank"
+		          rel="noopener noreferrer"
+		          style="display:none;"
+		        >Open on YouTube</a>
+		        <button type="button" class="btn" id="event-video-pane-close">Close</button>
+		      </div>
+		    </div>
+		    <div style="margin-top:.75rem; width:100%; max-width: 980px;">
+		      <div style="position:relative; width:100%; aspect-ratio:16/9; background:#0b1220; border-radius:12px; overflow:hidden;">
+		        <iframe
+		          id="event-video-iframe"
 	          title="Game video clip"
 	          src=""
 	          style="position:absolute; inset:0; width:100%; height:100%; border:0;"
@@ -272,12 +282,12 @@
     <span>{{ game.team1_name }}</span>
   </h4>
   <div class="table-scroll">
-    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2" data-player-stats-table="1" data-team-side="home">
       <thead>
         <tr>
           <th>#</th><th>Name</th>
           {% for c in game_player_stats_columns %}
-            <th>{{ c.label }}</th>
+            <th data-stat-key="{{ c.id }}">{{ c.label }}</th>
           {% endfor %}
         </tr>
       </thead>
@@ -286,25 +296,25 @@
           {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
           <tr>
             <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td>{{ p.name|default_if_none:"" }}</td>
+            <td data-player-cell="name">{{ p.name|default_if_none:"" }}</td>
             {% for c in game_player_stats_columns %}
               {% with cid=c.id %}
                 {% if edit_mode and not public_league_id %}
                   {% if cid == "goals" %}
-                    <td><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "assists" %}
-                    <td><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "shots" %}
-                    <td><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "pim" %}
-                    <td><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "plus_minus" %}
-                    <td><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
                   {% else %}
-                    <td {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
+                    <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
                   {% endif %}
                 {% else %}
-                  <td {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
+                  <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
                 {% endif %}
               {% endwith %}
             {% endfor %}
@@ -322,12 +332,12 @@
     <span>{{ game.team2_name }}</span>
   </h4>
   <div class="table-scroll">
-    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2" data-player-stats-table="1" data-team-side="away">
       <thead>
         <tr>
           <th>#</th><th>Name</th>
           {% for c in game_player_stats_columns %}
-            <th>{{ c.label }}</th>
+            <th data-stat-key="{{ c.id }}">{{ c.label }}</th>
           {% endfor %}
         </tr>
       </thead>
@@ -336,25 +346,25 @@
           {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
           <tr>
             <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td>{{ p.name|default_if_none:"" }}</td>
+            <td data-player-cell="name">{{ p.name|default_if_none:"" }}</td>
             {% for c in game_player_stats_columns %}
               {% with cid=c.id %}
                 {% if edit_mode and not public_league_id %}
                   {% if cid == "goals" %}
-                    <td><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "assists" %}
-                    <td><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "shots" %}
-                    <td><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "pim" %}
-                    <td><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
                   {% elif cid == "plus_minus" %}
-                    <td><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
+                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
                   {% else %}
-                    <td {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
+                    <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
                   {% endif %}
                 {% else %}
-                  <td {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
+                  <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
                 {% endif %}
               {% endwith %}
             {% endfor %}
@@ -450,16 +460,21 @@
 	          var awayTeamName = {{ game.team2_name|default:"Away"|tojson }};
 	          var gameVideoUrl = {{ game.game_video_url|default:""|tojson }};
 	
-	          var videoPane = document.getElementById("event-video-pane");
-	          var videoIframe = document.getElementById("event-video-iframe");
-	          var videoMeta = document.getElementById("event-video-pane-meta");
-	          var videoClose = document.getElementById("event-video-pane-close");
-	          if (videoClose) {
-	            videoClose.addEventListener("click", function () {
-	              if (videoIframe) videoIframe.src = "";
-	              if (videoPane) videoPane.style.display = "none";
-	            });
-	          }
+		          var videoPane = document.getElementById("event-video-pane");
+		          var videoIframe = document.getElementById("event-video-iframe");
+		          var videoMeta = document.getElementById("event-video-pane-meta");
+		          var videoOpen = document.getElementById("event-video-open-link");
+		          var videoClose = document.getElementById("event-video-pane-close");
+		          if (videoClose) {
+		            videoClose.addEventListener("click", function () {
+		              if (videoIframe) videoIframe.src = "";
+		              if (videoOpen) {
+		                videoOpen.href = "";
+		                videoOpen.style.display = "none";
+		              }
+		              if (videoPane) videoPane.style.display = "none";
+		            });
+		          }
 
           var eventsRows = [];
           try {
@@ -621,33 +636,50 @@
 	                var p = String(u.pathname || "").replace(/^\//, "");
 	                return p ? p.split("/")[0] : null;
 	              }
-	              if (host.indexOf("youtube.com") >= 0 || host.indexOf("youtube-nocookie.com") >= 0) {
-	                var v = u.searchParams.get("v");
-	                if (v) return v;
-	                var path = String(u.pathname || "");
-	                var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
-	                return m ? m[1] : null;
-	              }
-	            } catch (e) {}
-	            return null;
-	          }
-	
-	          function buildYoutubeEmbedUrl(url, startSec, endSec) {
-	            var id = extractYoutubeId(url);
-	            if (!id) return null;
-	            var start = Math.max(0, Math.floor(startSec || 0));
-	            var end = Math.max(start + 1, Math.floor(endSec || 0));
-	            var params = new URLSearchParams();
-	            params.set("autoplay", "1");
-	            // Mobile browsers often block autoplay unless muted (even when initiated by a tap).
-	            params.set("mute", "1");
-	            // Enable JS API so we can request the highest available resolution.
-	            params.set("enablejsapi", "1");
-	            params.set("start", String(start));
-	            params.set("end", String(end));
-	            // Best-effort quality hint (YouTube may ignore based on bandwidth/device/player size).
-	            params.set("vq", "hd1080");
-	            params.set("rel", "0");
+		              if (host.indexOf("youtube.com") >= 0 || host.indexOf("youtube-nocookie.com") >= 0) {
+		                var v = u.searchParams.get("v");
+		                if (v) return v;
+		                var path = String(u.pathname || "");
+		                var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
+		                return m ? m[1] : null;
+		              }
+		            } catch (e) {}
+		            return null;
+		          }
+
+		          function buildYoutubeWatchUrl(url, startSec) {
+		            var id = extractYoutubeId(url);
+		            if (!id) return null;
+		            var start = Math.max(0, Math.floor(startSec || 0));
+		            try {
+		              var w = new URL("https://www.youtube.com/watch");
+		              w.searchParams.set("v", String(id));
+		              w.searchParams.set("t", String(start) + "s");
+		              w.searchParams.set("autoplay", "1");
+		              w.searchParams.set("vq", "hd1080");
+		              return w.toString();
+		            } catch (e) {
+		              return null;
+		            }
+		          }
+
+		          function buildYoutubeEmbedUrl(url, startSec, endSec) {
+		            var id = extractYoutubeId(url);
+		            if (!id) return null;
+		            var start = Math.max(0, Math.floor(startSec || 0));
+		            var end = Math.max(start + 1, Math.floor(endSec || 0));
+		            var params = new URLSearchParams();
+		            params.set("autoplay", "1");
+		            // Mobile browsers often block autoplay unless muted (even when initiated by a tap).
+		            params.set("mute", "1");
+		            // Enable JS API so we can request the highest available resolution.
+		            params.set("enablejsapi", "1");
+		            params.set("origin", String(window.location.origin || ""));
+		            params.set("start", String(start));
+		            params.set("end", String(end));
+		            // Best-effort quality hint (YouTube may ignore based on bandwidth/device/player size).
+		            params.set("vq", "hd1080");
+		            params.set("rel", "0");
 	            params.set("modestbranding", "1");
 	            params.set("playsinline", "1");
 	            return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
@@ -674,11 +706,11 @@
 	            } catch (e) {}
 	          }
 	
-		          function openVideoClipForRow(row, opts) {
-		            opts = opts || {};
-		            if (!gameVideoUrl || !videoPane || !videoIframe) return false;
-		            var vs2 = parseVideoSecondsFromRow(row);
-		            if (vs2 === null || !isFinite(vs2)) return false;
+			          function openVideoClipForRow(row, opts) {
+			            opts = opts || {};
+			            if (!gameVideoUrl || !videoPane || !videoIframe) return false;
+			            var vs2 = parseVideoSecondsFromRow(row);
+			            if (vs2 === null || !isFinite(vs2)) return false;
 		            var totalClipS = (function () {
 		              var v = 30;
 		              try {
@@ -688,20 +720,26 @@
 		              if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
 		              return v;
 		            })();
-	            var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
-	            var postS = Math.max(0, totalClipS - preS);
-	            var start2 = Math.max(0, Math.floor(vs2 - preS));
-	            var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
-	            var embed = buildYoutubeEmbedUrl(gameVideoUrl, start2, end2);
-	            if (!embed) {
-	              try {
-	                var u2 = new URL(String(gameVideoUrl));
-	                u2.searchParams.set("t", String(start2) + "s");
-	                u2.searchParams.set("vq", u2.searchParams.get("vq") || "hd1080");
-	                window.open(u2.toString(), "_blank", "noopener");
-	              } catch (e) {
-	                window.open(String(gameVideoUrl), "_blank", "noopener");
-	              }
+		            var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
+		            var postS = Math.max(0, totalClipS - preS);
+		            var start2 = Math.max(0, Math.floor(vs2 - preS));
+		            var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
+		            var watchUrl = buildYoutubeWatchUrl(gameVideoUrl, start2);
+		            if (videoOpen) {
+		              videoOpen.href = watchUrl || "";
+		              videoOpen.style.display = watchUrl ? "" : "none";
+		            }
+		            var embed = buildYoutubeEmbedUrl(gameVideoUrl, start2, end2);
+		            if (!embed) {
+		              try {
+		                var u2 = new URL(String(gameVideoUrl));
+		                u2.searchParams.set("t", String(start2) + "s");
+		                u2.searchParams.set("autoplay", "1");
+		                u2.searchParams.set("vq", u2.searchParams.get("vq") || "hd1080");
+		                window.open(u2.toString(), "_blank", "noopener");
+		              } catch (e) {
+		                window.open(String(gameVideoUrl), "_blank", "noopener");
+		              }
 	              return true;
 	            }
 	            videoIframe.src = embed;
@@ -2297,5 +2335,476 @@
     <p class="muted">No game events uploaded yet.</p>
   {% endif %}
 </div>
+
+<dialog id="events-drilldown-modal" style="max-width:900px;width:95vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
+  <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
+    <div>
+      <div id="events-drilldown-title" style="font-weight:700;"></div>
+      <div id="events-drilldown-subtitle" class="muted" style="font-size:.9rem;"></div>
+    </div>
+    <button id="events-drilldown-close" class="btn" type="button">Close</button>
+  </div>
+  <div id="events-drilldown-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
+</dialog>
+
+<style>
+  #events-drilldown-body table.events-drilldown-table th,
+  #events-drilldown-body table.events-drilldown-table td {
+    padding: .45rem .65rem;
+    font-size: .88rem;
+  }
+</style>
+
+<script>
+  (function () {
+    function normTypeKey(s) {
+      return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+    }
+    function normName(s) {
+      return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+    }
+    function extractJersey(s) {
+      var m = String(s || "").match(/(\d+)/);
+      if (!m) return "";
+      var n = parseInt(m[1], 10);
+      return isFinite(n) ? String(n) : m[1];
+    }
+    function parseTimeToSeconds(s) {
+      s = String(s || "").trim();
+      if (!s) return null;
+      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+      if (!m) return null;
+      var a = parseInt(m[1], 10);
+      var b = parseInt(m[2], 10);
+      var c = m[3] ? parseInt(m[3], 10) : null;
+      if (!isFinite(a) || !isFinite(b)) return null;
+      if (c === null) return a * 60 + b;
+      if (!isFinite(c)) return null;
+      return a * 3600 + b * 60 + c;
+    }
+    function getValue(row, keys) {
+      if (!row) return "";
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
+        var kl = String(k).toLowerCase();
+        for (var kk in row) {
+          if (!Object.prototype.hasOwnProperty.call(row, kk)) continue;
+          if (String(kk).toLowerCase() === kl) return row[kk];
+        }
+      }
+      return "";
+    }
+    function rowSide(row) {
+      var s = String(getValue(row, ["Team Side", "TeamSide", "Side", "Team Rel", "TeamRel", "Team"])).trim().toLowerCase();
+      if (s === "home" || s === "team1") return "home";
+      if (s === "away" || s === "team2") return "away";
+      return "";
+    }
+    function rowPeriod(row) {
+      var p = parseInt(String(getValue(row, ["Period"])).trim(), 10);
+      return isFinite(p) ? p : null;
+    }
+    function rowGameSeconds(row) {
+      var gs = parseInt(String(getValue(row, ["Game Seconds", "GameSeconds"])).trim(), 10);
+      if (isFinite(gs)) return gs;
+      return parseTimeToSeconds(getValue(row, ["Game Time", "GameTime", "Time"]));
+    }
+
+    var dataEl = document.getElementById("game-events-timeline-data");
+    if (!dataEl) return;
+    var eventsRows = [];
+    try {
+      eventsRows = JSON.parse(dataEl.textContent || "[]") || [];
+    } catch (e) {
+      eventsRows = [];
+    }
+    if (!Array.isArray(eventsRows) || eventsRows.length === 0) return;
+
+    var STAT_TO_EVENT_TYPE_KEYS = {
+      goals: ["goal"],
+      assists: ["assist"],
+      expected_goals: ["expectedgoal", "goal"],
+      sog: ["sog", "expectedgoal", "goal"],
+      shots: ["shot", "sog", "expectedgoal", "goal"],
+      pim: ["penalty"],
+      plus_minus: ["goal"],
+      gfga: ["goal"],
+    };
+
+    function buildEventsTable(container, rows) {
+      var wrap = document.createElement("div");
+      wrap.className = "table-scroll";
+      var table = document.createElement("table");
+      table.className = "table-nowrap table-grid events-drilldown-table";
+      var thead = document.createElement("thead");
+      var trh = document.createElement("tr");
+      ["P", "Time", "Video", "Details", "Source"].forEach(function (h) {
+        var th = document.createElement("th");
+        th.textContent = h;
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+      var tbody = document.createElement("tbody");
+      rows.forEach(function (row) {
+        var tr = document.createElement("tr");
+        var period = String(getValue(row, ["Period"]) || "").trim();
+        var tGame = String(getValue(row, ["Game Time", "GameTime", "Time"]) || "").trim();
+        var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
+        var details = String(getValue(row, ["Details"]) || "").trim();
+        var src = String(getValue(row, ["Source"]) || "").trim();
+        [period, tGame, tVideo, details, src].forEach(function (v) {
+          var td = document.createElement("td");
+          td.textContent = v;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      container.appendChild(wrap);
+    }
+
+    function sortRowsByPeriodAndGameClockDesc(rows) {
+      rows.sort(function (a, b) {
+        var pa = rowPeriod(a);
+        var pb = rowPeriod(b);
+        pa = pa === null ? 999 : pa;
+        pb = pb === null ? 999 : pb;
+        if (pa !== pb) return pa - pb;
+        var ga = rowGameSeconds(a);
+        var gb = rowGameSeconds(b);
+        ga = ga === null ? -1 : ga;
+        gb = gb === null ? -1 : gb;
+        if (ga !== gb) return gb - ga; // clock counts down
+        var ta = normTypeKey(getValue(a, ["Event Type", "Event"]));
+        var tb = normTypeKey(getValue(b, ["Event Type", "Event"]));
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        return 0;
+      });
+    }
+
+	    function groupRows(rows, labelFn) {
+	      var order = [];
+	      var groups = {};
+	      (rows || []).forEach(function (r) {
+	        var label = String(labelFn(r) || "").trim() || "Unknown";
+        var k = label.toLowerCase();
+        if (!Object.prototype.hasOwnProperty.call(groups, k)) {
+          groups[k] = { label: label, rows: [] };
+          order.push(k);
+        }
+        groups[k].rows.push(r);
+      });
+	      return { order: order, groups: groups };
+	    }
+
+	    function withDetailsTag(row, tag) {
+	      var copy = Object.assign({}, row);
+	      var base = String(getValue(row, ["Details"]) || "").trim();
+	      var t = String(tag || "").trim();
+	      if (!t) return copy;
+	      copy["Details"] = base ? (t + " — " + base) : t;
+	      return copy;
+	    }
+
+	    function buildShotChainTables(rows) {
+	      var goals = [];
+	      var xg = [];
+	      var sog = [];
+	      var shot = [];
+	      (rows || []).forEach(function (row) {
+	        var k = normTypeKey(getValue(row, ["Event Type", "Event"]));
+	        if (k === "goal") {
+	          goals.push(row);
+	          xg.push(withDetailsTag(row, "Goal"));
+	          sog.push(withDetailsTag(row, "Goal"));
+	          shot.push(withDetailsTag(row, "Goal"));
+	        } else if (k === "expectedgoal") {
+	          xg.push(withDetailsTag(row, "xG"));
+	          sog.push(withDetailsTag(row, "xG"));
+	          shot.push(withDetailsTag(row, "xG"));
+	        } else if (k === "sog") {
+	          sog.push(withDetailsTag(row, "SOG"));
+	          shot.push(withDetailsTag(row, "SOG"));
+	        } else if (k === "shot") {
+	          shot.push(row);
+	        }
+	      });
+	      return { goals: goals, xg: xg, sog: sog, shot: shot };
+	    }
+
+	    function extractNumberSet(raw) {
+	      var s = String(raw || "");
+	      var out = {};
+	      var m = s.match(/(\d+)/g);
+      if (!m) return out;
+      m.forEach(function (v) {
+        try {
+          var n = parseInt(v, 10);
+          if (isFinite(n)) out[String(n)] = true;
+        } catch (e) {}
+      });
+      return out;
+    }
+
+    function openDrilldown(opts) {
+      opts = opts || {};
+      var playerName = String(opts.playerName || "").trim();
+      var playerJersey = String(opts.playerJersey || "").trim();
+      var playerNameNorm = normName(playerName);
+      var side = String(opts.teamSide || "").trim().toLowerCase();
+      var statKey = String(opts.statKey || "").trim();
+      var statLabel = String(opts.statLabel || "").trim();
+
+      var isOnIceGoalStat = statKey === "plus_minus" || statKey === "gfga";
+      var showOnIceGoals = !statKey || isOnIceGoalStat;
+      var showAttributedEvents = !statKey || !isOnIceGoalStat;
+
+      var allowedTypeKeys = null;
+      if (statKey && showAttributedEvents && STAT_TO_EVENT_TYPE_KEYS[statKey]) {
+        allowedTypeKeys = {};
+        STAT_TO_EVENT_TYPE_KEYS[statKey].forEach(function (k) {
+          allowedTypeKeys[normTypeKey(k)] = true;
+        });
+      }
+
+      var filtered = [];
+	      if (showAttributedEvents) {
+	        filtered = eventsRows.filter(function (row) {
+	          if (side) {
+	            var rs = rowSide(row);
+            if (rs && rs !== side) return false;
+          }
+          var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+          if (allowedTypeKeys && !allowedTypeKeys[etKey]) return false;
+
+          var rowJ = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
+          if (playerJersey && rowJ && rowJ === extractJersey(playerJersey)) return true;
+          var rowP = normName(getValue(row, ["Attributed Players", "AttributedPlayers", "Player", "Name"]));
+          if (playerNameNorm && rowP && rowP === playerNameNorm) return true;
+	          return false;
+	        });
+	        sortRowsByPeriodAndGameClockDesc(filtered);
+	        filtered = filtered.filter(function (row) {
+	          return normTypeKey(getValue(row, ["Event Type", "Event"])) !== "penaltyexpired";
+	        });
+	      }
+
+      var onIceGoals = [];
+      var playerJerseyNorm = extractJersey(playerJersey);
+      if (showOnIceGoals && side && playerJerseyNorm) {
+        eventsRows.forEach(function (row) {
+          if (normTypeKey(getValue(row, ["Event Type", "Event"])) !== "goal") return;
+          var onIceRaw = "";
+          if (side === "home") {
+            onIceRaw =
+              String(getValue(row, ["On-Ice Players (Home)", "On-Ice Players Home"]) || "").trim() ||
+              String(getValue(row, ["On-Ice Players", "On-Ice Players (PM)"]) || "").trim();
+          } else if (side === "away") {
+            onIceRaw =
+              String(getValue(row, ["On-Ice Players (Away)", "On-Ice Players Away"]) || "").trim() ||
+              String(getValue(row, ["On-Ice Players", "On-Ice Players (PM)"]) || "").trim();
+          }
+          var nums = extractNumberSet(onIceRaw);
+          if (!nums[playerJerseyNorm]) return;
+          var scoringSide = rowSide(row);
+          var fa = "";
+          if (scoringSide === "home" || scoringSide === "away") {
+            fa = scoringSide === side ? "For" : "Against";
+          }
+          var copy = Object.assign({}, row);
+          copy.__forAgainst = fa;
+          onIceGoals.push(copy);
+        });
+        sortRowsByPeriodAndGameClockDesc(onIceGoals);
+      }
+
+      var dlg = document.getElementById("events-drilldown-modal");
+      var titleEl = document.getElementById("events-drilldown-title");
+      var subtitleEl = document.getElementById("events-drilldown-subtitle");
+      var bodyEl = document.getElementById("events-drilldown-body");
+      if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
+
+      titleEl.textContent = playerName + (playerJersey ? " (#" + extractJersey(playerJersey) + ")" : "");
+      subtitleEl.textContent = statLabel ? (statLabel + " events") : "Events";
+      bodyEl.innerHTML = "";
+
+      if (!filtered.length && !onIceGoals.length) {
+        var p = document.createElement("p");
+        p.className = "muted";
+        p.textContent = "No events matched this selection.";
+        bodyEl.appendChild(p);
+      } else {
+        if (onIceGoals.length) {
+          var byFA = groupRows(onIceGoals, function (r) {
+            var fa = String(r.__forAgainst || "").trim();
+            return fa ? ("Goals " + fa) : "Goals";
+          });
+          ["goals for", "goals against"].forEach(function (k) {
+            if (!byFA.groups[k]) return;
+            var h = document.createElement("h4");
+            h.style.margin = "0.75rem 0 0.35rem 0";
+            h.textContent = byFA.groups[k].label;
+            bodyEl.appendChild(h);
+            buildEventsTable(bodyEl, byFA.groups[k].rows);
+          });
+          byFA.order.forEach(function (k) {
+            if (k === "goals for" || k === "goals against") return;
+            var h = document.createElement("h4");
+            h.style.margin = "0.75rem 0 0.35rem 0";
+            h.textContent = byFA.groups[k].label;
+            bodyEl.appendChild(h);
+            buildEventsTable(bodyEl, byFA.groups[k].rows);
+          });
+        }
+
+	        if (filtered.length) {
+	          if (!statKey) {
+	            var chain = buildShotChainTables(filtered);
+	            [
+	              ["Goals", chain.goals],
+	              ["xG (Expected Goal)", chain.xg],
+	              ["SOG", chain.sog],
+	              ["Shot", chain.shot],
+	            ].forEach(function (pair) {
+	              var label = pair[0];
+	              var rows = pair[1] || [];
+	              if (!rows.length) return;
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = label;
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, rows);
+	            });
+
+	            var chainKeys = { goal: true, expectedgoal: true, sog: true, shot: true };
+	            var remaining = filtered.filter(function (row) {
+	              return !chainKeys[normTypeKey(getValue(row, ["Event Type", "Event"]))];
+	            });
+	            if (remaining.length) {
+	              var byType = groupRows(remaining, function (r) {
+	                return getValue(r, ["Event Type", "Event"]);
+	              });
+	              byType.order.forEach(function (k) {
+	                var h = document.createElement("h4");
+	                h.style.margin = "0.75rem 0 0.35rem 0";
+	                h.textContent = byType.groups[k].label;
+	                bodyEl.appendChild(h);
+	                buildEventsTable(bodyEl, byType.groups[k].rows);
+	              });
+	            }
+	          } else if (statKey === "expected_goals") {
+	            var xgRows = buildShotChainTables(filtered).xg;
+	            if (xgRows.length) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = "xG (Expected Goal)";
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, xgRows);
+	            }
+	          } else if (statKey === "sog") {
+	            var sogRows = buildShotChainTables(filtered).sog;
+	            if (sogRows.length) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = "SOG";
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, sogRows);
+	            }
+	          } else if (statKey === "shots") {
+	            var shotRows = buildShotChainTables(filtered).shot;
+	            if (shotRows.length) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = "Shot";
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, shotRows);
+	            }
+	          } else if (statKey === "goals") {
+	            var goalRows = buildShotChainTables(filtered).goals;
+	            if (goalRows.length) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = "Goals";
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, goalRows);
+	            }
+	          } else {
+	            var byType = groupRows(filtered, function (r) {
+	              return getValue(r, ["Event Type", "Event"]);
+	            });
+	            byType.order.forEach(function (k) {
+	              var h = document.createElement("h4");
+	              h.style.margin = "0.75rem 0 0.35rem 0";
+	              h.textContent = byType.groups[k].label;
+	              bodyEl.appendChild(h);
+	              buildEventsTable(bodyEl, byType.groups[k].rows);
+	            });
+	          }
+	        }
+	      }
+
+      try {
+        dlg.showModal();
+      } catch (e) {
+        dlg.open = true;
+      }
+    }
+
+    var closeBtn = document.getElementById("events-drilldown-close");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", function () {
+        var dlg = document.getElementById("events-drilldown-modal");
+        if (!dlg) return;
+        try { dlg.close(); } catch (e) { dlg.open = false; }
+      });
+    }
+
+    document.querySelectorAll('table[data-player-stats-table="1"]').forEach(function (table) {
+      var side = String(table.getAttribute("data-team-side") || "").trim().toLowerCase();
+      var headerByKey = {};
+      table.querySelectorAll("thead th[data-stat-key]").forEach(function (th) {
+        var k = String(th.getAttribute("data-stat-key") || "").trim();
+        if (k) headerByKey[k] = String(th.textContent || "").trim();
+      });
+
+      table.querySelectorAll("tbody tr").forEach(function (tr) {
+        var tds = tr.querySelectorAll("td");
+        if (tds.length < 2) return;
+        var jerseyTxt = String(tds[0].textContent || "").trim();
+        var nameCell = tr.querySelector('td[data-player-cell="name"]') || tds[1];
+        var nameTxt = String(nameCell.textContent || "").trim();
+        if (!nameTxt) return;
+
+        if (nameCell) {
+          nameCell.title = "Double-click to show events";
+          nameCell.style.cursor = "pointer";
+          nameCell.addEventListener("dblclick", function () {
+            openDrilldown({ playerName: nameTxt, playerJersey: jerseyTxt, teamSide: side, statKey: "", statLabel: "" });
+          });
+        }
+
+        tr.querySelectorAll("td[data-stat-key]").forEach(function (td) {
+          var statKey = String(td.getAttribute("data-stat-key") || "").trim();
+          if (!statKey) return;
+          if (!STAT_TO_EVENT_TYPE_KEYS[statKey]) return;
+          td.title = "Double-click to show events";
+          td.style.cursor = "pointer";
+          td.addEventListener("dblclick", function () {
+            openDrilldown({
+              playerName: nameTxt,
+              playerJersey: jerseyTxt,
+              teamSide: side,
+              statKey: statKey,
+              statLabel: headerByKey[statKey] || statKey,
+            });
+          });
+        });
+      });
+    });
+  })();
+</script>
 {% endwith %}
 {% endblock %}

@@ -28,7 +28,9 @@ def webapp_test_config_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("hm_webapp")
     db_path = root / "hm_webapp.sqlite3"
     cfg_path = root / "config.json"
-    cfg_path.write_text(json.dumps({"db": {"engine": "sqlite3", "name": str(db_path)}}), encoding="utf-8")
+    cfg_path.write_text(
+        json.dumps({"db": {"engine": "sqlite3", "name": str(db_path)}}), encoding="utf-8"
+    )
 
     os.environ.setdefault("HM_DB_CONFIG", str(cfg_path))
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tools.webapp.django_settings")
@@ -64,7 +66,6 @@ def _reset_webapp_db(django_orm, m) -> None:
         m.LeagueMember.objects.all().delete()
         m.PlayerPeriodStat.objects.all().delete()
         m.PlayerStat.objects.all().delete()
-        m.HkyGamePlayerStatsCsv.objects.all().delete()
         m.HkyGameEvent.objects.all().delete()
         m.HkyGameStat.objects.all().delete()
         m.HkyGame.objects.all().delete()

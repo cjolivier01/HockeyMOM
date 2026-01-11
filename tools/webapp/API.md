@@ -170,12 +170,35 @@ Body (choose one):
 
 Optional tuning:
 - `max_goal_diff` (int, default `7`)
-- `min_games` (int, default `4`)
+- `min_games` (int, default `2`)
 
 Response:
 - `league_ids` (list of ints) on success
 
 This is invoked automatically by `./import_webapp.sh` and `./gcp_import_webapp.sh` after shift spreadsheet upload.
+
+### `POST /api/internal/apply_event_corrections`
+Apply idempotent event corrections (suppression + upsert) for one or more games.
+
+Body:
+- `corrections` (list, required): each entry identifies a game and includes optional operations:
+  - game identifier (choose one):
+    - `game_id` (int), or
+    - `timetoscore_game_id` (int)
+  - `suppress` (list, optional): list of event specs to suppress (prevent re-import from re-adding)
+  - `upsert` (list, optional): list of event specs to insert/update
+- `create_missing_players` (bool, optional): allow creating missing players when upserting
+
+Event spec fields (subset; best-effort):
+- `event_type` (string, required)
+- `period` (int, optional)
+- `game_time` (string, optional) or `game_seconds` (int, optional)
+- `team_side` (`Home`/`Away`, optional)
+- `jersey` / `player` / `attributed_jerseys` (optional; used for event identity + player mapping)
+- `details` (optional; used for penalty disambiguation)
+
+Response:
+- `stats`: counts of suppressed/upserted actions
 
 ## User/analytics API
 
@@ -193,3 +216,19 @@ Get page-view counts for a league (owner-only).
 Query params:
 - `kind` (string)
 - `entity_id` (int, optional)
+
+## Events API
+
+### `GET /api/hky/games/<game_id>/events`
+Query normalized per-row game events (backed by `hky_event_types` + `hky_game_event_rows`).
+
+Auth: requires a logged-in session and access to the game (owner, or viewed through the currently selected league).
+
+Query params (all optional):
+- `player_id` (int): filter to events attributed to a specific player
+- `event_type` (string): filter by event type (matches normalized key; e.g. `Goal`, `ExpectedGoal`, `Penalty Expired`)
+- `period` (int)
+- `limit` (int, default `2000`, max `5000`)
+
+Response:
+- `events` (list): each event includes `event_type`, `period`, `game_time`, `video_time`, `details`, `source`, plus ids and raw columns

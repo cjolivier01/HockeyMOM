@@ -22,8 +22,16 @@ OWNER_NAME="${OWNER_NAME:-${GIT_USER_NAME:-$OWNER_EMAIL}}"
 
 # Game list for shift spreadsheet uploader.
 if [[ -z "${SHIFT_FILE_LIST:-}" ]]; then
-  if [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
+  if [[ -f "$HOME/RVideos/game_list_long.yaml" ]]; then
+    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yaml"
+  elif [[ -f "$HOME/RVideos/game_list_long.yml" ]]; then
+    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yml"
+  elif [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
     SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.txt"
+  elif [[ -f "$HOME/Videos/game_list_long.yaml" ]]; then
+    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yaml"
+  elif [[ -f "$HOME/Videos/game_list_long.yml" ]]; then
+    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yml"
   else
     SHIFT_FILE_LIST="$HOME/Videos/game_list_long.txt"
   fi
@@ -57,7 +65,7 @@ Environment:
   LEAGUE_NAME             League name (default: CAHA)
   OWNER_EMAIL             League owner email (default: git config user.email, else cjolivier01@gmail.com)
   OWNER_NAME              League owner display name (default: git config user.name, else OWNER_EMAIL)
-  SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/RVideos/game_list_long.txt if present, else ~/Videos/game_list_long.txt)
+  SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/RVideos/game_list_long.yaml if present, else ~/Videos/game_list_long.yaml, else .txt)
   PROJECT_ID              GCP project id (default: sage-courier-241217)
   ZONE                    GCE zone (default: us-central1-a)
   INSTANCE                GCE instance name (default: hm-webapp)
@@ -173,10 +181,15 @@ drop_db_gcp() {
   remote_cmd="$(cat <<'EOF'
 set -euo pipefail
 
-sudo systemctl stop hm-webapp.service >/dev/null 2>&1 || sudo systemctl stop hm-webapp >/dev/null 2>&1 || true
-sudo systemctl start mariadb >/dev/null 2>&1 || sudo systemctl start mysql >/dev/null 2>&1 || true
+if ! sudo -n true 2>/dev/null; then
+  echo "[!] Remote sudo requires a password/tty. SSH in and run: sudo -v  (then re-run gcp_import_webapp.sh --drop-db)" >&2
+  exit 2
+fi
 
-python3 - <<'PY' | sudo mysql -u root
+sudo -n systemctl stop hm-webapp.service >/dev/null 2>&1 || sudo -n systemctl stop hm-webapp >/dev/null 2>&1 || true
+sudo -n systemctl start mariadb >/dev/null 2>&1 || sudo -n systemctl start mysql >/dev/null 2>&1 || true
+
+python3 - <<'PY' | sudo -n mysql -u root
 import json
 from pathlib import Path
 
@@ -215,7 +228,7 @@ print("GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;")
 print("FLUSH PRIVILEGES;")
 PY
 
-sudo systemctl restart hm-webapp.service >/dev/null 2>&1 || sudo systemctl restart hm-webapp >/dev/null 2>&1 || true
+sudo -n systemctl restart hm-webapp.service >/dev/null 2>&1 || sudo -n systemctl restart hm-webapp >/dev/null 2>&1 || true
 EOF
 )"
   echo "[i] Dropping/recreating DB on ${INSTANCE} via gcloud ssh"
@@ -336,7 +349,7 @@ fi
 echo "[i] Uploading shift spreadsheets via REST"
 if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
   echo "[!] SHIFT_FILE_LIST not found: ${SHIFT_FILE_LIST}" >&2
-  echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.txt" >&2
+  echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.yaml" >&2
   exit 2
 fi
 SPREADSHEET_ARGS=()

@@ -37,6 +37,7 @@ from hockey_rankings import (  # noqa: E402
     GameScore,
     compute_mhr_like_ratings,
     parse_age_from_division_name,
+    parse_level_from_division_name,
     filter_games_ignore_cross_age,
     scale_ratings_to_0_99_9_by_component,
 )
@@ -3440,32 +3441,6 @@ def create_app():
                                     # Best-effort merge; never fail the upload.
                                     pass
 
-                if isinstance(player_stats_csv, str) and player_stats_csv.strip():
-                    try:
-                        player_stats_csv = sanitize_player_stats_csv_for_storage(player_stats_csv)
-                    except Exception:
-                        pass
-                    # Persist the raw player_stats.csv for full-fidelity UI rendering.
-                    if replace:
-                        m.HkyGamePlayerStatsCsv.objects.update_or_create(
-                            game_id=int(resolved_game_id),
-                            defaults={
-                                "player_stats_csv": player_stats_csv,
-                                "source_label": source_label,
-                                "updated_at": now,
-                            },
-                        )
-                    else:
-                        if not m.HkyGamePlayerStatsCsv.objects.filter(
-                            game_id=int(resolved_game_id)
-                        ).exists():
-                            m.HkyGamePlayerStatsCsv.objects.create(
-                                game_id=int(resolved_game_id),
-                                player_stats_csv=player_stats_csv,
-                                source_label=source_label,
-                                updated_at=now,
-                            )
-
                 if isinstance(game_stats_csv, str) and game_stats_csv.strip():
                     try:
                         game_stats = parse_shift_stats_game_stats_csv(game_stats_csv)
@@ -4688,20 +4663,6 @@ def create_app():
 
         imported_player_stats_csv_text: Optional[str] = None
         player_stats_import_meta: Optional[dict[str, Any]] = None
-        try:
-            prow = (
-                m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(game_id))
-                .values("player_stats_csv", "source_label", "updated_at")
-                .first()
-            )
-            if prow and str(prow.get("player_stats_csv") or "").strip():
-                imported_player_stats_csv_text = str(prow.get("player_stats_csv") or "")
-                player_stats_import_meta = {
-                    "source_label": prow.get("source_label"),
-                    "updated_at": prow.get("updated_at"),
-                }
-        except Exception:
-            imported_player_stats_csv_text, player_stats_import_meta = None, None
 
         (
             game_player_stats_columns,
@@ -5853,20 +5814,6 @@ def create_app():
 
         now = dt.datetime.now()
         with transaction.atomic():
-            # Persist the raw player_stats.csv for full-fidelity UI rendering.
-            try:
-                ps_text_sanitized = sanitize_player_stats_csv_for_storage(ps_text)
-                m.HkyGamePlayerStatsCsv.objects.update_or_create(
-                    game_id=int(game_id),
-                    defaults={
-                        "player_stats_csv": ps_text_sanitized,
-                        "source_label": "upload_form",
-                        "updated_at": now,
-                    },
-                )
-            except Exception:
-                pass
-
             for row in parsed_rows:
                 jersey_norm = row.get("jersey_number")
                 name_norm = row.get("name_norm") or ""
@@ -6211,20 +6158,6 @@ def create_app():
 
         imported_player_stats_csv_text: Optional[str] = None
         player_stats_import_meta: Optional[dict[str, Any]] = None
-        try:
-            prow = (
-                m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(game_id))
-                .values("player_stats_csv", "source_label", "updated_at")
-                .first()
-            )
-            if prow and str(prow.get("player_stats_csv") or "").strip():
-                imported_player_stats_csv_text = str(prow.get("player_stats_csv") or "")
-                player_stats_import_meta = {
-                    "source_label": prow.get("source_label"),
-                    "updated_at": prow.get("updated_at"),
-                }
-        except Exception:
-            imported_player_stats_csv_text, player_stats_import_meta = None, None
 
         (
             game_player_stats_columns,
@@ -6797,7 +6730,7 @@ def _league_game_is_cross_division_non_external_row(
 
 
 def recompute_league_mhr_ratings(
-    db_conn, league_id: int, *, max_goal_diff: int = 7, min_games: int = 4
+    db_conn, league_id: int, *, max_goal_diff: int = 7, min_games: int = 2
 ) -> dict[int, dict[str, Any]]:
     """
     Recompute and persist MyHockeyRankings-like ratings for teams in a league.
@@ -6816,6 +6749,7 @@ def recompute_league_mhr_ratings(
     )
 
     team_age: dict[int, Optional[int]] = {}
+    team_level: dict[int, Optional[str]] = {}
     for r in league_team_rows:
         try:
             tid = int(r.get("team_id"))
@@ -6826,6 +6760,10 @@ def recompute_league_mhr_ratings(
         if age is None:
             age = parse_age_from_division_name(str(r.get("team__name") or "").strip())
         team_age[tid] = age
+        lvl = parse_level_from_division_name(dn)
+        if lvl is None:
+            lvl = parse_level_from_division_name(str(r.get("team__name") or "").strip())
+        team_level[tid] = lvl
 
     games: list[GameScore] = []
     for team1_id, team2_id, team1_score, team2_score in m.LeagueGame.objects.filter(
@@ -6850,6 +6788,25 @@ def recompute_league_mhr_ratings(
         except Exception:
             continue
 
+    # Eligibility rule: A team cannot have an MHR rating unless it has played at least one game
+    # against another team in the same age group (age + level when known).
+    age_group_games: dict[int, int] = {}
+    for g in games:
+        a = int(g.team1_id)
+        b = int(g.team2_id)
+        age_a = team_age.get(a)
+        age_b = team_age.get(b)
+        if age_a is None or age_b is None:
+            continue
+        if int(age_a) != int(age_b):
+            continue
+        lvl_a = str(team_level.get(a) or "").strip().upper() or None
+        lvl_b = str(team_level.get(b) or "").strip().upper() or None
+        if lvl_a is not None and lvl_b is not None and lvl_a != lvl_b:
+            continue
+        age_group_games[a] = int(age_group_games.get(a, 0)) + 1
+        age_group_games[b] = int(age_group_games.get(b, 0)) + 1
+
     # Ignore cross-age games when computing ratings (no cross-age coupling).
     games_same_age = filter_games_ignore_cross_age(games, team_age=team_age)
 
@@ -6872,10 +6829,18 @@ def recompute_league_mhr_ratings(
         rating = row_norm.get("rating")
         # Use raw AGD/SCHED/GAMES from the base computation (before shifting).
         row_base = computed.get(tid) or {}
-        lt.mhr_rating = float(rating) if rating is not None else None
-        lt.mhr_agd = float(row_base.get("agd")) if row_base.get("agd") is not None else None
-        lt.mhr_sched = float(row_base.get("sched")) if row_base.get("sched") is not None else None
-        lt.mhr_games = int(row_base.get("games")) if row_base.get("games") is not None else 0
+        if int(age_group_games.get(tid, 0)) <= 0:
+            lt.mhr_rating = None
+            lt.mhr_agd = None
+            lt.mhr_sched = None
+            lt.mhr_games = 0
+        else:
+            lt.mhr_rating = float(rating) if rating is not None else None
+            lt.mhr_agd = float(row_base.get("agd")) if row_base.get("agd") is not None else None
+            lt.mhr_sched = (
+                float(row_base.get("sched")) if row_base.get("sched") is not None else None
+            )
+            lt.mhr_games = int(row_base.get("games")) if row_base.get("games") is not None else 0
         lt.mhr_updated_at = now
     if league_team_objs:
         with transaction.atomic():
@@ -7339,6 +7304,58 @@ def merge_events_csv_prefer_timetoscore(
         _ev_type(r) in protected_types and _is_tts_row(r, lbl) for r, lbl in all_rows
     )
 
+    def _first_non_empty(row: dict[str, str], keys: tuple[str, ...]) -> str:
+        for k in keys:
+            v = str(row.get(k) or "").strip()
+            if v:
+                return v
+        return ""
+
+    def _overlay_missing_fields(dst: dict[str, str], src: dict[str, str]) -> None:
+        for k, ks in (
+            ("Video Time", ("Video Time", "VideoTime")),
+            ("Video Seconds", ("Video Seconds", "VideoSeconds")),
+            ("On-Ice Players", ("On-Ice Players", "OnIce Players", "OnIcePlayers")),
+            ("On-Ice Players (Home)", ("On-Ice Players (Home)", "OnIce Players (Home)")),
+            ("On-Ice Players (Away)", ("On-Ice Players (Away)", "OnIce Players (Away)")),
+        ):
+            if str(dst.get(k) or "").strip():
+                continue
+            v = _first_non_empty(src, ks)
+            if v:
+                dst[k] = v
+
+    fallback_by_key: dict[tuple[str, str, str, str, str], dict[str, str]] = {}
+    if has_tts_protected:
+        score_by_key: dict[tuple[str, str, str, str, str], int] = {}
+
+        def _score(r: dict[str, str]) -> int:
+            home = _first_non_empty(r, ("On-Ice Players (Home)", "OnIce Players (Home)"))
+            away = _first_non_empty(r, ("On-Ice Players (Away)", "OnIce Players (Away)"))
+            legacy = _first_non_empty(r, ("On-Ice Players", "OnIce Players", "OnIcePlayers"))
+            video = _first_non_empty(
+                r, ("Video Time", "VideoTime", "Video Seconds", "VideoSeconds")
+            )
+            return (
+                (2 if home else 0) + (2 if away else 0) + (1 if legacy else 0) + (1 if video else 0)
+            )
+
+        for r, lbl in all_rows:
+            et = _ev_type(r)
+            if not et:
+                continue
+            if et not in protected_types:
+                continue
+            if _is_tts_row(r, lbl):
+                continue
+            k = _key(r)
+            s = _score(r)
+            if s <= 0:
+                continue
+            if s > int(score_by_key.get(k, 0)):
+                score_by_key[k] = int(s)
+                fallback_by_key[k] = r
+
     merged_rows: list[dict[str, str]] = []
     seen: set[tuple[str, str, str, str, str]] = set()
     for r, lbl in all_rows:
@@ -7351,7 +7368,12 @@ def merge_events_csv_prefer_timetoscore(
         if k in seen:
             continue
         seen.add(k)
-        merged_rows.append(r)
+        rr = dict(r)
+        if has_tts_protected and et in protected_types and _is_tts_row(rr, lbl):
+            fb = fallback_by_key.get(k)
+            if fb:
+                _overlay_missing_fields(rr, fb)
+        merged_rows.append(rr)
 
     merged_headers = list(ex_headers or [])
     for h in in_headers or []:
@@ -7381,9 +7403,9 @@ def enrich_timetoscore_goals_with_long_video_times(
 ) -> tuple[list[str], list[dict[str, str]]]:
     """
     For TimeToScore-linked games, treat TimeToScore goal attribution as authoritative, but
-    copy Video Time/Seconds from matching long-sheet Goal events (same team + period + game time).
+    copy Video Time/Seconds and On-Ice player lists from matching spreadsheet-derived Goal events
+    (same team + period + game time).
 
-    - Only uses incoming rows with Source containing "long"
     - Only enriches existing rows whose Source contains "timetoscore"
     - Never adds new goal events; long-only goals are ignored
     """
@@ -7407,6 +7429,21 @@ def enrich_timetoscore_goals_with_long_video_times(
         if _norm(token) not in toks_cf:
             toks.append(str(token))
         row["Source"] = ",".join([t for t in toks if t])
+
+    def _first_non_empty(row: dict[str, str], keys: tuple[str, ...]) -> str:
+        for k in keys:
+            v = str(row.get(k) or "").strip()
+            if v:
+                return v
+        return ""
+
+    def _set_if_blank(row: dict[str, str], key: str, value: str) -> bool:
+        if str(row.get(key) or "").strip():
+            return False
+        if not str(value or "").strip():
+            return False
+        row[key] = str(value)
+        return True
 
     def _parse_int(v: Any) -> Optional[int]:
         try:
@@ -7456,32 +7493,48 @@ def enrich_timetoscore_goals_with_long_video_times(
     def _video_time(row: dict[str, str]) -> str:
         return str(row.get("Video Time") or row.get("VideoTime") or "").strip()
 
-    # Build lookup from incoming long Goal rows.
+    # Lookups from incoming Goal rows.
     long_by_key: dict[tuple[int, str, int], dict[str, str]] = {}
+    on_ice_by_key: dict[tuple[int, str, int], dict[str, str]] = {}
+    on_ice_score_by_key: dict[tuple[int, str, int], int] = {}
     for r in incoming_rows or []:
         if not isinstance(r, dict):
             continue
         if _ev_type(r) != "goal":
-            continue
-        if not _has_source(r, "long"):
             continue
         per = _period(r)
         side = _norm_side(r)
         gs = _game_seconds(r)
         if per is None or side is None or gs is None:
             continue
-        vs = _video_seconds(r)
-        vt = _video_time(r)
-        if vs is None and not vt:
-            continue
-        long_by_key[(per, side, int(gs))] = r
 
-    if not long_by_key:
-        return existing_headers, existing_rows
+        # Video time enrichment prefers long-sheet rows.
+        if _has_source(r, "long"):
+            vs = _video_seconds(r)
+            vt = _video_time(r)
+            if vs is not None or vt:
+                long_by_key[(per, side, int(gs))] = r
+
+        # On-ice enrichment can come from any incoming Goal rows that carry those columns.
+        home_on_ice = _first_non_empty(r, ("On-Ice Players (Home)", "OnIce Players (Home)"))
+        away_on_ice = _first_non_empty(r, ("On-Ice Players (Away)", "OnIce Players (Away)"))
+        legacy_on_ice = _first_non_empty(r, ("On-Ice Players", "OnIce Players"))
+        score = (2 if home_on_ice else 0) + (2 if away_on_ice else 0) + (1 if legacy_on_ice else 0)
+        if score > 0:
+            k = (per, side, int(gs))
+            if score > int(on_ice_score_by_key.get(k, 0)):
+                on_ice_score_by_key[k] = int(score)
+                on_ice_by_key[k] = r
 
     # Ensure destination headers include video fields.
     out_headers = list(existing_headers or [])
-    for h in ("Video Time", "Video Seconds"):
+    for h in (
+        "Video Time",
+        "Video Seconds",
+        "On-Ice Players",
+        "On-Ice Players (Home)",
+        "On-Ice Players (Away)",
+    ):
         if h not in out_headers:
             out_headers.append(h)
 
@@ -7495,7 +7548,8 @@ def enrich_timetoscore_goals_with_long_video_times(
             side = _norm_side(rr)
             gs = _game_seconds(rr)
             if per is not None and side is not None and gs is not None:
-                match = long_by_key.get((per, side, int(gs)))
+                k = (per, side, int(gs))
+                match = long_by_key.get(k)
                 if match is not None:
                     vs = _video_seconds(match)
                     vt = _video_time(match)
@@ -7504,6 +7558,31 @@ def enrich_timetoscore_goals_with_long_video_times(
                     if vt:
                         rr["Video Time"] = vt
                     _add_source(rr, "long")
+
+                match_on_ice = on_ice_by_key.get(k)
+                if match_on_ice is not None:
+                    copied = False
+                    copied |= _set_if_blank(
+                        rr,
+                        "On-Ice Players (Home)",
+                        _first_non_empty(
+                            match_on_ice, ("On-Ice Players (Home)", "OnIce Players (Home)")
+                        ),
+                    )
+                    copied |= _set_if_blank(
+                        rr,
+                        "On-Ice Players (Away)",
+                        _first_non_empty(
+                            match_on_ice, ("On-Ice Players (Away)", "OnIce Players (Away)")
+                        ),
+                    )
+                    copied |= _set_if_blank(
+                        rr,
+                        "On-Ice Players",
+                        _first_non_empty(match_on_ice, ("On-Ice Players", "OnIce Players")),
+                    )
+                    if copied:
+                        _add_source(rr, "shift_package")
         out_rows.append(rr)
 
     return out_headers, out_rows
@@ -9357,7 +9436,7 @@ def _compute_team_player_stats_sources(
         seen.add(k)
         out.append(s)
 
-    # Prefer scanning events CSV sources (multi-valued Source column), then include player_stats CSV labels.
+    # Prefer scanning events CSV sources (multi-valued Source column).
     try:
         for chunk in _django_orm.iter_chunks(gids, 200):
             for r in m.HkyGameEvent.objects.filter(game_id__in=chunk).values(
@@ -9379,17 +9458,6 @@ def _compute_team_player_stats_sources(
                 _add(r.get("source_label"))
     except Exception:
         pass
-    try:
-        for chunk in _django_orm.iter_chunks(gids, 200):
-            for r in m.HkyGamePlayerStatsCsv.objects.filter(game_id__in=chunk).values(
-                "source_label"
-            ):
-                if not isinstance(r, dict):
-                    continue
-                _add(r.get("source_label"))
-    except Exception:
-        pass
-
     return out
 
 

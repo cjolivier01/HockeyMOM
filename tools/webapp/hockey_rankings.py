@@ -33,7 +33,7 @@ def compute_mhr_like_ratings(
     *,
     games: list[GameScore],
     max_goal_diff: int = 7,
-    min_games_for_rating: int = 4,
+    min_games_for_rating: int = 2,
     damping: float = 0.85,
     max_iter: int = 2000,
     tol: float = 1e-8,
@@ -278,6 +278,8 @@ _AGE_WORDS: list[tuple[str, int]] = [
 
 # Match a leading age like "12U", "12AA", "10 B West", etc.
 _AGE_RE = re.compile(r"(?i)(?:^|\b)(\d{1,2})(?=\s|$|u\b|[A-Za-z])")
+_LEVEL_RE = re.compile(r"(?i)\b(AAA|AA|BB|A|B)\b")
+_LEVEL_AFTER_AGE_RE = re.compile(r"(?i)(?:^|\b)\d{1,2}(?:u)?\s*(AAA|AA|BB|A|B)(?=\b|\s|$|[-–—])")
 
 
 def parse_age_from_division_name(division_name: str) -> Optional[int]:
@@ -304,6 +306,21 @@ def parse_age_from_division_name(division_name: str) -> Optional[int]:
     if age < 4 or age > 30:
         return None
     return age
+
+
+def parse_level_from_division_name(division_name: str) -> Optional[str]:
+    """
+    Extract the level token (AAA/AA/A/BB/B) from a division string.
+    Returns None if no level is found.
+    """
+    s = str(division_name or "").strip()
+    if not s:
+        return None
+    m = _LEVEL_AFTER_AGE_RE.search(s) or _LEVEL_RE.search(s)
+    if not m:
+        return None
+    token = str(m.group(1) or "").strip().upper()
+    return token or None
 
 
 def normalize_ratings_to_0_99_9_age_aware(

@@ -39,7 +39,6 @@ def wipe_all(m) -> dict:
         m.PlayerPeriodStat.objects.all().delete()
         m.HkyGameStat.objects.all().delete()
         m.HkyGameEvent.objects.all().delete()
-        m.HkyGamePlayerStatsCsv.objects.all().delete()
         m.LeagueGame.objects.all().delete()
         m.HkyGame.objects.all().delete()
         m.LeagueTeam.objects.all().delete()
@@ -60,13 +59,21 @@ def wipe_league(m, league_id: int) -> dict:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="Reset imported hockey data without touching users or permissions")
+    ap = argparse.ArgumentParser(
+        description="Reset imported hockey data without touching users or permissions"
+    )
     ap.add_argument("--config", default="/opt/hm-webapp/app/config.json")
     ap.add_argument("--force", action="store_true", help="Do not prompt for confirmation")
     ap.add_argument("--yes", "-y", action="store_true", help="Alias for --force")
-    ap.add_argument("--webapp-url", default=None, help="If set, reset via webapp REST API (e.g. http://127.0.0.1:8008)")
+    ap.add_argument(
+        "--webapp-url",
+        default=None,
+        help="If set, reset via webapp REST API (e.g. http://127.0.0.1:8008)",
+    )
     ap.add_argument("--webapp-token", default=None, help="Optional import token for REST mode")
-    ap.add_argument("--import-token", dest="webapp_token", default=None, help="Alias for --webapp-token")
+    ap.add_argument(
+        "--import-token", dest="webapp_token", default=None, help="Alias for --webapp-token"
+    )
     ap.add_argument("--webapp-owner-email", default=None, help="League owner email for REST mode")
     ap.add_argument(
         "--league-id", type=int, default=None, help="Only wipe data associated to this league id"
@@ -87,7 +94,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         scope = f"league_name={args.league_name}"
         if not force:
-            ans = input(f"This will reset hockey data for {scope} via REST. Type RESET to continue: ").strip()
+            ans = input(
+                f"This will reset hockey data for {scope} via REST. Type RESET to continue: "
+            ).strip()
             if ans != "RESET":
                 print("Aborted.")
                 return 1
@@ -104,7 +113,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                 headers["X-HM-Import-Token"] = tok
         r = requests.post(
             url,
-            json={"owner_email": str(args.webapp_owner_email).strip(), "league_name": str(args.league_name).strip()},
+            json={
+                "owner_email": str(args.webapp_owner_email).strip(),
+                "league_name": str(args.league_name).strip(),
+            },
             headers=headers,
             timeout=120,
         )
@@ -126,7 +138,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Resolve league id if name provided
     league_id = args.league_id
     if args.league_name and not league_id:
-        row = m.League.objects.filter(name=str(args.league_name)).values_list("id", flat=True).first()
+        row = (
+            m.League.objects.filter(name=str(args.league_name)).values_list("id", flat=True).first()
+        )
         if row is None:
             print(f"[!] League named '{args.league_name}' not found", file=sys.stderr)
             return 2
