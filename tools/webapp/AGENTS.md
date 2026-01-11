@@ -29,6 +29,8 @@ Related root-level helpers:
   - Both scripts will best-effort create a default webapp user from local `git config` (`user.email`/`user.name`)
     with password `password` unless `--no-default-user` is specified (uses internal REST endpoint; may require token).
   - Both scripts support `--t2s-league` (import a subset of TimeToScore league ids) and `--rebuild` (reset league data first).
+  - Shift spreadsheet file lists (e.g., `~/RVideos/game_list_long.yaml`) should use readable YAML mapping entries (no legacy one-line `|key=value` strings); see `tools/webapp/README.md`.
+  - Event correction YAML for `scripts/parse_stats_inputs.py --corrections-yaml` should be structured YAML objects (no `|` separators); see `tools/webapp/README.md`.
 
 ## Architecture: Django + Django ORM (no raw SQL)
 
