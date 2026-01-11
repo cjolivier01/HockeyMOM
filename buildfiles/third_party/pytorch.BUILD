@@ -17,8 +17,8 @@ cc_library(
     hdrs = glob(["include/**/*.h*"]),
     defines = [
         # Must match `torch._C._GLIBCXX_USE_CXX11_ABI` for the installed torch.
-        # PyTorch wheels are commonly built with the old ABI (0).
-        "_GLIBCXX_USE_CXX11_ABI=0",
+        # Newer CUDA wheels (e.g. cu128) use the C++11 ABI (1).
+        "_GLIBCXX_USE_CXX11_ABI=1",
     ],
     includes = [
         "include",
@@ -44,7 +44,7 @@ cc_library(
     name = "libtorch_python",
     srcs = ["lib/libtorch_python.so"],
     defines = [
-        "_GLIBCXX_USE_CXX11_ABI=0",
+        "_GLIBCXX_USE_CXX11_ABI=1",
     ],
     visibility = ["//visibility:public"],
     deps = [
