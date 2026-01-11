@@ -742,8 +742,9 @@ def _overlay_game_player_stats_from_event_rows(
     *, game_id: int, stats_by_pid: dict[int, dict[str, Any]]
 ) -> None:
     """
-    Best-effort: compute Goals/Assists/Shots/SOG/xG from normalized event rows and overlay onto the
-    per-game `stats_by_pid` dict used by the game detail view.
+    Best-effort: compute event-derived stats from normalized event rows (Goals/Assists/Shots/SOG/xG
+    and on-ice GF/GA/+/-) and overlay onto the per-game `stats_by_pid` dict used by the game detail
+    view.
     """
     _django_orm, m = _orm_modules()
     from django.db.models import Count
@@ -802,6 +803,127 @@ def _overlay_game_player_stats_from_event_rows(
         stats_by_pid[pid]["expected_goals"] = int(xg)
         stats_by_pid[pid]["sog"] = int(sog)
         stats_by_pid[pid]["shots"] = int(shots)
+
+    # On-ice goal +/-: requires goal rows with Home/Away on-ice lists.
+    try:
+        game = m.HkyGame.objects.filter(id=int(game_id)).values("team1_id", "team2_id").first()
+        if not game:
+            return
+        team1_id = int(game.get("team1_id") or 0)
+        team2_id = int(game.get("team2_id") or 0)
+        if team1_id <= 0 or team2_id <= 0:
+            return
+
+        players = list(
+            m.Player.objects.filter(team_id__in=[team1_id, team2_id]).values(
+                "id", "team_id", "jersey_number"
+            )
+        )
+
+        jersey_to_pids: dict[tuple[int, str], list[int]] = {}
+        all_player_ids: set[int] = set()
+        for p in players:
+            try:
+                pid = int(p.get("id") or 0)
+                tid = int(p.get("team_id") or 0)
+            except Exception:
+                continue
+            if pid <= 0 or tid <= 0:
+                continue
+            all_player_ids.add(pid)
+            jn = logic.normalize_jersey_number(p.get("jersey_number"))
+            if not jn:
+                continue
+            jersey_to_pids.setdefault((tid, jn), []).append(pid)
+
+        def _extract_numbers(raw: Any) -> set[str]:
+            s = str(raw or "")
+            out: set[str] = set()
+            for m0 in re.findall(r"(\d+)", s):
+                try:
+                    out.add(str(int(m0)))
+                except Exception:
+                    continue
+            return out
+
+        def _norm_side(raw: Any) -> Optional[str]:
+            v = str(raw or "").strip().casefold()
+            if v in {"home", "team1"}:
+                return "home"
+            if v in {"away", "team2"}:
+                return "away"
+            return None
+
+        goal_rows = list(
+            m.HkyGameEventRow.objects.filter(game_id=int(game_id), event_type__key="goal")
+            .exclude(
+                import_key__in=m.HkyGameEventSuppression.objects.filter(
+                    game_id=int(game_id)
+                ).values_list("import_key", flat=True)
+            )
+            .values(
+                "team_side", "team_rel", "team_raw", "on_ice_players_home", "on_ice_players_away"
+            )
+        )
+        if not goal_rows:
+            return
+
+        total_goals = 0
+        complete_goals = 0
+        gf_by_pid: dict[int, int] = {}
+        ga_by_pid: dict[int, int] = {}
+
+        for r in goal_rows:
+            side = (
+                _norm_side(r.get("team_side"))
+                or _norm_side(r.get("team_rel"))
+                or _norm_side(r.get("team_raw"))
+            )
+            if side not in {"home", "away"}:
+                continue
+            total_goals += 1
+
+            home_raw = str(r.get("on_ice_players_home") or "").strip()
+            away_raw = str(r.get("on_ice_players_away") or "").strip()
+            if not home_raw or not away_raw:
+                continue
+
+            complete_goals += 1
+            home_nums = _extract_numbers(home_raw)
+            away_nums = _extract_numbers(away_raw)
+
+            for j in home_nums:
+                candidates = jersey_to_pids.get((team1_id, j), [])
+                if len(set(candidates)) != 1:
+                    continue
+                pid = int(list(set(candidates))[0])
+                if side == "home":
+                    gf_by_pid[pid] = gf_by_pid.get(pid, 0) + 1
+                else:
+                    ga_by_pid[pid] = ga_by_pid.get(pid, 0) + 1
+
+            for j in away_nums:
+                candidates = jersey_to_pids.get((team2_id, j), [])
+                if len(set(candidates)) != 1:
+                    continue
+                pid = int(list(set(candidates))[0])
+                if side == "away":
+                    gf_by_pid[pid] = gf_by_pid.get(pid, 0) + 1
+                else:
+                    ga_by_pid[pid] = ga_by_pid.get(pid, 0) + 1
+
+        if total_goals <= 0 or complete_goals != total_goals:
+            return
+
+        for pid in all_player_ids:
+            gf = int(gf_by_pid.get(pid, 0) or 0)
+            ga = int(ga_by_pid.get(pid, 0) or 0)
+            stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
+            stats_by_pid[pid]["gf_counted"] = int(gf)
+            stats_by_pid[pid]["ga_counted"] = int(ga)
+            stats_by_pid[pid]["plus_minus"] = int(gf) - int(ga)
+    except Exception:
+        pass
 
 
 # ----------------------------
@@ -1604,6 +1726,7 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                     "period": r0.get("period"),
                     "game_time": str(r0.get("game_time") or ""),
                     "video_time": str(r0.get("video_time") or ""),
+                    "game_seconds": r0.get("game_seconds"),
                     "video_seconds": r0.get("video_seconds"),
                     "details": str(r0.get("details") or ""),
                     "source": str(r0.get("source") or ""),
@@ -1614,11 +1737,27 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
     def _ev_sort_key(e: dict[str, Any]) -> tuple:
         gid = int(e.get("game_id") or 0)
         g2 = games_by_id.get(gid) or {}
+        gs: Optional[int] = None
+        try:
+            raw = e.get("game_seconds")
+            if raw is not None and str(raw).strip():
+                gs = int(raw)
+        except Exception:
+            gs = None
+        if gs is None:
+            try:
+                gs = logic.parse_duration_seconds(e.get("game_time"))
+            except Exception:
+                gs = None
+        gs_missing = 1 if gs is None else 0
+        gs_neg = 0 if gs is None else -int(gs)
         return (
             0 if g2.get("starts_at") is not None else 1,
             str(g2.get("starts_at") or ""),
             gid,
             int(e.get("period") or 0) if str(e.get("period") or "").strip() else 0,
+            gs_missing,
+            gs_neg,
             str(e.get("game_time") or ""),
             str(e.get("event_type") or ""),
         )
@@ -3221,20 +3360,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
 
     imported_player_stats_csv_text: Optional[str] = None
     player_stats_import_meta: Optional[dict[str, Any]] = None
-    try:
-        prow = (
-            m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(game_id))
-            .values("player_stats_csv", "source_label", "updated_at")
-            .first()
-        )
-        if prow and str(prow.get("player_stats_csv") or "").strip():
-            imported_player_stats_csv_text = str(prow.get("player_stats_csv") or "")
-            player_stats_import_meta = {
-                "source_label": prow.get("source_label"),
-                "updated_at": prow.get("updated_at"),
-            }
-    except Exception:
-        imported_player_stats_csv_text, player_stats_import_meta = None, None
 
     (
         game_player_stats_columns,
@@ -3614,20 +3739,6 @@ def hky_game_import_shift_stats(
 
     now = dt.datetime.now()
     with transaction.atomic():
-        # Persist raw player_stats.csv for full-fidelity UI rendering.
-        try:
-            ps_text_sanitized = logic.sanitize_player_stats_csv_for_storage(ps_text)
-            m.HkyGamePlayerStatsCsv.objects.update_or_create(
-                game_id=int(game_id),
-                defaults={
-                    "player_stats_csv": ps_text_sanitized,
-                    "source_label": "upload_form",
-                    "updated_at": now,
-                },
-            )
-        except Exception:
-            pass
-
         for row in parsed_rows:
             jersey_norm = row.get("jersey_number")
             name_norm = row.get("name_norm") or ""
@@ -3865,9 +3976,6 @@ def leagues_delete(request: HttpRequest, league_id: int) -> HttpResponse:  # pra
                 for chunk in _chunks(sorted({int(x) for x in game_ids}), n=500):
                     m.PlayerPeriodStat.objects.filter(game_id__in=[int(x) for x in chunk]).delete()
                     m.PlayerStat.objects.filter(game_id__in=[int(x) for x in chunk]).delete()
-                    m.HkyGamePlayerStatsCsv.objects.filter(
-                        game_id__in=[int(x) for x in chunk]
-                    ).delete()
                     m.HkyGameEvent.objects.filter(game_id__in=[int(x) for x in chunk]).delete()
                     m.HkyGameStat.objects.filter(game_id__in=[int(x) for x in chunk]).delete()
 
@@ -4873,20 +4981,6 @@ def public_hky_game_detail(
 
     imported_player_stats_csv_text: Optional[str] = None
     player_stats_import_meta: Optional[dict[str, Any]] = None
-    try:
-        prow = (
-            m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(game_id))
-            .values("player_stats_csv", "source_label", "updated_at")
-            .first()
-        )
-        if prow and str(prow.get("player_stats_csv") or "").strip():
-            imported_player_stats_csv_text = str(prow.get("player_stats_csv") or "")
-            player_stats_import_meta = {
-                "source_label": prow.get("source_label"),
-                "updated_at": prow.get("updated_at"),
-            }
-    except Exception:
-        imported_player_stats_csv_text, player_stats_import_meta = None, None
 
     (
         game_player_stats_columns,
@@ -7190,31 +7284,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         )
                 except Exception:
                     pass
-
-            if isinstance(player_stats_csv, str) and player_stats_csv.strip():
-                try:
-                    player_stats_csv = logic.sanitize_player_stats_csv_for_storage(player_stats_csv)
-                except Exception:
-                    pass
-                if replace:
-                    m.HkyGamePlayerStatsCsv.objects.update_or_create(
-                        game_id=int(resolved_game_id),
-                        defaults={
-                            "player_stats_csv": player_stats_csv,
-                            "source_label": source_label,
-                            "updated_at": now,
-                        },
-                    )
-                else:
-                    if not m.HkyGamePlayerStatsCsv.objects.filter(
-                        game_id=int(resolved_game_id)
-                    ).exists():
-                        m.HkyGamePlayerStatsCsv.objects.create(
-                            game_id=int(resolved_game_id),
-                            player_stats_csv=player_stats_csv,
-                            source_label=source_label,
-                            updated_at=now,
-                        )
 
             if isinstance(game_stats_csv, str) and game_stats_csv.strip():
                 try:

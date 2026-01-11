@@ -1018,6 +1018,55 @@ def should_store_events_via_shift_package_and_render_public_game_page(client_and
     assert "table-scroll-y" in html
 
 
+def should_compute_on_ice_gfga_from_goal_event_on_ice_lists(client_and_models):
+    client, m = client_and_models
+    now = dt.datetime.now()
+    m.HkyGameEvent.objects.update_or_create(
+        game_id=1001,
+        defaults={
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Time,Game Seconds,Attributed Jerseys\n"
+                "Goal,timetoscore,Home,1,12:34,754,9\n"
+            ),
+            "source_label": "timetoscore",
+            "updated_at": now,
+        },
+    )
+
+    # For TimeToScore-linked games, the shift-package importer drops incoming Goal/Assist rows,
+    # but uses them to enrich the stored TimeToScore goal rows with on-ice players.
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "timetoscore_game_id": 123,
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Time,Game Seconds,Attributed Jerseys,"
+                "On-Ice Players (Home),On-Ice Players (Away)\n"
+                'Goal,goals,Home,1,12:34,754,9,"9 Alice","12 Bob"\n'
+                'Shot,long,Home,1,12:30,750,9,"9 Alice","12 Bob"\n'
+            ),
+            "source_label": "unit-test",
+            "replace": False,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+
+    stored = (
+        m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first()
+    )
+    assert stored is not None
+    assert "On-Ice Players (Home)" in stored
+    assert "9 Alice" in stored
+    assert "12 Bob" in stored
+
+    html = client.get("/public/leagues/1/hky/games/1001").content.decode()
+    assert "GF/GA" in html
+    assert "1 / 0" in html
+    assert "0 / 1" in html
+
+
 def should_find_existing_game_when_notes_are_legacy_game_id_token(client_and_models):
     client, m = client_and_models
     m.HkyGame.objects.filter(id=1001).update(notes="game_id=123")
@@ -1078,11 +1127,9 @@ def should_not_overwrite_events_without_replace(client_and_models):
     )
 
 
-def should_store_player_stats_csv_via_shift_package_and_render_public_game_page(client_and_models):
+def should_import_player_stats_via_shift_package_and_render_public_game_page(client_and_models):
     client, m = client_and_models
-    player_stats_csv = (
-        "Player,Goals,Assists,Average Shift,Shifts,TOI Total\n9 Alice,1,0,0:45,12,12:34\n"
-    )
+    player_stats_csv = "Player,Goals,Assists,GF Counted,GA Counted,Goal +/-\n9 Alice,1,0,2,1,1\n"
     r = _post_json(
         client,
         "/api/import/hockey/shift_package",
@@ -1094,21 +1141,12 @@ def should_store_player_stats_csv_via_shift_package_and_render_public_game_page(
     )
     assert r.status_code == 200
     assert json.loads(r.content)["ok"] is True
-    stored = (
-        m.HkyGamePlayerStatsCsv.objects.filter(game_id=1001)
-        .values_list("player_stats_csv", flat=True)
-        .first()
-    )
-    assert stored is not None
-    assert "Average Shift" not in stored
-    assert "Shifts" not in stored
-    assert "TOI Total" not in stored
+    assert m.PlayerStat.objects.filter(game_id=1001, player_id=501).exists()
 
     html = client.get("/public/leagues/1/hky/games/1001").content.decode()
-    assert "Imported Player Stats" in html
-    assert "Average Shift" not in html
-    assert "Shifts" not in html
-    assert "TOI Total" not in html
+    assert "Imported Player Stats" not in html
+    assert "GF/GA" in html
+    assert "+/-" in html
 
 
 def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(client_and_models):

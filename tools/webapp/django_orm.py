@@ -251,13 +251,6 @@ def merge_hky_games(*, keep_id: int, drop_id: int) -> None:
         else:
             m.HkyGameEvent.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
 
-        if m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(keep_id)).exists():
-            m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(drop_id)).delete()
-        else:
-            m.HkyGamePlayerStatsCsv.objects.filter(game_id=int(drop_id)).update(
-                game_id=int(keep_id)
-            )
-
         keep_event_keys = set(
             m.HkyGameEventRow.objects.filter(game_id=int(keep_id)).values_list(
                 "import_key", flat=True

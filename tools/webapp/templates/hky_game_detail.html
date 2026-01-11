@@ -2309,6 +2309,14 @@
   <div id="events-drilldown-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
 </dialog>
 
+<style>
+  #events-drilldown-body table.events-drilldown-table th,
+  #events-drilldown-body table.events-drilldown-table td {
+    padding: .45rem .65rem;
+    font-size: .88rem;
+  }
+</style>
+
 <script>
   (function () {
     function normTypeKey(s) {
@@ -2382,14 +2390,18 @@
       sog: ["sog", "expectedgoal", "goal"],
       shots: ["shot", "sog", "expectedgoal", "goal"],
       pim: ["penalty"],
+      plus_minus: ["goal"],
+      gfga: ["goal"],
     };
 
     function buildEventsTable(container, rows) {
+      var wrap = document.createElement("div");
+      wrap.className = "table-scroll";
       var table = document.createElement("table");
-      table.className = "table-nowrap table-grid";
+      table.className = "table-nowrap table-grid events-drilldown-table";
       var thead = document.createElement("thead");
       var trh = document.createElement("tr");
-      ["Time", "Video", "Event", "Details", "Source"].forEach(function (h) {
+      ["P", "Time", "Video", "Details", "Source"].forEach(function (h) {
         var th = document.createElement("th");
         th.textContent = h;
         trh.appendChild(th);
@@ -2399,12 +2411,12 @@
       var tbody = document.createElement("tbody");
       rows.forEach(function (row) {
         var tr = document.createElement("tr");
+        var period = String(getValue(row, ["Period"]) || "").trim();
         var tGame = String(getValue(row, ["Game Time", "GameTime", "Time"]) || "").trim();
         var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
-        var et = String(getValue(row, ["Event Type", "Event"]) || "").trim();
         var details = String(getValue(row, ["Details"]) || "").trim();
         var src = String(getValue(row, ["Source"]) || "").trim();
-        [tGame, tVideo, et, details, src].forEach(function (v) {
+        [period, tGame, tVideo, details, src].forEach(function (v) {
           var td = document.createElement("td");
           td.textContent = v;
           tr.appendChild(td);
@@ -2412,7 +2424,56 @@
         tbody.appendChild(tr);
       });
       table.appendChild(tbody);
-      container.appendChild(table);
+      wrap.appendChild(table);
+      container.appendChild(wrap);
+    }
+
+    function sortRowsByPeriodAndGameClockDesc(rows) {
+      rows.sort(function (a, b) {
+        var pa = rowPeriod(a);
+        var pb = rowPeriod(b);
+        pa = pa === null ? 999 : pa;
+        pb = pb === null ? 999 : pb;
+        if (pa !== pb) return pa - pb;
+        var ga = rowGameSeconds(a);
+        var gb = rowGameSeconds(b);
+        ga = ga === null ? -1 : ga;
+        gb = gb === null ? -1 : gb;
+        if (ga !== gb) return gb - ga; // clock counts down
+        var ta = normTypeKey(getValue(a, ["Event Type", "Event"]));
+        var tb = normTypeKey(getValue(b, ["Event Type", "Event"]));
+        if (ta !== tb) return ta < tb ? -1 : 1;
+        return 0;
+      });
+    }
+
+    function groupRows(rows, labelFn) {
+      var order = [];
+      var groups = {};
+      (rows || []).forEach(function (r) {
+        var label = String(labelFn(r) || "").trim() || "Unknown";
+        var k = label.toLowerCase();
+        if (!Object.prototype.hasOwnProperty.call(groups, k)) {
+          groups[k] = { label: label, rows: [] };
+          order.push(k);
+        }
+        groups[k].rows.push(r);
+      });
+      return { order: order, groups: groups };
+    }
+
+    function extractNumberSet(raw) {
+      var s = String(raw || "");
+      var out = {};
+      var m = s.match(/(\d+)/g);
+      if (!m) return out;
+      m.forEach(function (v) {
+        try {
+          var n = parseInt(v, 10);
+          if (isFinite(n)) out[String(n)] = true;
+        } catch (e) {}
+      });
+      return out;
     }
 
     function openDrilldown(opts) {
@@ -2424,40 +2485,65 @@
       var statKey = String(opts.statKey || "").trim();
       var statLabel = String(opts.statLabel || "").trim();
 
+      var isOnIceGoalStat = statKey === "plus_minus" || statKey === "gfga";
+      var showOnIceGoals = !statKey || isOnIceGoalStat;
+      var showAttributedEvents = !statKey || !isOnIceGoalStat;
+
       var allowedTypeKeys = null;
-      if (statKey && STAT_TO_EVENT_TYPE_KEYS[statKey]) {
+      if (statKey && showAttributedEvents && STAT_TO_EVENT_TYPE_KEYS[statKey]) {
         allowedTypeKeys = {};
         STAT_TO_EVENT_TYPE_KEYS[statKey].forEach(function (k) {
           allowedTypeKeys[normTypeKey(k)] = true;
         });
       }
 
-      var filtered = eventsRows.filter(function (row) {
-        if (side) {
-          var rs = rowSide(row);
-          if (rs && rs !== side) return false;
-        }
-        var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
-        if (allowedTypeKeys && !allowedTypeKeys[etKey]) return false;
+      var filtered = [];
+      if (showAttributedEvents) {
+        filtered = eventsRows.filter(function (row) {
+          if (side) {
+            var rs = rowSide(row);
+            if (rs && rs !== side) return false;
+          }
+          var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+          if (allowedTypeKeys && !allowedTypeKeys[etKey]) return false;
 
-        var rowJ = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
-        if (playerJersey && rowJ && rowJ === extractJersey(playerJersey)) return true;
-        var rowP = normName(getValue(row, ["Attributed Players", "AttributedPlayers", "Player", "Name"]));
-        if (playerNameNorm && rowP && rowP === playerNameNorm) return true;
-        return false;
-      });
+          var rowJ = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
+          if (playerJersey && rowJ && rowJ === extractJersey(playerJersey)) return true;
+          var rowP = normName(getValue(row, ["Attributed Players", "AttributedPlayers", "Player", "Name"]));
+          if (playerNameNorm && rowP && rowP === playerNameNorm) return true;
+          return false;
+        });
+        sortRowsByPeriodAndGameClockDesc(filtered);
+      }
 
-      filtered.sort(function (a, b) {
-        var pa = rowPeriod(a) || 0;
-        var pb = rowPeriod(b) || 0;
-        if (pa !== pb) return pa - pb;
-        var ga = rowGameSeconds(a);
-        var gb = rowGameSeconds(b);
-        ga = ga === null ? 0 : ga;
-        gb = gb === null ? 0 : gb;
-        if (ga !== gb) return ga - gb;
-        return normTypeKey(getValue(a, ["Event Type", "Event"])) < normTypeKey(getValue(b, ["Event Type", "Event"])) ? -1 : 1;
-      });
+      var onIceGoals = [];
+      var playerJerseyNorm = extractJersey(playerJersey);
+      if (showOnIceGoals && side && playerJerseyNorm) {
+        eventsRows.forEach(function (row) {
+          if (normTypeKey(getValue(row, ["Event Type", "Event"])) !== "goal") return;
+          var onIceRaw = "";
+          if (side === "home") {
+            onIceRaw =
+              String(getValue(row, ["On-Ice Players (Home)", "On-Ice Players Home"]) || "").trim() ||
+              String(getValue(row, ["On-Ice Players", "On-Ice Players (PM)"]) || "").trim();
+          } else if (side === "away") {
+            onIceRaw =
+              String(getValue(row, ["On-Ice Players (Away)", "On-Ice Players Away"]) || "").trim() ||
+              String(getValue(row, ["On-Ice Players", "On-Ice Players (PM)"]) || "").trim();
+          }
+          var nums = extractNumberSet(onIceRaw);
+          if (!nums[playerJerseyNorm]) return;
+          var scoringSide = rowSide(row);
+          var fa = "";
+          if (scoringSide === "home" || scoringSide === "away") {
+            fa = scoringSide === side ? "For" : "Against";
+          }
+          var copy = Object.assign({}, row);
+          copy.__forAgainst = fa;
+          onIceGoals.push(copy);
+        });
+        sortRowsByPeriodAndGameClockDesc(onIceGoals);
+      }
 
       var dlg = document.getElementById("events-drilldown-modal");
       var titleEl = document.getElementById("events-drilldown-title");
@@ -2469,30 +2555,47 @@
       subtitleEl.textContent = statLabel ? (statLabel + " events") : "Events";
       bodyEl.innerHTML = "";
 
-      if (!filtered.length) {
+      if (!filtered.length && !onIceGoals.length) {
         var p = document.createElement("p");
         p.className = "muted";
         p.textContent = "No events matched this selection.";
         bodyEl.appendChild(p);
       } else {
-        var byPeriod = {};
-        filtered.forEach(function (row) {
-          var p = rowPeriod(row);
-          var k = p === null ? "?" : String(p);
-          if (!byPeriod[k]) byPeriod[k] = [];
-          byPeriod[k].push(row);
-        });
-        Object.keys(byPeriod).sort(function (a, b) {
-          var ia = a === "?" ? 999 : parseInt(a, 10);
-          var ib = b === "?" ? 999 : parseInt(b, 10);
-          return ia - ib;
-        }).forEach(function (k) {
-          var h = document.createElement("h4");
-          h.style.margin = "0.75rem 0 0.35rem 0";
-          h.textContent = (k === "?" ? "Unknown Period" : ("Period " + k));
-          bodyEl.appendChild(h);
-          buildEventsTable(bodyEl, byPeriod[k]);
-        });
+        if (onIceGoals.length) {
+          var byFA = groupRows(onIceGoals, function (r) {
+            var fa = String(r.__forAgainst || "").trim();
+            return fa ? ("Goals " + fa) : "Goals";
+          });
+          ["goals for", "goals against"].forEach(function (k) {
+            if (!byFA.groups[k]) return;
+            var h = document.createElement("h4");
+            h.style.margin = "0.75rem 0 0.35rem 0";
+            h.textContent = byFA.groups[k].label;
+            bodyEl.appendChild(h);
+            buildEventsTable(bodyEl, byFA.groups[k].rows);
+          });
+          byFA.order.forEach(function (k) {
+            if (k === "goals for" || k === "goals against") return;
+            var h = document.createElement("h4");
+            h.style.margin = "0.75rem 0 0.35rem 0";
+            h.textContent = byFA.groups[k].label;
+            bodyEl.appendChild(h);
+            buildEventsTable(bodyEl, byFA.groups[k].rows);
+          });
+        }
+
+        if (filtered.length) {
+          var byType = groupRows(filtered, function (r) {
+            return getValue(r, ["Event Type", "Event"]);
+          });
+          byType.order.forEach(function (k) {
+            var h = document.createElement("h4");
+            h.style.margin = "0.75rem 0 0.35rem 0";
+            h.textContent = byType.groups[k].label;
+            bodyEl.appendChild(h);
+            buildEventsTable(bodyEl, byType.groups[k].rows);
+          });
+        }
       }
 
       try {

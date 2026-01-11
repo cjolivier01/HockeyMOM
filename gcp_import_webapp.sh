@@ -181,10 +181,15 @@ drop_db_gcp() {
   remote_cmd="$(cat <<'EOF'
 set -euo pipefail
 
-sudo systemctl stop hm-webapp.service >/dev/null 2>&1 || sudo systemctl stop hm-webapp >/dev/null 2>&1 || true
-sudo systemctl start mariadb >/dev/null 2>&1 || sudo systemctl start mysql >/dev/null 2>&1 || true
+if ! sudo -n true 2>/dev/null; then
+  echo "[!] Remote sudo requires a password/tty. SSH in and run: sudo -v  (then re-run gcp_import_webapp.sh --drop-db)" >&2
+  exit 2
+fi
 
-python3 - <<'PY' | sudo mysql -u root
+sudo -n systemctl stop hm-webapp.service >/dev/null 2>&1 || sudo -n systemctl stop hm-webapp >/dev/null 2>&1 || true
+sudo -n systemctl start mariadb >/dev/null 2>&1 || sudo -n systemctl start mysql >/dev/null 2>&1 || true
+
+python3 - <<'PY' | sudo -n mysql -u root
 import json
 from pathlib import Path
 
@@ -223,7 +228,7 @@ print("GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;")
 print("FLUSH PRIVILEGES;")
 PY
 
-sudo systemctl restart hm-webapp.service >/dev/null 2>&1 || sudo systemctl restart hm-webapp >/dev/null 2>&1 || true
+sudo -n systemctl restart hm-webapp.service >/dev/null 2>&1 || sudo -n systemctl restart hm-webapp >/dev/null 2>&1 || true
 EOF
 )"
   echo "[i] Dropping/recreating DB on ${INSTANCE} via gcloud ssh"
