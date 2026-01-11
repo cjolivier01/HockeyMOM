@@ -297,9 +297,10 @@ def _upsert_game_event_rows_from_events_csv(
                 r.get("Game Time") or r.get("GameTime") or r.get("Time")
             )
         game_seconds_end = _ival(r.get("Game Seconds End") or r.get("GameSecondsEnd"))
-        video_seconds = _ival(r.get("Video Seconds") or r.get("VideoSeconds"))
-        if video_seconds is None:
-            video_seconds = logic.parse_duration_seconds(r.get("Video Time") or r.get("VideoTime"))
+        video_time, video_seconds = logic.normalize_video_time_and_seconds(
+            _norm_ws(r.get("Video Time") or r.get("VideoTime")),
+            r.get("Video Seconds") or r.get("VideoSeconds") or r.get("Video S") or r.get("VideoS"),
+        )
 
         side_norm, side_label = _best_effort_side_from_row(r)
         if side_norm == "home":
@@ -379,7 +380,7 @@ def _upsert_game_event_rows_from_events_csv(
                 "team_rel": _norm_ws(r.get("Team Rel") or r.get("TeamRel")),
                 "period": int(period) if period is not None else None,
                 "game_time": _norm_ws(r.get("Game Time") or r.get("GameTime") or r.get("Time")),
-                "video_time": _norm_ws(r.get("Video Time") or r.get("VideoTime")),
+                "video_time": video_time,
                 "game_seconds": int(game_seconds) if game_seconds is not None else None,
                 "game_seconds_end": (
                     int(game_seconds_end) if game_seconds_end is not None else None
@@ -1275,6 +1276,9 @@ def api_hky_game_events(request: HttpRequest, game_id: int) -> JsonResponse:
     )
     out: list[dict[str, Any]] = []
     for r0 in rows:
+        video_time, video_seconds = logic.normalize_video_time_and_seconds(
+            r0.get("video_time"), r0.get("video_seconds")
+        )
         out.append(
             {
                 "id": int(r0["id"]),
@@ -1290,10 +1294,10 @@ def api_hky_game_events(request: HttpRequest, game_id: int) -> JsonResponse:
                 "team_rel": str(r0.get("team_rel") or ""),
                 "period": r0.get("period"),
                 "game_time": str(r0.get("game_time") or ""),
-                "video_time": str(r0.get("video_time") or ""),
+                "video_time": video_time,
                 "game_seconds": r0.get("game_seconds"),
                 "game_seconds_end": r0.get("game_seconds_end"),
-                "video_seconds": r0.get("video_seconds"),
+                "video_seconds": video_seconds,
                 "details": str(r0.get("details") or ""),
                 "attributed_players": str(r0.get("attributed_players") or ""),
                 "attributed_jerseys": str(r0.get("attributed_jerseys") or ""),
@@ -1672,6 +1676,9 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             continue
         g2 = games_by_id.get(int(gid)) or {}
         game_url, video_url = _game_paths(int(gid))
+        video_time, video_seconds = logic.normalize_video_time_and_seconds(
+            r0.get("video_time"), r0.get("video_seconds")
+        )
         events_out.append(
             {
                 "kind": "attributed",
@@ -1691,9 +1698,9 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                 "team_side": str(r0.get("team_side") or ""),
                 "period": r0.get("period"),
                 "game_time": str(r0.get("game_time") or ""),
-                "video_time": str(r0.get("video_time") or ""),
+                "video_time": video_time,
                 "game_seconds": r0.get("game_seconds"),
-                "video_seconds": r0.get("video_seconds"),
+                "video_seconds": video_seconds,
                 "details": str(r0.get("details") or ""),
                 "for_against": str(r0.get("for_against") or ""),
                 "source": str(r0.get("source") or ""),
@@ -1755,6 +1762,9 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             if scoring_team_id_i is not None:
                 rel = "For" if int(scoring_team_id_i) == int(team_id) else "Against"
             game_url, video_url = _game_paths(int(gid))
+            video_time, video_seconds = logic.normalize_video_time_and_seconds(
+                r0.get("video_time"), r0.get("video_seconds")
+            )
             on_ice_goals_out.append(
                 {
                     "kind": "on_ice_goal",
@@ -1771,9 +1781,9 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                     "video_url": video_url,
                     "period": r0.get("period"),
                     "game_time": str(r0.get("game_time") or ""),
-                    "video_time": str(r0.get("video_time") or ""),
+                    "video_time": video_time,
                     "game_seconds": r0.get("game_seconds"),
-                    "video_seconds": r0.get("video_seconds"),
+                    "video_seconds": video_seconds,
                     "details": str(r0.get("details") or ""),
                     "source": str(r0.get("source") or ""),
                 }
@@ -8090,10 +8100,9 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
                     if game_seconds is None:
                         game_seconds = logic.parse_duration_seconds(game_time)
                     game_seconds_end = _ival(ev.get("game_seconds_end"))
-                    video_time = _norm_ws(ev.get("video_time"))
-                    video_seconds = _ival(ev.get("video_seconds"))
-                    if video_seconds is None:
-                        video_seconds = logic.parse_duration_seconds(video_time)
+                    video_time, video_seconds = logic.normalize_video_time_and_seconds(
+                        _norm_ws(ev.get("video_time")), ev.get("video_seconds")
+                    )
 
                     details = _norm_ws(ev.get("details")) or None
                     attributed_players = _norm_ws(ev.get("attributed_players")) or None

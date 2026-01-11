@@ -7908,49 +7908,126 @@ def normalize_events_video_time_for_display(
     rows: list[dict[str, str]],
 ) -> tuple[list[str], list[dict[str, str]]]:
     """
-    Ensure the events table includes a human-readable Video Time column when Video Seconds exists.
-    This is a display-time normalization only; it does not affect stored CSV.
+    Display-time normalization for events video fields:
+      - Ensure a human-readable "Video Time" column exists when any video clip field exists.
+      - Ensure a numeric "Video Seconds" column exists when any video clip field exists.
+      - For each row, if one of (Video Time, Video Seconds) exists but the other is missing, derive it.
+
+    This normalization does not affect the stored CSV/event rows in the database; it only impacts
+    the returned headers/rows used for UI rendering and embedded JSON.
     """
     if not headers or not rows:
         return headers, rows
-    has_vs = any(str(h or "").strip().lower() in {"video seconds", "videoseconds"} for h in headers)
-    if not has_vs:
+
+    def _hnorm(h: Any) -> str:
+        return str(h or "").strip().lower()
+
+    def _header_idx(headers_in: list[str], norms: set[str]) -> Optional[int]:
+        for i, h in enumerate(headers_in or []):
+            if _hnorm(h) in norms:
+                return i
+        return None
+
+    def _has_any_video(rows_in: list[dict[str, str]]) -> bool:
+        for r in rows_in or []:
+            if not isinstance(r, dict):
+                continue
+            vt_raw = str(r.get("Video Time") or r.get("VideoTime") or "").strip()
+            if vt_raw:
+                return True
+            vs = parse_duration_seconds(
+                r.get("Video Seconds")
+                or r.get("VideoSeconds")
+                or r.get("Video S")
+                or r.get("VideoS")
+            )
+            if vs is not None:
+                return True
+        return False
+
+    # If the table doesn't contain any clip metadata, keep it unchanged.
+    if not _has_any_video(rows):
         return headers, rows
-    has_vt = any(str(h or "").strip().lower() in {"video time", "videotime"} for h in headers)
+
+    vt_norms = {"video time", "videotime"}
+    vs_norms = {"video seconds", "videoseconds", "video s", "videos"}
+    gt_norms = {"game time", "gametime", "time"}
 
     out_headers = list(headers)
-    if not has_vt:
-        # Prefer to place it next to Video Seconds if present, otherwise near Game Time.
+    vt_idx = _header_idx(out_headers, vt_norms)
+    vs_idx = _header_idx(out_headers, vs_norms)
+
+    if vt_idx is None and vs_idx is not None:
+        # Prefer to place it next to Video Seconds if present.
+        out_headers.insert(int(vs_idx), "Video Time")
+        vt_idx = int(vs_idx)
+        vs_idx = _header_idx(out_headers, vs_norms)
+
+    if vs_idx is None and vt_idx is not None:
+        # Place seconds next to Video Time when Video Time exists.
+        out_headers.insert(int(vt_idx) + 1, "Video Seconds")
+        vs_idx = int(vt_idx) + 1
+
+    if vt_idx is None and vs_idx is None:
+        # Last resort: place both near Game Time, or append.
         try:
-            vs_idx = next(
-                i
-                for i, h in enumerate(out_headers)
-                if str(h or "").strip().lower() in {"video seconds", "videoseconds"}
-            )
-            out_headers.insert(vs_idx, "Video Time")
+            gt_idx = next(i for i, h in enumerate(out_headers) if _hnorm(h) in gt_norms)
+            out_headers.insert(int(gt_idx) + 1, "Video Time")
+            out_headers.insert(int(gt_idx) + 2, "Video Seconds")
         except Exception:
-            try:
-                gt_idx = next(
-                    i
-                    for i, h in enumerate(out_headers)
-                    if str(h or "").strip().lower() in {"game time", "gametime", "time"}
-                )
-                out_headers.insert(gt_idx + 1, "Video Time")
-            except Exception:
-                out_headers.append("Video Time")
+            out_headers.append("Video Time")
+            out_headers.append("Video Seconds")
 
     out_rows: list[dict[str, str]] = []
     for r in rows or []:
         if not isinstance(r, dict):
             continue
         rr = dict(r)
+
         vt = str(rr.get("Video Time") or rr.get("VideoTime") or "").strip()
-        if not vt:
-            vs = parse_duration_seconds(rr.get("Video Seconds") or rr.get("VideoSeconds"))
+        vs = parse_duration_seconds(
+            rr.get("Video Seconds")
+            or rr.get("VideoSeconds")
+            or rr.get("Video S")
+            or rr.get("VideoS")
+        )
+
+        if vs is None and vt:
+            vs = parse_duration_seconds(vt)
             if vs is not None:
-                rr["Video Time"] = format_seconds_to_mmss_or_hhmmss(vs)
+                vs_s = str(int(vs))
+                for k in ("Video Seconds", "VideoSeconds", "Video S", "VideoS"):
+                    if not str(rr.get(k) or "").strip():
+                        rr[k] = vs_s
+
+        if not vt and vs is not None:
+            vt2 = format_seconds_to_mmss_or_hhmmss(vs)
+            if vt2:
+                for k in ("Video Time", "VideoTime"):
+                    if not str(rr.get(k) or "").strip():
+                        rr[k] = vt2
+
         out_rows.append(rr)
     return out_headers, out_rows
+
+
+def normalize_video_time_and_seconds(
+    video_time: Any, video_seconds: Any
+) -> tuple[str, Optional[int]]:
+    """
+    Best-effort bidirectional normalization for clip timestamps.
+
+    Returns:
+      - video_time: normalized string ('' when unknown)
+      - video_seconds: int seconds (None when unknown/unparseable)
+    """
+    vt = str(video_time or "").strip()
+    vs = parse_duration_seconds(video_seconds)
+    if vs is None and vt:
+        vs = parse_duration_seconds(vt)
+    if not vt and vs is not None:
+        vt = format_seconds_to_mmss_or_hhmmss(vs)
+    return vt, vs
 
 
 def sort_events_rows_default(rows: list[dict[str, str]]) -> list[dict[str, str]]:

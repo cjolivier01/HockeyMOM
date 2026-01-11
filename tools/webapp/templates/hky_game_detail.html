@@ -2387,23 +2387,40 @@
       var n = parseInt(m[1], 10);
       return isFinite(n) ? String(n) : m[1];
     }
-    function parseTimeToSeconds(s) {
-      s = String(s || "").trim();
-      if (!s) return null;
-      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+	    function parseTimeToSeconds(s) {
+	      s = String(s || "").trim();
+	      if (!s) return null;
+	      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
       if (!m) return null;
       var a = parseInt(m[1], 10);
       var b = parseInt(m[2], 10);
       var c = m[3] ? parseInt(m[3], 10) : null;
       if (!isFinite(a) || !isFinite(b)) return null;
-      if (c === null) return a * 60 + b;
-      if (!isFinite(c)) return null;
-      return a * 3600 + b * 60 + c;
-    }
-    function getValue(row, keys) {
-      if (!row) return "";
-      for (var i = 0; i < keys.length; i++) {
-        var k = keys[i];
+	      if (c === null) return a * 60 + b;
+	      if (!isFinite(c)) return null;
+	      return a * 3600 + b * 60 + c;
+	    }
+	    function fmtSecondsToTime(seconds) {
+	      var sec = parseInt(String(seconds), 10);
+	      if (!isFinite(sec) || sec < 0) return "";
+	      var h = Math.floor(sec / 3600);
+	      var m = Math.floor((sec % 3600) / 60);
+	      var s = sec % 60;
+	      if (h > 0) {
+	        return (
+	          String(h) +
+	          ":" +
+	          (m < 10 ? "0" + String(m) : String(m)) +
+	          ":" +
+	          (s < 10 ? "0" + String(s) : String(s))
+	        );
+	      }
+	      return String(m) + ":" + (s < 10 ? "0" + String(s) : String(s));
+	    }
+	    function getValue(row, keys) {
+	      if (!row) return "";
+	      for (var i = 0; i < keys.length; i++) {
+	        var k = keys[i];
         if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
         var kl = String(k).toLowerCase();
         for (var kk in row) {
@@ -2467,13 +2484,31 @@
       thead.appendChild(trh);
       table.appendChild(thead);
       var tbody = document.createElement("tbody");
-      rows.forEach(function (row) {
-        var tr = document.createElement("tr");
-        var period = String(getValue(row, ["Period"]) || "").trim();
-        var tGame = String(getValue(row, ["Game Time", "GameTime", "Time"]) || "").trim();
-        var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
-        var details = String(getValue(row, ["Details"]) || "").trim();
-        var src = String(getValue(row, ["Source"]) || "").trim();
+	      rows.forEach(function (row) {
+	        var tr = document.createElement("tr");
+	        var period = String(getValue(row, ["Period"]) || "").trim();
+	        var tGame = String(getValue(row, ["Game Time", "GameTime", "Time"]) || "").trim();
+	        var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
+	        if (!tVideo) {
+	          var vsTxt = String(
+	            getValue(row, ["Video Seconds", "VideoSeconds", "Video S", "VideoS"]) || ""
+	          ).trim();
+	          var vs2 = null;
+	          if (vsTxt) {
+	            if (vsTxt.match(/^-?\d+(\.\d+)?$/)) {
+	              var f = parseFloat(vsTxt);
+	              vs2 = isFinite(f) ? Math.floor(f) : null;
+	            } else {
+	              var t = parseTimeToSeconds(vsTxt);
+	              vs2 = t !== null && isFinite(t) ? Math.floor(t) : null;
+	            }
+	          }
+	          if (vs2 !== null && vs2 >= 0) {
+	            tVideo = fmtSecondsToTime(vs2);
+	          }
+	        }
+	        var details = String(getValue(row, ["Details"]) || "").trim();
+	        var src = String(getValue(row, ["Source"]) || "").trim();
 
         var tdP = document.createElement("td");
         tdP.textContent = period;
