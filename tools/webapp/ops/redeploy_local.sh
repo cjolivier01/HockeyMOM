@@ -229,14 +229,6 @@ PY
   fi
 fi
 
-# Ensure gunicorn logs to journald (so Internal Server Error always has a traceback in `journalctl`).
-if sudo test -f "$SERVICE_FILE"; then
-  if ! sudo grep -q -- "--error-logfile" "$SERVICE_FILE"; then
-    echo "[i] Updating $SERVICE_FILE to capture gunicorn output"
-    sudo perl -0777 -i -pe 's/^(ExecStart=.*?gunicorn\\b[^\\n]*?)\\s+app:app\\s*$/\\1 --access-logfile - --error-logfile - --capture-output --log-level info app:app/m' "$SERVICE_FILE"
-  fi
-fi
-
 DB_HOST="$(json_get "$CONFIG_JSON" "db.host")"
 DB_PORT="$(json_get "$CONFIG_JSON" "db.port")"
 

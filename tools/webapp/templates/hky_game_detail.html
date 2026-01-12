@@ -2285,9 +2285,6 @@
 	      <table id="game-events-table" class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
 	        <thead>
           <tr>
-            {% set has_home_on_ice = ('On-Ice Players (Home)' in events_headers) %}
-            {% set has_away_on_ice = ('On-Ice Players (Away)' in events_headers) %}
-            {% set has_any_split_on_ice = has_home_on_ice or has_away_on_ice %}
             {% for h in events_headers %}
               {% if h != 'Video Seconds' and h != 'VideoSeconds' and h != 'Game Seconds' and h != 'GameSeconds' and h != 'Game Seconds End' and h != 'GameSecondsEnd' %}
                 {% if "On-Ice Players (Home)" in events_headers or "On-Ice Players (Away)" in events_headers %}

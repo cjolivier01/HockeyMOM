@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import csv
 import datetime as dt
+from functools import lru_cache
 import io
 import json
 import os
@@ -8,7 +9,6 @@ import re
 import secrets
 import sys
 import traceback
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -36,11 +36,12 @@ if _base_dir_str not in sys.path:
 from hockey_rankings import (  # noqa: E402
     GameScore,
     compute_mhr_like_ratings,
-    filter_games_ignore_cross_age,
     parse_age_from_division_name,
     parse_level_from_division_name,
+    filter_games_ignore_cross_age,
     scale_ratings_to_0_99_9_by_component,
 )
+
 
 LEAGUE_PAGE_VIEW_KIND_TEAMS = "teams"
 LEAGUE_PAGE_VIEW_KIND_SCHEDULE = "schedule"
@@ -2770,77 +2771,6 @@ def create_app():
                                 game_id=int(gid),
                                 defaults={"stats_json": stats_json_text, "updated_at": now3},
                             )
-
-                    # TimeToScore imports may also provide a per-game events timeline and simple per-game stats.
-                    if isinstance(events_csv, str) and events_csv.strip():
-                        if game_replace:
-                            cur.execute(
-                                """
-                                INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
-                                VALUES(%s,%s,%s,%s)
-                                ON DUPLICATE KEY UPDATE events_csv=VALUES(events_csv), source_label=VALUES(source_label), updated_at=VALUES(updated_at)
-                                """,
-                                (gid, events_csv, "timetoscore", dt.datetime.now().isoformat()),
-                            )
-                        else:
-                            cur.execute("SELECT events_csv, source_label FROM hky_game_events WHERE game_id=%s", (gid,))
-                            existing = cur.fetchone()
-                            if not existing:
-                                cur.execute(
-                                    """
-                                    INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
-                                    VALUES(%s,%s,%s,%s)
-                                    """,
-                                    (gid, events_csv, "timetoscore", dt.datetime.now().isoformat()),
-                                )
-                            else:
-                                try:
-                                    existing_csv = str(existing[0] or "")
-                                    existing_source = str(existing[1] or "")
-                                except Exception:
-                                    existing_csv = ""
-                                    existing_source = ""
-                                merged_csv, merged_source = merge_events_csv_prefer_timetoscore(
-                                    existing_csv=existing_csv,
-                                    existing_source_label=existing_source,
-                                    incoming_csv=str(events_csv),
-                                    incoming_source_label="timetoscore",
-                                    protected_types={"goal", "assist", "penalty", "penalty expired", "goaliechange"},
-                                )
-                                cur.execute(
-                                    """
-                                    INSERT INTO hky_game_events(game_id, events_csv, source_label, updated_at)
-                                    VALUES(%s,%s,%s,%s)
-                                    ON DUPLICATE KEY UPDATE events_csv=VALUES(events_csv), source_label=VALUES(source_label), updated_at=VALUES(updated_at)
-                                    """,
-                                    (gid, merged_csv, merged_source or "timetoscore", dt.datetime.now().isoformat()),
-                                )
-
-                    if isinstance(game_stats_json, dict) and game_stats_json:
-                        try:
-                            stats_json_text = json.dumps(game_stats_json)
-                        except Exception:
-                            stats_json_text = None
-                        if stats_json_text:
-                            if game_replace:
-                                cur.execute(
-                                    """
-                                    INSERT INTO hky_game_stats(game_id, stats_json, updated_at)
-                                    VALUES(%s,%s,%s)
-                                    ON DUPLICATE KEY UPDATE stats_json=VALUES(stats_json), updated_at=VALUES(updated_at)
-                                    """,
-                                    (gid, stats_json_text, dt.datetime.now().isoformat()),
-                                )
-                            else:
-                                cur.execute("SELECT stats_json FROM hky_game_stats WHERE game_id=%s", (gid,))
-                                if not cur.fetchone():
-                                    cur.execute(
-                                        """
-                                        INSERT INTO hky_game_stats(game_id, stats_json, updated_at)
-                                        VALUES(%s,%s,%s)
-                                        """,
-                                        (gid, stats_json_text, dt.datetime.now().isoformat()),
-                                    )
 
                 results.append({"game_id": gid, "team1_id": team1_id, "team2_id": team2_id})
 
