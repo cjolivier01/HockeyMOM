@@ -97,6 +97,58 @@ def main() -> int:
                 sudo cp -r /tmp/hm/tools/webapp/static/. /opt/hm-webapp/app/static/
                 sudo chown -R colivier:colivier /opt/hm-webapp/app
 
+                # Certbot may generate a TLS server block that omits /static; patch it back in.
+                if sudo test -f /etc/nginx/sites-available/hm-webapp; then
+                  sudo python3 - <<'PY'
+                from __future__ import annotations
+
+                import re
+                from pathlib import Path
+
+                path = Path("/etc/nginx/sites-available/hm-webapp")
+                text = path.read_text(encoding="utf-8")
+                changed = False
+
+                if "location /static/" not in text:
+                    m = re.search(r"(?m)^(?P<indent>[ \\t]*)location\\s+/\\s*\\{", text)
+                    if m:
+                        indent = m.group("indent")
+                        block = (
+                            f"{indent}location /static/ {{\\n"
+                            f"{indent}    alias /opt/hm-webapp/app/static/;\\n"
+                            f"{indent}}}\\n\\n"
+                        )
+                        text = text[: m.start()] + block + text[m.start() :]
+                        changed = True
+
+                directives = [
+                    ("proxy_connect_timeout", "60s"),
+                    ("proxy_send_timeout", "600s"),
+                    ("proxy_read_timeout", "600s"),
+                ]
+                missing = [
+                    (name, value)
+                    for name, value in directives
+                    if re.search(rf"(?m)^\\s*{re.escape(name)}\\b", text) is None
+                ]
+                if missing:
+                    m = re.search(
+                        r"(?m)^(?P<indent>[ \\t]*)proxy_pass\\s+http://127\\.0\\.0\\.1:\\d+;\\s*$",
+                        text,
+                    )
+                    if m:
+                        indent = m.group("indent")
+                        block = "\\n".join(f"{indent}{name} {value};" for name, value in missing)
+                        text = text[: m.end()] + "\\n" + block + text[m.end() :]
+                        changed = True
+
+                if changed:
+                    path.write_text(text, encoding="utf-8")
+                PY
+                  sudo nginx -t
+                  sudo systemctl reload nginx || sudo systemctl restart nginx
+                fi
+
                 # Upgrade old Flask-based systemd service to Django (idempotent).
                 if sudo test -f /etc/systemd/system/hm-webapp.service && sudo grep -Fq "app:app" /etc/systemd/system/hm-webapp.service; then
                   sudo sed -i 's|Description=HockeyMOM WebApp (Flask via gunicorn)|Description=HockeyMOM WebApp (Django via gunicorn)|g' /etc/systemd/system/hm-webapp.service || true

@@ -1149,6 +1149,46 @@ def should_import_player_stats_via_shift_package_and_render_public_game_page(cli
     assert "+/-" in html
 
 
+def should_merge_shift_package_overlays_missing_video_and_on_ice_for_duplicates(client_and_models):
+    client, m = client_and_models
+    now = dt.datetime.now()
+    m.HkyGameEvent.objects.update_or_create(
+        game_id=1001,
+        defaults={
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys,Video Seconds,On-Ice Players (Away)\n"
+                "xG,timetoscore,Away,1,100,9,,\n"
+            ),
+            "source_label": "timetoscore",
+            "updated_at": now,
+        },
+    )
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "timetoscore_game_id": 123,
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys,Video Seconds,On-Ice Players (Away)\n"
+                'xG,long,Away,1,100,9,83,"9 A,12 B,13 C,14 D,15 E,30 G"\n'
+            ),
+            "source_label": "unit-test",
+            "replace": False,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+
+    stored = (
+        m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first()
+    )
+    assert stored is not None
+    assert ",83," in stored
+    assert "On-Ice Players (Away)" in stored
+    assert "9 A" in stored
+
+
 def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(client_and_models):
     client, m = client_and_models
     r = _post_json(

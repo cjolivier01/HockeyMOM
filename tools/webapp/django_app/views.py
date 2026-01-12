@@ -297,9 +297,10 @@ def _upsert_game_event_rows_from_events_csv(
                 r.get("Game Time") or r.get("GameTime") or r.get("Time")
             )
         game_seconds_end = _ival(r.get("Game Seconds End") or r.get("GameSecondsEnd"))
-        video_seconds = _ival(r.get("Video Seconds") or r.get("VideoSeconds"))
-        if video_seconds is None:
-            video_seconds = logic.parse_duration_seconds(r.get("Video Time") or r.get("VideoTime"))
+        video_time, video_seconds = logic.normalize_video_time_and_seconds(
+            _norm_ws(r.get("Video Time") or r.get("VideoTime")),
+            r.get("Video Seconds") or r.get("VideoSeconds") or r.get("Video S") or r.get("VideoS"),
+        )
 
         side_norm, side_label = _best_effort_side_from_row(r)
         if side_norm == "home":
@@ -379,7 +380,7 @@ def _upsert_game_event_rows_from_events_csv(
                 "team_rel": _norm_ws(r.get("Team Rel") or r.get("TeamRel")),
                 "period": int(period) if period is not None else None,
                 "game_time": _norm_ws(r.get("Game Time") or r.get("GameTime") or r.get("Time")),
-                "video_time": _norm_ws(r.get("Video Time") or r.get("VideoTime")),
+                "video_time": video_time,
                 "game_seconds": int(game_seconds) if game_seconds is not None else None,
                 "game_seconds_end": (
                     int(game_seconds_end) if game_seconds_end is not None else None
@@ -1275,6 +1276,9 @@ def api_hky_game_events(request: HttpRequest, game_id: int) -> JsonResponse:
     )
     out: list[dict[str, Any]] = []
     for r0 in rows:
+        video_time, video_seconds = logic.normalize_video_time_and_seconds(
+            r0.get("video_time"), r0.get("video_seconds")
+        )
         out.append(
             {
                 "id": int(r0["id"]),
@@ -1290,10 +1294,10 @@ def api_hky_game_events(request: HttpRequest, game_id: int) -> JsonResponse:
                 "team_rel": str(r0.get("team_rel") or ""),
                 "period": r0.get("period"),
                 "game_time": str(r0.get("game_time") or ""),
-                "video_time": str(r0.get("video_time") or ""),
+                "video_time": video_time,
                 "game_seconds": r0.get("game_seconds"),
                 "game_seconds_end": r0.get("game_seconds_end"),
-                "video_seconds": r0.get("video_seconds"),
+                "video_seconds": video_seconds,
                 "details": str(r0.get("details") or ""),
                 "attributed_players": str(r0.get("attributed_players") or ""),
                 "attributed_jerseys": str(r0.get("attributed_jerseys") or ""),
@@ -1541,6 +1545,48 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
     eligible_game_ids = [int(g2["id"]) for g2 in eligible_games if g2.get("id") is not None]
     eligible_game_ids_set = set(eligible_game_ids)
 
+    recent_n_raw = request.GET.get("recent_n")
+    recent_n: Optional[int] = None
+    if recent_n_raw is not None and str(recent_n_raw).strip():
+        try:
+            recent_n = int(str(recent_n_raw).strip())
+        except Exception:
+            return JsonResponse({"ok": False, "error": "invalid recent_n"}, status=400)
+        recent_n = max(1, min(10, recent_n))
+
+    # Optional scoping: restrict to the player's most recent N eligible games.
+    if recent_n is not None and eligible_game_ids:
+        order_idx: dict[int, int] = {}
+        for idx, gid in enumerate(eligible_game_ids):
+            order_idx[int(gid)] = int(idx)
+
+        pid_game_ids_raw = list(
+            m.PlayerStat.objects.filter(
+                player_id=int(player_id),
+                game_id__in=eligible_game_ids,
+            )
+            .values_list("game_id", flat=True)
+            .distinct()
+        )
+        pid_games_with_order: list[tuple[int, int]] = []
+        for gid in pid_game_ids_raw:
+            try:
+                gid_i = int(gid)
+            except Exception:
+                continue
+            idx = order_idx.get(gid_i)
+            if idx is None:
+                continue
+            pid_games_with_order.append((int(idx), int(gid_i)))
+
+        pid_games_with_order.sort(key=lambda t: t[0], reverse=True)
+        chosen_ids = [gid for _idx, gid in pid_games_with_order[: int(recent_n)]]
+        eligible_game_ids = [int(gid) for gid in chosen_ids]
+        eligible_game_ids_set = set(eligible_game_ids)
+        eligible_games = [
+            g2 for g2 in eligible_games if int(g2.get("id") or 0) in eligible_game_ids_set
+        ]
+
     if not eligible_game_ids:
         return JsonResponse(
             {
@@ -1630,6 +1676,9 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             continue
         g2 = games_by_id.get(int(gid)) or {}
         game_url, video_url = _game_paths(int(gid))
+        video_time, video_seconds = logic.normalize_video_time_and_seconds(
+            r0.get("video_time"), r0.get("video_seconds")
+        )
         events_out.append(
             {
                 "kind": "attributed",
@@ -1649,9 +1698,9 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                 "team_side": str(r0.get("team_side") or ""),
                 "period": r0.get("period"),
                 "game_time": str(r0.get("game_time") or ""),
-                "video_time": str(r0.get("video_time") or ""),
+                "video_time": video_time,
                 "game_seconds": r0.get("game_seconds"),
-                "video_seconds": r0.get("video_seconds"),
+                "video_seconds": video_seconds,
                 "details": str(r0.get("details") or ""),
                 "for_against": str(r0.get("for_against") or ""),
                 "source": str(r0.get("source") or ""),
@@ -1713,6 +1762,9 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             if scoring_team_id_i is not None:
                 rel = "For" if int(scoring_team_id_i) == int(team_id) else "Against"
             game_url, video_url = _game_paths(int(gid))
+            video_time, video_seconds = logic.normalize_video_time_and_seconds(
+                r0.get("video_time"), r0.get("video_seconds")
+            )
             on_ice_goals_out.append(
                 {
                     "kind": "on_ice_goal",
@@ -1729,9 +1781,9 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                     "video_url": video_url,
                     "period": r0.get("period"),
                     "game_time": str(r0.get("game_time") or ""),
-                    "video_time": str(r0.get("video_time") or ""),
+                    "video_time": video_time,
                     "game_seconds": r0.get("game_seconds"),
-                    "video_seconds": r0.get("video_seconds"),
+                    "video_seconds": video_seconds,
                     "details": str(r0.get("details") or ""),
                     "source": str(r0.get("source") or ""),
                 }
@@ -2254,6 +2306,16 @@ def new_team(request: HttpRequest) -> HttpResponse:
     return render(request, "team_new.html")
 
 
+def _player_totals_has_any_events(stats: dict[str, Any]) -> bool:
+    for k in logic.PLAYER_STATS_SUM_KEYS:
+        try:
+            if int(stats.get(k) or 0) != 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: no cover
     from django.contrib import messages
 
@@ -2592,6 +2654,12 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
     player_stats_rows = logic.sort_players_table_default(
         logic.build_player_stats_table_rows(skaters, player_totals)
     )
+    for r0 in player_stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = _player_totals_has_any_events(player_totals.get(pid_i) or {})
     player_stats_columns = logic.filter_player_stats_display_columns_for_rows(
         logic.PLAYER_STATS_DISPLAY_COLUMNS, player_stats_rows
     )
@@ -2613,6 +2681,12 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
         sort_key=recent_sort,
         sort_dir=recent_dir,
     )
+    for r0 in recent_player_stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = _player_totals_has_any_events(recent_totals.get(pid_i) or {})
     recent_player_stats_columns = logic.filter_player_stats_display_columns_for_rows(
         logic.PLAYER_STATS_DISPLAY_COLUMNS, recent_player_stats_rows
     )
@@ -3351,6 +3425,23 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         events_headers, events_rows = logic.normalize_game_events_csv(events_headers, events_rows)
     except Exception:
         pass
+    if tts_linked:
+        try:
+            events_headers, events_rows = logic.enrich_timetoscore_goals_with_long_video_times(
+                existing_headers=events_headers,
+                existing_rows=events_rows,
+                incoming_headers=events_headers,
+                incoming_rows=events_rows,
+            )
+            events_headers, events_rows = logic.enrich_timetoscore_penalties_with_video_times(
+                existing_headers=events_headers,
+                existing_rows=events_rows,
+                incoming_headers=events_headers,
+                incoming_rows=events_rows,
+            )
+        except Exception:
+            # Best-effort: keep UI working even if enrichment fails.
+            pass
     events_rows = logic.filter_events_rows_prefer_timetoscore_for_goal_assist(
         events_rows, tts_linked=tts_linked
     )
@@ -3523,6 +3614,84 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             ),
         }
 
+    player_has_events_by_pid: dict[int, bool] = {}
+    try:
+        home_by_jersey: dict[str, list[int]] = {}
+        for p in team1_skaters_sorted or []:
+            try:
+                pid_i = int(p.get("id"))
+            except Exception:
+                continue
+            j = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j:
+                home_by_jersey.setdefault(j, []).append(pid_i)
+            player_has_events_by_pid[pid_i] = False
+
+        away_by_jersey: dict[str, list[int]] = {}
+        for p in team2_skaters_sorted or []:
+            try:
+                pid_i = int(p.get("id"))
+            except Exception:
+                continue
+            j = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j:
+                away_by_jersey.setdefault(j, []).append(pid_i)
+            player_has_events_by_pid[pid_i] = False
+
+        def _num_set(raw: Any) -> set[str]:
+            if not raw:
+                return set()
+            return {str(int(x)) for x in re.findall(r"([0-9]+)", str(raw))}
+
+        for row in events_rows or []:
+            side_raw = (
+                str(
+                    row.get("Team Side")
+                    or row.get("TeamSide")
+                    or row.get("Team Rel")
+                    or row.get("TeamRel")
+                    or row.get("Team")
+                    or ""
+                )
+                .strip()
+                .lower()
+            )
+            side = ""
+            if side_raw in {"home", "team1"}:
+                side = "home"
+            elif side_raw in {"away", "team2"}:
+                side = "away"
+
+            # Attributed events (team-side specific).
+            attr = _num_set(row.get("Attributed Jerseys") or row.get("AttributedJerseys"))
+            if attr and side:
+                jmap = home_by_jersey if side == "home" else away_by_jersey
+                for j in attr:
+                    for pid_i in jmap.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+
+            # On-ice columns can be split Home/Away or a single legacy column.
+            on_home = row.get("On-Ice Players (Home)") or row.get("On-Ice Players Home")
+            on_away = row.get("On-Ice Players (Away)") or row.get("On-Ice Players Away")
+            if on_home:
+                for j in _num_set(on_home):
+                    for pid_i in home_by_jersey.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+            if on_away:
+                for j in _num_set(on_away):
+                    for pid_i in away_by_jersey.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+
+            if not on_home and not on_away and side:
+                on_generic = row.get("On-Ice Players") or row.get("On-Ice Players (PM)")
+                if on_generic:
+                    jmap = home_by_jersey if side == "home" else away_by_jersey
+                    for j in _num_set(on_generic):
+                        for pid_i in jmap.get(j, []):
+                            player_has_events_by_pid[int(pid_i)] = True
+    except Exception:
+        player_has_events_by_pid = {}
+
     return render(
         request,
         "hky_game_detail.html",
@@ -3555,6 +3724,7 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "player_stats_cell_conflicts_by_pid": player_stats_cell_conflicts_by_pid,
             "player_stats_import_meta": player_stats_import_meta,
             "player_stats_import_warning": player_stats_import_warning,
+            "player_has_events_by_pid": player_has_events_by_pid,
             "league_page_views": league_page_views,
         },
     )
@@ -4522,6 +4692,12 @@ def public_league_team_detail(
     player_stats_rows = logic.sort_players_table_default(
         logic.build_player_stats_table_rows(skaters, player_totals)
     )
+    for r0 in player_stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = _player_totals_has_any_events(player_totals.get(pid_i) or {})
     player_stats_columns = logic.filter_player_stats_display_columns_for_rows(
         logic.PLAYER_STATS_DISPLAY_COLUMNS, player_stats_rows
     )
@@ -4543,6 +4719,12 @@ def public_league_team_detail(
         sort_key=recent_sort,
         sort_dir=recent_dir,
     )
+    for r0 in recent_player_stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = _player_totals_has_any_events(recent_totals.get(pid_i) or {})
     recent_player_stats_columns = logic.filter_player_stats_display_columns_for_rows(
         logic.PLAYER_STATS_DISPLAY_COLUMNS, recent_player_stats_rows
     )
@@ -4977,6 +5159,23 @@ def public_hky_game_detail(
     except Exception:
         # Best-effort: keep UI working even if legacy CSV normalization fails.
         pass
+    if tts_linked:
+        try:
+            events_headers, events_rows = logic.enrich_timetoscore_goals_with_long_video_times(
+                existing_headers=events_headers,
+                existing_rows=events_rows,
+                incoming_headers=events_headers,
+                incoming_rows=events_rows,
+            )
+            events_headers, events_rows = logic.enrich_timetoscore_penalties_with_video_times(
+                existing_headers=events_headers,
+                existing_rows=events_rows,
+                incoming_headers=events_headers,
+                incoming_rows=events_rows,
+            )
+        except Exception:
+            # Best-effort: keep UI working even if enrichment fails.
+            pass
     events_rows = logic.filter_events_rows_prefer_timetoscore_for_goal_assist(
         events_rows, tts_linked=tts_linked
     )
@@ -5068,6 +5267,82 @@ def public_hky_game_detail(
             ),
         }
 
+    player_has_events_by_pid: dict[int, bool] = {}
+    try:
+        home_by_jersey: dict[str, list[int]] = {}
+        for p in team1_skaters_sorted or []:
+            try:
+                pid_i = int(p.get("id"))
+            except Exception:
+                continue
+            j = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j:
+                home_by_jersey.setdefault(j, []).append(pid_i)
+            player_has_events_by_pid[pid_i] = False
+
+        away_by_jersey: dict[str, list[int]] = {}
+        for p in team2_skaters_sorted or []:
+            try:
+                pid_i = int(p.get("id"))
+            except Exception:
+                continue
+            j = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j:
+                away_by_jersey.setdefault(j, []).append(pid_i)
+            player_has_events_by_pid[pid_i] = False
+
+        def _num_set(raw: Any) -> set[str]:
+            if not raw:
+                return set()
+            return {str(int(x)) for x in re.findall(r"([0-9]+)", str(raw))}
+
+        for row in events_rows or []:
+            side_raw = (
+                str(
+                    row.get("Team Side")
+                    or row.get("TeamSide")
+                    or row.get("Team Rel")
+                    or row.get("TeamRel")
+                    or row.get("Team")
+                    or ""
+                )
+                .strip()
+                .lower()
+            )
+            side = ""
+            if side_raw in {"home", "team1"}:
+                side = "home"
+            elif side_raw in {"away", "team2"}:
+                side = "away"
+
+            attr = _num_set(row.get("Attributed Jerseys") or row.get("AttributedJerseys"))
+            if attr and side:
+                jmap = home_by_jersey if side == "home" else away_by_jersey
+                for j in attr:
+                    for pid_i in jmap.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+
+            on_home = row.get("On-Ice Players (Home)") or row.get("On-Ice Players Home")
+            on_away = row.get("On-Ice Players (Away)") or row.get("On-Ice Players Away")
+            if on_home:
+                for j in _num_set(on_home):
+                    for pid_i in home_by_jersey.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+            if on_away:
+                for j in _num_set(on_away):
+                    for pid_i in away_by_jersey.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+
+            if not on_home and not on_away and side:
+                on_generic = row.get("On-Ice Players") or row.get("On-Ice Players (PM)")
+                if on_generic:
+                    jmap = home_by_jersey if side == "home" else away_by_jersey
+                    for j in _num_set(on_generic):
+                        for pid_i in jmap.get(j, []):
+                            player_has_events_by_pid[int(pid_i)] = True
+    except Exception:
+        player_has_events_by_pid = {}
+
     return render(
         request,
         "hky_game_detail.html",
@@ -5103,6 +5378,7 @@ def public_hky_game_detail(
             "player_stats_cell_conflicts_by_pid": player_stats_cell_conflicts_by_pid,
             "player_stats_import_meta": player_stats_import_meta,
             "player_stats_import_warning": player_stats_import_warning,
+            "player_has_events_by_pid": player_has_events_by_pid,
             "league_page_views": league_page_views,
         },
     )
@@ -7217,7 +7493,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         ):
                             try:
                                 ex_headers, ex_rows = logic.parse_events_csv(existing_csv)
-                                in_headers, in_rows = logic.parse_events_csv(events_csv)
                                 if (
                                     incoming_events_headers_raw is not None
                                     and incoming_events_rows_raw is not None
@@ -7239,59 +7514,20 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                                         )
                                     )
 
-                                def _norm_ev_type(v: Any) -> str:
-                                    return str(v or "").strip().casefold()
-
-                                protected_types = {
-                                    "goal",
-                                    "assist",
-                                    "penalty",
-                                    "penalty expired",
-                                    "goaliechange",
-                                }
-
-                                def _key(r: dict[str, str]) -> tuple[str, str, str, str, str]:
-                                    et = _norm_ev_type(r.get("Event Type") or r.get("Event") or "")
-                                    per = str(r.get("Period") or "").strip()
-                                    gs = str(
-                                        r.get("Game Seconds") or r.get("GameSeconds") or ""
-                                    ).strip()
-                                    tr = (
-                                        str(
-                                            r.get("Team Side")
-                                            or r.get("TeamSide")
-                                            or r.get("Team Rel")
-                                            or r.get("TeamRel")
-                                            or r.get("Team")
-                                            or ""
-                                        )
-                                        .strip()
-                                        .casefold()
-                                    )
-                                    jerseys = str(r.get("Attributed Jerseys") or "").strip()
-                                    return (et, per, gs, tr, jerseys)
-
-                                seen = {_key(r) for r in (ex_rows or []) if isinstance(r, dict)}
-                                merged_rows: list[dict[str, str]] = list(ex_rows or [])
-                                for rr in in_rows or []:
-                                    if not isinstance(rr, dict):
-                                        continue
-                                    et = _norm_ev_type(
-                                        rr.get("Event Type") or rr.get("Event") or ""
-                                    )
-                                    if et in protected_types:
-                                        continue
-                                    k = _key(rr)
-                                    if k in seen:
-                                        continue
-                                    seen.add(k)
-                                    merged_rows.append(rr)
-
-                                merged_headers = list(ex_headers or [])
-                                for h in in_headers or []:
-                                    if h not in merged_headers:
-                                        merged_headers.append(h)
-                                merged_csv = logic.to_csv_text(merged_headers, merged_rows)
+                                existing_csv_enriched = logic.to_csv_text(ex_headers, ex_rows)
+                                merged_csv, _ = logic.merge_events_csv_prefer_timetoscore(
+                                    existing_csv=str(existing_csv_enriched),
+                                    existing_source_label=str(existing_source or ""),
+                                    incoming_csv=str(events_csv),
+                                    incoming_source_label=str(source_label or ""),
+                                    protected_types={
+                                        "goal",
+                                        "assist",
+                                        "penalty",
+                                        "penalty expired",
+                                        "goaliechange",
+                                    },
+                                )
                                 m.HkyGameEvent.objects.filter(game_id=int(resolved_game_id)).update(
                                     events_csv=merged_csv, updated_at=now
                                 )
@@ -7858,10 +8094,9 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
                     if game_seconds is None:
                         game_seconds = logic.parse_duration_seconds(game_time)
                     game_seconds_end = _ival(ev.get("game_seconds_end"))
-                    video_time = _norm_ws(ev.get("video_time"))
-                    video_seconds = _ival(ev.get("video_seconds"))
-                    if video_seconds is None:
-                        video_seconds = logic.parse_duration_seconds(video_time)
+                    video_time, video_seconds = logic.normalize_video_time_and_seconds(
+                        _norm_ws(ev.get("video_time")), ev.get("video_seconds")
+                    )
 
                     details = _norm_ws(ev.get("details")) or None
                     attributed_players = _norm_ws(ev.get("attributed_players")) or None
