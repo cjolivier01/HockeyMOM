@@ -90,3 +90,8 @@ Print doc paths, or open them in your browser (via `xdg-open`):
 ./DockerRun.sh docs --open
 ```
 
+If you are in a headless terminal (no GUI `DISPLAY`), serve the docs locally and open the URL in your browser:
+
+```bash
+./DockerRun.sh docs --serve
+```

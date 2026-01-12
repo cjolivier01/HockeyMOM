@@ -18,8 +18,10 @@ Main commands:
 Other commands:
   list-cli  List installed hm* CLIs inside the container
   bash      Open an interactive shell inside the container
+  console   Same as 'bash'
   python    Run python inside the container (args passed through)
   docs      Show container user docs (use --open to open in browser)
+           Use --serve to host docs on localhost
 
 Global options (passed to scripts/hm_cuda_container.py run):
   --tag TAG              Docker image tag (default: env/tag if present)
@@ -45,6 +47,7 @@ Examples:
   ./DockerRun.sh hmstitch --no-hwenc-clamp --game-id stockton-r3 -o stitched.mp4
   ./DockerRun.sh list-cli
   ./DockerRun.sh docs --open
+  ./DockerRun.sh docs --serve
 EOF
 }
 
@@ -180,7 +183,7 @@ case "${cmd}" in
     ensure_tag
     exec "${runner[@]}" "${run_args[@]}" -- bash -lc 'ls -1 /opt/conda/envs/hm/bin | grep -E "^hm" | sort'
     ;;
-  bash|shell)
+  bash|shell|console)
     ensure_tag
     exec "${runner[@]}" "${run_args[@]}" -- bash "$@"
     ;;
@@ -190,11 +193,30 @@ case "${cmd}" in
     ;;
   docs)
     open=0
-    if [[ "${1:-}" == "--open" ]]; then
-      open=1
-      shift
-    elif [[ -n "${1:-}" ]]; then
-      echo "ERROR: docs supports only: --open" >&2
+    serve=0
+    serve_port=8000
+    case "${1:-}" in
+      "" )
+        ;;
+      --open )
+        open=1
+        shift
+        ;;
+      --serve )
+        serve=1
+        shift
+        if [[ -n "${1:-}" ]]; then
+          serve_port="${1}"
+          shift
+        fi
+        ;;
+      * )
+        echo "ERROR: docs supports: --open | --serve [port]" >&2
+        exit 2
+        ;;
+    esac
+    if [[ -n "${1:-}" ]]; then
+      echo "ERROR: docs supports: --open | --serve [port]" >&2
       exit 2
     fi
 
@@ -204,12 +226,33 @@ case "${cmd}" in
     echo "  ${md}"
     echo "CLI docs:"
     echo "  ${cli_md}"
+
+    if [[ "${serve}" -eq 1 ]]; then
+      echo
+      echo "Serving docs from ${ROOT} on http://127.0.0.1:${serve_port}/"
+      echo "  http://127.0.0.1:${serve_port}/docs/container.md"
+      echo "  http://127.0.0.1:${serve_port}/hmlib/cli/README.md"
+      echo "(Press Ctrl-C to stop)"
+      exec python3 -m http.server "${serve_port}" --bind 127.0.0.1 --directory "${ROOT}"
+    fi
+
     if [[ "${open}" -eq 1 ]]; then
+      if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+        echo "NOTE: No GUI display detected (DISPLAY/WAYLAND_DISPLAY empty); cannot auto-open a browser." >&2
+        echo "      Use: ./DockerRun.sh docs --serve   then open the printed URL in your browser." >&2
+        exit 0
+      fi
       if command -v xdg-open >/dev/null 2>&1; then
         xdg-open "${md}" >/dev/null 2>&1 || true
         xdg-open "${cli_md}" >/dev/null 2>&1 || true
+      elif command -v gio >/dev/null 2>&1; then
+        gio open "${md}" >/dev/null 2>&1 || true
+        gio open "${cli_md}" >/dev/null 2>&1 || true
+      elif command -v open >/dev/null 2>&1; then
+        open "${md}" >/dev/null 2>&1 || true
+        open "${cli_md}" >/dev/null 2>&1 || true
       else
-        echo "NOTE: xdg-open not found; open the paths above manually." >&2
+        echo "NOTE: No opener found (xdg-open/gio/open); open the paths above manually." >&2
       fi
     fi
     exit 0
