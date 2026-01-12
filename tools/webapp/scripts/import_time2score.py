@@ -2924,6 +2924,43 @@ def main(argv: Optional[list[str]] = None) -> int:
                     }
                 )
 
+        # Goalie changes (including starting goalie) are only exposed on some TimeToScore score sheets.
+        goalie_change_events_rows: list[dict[str, Any]] = []
+        for side_key in ("home", "away"):
+            gc_rows = stats.get(f"{side_key}GoalieChanges") or []
+            if not isinstance(gc_rows, list):
+                gc_rows = []
+            for gc in gc_rows:
+                if not isinstance(gc, dict):
+                    continue
+                per = _parse_period_token(gc.get("period"))
+                if per is None:
+                    continue
+                time_txt = str(gc.get("time") or "").strip()
+                time_s = _parse_mmss_to_seconds(time_txt, period_len_s=period_len_s)
+                details = str(gc.get("details") or "").strip()
+                goalie_name = re.sub(r"(?i)\bstarting\b", "", details).strip()
+                if re.search(r"(?i)\bempty\s+net\b", goalie_name):
+                    goalie_name = ""
+
+                goalie_change_events_rows.append(
+                    {
+                        "Event Type": "Goalie Change",
+                        "Source": "timetoscore",
+                        "Team Side": _side_label(side_key),
+                        "For/Against": "",
+                        "Team Rel": _side_label(side_key),
+                        "Team Raw": _side_label(side_key),
+                        "Period": int(per),
+                        "Game Time": time_txt,
+                        "Game Seconds": time_s if time_s is not None else "",
+                        "Game Seconds End": "",
+                        "Details": details,
+                        "Attributed Players": goalie_name,
+                        "Attributed Jerseys": "",
+                    }
+                )
+
         events_headers = [
             "Event Type",
             "Source",
@@ -2940,7 +2977,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             "Attributed Jerseys",
         ]
         events_rows = (
-            list(goal_events) + list(penalties_events_rows) + list(penalty_expired_events_rows)
+            list(goal_events)
+            + list(goalie_change_events_rows)
+            + list(penalties_events_rows)
+            + list(penalty_expired_events_rows)
         )
         events_rows.sort(
             key=lambda r: (

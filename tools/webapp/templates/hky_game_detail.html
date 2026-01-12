@@ -393,6 +393,86 @@
     </table>
   </div>
 
+  {% if goalie_stats_has_sog %}
+  <h3 style="margin-top:1.25rem;">Goalie Stats</h3>
+
+  <h4 style="display:flex;align-items:center;gap:8px;margin-top:0.75rem;">
+    <img src="{{ home_logo_url }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+    <span>{{ game.team1_name }}</span>
+  </h4>
+  <div class="table-scroll">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+      <thead>
+        <tr>
+          <th>#</th><th>Name</th><th>TOI</th><th>GA</th>
+          {% if goalie_stats_has_xg %}
+            <th>xGA</th><th>xGSV</th><th>xGSV%</th>
+          {% endif %}
+          <th>SA</th><th>SV</th><th>SV%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in goalie_stats_home_rows %}
+          <tr>
+            <td>{{ g.jersey_number|default_if_none:"" }}</td>
+            <td>{{ g.name|default_if_none:"" }}</td>
+            <td>{{ g.toi_seconds|fmt_toi }}</td>
+            <td>{{ g.ga|fmt_stat }}</td>
+            {% if goalie_stats_has_xg %}
+              <td>{{ g.xga|fmt_stat }}</td>
+              <td>{{ g.xg_saves|fmt_stat }}</td>
+              <td>{{ g.xg_sv_pct|fmt_stat }}</td>
+            {% endif %}
+            <td>{{ g.sa|fmt_stat }}</td>
+            <td>{{ g.saves|fmt_stat }}</td>
+            <td>{{ g.sv_pct|fmt_stat }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="{% if goalie_stats_has_xg %}10{% else %}7{% endif %}" class="muted">No goalie stats.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="display:flex;align-items:center;gap:8px;margin-top:0.75rem;">
+    <img src="{{ away_logo_url }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+    <span>{{ game.team2_name }}</span>
+  </h4>
+  <div class="table-scroll">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+      <thead>
+        <tr>
+          <th>#</th><th>Name</th><th>TOI</th><th>GA</th>
+          {% if goalie_stats_has_xg %}
+            <th>xGA</th><th>xGSV</th><th>xGSV%</th>
+          {% endif %}
+          <th>SA</th><th>SV</th><th>SV%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in goalie_stats_away_rows %}
+          <tr>
+            <td>{{ g.jersey_number|default_if_none:"" }}</td>
+            <td>{{ g.name|default_if_none:"" }}</td>
+            <td>{{ g.toi_seconds|fmt_toi }}</td>
+            <td>{{ g.ga|fmt_stat }}</td>
+            {% if goalie_stats_has_xg %}
+              <td>{{ g.xga|fmt_stat }}</td>
+              <td>{{ g.xg_saves|fmt_stat }}</td>
+              <td>{{ g.xg_sv_pct|fmt_stat }}</td>
+            {% endif %}
+            <td>{{ g.sa|fmt_stat }}</td>
+            <td>{{ g.saves|fmt_stat }}</td>
+            <td>{{ g.sv_pct|fmt_stat }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="{% if goalie_stats_has_xg %}10{% else %}7{% endif %}" class="muted">No goalie stats.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
   {% if edit_mode and not public_league_id %}
     <div style="margin-top:.75rem;">
       <button class="btn primary" type="submit">Save</button>

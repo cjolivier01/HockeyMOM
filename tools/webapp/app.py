@@ -7805,6 +7805,581 @@ def filter_game_stats_for_display(game_stats: Optional[dict[str, Any]]) -> Optio
     return out
 
 
+def normalize_event_type_key(raw: Any) -> str:
+    """
+    Stable key for event types across sources (e.g. "Expected Goal" vs "ExpectedGoal").
+    """
+    return re.sub(r"[^a-z0-9]+", "", str(raw or "").strip().casefold())
+
+
+def compute_goalie_stats_for_game(
+    event_rows: list[dict[str, Any]],
+    *,
+    home_goalies: Optional[list[dict[str, Any]]] = None,
+    away_goalies: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """
+    Compute per-goalie stats for a single game from event rows.
+
+    Uses:
+      - goaliechange events (to determine which goalie is in net when)
+      - goal events (goals against)
+      - shot-on-goal events (shots against), from the implication chain:
+          Goals ⊆ xG ⊆ SOG
+        Concretely, we treat `goal`, `expectedgoal`, and `sog`/`shotongoal` rows as shot-on-goal
+        evidence and de-duplicate per (period, game_seconds, shooter, side).
+    """
+
+    def _int_or_none(v: Any) -> Optional[int]:
+        try:
+            if v is None:
+                return None
+            s = str(v).strip()
+            if not s:
+                return None
+            return int(float(s))
+        except Exception:
+            return None
+
+    def _side_norm(row: dict[str, Any]) -> Optional[str]:
+        for k in (
+            "team_side_norm",
+            "team_side",
+            "Team Side",
+            "TeamSide",
+            "team_rel",
+            "Team Rel",
+            "TeamRel",
+            "team_raw",
+            "Team Raw",
+            "TeamRaw",
+            "Team",
+        ):
+            v = str(row.get(k) or "").strip().casefold()
+            if v in {"home", "team1"}:
+                return "home"
+            if v in {"away", "team2"}:
+                return "away"
+        return None
+
+    def _period(row: dict[str, Any]) -> Optional[int]:
+        p = _int_or_none(row.get("period") if "period" in row else row.get("Period"))
+        return int(p) if p is not None and p > 0 else None
+
+    def _game_seconds(row: dict[str, Any]) -> Optional[int]:
+        gs = _int_or_none(
+            row.get("game_seconds")
+            if "game_seconds" in row
+            else row.get("Game Seconds") or row.get("GameSeconds")
+        )
+        if gs is not None:
+            return int(gs)
+        gt = row.get("game_time") if "game_time" in row else row.get("Game Time") or row.get("Time")
+        return parse_duration_seconds(gt)
+
+    def _event_type_key(row: dict[str, Any]) -> str:
+        raw = (
+            row.get("event_type_key")
+            or row.get("event_type__key")
+            or row.get("event_type")
+            or row.get("Event Type")
+            or row.get("Event")
+        )
+        return normalize_event_type_key(raw)
+
+    def _attr_players(row: dict[str, Any]) -> str:
+        return str(
+            row.get("attributed_players")
+            if "attributed_players" in row
+            else row.get("Attributed Players") or row.get("AttributedPlayers") or ""
+        ).strip()
+
+    def _attr_jerseys(row: dict[str, Any]) -> str:
+        return str(
+            row.get("attributed_jerseys")
+            if "attributed_jerseys" in row
+            else row.get("Attributed Jerseys") or row.get("AttributedJerseys") or ""
+        ).strip()
+
+    def _details(row: dict[str, Any]) -> str:
+        return str(row.get("details") if "details" in row else row.get("Details") or "").strip()
+
+    def _player_id(row: dict[str, Any]) -> Optional[int]:
+        return _int_or_none(row.get("player_id") or row.get("player") or row.get("Player ID"))
+
+    def _event_id(row: dict[str, Any]) -> Optional[int]:
+        return _int_or_none(row.get("event_id") or row.get("Event ID") or row.get("EventID"))
+
+    def _goalie_maps(
+        goalies: list[dict[str, Any]],
+    ) -> tuple[dict[int, dict[str, Any]], dict[str, int]]:
+        by_id: dict[int, dict[str, Any]] = {}
+        name_to_ids: dict[str, set[int]] = {}
+        for p in goalies or []:
+            pid = _int_or_none(p.get("id") or p.get("player_id"))
+            if pid is None:
+                continue
+            by_id[int(pid)] = p
+            nm = normalize_player_name(str(p.get("name") or ""))
+            if nm:
+                name_to_ids.setdefault(nm, set()).add(int(pid))
+        unique_by_name = {k: int(list(v)[0]) for k, v in name_to_ids.items() if len(v) == 1}
+        return by_id, unique_by_name
+
+    home_goalies = list(home_goalies or [])
+    away_goalies = list(away_goalies or [])
+    goalie_roster_by_side = {"home": home_goalies, "away": away_goalies}
+    goalie_by_id: dict[str, dict[int, dict[str, Any]]] = {}
+    goalie_id_by_name: dict[str, dict[str, int]] = {}
+    goalie_side_by_pid: dict[int, str] = {}
+    goalie_name_by_pid: dict[int, str] = {}
+    for side, goalies in goalie_roster_by_side.items():
+        by_id, by_name = _goalie_maps(goalies)
+        goalie_by_id[side] = by_id
+        goalie_id_by_name[side] = by_name
+        for pid, rec in by_id.items():
+            goalie_side_by_pid[int(pid)] = str(side)
+            nm = str(rec.get("name") or "").strip()
+            if nm and int(pid) not in goalie_name_by_pid:
+                goalie_name_by_pid[int(pid)] = nm
+
+    event_type_keys_present = {
+        _event_type_key(r) for r in (event_rows or []) if isinstance(r, dict)
+    }
+    has_sog = bool(event_type_keys_present & {"goal", "expectedgoal", "sog", "shotongoal"})
+    # Only consider xG stats available when ExpectedGoal rows exist (goals contribute to xG once xG
+    # data exists, but goals alone should not force xG-based goalie columns to appear).
+    has_xg = bool(event_type_keys_present & {"expectedgoal"})
+
+    goalie_changes: dict[str, dict[int, list[tuple[int, Optional[int], str]]]] = {
+        "home": {},
+        "away": {},
+    }
+    for r in event_rows or []:
+        if not isinstance(r, dict):
+            continue
+        if _event_type_key(r) != "goaliechange":
+            continue
+        side = _side_norm(r)
+        per = _period(r)
+        gs = _game_seconds(r)
+        if side not in {"home", "away"} or per is None or gs is None:
+            continue
+
+        name = _attr_players(r)
+        det = _details(r)
+        empty_net = "emptynet" in normalize_player_name(
+            name
+        ) or "emptynet" in normalize_player_name(det)
+        goalie_pid: Optional[int] = None if empty_net else _player_id(r)
+        if goalie_pid is None and (not empty_net) and name:
+            goalie_pid = goalie_id_by_name.get(str(side), {}).get(normalize_player_name(name))
+        if goalie_pid is not None:
+            goalie_side_by_pid[int(goalie_pid)] = str(side)
+
+        goalie_name = name
+        if goalie_pid is not None and not goalie_name:
+            goalie_name = str(
+                goalie_by_id.get(str(side), {}).get(int(goalie_pid), {}).get("name") or ""
+            )
+        if goalie_pid is not None and goalie_name and int(goalie_pid) not in goalie_name_by_pid:
+            goalie_name_by_pid[int(goalie_pid)] = goalie_name
+
+        goalie_changes.setdefault(str(side), {}).setdefault(int(per), []).append(
+            (int(gs), goalie_pid, goalie_name)
+        )
+
+    def _infer_regulation_len_s() -> int:
+        cand: list[int] = []
+        for side in ("home", "away"):
+            for gs, _pid, name in goalie_changes.get(side, {}).get(1, []):
+                if "starting" in normalize_player_name(name):
+                    cand.append(int(gs))
+        if cand:
+            return max(cand)
+
+        cand = []
+        for side in ("home", "away"):
+            for gs, _pid, _name in goalie_changes.get(side, {}).get(1, []):
+                cand.append(int(gs))
+        if cand:
+            return max(cand)
+
+        cand = []
+        for r in event_rows or []:
+            if not isinstance(r, dict):
+                continue
+            per = _period(r)
+            gs = _game_seconds(r)
+            if per == 1 and gs is not None:
+                cand.append(int(gs))
+        if cand:
+            return max(cand)
+        return 15 * 60
+
+    reg_len_s = int(_infer_regulation_len_s())
+
+    def _period_len_s(period: int) -> int:
+        if int(period) <= 3:
+            return reg_len_s
+        cand = []
+        for r in event_rows or []:
+            if not isinstance(r, dict):
+                continue
+            per = _period(r)
+            gs = _game_seconds(r)
+            if per == int(period) and gs is not None:
+                cand.append(int(gs))
+        return max(cand) if cand else reg_len_s
+
+    periods = [1, 2, 3]
+    extra_periods = sorted(
+        {
+            int(_period(r) or 0)
+            for r in (event_rows or [])
+            if isinstance(r, dict) and (_period(r) or 0) > 3
+        }
+    )
+    periods.extend([p for p in extra_periods if p not in periods])
+
+    start_goalie_by_side: dict[str, Optional[int]] = {"home": None, "away": None}
+    for side in ("home", "away"):
+        pts = goalie_changes.get(side, {}).get(1, [])
+        if pts:
+            pts_sorted = sorted(pts, key=lambda x: -int(x[0]))
+            start_goalie_by_side[side] = pts_sorted[0][1]
+        else:
+            roster_goalies = goalie_roster_by_side.get(side) or []
+            if len(roster_goalies) == 1:
+                pid = _int_or_none(
+                    roster_goalies[0].get("id") or roster_goalies[0].get("player_id")
+                )
+                start_goalie_by_side[side] = int(pid) if pid is not None else None
+        if start_goalie_by_side.get(side) is not None:
+            goalie_side_by_pid[int(start_goalie_by_side[side])] = str(side)
+
+    points_by_side_period: dict[str, dict[int, list[tuple[int, Optional[int]]]]] = {
+        "home": {},
+        "away": {},
+    }
+    toi_by_goalie: dict[int, int] = {}
+
+    for side in ("home", "away"):
+        carry = start_goalie_by_side.get(side)
+        for per in periods:
+            per_len = int(_period_len_s(int(per)))
+            changes = sorted(
+                goalie_changes.get(side, {}).get(int(per), []), key=lambda x: -int(x[0])
+            )
+            for gs, pid, _name in changes:
+                if int(gs) >= int(per_len) - 1:
+                    carry = pid
+                    break
+
+            uniq: dict[int, Optional[int]] = {}
+            uniq[int(per_len)] = carry
+            for gs, pid, _name in changes:
+                if int(gs) >= int(per_len) - 1:
+                    continue
+                uniq[int(gs)] = pid
+
+            pts = sorted([(int(gs), pid) for gs, pid in uniq.items()], key=lambda x: -int(x[0]))
+            points_by_side_period[side][int(per)] = pts
+
+            for idx, (t0, goalie_pid) in enumerate(pts):
+                t1 = pts[idx + 1][0] if idx + 1 < len(pts) else 0
+                dur = int(t0) - int(t1)
+                if dur > 0 and goalie_pid is not None:
+                    toi_by_goalie[int(goalie_pid)] = toi_by_goalie.get(int(goalie_pid), 0) + int(
+                        dur
+                    )
+
+            carry = pts[-1][1] if pts else carry
+
+    def _active_goalie(side: str, *, period: int, game_s: int) -> Optional[int]:
+        pts = points_by_side_period.get(str(side), {}).get(int(period), [])
+        cur = None
+        for t, pid in pts:
+            if int(t) >= int(game_s):
+                cur = pid
+                continue
+            break
+        return cur
+
+    goals_by_goalie: dict[int, set[tuple[int, int, str, str]]] = {}
+    xg_shots_by_goalie: dict[int, set[tuple[int, int, str, str]]] = {}
+    shots_by_goalie: dict[int, set[tuple[int, int, str, str]]] = {}
+
+    for r in event_rows or []:
+        if not isinstance(r, dict):
+            continue
+        et = _event_type_key(r)
+        if et not in {"goal", "expectedgoal", "sog", "shotongoal"}:
+            continue
+        shooter_side = _side_norm(r)
+        per = _period(r)
+        gs = _game_seconds(r)
+        if shooter_side not in {"home", "away"} or per is None or gs is None:
+            continue
+        defending_side = "away" if shooter_side == "home" else "home"
+        goalie_pid = _active_goalie(defending_side, period=int(per), game_s=int(gs))
+        if goalie_pid is None:
+            continue
+
+        shot_id = _player_id(r)
+        if shot_id is None:
+            shot_id = _int_or_none(normalize_jersey_number(_attr_jerseys(r)))
+        if shot_id is None:
+            shot_id = _event_id(r)
+        shot_tag = (
+            str(shot_id) if shot_id is not None else normalize_player_name(_attr_players(r)) or ""
+        )
+        shot_key = (int(per), int(gs), str(shooter_side), shot_tag)
+
+        if et == "goal":
+            goals_by_goalie.setdefault(int(goalie_pid), set()).add(shot_key)
+        if has_xg and et in {"goal", "expectedgoal"}:
+            xg_shots_by_goalie.setdefault(int(goalie_pid), set()).add(shot_key)
+        if has_sog and et in {"goal", "expectedgoal", "sog", "shotongoal"}:
+            shots_by_goalie.setdefault(int(goalie_pid), set()).add(shot_key)
+
+    def _goalie_row(side: str, goalie_pid: int) -> dict[str, Any]:
+        rec = goalie_by_id.get(str(side), {}).get(int(goalie_pid), {})
+        name = str(rec.get("name") or goalie_name_by_pid.get(int(goalie_pid)) or "").strip()
+        jersey = str(rec.get("jersey_number") or "").strip()
+        toi = int(toi_by_goalie.get(int(goalie_pid), 0))
+        ga = len(goals_by_goalie.get(int(goalie_pid), set()))
+        xga = len(xg_shots_by_goalie.get(int(goalie_pid), set())) if has_xg else None
+        xg_saves = (int(xga) - int(ga)) if (xga is not None) else None
+        if xg_saves is not None and xg_saves < 0:
+            xg_saves = 0
+        xg_sv_pct = (
+            (float(xg_saves) / float(xga))
+            if (xga is not None and xga > 0 and xg_saves is not None)
+            else None
+        )
+        sa = len(shots_by_goalie.get(int(goalie_pid), set())) if has_sog else None
+        saves = (int(sa) - int(ga)) if (sa is not None) else None
+        if saves is not None and saves < 0:
+            saves = 0
+        sv_pct = (
+            (float(saves) / float(sa))
+            if (sa is not None and sa > 0 and saves is not None)
+            else None
+        )
+        gaa = (float(ga) * 60.0 / float(toi)) if toi > 0 else None
+        return {
+            "player_id": int(goalie_pid),
+            "name": name,
+            "jersey_number": jersey,
+            "toi_seconds": toi,
+            "ga": int(ga),
+            "xga": int(xga) if xga is not None else None,
+            "xg_saves": int(xg_saves) if xg_saves is not None else None,
+            "xg_sv_pct": xg_sv_pct,
+            "sa": int(sa) if sa is not None else None,
+            "saves": int(saves) if saves is not None else None,
+            "sv_pct": sv_pct,
+            "gaa": gaa,
+        }
+
+    out: dict[str, Any] = {
+        "meta": {"has_sog": bool(has_sog), "has_xg": bool(has_xg)},
+        "home": [],
+        "away": [],
+    }
+    for side in ("home", "away"):
+        ids = set()
+        ids.update(
+            {
+                int(_int_or_none(p.get("id") or p.get("player_id")) or 0)
+                for p in goalie_roster_by_side.get(side, [])
+            }
+        )
+        ids.update(
+            {
+                int(pid)
+                for pid in toi_by_goalie.keys()
+                if pid and goalie_side_by_pid.get(int(pid)) == str(side)
+            }
+        )
+        ids.update(
+            {
+                int(pid)
+                for pid in goals_by_goalie.keys()
+                if pid and goalie_side_by_pid.get(int(pid)) == str(side)
+            }
+        )
+        if has_xg:
+            ids.update(
+                {
+                    int(pid)
+                    for pid in xg_shots_by_goalie.keys()
+                    if pid and goalie_side_by_pid.get(int(pid)) == str(side)
+                }
+            )
+        if has_sog:
+            ids.update(
+                {
+                    int(pid)
+                    for pid in shots_by_goalie.keys()
+                    if pid and goalie_side_by_pid.get(int(pid)) == str(side)
+                }
+            )
+        ids = {i for i in ids if i > 0}
+        rows = [_goalie_row(side, int(pid)) for pid in sorted(ids)]
+        rows.sort(
+            key=lambda r: (-int(r.get("toi_seconds") or 0), str(r.get("name") or "").casefold())
+        )
+        out[str(side)] = rows
+    return out
+
+
+def compute_goalie_stats_for_team_games(
+    *,
+    team_id: int,
+    schedule_games: list[dict[str, Any]],
+    event_rows_by_game_id: dict[int, list[dict[str, Any]]],
+    goalies: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Aggregate goalie stats across a list of games for a single team.
+
+    Shots against (SA) and derived stats are only accumulated for games that include SOG events.
+    """
+
+    def _int_or_none(v: Any) -> Optional[int]:
+        try:
+            if v is None:
+                return None
+            s = str(v).strip()
+            if not s:
+                return None
+            return int(float(s))
+        except Exception:
+            return None
+
+    game_by_id = {}
+    for g in schedule_games or []:
+        try:
+            game_by_id[int(g.get("id"))] = g
+        except Exception:
+            continue
+
+    totals: dict[int, dict[str, Any]] = {}
+    has_any_sog = False
+    has_any_xg = False
+    for gid, rows in (event_rows_by_game_id or {}).items():
+        g = game_by_id.get(int(gid))
+        if not g:
+            continue
+        t1 = _int0(g.get("team1_id"))
+        t2 = _int0(g.get("team2_id"))
+        if int(team_id) == int(t1):
+            our_side = "home"
+            stats = compute_goalie_stats_for_game(rows, home_goalies=goalies, away_goalies=[])
+        elif int(team_id) == int(t2):
+            our_side = "away"
+            stats = compute_goalie_stats_for_game(rows, home_goalies=[], away_goalies=goalies)
+        else:
+            continue
+
+        meta = stats.get("meta") or {}
+        if bool(meta.get("has_sog")):
+            has_any_sog = True
+        if bool(meta.get("has_xg")):
+            has_any_xg = True
+
+        for gr in stats.get(our_side, []) or []:
+            pid = _int_or_none(gr.get("player_id"))
+            if pid is None or pid <= 0:
+                continue
+            rec = totals.setdefault(
+                int(pid),
+                {
+                    "player_id": int(pid),
+                    "name": str(gr.get("name") or "").strip(),
+                    "jersey_number": str(gr.get("jersey_number") or "").strip(),
+                    "gp": 0,
+                    "toi_seconds": 0,
+                    "ga": 0,
+                    "sa_sum": 0,
+                    "saves_sum": 0,
+                    "has_sog": False,
+                    "xga_sum": 0,
+                    "xg_saves_sum": 0,
+                    "has_xg": False,
+                },
+            )
+            if not rec.get("name") and gr.get("name"):
+                rec["name"] = str(gr.get("name") or "").strip()
+            if not rec.get("jersey_number") and gr.get("jersey_number"):
+                rec["jersey_number"] = str(gr.get("jersey_number") or "").strip()
+
+            toi = _int_or_none(gr.get("toi_seconds")) or 0
+            ga = _int_or_none(gr.get("ga")) or 0
+            rec["toi_seconds"] += int(toi)
+            rec["ga"] += int(ga)
+            if toi > 0:
+                rec["gp"] += 1
+
+            sa = gr.get("sa")
+            if sa is not None:
+                rec["has_sog"] = True
+                rec["sa_sum"] += int(_int_or_none(sa) or 0)
+                rec["saves_sum"] += int(_int_or_none(gr.get("saves")) or 0)
+
+            xga = gr.get("xga")
+            if xga is not None:
+                rec["has_xg"] = True
+                rec["xga_sum"] += int(_int_or_none(xga) or 0)
+                rec["xg_saves_sum"] += int(_int_or_none(gr.get("xg_saves")) or 0)
+
+    out_rows: list[dict[str, Any]] = []
+    for pid, rec in totals.items():
+        toi = int(rec.get("toi_seconds") or 0)
+        ga = int(rec.get("ga") or 0)
+        has_sog = bool(rec.get("has_sog"))
+        sa = int(rec.get("sa_sum") or 0) if has_sog else None
+        saves = int(rec.get("saves_sum") or 0) if has_sog else None
+        sv_pct = (
+            (float(saves) / float(sa))
+            if (has_sog and sa and sa > 0 and saves is not None)
+            else None
+        )
+        has_xg = bool(rec.get("has_xg"))
+        xga = int(rec.get("xga_sum") or 0) if has_xg else None
+        xg_saves = int(rec.get("xg_saves_sum") or 0) if has_xg else None
+        xg_sv_pct = (
+            (float(xg_saves) / float(xga))
+            if (has_xg and xga and xga > 0 and xg_saves is not None)
+            else None
+        )
+        gaa = (float(ga) * 60.0 / float(toi)) if toi > 0 else None
+        out_rows.append(
+            {
+                "player_id": int(pid),
+                "jersey_number": str(rec.get("jersey_number") or "").strip(),
+                "name": str(rec.get("name") or "").strip(),
+                "gp": int(rec.get("gp") or 0),
+                "toi_seconds": toi,
+                "ga": ga,
+                "xga": xga,
+                "xg_saves": xg_saves,
+                "xg_sv_pct": xg_sv_pct,
+                "sa": sa,
+                "saves": saves,
+                "sv_pct": sv_pct,
+                "gaa": gaa,
+            }
+        )
+
+    out_rows.sort(
+        key=lambda r: (-int(r.get("toi_seconds") or 0), str(r.get("name") or "").casefold())
+    )
+    return {"rows": out_rows, "meta": {"has_sog": bool(has_any_sog), "has_xg": bool(has_any_xg)}}
+
+
 def compute_game_event_stats_by_side(events_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
     """
     Build a simple Home/Away event-count table from normalized game events rows.
