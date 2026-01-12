@@ -106,6 +106,8 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         max_blend_levels=None,
         skip_final_video_save=False,
         save_frame_dir=None,
+        no_cuda_streams=True,
+        config_overrides=["aspen.stitching.enabled=false"],
     )
 
     out_path = tmp_path / "stitched.mkv"
@@ -133,6 +135,10 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     vo_spec = plugins["video_out"]
     params = vo_spec.get("params", {})
     assert params.get("output_video_path") == str(out_path)
+
+    # --config-override should have been applied to the loaded Aspen config.
+    # Disabling aspen.stitching.enabled should disable the StitchingPlugin trunk.
+    assert plugins.get("stitching", {}).get("enabled") is False
 
     # At least one frame should have been forwarded into AspenNet with
     # img, frame_ids, data.fps and game_id populated.
