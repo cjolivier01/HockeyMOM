@@ -45,6 +45,28 @@ def _docker_env() -> dict[str, str]:
     return env
 
 
+def _docker_image_user(tag: str) -> str | None:
+    """Return the configured USER for the image, if available."""
+    try:
+        out = subprocess.check_output(
+            ["docker", "image", "inspect", "--format", "{{.Config.User}}", tag],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return out or None
+    except Exception:
+        return None
+
+
+def _container_home_for_user(user: str | None) -> str:
+    if not user or user in ("root", "0", "0:0"):
+        return "/root"
+    # Common case: USER is a name ("hm") or "uid:gid" ("1000:1000").
+    if ":" in user:
+        return "/root"
+    return f"/home/{user}"
+
+
 def _has_nvidia_gpu() -> bool:
     # Best-effort: if /dev/nvidiactl exists, NVIDIA driver is loaded.
     if Path("/dev/nvidiactl").exists():
@@ -156,8 +178,23 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     if args.videos_mount:
         host_videos = Path(args.videos_mount).expanduser().resolve()
-        container_videos = f"/home/{args.username}/Videos"
+        image_user = _docker_image_user(tag)
+        # Prefer the image USER for mounts so `hmtrack` resolves `$HOME/Videos`
+        # correctly even when the image was built with USERNAME != host $USER.
+        container_home = _container_home_for_user(image_user or args.username)
+        container_videos = f"{container_home}/Videos"
+        print(
+            f"NOTE: Mounting videos: {host_videos} -> {container_videos}"
+            + (f" (image USER={image_user})" if image_user else ""),
+            file=sys.stderr,
+        )
         docker_cmd += ["-v", f"{host_videos}:{container_videos}:rw"]
+        # Also mount at a stable path for convenience.
+        docker_cmd += ["-v", f"{host_videos}:/Videos:rw"]
+        # If the image user differs from the host username, keep the old mount
+        # location too so both paths work.
+        if image_user and image_user != args.username and ":" not in image_user:
+            docker_cmd += ["-v", f"{host_videos}:/home/{args.username}/Videos:rw"]
 
     if args.dev_mount:
         docker_cmd += ["-v", f"{repo_root}:/workspace/hm:rw", "-w", "/workspace/hm"]
@@ -239,7 +276,7 @@ def main(argv: list[str]) -> int:
     run.add_argument(
         "--videos-mount",
         default=str(Path.home() / "Videos"),
-        help="Host videos directory to mount into /home/<user>/Videos (default: ~/Videos)",
+        help="Host videos directory to mount into $HOME/Videos (and /Videos) (default: ~/Videos)",
     )
     run.add_argument(
         "--no-videos-mount",
