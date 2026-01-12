@@ -828,31 +828,6 @@
             return;
           }
 
-          if (onIce.length) {
-            bodyEl.appendChild(el("h4", { style: "margin:.25rem 0 .5rem 0;" }, "On-Ice Goals (For/Against)"));
-            var og = groupRows(onIce, function (r) {
-              var fa = String(r.for_against || "").trim();
-              return fa ? ("Goals " + fa) : "Goals";
-            });
-            og.order.forEach(function (k) {
-              var g = og.groups[k];
-              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
-              renderEventsTable(bodyEl, g.rows, {
-                headers: ["Game", "P", "Time", "Video", "Details", "Source"],
-                rowCells: function (r, ctx) {
-                  return [
-                    ctx.gameCell,
-                    String(r.period || ""),
-                    String(r.game_time || ""),
-                    ctx.videoCell,
-                    String(r.details || ""),
-                    String(r.source || ""),
-                  ];
-                },
-              });
-            });
-          }
-
 	          if (attributed.length) {
 	            bodyEl.appendChild(el("h4", { style: "margin:1rem 0 .5rem 0;" }, "Attributed Events"));
 	            var filtered = attributed.filter(function (r) {
@@ -940,6 +915,34 @@
 	              });
 	            }
 	          }
+
+          // Keep derived On-Ice Goals (For/Against) at the bottom.
+          if (onIce.length) {
+            bodyEl.appendChild(
+              el("h4", { style: "margin:1rem 0 .5rem 0;" }, "On-Ice Goals (For/Against)")
+            );
+            var og = groupRows(onIce, function (r) {
+              var fa = String(r.for_against || "").trim();
+              return fa ? ("Goals " + fa) : "Goals";
+            });
+            og.order.forEach(function (k) {
+              var g = og.groups[k];
+              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+              renderEventsTable(bodyEl, g.rows, {
+                headers: ["Game", "P", "Time", "Video", "Details", "Source"],
+                rowCells: function (r, ctx) {
+                  return [
+                    ctx.gameCell,
+                    String(r.period || ""),
+                    String(r.game_time || ""),
+                    ctx.videoCell,
+                    String(r.details || ""),
+                    String(r.source || ""),
+                  ];
+                },
+              });
+            });
+          }
 	        });
 	      }).catch(function (e) {
 	        showError("Unable to load events (" + String(e || "error") + ").");

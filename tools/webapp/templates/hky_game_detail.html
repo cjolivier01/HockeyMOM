@@ -1984,8 +1984,20 @@
                 body.textContent = text;
                 wrap.appendChild(body);
                 tooltipEl.appendChild(wrap);
-              }
+	              }
 
+	              addLine("Event ID", getValue(ev.row, ["Event ID", "EventID", "EventId"]));
+	              (function () {
+	                var vt = String(getValue(ev.row, ["Video Time", "VideoTime"]) || "").trim();
+	                var vsn = parseVideoSecondsFromRow(ev.row || {});
+	                var hasVs = (vsn !== null && isFinite(vsn));
+	                if (!vt && hasVs) vt = secondsToLabel(vsn);
+	                if (vt || hasVs) {
+	                  addLine("Video Time", vt);
+	                  if (hasVs) addLine("Video Seconds", String(Math.floor(vsn)));
+	                  if (!gameVideoUrl) addLine("Video URL", "missing");
+	                }
+	              })();
 	              addLine("Players", getValue(ev.row, ["Attributed Players"]));
 	              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
 	              addLine("Details", getValue(ev.row, ["Details"]));
@@ -2729,29 +2741,6 @@
         p.textContent = "No events matched this selection.";
         bodyEl.appendChild(p);
       } else {
-        if (onIceGoals.length) {
-          var byFA = groupRows(onIceGoals, function (r) {
-            var fa = String(r.__forAgainst || "").trim();
-            return fa ? ("Goals " + fa) : "Goals";
-          });
-          ["goals for", "goals against"].forEach(function (k) {
-            if (!byFA.groups[k]) return;
-            var h = document.createElement("h4");
-            h.style.margin = "0.75rem 0 0.35rem 0";
-            h.textContent = byFA.groups[k].label;
-            bodyEl.appendChild(h);
-            buildEventsTable(bodyEl, byFA.groups[k].rows);
-          });
-          byFA.order.forEach(function (k) {
-            if (k === "goals for" || k === "goals against") return;
-            var h = document.createElement("h4");
-            h.style.margin = "0.75rem 0 0.35rem 0";
-            h.textContent = byFA.groups[k].label;
-            bodyEl.appendChild(h);
-            buildEventsTable(bodyEl, byFA.groups[k].rows);
-          });
-        }
-
 	        if (filtered.length) {
 	          if (!statKey) {
 	            var chain = buildShotChainTables(filtered);
@@ -2837,6 +2826,30 @@
 	            });
 	          }
 	        }
+
+        // Keep derived On-Ice Goals (For/Against) at the bottom.
+        if (onIceGoals.length) {
+          var byFA = groupRows(onIceGoals, function (r) {
+            var fa = String(r.__forAgainst || "").trim();
+            return fa ? ("Goals " + fa) : "Goals";
+          });
+          ["goals for", "goals against"].forEach(function (k) {
+            if (!byFA.groups[k]) return;
+            var h = document.createElement("h4");
+            h.style.margin = "0.75rem 0 0.35rem 0";
+            h.textContent = byFA.groups[k].label;
+            bodyEl.appendChild(h);
+            buildEventsTable(bodyEl, byFA.groups[k].rows);
+          });
+          byFA.order.forEach(function (k) {
+            if (k === "goals for" || k === "goals against") return;
+            var h = document.createElement("h4");
+            h.style.margin = "0.75rem 0 0.35rem 0";
+            h.textContent = byFA.groups[k].label;
+            bodyEl.appendChild(h);
+            buildEventsTable(bodyEl, byFA.groups[k].rows);
+          });
+        }
 	      }
 
       try {

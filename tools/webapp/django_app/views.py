@@ -3425,6 +3425,23 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         events_headers, events_rows = logic.normalize_game_events_csv(events_headers, events_rows)
     except Exception:
         pass
+    if tts_linked:
+        try:
+            events_headers, events_rows = logic.enrich_timetoscore_goals_with_long_video_times(
+                existing_headers=events_headers,
+                existing_rows=events_rows,
+                incoming_headers=events_headers,
+                incoming_rows=events_rows,
+            )
+            events_headers, events_rows = logic.enrich_timetoscore_penalties_with_video_times(
+                existing_headers=events_headers,
+                existing_rows=events_rows,
+                incoming_headers=events_headers,
+                incoming_rows=events_rows,
+            )
+        except Exception:
+            # Best-effort: keep UI working even if enrichment fails.
+            pass
     events_rows = logic.filter_events_rows_prefer_timetoscore_for_goal_assist(
         events_rows, tts_linked=tts_linked
     )
@@ -5142,6 +5159,23 @@ def public_hky_game_detail(
     except Exception:
         # Best-effort: keep UI working even if legacy CSV normalization fails.
         pass
+    if tts_linked:
+        try:
+            events_headers, events_rows = logic.enrich_timetoscore_goals_with_long_video_times(
+                existing_headers=events_headers,
+                existing_rows=events_rows,
+                incoming_headers=events_headers,
+                incoming_rows=events_rows,
+            )
+            events_headers, events_rows = logic.enrich_timetoscore_penalties_with_video_times(
+                existing_headers=events_headers,
+                existing_rows=events_rows,
+                incoming_headers=events_headers,
+                incoming_rows=events_rows,
+            )
+        except Exception:
+            # Best-effort: keep UI working even if enrichment fails.
+            pass
     events_rows = logic.filter_events_rows_prefer_timetoscore_for_goal_assist(
         events_rows, tts_linked=tts_linked
     )
@@ -7459,7 +7493,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         ):
                             try:
                                 ex_headers, ex_rows = logic.parse_events_csv(existing_csv)
-                                in_headers, in_rows = logic.parse_events_csv(events_csv)
                                 if (
                                     incoming_events_headers_raw is not None
                                     and incoming_events_rows_raw is not None
@@ -7481,59 +7514,20 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                                         )
                                     )
 
-                                def _norm_ev_type(v: Any) -> str:
-                                    return str(v or "").strip().casefold()
-
-                                protected_types = {
-                                    "goal",
-                                    "assist",
-                                    "penalty",
-                                    "penalty expired",
-                                    "goaliechange",
-                                }
-
-                                def _key(r: dict[str, str]) -> tuple[str, str, str, str, str]:
-                                    et = _norm_ev_type(r.get("Event Type") or r.get("Event") or "")
-                                    per = str(r.get("Period") or "").strip()
-                                    gs = str(
-                                        r.get("Game Seconds") or r.get("GameSeconds") or ""
-                                    ).strip()
-                                    tr = (
-                                        str(
-                                            r.get("Team Side")
-                                            or r.get("TeamSide")
-                                            or r.get("Team Rel")
-                                            or r.get("TeamRel")
-                                            or r.get("Team")
-                                            or ""
-                                        )
-                                        .strip()
-                                        .casefold()
-                                    )
-                                    jerseys = str(r.get("Attributed Jerseys") or "").strip()
-                                    return (et, per, gs, tr, jerseys)
-
-                                seen = {_key(r) for r in (ex_rows or []) if isinstance(r, dict)}
-                                merged_rows: list[dict[str, str]] = list(ex_rows or [])
-                                for rr in in_rows or []:
-                                    if not isinstance(rr, dict):
-                                        continue
-                                    et = _norm_ev_type(
-                                        rr.get("Event Type") or rr.get("Event") or ""
-                                    )
-                                    if et in protected_types:
-                                        continue
-                                    k = _key(rr)
-                                    if k in seen:
-                                        continue
-                                    seen.add(k)
-                                    merged_rows.append(rr)
-
-                                merged_headers = list(ex_headers or [])
-                                for h in in_headers or []:
-                                    if h not in merged_headers:
-                                        merged_headers.append(h)
-                                merged_csv = logic.to_csv_text(merged_headers, merged_rows)
+                                existing_csv_enriched = logic.to_csv_text(ex_headers, ex_rows)
+                                merged_csv, _ = logic.merge_events_csv_prefer_timetoscore(
+                                    existing_csv=str(existing_csv_enriched),
+                                    existing_source_label=str(existing_source or ""),
+                                    incoming_csv=str(events_csv),
+                                    incoming_source_label=str(source_label or ""),
+                                    protected_types={
+                                        "goal",
+                                        "assist",
+                                        "penalty",
+                                        "penalty expired",
+                                        "goaliechange",
+                                    },
+                                )
                                 m.HkyGameEvent.objects.filter(game_id=int(resolved_game_id)).update(
                                     events_csv=merged_csv, updated_at=now
                                 )

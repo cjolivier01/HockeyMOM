@@ -48,6 +48,121 @@ def should_normalize_video_time_and_seconds_pair(monkeypatch):
     assert vs2 == 83
 
 
+def should_propagate_video_and_on_ice_across_same_game_time_for_display(monkeypatch):
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    mod = _load_app_module()
+
+    headers = [
+        "Event Type",
+        "Team Side",
+        "Period",
+        "Game Seconds",
+        "Video Seconds",
+        "On-Ice Players (Home)",
+        "On-Ice Players (Away)",
+    ]
+    rows = [
+        {
+            "Event Type": "Goal",
+            "Source": "timetoscore",
+            "Team Side": "Home",
+            "Period": "1",
+            "Game Seconds": "100",
+            "Video Time": "",
+            "Video Seconds": "",
+            "On-Ice Players (Home)": "",
+            "On-Ice Players (Away)": "",
+        },
+        {
+            "Event Type": "xG",
+            "Source": "long",
+            "Team Side": "Home",
+            "Period": "1",
+            "Game Seconds": "100",
+            "Video Seconds": "83",
+            "On-Ice Players (Home)": ("9 Alice,12 Bob,13 Carl,14 Dan,15 Ed,30 Goalie,31 Extra"),
+            "On-Ice Players (Away)": "",
+        },
+    ]
+
+    out_headers, out_rows = mod.normalize_events_video_time_for_display(headers, rows)
+    assert "Video Time" in out_headers
+    assert "Video Seconds" in out_headers
+
+    goal = out_rows[0]
+    assert goal["Video Seconds"] == "83"
+    assert goal["Video Time"] == "1:23"
+    home = str(goal.get("On-Ice Players (Home)") or "")
+    assert home.count(",") == 5  # clamped to 6 players
+    assert home.endswith(" …")
+
+
+def should_enrich_timetoscore_goals_with_event_id(monkeypatch):
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    mod = _load_app_module()
+
+    headers = ["Event Type", "Source", "Team Side", "Period", "Game Seconds", "Attributed Jerseys"]
+    rows = [
+        {
+            "Event Type": "Goal",
+            "Source": "timetoscore",
+            "Team Side": "Home",
+            "Period": "1",
+            "Game Seconds": "100",
+            "Attributed Jerseys": "9",
+        },
+        {
+            "Event Type": "Goal",
+            "Source": "goals",
+            "Team Side": "Home",
+            "Period": "1",
+            "Game Seconds": "100",
+            "Attributed Jerseys": "9",
+            "Event ID": "54",
+        },
+    ]
+
+    out_headers, out_rows = mod.enrich_timetoscore_goals_with_long_video_times(
+        existing_headers=headers,
+        existing_rows=rows,
+        incoming_headers=headers,
+        incoming_rows=rows,
+    )
+    assert "Event ID" in out_headers
+    tts_goal = [r for r in out_rows if str(r.get("Source") or "").strip() == "timetoscore"][0]
+    assert tts_goal["Event ID"] == "54"
+
+
+def should_merge_events_overlays_missing_video_and_on_ice_for_duplicates(monkeypatch):
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    mod = _load_app_module()
+
+    existing_csv = (
+        "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Video Seconds,On-Ice Players (Away)\n"
+        "xG,Away,1,100,9,,\n"
+    )
+    incoming_csv = (
+        "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Video Seconds,On-Ice Players (Away)\n"
+        'xG,Away,1,100,9,83,"9 A,12 B,13 C,14 D,15 E,30 G"\n'
+    )
+
+    merged_csv, merged_source = mod.merge_events_csv_prefer_timetoscore(
+        existing_csv=existing_csv,
+        existing_source_label="unit-test",
+        incoming_csv=incoming_csv,
+        incoming_source_label="unit-test",
+        protected_types={"goal", "assist", "penalty", "penalty expired", "goaliechange"},
+    )
+    assert merged_source == "unit-test"
+    out_headers, out_rows = mod.parse_events_csv(merged_csv)
+    assert len(out_rows) == 1
+    assert out_rows[0]["Video Seconds"] == "83"
+    assert str(out_rows[0]["On-Ice Players (Away)"] or "").strip()
+
+
 @pytest.fixture()
 def client_and_db(monkeypatch, webapp_db):
     _django_orm, m = webapp_db
