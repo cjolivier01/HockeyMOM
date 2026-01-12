@@ -694,9 +694,10 @@
 	      var kindKey = normTypeKey(r.event_type_key || r.event_type || r.kind || "");
 	      if (kindKey === "onicegoal") kindKey = "goal";
 	      var isGoalOrAssist = kindKey === "goal" || kindKey === "assist";
+	      // `pre` is seconds before the event; `dur` (totalDuration) is the total clip length (pre + post).
 	      var pre = isGoalOrAssist ? 20 : 10;
-	      var dur = isGoalOrAssist ? 30 : 20;
-	      return { pre: pre, dur: dur, kindKey: kindKey };
+	      var totalDuration = isGoalOrAssist ? 30 : 20;
+	      return { pre: pre, dur: totalDuration, kindKey: kindKey };
 	    }
 
 	    function openVideoClipForEventRow(r) {
