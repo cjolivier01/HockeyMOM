@@ -2829,36 +2829,14 @@ def main(argv: Optional[list[str]] = None) -> int:
                     }
                 )
 
-        def _infer_time_mode(period: int) -> str:
-            times: list[int] = []
-            for ev in goal_events:
-                if int(ev.get("Period") or 0) != int(period):
-                    continue
-                gs = ev.get("Game Seconds")
-                if isinstance(gs, int):
-                    times.append(int(gs))
-            for row in penalties_events_rows:
-                if int(row.get("Period") or 0) != int(period):
-                    continue
-                gs = row.get("Game Seconds")
-                ge = row.get("Game Seconds End")
-                if isinstance(gs, int):
-                    times.append(int(gs))
-                if isinstance(ge, int):
-                    times.append(int(ge))
-            if not times:
-                return "elapsed"
-            near_zero = sum(1 for t in times if t <= 120)
-            near_high = sum(1 for t in times if t >= period_len_s - 120)
-            return "remaining" if near_high > near_zero else "elapsed"
-
-        # Fill missing end times using inferred mode.
+        # Fill missing end times (and correct cross-period end times) using the TimeToScore
+        # scoreboard clock model (counts down each period).
         mode_by_period: dict[int, str] = {}
         for p in range(1, 6):
             if any(int(r.get("Period") or 0) == p for r in penalties_events_rows) or any(
                 int(g.get("Period") or 0) == p for g in goal_events
             ):
-                mode_by_period[p] = _infer_time_mode(p)
+                mode_by_period[p] = "remaining"
 
         for side_key, recs in penalties_by_side.items():
             for rec in recs:
