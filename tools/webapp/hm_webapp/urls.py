@@ -38,6 +38,11 @@ urlpatterns = [
         name="api_hky_team_player_events",
     ),
     path(
+        "api/hky/teams/<int:team_id>/goalies/<int:player_id>/stats",
+        v.api_hky_team_goalie_stats,
+        name="api_hky_team_goalie_stats",
+    ),
+    path(
         "api/import/hockey/ensure_league",
         v.api_import_ensure_league,
         name="api_import_ensure_league",

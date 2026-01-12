@@ -7,6 +7,7 @@ such as no season drop-down on the main stats page.
 
 from __future__ import annotations
 
+import html as _html
 import io
 import logging
 import re
@@ -239,6 +240,87 @@ def fix_players_rows(rows: list[list[Any]]):
         if len(row) == 6:
             val.append(row[3:])
     return val
+
+
+def _clean_html_fragment(s: str) -> str:
+    if not s:
+        return ""
+    s = re.sub(r"(?is)<br\s*/?>", " ", s)
+    s = re.sub(r"(?is)<[^>]+>", " ", s)
+    s = _html.unescape(s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _goalie_change_lines_from_scoresheet_html(html: str, *, title: str) -> list[str]:
+    if not html:
+        return []
+    if title == "Home Goalie Changes":
+        m = re.search(
+            r"(?is)<th[^>]*>\s*Home Goalie Changes\s*</th>(.*?)(?:<th[^>]*>\s*Visitor Changes\s*</th>)",
+            html,
+        )
+    else:
+        m = re.search(
+            r"(?is)<th[^>]*>\s*Visitor Changes\s*</th>(.*?)(?:</table>)",
+            html,
+        )
+    if not m:
+        return []
+
+    seg = m.group(1)
+    vals = re.findall(r'(?is)<td[^>]*colspan\s*=\s*"?2"?[^>]*>(.*?)</td>', seg)
+    out_vals: list[str] = []
+    for v in vals:
+        vv = _clean_html_fragment(v)
+        if vv:
+            out_vals.append(vv)
+    return out_vals
+
+
+def _goalie_changes_from_scoresheet_html(
+    html: str, *, period_len_s: int, side: str
+) -> list[dict[str, Any]]:
+    """
+    Returns rows like:
+      {"period": 1, "time": "15:00", "details": "Goalie Name Starting"}
+      {"period": 2, "time": "13:42", "details": "Goalie Name"}
+      {"period": 3, "time": "14:47", "details": "Empty Net"}
+    """
+    title = "Home Goalie Changes" if str(side).strip().casefold() == "home" else "Visitor Changes"
+    lines = _goalie_change_lines_from_scoresheet_html(html, title=title)
+    if not lines:
+        return []
+
+    period_minutes = max(1, int(period_len_s) // 60)
+    default_start_time = f"{period_minutes}:00"
+
+    out: list[dict[str, Any]] = []
+    for line in lines:
+        details = str(line).strip()
+        if not details:
+            continue
+
+        period = None
+        time_txt = None
+        m = re.search(r"(?i)\b(\d+)\s*-\s*(\d{1,2}:\d{2})\b", details)
+        if m:
+            try:
+                period = int(m.group(1))
+            except Exception:
+                period = None
+            time_txt = str(m.group(2)).strip()
+            details = details[: m.start()].strip()
+        elif re.search(r"(?i)\bstarting\b", details):
+            period = 1
+            time_txt = default_start_time
+
+        if period is None or not time_txt:
+            continue
+
+        out.append({"period": int(period), "time": str(time_txt), "details": details})
+
+    return out
 
 
 def NO_LINK_INT(a):
@@ -527,6 +609,27 @@ def scrape_game_stats(game_id: int):
             rows = fix_players_rows(rows)
         val = [dict(zip(columns[suffix], row)) for row in rows]
         data[name] = val
+
+    # Parse goalie changes (including starting goalie) from the scoresheet HTML.
+    try:
+        period_minutes = int(float(str(data.get("periodLength") or "15").strip() or "15"))
+        period_len_s = max(60, period_minutes * 60)
+    except Exception:
+        period_len_s = 15 * 60
+
+    try:
+        html = str(soup)
+        data["homeGoalieChanges"] = _goalie_changes_from_scoresheet_html(
+            html, period_len_s=period_len_s, side="home"
+        )
+        data["awayGoalieChanges"] = _goalie_changes_from_scoresheet_html(
+            html, period_len_s=period_len_s, side="away"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to parse goalie changes for game %s: %s", game_id, e)
+        data.setdefault("homeGoalieChanges", [])
+        data.setdefault("awayGoalieChanges", [])
+
     return data
 
 
