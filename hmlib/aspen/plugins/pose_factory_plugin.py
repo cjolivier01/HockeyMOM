@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 import torch
 
 from hmlib.config import prepend_root_dir
+from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
 
 from .base import Plugin
 
@@ -119,13 +120,14 @@ class PoseInferencerFactoryPlugin(Plugin):
             except Exception:
                 det_model = None
 
-            inferencer = MMPoseInferencer(
-                pose2d=cfg,
-                pose2d_weights=ckpt,
-                device=dev,
-                det_model=det_model,
-                show_progress=self._show_progress,
-            )
+            with numpy2_pickle_compat():
+                inferencer = MMPoseInferencer(
+                    pose2d=cfg,
+                    pose2d_weights=ckpt,
+                    device=dev,
+                    det_model=det_model,
+                    show_progress=self._show_progress,
+                )
             # Merge default + provided filter args
             fa = self._default_filter_args(cfg)
             fa.update(self._filter_args)

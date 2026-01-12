@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import torch
 
 from hmlib.config import prepend_root_dir
+from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
 
 from .base import Plugin
 
@@ -139,7 +140,8 @@ class ModelFactoryPlugin(Plugin):
 
             model = ModelCls(**kwargs)
             if hasattr(model, "init_weights"):
-                model.init_weights()
+                with numpy2_pickle_compat():
+                    model.init_weights()
 
             if (
                 self._to_device
