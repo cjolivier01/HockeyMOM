@@ -192,6 +192,21 @@ def _compute_event_import_key(
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
 
 
+def _synthesize_event_id(import_key: str) -> int:
+    """
+    Deterministic integer `event_id` for sources that don't provide one (notably penalties).
+
+    Uses the already-stable `import_key` (sha1 hex) to derive a positive signed-32-bit integer
+    so it can be stored in MySQL/Django `IntegerField`.
+    """
+    key = str(import_key or "").strip()
+    try:
+        n = int(key[:8], 16) & 0x7FFFFFFF
+    except Exception:
+        n = int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) & 0x7FFFFFFF
+    return 1 if n == 0 else int(n)
+
+
 def _upsert_game_event_rows_from_events_csv(
     *,
     game_id: int,
@@ -361,6 +376,8 @@ def _upsert_game_event_rows_from_events_csv(
             details=details,
             game_seconds_end=game_seconds_end,
         )
+        if event_id is None and et_key in {"penalty", "penaltyexpired"}:
+            event_id = _synthesize_event_id(import_key)
         if suppressed_keys and import_key in suppressed_keys:
             continue
 
