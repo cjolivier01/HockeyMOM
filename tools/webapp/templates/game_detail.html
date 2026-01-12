@@ -1,15 +1,17 @@
-{% extends 'layout.html' %}
+{% extends "layout.html" %}
 {% block content %}
 <div class="card">
-  <h2 style="margin:0 0 .25rem">{{ game['name'] }}</h2>
-  <p class="muted" style="margin:.25rem 0 .75rem"><small>Directory:</small> <code>{{ game['dir_path'] }}</code></p>
-  {% set st = (status or game['status']) %}
-<p>Status: <span class="status-badge status-{{ (st or '')|upper }}">{{ st or '' }}</span></p>
+  <h2 style="margin:0 0 .25rem">{{ game.name }}</h2>
+  <p class="muted" style="margin:.25rem 0 .75rem"><small>Directory:</small> <code>{{ game.dir_path }}</code></p>
+  {% with st=status|default:game.status %}
+<p>Status: <span class="status-badge status-{{ st|default_if_none:""|upper }}">{{ st|default_if_none:"" }}</span></p>
+  {% endwith %}
 </div>
 
 <h3>Upload Files</h3>
 {% if not is_locked %}
-<form method="post" action="/games/{{ game['id'] }}/upload" enctype="multipart/form-data">
+<form method="post" action="/games/{{ game.id }}/upload" enctype="multipart/form-data">
+  {% csrf_token %}
   <input type="file" name="files" multiple>
   <button type="submit">Upload</button>
 </form>
@@ -22,14 +24,15 @@
   <ul>
     {% for f in files %}
       <li>{{ f }}</li>
-    {% else %}
+    {% empty %}
       <li class="muted">No files yet.</li>
     {% endfor %}
   </ul>
 </div>
 
 {% if not is_locked %}
-<form method="post" action="/games/{{ game['id'] }}/run">
+<form method="post" action="/games/{{ game.id }}/run">
+  {% csrf_token %}
   <button type="submit">Run</button>
 </form>
 {% else %}
@@ -41,6 +44,6 @@
 <div class="card">
   <h3>Danger Zone</h3>
   <p class="muted">Permanently delete this game and its files. This cannot be undone.</p>
-  <p><a class="btn danger" href="/games/{{ game['id'] }}/delete">Delete game</a></p>
+  <p><a class="btn danger" href="/games/{{ game.id }}/delete">Delete game</a></p>
 </div>
 {% endblock %}

@@ -1,8 +1,8 @@
-{% extends 'layout.html' %}
+{% extends "layout.html" %}
+{% load webapp_tags %}
 {% block content %}
-{% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
-  <h2>{{ 'League Teams' if league_view else 'Your Teams' }}</h2>
+  <h2>{% if league_view %}League Teams{% else %}Your Teams{% endif %}</h2>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.35rem;">
     {% if league_page_views %}
       <div
@@ -19,19 +19,24 @@
     {% endif %}
     <div>
       {% if league_view %}
-        <a class="btn" href="{{ base }}/schedule">Schedule</a>
+        {% if public_league_id %}
+          {% url "public_league_schedule" league_id=public_league_id as schedule_path %}
+        {% else %}
+          {% url "schedule" as schedule_path %}
+        {% endif %}
+        <a class="btn" href="{{ schedule_path }}">Schedule</a>
       {% endif %}
       {% if not league_view %}
-        <a class="btn" href="/teams?all={{ 0 if include_external else 1 }}">{{ 'Hide' if include_external else 'Show' }} external</a>
+        <a class="btn" href="/teams?all={% if include_external %}0{% else %}1{% endif %}">{% if include_external %}Hide{% else %}Show{% endif %} external</a>
         <a class="btn primary" href="/teams/new" style="margin-left:.5rem">New team</a>
       {% endif %}
     </div>
   </div>
 </div>
 
-  {% if league_view and divisions %}
-    {% for div in divisions %}
-      <h3 style="margin-top:1rem;">{{ div.name }}</h3>
+{% if league_view and divisions %}
+  {% for div in divisions %}
+    <h3 style="margin-top:1rem;">{{ div.name }}</h3>
     <table class="table-no-scroll-mobile">
       <thead>
         <tr>
@@ -41,46 +46,44 @@
           <th>GF/GA</th>
           <th>Pts</th>
           <th>Pts (Total)</th>
-          {% if league_view %}
-            <th>Rating</th>
-          {% endif %}
+          <th>Rating</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% for t in div.teams %}
-        {% set s = stats.get(t['id'], {}) %}
-        {% set gp = (s.get('wins',0)|int + s.get('losses',0)|int + s.get('ties',0)|int) %}
+          {% with s=stats|get_item:t.id %}
           <tr>
             <td>
               <span style="display:inline-flex;align-items:center;gap:10px;">
-                <img src="{{ base }}/media/team_logo/{{ t['id'] }}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
-                <a class="btn secondary" href="{{ base }}/teams/{{ t['id'] }}">{{ t['name'] }}</a>
-                {% if (not league_view) and t['is_external'] %}<span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}
+                {% if public_league_id %}
+                  {% url "public_media_team_logo" league_id=public_league_id team_id=t.id as team_logo %}
+                  {% url "public_league_team_detail" league_id=public_league_id team_id=t.id as team_href %}
+                {% else %}
+                  {% url "media_team_logo" team_id=t.id as team_logo %}
+                  {% url "team_detail" team_id=t.id as team_href %}
+                {% endif %}
+                <img src="{{ team_logo }}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+                <a class="btn secondary" href="{{ team_href }}">{{ t.name }}</a>
               </span>
             </td>
-            <td>{{ gp }}</td>
-            <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
-            <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
-            <td>{{ s.get('points',0) }}</td>
-            <td>{{ s.get('points_total', s.get('points',0)) }}</td>
-            {% if league_view %}
-              <td>
-                {% if t.get('mhr_rating') is not none %}
-                  {{ '%.2f'|format(t.get('mhr_rating')) }}
-                {% else %}
-                  <span class="muted">—</span>
-                {% endif %}
-              </td>
-            {% endif %}
+            <td>{{ s.gp|default:"0" }}</td>
+            <td>{{ s.wins|default:"0" }}-{{ s.losses|default:"0" }}-{{ s.ties|default:"0" }}</td>
+            <td>{{ s.gf|default:"0" }}/{{ s.ga|default:"0" }}</td>
+            <td>{{ s.points|default:"0" }}</td>
+            <td>{{ s.points_total|default:s.points|default:"0" }}</td>
             <td>
-              {% if not (public_league_id is defined) and (not league_view) and t['user_id'] == current_user_id %}
-                <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
+              {% if t.mhr_rating != None %}
+                {{ t.mhr_rating|floatformat:2 }}
+              {% else %}
+                <span class="muted">—</span>
               {% endif %}
             </td>
+            <td></td>
           </tr>
-        {% else %}
-          <tr><td colspan="{% if league_view %}8{% else %}7{% endif %}" class="muted">No teams yet.</td></tr>
+          {% endwith %}
+        {% empty %}
+          <tr><td colspan="8" class="muted">No teams yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -95,45 +98,45 @@
         <th>GF/GA</th>
         <th>Pts</th>
         <th>Pts (Total)</th>
-        {% if league_view %}
-          <th>Rating</th>
-        {% endif %}
+        {% if league_view %}<th>Rating</th>{% endif %}
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for t in teams %}
-      {% set s = stats.get(t['id'], {}) %}
-      {% set gp = (s.get('wins',0)|int + s.get('losses',0)|int + s.get('ties',0)|int) %}
+        {% with s=stats|get_item:t.id %}
         <tr>
           <td>
             <span style="display:inline-flex;align-items:center;gap:10px;">
-              <img src="{{ base }}/media/team_logo/{{ t['id'] }}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
-              <a class="btn secondary" href="{{ base }}/teams/{{ t['id'] }}">{{ t['name'] }}</a>
-              {% if (not league_view) and t['is_external'] %}<span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}
+              {% url "media_team_logo" team_id=t.id as team_logo %}
+              {% url "team_detail" team_id=t.id as team_href %}
+              <img src="{{ team_logo }}" alt="" style="width:28px;height:28px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+              <a class="btn secondary" href="{{ team_href }}">{{ t.name }}</a>
+              {% if not league_view and t.is_external %}<span class="muted" title="Opponent/team not owned">(external)</span>{% endif %}
             </span>
           </td>
-          <td>{{ gp }}</td>
-          <td>{{ s.get('wins',0) }}-{{ s.get('losses',0) }}-{{ s.get('ties',0) }}</td>
-          <td>{{ s.get('gf',0) }}/{{ s.get('ga',0) }}</td>
-          <td>{{ s.get('points',0) }}</td>
-          <td>{{ s.get('points_total', s.get('points',0)) }}</td>
+          <td>{{ s.gp|default:"0" }}</td>
+          <td>{{ s.wins|default:"0" }}-{{ s.losses|default:"0" }}-{{ s.ties|default:"0" }}</td>
+          <td>{{ s.gf|default:"0" }}/{{ s.ga|default:"0" }}</td>
+          <td>{{ s.points|default:"0" }}</td>
+          <td>{{ s.points_total|default:s.points|default:"0" }}</td>
           {% if league_view %}
             <td>
-              {% if t.get('mhr_rating') is not none %}
-                {{ '%.2f'|format(t.get('mhr_rating')) }}
+              {% if t.mhr_rating != None %}
+                {{ t.mhr_rating|floatformat:2 }}
               {% else %}
                 <span class="muted">—</span>
               {% endif %}
             </td>
           {% endif %}
           <td>
-            {% if not (public_league_id is defined) and (not league_view) and t['user_id'] == current_user_id %}
-              <a class="btn" href="/teams/{{ t['id'] }}/edit">Edit</a>
+            {% if not public_league_id and not league_view and t.user_id == current_user_id %}
+              <a class="btn" href="/teams/{{ t.id }}/edit">Edit</a>
             {% endif %}
           </td>
         </tr>
-      {% else %}
+        {% endwith %}
+      {% empty %}
         <tr><td colspan="{% if league_view %}8{% else %}7{% endif %}" class="muted">No teams yet.</td></tr>
       {% endfor %}
     </tbody>

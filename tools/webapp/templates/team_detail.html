@@ -1,20 +1,25 @@
-{% extends 'layout.html' %}
+{% extends "layout.html" %}
+{% load webapp_tags %}
 {% block content %}
-{% set base = ('/public/leagues/%s' % public_league_id) if public_league_id is defined else '' %}
-{% set return_to = request.full_path.rstrip('?') %}
-{% set return_to_q = ('?return_to=' ~ (return_to|urlencode)) if return_to else '' %}
+{% with return_to=request.get_full_path %}
 <div style="margin-bottom:.75rem;">
   <a class="btn" href="#" onclick="history.back(); return false;">Back</a>
 </div>
+
 <div style="display:flex;align-items:center;gap:1rem;">
-  {% if team['logo_path'] %}
-    <img src="{{ base }}/media/team_logo/{{ team['id'] }}" alt="logo" style="width:150px;height:150px;border-radius:14px;object-fit:cover;border:1px solid var(--border);" />
+  {% if public_league_id %}
+    {% url "public_media_team_logo" league_id=public_league_id team_id=team.id as team_logo_url %}
+  {% else %}
+    {% url "media_team_logo" team_id=team.id as team_logo_url %}
+  {% endif %}
+  {% if team.logo_path %}
+    <img src="{{ team_logo_url }}" alt="logo" style="width:150px;height:150px;border-radius:14px;object-fit:cover;border:1px solid var(--border);" />
   {% else %}
     <div style="width:150px;height:150px;border-radius:14px;background:#1c212c;border:1px solid var(--border);"></div>
   {% endif %}
   <div>
-    <h2 style="margin:0">{{ team['name'] }}</h2>
-    {% if team['is_external'] %}<p class="muted" style="margin:.25rem 0 0">External team</p>{% endif %}
+    <h2 style="margin:0">{{ team.name }}</h2>
+    {% if team.is_external %}<p class="muted" style="margin:.25rem 0 0">External team</p>{% endif %}
   </div>
   {% if league_page_views %}
     <div
@@ -31,135 +36,155 @@
   {% endif %}
 </div>
 
-{% set has_coaches = (head_coaches is defined and head_coaches) or (assistant_coaches is defined and assistant_coaches) %}
-{% if has_coaches %}
+{% if head_coaches or assistant_coaches %}
   <div class="grid" style="margin-top:1rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
     <div class="card">
       <h3 style="margin:0 0 .5rem 0;">Coaches</h3>
       {% if head_coaches %}
         <p class="muted" style="margin:.25rem 0 .25rem 0;">Head Coach</p>
-        <p style="margin:0">{{ head_coaches | map(attribute='name') | join(', ') }}</p>
+        <p style="margin:0">
+          {% for c in head_coaches %}
+            {{ c.name }}{% if not forloop.last %}, {% endif %}
+          {% endfor %}
+        </p>
       {% endif %}
       {% if assistant_coaches %}
         <p class="muted" style="margin:.75rem 0 .25rem 0;">Assistant Coaches</p>
-        <p style="margin:0">{{ assistant_coaches | map(attribute='name') | join(', ') }}</p>
+        <p style="margin:0">
+          {% for c in assistant_coaches %}
+            {{ c.name }}{% if not forloop.last %}, {% endif %}
+          {% endfor %}
+        </p>
       {% endif %}
     </div>
   </div>
 {% endif %}
 
-{% if schedule_games is defined %}
-  <h3 style="margin-top:1.25rem;">Schedule</h3>
-  <div class="card">
-    {% set show_division = (schedule_games and schedule_games[0].get('division_name') is not none) %}
-    <div>
-          <table class="table-no-scroll-mobile table-fit-always table-never-wrap">
-            <thead>
-              <tr>
-                {% if show_division %}<th>Division</th>{% endif %}
-                <th class="nowrap">Date</th>
-                <th class="nowrap">Time</th>
-                <th>Away</th>
-                <th>Home</th>
-                <th>Type</th>
-                <th>Location</th>
-                <th>Score</th>
-                <th>Video</th>
-                <th></th>
-              </tr>
-            </thead>
-        <tbody>
-          {% for g in schedule_games %}
-            <tr>
-              {% if show_division %}<td>{{ g.get('division_name') or '' }}</td>{% endif %}
-              <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_date }}</td>
-              <td class="nowrap">{{ (g.get('starts_at') or '')|fmt_time }}</td>
-              {% set game_href = base ~ '/hky/games/' ~ g['id'] ~ return_to_q %}
-              {% set s1 = g.get('team1_score') %}
-              {% set s2 = g.get('team2_score') %}
-              {% set has_score = (s1 is not none and s2 is not none) %}
-              <td>
-                {% if g.get('can_view_summary', True) %}<a href="{{ game_href }}" style="text-decoration:none;color:inherit;">{% endif %}
-                <span style="display:inline-flex;align-items:center;gap:6px;">
-                  <img src="{{ base }}/media/team_logo/{{ g['team2_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-                  {% if has_score and s2 > s1 %}
-                    <strong>{{ g.get('team2_name') or '' }}</strong>
-                  {% else %}
-                    <span>{{ g.get('team2_name') or '' }}</span>
-                  {% endif %}
-                </span>
-                {% if g.get('can_view_summary', True) %}</a>{% endif %}
-              </td>
-              <td>
-                {% if g.get('can_view_summary', True) %}<a href="{{ game_href }}" style="text-decoration:none;color:inherit;">{% endif %}
-                <span style="display:inline-flex;align-items:center;gap:6px;">
-                  <img src="{{ base }}/media/team_logo/{{ g['team1_id'] }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
-                  {% if has_score and s1 > s2 %}
-                    <strong>{{ g.get('team1_name') or '' }}</strong>
-                  {% else %}
-                    <span>{{ g.get('team1_name') or '' }}</span>
-                  {% endif %}
-                </span>
-                {% if g.get('can_view_summary', True) %}</a>{% endif %}
-              </td>
-              {% set gt = g.get('game_type_name') %}
-              {% if not gt and (g.get('division_name') or '')|lower == 'external' %}
-                {% set gt = 'Tournament' %}
-              {% endif %}
-              <td>{{ gt or '' }}</td>
-              <td>{{ g.get('location') or '' }}</td>
-              <td>
-                {% if g.get('team1_score') is not none and g.get('team2_score') is not none %}
-                  {{ g.get('team1_score') }} - {{ g.get('team2_score') }}
-                {% else %}
-                  <span class="muted">—</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if g.get('game_video_url') %}
-                  <a href="{{ g.get('game_video_url')|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">Video</a>
-                {% else %}
-                  <span class="muted">—</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if g.get('can_view_summary', True) %}
-                  {% if public_league_id is defined %}
-                    <a class="btn" href="{{ game_href }}">View</a>
-                  {% else %}
-                    <a class="btn" href="{{ game_href }}">Edit</a>
-                  {% endif %}
-                {% else %}
-                  <span class="muted">—</span>
-                {% endif %}
-              </td>
-            </tr>
+<h3 style="margin-top:1.25rem;">Schedule</h3>
+<div class="card">
+  <div>
+    <table class="table-no-scroll-mobile table-fit-always table-never-wrap">
+      <thead>
+        <tr>
+          {% if schedule_games and schedule_games.0.division_name %}<th>Division</th>{% endif %}
+          <th class="nowrap">Date</th>
+          <th class="nowrap">Time</th>
+          <th>Away</th>
+          <th>Home</th>
+          <th>Type</th>
+          <th>Location</th>
+          <th>Score</th>
+          <th>Video</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in schedule_games %}
+          {% if public_league_id %}
+            {% url "public_hky_game_detail" league_id=public_league_id game_id=g.id as game_path %}
+            {% url "public_media_team_logo" league_id=public_league_id team_id=g.team1_id as team1_logo %}
+            {% url "public_media_team_logo" league_id=public_league_id team_id=g.team2_id as team2_logo %}
           {% else %}
-            <tr><td colspan="{{ 9 if show_division else 8 }}" class="muted">No games yet.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+            {% url "hky_game_detail" game_id=g.id as game_path %}
+            {% url "media_team_logo" team_id=g.team1_id as team1_logo %}
+            {% url "media_team_logo" team_id=g.team2_id as team2_logo %}
+          {% endif %}
+          {% with s1=g.team1_score s2=g.team2_score %}
+          <tr>
+            {% if schedule_games and schedule_games.0.division_name %}<td>{{ g.division_name|default_if_none:"" }}</td>{% endif %}
+            <td class="nowrap">{{ g.starts_at|fmt_date }}</td>
+            <td class="nowrap">{{ g.starts_at|fmt_time }}</td>
+            <td>
+              {% if g.can_view_summary %}<a href="{{ game_path }}?return_to={{ return_to|urlencode }}" style="text-decoration:none;color:inherit;">{% endif %}
+              <span style="display:inline-flex;align-items:center;gap:6px;">
+                <img src="{{ team2_logo }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+                {% if s1 != None and s2 != None and s2 > s1 %}
+                  <strong>{{ g.team2_name }}</strong>
+                {% else %}
+                  <span>{{ g.team2_name }}</span>
+                {% endif %}
+              </span>
+              {% if g.can_view_summary %}</a>{% endif %}
+            </td>
+            <td>
+              {% if g.can_view_summary %}<a href="{{ game_path }}?return_to={{ return_to|urlencode }}" style="text-decoration:none;color:inherit;">{% endif %}
+              <span style="display:inline-flex;align-items:center;gap:6px;">
+                <img src="{{ team1_logo }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+                {% if s1 != None and s2 != None and s1 > s2 %}
+                  <strong>{{ g.team1_name }}</strong>
+                {% else %}
+                  <span>{{ g.team1_name }}</span>
+                {% endif %}
+              </span>
+              {% if g.can_view_summary %}</a>{% endif %}
+            </td>
+            <td>
+              {% if g.game_type_name %}
+                {{ g.game_type_name }}
+              {% elif g.division_name|is_external_division %}
+                Tournament
+              {% endif %}
+            </td>
+            <td>{{ g.location|default_if_none:"" }}</td>
+            <td>
+              {% if s1 != None and s2 != None %}
+                {{ s1 }} - {{ s2 }}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if g.game_video_url %}
+                <a href="{{ g.game_video_url|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">Video</a>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if g.can_view_summary %}
+                {% if public_league_id %}
+                  <a class="btn" href="{{ game_path }}?return_to={{ return_to|urlencode }}">View</a>
+                {% else %}
+                  {% if is_league_admin or g.user_id == request.session.user_id %}
+                    <a class="btn" href="{{ game_path }}?return_to={{ return_to|urlencode }}&edit=1">Edit</a>
+                  {% else %}
+                    <a class="btn" href="{{ game_path }}?return_to={{ return_to|urlencode }}">View</a>
+                  {% endif %}
+                {% endif %}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endwith %}
+        {% empty %}
+          {% if schedule_games and schedule_games.0.division_name %}
+            <tr><td colspan="9" class="muted">No games yet.</td></tr>
+          {% else %}
+            <tr><td colspan="8" class="muted">No games yet.</td></tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-{% endif %}
+</div>
 
 <div class="grid" style="margin-top:1rem;">
   <div class="card">
     <h3>Team Stats</h3>
-    {% set s = tstats %}
-    <p class="muted">Record: <strong>{{ s['wins'] }}-{{ s['losses'] }}-{{ s['ties'] }}</strong> | GF: {{ s['gf'] }} | GA: {{ s['ga'] }} | Pts: {{ s['points'] }}</p>
+    <p class="muted">Record: <strong>{{ tstats.wins }}-{{ tstats.losses }}-{{ tstats.ties }}</strong> | GF: {{ tstats.gf }} | GA: {{ tstats.ga }} | Pts: {{ tstats.points }}</p>
   </div>
   <div class="card">
     <h3>Manage</h3>
     {% if editable %}
-      <p><a class="btn" href="/teams/{{ team['id'] }}/edit">Edit team</a> <a class="btn" href="/schedule/new">Add game</a></p>
+      <p><a class="btn" href="/teams/{{ team.id }}/edit">Edit team</a> <a class="btn" href="/schedule/new">Add game</a></p>
     {% else %}
       <p class="muted">Read-only</p>
     {% endif %}
   </div>
 </div>
 
-{% if roster_players is defined %}
+{% if roster_players %}
   <h3 style="margin-top:1.25rem;">Roster</h3>
   <div class="card">
     <div class="table-scroll">
@@ -173,44 +198,49 @@
           </tr>
         </thead>
         <tbody>
-          {% for p in (roster_players or []) %}
+          {% for p in roster_players %}
             <tr>
-              <td>{{ p.get('jersey_number') or '' }}</td>
-              <td>{{ p.get('name') or '' }}</td>
-              <td>{{ p.get('position') or '' }}</td>
+              <td>{{ p.jersey_number|default_if_none:"" }}</td>
+              <td>{{ p.name|default_if_none:"" }}</td>
+              <td>{{ p.position|default_if_none:"" }}</td>
               {% if editable %}
                 <td>
-                  <a class="btn" href="/teams/{{ team['id'] }}/players/{{ p.get('id') }}/edit">Edit</a>
-                  <form style="display:inline" method="post" action="/teams/{{ team['id'] }}/players/{{ p.get('id') }}/delete" onsubmit="return confirm('Delete player?');">
+                  <a class="btn" href="/teams/{{ team.id }}/players/{{ p.id }}/edit">Edit</a>
+                  <form style="display:inline" method="post" action="/teams/{{ team.id }}/players/{{ p.id }}/delete" onsubmit="return confirm('Delete player?');">
+                    {% csrf_token %}
                     <button class="btn danger" type="submit">Delete</button>
                   </form>
                 </td>
               {% endif %}
             </tr>
-          {% else %}
-            <tr><td colspan="{{ 3 + (1 if editable else 0) }}" class="muted">No players yet.</td></tr>
+          {% empty %}
+            {% if editable %}
+              <tr><td colspan="4" class="muted">No players yet.</td></tr>
+            {% else %}
+              <tr><td colspan="3" class="muted">No players yet.</td></tr>
+            {% endif %}
           {% endfor %}
         </tbody>
       </table>
     </div>
     {% if editable %}
-      <p><a class="btn primary" href="/teams/{{ team['id'] }}/players/new">Add player</a></p>
+      <p><a class="btn primary" href="/teams/{{ team.id }}/players/new">Add player</a></p>
     {% endif %}
   </div>
 {% endif %}
 
 <h3>Player Stats (Skaters)</h3>
 <div class="card">
-  {% if game_type_filter_options is defined and (game_type_filter_options|length) %}
+  {% if game_type_filter_options %}
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:.5rem;">
       <details id="player-stats-game-type-filter" style="position:relative;">
-        <summary class="btn">Game Types: {{ game_type_filter_label or 'All' }}</summary>
+        <summary class="btn">Game Types: {{ game_type_filter_label|default:"All" }}</summary>
         <div style="position:absolute;z-index:50;top:calc(100% + 6px);left:0;min-width:240px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:.6rem;opacity:1;">
           <div class="muted" style="font-size:.85rem;margin-bottom:.35rem;">Filter player stats by game type</div>
-          {% for opt in (game_type_filter_options or []) %}
+          {% for opt in game_type_filter_options %}
             <label style="display:flex;align-items:center;gap:.5rem;padding:.2rem 0;">
-              <input class="gt-filter-cb" type="checkbox" value="{{ opt.get('label') }}" {% if opt.get('checked') %}checked{% endif %} />
-              <span>{{ opt.get('label') }}</span>
+              <input class="gt-filter-cb" type="checkbox" value="{{ opt.label }}" {% if opt.checked %}checked{% endif %} />
+              <span>{{ opt.label }}</span>
             </label>
           {% endfor %}
           <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;">
@@ -249,15 +279,13 @@
     </script>
   {% endif %}
 
-  {% if player_stats_sources is defined %}
-    <p class="muted" style="margin:.25rem 0 0 0;">
-      Sources: {% if player_stats_sources %}{{ ', '.join(player_stats_sources) }}{% else %}—{% endif %}
-    </p>
-  {% endif %}
-  {% if player_stats_coverage_total_games is defined %}
+  <p class="muted" style="margin:.25rem 0 0 0;">
+    Sources: {% if player_stats_sources %}{{ player_stats_sources|join:", " }}{% else %}—{% endif %}
+  </p>
+  {% if player_stats_coverage_total_games != None %}
     <p class="muted" style="margin:.35rem 0 .75rem 0;">
       Stats may be incomplete. This selection has <strong>{{ player_stats_coverage_total_games }}</strong> completed games; column headers show <strong>(N)</strong> when a stat is available for only <strong>N</strong> of those games.
-      {% if player_stats_recent_coverage_total_games is defined and (recent_n is defined) %}
+      {% if player_stats_recent_coverage_total_games != None and recent_n != None %}
         Recent table counts are over the last <strong>{{ player_stats_recent_coverage_total_games }}</strong> completed games (requested {{ recent_n }}).
       {% endif %}
     </p>
@@ -269,44 +297,36 @@
           <th>#</th>
           <th>Name</th>
           <th>Pos</th>
-          {% for col in (player_stats_columns or []) %}
-            {% if col is mapping %}
-              {% set key = col.get('key') %}
-              {% set label = col.get('label') %}
-              {% set show_count = col.get('show_count') %}
-              {% set n_games = col.get('n_games') %}
-            {% else %}
-              {% set key = col[0] %}
-              {% set label = col[1] %}
-              {% set show_count = false %}
-              {% set n_games = 0 %}
-            {% endif %}
+          {% for col in player_stats_columns %}
             <th>
-              <div>{{ label }}</div>
-              {% if show_count %}
-                <div class="th-subnote">({{ n_games }} Games)</div>
+              <div>{{ col.label }}</div>
+              {% if col.show_count %}
+                <div class="th-subnote">({{ col.n_games }} Games)</div>
               {% endif %}
             </th>
           {% endfor %}
         </tr>
       </thead>
       <tbody>
-        {% for r in (player_stats_rows or []) %}
+        {% for r in player_stats_rows %}
           <tr>
-            <td>{{ r.get('jersey_number') or '' }}</td>
-            <td>{{ r.get('name') or '' }}</td>
-            <td>{{ r.get('position') or '' }}</td>
-            {% for col in (player_stats_columns or []) %}
-              {% if col is mapping %}
-                {% set key = col.get('key') %}
-              {% else %}
-                {% set key = col[0] %}
-              {% endif %}
-              <td>{{ r.get(key)|fmt_stat }}</td>
+            <td>{{ r.jersey_number|default_if_none:"" }}</td>
+            <td>
+              <a
+                href="#"
+                class="player-events-link"
+                data-player-id="{{ r.player_id }}"
+                style="text-decoration:none;color:inherit;"
+                title="Show underlying events"
+              >{{ r.name|default_if_none:"" }}</a>
+            </td>
+            <td>{{ r.position|default_if_none:"" }}</td>
+            {% for col in player_stats_columns %}
+              <td>{{ r|get_item:col.key|fmt_stat }}</td>
             {% endfor %}
           </tr>
-        {% else %}
-          <tr><td colspan="{{ 3 + (player_stats_columns|length) }}" class="muted">No player stats yet.</td></tr>
+        {% empty %}
+          <tr><td colspan="{{ player_stats_columns|length|add:'3' }}" class="muted">No player stats yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -315,26 +335,19 @@
 
 <h3 style="margin-top:1.25rem;">Recent Player Stats  -- Are They On a Roll?</h3>
 <div class="card">
-  {% set sort_key = (recent_sort or 'points') %}
-  {% set sort_dir = (recent_dir or 'desc') %}
-  {% macro _sort_label(col_key, label) -%}
-    {%- if sort_key == col_key -%}
-      {{ label }} {{ '▲' if sort_dir == 'asc' else '▼' }}
-    {%- else -%}
-      {{ label }}
-    {%- endif -%}
-  {%- endmacro %}
-  {% macro _sort_href(col_key) -%}
-    {%- set next_dir = 'asc' if (sort_key == col_key and sort_dir == 'desc') else 'desc' -%}
-    {{ url_with_args(recent_sort=col_key, recent_dir=next_dir) }}
-  {%- endmacro %}
-
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:.75rem;">
     <span class="muted">Last</span>
     <select onchange="window.location=this.value" style="max-width:170px;">
-      {% for n in range(1, 11) %}
-        <option value="{{ url_with_args(recent_n=n) }}" {% if (recent_n or 5) == n %}selected{% endif %}>{{ n }} games</option>
-      {% endfor %}
+      <option value="{% url_with_args recent_n=1 %}" {% if recent_n == 1 %}selected{% endif %}>1 games</option>
+      <option value="{% url_with_args recent_n=2 %}" {% if recent_n == 2 %}selected{% endif %}>2 games</option>
+      <option value="{% url_with_args recent_n=3 %}" {% if recent_n == 3 %}selected{% endif %}>3 games</option>
+      <option value="{% url_with_args recent_n=4 %}" {% if recent_n == 4 %}selected{% endif %}>4 games</option>
+      <option value="{% url_with_args recent_n=5 %}" {% if recent_n == 5 %}selected{% endif %}>5 games</option>
+      <option value="{% url_with_args recent_n=6 %}" {% if recent_n == 6 %}selected{% endif %}>6 games</option>
+      <option value="{% url_with_args recent_n=7 %}" {% if recent_n == 7 %}selected{% endif %}>7 games</option>
+      <option value="{% url_with_args recent_n=8 %}" {% if recent_n == 8 %}selected{% endif %}>8 games</option>
+      <option value="{% url_with_args recent_n=9 %}" {% if recent_n == 9 %}selected{% endif %}>9 games</option>
+      <option value="{% url_with_args recent_n=10 %}" {% if recent_n == 10 %}selected{% endif %}>10 games</option>
     </select>
     <span class="muted">per player</span>
   </div>
@@ -343,50 +356,415 @@
     <table class="table-nowrap table-grid" data-freeze-cols="2">
       <thead>
         <tr>
-          <th><a href="{{ _sort_href('jersey_number') }}" style="text-decoration:none;color:inherit;">{{ _sort_label('jersey_number', '#') }}</a></th>
-          <th><a href="{{ _sort_href('name') }}" style="text-decoration:none;color:inherit;">{{ _sort_label('name', 'Name') }}</a></th>
-          <th><a href="{{ _sort_href('position') }}" style="text-decoration:none;color:inherit;">{{ _sort_label('position', 'Pos') }}</a></th>
-          {% for col in (recent_player_stats_columns or []) %}
-            {% if col is mapping %}
-              {% set key = col.get('key') %}
-              {% set label = col.get('label') %}
-              {% set show_count = col.get('show_count') %}
-              {% set n_games = col.get('n_games') %}
-            {% else %}
-              {% set key = col[0] %}
-              {% set label = col[1] %}
-              {% set show_count = false %}
-              {% set n_games = 0 %}
-            {% endif %}
+          {% sort_toggle_url "jersey_number" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
+          {% sort_label recent_sort recent_dir "jersey_number" "#" as sort_txt %}
+          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
+
+          {% sort_toggle_url "name" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
+          {% sort_label recent_sort recent_dir "name" "Name" as sort_txt %}
+          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
+
+          {% sort_toggle_url "position" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
+          {% sort_label recent_sort recent_dir "position" "Pos" as sort_txt %}
+          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
+
+          {% for col in recent_player_stats_columns %}
+            {% sort_toggle_url col.key sort_key=recent_sort sort_dir=recent_dir as sort_href %}
+            {% sort_label recent_sort recent_dir col.key col.label as sort_txt %}
             <th>
-              <a href="{{ _sort_href(key) }}" style="text-decoration:none;color:inherit;">{{ _sort_label(key, label) }}</a>
-              {% if show_count %}
-                <div class="th-subnote">({{ n_games }} Games)</div>
+              <a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a>
+              {% if col.show_count %}
+                <div class="th-subnote">({{ col.n_games }} Games)</div>
               {% endif %}
             </th>
           {% endfor %}
         </tr>
       </thead>
       <tbody>
-        {% for r in (recent_player_stats_rows or []) %}
+        {% for r in recent_player_stats_rows %}
           <tr>
-            <td>{{ r.get('jersey_number') or '' }}</td>
-            <td>{{ r.get('name') or '' }}</td>
-            <td>{{ r.get('position') or '' }}</td>
-            {% for col in (recent_player_stats_columns or []) %}
-              {% if col is mapping %}
-                {% set key = col.get('key') %}
-              {% else %}
-                {% set key = col[0] %}
-              {% endif %}
-              <td>{{ r.get(key)|fmt_stat }}</td>
+            <td>{{ r.jersey_number|default_if_none:"" }}</td>
+            <td>
+              <a
+                href="#"
+                class="player-events-link"
+                data-player-id="{{ r.player_id }}"
+                style="text-decoration:none;color:inherit;"
+                title="Show underlying events"
+              >{{ r.name|default_if_none:"" }}</a>
+            </td>
+            <td>{{ r.position|default_if_none:"" }}</td>
+            {% for col in recent_player_stats_columns %}
+              <td>{{ r|get_item:col.key|fmt_stat }}</td>
             {% endfor %}
           </tr>
-        {% else %}
-          <tr><td colspan="{{ 3 + (recent_player_stats_columns|length) }}" class="muted">No recent stats.</td></tr>
+        {% empty %}
+          <tr><td colspan="{{ recent_player_stats_columns|length|add:'3' }}" class="muted">No recent stats.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+
+<dialog id="team-player-events-modal" style="max-width:960px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
+  <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
+    <div>
+      <div id="team-player-events-title" style="font-weight:700;"></div>
+      <div id="team-player-events-subtitle" class="muted" style="font-size:.9rem;"></div>
+    </div>
+    <button id="team-player-events-close" class="btn" type="button">Close</button>
+  </div>
+  <div id="team-player-events-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
+</dialog>
+
+<style>
+  #team-player-events-body table.team-player-events-table th,
+  #team-player-events-body table.team-player-events-table td {
+    padding: .45rem .65rem;
+    font-size: .88rem;
+  }
+</style>
+
+<script>
+	  (function () {
+	    function normTypeKey(s) {
+	      return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+	    }
+	    function parseTimeToSeconds(s) {
+	      s = String(s || "").trim();
+	      if (!s) return null;
+	      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+      if (!m) return null;
+      var a = parseInt(m[1], 10);
+      var b = parseInt(m[2], 10);
+      var c = m[3] ? parseInt(m[3], 10) : null;
+      if (!isFinite(a) || !isFinite(b)) return null;
+      if (c === null) return a * 60 + b;
+      if (!isFinite(c)) return null;
+	      return a * 3600 + b * 60 + c;
+	    }
+
+	    function fmtSecondsToTime(seconds) {
+	      var sec = parseInt(String(seconds), 10);
+	      if (!isFinite(sec) || sec < 0) return "";
+	      var h = Math.floor(sec / 3600);
+	      var m = Math.floor((sec % 3600) / 60);
+	      var s = sec % 60;
+	      if (h > 0) return String(h) + ":" + (m < 10 ? "0" + String(m) : String(m)) + ":" + (s < 10 ? "0" + String(s) : String(s));
+	      return String(m) + ":" + (s < 10 ? "0" + String(s) : String(s));
+	    }
+
+	    function fmtDate(value) {
+	      var s = String(value || "").trim();
+	      if (!s) return "";
+	      var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+      return m ? m[1] : s;
+    }
+
+	    function urlWithTime(url, seconds) {
+	      if (!url) return "";
+	      if (seconds === null || seconds === undefined) return String(url);
+	      var sec = parseInt(String(seconds), 10);
+	      if (!isFinite(sec) || sec < 0) return String(url);
+	      try {
+	        var u = new URL(String(url), window.location.origin);
+	        var host = String(u.hostname || "").toLowerCase();
+	        var isYouTube = host.indexOf("youtube.com") >= 0 || host.indexOf("youtu.be") >= 0 || host.indexOf("youtube-nocookie.com") >= 0;
+	        if (isYouTube) {
+	          // Prefer a standard watch URL so it plays reliably in a new tab, even if embed URLs are stored.
+	          var id = null;
+	          if (host === "youtu.be") {
+	            var p = String(u.pathname || "").replace(/^\//, "");
+	            id = p ? p.split("/")[0] : null;
+	          } else {
+	            id = u.searchParams.get("v");
+	            if (!id) {
+	              var path = String(u.pathname || "");
+	              var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
+	              id = m ? m[1] : null;
+	            }
+	          }
+	          if (id) {
+	            var w = new URL("https://www.youtube.com/watch");
+	            w.searchParams.set("v", String(id));
+	            w.searchParams.set("t", String(sec) + "s");
+	            w.searchParams.set("autoplay", "1");
+	            w.searchParams.set("vq", "hd1080");
+	            return w.toString();
+	          }
+	          u.searchParams.set("t", String(sec) + "s");
+	          u.searchParams.set("autoplay", "1");
+	          u.searchParams.set("vq", "hd1080");
+	          return u.toString();
+	        }
+	        u.hash = "t=" + String(sec);
+	        return u.toString();
+	      } catch (e) {
+	        return String(url);
+	      }
+	    }
+
+    function el(tag, attrs, text) {
+      var node = document.createElement(tag);
+      if (attrs) {
+        Object.keys(attrs).forEach(function (k) {
+          if (k === "className") node.className = attrs[k];
+          else if (k === "text") node.textContent = String(attrs[k] || "");
+          else node.setAttribute(k, String(attrs[k]));
+        });
+      }
+      if (text !== undefined && text !== null) node.textContent = String(text);
+      return node;
+    }
+
+    function addRow(tbody, cols) {
+      var tr = document.createElement("tr");
+      cols.forEach(function (c) {
+        var td = document.createElement("td");
+        if (c && c.nodeType) td.appendChild(c);
+        else td.textContent = String(c || "");
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    }
+
+    function renderEventsTable(container, rows, opts) {
+      var wrap = document.createElement("div");
+      wrap.className = "table-scroll";
+      var table = document.createElement("table");
+      table.className = "table-nowrap table-grid team-player-events-table";
+      var thead = document.createElement("thead");
+      var trh = document.createElement("tr");
+      (opts.headers || []).forEach(function (h) {
+        trh.appendChild(el("th", null, h));
+      });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+	      var tbody = document.createElement("tbody");
+	      (rows || []).forEach(function (r) {
+	        var gameLabel = (fmtDate(r.game_starts_at) || "Game") + " vs " + String(r.opponent || "").trim();
+	        if (String(r.game_type || "").trim()) gameLabel += " (" + String(r.game_type || "").trim() + ")";
+	        var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
+	
+	        var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
+	        var hasVideoTime = videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
+	        var videoLabel = hasVideoTime ? (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) : "";
+	        var videoHref = (r.video_url && hasVideoTime) ? urlWithTime(r.video_url, videoSeconds) : "";
+	        var videoCell = videoHref ? el("a", { href: videoHref, target: "_blank", rel: "noopener noreferrer" }, videoLabel) : el("span", { className: "muted" }, "");
+	
+	        addRow(tbody, opts.rowCells(r, { gameCell: gameCell, videoCell: videoCell }));
+	      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      container.appendChild(wrap);
+    }
+
+	    function groupRows(rows, keyFn) {
+	      var order = [];
+	      var groups = {};
+	      (rows || []).forEach(function (r) {
+	        var label = String(keyFn(r) || "").trim() || "Unknown";
+        var k = label.toLowerCase();
+        if (!Object.prototype.hasOwnProperty.call(groups, k)) {
+          groups[k] = { label: label, rows: [] };
+          order.push(k);
+        }
+        groups[k].rows.push(r);
+      });
+	      return { order: order, groups: groups };
+	    }
+
+	    function withDetailsTag(r, tag) {
+	      var copy = Object.assign({}, r);
+	      var base = String(r.details || "").trim();
+	      var t = String(tag || "").trim();
+	      if (!t) return copy;
+	      copy.details = base ? (t + " — " + base) : t;
+	      return copy;
+	    }
+
+	    var teamId = {{ team.id|default:"0" }};
+	    var publicLeagueId = {{ public_league_id|default:"null" }};
+	    var dlg = document.getElementById("team-player-events-modal");
+	    var titleEl = document.getElementById("team-player-events-title");
+	    var subtitleEl = document.getElementById("team-player-events-subtitle");
+    var bodyEl = document.getElementById("team-player-events-body");
+    var closeBtn = document.getElementById("team-player-events-close");
+    if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
+
+    function closeModal() {
+      try { dlg.close(); } catch (e) { dlg.open = false; }
+    }
+    if (closeBtn) closeBtn.addEventListener("click", closeModal);
+
+    function showModal() {
+      try { dlg.showModal(); } catch (e) { dlg.open = true; }
+    }
+
+    function showError(msg) {
+      bodyEl.innerHTML = "";
+      var p = el("p", { className: "muted" }, msg || "Error");
+      bodyEl.appendChild(p);
+    }
+
+    function buildApiUrl(playerId) {
+      var api = new URL("/api/hky/teams/" + String(teamId) + "/players/" + String(playerId) + "/events", window.location.origin);
+      var cur = new URL(window.location.href);
+      cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+      if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
+      return api;
+    }
+
+    function loadPlayer(playerId) {
+      titleEl.textContent = "Loading…";
+      subtitleEl.textContent = "";
+      bodyEl.innerHTML = "<p class=\"muted\">Loading events…</p>";
+      showModal();
+      var api = buildApiUrl(playerId);
+      fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
+        return resp.json().then(function (data) {
+          if (!resp.ok || !data || !data.ok) {
+            var err = (data && data.error) ? String(data.error) : ("HTTP " + String(resp.status || ""));
+            showError("Unable to load events (" + err + ").");
+            return;
+          }
+          titleEl.textContent = String(data.player_name || "Player") + (data.jersey_number ? (" (#" + String(data.jersey_number) + ")") : "");
+          subtitleEl.textContent = "Eligible games: " + String(data.eligible_games || 0);
+          bodyEl.innerHTML = "";
+
+          var onIce = Array.isArray(data.on_ice_goals) ? data.on_ice_goals : [];
+          var attributed = Array.isArray(data.events) ? data.events : [];
+
+          if (!onIce.length && !attributed.length) {
+            bodyEl.appendChild(el("p", { className: "muted" }, "No matching events for this player in the selected games."));
+            return;
+          }
+
+          if (onIce.length) {
+            bodyEl.appendChild(el("h4", { style: "margin:.25rem 0 .5rem 0;" }, "On-Ice Goals (For/Against)"));
+            var og = groupRows(onIce, function (r) {
+              var fa = String(r.for_against || "").trim();
+              return fa ? ("Goals " + fa) : "Goals";
+            });
+            og.order.forEach(function (k) {
+              var g = og.groups[k];
+              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+              renderEventsTable(bodyEl, g.rows, {
+                headers: ["Game", "P", "Time", "Video", "Details", "Source"],
+                rowCells: function (r, ctx) {
+                  return [
+                    ctx.gameCell,
+                    String(r.period || ""),
+                    String(r.game_time || ""),
+                    ctx.videoCell,
+                    String(r.details || ""),
+                    String(r.source || ""),
+                  ];
+                },
+              });
+            });
+          }
+
+	          if (attributed.length) {
+	            bodyEl.appendChild(el("h4", { style: "margin:1rem 0 .5rem 0;" }, "Attributed Events"));
+	            var filtered = attributed.filter(function (r) {
+	              var k = normTypeKey(r.event_type_key || r.event_type);
+	              return k !== "penaltyexpired";
+	            });
+
+	            var goals = [];
+	            var xg = [];
+	            var sog = [];
+	            var shot = [];
+	            filtered.forEach(function (r) {
+	              var k = normTypeKey(r.event_type_key || r.event_type);
+	              if (k === "goal") {
+	                goals.push(r);
+	                xg.push(withDetailsTag(r, "Goal"));
+	                sog.push(withDetailsTag(r, "Goal"));
+	                shot.push(withDetailsTag(r, "Goal"));
+	              } else if (k === "expectedgoal") {
+	                xg.push(withDetailsTag(r, "xG"));
+	                sog.push(withDetailsTag(r, "xG"));
+	                shot.push(withDetailsTag(r, "xG"));
+	              } else if (k === "sog") {
+	                sog.push(withDetailsTag(r, "SOG"));
+	                shot.push(withDetailsTag(r, "SOG"));
+	              } else if (k === "shot") {
+	                shot.push(r);
+	              }
+	            });
+
+	            [
+	              ["Goals", goals],
+	              ["xG (Expected Goal)", xg],
+	              ["SOG", sog],
+	              ["Shot", shot],
+	            ].forEach(function (pair) {
+	              var label = pair[0];
+	              var rows = pair[1] || [];
+	              if (!rows.length) return;
+	              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, label));
+	              renderEventsTable(bodyEl, rows, {
+	                headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+	                rowCells: function (r, ctx) {
+	                  return [
+	                    ctx.gameCell,
+	                    String(r.period || ""),
+	                    String(r.game_time || ""),
+	                    ctx.videoCell,
+	                    String(r.for_against || ""),
+	                    String(r.details || ""),
+	                    String(r.source || ""),
+	                  ];
+	                },
+	              });
+	            });
+
+	            var chainKeys = { goal: true, expectedgoal: true, sog: true, shot: true };
+	            var remaining = filtered.filter(function (r) {
+	              var k = normTypeKey(r.event_type_key || r.event_type);
+	              return !chainKeys[k];
+	            });
+	            if (remaining.length) {
+	              var eg = groupRows(remaining, function (r) { return r.event_type; });
+	              eg.order.forEach(function (k) {
+	                var g = eg.groups[k];
+	                bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+	                renderEventsTable(bodyEl, g.rows, {
+	                  headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+	                  rowCells: function (r, ctx) {
+	                    return [
+	                      ctx.gameCell,
+	                      String(r.period || ""),
+	                      String(r.game_time || ""),
+	                      ctx.videoCell,
+	                      String(r.for_against || ""),
+	                      String(r.details || ""),
+	                      String(r.source || ""),
+	                    ];
+	                  },
+	                });
+	              });
+	            }
+	          }
+	        });
+	      }).catch(function (e) {
+	        showError("Unable to load events (" + String(e || "error") + ").");
+	      });
+    }
+
+    document.querySelectorAll("a.player-events-link").forEach(function (a) {
+      a.style.cursor = "pointer";
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pid = a.getAttribute("data-player-id");
+        if (!pid) return;
+        loadPlayer(pid);
+      });
+    });
+  })();
+</script>
+
+{% endwith %}
 {% endblock %}

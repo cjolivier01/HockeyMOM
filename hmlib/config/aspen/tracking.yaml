@@ -180,15 +180,15 @@ aspen:
       enabled: false
       params: {}
 
-    # Optional camera controller (rule-based by default). Enable transformer by
-    # setting controller: transformer and model_path to your checkpoint.
+    # Optional camera controller (rule-based by default). Enable transformer/GPT by
+    # setting controller: transformer|gpt and model_path to your checkpoint.
     camera_controller:
       class: hmlib.aspen.plugins.camera_controller_plugin.CameraControllerPlugin
       depends: [tracker]
       params:
-        controller: rule
-        model_path: null
-        window: 8
+        controller: GLOBAL.rink.camera.controller
+        model_path: GLOBAL.rink.camera.camera_model
+        window: GLOBAL.rink.camera.camera_window
 
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin

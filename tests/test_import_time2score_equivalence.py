@@ -1,16 +1,13 @@
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import json
-import os
-from typing import Any
 
 import pytest
 
 
 def _load_webapp_module():
-    os.environ.setdefault("HM_WEBAPP_SKIP_DB_INIT", "1")
-    os.environ.setdefault("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
     spec = importlib.util.spec_from_file_location("webapp_app", "tools/webapp/app.py")
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -19,115 +16,124 @@ def _load_webapp_module():
 
 
 def _load_importer_module():
-    spec = importlib.util.spec_from_file_location("import_time2score_mod", "tools/webapp/import_time2score.py")
+    spec = importlib.util.spec_from_file_location("import_time2score_mod", "tools/webapp/scripts/import_time2score.py")
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(mod)  # type: ignore
     return mod
 
 
-class _DummyPyMySQL:
-    class cursors:
-        DictCursor = object
-
-
-def _canonical_snapshot(fake_db) -> dict[str, Any]:
-    def _parse_notes(notes: Any) -> dict[str, Any]:
+def _snapshot_state(m) -> dict[str, object]:
+    def _tts_id(notes: object) -> int:
+        s = str(notes or "").strip()
+        if not s:
+            return 0
         try:
-            v = json.loads(str(notes or ""))
-            return v if isinstance(v, dict) else {}
+            d = json.loads(s)
+            if isinstance(d, dict):
+                return int(d.get("timetoscore_game_id") or 0)
         except Exception:
-            return {}
+            return 0
+        return 0
 
-    leagues = {lid: dict(v) for lid, v in (getattr(fake_db, "leagues_by_id", {}) or {}).items()}
-    teams = {tid: dict(v) for tid, v in (getattr(fake_db, "teams_by_id", {}) or {}).items()}
-    players = {pid: dict(v) for pid, v in (getattr(fake_db, "players_by_id", {}) or {}).items()}
-    games = {gid: dict(v) for gid, v in (getattr(fake_db, "hky_games_by_id", {}) or {}).items()}
+    def _fmt_dt(val: object) -> str:
+        if val is None:
+            return ""
+        if isinstance(val, dt.datetime):
+            return val.strftime("%Y-%m-%d %H:%M:%S")
+        return str(val)
 
-    # Canonicalize by names / external ids, ignoring auto IDs and timestamps.
-    league_by_name = {str(v.get("name")): {"is_shared": int(v.get("is_shared") or 0)} for v in leagues.values()}
+    leagues = list(m.League.objects.values("name", "is_shared", "source", "external_key", "owner_user__email"))
+    leagues.sort(key=lambda r: str(r["name"]))
 
-    team_by_name = {}
-    for t in teams.values():
-        team_by_name[str(t.get("name"))] = {
-            "is_external": int(t.get("is_external") or 0),
-        }
+    teams = list(m.Team.objects.values("user__email", "name", "is_external"))
+    teams.sort(key=lambda r: (str(r["user__email"]), str(r["name"])))
 
-    # League mappings
-    league_teams = []
-    for (lid, tid), meta in (getattr(fake_db, "league_teams_meta", {}) or {}).items():
-        league_name = str(leagues[int(lid)]["name"])
-        team_name = str(teams[int(tid)]["name"])
-        league_teams.append((league_name, team_name, str((meta or {}).get("division_name") or "")))
-    league_teams.sort()
+    league_teams = list(
+        m.LeagueTeam.objects.values("league__name", "team__name", "division_name", "division_id", "conference_id")
+    )
+    league_teams.sort(key=lambda r: (str(r["league__name"]), str(r["team__name"])))
 
-    league_games = []
-    for (lid, gid), meta in (getattr(fake_db, "league_games_meta", {}) or {}).items():
-        league_name = str(leagues[int(lid)]["name"])
-        g = games[int(gid)]
-        notes = _parse_notes(g.get("notes"))
-        league_games.append(
+    league_games = list(m.LeagueGame.objects.select_related("game").values("league__name", "game__notes", "division_name"))
+    lg2 = []
+    for r in league_games:
+        lg2.append((str(r["league__name"]), _tts_id(r.get("game__notes")), str(r.get("division_name") or "")))
+    lg2.sort()
+
+    games = list(
+        m.HkyGame.objects.select_related("team1", "team2").values(
+            "notes",
+            "team1__name",
+            "team2__name",
+            "starts_at",
+            "team1_score",
+            "team2_score",
+        )
+    )
+    g2 = []
+    for r in games:
+        g2.append(
             (
-                league_name,
-                int(notes.get("timetoscore_game_id") or 0),
-                str((meta or {}).get("division_name") or ""),
-                str(g.get("starts_at") or ""),
-                g.get("team1_score"),
-                g.get("team2_score"),
+                _tts_id(r.get("notes")),
+                str(r.get("team1__name") or ""),
+                str(r.get("team2__name") or ""),
+                _fmt_dt(r.get("starts_at")),
+                r.get("team1_score"),
+                r.get("team2_score"),
             )
         )
-    league_games.sort()
+    g2.sort()
 
-    # Players by (team_name, name, jersey)
-    players_out = []
-    for p in players.values():
-        team_name = str(teams[int(p["team_id"])]["name"])
-        players_out.append((team_name, str(p.get("name") or ""), str(p.get("jersey_number") or "")))
-    players_out.sort()
+    players = list(m.Player.objects.select_related("team").values("team__name", "name", "jersey_number", "position"))
+    p2 = [(str(r.get("team__name") or ""), str(r.get("name") or ""), str(r.get("jersey_number") or "")) for r in players]
+    p2.sort()
 
-    # Player stats by (t2s_game_id, team_name, player_name, goals, assists)
-    ps_out = []
-    for (_gid, _pid), row in (getattr(fake_db, "player_stats", {}) or {}).items():
-        gid = int(row["game_id"])
-        pid = int(row["player_id"])
-        game = games[gid]
-        notes = _parse_notes(game.get("notes"))
-        t2s_id = int(notes.get("timetoscore_game_id") or 0)
-        team_name = str(teams[int(row["team_id"])]["name"])
-        player_name = str(players[pid]["name"])
-        ps_out.append((t2s_id, team_name, player_name, int(row.get("goals") or 0), int(row.get("assists") or 0)))
-    ps_out.sort()
+    pstats = list(
+        m.PlayerStat.objects.select_related("player", "team", "game").values(
+            "game__notes",
+            "team__name",
+            "player__name",
+            "goals",
+            "assists",
+        )
+    )
+    ps2 = []
+    for r in pstats:
+        ps2.append(
+            (
+                _tts_id(r.get("game__notes")),
+                str(r.get("team__name") or ""),
+                str(r.get("player__name") or ""),
+                int(r.get("goals") or 0),
+                int(r.get("assists") or 0),
+            )
+        )
+    ps2.sort()
 
     return {
-        "leagues": league_by_name,
-        "teams": team_by_name,
+        "leagues": leagues,
+        "teams": teams,
         "league_teams": league_teams,
-        "league_games": league_games,
-        "players": players_out,
-        "player_stats": ps_out,
+        "league_games": lg2,
+        "games": g2,
+        "players": p2,
+        "player_stats": ps2,
     }
 
 
 @pytest.fixture()
-def modules():
+def modules(monkeypatch, webapp_db):
+    _django_orm, _m = webapp_db
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
     return _load_webapp_module(), _load_importer_module()
 
 
-@pytest.fixture()
-def fake_db_class():
-    # Reuse FakeConn from the existing webapp import API tests.
-    spec = importlib.util.spec_from_file_location("webapp_import_api_tests", "tests/test_webapp_import_api.py")
-    mod = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(mod)  # type: ignore
-    return mod.FakeConn
-
-
-def should_import_time2score_direct_and_rest_end_in_equivalent_state(monkeypatch, modules, fake_db_class):
+def should_import_time2score_direct_and_rest_end_in_equivalent_state(monkeypatch, modules, webapp_db_reset, webapp_orm_modules):
     webapp_mod, importer_mod = modules
+    _django_orm, m = webapp_orm_modules
 
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-    monkeypatch.setattr(webapp_mod, "pymysql", _DummyPyMySQL(), raising=False)
 
     payload = {
         "league_name": "Equiv League",
@@ -164,8 +170,6 @@ def should_import_time2score_direct_and_rest_end_in_equivalent_state(monkeypatch
     }
 
     # REST import path: hit the webapp endpoint.
-    db_rest = fake_db_class()
-    monkeypatch.setattr(webapp_mod, "get_db", lambda: db_rest)
     app = webapp_mod.create_app()
     app.testing = True
     client = app.test_client()
@@ -176,10 +180,11 @@ def should_import_time2score_direct_and_rest_end_in_equivalent_state(monkeypatch
     )
     assert r.status_code == 200
     assert r.get_json()["ok"] is True
+    snap_rest = _snapshot_state(m)
 
     # Direct-DB import path: apply the same payload via the importer helper.
-    db_direct = fake_db_class()
-    importer_mod.apply_games_batch_payload_to_db(db_direct, payload)
+    webapp_db_reset()
+    importer_mod.apply_games_batch_payload_to_db(None, payload)
+    snap_direct = _snapshot_state(m)
 
-    assert _canonical_snapshot(db_direct) == _canonical_snapshot(db_rest)
-
+    assert snap_direct == snap_rest

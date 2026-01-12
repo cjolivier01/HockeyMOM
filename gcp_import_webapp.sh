@@ -9,13 +9,29 @@ WEBAPP_URL="${WEBAPP_URL:-https://www.jrsharks2013.org}"
 HM_WEBAPP_IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"
 
 # League/user defaults.
-LEAGUE_NAME="${LEAGUE_NAME:-Norcal}"
-OWNER_EMAIL="${OWNER_EMAIL:-cjolivier01@gmail.com}"
+LEAGUE_NAME="${LEAGUE_NAME:-CAHA}"
+NO_DEFAULT_USER=0
+REBUILD=0
+T2S_LEAGUES=(3 5 18)
+T2S_LEAGUES_SET=0
+
+GIT_USER_EMAIL="$(git config --get user.email 2>/dev/null || true)"
+GIT_USER_NAME="$(git config --get user.name 2>/dev/null || true)"
+OWNER_EMAIL="${OWNER_EMAIL:-${GIT_USER_EMAIL:-cjolivier01@gmail.com}}"
+OWNER_NAME="${OWNER_NAME:-${GIT_USER_NAME:-$OWNER_EMAIL}}"
 
 # Game list for shift spreadsheet uploader.
 if [[ -z "${SHIFT_FILE_LIST:-}" ]]; then
-  if [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
+  if [[ -f "$HOME/RVideos/game_list_long.yaml" ]]; then
+    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yaml"
+  elif [[ -f "$HOME/RVideos/game_list_long.yml" ]]; then
+    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yml"
+  elif [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
     SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.txt"
+  elif [[ -f "$HOME/Videos/game_list_long.yaml" ]]; then
+    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yaml"
+  elif [[ -f "$HOME/Videos/game_list_long.yml" ]]; then
+    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yml"
   else
     SHIFT_FILE_LIST="$HOME/Videos/game_list_long.txt"
   fi
@@ -31,6 +47,14 @@ DROP_DB_ONLY=0
 SPREADSHEETS_ONLY=0
 T2S_SCRAPE=0
 
+require_cmd() {
+  local name="$1"
+  if ! command -v "${name}" >/dev/null 2>&1; then
+    echo "[!] Missing required command: ${name}" >&2
+    return 1
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only]
@@ -38,9 +62,10 @@ Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--sp
 Environment:
   WEBAPP_URL              Webapp base URL (default: https://www.jrsharks2013.org)
   HM_WEBAPP_IMPORT_TOKEN  Import token (required for reset/import/upload; not needed for --deploy-only)
-  LEAGUE_NAME             League name (default: Norcal)
-  OWNER_EMAIL             League owner email (default: cjolivier01@gmail.com)
-  SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/RVideos/game_list_long.txt if present, else ~/Videos/game_list_long.txt)
+  LEAGUE_NAME             League name (default: CAHA)
+  OWNER_EMAIL             League owner email (default: git config user.email, else cjolivier01@gmail.com)
+  OWNER_NAME              League owner display name (default: git config user.name, else OWNER_EMAIL)
+  SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/RVideos/game_list_long.yaml if present, else ~/Videos/game_list_long.yaml, else .txt)
   PROJECT_ID              GCP project id (default: sage-courier-241217)
   ZONE                    GCE zone (default: us-central1-a)
   INSTANCE                GCE instance name (default: hm-webapp)
@@ -49,9 +74,32 @@ Options:
   --deploy-only           Only redeploy/restart the webapp and exit (no reset/import/upload)
   --drop-db               Drop (and recreate) the webapp MariaDB database on the GCE instance, then continue
   --drop-db-only          Drop (and recreate) the database, then exit (implies --drop-db)
+  --no-default-user       Skip auto-creating a default webapp user from git config (user.email/user.name)
+  --t2s-league ID         Only import these TimeToScore league ids (repeatable or comma-separated; default: 3,5,18)
+  --rebuild               Reset (delete) existing league hockey data before importing (destructive)
   --spreadsheets-only     Seed only from shift spreadsheets (skip TimeToScore import; avoids T2S usage in parse_stats_inputs)
   --scrape                Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
 EOF
+}
+
+add_t2s_leagues() {
+  local raw="$1"
+  if [[ "${T2S_LEAGUES_SET}" == "0" ]]; then
+    T2S_LEAGUES=()
+    T2S_LEAGUES_SET=1
+  fi
+
+  local -a parts=()
+  IFS=',' read -ra parts <<<"${raw}"
+  local p
+  for p in "${parts[@]}"; do
+    p="${p//[[:space:]]/}"
+    if [[ -z "${p}" || ! "${p}" =~ ^[0-9]+$ ]]; then
+      echo "[!] Invalid --t2s-league value: ${raw}" >&2
+      exit 2
+    fi
+    T2S_LEAGUES+=( "${p}" )
+  done
 }
 
 while [[ $# -gt 0 ]]; do
@@ -59,6 +107,23 @@ while [[ $# -gt 0 ]]; do
     --deploy-only) DEPLOY_ONLY=1; shift ;;
     --drop-db) DROP_DB=1; shift ;;
     --drop-db-only) DROP_DB=1; DROP_DB_ONLY=1; shift ;;
+    --no-default-user) NO_DEFAULT_USER=1; shift ;;
+    --rebuild) REBUILD=1; shift ;;
+    --t2s-league=*)
+      T2S_LEAGUE_RAW="${1#*=}"
+      shift
+      add_t2s_leagues "${T2S_LEAGUE_RAW}"
+      ;;
+    --t2s-league)
+      shift
+      if [[ $# -lt 1 ]]; then
+        echo "[!] --t2s-league requires an integer argument" >&2
+        exit 2
+      fi
+      T2S_LEAGUE_RAW="${1}"
+      shift
+      add_t2s_leagues "${T2S_LEAGUE_RAW}"
+      ;;
     --spreadsheets-only|--no-time2score|--no-t2s) SPREADSHEETS_ONLY=1; shift ;;
     --scrape|--t2s-scrape) T2S_SCRAPE=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -72,8 +137,22 @@ done
 
 if [[ "${DROP_DB_ONLY}" == "1" && "${DEPLOY_ONLY}" == "1" ]]; then
   echo "[!] --drop-db-only cannot be combined with --deploy-only" >&2
+    exit 2
+fi
+
+if [[ ! -x "./p" ]]; then
+  echo "[!] Missing executable: ./p" >&2
+  echo "    Run from repo root, or use ./run.sh / bazel run helpers." >&2
   exit 2
 fi
+
+require_cmd curl || exit 2
+require_cmd python3 || exit 2
+require_cmd gcloud || {
+  echo "    Install the Google Cloud CLI and run: gcloud auth login" >&2
+  echo "    See: https://cloud.google.com/sdk/docs/install" >&2
+  exit 2
+}
 
 is_local_url() {
   case "${WEBAPP_URL}" in
@@ -102,10 +181,15 @@ drop_db_gcp() {
   remote_cmd="$(cat <<'EOF'
 set -euo pipefail
 
-sudo systemctl stop hm-webapp.service >/dev/null 2>&1 || sudo systemctl stop hm-webapp >/dev/null 2>&1 || true
-sudo systemctl start mariadb >/dev/null 2>&1 || sudo systemctl start mysql >/dev/null 2>&1 || true
+if ! sudo -n true 2>/dev/null; then
+  echo "[!] Remote sudo requires a password/tty. SSH in and run: sudo -v  (then re-run gcp_import_webapp.sh --drop-db)" >&2
+  exit 2
+fi
 
-python3 - <<'PY' | sudo mysql -u root
+sudo -n systemctl stop hm-webapp.service >/dev/null 2>&1 || sudo -n systemctl stop hm-webapp >/dev/null 2>&1 || true
+sudo -n systemctl start mariadb >/dev/null 2>&1 || sudo -n systemctl start mysql >/dev/null 2>&1 || true
+
+python3 - <<'PY' | sudo -n mysql -u root
 import json
 from pathlib import Path
 
@@ -137,10 +221,14 @@ print(f"CREATE USER IF NOT EXISTS '{user_s}'@'localhost' IDENTIFIED BY '{pass_s}
 print(f"CREATE USER IF NOT EXISTS '{user_s}'@'127.0.0.1' IDENTIFIED BY '{pass_s}';")
 print(f"GRANT ALL PRIVILEGES ON `{name_i}`.* TO '{user_s}'@'localhost';")
 print(f"GRANT ALL PRIVILEGES ON `{name_i}`.* TO '{user_s}'@'127.0.0.1';")
+print("CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'admin';")
+print("CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'admin';")
+print("GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;")
+print("GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;")
 print("FLUSH PRIVILEGES;")
 PY
 
-sudo systemctl restart hm-webapp.service >/dev/null 2>&1 || sudo systemctl restart hm-webapp >/dev/null 2>&1 || true
+sudo -n systemctl restart hm-webapp.service >/dev/null 2>&1 || sudo -n systemctl restart hm-webapp >/dev/null 2>&1 || true
 EOF
 )"
   echo "[i] Dropping/recreating DB on ${INSTANCE} via gcloud ssh"
@@ -158,17 +246,44 @@ if [[ "${DROP_DB}" == "1" ]]; then
 fi
 
 echo "[i] Redeploying GCP webapp (code-only)"
-python3 tools/webapp/redeploy_gcp.py --project "${PROJECT_ID}" --zone "${ZONE}" --instance "${INSTANCE}"
+python3 tools/webapp/ops/redeploy_gcp.py --project "${PROJECT_ID}" --zone "${ZONE}" --instance "${INSTANCE}"
 
 echo "[i] Verifying webapp endpoint"
 curl -sS -o /dev/null -m 15 -f -I "${WEBAPP_URL}/" >/dev/null
+
+read_default_token
+if [[ "${NO_DEFAULT_USER}" == "0" && -n "${GIT_USER_EMAIL}" && -n "${GIT_USER_NAME}" ]]; then
+  echo "[i] Ensuring default webapp user from git config: ${GIT_USER_EMAIL} (password='password')"
+  HDRS=( -H "Content-Type: application/json" )
+  if [[ -n "${HM_WEBAPP_IMPORT_TOKEN:-}" ]]; then
+    HDRS+=( -H "Authorization: Bearer ${HM_WEBAPP_IMPORT_TOKEN}" -H "X-HM-Import-Token: ${HM_WEBAPP_IMPORT_TOKEN}" )
+  fi
+  PAYLOAD="$(GIT_USER_EMAIL="${GIT_USER_EMAIL}" GIT_USER_NAME="${GIT_USER_NAME}" python3 - <<'PY'
+import json
+import os
+
+print(
+    json.dumps(
+        {
+            "email": os.environ.get("GIT_USER_EMAIL") or "",
+            "name": os.environ.get("GIT_USER_NAME") or "",
+            "password": "password",
+        }
+    )
+)
+PY
+)"
+  if ! curl -sS -m 30 -f -X POST "${HDRS[@]}" --data "${PAYLOAD}" "${WEBAPP_URL}/api/internal/ensure_user" >/dev/null; then
+    echo "[!] Failed to ensure default webapp user via ${WEBAPP_URL}/api/internal/ensure_user" >&2
+    echo "    Hint: if your server requires an import token, set: export HM_WEBAPP_IMPORT_TOKEN='...'" >&2
+  fi
+fi
 
 if [[ "${DEPLOY_ONLY}" == "1" ]]; then
   echo "[i] --deploy-only: skipping reset/import/upload"
   exit 0
 fi
 
-read_default_token
 if [[ -n "${HM_WEBAPP_IMPORT_TOKEN:-}" ]]; then
   TOKEN_ARGS+=( "--import-token=${HM_WEBAPP_IMPORT_TOKEN}" )
   RESET_TOKEN_ARGS+=( "--webapp-token=${HM_WEBAPP_IMPORT_TOKEN}" )
@@ -187,42 +302,54 @@ import json, os
 print(json.dumps({"league_name": os.environ["LEAGUE_NAME"], "owner_email": os.environ["OWNER_EMAIL"], "shared": True}))
 PY
 )"
+AUTH_HEADER=()
+if [[ -n "${HM_WEBAPP_IMPORT_TOKEN:-}" ]]; then
+  AUTH_HEADER+=( -H "Authorization: Bearer ${HM_WEBAPP_IMPORT_TOKEN}" )
+fi
 curl -sS -m 30 -f \
   -X POST "${WEBAPP_URL}/api/internal/ensure_league_owner" \
-  -H "Authorization: Bearer ${HM_WEBAPP_IMPORT_TOKEN}" \
+  "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d "${LEAGUE_OWNER_PAYLOAD}" >/dev/null
 
-echo "[i] Resetting league data (REST)"
-./p tools/webapp/reset_league_data.py \
-  --force \
-  --webapp-url "${WEBAPP_URL}" \
-  "${RESET_TOKEN_ARGS[@]}" \
-  --webapp-owner-email "${OWNER_EMAIL}" \
-  --league-name "${LEAGUE_NAME}"
+if [[ "${REBUILD}" == "1" ]]; then
+  echo "[i] Resetting league data (REST)"
+  ./p tools/webapp/scripts/reset_league_data.py \
+    --force \
+    --webapp-url "${WEBAPP_URL}" \
+    "${RESET_TOKEN_ARGS[@]}" \
+    --webapp-owner-email "${OWNER_EMAIL}" \
+    --league-name "${LEAGUE_NAME}"
+else
+  echo "[i] Skipping league reset (incremental import). Use --rebuild to wipe existing league data."
+fi
 
 if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
   echo "[i] --spreadsheets-only: skipping TimeToScore import"
 else
-  echo "[i] Importing TimeToScore (caha -> ${LEAGUE_NAME}) via REST"
+  echo "[i] Importing TimeToScore (caha league=${T2S_LEAGUES[*]} -> ${LEAGUE_NAME}) via REST"
   T2S_ARGS=()
   if [[ "${T2S_SCRAPE}" == "1" ]]; then
     T2S_ARGS+=( "--scrape" )
   fi
-  ./p tools/webapp/import_time2score.py \
-    --source=caha \
-    --league-name="${LEAGUE_NAME}" \
-    --season 0 \
-    --api-url "${WEBAPP_URL}" \
-    "${T2S_ARGS[@]}" \
-    "${TOKEN_ARGS[@]}" \
-    --user-email "${OWNER_EMAIL}"
+  for T2S_LEAGUE_ID in "${T2S_LEAGUES[@]}"; do
+    echo "[i]   - CAHA TimeToScore league=${T2S_LEAGUE_ID}"
+    ./p tools/webapp/scripts/import_time2score.py \
+      --source=caha \
+      --t2s-league-id "${T2S_LEAGUE_ID}" \
+      --league-name="${LEAGUE_NAME}" \
+      --season 0 \
+      --api-url "${WEBAPP_URL}" \
+      "${T2S_ARGS[@]}" \
+      "${TOKEN_ARGS[@]}" \
+      --user-email "${OWNER_EMAIL}"
+  done
 fi
 
 echo "[i] Uploading shift spreadsheets via REST"
 if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
   echo "[!] SHIFT_FILE_LIST not found: ${SHIFT_FILE_LIST}" >&2
-  echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.txt" >&2
+  echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.yaml" >&2
   exit 2
 fi
 SPREADSHEET_ARGS=()
@@ -238,3 +365,18 @@ fi
   "${TOKEN_ARGS[@]}" \
   --webapp-owner-email "${OWNER_EMAIL}" \
   --webapp-league-name "${LEAGUE_NAME}"
+
+echo "[i] Recalculating Ratings (REST)"
+RATINGS_PAYLOAD="$(
+  LEAGUE_NAME="${LEAGUE_NAME}" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({"league_name": os.environ["LEAGUE_NAME"]}))
+PY
+)"
+HDRS=( -H "Content-Type: application/json" )
+if [[ -n "${HM_WEBAPP_IMPORT_TOKEN:-}" ]]; then
+  HDRS+=( -H "Authorization: Bearer ${HM_WEBAPP_IMPORT_TOKEN}" -H "X-HM-Import-Token: ${HM_WEBAPP_IMPORT_TOKEN}" )
+fi
+curl -sS -m 300 -f -X POST "${HDRS[@]}" --data "${RATINGS_PAYLOAD}" "${WEBAPP_URL}/api/internal/recalc_div_ratings" >/dev/null

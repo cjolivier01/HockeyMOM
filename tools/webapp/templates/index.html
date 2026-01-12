@@ -3,7 +3,7 @@
 <section class="hero">
   <h1>Analyze, Upload, Run — Fast.</h1>
   <p class="muted">Create a game workspace, upload your files, and kick off GPU-powered jobs with one click.</p>
-  {% if not session.get('user_id') %}
+  {% if not request.session.user_id %}
     <p>
       <a class="btn primary" href="/register">Create account</a>
       <a class="btn" href="/login" style="margin-left:.5rem">Sign in</a>

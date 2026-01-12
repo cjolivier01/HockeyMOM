@@ -6,7 +6,6 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -198,6 +197,7 @@ def should_count_goal_role_flags_from_annotated_goals():
     assert gt == 1
     assert gw == 1
 
+
 def should_parse_long_sheet_times_mmss_and_excel_like_cells():
     assert pss._parse_long_mmss_time_to_seconds(datetime.time(23, 56)) == 23 * 60 + 56
     assert pss._parse_long_mmss_time_to_seconds("23:56:00") == 23 * 60 + 56
@@ -228,7 +228,9 @@ def should_parse_long_left_event_table_goal_xg_and_turnovers():
     assert jerseys_by_team == {"Blue": {12, 34, 56}, "White": {14, 91}}
 
     def _has(event_type: str, team: str, jerseys: tuple[int, ...]) -> bool:
-        return any(e.event_type == event_type and e.team == team and e.jerseys == jerseys for e in events)
+        return any(
+            e.event_type == event_type and e.team == team and e.jerseys == jerseys for e in events
+        )
 
     assert _has("Goal", "Blue", (12,))
     assert _has("ExpectedGoal", "Blue", (12,))  # goals count as xG
@@ -238,7 +240,9 @@ def should_parse_long_left_event_table_goal_xg_and_turnovers():
     assert _has("Takeaway", "White", (14,))
     assert _has("Giveaway", "Blue", (12,))
     assert _has("Takeaway", "White", (91,))
-    assert any(e.event_type == "ControlledEntry" and e.team == "Blue" and not e.jerseys for e in events)
+    assert any(
+        e.event_type == "ControlledEntry" and e.team == "Blue" and not e.jerseys for e in events
+    )
 
 
 def should_build_stats_dataframe_omits_per_game_columns_for_single_game():
@@ -307,8 +311,12 @@ def should_infer_focus_team_from_long_sheet_by_roster_overlap():
 
 def should_map_long_events_to_player_keys_for_focus_team():
     long_events = [
-        pss.LongEvent(event_type="Goal", team="Blue", period=1, video_s=10, game_s=860, jerseys=(12,)),
-        pss.LongEvent(event_type="Goal", team="White", period=1, video_s=20, game_s=840, jerseys=(91,)),
+        pss.LongEvent(
+            event_type="Goal", team="Blue", period=1, video_s=10, game_s=860, jerseys=(12,)
+        ),
+        pss.LongEvent(
+            event_type="Goal", team="White", period=1, video_s=20, game_s=840, jerseys=(91,)
+        ),
     ]
     ctx = pss._event_log_context_from_long_events(
         long_events,
@@ -360,9 +368,9 @@ def should_invert_for_against_labels_for_turnovers_in_event_clips(tmp_path: Path
     assert (outdir / "events_Turnovers_forced_For_video_times.txt").read_text(encoding="utf-8") == (
         "00:03:10 00:03:25 00:03:20\n"
     )
-    assert (
-        outdir / "events_Turnovers_forced_Against_video_times.txt"
-    ).read_text(encoding="utf-8") == ("00:01:30 00:01:45 00:01:40\n")
+    assert (outdir / "events_Turnovers_forced_Against_video_times.txt").read_text(
+        encoding="utf-8"
+    ) == ("00:01:30 00:01:45 00:01:40\n")
 
     # Non-turnover events keep the normal labeling (our team == "For").
     assert (outdir / "events_Shot_For_video_times.txt").read_text(encoding="utf-8") == (
@@ -547,12 +555,15 @@ def should_compute_pair_on_ice_player_goal_assist_and_collaboration_counts():
 
 def should_parse_long_shift_tables_for_both_teams():
     # Minimal synthetic long-sheet layout: two team blocks, each with a 1st period shift table.
-    import pandas as pd
     import datetime
+
+    import pandas as pd
 
     rows = []
     # Team A header + table header.
-    rows.append([None] * 10 + ["Team A (1st Period)", None, None, None, None, None, None, None, None, None])
+    rows.append(
+        [None] * 10 + ["Team A (1st Period)", None, None, None, None, None, None, None, None, None]
+    )
     header = [None] * 10 + [
         "Jersey Number",
         "Player Name",
@@ -998,7 +1009,11 @@ def should_compare_primary_vs_long_shift_summary_counts():
     long_tables = {
         "Team A": {
             "sb_pairs_by_player": {
-                "12_Alice_Long": [(1, "15:00", "14:30"), (1, "14:10", "13:30"), (1, "13:00", "12:30")]
+                "12_Alice_Long": [
+                    (1, "15:00", "14:30"),
+                    (1, "14:10", "13:30"),
+                    (1, "13:00", "12:30"),
+                ]
             },
             "video_pairs_by_player": {},
         }
@@ -1046,7 +1061,9 @@ def should_not_compute_per_shift_rates():
             "ga_counted": "",
         }
     ]
-    agg_rows, _periods, _per_game_denoms = pss._aggregate_stats_rows([(shift_game_rows, [1]), (t2s_only_rows, [1])])
+    agg_rows, _periods, _per_game_denoms = pss._aggregate_stats_rows(
+        [(shift_game_rows, [1]), (t2s_only_rows, [1])]
+    )
     row = next(r for r in agg_rows if r.get("player") == "1_A")
 
     # Totals still include T2S-only games.
@@ -1058,7 +1075,9 @@ def should_not_compute_per_shift_rates():
 
 
 def should_not_include_per_shift_columns_even_when_shifts_enabled():
-    rows = [{"player": "1_Ethan", "gp": "1", "goals": "1", "assists": "0", "points": "1", "ppg": "1.0"}]
+    rows = [
+        {"player": "1_Ethan", "gp": "1", "goals": "1", "assists": "0", "points": "1", "ppg": "1.0"}
+    ]
     _df0, cols0 = pss._build_stats_dataframe(rows, [1], include_shifts_in_stats=False)
     assert "goals_per_shift" not in cols0
     assert "shots_per_shift" not in cols0
@@ -1228,7 +1247,9 @@ def should_consolidate_pair_on_ice_across_games(tmp_path: Path):
 
 
 def should_write_empty_pair_on_ice_consolidated_files(tmp_path: Path):
-    ok = pss._write_pair_on_ice_consolidated_files(tmp_path, [{"pair_on_ice": []}], include_toi=False)
+    ok = pss._write_pair_on_ice_consolidated_files(
+        tmp_path, [{"pair_on_ice": []}], include_toi=False
+    )
     assert ok
     assert (tmp_path / "pair_on_ice_consolidated.csv").exists()
     assert (tmp_path / "pair_on_ice_consolidated.xlsx").exists()
@@ -1241,14 +1262,14 @@ def should_error_when_upload_webapp_missing_required_args(tmp_path: Path, monkey
 
     monkeypatch.setattr(
         sys,
-            "argv",
-            [
-                "parse_stats_inputs.py",
-                "--input",
-                str(xlsx_path),
-                "--upload-webapp",
-            ],
-        )
+        "argv",
+        [
+            "parse_stats_inputs.py",
+            "--input",
+            str(xlsx_path),
+            "--upload-webapp",
+        ],
+    )
     with pytest.raises(SystemExit) as e:
         pss.main()
     assert int(getattr(e.value, "code", 0) or 0) == 2
@@ -1264,16 +1285,16 @@ def should_error_when_upload_webapp_external_game_missing_team_names(tmp_path: P
 
     monkeypatch.setattr(
         sys,
-            "argv",
-            [
-                "parse_stats_inputs.py",
-                "--file-list",
-                str(file_list),
-                "--upload-webapp",
-                "--webapp-owner-email",
-                "owner@example.com",
+        "argv",
+        [
+            "parse_stats_inputs.py",
+            "--file-list",
+            str(file_list),
+            "--upload-webapp",
+            "--webapp-owner-email",
+            "owner@example.com",
             "--webapp-league-name",
-            "Norcal",
+            "CAHA",
         ],
     )
     with pytest.raises(SystemExit) as e:
@@ -1294,16 +1315,16 @@ def should_error_when_upload_webapp_external_game_missing_date(tmp_path: Path, m
 
     monkeypatch.setattr(
         sys,
-            "argv",
-            [
-                "parse_stats_inputs.py",
-                "--file-list",
-                str(file_list),
-                "--upload-webapp",
-                "--webapp-owner-email",
-                "owner@example.com",
+        "argv",
+        [
+            "parse_stats_inputs.py",
+            "--file-list",
+            str(file_list),
+            "--upload-webapp",
+            "--webapp-owner-email",
+            "owner@example.com",
             "--webapp-league-name",
-            "Norcal",
+            "CAHA",
         ],
     )
     with pytest.raises(SystemExit) as e:
@@ -1347,7 +1368,15 @@ def should_allow_file_list_home_away_suffix_on_directory_inputs(tmp_path: Path):
     for order_idx, fp in enumerate(discovered):
         label = pss._base_label_from_path(fp)
         g = groups_by_label.setdefault(
-            label, {"label": label, "primary": None, "long_paths": [], "side": None, "order": order_idx, "meta": {}}
+            label,
+            {
+                "label": label,
+                "primary": None,
+                "long_paths": [],
+                "side": None,
+                "order": order_idx,
+                "meta": {},
+            },
         )
         if g.get("side") is None:
             g["side"] = side
@@ -1413,8 +1442,13 @@ def should_build_webapp_logo_payload_from_meta_path_and_base64(tmp_path: Path, c
 def should_parse_webapp_starts_at_from_meta_date_and_starts_at(capsys):
     assert pss._starts_at_from_meta({"date": "2026-01-04"}) == "2026-01-04 00:00:00"
     assert pss._starts_at_from_meta({"date": "1/4/2026"}) == "2026-01-04 00:00:00"
-    assert pss._starts_at_from_meta({"date": "2026-01-04", "time": "13:05"}) == "2026-01-04 13:05:00"
-    assert pss._starts_at_from_meta({"date": "2026-01-04", "time": "13:05:09"}) == "2026-01-04 13:05:09"
+    assert (
+        pss._starts_at_from_meta({"date": "2026-01-04", "time": "13:05"}) == "2026-01-04 13:05:00"
+    )
+    assert (
+        pss._starts_at_from_meta({"date": "2026-01-04", "time": "13:05:09"})
+        == "2026-01-04 13:05:09"
+    )
     assert pss._starts_at_from_meta({"starts_at": "2026-01-04T13:05:09"}) == "2026-01-04 13:05:09"
     assert pss._starts_at_from_meta({"starts_at": "2026-01-04"}) == "2026-01-04 00:00:00"
 

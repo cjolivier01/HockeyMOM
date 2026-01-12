@@ -8,8 +8,8 @@ set -euo pipefail
 # - Optionally runs the smoke UI script when RUN_SMOKE=1
 #
 # Usage:
-#   tools/webapp/redeploy_local.sh
-#   RUN_SMOKE=1 tools/webapp/redeploy_local.sh
+#   tools/webapp/ops/redeploy_local.sh
+#   RUN_SMOKE=1 tools/webapp/ops/redeploy_local.sh
 
 APP_DIR="/opt/hm-webapp/app"
 SMOKE="${RUN_SMOKE:-0}"
@@ -79,6 +79,30 @@ wait_for_tcp() {
   done
 }
 
+ensure_db_admin_user() {
+  local db_host="$1"
+  local db_port="$2"
+  if [[ "$db_host" != "127.0.0.1" && "$db_host" != "localhost" ]]; then
+    echo "[i] Skipping DB admin user provisioning (remote DB host=${db_host}:${db_port})"
+    return 0
+  fi
+  echo "[i] Ensuring MariaDB login user admin/admin exists (requires sudo)"
+  if ! sudo mysql --connect-timeout=5 -u root -e "SELECT 1;" >/dev/null 2>&1; then
+    echo "[!] Cannot connect to MariaDB as root via sudo; skipping DB admin user provisioning" >&2
+    return 0
+  fi
+  if ! sudo mysql --connect-timeout=5 -u root >/dev/null <<'SQL'
+CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'admin';
+CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'admin';
+GRANT ALL PRIVILEGES ON *.* TO 'admin'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO 'admin'@'127.0.0.1' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+SQL
+  then
+    echo "[!] Failed to provision DB admin user (admin/admin). Try: sudo mysql -u root" >&2
+  fi
+}
+
 curl_ok() {
   local url="$1"
   local code
@@ -117,20 +141,92 @@ fi
 
 echo "[i] Validating sudo access"
 if ! sudo -n true 2>/dev/null; then
-  die "sudo requires a password/tty. Run: sudo -v  (in a terminal), then re-run: tools/webapp/redeploy_local.sh"
+  die "sudo requires a password/tty. Run: sudo -v  (in a terminal), then re-run: tools/webapp/ops/redeploy_local.sh"
 fi
 
 echo "[i] Copying app.py, templates, and static to $APP_DIR (sudo required)"
 sudo install -m 0644 -D tools/webapp/app.py "$APP_DIR/app.py"
+sudo install -m 0755 -D tools/webapp/manage.py "$APP_DIR/manage.py"
+sudo install -m 0644 -D tools/webapp/django_orm.py "$APP_DIR/django_orm.py"
+sudo install -m 0644 -D tools/webapp/django_settings.py "$APP_DIR/django_settings.py"
+sudo install -m 0644 -D tools/webapp/urls.py "$APP_DIR/urls.py"
+sudo install -m 0644 -D tools/webapp/wsgi.py "$APP_DIR/wsgi.py"
 sudo install -m 0644 -D tools/webapp/hockey_rankings.py "$APP_DIR/hockey_rankings.py"
-sudo install -m 0755 -D tools/webapp/recalc_div_ratings.py "$APP_DIR/recalc_div_ratings.py"
+sudo install -m 0755 -D tools/webapp/scripts/recalc_div_ratings.py "$APP_DIR/recalc_div_ratings.py"
 sudo mkdir -p "$APP_DIR/templates" "$APP_DIR/static"
 sudo rsync -a tools/webapp/templates/ "$APP_DIR/templates/"
 sudo rsync -a tools/webapp/static/ "$APP_DIR/static/"
+sudo mkdir -p "$APP_DIR/django_app"
+sudo rsync -a tools/webapp/django_app/ "$APP_DIR/django_app/"
+sudo mkdir -p "$APP_DIR/hm_webapp"
+sudo rsync -a tools/webapp/hm_webapp/ "$APP_DIR/hm_webapp/"
 
 CONFIG_JSON="$APP_DIR/config.json"
 if [ ! -f "$CONFIG_JSON" ]; then
-  die "Missing $CONFIG_JSON; re-run installer (tools/webapp/install_webapp.py)."
+  die "Missing $CONFIG_JSON; re-run installer (tools/webapp/ops/install_webapp.py)."
+fi
+
+echo "[i] Ensuring Django is installed in the webapp venv"
+if ! /opt/hm-webapp/venv/bin/python -c "import django" >/dev/null 2>&1; then
+  echo "[i] Installing Django into /opt/hm-webapp/venv"
+  /opt/hm-webapp/venv/bin/python -m pip install -q django 2>/dev/null \
+    || sudo /opt/hm-webapp/venv/bin/python -m pip install django
+fi
+
+# Ensure gunicorn logs to journald (so Internal Server Error always has a traceback in `journalctl`).
+if sudo test -f "$SERVICE_FILE"; then
+  if sudo grep -q -- "app:app" "$SERVICE_FILE"; then
+    echo "[i] Updating $SERVICE_FILE gunicorn entrypoint to Django WSGI (wsgi:application)"
+    sudo perl -0777 -i -pe 's/^(ExecStart=.*?gunicorn\\b[^\\n]*?)\\s+app:app\\s*$/\\1 wsgi:application/m' "$SERVICE_FILE"
+  fi
+  if ! sudo grep -q -- "--error-logfile" "$SERVICE_FILE"; then
+    echo "[i] Updating $SERVICE_FILE to capture gunicorn output"
+    sudo perl -0777 -i -pe 's/^(ExecStart=.*?gunicorn\\b[^\\n]*?)\\s+wsgi:application\\s*$/\\1 --access-logfile - --error-logfile - --capture-output --log-level info wsgi:application/m' "$SERVICE_FILE"
+  fi
+fi
+
+# Ensure nginx serves /static/ directly for the Django UI.
+NGINX_SITE="/etc/nginx/sites-available/hm-webapp"
+if sudo test -f "$NGINX_SITE"; then
+  if ! sudo grep -q "location /static/" "$NGINX_SITE"; then
+    echo "[i] Updating $NGINX_SITE to serve /static/ from $APP_DIR/static"
+    sudo python3 - "$NGINX_SITE" "$APP_DIR" <<'PY'
+import os
+import re
+import sys
+import tempfile
+
+path = sys.argv[1]
+app_dir = sys.argv[2].rstrip("/")
+
+with open(path, "r", encoding="utf-8") as fh:
+    text = fh.read()
+
+if "location /static/" in text:
+    raise SystemExit(0)
+
+insert = f\"\"\"\n    location /static/ {{\n        alias {app_dir}/static/;\n    }}\n\"\"\".rstrip()
+
+m = re.search(r\"\\n\\}\\s*$\", text, flags=re.S)
+if not m:
+    raise SystemExit(0)
+
+text2 = text[: m.start()] + \"\\n\\n\" + insert + \"\\n\" + text[m.start() :]
+
+dir_name = os.path.dirname(path) or \".\"
+fd, tmp = tempfile.mkstemp(prefix=\"hm-webapp-nginx-\", dir=dir_name)
+try:
+    with os.fdopen(fd, \"w\", encoding=\"utf-8\") as fh:
+        fh.write(text2)
+    os.replace(tmp, path)
+finally:
+    try:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    except Exception:
+        pass
+PY
+  fi
 fi
 
 # Ensure gunicorn logs to journald (so Internal Server Error always has a traceback in `journalctl`).
@@ -161,6 +257,8 @@ fi
 if ! wait_for_tcp "$DB_HOST" "$DB_PORT" 20; then
   die "DB still not reachable on ${DB_HOST}:${DB_PORT}. Check: sudo journalctl -u mariadb -n 200 --no-pager"
 fi
+
+ensure_db_admin_user "$DB_HOST" "$DB_PORT"
 
 echo "[i] Starting hm-webapp and nginx"
 sudo systemctl restart hm-webapp
@@ -222,7 +320,7 @@ fi
 
 if [ "$SMOKE" = "1" ]; then
   echo "[i] Running smoke UI script"
-  bash tools/webapp/smoke_ui.sh
+  bash tools/webapp/ops/smoke_ui.sh
 fi
 
 echo "[ok] Redeploy complete"

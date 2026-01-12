@@ -5,7 +5,9 @@ import sys
 
 
 def _load_rankings_module():
-    spec = importlib.util.spec_from_file_location("hockey_rankings", "tools/webapp/hockey_rankings.py")
+    spec = importlib.util.spec_from_file_location(
+        "hockey_rankings", "tools/webapp/hockey_rankings.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     sys.modules["hockey_rankings"] = mod
@@ -94,9 +96,15 @@ def should_normalize_ratings_age_aware_splits_weak_cross_age_edges():
     mod = _load_rankings_module()
     # Cross-age game exists (10 vs 12) but only 1 team per side -> weak, so it shouldn't anchor ages together.
     games = [mod.GameScore(team1_id=1, team2_id=10, team1_score=1, team2_score=2)]
-    base = {1: {"rating": 3.0, "games": 5}, 2: {"rating": 2.0, "games": 5}, 10: {"rating": 4.0, "games": 5}}
+    base = {
+        1: {"rating": 3.0, "games": 5},
+        2: {"rating": 2.0, "games": 5},
+        10: {"rating": 4.0, "games": 5},
+    }
     team_age = {1: 10, 2: 10, 10: 12}
-    out = mod.normalize_ratings_to_0_99_9_age_aware(base, games=games, team_age=team_age, key="rating")
+    out = mod.normalize_ratings_to_0_99_9_age_aware(
+        base, games=games, team_age=team_age, key="rating"
+    )
     # Team 1 is alone in its anchoring component (no same-age edges provided), so it gets 99.9.
     assert out[1]["rating"] == 99.9
     # Team 10 is alone in 12U component and gets 99.9 as well.
@@ -119,7 +127,9 @@ def should_normalize_ratings_age_aware_anchors_strong_cross_age_edges():
         11: {"rating": 1.0, "games": 5},
     }
     team_age = {1: 10, 2: 10, 10: 12, 11: 12}
-    out = mod.normalize_ratings_to_0_99_9_age_aware(base, games=games, team_age=team_age, key="rating")
+    out = mod.normalize_ratings_to_0_99_9_age_aware(
+        base, games=games, team_age=team_age, key="rating"
+    )
     # Single anchored component -> only the overall max becomes 99.9.
     assert out[10]["rating"] == 99.9
     assert out[1]["rating"] < 99.9
@@ -132,6 +142,15 @@ def should_parse_age_from_division_name_common_formats():
     assert mod.parse_age_from_division_name("12AA") == 12
     assert mod.parse_age_from_division_name("16A") == 16
     assert mod.parse_age_from_division_name("Mite B") == 8
+
+
+def should_parse_level_from_division_name_common_formats():
+    mod = _load_rankings_module()
+    assert mod.parse_level_from_division_name("10U B West") == "B"
+    assert mod.parse_level_from_division_name("10 B West") == "B"
+    assert mod.parse_level_from_division_name("12AA") == "AA"
+    assert mod.parse_level_from_division_name("16A") == "A"
+    assert mod.parse_level_from_division_name("Mite B") == "B"
 
 
 def should_filter_games_ignore_cross_age():

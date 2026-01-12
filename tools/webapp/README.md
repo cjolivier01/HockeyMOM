@@ -3,7 +3,7 @@ HockeyMOM WebApp (Uploads + Run)
 
 Overview
 --------
-Flask-based web app that lets users:
+Django-based web app (DTL + Django ORM) that lets users:
 - Create an account and log in
 - Create a new "game" (project) directory for uploads and trigger Slurm jobs via DirWatcher
 - NEW: Manage hockey teams and players, create games, and track stats
@@ -20,7 +20,7 @@ Prereqs:
 Install and start:
 
 ```
-sudo python3 tools/webapp/install_webapp.py \
+sudo python3 tools/webapp/ops/install_webapp.py \
   --watch-root /data/incoming \
   --server-name _ \
   --port 8008
@@ -28,9 +28,12 @@ sudo python3 tools/webapp/install_webapp.py \
 
 This will:
 - Copy the app to `/opt/hm-webapp/app`
-- Create a venv + install Flask/Gunicorn
+- Create a venv + install Django/Gunicorn (and PyMySQL)
 - Install a systemd unit `hm-webapp.service`
 - Install an Nginx site proxying `http://127.0.0.1:8008` and restart Nginx
+
+If nginx fails to start with `Address already in use`, something else is already bound to the nginx listen port (default: 80; common culprit: `apache2`).
+Either stop/disable the conflicting service, or re-run the installer with `--nginx-port <other-port>` (and optionally `--disable-apache2`).
 
 Deploy to Google Cloud (smallest VM)
 ------------------------------------
@@ -44,13 +47,13 @@ This repo includes a helper that deploys the webapp + local MariaDB to a tiny Co
 2) Deploy:
 
 ```
-python3 tools/webapp/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a
+python3 tools/webapp/ops/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a
 ```
 
 3) Delete everything created by the script:
 
 ```
-python3 tools/webapp/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --delete
+python3 tools/webapp/ops/deploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --delete
 ```
 
 Redeploy (code-only)
@@ -58,14 +61,14 @@ Redeploy (code-only)
 If you only changed `tools/webapp/app.py` / templates / static assets, you can do a fast redeploy that just copies files to the VM and restarts the service:
 
 ```
-python3 tools/webapp/redeploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --instance hm-webapp
+python3 tools/webapp/ops/redeploy_gcp.py --project <PROJECT_ID> --zone us-central1-a --instance hm-webapp
 ```
 
 Uninstall
 ---------
 
 ```
-sudo python3 tools/webapp/uninstall_webapp.py
+sudo python3 tools/webapp/ops/uninstall_webapp.py
 ```
 
 Usage
@@ -76,6 +79,11 @@ Usage
 - Schedule: create games between one or two of your teams
   - If you select only one of your teams, enter an opponent name to auto-create an external team that is hidden from your team list by default
   - Edit a game to set scores and enter per-player stats (goals, assists, shots, PIM, +/-). Team standings are computed automatically from game results.
+
+Dev (repo)
+----------
+- Run a dev server: `cd tools/webapp && python3 manage.py runserver`
+- Project settings live in `tools/webapp/hm_webapp/settings.py` (`tools/webapp/django_settings.py` is a back-compat shim for installs/tests).
 
 Import Shift Spreadsheet Stats
 ------------------------------
@@ -88,7 +96,7 @@ Demo Data
 To quickly demo the Teams/Schedule features, seed sample data into your configured DB:
 
 ```
-python3 tools/webapp/seed_demo.py --config /opt/hm-webapp/app/config.json \
+python3 tools/webapp/scripts/seed_demo.py --config /opt/hm-webapp/app/config.json \
   --email demo@example.com --name "Demo User"
 ```
 
@@ -105,7 +113,7 @@ Use the import script to populate teams and games from the CAHA TimeToScore site
 Example usage:
 
 ```
-python3 tools/webapp/import_time2score.py \
+python3 tools/webapp/scripts/import_time2score.py \
   --config /opt/hm-webapp/app/config.json \
   --source caha \
   --season 0 \
@@ -113,7 +121,11 @@ python3 tools/webapp/import_time2score.py \
 ```
 
 Flags:
-- `--source`: `caha` (league=3) or `sharksice` (league=1)
+- `--source`: `caha` (CAHA/TimeToScore) or `sharksice` (SharksIce adult, league=1)
+- `--t2s-league-id`: CAHA TimeToScore `league=` id (default: 3). Common values:
+  - `3`: CAHA regular season
+  - `5`: CAHA tier teams
+  - `18`: CAHA tournaments (imported as game type "Tournament")
 - `--season`: season id (0 = current/latest)
 - `--user-email`: user that will own imported teams/games (teams marked is_external=1)
 - `--division`: filter to only divisions you want (repeatable). Accepts:
@@ -131,17 +143,17 @@ Flags:
 - Non-destructive by default:
   - `--replace` overwrites existing game scores and `player_stats`; otherwise importer only fills missing values.
 
-Import "Norcal"
----------------
-To import CAHA/TimeToScore into a league named `Norcal`, use `import_time2score.py` with league flags:
+Import "CAHA"
+-------------
+To import CAHA/TimeToScore into a league named `CAHA`, use `import_time2score.py` with league flags:
 
 ```
-python3 tools/webapp/import_time2score.py \
+python3 tools/webapp/scripts/import_time2score.py \
   --config /opt/hm-webapp/app/config.json \
   --source caha \
   --season 0 \
   --user-email demo@example.com \
-  --league-name Norcal \
+  --league-name CAHA \
   --shared
 ```
 
@@ -155,13 +167,13 @@ Examples:
 
 ```
 # Wipe everything (prompts for confirmation)
-python3 tools/webapp/reset_league_data.py --config /opt/hm-webapp/app/config.json
+python3 tools/webapp/scripts/reset_league_data.py --config /opt/hm-webapp/app/config.json
 
 # Wipe only a specific league by name
-python3 tools/webapp/reset_league_data.py --config /opt/hm-webapp/app/config.json --league-name CAHA-Current-12U
+python3 tools/webapp/scripts/reset_league_data.py --config /opt/hm-webapp/app/config.json --league-name CAHA-Current-12U
 
 # Non-interactive
-python3 tools/webapp/reset_league_data.py --config /opt/hm-webapp/app/config.json --force
+python3 tools/webapp/scripts/reset_league_data.py --config /opt/hm-webapp/app/config.json --force
 ```
 
 What it does:

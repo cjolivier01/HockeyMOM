@@ -1,54 +1,78 @@
-FROM nvidia/cuda:13.0.0-base-ubuntu24.04 
+ARG CUDA_BASE=nvidia/cuda:12.4.1-devel-ubuntu22.04
+FROM ${CUDA_BASE}
 
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-COPY install_deps.sh /tmp/install_deps.sh
+ARG USERNAME=hm
+ARG UID=1000
+ARG GID=1000
 
-# Build up the base system and install common dependencies via script
-RUN apt-get update \
-  && apt-get install -y sudo wget ssh openssh-server curl \
-  && chmod +x /tmp/install_deps.sh \
-  && /tmp/install_deps.sh \
-  && rm -f /tmp/install_deps.sh
+# Keep bash in RUN steps so we can source conda, use braces, etc.
+SHELL ["/bin/bash", "-lc"]
 
-# Update package list and install essential build tools
-RUN apt-get update && apt-get install -y \
-  build-essential \
-  git git-lfs \
-  yasm \
-  pkg-config \
+####################################################################
+#
+# Base system deps (build + runtime)
+#
+####################################################################
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates \
+  ccache \
+  curl \
+  git \
+  git-lfs \
+  openssh-client \
+  sudo \
   wget \
+  rsync \
   unzip \
-  && apt-get clean
-
-# Install Vigra/Hugin dependencies
-RUN apt-get install -y \
-  libgl1-mesa-dev \
-  libglu1-mesa-dev \
-  libavformat-dev \
-  libgl-dev \
-  libjpeg-turbo8-dev \
-  libboost-all-dev \
-  libopenblas-dev \
-  libomp-dev \
-  && apt-get clean
-
-# Install NVIDIA driver dependencies and the NVIDIA codec SDK
-RUN apt-get install -y \
-  cuda-toolkit-13-0 \
-  cudnn9-cuda-13 \
-  libffmpeg-nvenc-dev \
-  && apt-get clean
-
-# # Install FFmpeg build dependencies
-RUN apt-get install -y \
-  vim \
+  zip \
+  build-essential \
+  pkg-config \
+  yasm \
+  nasm \
   autoconf \
   automake \
   cmake \
   ninja-build \
   libtool \
+  vim \
+  graphviz \
+  graphviz-dev \
+  gettext \
+  libyaml-cpp-dev \
+  libprotobuf-dev \
+  protobuf-compiler \
+  libgl1-mesa-dev \
+  libglu1-mesa-dev \
+  libgl-dev \
+  libglew-dev \
+  libjpeg-turbo8-dev \
+  libtiff-dev \
+  libpng-dev \
+  libopenexr-dev \
+  libexiv2-dev \
+  libfftw3-dev \
+  libilmbase-dev \
+  liblcms2-dev \
+  libsqlite3-dev \
+  liblapack-dev \
+  libopenblas-dev \
+  libomp-dev \
+  libboost-all-dev \
+  libpano13-dev \
+  libglfw3-dev \
+  libgsl-dev \
+  help2man \
+  texlive-latex-base \
+  libwxgtk3.0-gtk3-dev \
+  libx264-dev \
+  libx265-dev \
+  libvpx-dev \
+  libfdk-aac-dev \
+  libmp3lame-dev \
+  libopus-dev \
   libass-dev \
   libfreetype6-dev \
   libsdl2-dev \
@@ -60,354 +84,195 @@ RUN apt-get install -y \
   libxcb1-dev \
   libxcb-shm0-dev \
   libxcb-xfixes0-dev \
-  pkg-config \
   texinfo \
   zlib1g-dev \
-  && apt-get clean
-
-RUN apt-get install -y libmkl-full-dev && apt-get clean
+  libavformat-dev \
+  libavcodec-dev \
+  libavdevice-dev \
+  libavutil-dev \
+  libswscale-dev \
+  libswresample-dev \
+  && rm -rf /var/lib/apt/lists/*
 
 ####################################################################
 #
 # User setup
 #
 ####################################################################
-ARG USERNAME
-ARG UID
-ARG GID
-
-ENV SHELL=/bin/bash
-
-# Create a new user with the provided USERNAME, UID, and GID
-RUN groupadd $USERNAME
-RUN useradd -m -s /bin/bash -g $USERNAME -G sudo $USERNAME
-
-# Set a password for the user
-# RUN echo "$USERNAME:password" | chpasswd
-
-# Set the user and prevent the container from running as root
-USER $USERNAME
-
-# Set the working directory
-WORKDIR /home/$USERNAME
+RUN set -eux; \
+  if getent group "${GID}" >/dev/null 2>&1; then \
+    group_name="$(getent group "${GID}" | cut -d: -f1)"; \
+  else \
+    group_name="${USERNAME}"; \
+    groupadd --gid "${GID}" "${group_name}"; \
+  fi; \
+  if id -u "${USERNAME}" >/dev/null 2>&1; then \
+    true; \
+  else \
+    useradd -m -s /bin/bash --uid "${UID}" --gid "${group_name}" -G sudo "${USERNAME}"; \
+  fi; \
+  echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/"${USERNAME}"; \
+  chmod 0440 /etc/sudoers.d/"${USERNAME}"
 
 ####################################################################
 #
-# Download and install Mambaforge for the non-root user
+# Conda (needed for Bazel conda_repository + Python runtime)
 #
 ####################################################################
-USER root
-RUN mkdir -p /opt/$USERNAME
-RUN chown $USERNAME /opt/$USERNAME
+ENV CONDA_DIR=/opt/conda
+RUN wget -O /tmp/miniforge.sh \
+    "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh" \
+  && bash /tmp/miniforge.sh -b -p "${CONDA_DIR}" \
+  && rm -f /tmp/miniforge.sh \
+  && "${CONDA_DIR}/bin/conda" config --system --set auto_update_conda false \
+  && "${CONDA_DIR}/bin/conda" config --system --set show_channel_urls true \
+  && "${CONDA_DIR}/bin/conda" create -y -n hm python=3.10 pip \
+  && "${CONDA_DIR}/bin/conda" clean -a -y
 
-# USER $USERNAME
-# WORKDIR /home/$USERNAME
-# RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh
-# RUN bash ./Mambaforge-Linux-x86_64.sh -b -p /opt/$USERNAME/dconda
-# RUN rm Mambaforge-Linux-x86_64.sh
+ENV CONDA_PREFIX=${CONDA_DIR}/envs/hm
+ENV PATH=${CONDA_PREFIX}/bin:${CONDA_DIR}/bin:$PATH
+ENV LD_LIBRARY_PATH=${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}
 
-# Set the environment path
-# ENV PATH /opt/$USERNAME/dconda/bin:$PATH
-
-# # Create a Python environment called 'ubuntu'
-# RUN mamba create -n ubuntu python=3.12 -y
-
-# # Activate the environment automatically on login
-# RUN echo "source /opt/$USERNAME/dconda/bin/activate ubuntu" >> /home/$USERNAME/.bashrc
-RUN echo "alias cls=clear" >> /home/$USERNAME/.bashrc
+RUN pip install --no-cache-dir -U pip setuptools wheel
 
 ####################################################################
 #
-#
-# Build packages
-#
+# Bazelisk (used by ./run.sh and Bazel builds)
 #
 ####################################################################
-USER $USERNAME
-RUN mkdir src
-WORKDIR /home/$USERNAME/src
-
-####################################################################
-#
-# FFMPeg
-#
-####################################################################
-USER root
-RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && cd nv-codec-headers && git checkout n11.1.5.3 && make install
-WORKDIR /home/$USERNAME/src
-RUN rm -rf nv-codec-headers
-
-USER $USERNAME
-RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg && cd ffmpeg && git checkout n5.1.4
-
-# Configure FFmpeg with the desired codecs and options
-WORKDIR /home/$USERNAME/src/ffmpeg
-RUN NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_89,code=sm_89" \
-  ./configure \
-  --prefix="/usr/local" \
-  --extra-cflags='-I/usr/local/cuda/include' \
-  --extra-ldflags='-L/usr/local/cuda/lib64' \
-  --disable-doc \
-  --enable-decoder=aac \
-  --enable-decoder=h264 \
-  --enable-decoder=h264_cuvid \
-  --enable-decoder=hevc_cuvid \
-  --enable-decoder=av1_cuvid \
-  --enable-decoder=rawvideo \
-  --enable-indev=lavfi \
-  --enable-encoder=libx264 \
-  --enable-encoder=h264_nvenc \
-  --enable-encoder=hevc_nvenc \
-  --enable-encoder=av1_nvenc \
-  --enable-demuxer=mov \
-  --enable-muxer=mp4 \
-  --enable-filter=scale \
-  --enable-filter=testsrc2 \
-  --enable-protocol=file \
-  --enable-protocol=https \
-  --enable-gnutls \
-  --enable-shared \
-  --enable-gpl \
-  --enable-nonfree \
-  --enable-cuda-nvcc \
-  --enable-libx264 \
-  --enable-libnpp \
-  --enable-nvenc \
-  --enable-cuvid \
-  --enable-nvdec \
-  --enable-pic \
-  --enable-rpath \
-  --extra-cflags=-I/usr/local/cuda/include \
-  --extra-ldflags=-L/usr/local/cuda/lib64 \
-  && make -j$(nproc)
-
-USER root
-RUN make -j $(nproc) install
-
-# USER $USERNAME
-# WORKDIR /home/$USERNAME/src
+RUN curl -fsSL -o /usr/local/bin/bazelisk \
+    https://github.com/bazelbuild/bazelisk/releases/download/v1.20.0/bazelisk-linux-amd64 \
+  && chmod +x /usr/local/bin/bazelisk \
+  && ln -sf /usr/local/bin/bazelisk /usr/local/bin/bazel
 
 ####################################################################
 #
-# PIP Dependencies
+# Build FFmpeg with CUDA/NVENC/NVDEC support
 #
 ####################################################################
-# RUN conda init
+WORKDIR /tmp
+RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git \
+  && cd nv-codec-headers \
+  && git checkout n11.1.5.3 \
+  && make -j"$(nproc)" install \
+  && cd /tmp \
+  && rm -rf nv-codec-headers
 
-USER root
-RUN apt-get install -y python3-pip
-RUN pip install \
-    cython \
-    numpy==1.23.5 \
-    screeninfo \
-    yacs \
-    moviepy \
-    opencv-python \
-    PyYAML \
-    cython-bbox \
-    scipy \
-    progress \
-    motmetrics \
-    matplotlib \
-    openpyxl \
-    Pillow-simd \
-    psutil \
-    filterpy \
-    screeninfo \
-    gast \
-    astunparse \
-    fvcore \
-    opencv-python \
-    opencv-contrib-python \
-    cameratransform \
-    tifffile \
-    scikit-build \
-    scikit-learn \
-    lmdb \
-    loguru \
-    pycocotools \
-    sympy \
-    numba \
-    pyquaternion \
-    typing_extensions
-
-# # Again, force the proper numpy version
-RUN pip install numpy==1.23.5
-
-
-# ####################################################################
-# #
-# # Build Vigra (dependency of Hugin tools)
-# # We need to build it because it has a patch in one of the headers
-# # that fixes a compile problem with Hugin.
-# #
-# ####################################################################
-WORKDIR /home/$USERNAME/src
-RUN git clone https://github.com/cjolivier01/vigra && \
-   cd vigra && \
-   git checkout colivier/hm \
-   && mkdir build \
-   && cd build \
-   && ../cfig \
-   && make -j $(nproc)
-
-USER $USERNAME
-WORKDIR /home/$USERNAME/src/vigra/build
-USER root
-RUN make install
-WORKDIR /home/$USERNAME/src
-RUN rm -rf vigra
-
-# ####################################################################
-# #
-# # Make Wheels Dirs
-# #
-# ####################################################################
-USER root
-RUN mkdir /wheels
-
-
-# ####################################################################
-# #
-# # Build PyTorch
-# #
-# ####################################################################
-USER $USERNAME
-WORKDIR /home/$USERNAME/src
-RUN git clone https://github.com/cjolivier01/pytorch --branch=v2.9.0 --recursive
-
-WORKDIR /home/$USERNAME/src/pytorch
-USER root
-RUN pip install -r requirements.txt
-
-USER $USERNAME
-RUN \
-  MAX_JOBS=12 \
-  TORCH_CUDA_ARCH_LIST="7.5;8.9;9.0;10.0;10.3;11.0;12.0;12.1" \
-  BUILD_TEST=0 \
-  USE_CUDA=1 \
-  USE_NUMPY=1 \
-  USE_ROCM=OFF \
-  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  python3 setup.py bdist_wheel
-
-USER root
-RUN pip install dist/*.whl
-RUN cp dist/*.whl /wheels/
-
-# ####################################################################
-# #
-# # Build TorchVision
-# #
-# ####################################################################
-USER $USERNAME
-WORKDIR /home/$USERNAME/src
-RUN git clone https://github.com/pytorch/vision --branch=v0.18.0 --recursive
-WORKDIR /home/$USERNAME/src/vision
-RUN \
-  MAX_JOBS=12 \
-  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
-  BUILD_TEST=0 \
-  USE_CUDA=1 \
-  USE_CUDNN=1 \
-  USE_NUMPY=1 \
-  USE_ROCM=OFF \
-  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  python3 setup.py bdist_wheel
-
-USER root
-RUN pip install dist/*.whl
-RUN cp dist/*.whl /wheels/
+RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg \
+  && cd ffmpeg \
+  && git checkout n5.1.4 \
+  && NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_89,code=sm_89" \
+     ./configure \
+       --prefix="/usr/local" \
+       --extra-cflags='-I/usr/local/cuda/include' \
+       --extra-ldflags='-L/usr/local/cuda/lib64' \
+       --disable-doc \
+       --enable-decoder=aac \
+       --enable-decoder=h264 \
+       --enable-decoder=h264_cuvid \
+       --enable-decoder=hevc_cuvid \
+       --enable-decoder=av1_cuvid \
+       --enable-decoder=rawvideo \
+       --enable-indev=lavfi \
+       --enable-encoder=libx264 \
+       --enable-encoder=h264_nvenc \
+       --enable-encoder=hevc_nvenc \
+       --enable-encoder=av1_nvenc \
+       --enable-demuxer=mov \
+       --enable-muxer=mp4 \
+       --enable-filter=scale \
+       --enable-filter=testsrc2 \
+       --enable-protocol=file \
+       --enable-protocol=https \
+       --enable-gnutls \
+       --enable-shared \
+       --enable-gpl \
+       --enable-nonfree \
+       --enable-cuda-nvcc \
+       --enable-libx264 \
+       --enable-libnpp \
+       --enable-nvenc \
+       --enable-cuvid \
+       --enable-nvdec \
+       --enable-pic \
+       --enable-rpath \
+       --extra-cflags=-I/usr/local/cuda/include \
+       --extra-ldflags=-L/usr/local/cuda/lib64 \
+  && make -j"$(nproc)" \
+  && make -j"$(nproc)" install \
+  && cd /tmp \
+  && rm -rf ffmpeg
 
 ####################################################################
 #
-# Build TorchAudio
+# Build VIGRA (patched) for Hugin
 #
 ####################################################################
-USER $USERNAME
-WORKDIR /home/$USERNAME/src
-RUN git clone https://github.com/pytorch/audio --branch=v2.1.2 --recursive
-WORKDIR /home/$USERNAME/src/audio
-RUN \
-  MAX_JOBS=16 \
-  TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.9;9.0" \
-  BUILD_TEST=0 \
-  USE_CUDA=1 \
-  USE_NUMPY=1 \
-  USE_ROCM=OFF \
-  BUILD_CAFFE2=0 BUILD_CAFFE2_OPS=0 \
-  python3 setup.py bdist_wheel
-
-USER root
-RUN pip install dist/*.whl
-RUN cp dist/*.whl /wheels/
+WORKDIR /tmp
+RUN git clone https://github.com/cjolivier01/vigra \
+  && cd vigra \
+  && git checkout colivier/hm \
+  && mkdir -p build \
+  && cd build \
+  && ../cfig \
+  && make -j"$(nproc)" \
+  && make -j"$(nproc)" install \
+  && cd /tmp \
+  && rm -rf vigra
 
 ####################################################################
 #
-# Build and install Hugin
+# Copy source tree (kept in the image for development)
 #
 ####################################################################
-
-USER $USERNAME
-WORKDIR /home/$USERNAME/src
-RUN git clone https://github.com/cjolivier01/hugin --branch=colivier/hockeymom --recursive
-WORKDIR /home/$USERNAME/src/hugin
-RUN mkdir build && cd build && \
-  cmake .. && \
-  make -j $(nproc)
-
-USER root
-WORKDIR /home/$USERNAME/src/hugin/build
-RUN make install
+WORKDIR /opt/hm/src/hm
+COPY . /opt/hm/src/hm
+RUN chown -R "${UID}:${GID}" /opt/hm
 
 ####################################################################
 #
-# Build and install OpenCV
+# Python deps (runtime + build)
 #
 ####################################################################
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
+ARG TORCH_VERSION=2.4.1
+ARG TORCHVISION_VERSION=0.19.1
+ARG TORCHAUDIO_VERSION=2.4.1
 
+RUN pip install --no-cache-dir --index-url "${TORCH_INDEX_URL}" \
+    "torch==${TORCH_VERSION}" \
+    "torchvision==${TORCHVISION_VERSION}" \
+    "torchaudio==${TORCHAUDIO_VERSION}"
 
-#
-# Clean up builds
-#
-USER root
-WORKDIR /home/$USERNAME
-RUN rm -rf src/*
+# PyNvVideoCodec is hosted on NVIDIA's index for many setups.
+# Avoid `nvidia-pyindex` here: its build backend expects `pip` to be importable
+# inside an isolated PEP517 build env, which isn't always true.
+RUN pip install --no-cache-dir --extra-index-url https://pypi.nvidia.com PyNvVideoCodec
 
-#
-# Some environment stuff
-#
-USER $USERNAME
-# RUN echo "export HMBASE_CONDA_PATH=/opt/$USERNAME/dconda/bin" >> /etc/profile
-# RUN echo "export HMBASE_CONDA_ENV=ubuntu"  >> /etc/profile
-
+RUN pip install --no-cache-dir -r requirements.txt
 
 ####################################################################
 #
-# Switch back to root to configure SSH
+# Build + install native tools and wheels
 #
 ####################################################################
-USER root
-RUN mkdir /var/run/sshd
+RUN cd /opt/hm/src/hm/external/hugin \
+  && bazelisk run //:install_tree -- --prefix=/usr/local
 
-# Update SSH configuration to expose it on a non-standard port and permit password authentication
-RUN sed -i 's/#Port 22/Port 22298/' /etc/ssh/sshd_config && \
-    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#HostKey/HostKey/' /etc/ssh/sshd_config
+RUN cd /opt/hm/src/hm \
+  && ./run.sh //hockeymom:bdist_wheel \
+  && ./run.sh //hmlib:bdist_wheel \
+  && pip install --no-cache-dir dist/hockeymom-*.whl dist/hmlib-*.whl
 
-RUN ssh-keygen -y -t rsa -f /etc/ssh/ssh_host_rsa_key -N ''
-RUN ssh-keygen -y -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N ''
-RUN ssh-keygen -y -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ''
-RUN chmod 600 /etc/ssh/ssh_host_*_key
-RUN chmod 644 /etc/ssh/ssh_host_*_key.pub
+####################################################################
+#
+# Runtime defaults
+#
+####################################################################
+USER "${USERNAME}"
+WORKDIR /home/"${USERNAME}"
+RUN mkdir -p "/home/${USERNAME}/Videos"
 
-# SSH login fix. Otherwise user is kicked off after login
-RUN sed -i 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' /etc/pam.d/sshd
+ENV PYTHONPATH=/opt/hm/src/hm:/opt/hm/src/hm/src
 
-# Expose the SSH port
-EXPOSE 22298
-
-# Start the SSH daemon
-CMD ["/usr/sbin/sshd", "-d", "-p", "22298"]
-# CMD ["/bin/bash"]
+CMD ["/bin/bash"]

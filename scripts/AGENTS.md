@@ -2,6 +2,10 @@
 
 This file applies to the `scripts/` subtree.
 
+## Formatting and lint
+
+- Before finalizing changes, run `python -m black` and `ruff check` on any modified/new Python files and fix issues until clean.
+
 ## `scripts/parse_stats_inputs.py`
 
 Parses a per-game “shift spreadsheet” and produces:
