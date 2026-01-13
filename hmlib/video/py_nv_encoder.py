@@ -27,8 +27,9 @@ class _DLPackFrame:
 
     This exists to adapt to PyNvEncoder's expectation of calling
     __dlpack__(consumer_stream) with a positional argument, while newer
-    PyTorch versions require keyword-only parameters. We ignore the
-    consumer stream and delegate to tensor.__dlpack__().
+    PyTorch versions require keyword-only parameters. We forward the
+    consumer stream so PyTorch can synchronize producer/consumer streams
+    correctly before exporting the capsule.
     """
 
     def __init__(self, tensor: torch.Tensor) -> None:
@@ -41,8 +42,25 @@ class _DLPackFrame:
         return self
 
     def __dlpack__(self, *args, **kwargs):
-        # Ignore consumer_stream argument; rely on PyTorch defaults.
-        return self._tensor.__dlpack__()
+        # PyNvVideoCodec calls __dlpack__(consumer_stream) positionally, but
+        # torch.Tensor.__dlpack__ requires keyword-only args. Forward the
+        # consumer stream so PyTorch can perform the required synchronization
+        # between the current stream (producer) and the consumer stream.
+        if args and "stream" not in kwargs:
+            kwargs["stream"] = args[0]
+            args = args[1:]
+        # Be tolerant of any extra positional args from other dlpack callers
+        # (max_version, dl_device, copy), mapping them onto PyTorch keywords.
+        if args and "max_version" not in kwargs:
+            kwargs["max_version"] = args[0]
+            args = args[1:]
+        if args and "dl_device" not in kwargs:
+            kwargs["dl_device"] = args[0]
+            args = args[1:]
+        if args and "copy" not in kwargs:
+            kwargs["copy"] = args[0]
+            args = args[1:]
+        return self._tensor.__dlpack__(**kwargs)
 
     def __dlpack_device__(self):
         return self._tensor.__dlpack_device__()
