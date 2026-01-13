@@ -5,9 +5,11 @@ from __future__ import annotations
 import contextlib
 import copy
 import math
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -17,18 +19,13 @@ from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
 from hmlib.stitching.blender2 import create_stitcher
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensorBase,
-    cuda_stream_scope,
-    unwrap_tensor,
-    wrap_tensor,
-)
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import (
     image_height,
     image_width,
     make_channels_first,
     make_channels_last,
+    make_visible_image,
     resize_image,
 )
 from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
@@ -289,7 +286,11 @@ class StitchingPlugin(Plugin):
         raise ValueError(f"Expected 3 or 4 channels, got {c}")
 
     def _create_stitcher(
-        self, context: Dict[str, Any], imgs_1: torch.Tensor, imgs_2: torch.Tensor, device: torch.device
+        self,
+        context: Dict[str, Any],
+        imgs_1: torch.Tensor,
+        imgs_2: torch.Tensor,
+        device: torch.device,
     ) -> None:
         if self._stitcher is not None:
             return
@@ -373,7 +374,9 @@ class StitchingPlugin(Plugin):
         cache_key = (int(h), int(w), device)
         cache = self._rotate_cache.get(cache_key)
         if cache is None:
-            center = torch.tensor([(w - 1) / 2.0, (h - 1) / 2.0], device=device, dtype=torch.float32)
+            center = torch.tensor(
+                [(w - 1) / 2.0, (h - 1) / 2.0], device=device, dtype=torch.float32
+            )
             s = torch.tensor(
                 [
                     [(w - 1) / 2.0, 0.0, (w - 1) / 2.0],
@@ -578,7 +581,9 @@ class StitchingPlugin(Plugin):
         data_item.update(
             dict(
                 img=blended,
-                img_info=dict(frame_id=int(ids[0].item()) if isinstance(ids, torch.Tensor) else int(ids[0])),
+                img_info=dict(
+                    frame_id=int(ids[0].item()) if isinstance(ids, torch.Tensor) else int(ids[0])
+                ),
                 img_prefix=None,
                 img_id=ids,
             )
@@ -614,6 +619,15 @@ class StitchingPlugin(Plugin):
                 ids=ids,
             )
         )
+
+        if self._iter_num == 1 and self._dir_name is not None:
+            frame_path = os.path.join(self._dir_name, "s.png")
+            stitched_frame = unwrap_tensor(stitched_for_output)
+            print(
+                f"Stitched frame resolution: {image_width(stitched_frame)} x {image_height(stitched_frame)}"
+            )
+            print(f"Saving first stitched frame to {frame_path}")
+            cv2.imwrite(frame_path, make_visible_image(stitched_frame[0], force_numpy=True))
 
         return {
             "data": data_item,

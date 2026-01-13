@@ -150,12 +150,6 @@ class HmUnsharpMask:
         if self._enabled:
             results[self._image_label] = unsharp_mask(results[self._image_label])
         return results
-        self._image_label = image_label
-
-    def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        if self._enabled:
-            results[self._image_label] = unsharp_mask(results[self._image_label])
-        return results
 
 
 @TRANSFORMS.register_module()

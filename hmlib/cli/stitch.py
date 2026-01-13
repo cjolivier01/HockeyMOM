@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-import hmlib.transforms  # Register custom transforms for Aspen pipelines
+import hmlib.transforms  # noqa: F401 (Register custom transforms for Aspen pipelines)
 from hmlib.aspen import AspenNet
 from hmlib.config import get_clip_box
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
@@ -31,7 +31,6 @@ from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
-from hockeymom.core import show_cuda_tensor
 
 ROOT_DIR = os.getcwd()
 
@@ -160,6 +159,7 @@ def stitch_videos(
         )
         if args is not None:
             hm_opts.apply_arg_config_overrides(aspen_cfg_all, args)
+            hm_opts.apply_config_overrides(aspen_cfg_all, getattr(args, "config_overrides", None))
             args.game_config = aspen_cfg_all
         resolve_global_refs(aspen_cfg_all)
         use_aspen_stitching = bool(
@@ -345,7 +345,9 @@ def stitch_videos(
                         break
                     if use_aspen_stitching:
                         stitch_inputs = batch
-                        left_item = stitch_inputs[0] if isinstance(stitch_inputs, (list, tuple)) else None
+                        left_item = (
+                            stitch_inputs[0] if isinstance(stitch_inputs, (list, tuple)) else None
+                        )
                         frame_ids = None
                         if isinstance(left_item, dict):
                             frame_ids = left_item.get("frame_ids")
@@ -353,7 +355,11 @@ def stitch_videos(
                                 frame_ids = left_item.get("ids")
                         if frame_ids is None:
                             frame_ids = torch.arange(i * batch_size, (i + 1) * batch_size)
-                        batch_size = int(frame_ids.shape[0]) if isinstance(frame_ids, torch.Tensor) else batch_size
+                        batch_size = (
+                            int(frame_ids.shape[0])
+                            if isinstance(frame_ids, torch.Tensor)
+                            else batch_size
+                        )
 
                         context = {
                             "stitch_inputs": stitch_inputs,

@@ -489,7 +489,6 @@ def get_canvas_info(
 
 
 class SmartRemapperBlender(torch.nn.Module):
-
     def __init__(
         self,
         remapper_1: ImageRemapper,

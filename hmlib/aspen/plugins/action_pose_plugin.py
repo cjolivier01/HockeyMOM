@@ -8,8 +8,9 @@ import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
-from .base import Plugin
 from hmlib.tracking_utils.utils import get_track_mask
+
+from .base import Plugin
 
 
 class ActionFromPosePlugin(Plugin):

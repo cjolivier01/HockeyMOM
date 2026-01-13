@@ -45,8 +45,8 @@ from hmlib.tasks.tracking import run_mmtrack
 
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
-from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.path import add_suffix_to_filename
+from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import time_to_frame
@@ -629,9 +629,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params["tracker_class"] = (
-                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
-                        )
+                        tracker_params[
+                            "tracker_class"
+                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)
@@ -939,6 +939,15 @@ def _main(args, num_gpu):
                     dataloader.append_dataset("pano", mot_dataloader)
             else:
                 assert len(input_video_files) == 1
+                if isinstance(aspen_cfg_for_pipeline, dict):
+                    stitching_cfg = aspen_cfg_for_pipeline.get("stitching")
+                    if isinstance(stitching_cfg, dict):
+                        stitching_cfg["enabled"] = False
+                    plugins_cfg = aspen_cfg_for_pipeline.get("plugins")
+                    if isinstance(plugins_cfg, dict):
+                        stitching_plugin = plugins_cfg.get("stitching")
+                        if isinstance(stitching_plugin, dict):
+                            stitching_plugin["enabled"] = False
                 if os.path.isdir(input_video_files[0]):
                     dir_name = input_video_files[0]
                 else:
@@ -1293,12 +1302,13 @@ def main():
                 game_dir = None
 
         # Validate imports for the pieces hmtrack expects to have available.
-        import mmengine  # noqa: F401
+        import lightglue  # noqa: F401
         import mmcv  # noqa: F401
         import mmdet  # noqa: F401
+        import mmengine  # noqa: F401
         import mmpose  # noqa: F401
         import mmyolo  # noqa: F401
-        import lightglue  # noqa: F401
+
         import hockeymom._hockeymom  # noqa: F401
 
         print(f"Smoke test OK. game_id={getattr(args, 'game_id', None)} game_dir={game_dir}")

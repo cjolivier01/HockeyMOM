@@ -92,7 +92,9 @@ def pack_gpt_checkpoint(
     }
 
 
-def unpack_gpt_checkpoint(ckpt: Dict[str, Any]) -> Tuple[Dict[str, Any], CameraNorm, int, CameraGPTConfig]:
+def unpack_gpt_checkpoint(
+    ckpt: Dict[str, Any]
+) -> Tuple[Dict[str, Any], CameraNorm, int, CameraGPTConfig]:
     sd = ckpt["state_dict"]
     n = ckpt["norm"]
     window = int(ckpt.get("window", 16))

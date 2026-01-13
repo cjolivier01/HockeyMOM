@@ -7,11 +7,10 @@ import numpy as np
 import torch
 from torch import Tensor
 from torch.nn import functional as F
-from torchvision.transforms import functional as TF
 
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.hm_opts import hm_opts
-from hmlib.utils.image import make_channels_first, make_channels_last, resize_image
+from hmlib.utils.image import make_channels_first, make_channels_last
 
 
 def point_distance(pt0: torch.Tensor, pt1: torch.Tensor) -> torch.Tensor:

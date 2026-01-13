@@ -3,6 +3,7 @@
 from __future__ import absolute_import, division, print_function
 
 import copy
+import os
 import sys
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -33,7 +34,6 @@ from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.utils import get_track_mask
-from hmlib.ui import show_image
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
@@ -66,6 +66,12 @@ _COLOR_TRACKBARS = {
     "Contrast_Multiplier_x100",
     "Gamma_Multiplier_x100",
 }
+
+
+def _opencv_highgui_available() -> bool:
+    if os.name == "nt":
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -115,7 +121,6 @@ class BreakawayDetection:
 
 @HM.register_module()
 class PlayTracker(torch.nn.Module):
-
     def __init__(
         self,
         hockey_mom: HockeyMOM,
@@ -604,7 +609,10 @@ class PlayTracker(torch.nn.Module):
             )
 
         if self._camera_ui_enabled:
-            self._init_ui_controls()
+            if _opencv_highgui_available():
+                self._init_ui_controls()
+            else:
+                self._camera_ui_enabled = False
 
         cm_path = camera_model
         if self._camera_controller == "transformer" and cm_path:
@@ -1218,7 +1226,9 @@ class PlayTracker(torch.nn.Module):
 
                     # Fit into arena without shrinking a single edge (avoids mixed resize up/down distortion).
                     current_box = _fit_box_inside_bounds(current_box, self._play_box)
-                    fast_roi_bounding_box = _fit_box_inside_bounds(fast_roi_bounding_box, self._play_box)
+                    fast_roi_bounding_box = _fit_box_inside_bounds(
+                        fast_roi_bounding_box, self._play_box
+                    )
 
                     # Backup the last calculated box
                     self._previous_cluster_union_box = current_box.clone()
@@ -1530,31 +1540,14 @@ class PlayTracker(torch.nn.Module):
 
             stop_dir_delay = int(self._initial_camera_value("stop_on_dir_change_delay"))
             cancel_stop = (
-                1
-                if bool(
-                    self._initial_camera_value(
-                        "cancel_stop_on_opposite_dir"
-                    )
-                )
-                else 0
+                1 if bool(self._initial_camera_value("cancel_stop_on_opposite_dir")) else 0
             )
-            hyst = int(
-                self._initial_camera_value("stop_cancel_hysteresis_frames")
-            )
-            cooldown = int(
-                self._initial_camera_value("stop_delay_cooldown_frames")
-            )
-            ov_delay = int(
-                self._initial_breakaway_value("overshoot_stop_delay_count")
-            )
-            postns = int(
-                self._initial_breakaway_value("post_nonstop_stop_delay_count")
-            )
+            hyst = int(self._initial_camera_value("stop_cancel_hysteresis_frames"))
+            cooldown = int(self._initial_camera_value("stop_delay_cooldown_frames"))
+            ov_delay = int(self._initial_breakaway_value("overshoot_stop_delay_count"))
+            postns = int(self._initial_breakaway_value("post_nonstop_stop_delay_count"))
             ov_scale = int(
-                100
-                * float(
-                    self._initial_breakaway_value("overshoot_scale_speed_ratio")
-                )
+                100 * float(self._initial_breakaway_value("overshoot_scale_speed_ratio"))
             )
             ttg = int(self._require_camera_value("time_to_dest_speed_limit_frames"))
 

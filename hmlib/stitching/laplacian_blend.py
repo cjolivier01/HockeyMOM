@@ -4,9 +4,9 @@ Implements multi-level blending on tensors and is used by the Python
 blender path of the stitching pipeline.
 """
 
+import math
 from typing import List, Optional, Tuple
 
-import math
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -346,9 +346,7 @@ class LaplacianBlend(torch.nn.Module):
             mask = self.seam_mask.unsqueeze(0).unsqueeze(0).clone()
             unique_values = torch.unique(mask)
             if unique_values.numel() < 2:
-                mask = torch.zeros(
-                    self.seam_mask.shape[-2:], dtype=self._dtype, device=device
-                )
+                mask = torch.zeros(self.seam_mask.shape[-2:], dtype=self._dtype, device=device)
                 mask[:, : mask.shape[-1] // 2] = 1.0
                 mask = mask.unsqueeze(0).unsqueeze(0)
                 left_value = torch.tensor(1.0, dtype=self._dtype, device=device)

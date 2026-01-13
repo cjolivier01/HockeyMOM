@@ -104,4 +104,3 @@ class RgbStatsCheckPlugin(Plugin):
 
     def output_keys(self) -> Set[str]:
         return {"data"}
-

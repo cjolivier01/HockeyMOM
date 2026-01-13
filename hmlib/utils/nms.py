@@ -7,7 +7,7 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.log import get_logger
-from hmlib.utils.tensor import make_const_tensor, new_full, new_zeros
+from hmlib.utils.tensor import make_const_tensor, new_zeros
 
 _TRT_LOGGER = None
 

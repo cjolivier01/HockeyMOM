@@ -38,6 +38,59 @@ High‑level components:
 If you need details not covered here, inspect `hockeymom/src/PythonBindings.cpp`.
 """
 
+from __future__ import annotations
+
+import ctypes
+from pathlib import Path
+
+
+def _preload_torch_shared_libraries() -> None:
+    """
+    Ensure Torch's shared libraries are loaded before importing `hockeymom._hockeymom`.
+
+    When this package is imported outside Bazel, the dynamic loader does not know
+    about Torch's `torch/lib` directory, so importing our extension can fail with
+    missing dependencies (e.g. `libcaffe2_nvrtc.so`, `libtorch_cuda_linalg.so`).
+    Preloading a small set of Torch libs with `RTLD_GLOBAL` makes the symbols
+    available for the extension module to resolve.
+    """
+
+    try:
+        import torch
+    except Exception:
+        return
+
+    torch_lib_dir = Path(torch.__file__).resolve().parent / "lib"
+    if not torch_lib_dir.is_dir():
+        return
+
+    rtld_global = getattr(ctypes, "RTLD_GLOBAL", None)
+    if rtld_global is None:
+        return
+
+    # Keep this list small and stable; only add libraries as needed.
+    for name in (
+        "libtorch_global_deps.so",
+        "libcaffe2_nvrtc.so",
+        "libtorch_cuda_linalg.so",
+        "libtorch_cuda.so",
+        "libc10_cuda.so",
+        "libtorch_cpu.so",
+        "libc10.so",
+        "libtorch.so",
+    ):
+        path = torch_lib_dir / name
+        if not path.exists():
+            continue
+        try:
+            ctypes.CDLL(str(path), mode=rtld_global)
+        except OSError:
+            # Best-effort: missing/ABI-mismatched libs should surface when importing the extension.
+            pass
+
+
+_preload_torch_shared_libraries()
+
 from ._hockeymom import (
     AllLivingBoxConfig,
     AspenGraphSampler,
@@ -48,15 +101,15 @@ from ._hockeymom import (
     CudaStitchPanoF32,
     CudaStitchPanoU8,
     GrowShrink,
-    HmDcfTrackerCudaStatic,
     HmByteTrackConfig,
     HmByteTracker,
     HmByteTrackerCuda,
     HmByteTrackerCudaStatic,
-    HmTracker,
-    HmTrackerPredictionMode,
+    HmDcfTrackerCudaStatic,
     HmLogLevel,
     HmLogMessage,
+    HmTracker,
+    HmTrackerPredictionMode,
     ImageBlender,
     ImageBlenderMode,
     ImageRemapper,
@@ -68,8 +121,8 @@ from ._hockeymom import (
     RemapperConfig,
     StitchImageInfo,
     WHDims,
-    compute_kmeans_clusters,
     bgr_to_i420_cuda,
+    compute_kmeans_clusters,
     show_cuda_tensor,
 )
 

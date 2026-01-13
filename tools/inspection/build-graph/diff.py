@@ -43,7 +43,10 @@ def main():
         ),
     )
     parser.add_argument(
-        "source_ref", default="HEAD", nargs="?", help="The git ref to compare changes to. Defaults to HEAD."
+        "source_ref",
+        default="HEAD",
+        nargs="?",
+        help="The git ref to compare changes to. Defaults to HEAD.",
     )
     parser.add_argument(
         "target_ref",
@@ -71,7 +74,9 @@ def generate_hash() -> dict:
     return hash_build_graph(generate_build_graph())
 
 
-def get_affected(source_hash: dict, target_hash: dict, output: OutputFormat = OutputFormat.TARGET) -> list[str]:
+def get_affected(
+    source_hash: dict, target_hash: dict, output: OutputFormat = OutputFormat.TARGET
+) -> list[str]:
     targets = diff_build_graph(source_hash, target_hash)
     if output is OutputFormat.PACKAGE:
         return run(

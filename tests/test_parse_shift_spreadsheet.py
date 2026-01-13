@@ -6,7 +6,6 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -556,8 +555,9 @@ def should_compute_pair_on_ice_player_goal_assist_and_collaboration_counts():
 
 def should_parse_long_shift_tables_for_both_teams():
     # Minimal synthetic long-sheet layout: two team blocks, each with a 1st period shift table.
-    import pandas as pd
     import datetime
+
+    import pandas as pd
 
     rows = []
     # Team A header + table header.

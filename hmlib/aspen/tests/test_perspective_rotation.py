@@ -208,7 +208,15 @@ def should_rotate_image_batch_runs_with_per_item_angles_and_centers():
     assert not torch.allclose(out, img)
 
 
-def _run_pair(transform_cls, legacy_cls, *, pre_clip: bool, angle, boxes: torch.Tensor, compare_images: bool = True):
+def _run_pair(
+    transform_cls,
+    legacy_cls,
+    *,
+    pre_clip: bool,
+    angle,
+    boxes: torch.Tensor,
+    compare_images: bool = True,
+):
     img = torch.rand(boxes.shape[0], 180, 320, 3, dtype=torch.float32)
 
     def _to_tensor_images(obj):
@@ -286,7 +294,6 @@ def should_perspective_rotation_match_legacy_with_pre_clip():
 
 def should_perspective_rotation_keep_fixed_width_when_configured():
     img, boxes = _make_test_batch(num_frames=3)
-    H, W = img.shape[1], img.shape[2]
 
     transform = HmPerspectiveRotation(
         fixed_edge_rotation=True,

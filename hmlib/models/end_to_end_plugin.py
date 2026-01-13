@@ -23,7 +23,6 @@ def _use_cpp_tracker(dflt: bool = False) -> bool:
 
 @MODELS.register_module()
 class HmEndToEnd(BaseMOTModel, Plugin):
-
     def __init__(
         self,
         *args,

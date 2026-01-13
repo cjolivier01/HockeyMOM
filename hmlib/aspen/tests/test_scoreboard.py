@@ -113,8 +113,8 @@ def should_perspective_rotation_pre_clip_keep_fixed_width():
     results = transform(results)
     rotated_imgs = results["img"]
 
-    assert isinstance(rotated_imgs, list)
-    assert len(rotated_imgs) == 2
+    assert isinstance(rotated_imgs, torch.Tensor)
+    assert rotated_imgs.shape[0] == 2
     w0 = rotated_imgs[0].shape[1]
     w1 = rotated_imgs[1].shape[1]
     h0 = rotated_imgs[0].shape[0]

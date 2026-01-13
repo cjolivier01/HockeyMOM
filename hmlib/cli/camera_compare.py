@@ -72,7 +72,9 @@ def _center_err_px(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sqrt(dx * dx + dy * dy))
 
 
-def _resolve_camera_csv(dir_path: Optional[str], stem: str, explicit_path: Optional[str]) -> Optional[str]:
+def _resolve_camera_csv(
+    dir_path: Optional[str], stem: str, explicit_path: Optional[str]
+) -> Optional[str]:
     if explicit_path:
         return explicit_path
     if not dir_path:
@@ -94,7 +96,9 @@ def _compute_metrics(a: _CameraSeries, b: _CameraSeries) -> Tuple[int, float, fl
     return len(frames), float(np.mean(ious)), float(np.mean(centers))
 
 
-def _draw_box(img: np.ndarray, tlwh: np.ndarray, color: Tuple[int, int, int], thickness: int) -> None:
+def _draw_box(
+    img: np.ndarray, tlwh: np.ndarray, color: Tuple[int, int, int], thickness: int
+) -> None:
     x, y, w, h = map(float, tlwh.tolist())
     p1 = (int(round(x)), int(round(y)))
     p2 = (int(round(x + w)), int(round(y + h)))
@@ -103,17 +107,33 @@ def _draw_box(img: np.ndarray, tlwh: np.ndarray, color: Tuple[int, int, int], th
 
 def main() -> None:
     ap = argparse.ArgumentParser("Compare camera.csv trajectories (rule vs model)")
-    ap.add_argument("--a-dir", type=str, default=None, help="Directory containing camera.csv (run A)")
-    ap.add_argument("--b-dir", type=str, default=None, help="Directory containing camera.csv (run B)")
+    ap.add_argument(
+        "--a-dir", type=str, default=None, help="Directory containing camera.csv (run A)"
+    )
+    ap.add_argument(
+        "--b-dir", type=str, default=None, help="Directory containing camera.csv (run B)"
+    )
     ap.add_argument("--a-camera", type=str, default=None, help="Explicit camera.csv path for run A")
     ap.add_argument("--b-camera", type=str, default=None, help="Explicit camera.csv path for run B")
-    ap.add_argument("--a-camera-fast", type=str, default=None, help="Explicit camera_fast.csv path for run A")
-    ap.add_argument("--b-camera-fast", type=str, default=None, help="Explicit camera_fast.csv path for run B")
-    ap.add_argument("--video", type=str, default=None, help="Optional video file to overlay both cameras on")
-    ap.add_argument("--out-video", type=str, default=None, help="Optional output video path for overlay")
+    ap.add_argument(
+        "--a-camera-fast", type=str, default=None, help="Explicit camera_fast.csv path for run A"
+    )
+    ap.add_argument(
+        "--b-camera-fast", type=str, default=None, help="Explicit camera_fast.csv path for run B"
+    )
+    ap.add_argument(
+        "--video", type=str, default=None, help="Optional video file to overlay both cameras on"
+    )
+    ap.add_argument(
+        "--out-video", type=str, default=None, help="Optional output video path for overlay"
+    )
     ap.add_argument("--start-frame", type=int, default=1, help="1-based start frame for overlay")
-    ap.add_argument("--num-frames", type=int, default=300, help="Number of frames to render for overlay (0=all)")
-    ap.add_argument("--draw-fast", action="store_true", help="Also overlay camera_fast.csv when present")
+    ap.add_argument(
+        "--num-frames", type=int, default=300, help="Number of frames to render for overlay (0=all)"
+    )
+    ap.add_argument(
+        "--draw-fast", action="store_true", help="Also overlay camera_fast.csv when present"
+    )
     ap.add_argument(
         "--max-out-width",
         type=int,

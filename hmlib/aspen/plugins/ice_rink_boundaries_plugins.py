@@ -3,7 +3,6 @@ from typing import Any, Dict, Optional
 import torch
 from mmengine.structures import InstanceData
 
-from hmlib.log import get_logger
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 
 from .base import Plugin
@@ -177,39 +176,35 @@ class IceRinkSegmConfigPlugin(Plugin):
 
         # Build rink profile once from the first frame
         if self._rink_profile is None:
-            try:
-                from hmlib.segm.ice_rink import confgure_ice_rink_mask
+            from hmlib.segm.ice_rink import confgure_ice_rink_mask
 
-                game_id = context.get("game_id") or context.get("shared", {}).get("game_id")
-                # Prefer original_images if available (channels-last), fallback to detection image
-                img = data.get("original_images")
-                if img is None:
-                    img = data.get("img")
-                # Use first frame
-                if isinstance(img, torch.Tensor) and img.ndim >= 3:
-                    frame0 = img[0]
-                else:
-                    frame0 = None
-                # Try to get expected original shape from metainfo
-                meta0 = track_data_sample[0].metainfo
-                exp_shape = meta0.get("ori_shape") if isinstance(meta0, dict) else None
-                if exp_shape is None and isinstance(frame0, torch.Tensor):
-                    # HxWxC or CxHxW both ok; confgure_ice_rink_mask uses expected_shape and image
-                    if frame0.ndim == 3:
-                        if frame0.shape[-1] in (3, 4):
-                            exp_shape = torch.Size(frame0.shape[:2])
-                        else:
-                            exp_shape = torch.Size(frame0.shape[-2:])
-                self._rink_profile = confgure_ice_rink_mask(
-                    game_id=game_id,
-                    # device=device if isinstance(device, torch.device) else torch.device("cpu"),
-                    device=torch.device("cpu"),
-                    expected_shape=exp_shape,
-                    image=frame0,
-                )
-            except Exception as ex:
-                get_logger(__name__).exception("Failed to configure ice rink mask: %s", ex)
-                self._rink_profile = None
+            game_id = context.get("game_id") or context.get("shared", {}).get("game_id")
+            # Prefer original_images if available (channels-last), fallback to detection image
+            img = data.get("original_images")
+            if img is None:
+                img = data.get("img")
+            # Use first frame
+            if isinstance(img, torch.Tensor) and img.ndim >= 3:
+                frame0 = img[0]
+            else:
+                frame0 = None
+            # Try to get expected original shape from metainfo
+            meta0 = track_data_sample[0].metainfo
+            exp_shape = meta0.get("ori_shape") if isinstance(meta0, dict) else None
+            if exp_shape is None and isinstance(frame0, torch.Tensor):
+                # HxWxC or CxHxW both ok; confgure_ice_rink_mask uses expected_shape and image
+                if frame0.ndim == 3:
+                    if frame0.shape[-1] in (3, 4):
+                        exp_shape = torch.Size(frame0.shape[:2])
+                    else:
+                        exp_shape = torch.Size(frame0.shape[-2:])
+            self._rink_profile = confgure_ice_rink_mask(
+                game_id=game_id,
+                # device=device if isinstance(device, torch.device) else torch.device("cpu"),
+                device=torch.device("cpu"),
+                expected_shape=exp_shape,
+                image=frame0,
+            )
         results = dict(data=data)
         if self._rink_profile is not None:
             results["rink_profile"] = self._rink_profile

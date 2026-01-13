@@ -1,12 +1,11 @@
 """Scraper for SIAHL."""
 
-import re
-import logging
-from typing import Any
-
 import hashlib
 import hmac
+import logging
+import re
 import time
+from typing import Any
 from urllib.parse import quote
 
 try:  # pragma: no cover
@@ -122,21 +121,11 @@ tr_selectors = dict(
         # Pages sometimes contain additional leading tables before the .d50l/.d50r layout blocks.
         "body div.d50l div.d25l table:nth-of-type(1) tr"
     ),
-    homeScoring=(
-        "body div.d50r div.d25l table:nth-of-type(1) tr"
-    ),
-    awayPenalties=(
-        "body div.d50l div.d25r table:nth-of-type(1) tr"
-    ),
-    homePenalties=(
-        "body div.d50r div.d25r table:nth-of-type(1) tr"
-    ),
-    awayShootout=(
-        "body div.d50l div.d25l table:nth-of-type(2) tr"
-    ),
-    homeShootout=(
-        "body div.d50r div.d25l table:nth-of-type(2) tr"
-    ),
+    homeScoring=("body div.d50r div.d25l table:nth-of-type(1) tr"),
+    awayPenalties=("body div.d50l div.d25r table:nth-of-type(1) tr"),
+    homePenalties=("body div.d50r div.d25r table:nth-of-type(1) tr"),
+    awayShootout=("body div.d50l div.d25l table:nth-of-type(2) tr"),
+    homeShootout=("body div.d50r div.d25l table:nth-of-type(2) tr"),
 )
 
 columns = dict(
@@ -539,7 +528,9 @@ def _api_config_for_game(game_id: int) -> dict[str, str]:
         return _API_CONFIG
 
     url = "https://react.sharksice.timetoscore.com/game-center.php"
-    resp = requests.get(url, params={"game_id": int(game_id)}, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+    resp = requests.get(
+        url, params={"game_id": int(game_id)}, headers={"User-Agent": "Mozilla/5.0"}, timeout=30
+    )
     resp.raise_for_status()
     txt = resp.text
     # Extract config values from the inline JS.
@@ -558,7 +549,13 @@ def _api_config_for_game(game_id: int) -> dict[str, str]:
     return _API_CONFIG
 
 
-def _api_get(endpoint: str, *, game_id: int, season_id: int | None, extra_params: dict[str, Any] | None = None):
+def _api_get(
+    endpoint: str,
+    *,
+    game_id: int,
+    season_id: int | None,
+    extra_params: dict[str, Any] | None = None,
+):
     import requests
 
     cfg = _api_config_for_game(game_id)
@@ -583,7 +580,9 @@ def _api_get(endpoint: str, *, game_id: int, season_id: int | None, extra_params
 
     qs = "&".join(f"{k}={_encode_component(v)}" for k, v in params if k)
     string_to_sign = f"GET\n/{endpoint}\n{qs}"
-    signature = hmac.new(secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    signature = hmac.new(
+        secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
     params.append(("auth_signature", signature))
 
     url = f"https://{api_url}/{endpoint}"
@@ -660,8 +659,14 @@ def scrape_game_stats_api(game_id: int, season_id: int | None):
     home_goalies = _player_rows(live.get("home_goalies") or [])
     away_goalies = _player_rows(live.get("away_goalies") or [])
 
-    data["homePlayers"] = [{"number": p["number"], "position": p["position"], "name": p["name"]} for p in home_skaters + home_goalies]
-    data["awayPlayers"] = [{"number": p["number"], "position": p["position"], "name": p["name"]} for p in away_skaters + away_goalies]
+    data["homePlayers"] = [
+        {"number": p["number"], "position": p["position"], "name": p["name"]}
+        for p in home_skaters + home_goalies
+    ]
+    data["awayPlayers"] = [
+        {"number": p["number"], "position": p["position"], "name": p["name"]}
+        for p in away_skaters + away_goalies
+    ]
     # Provide per-player totals for import scripts (not part of the legacy HTML scraper).
     data["homeSkaters"] = home_skaters + home_goalies
     data["awaySkaters"] = away_skaters + away_goalies
