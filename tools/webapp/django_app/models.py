@@ -275,38 +275,6 @@ class HkyGameStat(models.Model):
         db_table = "hky_game_stats"
 
 
-class HkyGameEvent(models.Model):
-    game = models.OneToOneField(
-        HkyGame,
-        primary_key=True,
-        on_delete=models.CASCADE,
-        db_column="game_id",
-        related_name="events_row",
-    )
-    events_csv = models.TextField(null=True, blank=True)
-    source_label = models.CharField(max_length=255, null=True, blank=True)
-    updated_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = "hky_game_events"
-
-
-class HkyGamePlayerStatsCsv(models.Model):
-    game = models.OneToOneField(
-        HkyGame,
-        primary_key=True,
-        on_delete=models.CASCADE,
-        db_column="game_id",
-        related_name="player_stats_csv_row",
-    )
-    player_stats_csv = models.TextField(null=True, blank=True)
-    source_label = models.CharField(max_length=255, null=True, blank=True)
-    updated_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = "hky_game_player_stats_csv"
-
-
 class HkyEventType(models.Model):
     # A stable normalized key for matching across sources (e.g. "Expected Goal" vs "ExpectedGoal").
     key = models.CharField(max_length=64, unique=True)

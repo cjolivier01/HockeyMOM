@@ -16,6 +16,25 @@ def _load_app_module():
     return mod
 
 
+def _upsert_event_rows_from_csv(*, game_id: int, events_csv: str, replace: bool) -> None:
+    from tools.webapp.django_app.views import _upsert_game_event_rows_from_events_csv
+
+    _upsert_game_event_rows_from_events_csv(
+        game_id=int(game_id),
+        events_csv=str(events_csv),
+        replace=bool(replace),
+        create_missing_players=False,
+        incoming_source_label="timetoscore",
+        prefer_incoming_for_event_types={
+            "goal",
+            "assist",
+            "penalty",
+            "penaltyexpired",
+            "goaliechange",
+        },
+    )
+
+
 class _DummyPyMySQL:
     class cursors:
         DictCursor = object
@@ -1002,10 +1021,17 @@ def should_store_events_via_shift_package_and_render_public_game_page(client_and
     )
     assert r.status_code == 200
     assert json.loads(r.content)["ok"] is True
-    row = m.HkyGameEvent.objects.filter(game_id=1001).values("events_csv").first()
+    assert m.HkyGameEventRow.objects.filter(game_id=1001).exists()
+    row = (
+        m.HkyGameEventRow.objects.filter(game_id=1001)
+        .select_related("event_type")
+        .values("event_type__name", "source", "on_ice_players")
+        .first()
+    )
     assert row is not None
-    assert row["events_csv"] == events1
-    assert "\n" in str(row["events_csv"])
+    assert str(row.get("event_type__name") or "") == "Shot"
+    assert str(row.get("source") or "") == "shift_package"
+    assert "Alice" in str(row.get("on_ice_players") or "")
 
     html = client.get("/public/leagues/1/hky/games/1001").content.decode()
     assert "Game Events" in html
@@ -1020,21 +1046,15 @@ def should_store_events_via_shift_package_and_render_public_game_page(client_and
 
 def should_compute_on_ice_gfga_from_goal_event_on_ice_lists(client_and_models):
     client, m = client_and_models
-    now = dt.datetime.now()
-    m.HkyGameEvent.objects.update_or_create(
+    _upsert_event_rows_from_csv(
         game_id=1001,
-        defaults={
-            "events_csv": (
-                "Event Type,Source,Team Side,Period,Game Time,Game Seconds,Attributed Jerseys\n"
-                "Goal,timetoscore,Home,1,12:34,754,9\n"
-            ),
-            "source_label": "timetoscore",
-            "updated_at": now,
-        },
+        events_csv=(
+            "Event Type,Source,Team Side,Period,Game Time,Game Seconds,Attributed Jerseys\n"
+            "Goal,timetoscore,Home,1,12:34,754,9\n"
+        ),
+        replace=True,
     )
 
-    # For TimeToScore-linked games, the shift-package importer drops incoming Goal/Assist rows,
-    # but uses them to enrich the stored TimeToScore goal rows with on-ice players.
     r = _post_json(
         client,
         "/api/import/hockey/shift_package",
@@ -1053,13 +1073,14 @@ def should_compute_on_ice_gfga_from_goal_event_on_ice_lists(client_and_models):
     assert r.status_code == 200
     assert json.loads(r.content)["ok"] is True
 
-    stored = (
-        m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first()
+    goal = (
+        m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="goal")
+        .values("on_ice_players_home", "on_ice_players_away")
+        .first()
     )
-    assert stored is not None
-    assert "On-Ice Players (Home)" in stored
-    assert "9 Alice" in stored
-    assert "12 Bob" in stored
+    assert goal is not None
+    assert "9 Alice" in str(goal.get("on_ice_players_home") or "")
+    assert "12 Bob" in str(goal.get("on_ice_players_away") or "")
 
     html = client.get("/public/leagues/1/hky/games/1001").content.decode()
     assert "GF/GA" in html
@@ -1084,9 +1105,7 @@ def should_find_existing_game_when_notes_are_legacy_game_id_token(client_and_mod
     assert out["ok"] is True
     assert int(out["game_id"]) == 1001
     assert m.HkyGame.objects.count() == before_game_count
-    row = m.HkyGameEvent.objects.filter(game_id=1001).values("events_csv").first()
-    assert row is not None
-    assert row["events_csv"] == events1
+    assert m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="shot").exists()
 
 
 def should_not_overwrite_events_without_replace(client_and_models):
@@ -1099,9 +1118,12 @@ def should_not_overwrite_events_without_replace(client_and_models):
         {"timetoscore_game_id": 123, "events_csv": events1, "replace": False},
     )
     assert r1.status_code == 200
+    assert m.HkyGameEventRow.objects.filter(game_id=1001).count() == 1
     assert (
-        m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first()
-        == events1
+        m.HkyGameEventRow.objects.filter(game_id=1001)
+        .values_list("game_seconds", flat=True)
+        .first()
+        == 10
     )
 
     r2 = _post_json(
@@ -1110,9 +1132,12 @@ def should_not_overwrite_events_without_replace(client_and_models):
         {"timetoscore_game_id": 123, "events_csv": events2, "replace": False},
     )
     assert r2.status_code == 200
+    assert m.HkyGameEventRow.objects.filter(game_id=1001).count() == 1
     assert (
-        m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first()
-        == events1
+        m.HkyGameEventRow.objects.filter(game_id=1001)
+        .values_list("game_seconds", flat=True)
+        .first()
+        == 10
     )
 
     r3 = _post_json(
@@ -1121,9 +1146,12 @@ def should_not_overwrite_events_without_replace(client_and_models):
         {"timetoscore_game_id": 123, "events_csv": events2, "replace": True},
     )
     assert r3.status_code == 200
+    assert m.HkyGameEventRow.objects.filter(game_id=1001).count() == 1
     assert (
-        m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first()
-        == events2
+        m.HkyGameEventRow.objects.filter(game_id=1001)
+        .values_list("game_seconds", flat=True)
+        .first()
+        == 11
     )
 
 
@@ -1151,17 +1179,13 @@ def should_import_player_stats_via_shift_package_and_render_public_game_page(cli
 
 def should_merge_shift_package_overlays_missing_video_and_on_ice_for_duplicates(client_and_models):
     client, m = client_and_models
-    now = dt.datetime.now()
-    m.HkyGameEvent.objects.update_or_create(
+    _upsert_event_rows_from_csv(
         game_id=1001,
-        defaults={
-            "events_csv": (
-                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys,Video Seconds,On-Ice Players (Away)\n"
-                "xG,timetoscore,Away,1,100,9,,\n"
-            ),
-            "source_label": "timetoscore",
-            "updated_at": now,
-        },
+        events_csv=(
+            "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys,Video Seconds,On-Ice Players (Away)\n"
+            "xG,timetoscore,Away,1,100,9,,\n"
+        ),
+        replace=True,
     )
 
     r = _post_json(
@@ -1180,13 +1204,14 @@ def should_merge_shift_package_overlays_missing_video_and_on_ice_for_duplicates(
     assert r.status_code == 200
     assert json.loads(r.content)["ok"] is True
 
-    stored = (
-        m.HkyGameEvent.objects.filter(game_id=1001).values_list("events_csv", flat=True).first()
+    merged = (
+        m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="xg")
+        .values("video_seconds", "on_ice_players_away")
+        .first()
     )
-    assert stored is not None
-    assert ",83," in stored
-    assert "On-Ice Players (Away)" in stored
-    assert "9 A" in stored
+    assert merged is not None
+    assert int(merged.get("video_seconds") or 0) == 83
+    assert "9 A" in str(merged.get("on_ice_players_away") or "")
 
 
 def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(client_and_models):

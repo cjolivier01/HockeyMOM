@@ -2746,51 +2746,29 @@ def create_app():
                                 )
 
                 if isinstance(events_csv, str) and events_csv.strip():
-                    now2 = dt.datetime.now()
-                    if game_replace:
-                        m.HkyGameEvent.objects.update_or_create(
-                            game_id=int(gid),
-                            defaults={
-                                "events_csv": events_csv,
-                                "source_label": "timetoscore",
-                                "updated_at": now2,
-                            },
+                    try:
+                        from tools.webapp.django_app.views import (
+                            _upsert_game_event_rows_from_events_csv as _upsert_event_rows,
                         )
-                    else:
-                        existing_ev = (
-                            m.HkyGameEvent.objects.filter(game_id=int(gid))
-                            .values("events_csv", "source_label")
-                            .first()
+                    except Exception:  # pragma: no cover
+                        from django_app.views import (  # type: ignore
+                            _upsert_game_event_rows_from_events_csv as _upsert_event_rows,
                         )
-                        if not existing_ev:
-                            m.HkyGameEvent.objects.create(
-                                game_id=int(gid),
-                                events_csv=events_csv,
-                                source_label="timetoscore",
-                                updated_at=now2,
-                            )
-                        else:
-                            merged_csv, merged_source = merge_events_csv_prefer_timetoscore(
-                                existing_csv=str(existing_ev.get("events_csv") or ""),
-                                existing_source_label=str(existing_ev.get("source_label") or ""),
-                                incoming_csv=str(events_csv),
-                                incoming_source_label="timetoscore",
-                                protected_types={
-                                    "goal",
-                                    "assist",
-                                    "penalty",
-                                    "penalty expired",
-                                    "goaliechange",
-                                },
-                            )
-                            m.HkyGameEvent.objects.update_or_create(
-                                game_id=int(gid),
-                                defaults={
-                                    "events_csv": merged_csv,
-                                    "source_label": merged_source or "timetoscore",
-                                    "updated_at": now2,
-                                },
-                            )
+
+                    _upsert_event_rows(
+                        game_id=int(gid),
+                        events_csv=str(events_csv),
+                        replace=bool(game_replace),
+                        create_missing_players=False,
+                        incoming_source_label="timetoscore",
+                        prefer_incoming_for_event_types={
+                            "goal",
+                            "assist",
+                            "penalty",
+                            "penaltyexpired",
+                            "goaliechange",
+                        },
+                    )
 
                 if isinstance(game_stats_json, dict) and game_stats_json:
                     try:
@@ -3215,10 +3193,6 @@ def create_app():
         player_stats_csv = payload.get("player_stats_csv")
         game_stats_csv = payload.get("game_stats_csv")
         events_csv = payload.get("events_csv")
-        incoming_events_csv_raw: Optional[str] = None
-        incoming_events_headers_raw: Optional[list[str]] = None
-        incoming_events_rows_raw: Optional[list[dict[str, str]]] = None
-        source_label = str(payload.get("source_label") or "").strip() or None
         game_video_url = (
             payload.get("game_video_url") or payload.get("game_video") or payload.get("video_url")
         )
@@ -3233,19 +3207,8 @@ def create_app():
                 pass
 
         if isinstance(events_csv, str) and events_csv.strip():
-            incoming_events_csv_raw = str(events_csv)
-            if tts_linked:
-                try:
-                    incoming_events_headers_raw, incoming_events_rows_raw = parse_events_csv(
-                        incoming_events_csv_raw
-                    )
-                except Exception:
-                    incoming_events_headers_raw, incoming_events_rows_raw = None, None
             # Never store PP/PK span events; they are derived at render time from penalty windows.
-            # For TimeToScore-linked games, do not store spreadsheet Goal/Assist attribution.
             drop_types = {"power play", "powerplay", "penalty kill", "penaltykill"}
-            if tts_linked:
-                drop_types |= {"goal", "assist"}
             try:
                 events_csv = filter_events_csv_drop_event_types(
                     str(events_csv), drop_types=drop_types
@@ -3347,137 +3310,40 @@ def create_app():
             now = dt.datetime.now()
             with transaction.atomic():
                 if isinstance(events_csv, str) and events_csv.strip():
-                    # Only overwrite existing events if replace is requested.
-                    if replace:
-                        m.HkyGameEvent.objects.update_or_create(
-                            game_id=int(resolved_game_id),
-                            defaults={
-                                "events_csv": events_csv,
-                                "source_label": source_label,
-                                "updated_at": now,
-                            },
-                        )
-                    else:
-                        existing = (
-                            m.HkyGameEvent.objects.filter(game_id=int(resolved_game_id))
-                            .values("events_csv", "source_label")
-                            .first()
-                        )
-                        if not existing:
-                            m.HkyGameEvent.objects.create(
-                                game_id=int(resolved_game_id),
-                                events_csv=events_csv,
-                                source_label=source_label,
-                                updated_at=now,
+                    has_existing = m.HkyGameEventRow.objects.filter(
+                        game_id=int(resolved_game_id)
+                    ).exists()
+                    has_timetoscore = m.HkyGameEventRow.objects.filter(
+                        game_id=int(resolved_game_id), source__icontains="timetoscore"
+                    ).exists()
+
+                    # Match legacy behavior: without replace, ignore follow-up shift-package uploads unless
+                    # we have TimeToScore events to merge/augment.
+                    should_upsert = True
+                    replace_events = bool(replace)
+                    if not replace_events and has_existing and not has_timetoscore:
+                        should_upsert = False
+                    # Avoid wiping authoritative TimeToScore events.
+                    if replace_events and has_timetoscore:
+                        replace_events = False
+
+                    if should_upsert:
+                        try:
+                            from tools.webapp.django_app.views import (
+                                _upsert_game_event_rows_from_events_csv as _upsert_event_rows,
                             )
-                        else:
-                            # For TimeToScore-linked games, treat TimeToScore as the source of truth for events,
-                            # but still allow shift-spreadsheet uploads to *augment* the timeline with non-T2S events
-                            # (e.g., SOG/xG/entries). We do not overwrite any existing rows.
-                            try:
-                                if isinstance(existing, dict):
-                                    existing_csv = str(existing.get("events_csv") or "")
-                                    existing_source = str(existing.get("source_label") or "")
-                                else:
-                                    existing_csv = str(existing[0] or "")
-                                    existing_source = str(existing[1] or "")
-                            except Exception:
-                                existing_csv = ""
-                                existing_source = ""
+                        except Exception:  # pragma: no cover
+                            from django_app.views import (  # type: ignore
+                                _upsert_game_event_rows_from_events_csv as _upsert_event_rows,
+                            )
 
-                            if (
-                                tts_linked
-                                and existing_csv.strip()
-                                and existing_source.lower().startswith("timetoscore")
-                            ):
-                                try:
-                                    ex_headers, ex_rows = parse_events_csv(existing_csv)
-                                    in_headers, in_rows = parse_events_csv(events_csv)
-                                    if (
-                                        incoming_events_headers_raw is not None
-                                        and incoming_events_rows_raw is not None
-                                    ):
-                                        ex_headers, ex_rows = (
-                                            enrich_timetoscore_goals_with_long_video_times(
-                                                existing_headers=ex_headers,
-                                                existing_rows=ex_rows,
-                                                incoming_headers=incoming_events_headers_raw,
-                                                incoming_rows=incoming_events_rows_raw,
-                                            )
-                                        )
-                                        ex_headers, ex_rows = (
-                                            enrich_timetoscore_penalties_with_video_times(
-                                                existing_headers=ex_headers,
-                                                existing_rows=ex_rows,
-                                                incoming_headers=incoming_events_headers_raw,
-                                                incoming_rows=incoming_events_rows_raw,
-                                            )
-                                        )
-
-                                    def _norm_ev_type(v: Any) -> str:
-                                        return str(v or "").strip().casefold()
-
-                                    protected_types = {
-                                        "goal",
-                                        "assist",
-                                        "penalty",
-                                        "penalty expired",
-                                        "goaliechange",
-                                    }
-
-                                    def _key(r: dict[str, str]) -> tuple[str, str, str, str, str]:
-                                        et = _norm_ev_type(
-                                            r.get("Event Type") or r.get("Event") or ""
-                                        )
-                                        per = str(r.get("Period") or "").strip()
-                                        gs = str(
-                                            r.get("Game Seconds") or r.get("GameSeconds") or ""
-                                        ).strip()
-                                        tr = (
-                                            str(
-                                                r.get("Team Side")
-                                                or r.get("TeamSide")
-                                                or r.get("Team Rel")
-                                                or r.get("TeamRel")
-                                                or r.get("Team")
-                                                or ""
-                                            )
-                                            .strip()
-                                            .casefold()
-                                        )
-                                        jerseys = str(r.get("Attributed Jerseys") or "").strip()
-                                        return (et, per, gs, tr, jerseys)
-
-                                    seen = {_key(r) for r in (ex_rows or []) if isinstance(r, dict)}
-                                    merged_rows: list[dict[str, str]] = list(ex_rows or [])
-                                    for rr in in_rows or []:
-                                        if not isinstance(rr, dict):
-                                            continue
-                                        et = _norm_ev_type(
-                                            rr.get("Event Type") or rr.get("Event") or ""
-                                        )
-                                        if et in protected_types:
-                                            continue
-                                        k = _key(rr)
-                                        if k in seen:
-                                            continue
-                                        seen.add(k)
-                                        merged_rows.append(rr)
-
-                                    merged_headers = list(ex_headers or [])
-                                    for h in in_headers or []:
-                                        if h not in merged_headers:
-                                            merged_headers.append(h)
-                                    merged_csv = to_csv_text(merged_headers, merged_rows)
-                                    m.HkyGameEvent.objects.filter(
-                                        game_id=int(resolved_game_id)
-                                    ).update(
-                                        events_csv=merged_csv,
-                                        updated_at=now,
-                                    )
-                                except Exception:
-                                    # Best-effort merge; never fail the upload.
-                                    pass
+                        _upsert_event_rows(
+                            game_id=int(resolved_game_id),
+                            events_csv=str(events_csv),
+                            replace=bool(replace_events),
+                            create_missing_players=bool(create_missing_players),
+                            incoming_source_label="shift_package",
+                        )
 
                 if isinstance(game_stats_csv, str) and game_stats_csv.strip():
                     try:
@@ -3564,6 +3430,13 @@ def create_app():
                             "plus_minus",
                             "hits",
                             "blocks",
+                            "toi_seconds",
+                            "shifts",
+                            "video_toi_seconds",
+                            "sb_avg_shift_seconds",
+                            "sb_median_shift_seconds",
+                            "sb_longest_shift_seconds",
+                            "sb_shortest_shift_seconds",
                             "faceoff_wins",
                             "faceoff_attempts",
                             "goalie_saves",
@@ -4664,13 +4537,109 @@ def create_app():
         events_rows: list[dict[str, str]] = []
         events_meta: Optional[dict[str, Any]] = None
         try:
-            erow = (
-                m.HkyGameEvent.objects.filter(game_id=int(game_id))
-                .values("events_csv", "source_label", "updated_at")
-                .first()
+            qs = (
+                m.HkyGameEventRow.objects.filter(game_id=int(game_id))
+                .select_related("event_type")
+                .order_by("period", "game_seconds", "id")
             )
-            if erow and str(erow.get("events_csv") or "").strip():
-                events_headers, events_rows = parse_events_csv(str(erow.get("events_csv") or ""))
+            qs = qs.exclude(
+                import_key__in=m.HkyGameEventSuppression.objects.filter(
+                    game_id=int(game_id)
+                ).values_list("import_key", flat=True)
+            )
+            raw_rows = list(
+                qs.values(
+                    "event_type__name",
+                    "event_id",
+                    "source",
+                    "team_raw",
+                    "team_side",
+                    "for_against",
+                    "team_rel",
+                    "period",
+                    "game_time",
+                    "video_time",
+                    "game_seconds",
+                    "game_seconds_end",
+                    "video_seconds",
+                    "details",
+                    "attributed_players",
+                    "attributed_jerseys",
+                    "on_ice_players",
+                    "on_ice_players_home",
+                    "on_ice_players_away",
+                    "created_at",
+                    "updated_at",
+                )
+            )
+            if raw_rows:
+                events_headers = [
+                    "Event Type",
+                    "Event ID",
+                    "Source",
+                    "Team Raw",
+                    "Team Side",
+                    "For/Against",
+                    "Team Rel",
+                    "Period",
+                    "Game Time",
+                    "Video Time",
+                    "Game Seconds",
+                    "Game Seconds End",
+                    "Video Seconds",
+                    "Details",
+                    "Attributed Players",
+                    "Attributed Jerseys",
+                    "On-Ice Players",
+                    "On-Ice Players (Home)",
+                    "On-Ice Players (Away)",
+                ]
+                max_ts: Optional[dt.datetime] = None
+                for r in raw_rows:
+                    ts = r.get("updated_at") or r.get("created_at")
+                    if isinstance(ts, dt.datetime):
+                        max_ts = ts if max_ts is None else max(max_ts, ts)
+
+                    events_rows.append(
+                        {
+                            "Event Type": str(r.get("event_type__name") or "").strip(),
+                            "Event ID": (
+                                "" if r.get("event_id") is None else str(int(r["event_id"]))
+                            ),
+                            "Source": str(r.get("source") or "").strip(),
+                            "Team Raw": str(r.get("team_raw") or "").strip(),
+                            "Team Side": str(r.get("team_side") or "").strip(),
+                            "For/Against": str(r.get("for_against") or "").strip(),
+                            "Team Rel": str(r.get("team_rel") or "").strip(),
+                            "Period": "" if r.get("period") is None else str(int(r["period"])),
+                            "Game Time": str(r.get("game_time") or "").strip(),
+                            "Video Time": str(r.get("video_time") or "").strip(),
+                            "Game Seconds": (
+                                "" if r.get("game_seconds") is None else str(int(r["game_seconds"]))
+                            ),
+                            "Game Seconds End": (
+                                ""
+                                if r.get("game_seconds_end") is None
+                                else str(int(r["game_seconds_end"]))
+                            ),
+                            "Video Seconds": (
+                                ""
+                                if r.get("video_seconds") is None
+                                else str(int(r["video_seconds"]))
+                            ),
+                            "Details": str(r.get("details") or "").strip(),
+                            "Attributed Players": str(r.get("attributed_players") or "").strip(),
+                            "Attributed Jerseys": str(r.get("attributed_jerseys") or "").strip(),
+                            "On-Ice Players": str(r.get("on_ice_players") or "").strip(),
+                            "On-Ice Players (Home)": str(
+                                r.get("on_ice_players_home") or ""
+                            ).strip(),
+                            "On-Ice Players (Away)": str(
+                                r.get("on_ice_players_away") or ""
+                            ).strip(),
+                        }
+                    )
+
                 events_headers, events_rows = normalize_game_events_csv(events_headers, events_rows)
                 events_rows = filter_events_rows_prefer_timetoscore_for_goal_assist(
                     events_rows, tts_linked=tts_linked
@@ -4683,12 +4652,10 @@ def create_app():
                 )
                 events_rows = sort_events_rows_default(events_rows)
                 events_meta = {
-                    "source_label": erow.get("source_label"),
-                    "updated_at": erow.get("updated_at"),
+                    "source_label": "db",
+                    "updated_at": max_ts,
                     "count": len(events_rows),
-                    "sources": summarize_event_sources(
-                        events_rows, fallback_source_label=str(erow.get("source_label") or "")
-                    ),
+                    "sources": summarize_event_sources(events_rows, fallback_source_label="db"),
                 }
         except Exception:
             events_headers, events_rows, events_meta = [], [], None
@@ -5827,6 +5794,13 @@ def create_app():
             "plus_minus",
             "hits",
             "blocks",
+            "toi_seconds",
+            "shifts",
+            "video_toi_seconds",
+            "sb_avg_shift_seconds",
+            "sb_median_shift_seconds",
+            "sb_longest_shift_seconds",
+            "sb_shortest_shift_seconds",
             "faceoff_wins",
             "faceoff_attempts",
             "goalie_saves",
@@ -6145,16 +6119,111 @@ def create_app():
         events_rows: list[dict[str, str]] = []
         events_meta: Optional[dict[str, Any]] = None
         try:
-            erow = (
-                m.HkyGameEvent.objects.filter(game_id=int(game_id))
-                .values("events_csv", "source_label", "updated_at")
-                .first()
+            qs = (
+                m.HkyGameEventRow.objects.filter(game_id=int(game_id))
+                .select_related("event_type")
+                .order_by("period", "game_seconds", "id")
             )
-            if erow and str(erow.get("events_csv") or "").strip():
-                events_headers, events_rows = parse_events_csv(str(erow.get("events_csv") or ""))
+            qs = qs.exclude(
+                import_key__in=m.HkyGameEventSuppression.objects.filter(
+                    game_id=int(game_id)
+                ).values_list("import_key", flat=True)
+            )
+            raw_rows = list(
+                qs.values(
+                    "event_type__name",
+                    "event_id",
+                    "source",
+                    "team_raw",
+                    "team_side",
+                    "for_against",
+                    "team_rel",
+                    "period",
+                    "game_time",
+                    "video_time",
+                    "game_seconds",
+                    "game_seconds_end",
+                    "video_seconds",
+                    "details",
+                    "attributed_players",
+                    "attributed_jerseys",
+                    "on_ice_players",
+                    "on_ice_players_home",
+                    "on_ice_players_away",
+                    "created_at",
+                    "updated_at",
+                )
+            )
+            if raw_rows:
+                events_headers = [
+                    "Event Type",
+                    "Event ID",
+                    "Source",
+                    "Team Raw",
+                    "Team Side",
+                    "For/Against",
+                    "Team Rel",
+                    "Period",
+                    "Game Time",
+                    "Video Time",
+                    "Game Seconds",
+                    "Game Seconds End",
+                    "Video Seconds",
+                    "Details",
+                    "Attributed Players",
+                    "Attributed Jerseys",
+                    "On-Ice Players",
+                    "On-Ice Players (Home)",
+                    "On-Ice Players (Away)",
+                ]
+                max_ts: Optional[dt.datetime] = None
+                for r in raw_rows:
+                    ts = r.get("updated_at") or r.get("created_at")
+                    if isinstance(ts, dt.datetime):
+                        max_ts = ts if max_ts is None else max(max_ts, ts)
+
+                    events_rows.append(
+                        {
+                            "Event Type": str(r.get("event_type__name") or "").strip(),
+                            "Event ID": (
+                                "" if r.get("event_id") is None else str(int(r["event_id"]))
+                            ),
+                            "Source": str(r.get("source") or "").strip(),
+                            "Team Raw": str(r.get("team_raw") or "").strip(),
+                            "Team Side": str(r.get("team_side") or "").strip(),
+                            "For/Against": str(r.get("for_against") or "").strip(),
+                            "Team Rel": str(r.get("team_rel") or "").strip(),
+                            "Period": "" if r.get("period") is None else str(int(r["period"])),
+                            "Game Time": str(r.get("game_time") or "").strip(),
+                            "Video Time": str(r.get("video_time") or "").strip(),
+                            "Game Seconds": (
+                                "" if r.get("game_seconds") is None else str(int(r["game_seconds"]))
+                            ),
+                            "Game Seconds End": (
+                                ""
+                                if r.get("game_seconds_end") is None
+                                else str(int(r["game_seconds_end"]))
+                            ),
+                            "Video Seconds": (
+                                ""
+                                if r.get("video_seconds") is None
+                                else str(int(r["video_seconds"]))
+                            ),
+                            "Details": str(r.get("details") or "").strip(),
+                            "Attributed Players": str(r.get("attributed_players") or "").strip(),
+                            "Attributed Jerseys": str(r.get("attributed_jerseys") or "").strip(),
+                            "On-Ice Players": str(r.get("on_ice_players") or "").strip(),
+                            "On-Ice Players (Home)": str(
+                                r.get("on_ice_players_home") or ""
+                            ).strip(),
+                            "On-Ice Players (Away)": str(
+                                r.get("on_ice_players_away") or ""
+                            ).strip(),
+                        }
+                    )
                 events_meta = {
-                    "source_label": erow.get("source_label"),
-                    "updated_at": erow.get("updated_at"),
+                    "source_label": "db",
+                    "updated_at": max_ts,
                     "count": len(events_rows),
                 }
         except Exception:
@@ -7727,16 +7796,13 @@ def enrich_timetoscore_penalties_with_video_times(
             continue
         mapping_by_period.setdefault(int(per), []).append((int(gs), int(vs)))
     for per, pts in list(mapping_by_period.items()):
-        # Deduplicate by game seconds (keep first) and sort by game seconds.
-        seen_gs: set[int] = set()
-        uniq: list[tuple[int, int]] = []
+        # Deduplicate by game seconds, keeping the earliest (minimum) video timestamp for that instant.
+        best_by_gs: dict[int, int] = {}
         for gs, vs in pts:
-            if gs in seen_gs:
-                continue
-            seen_gs.add(gs)
-            uniq.append((gs, vs))
-        uniq.sort(key=lambda x: x[0])
-        mapping_by_period[per] = uniq
+            prev = best_by_gs.get(int(gs))
+            if prev is None or int(vs) < int(prev):
+                best_by_gs[int(gs)] = int(vs)
+        mapping_by_period[per] = sorted(best_by_gs.items(), key=lambda x: x[0])
 
     def _interp_video_seconds(period: int, game_s: int) -> Optional[int]:
         pts = mapping_by_period.get(int(period)) or []
@@ -9160,6 +9226,8 @@ PLAYER_STATS_SUM_KEYS: tuple[str, ...] = (
     "ot_assists",
     "hits",
     "blocks",
+    "toi_seconds",
+    "shifts",
     "faceoff_wins",
     "faceoff_attempts",
     "goalie_saves",
@@ -9169,6 +9237,10 @@ PLAYER_STATS_SUM_KEYS: tuple[str, ...] = (
 
 PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("gp", "GP"),
+    ("toi_seconds", "TOI"),
+    ("toi_seconds_per_game", "TOI per Game"),
+    ("shifts", "Shifts"),
+    ("shifts_per_game", "Shifts per Game"),
     ("goals", "Goals"),
     ("assists", "Assists"),
     ("points", "Points"),
@@ -9216,6 +9288,8 @@ GAME_PLAYER_STATS_COLUMNS: tuple[dict[str, Any], ...] = (
     {"id": "goals", "label": "G", "keys": ("goals",)},
     {"id": "assists", "label": "A", "keys": ("assists",)},
     {"id": "points", "label": "P", "keys": ("goals", "assists"), "op": "sum"},
+    {"id": "toi_seconds", "label": "TOI", "keys": ("toi_seconds",)},
+    {"id": "shifts", "label": "Shifts", "keys": ("shifts",)},
     {"id": "gt_goals", "label": "GT Goals", "keys": ("gt_goals",)},
     {"id": "gw_goals", "label": "GW Goals", "keys": ("gw_goals",)},
     {"id": "ot_goals", "label": "OT Goals", "keys": ("ot_goals",)},
@@ -9541,6 +9615,9 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     assists = _int0(sums.get("assists"))
     points = goals + assists
 
+    toi_seconds = _int0(sums.get("toi_seconds"))
+    shifts = _int0(sums.get("shifts"))
+
     shots = _int0(sums.get("shots"))
     sog = _int0(sums.get("sog"))
     xg = _int0(sums.get("expected_goals"))
@@ -9576,6 +9653,8 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     out["ppg"] = _rate_or_none(points, gp)
 
     # Per-game rates.
+    out["toi_seconds_per_game"] = int(round(float(toi_seconds) / float(gp))) if gp > 0 else None
+    out["shifts_per_game"] = _rate_or_none(shifts, gp)
     out["shots_per_game"] = _rate_or_none(shots, gp)
     out["sog_per_game"] = _rate_or_none(sog, gp)
     out["expected_goals_per_game"] = _rate_or_none(xg, gp)
@@ -9900,6 +9979,41 @@ def build_game_player_stats_table(
             merged_vals[pid][k] = v
             merged_disp[pid][k] = s
             merged_conf[pid][k] = bool(is_conf)
+
+    duration_keys: frozenset[str] = frozenset(
+        {
+            "toi_seconds",
+            "video_toi_seconds",
+            "sb_avg_shift_seconds",
+            "sb_median_shift_seconds",
+            "sb_longest_shift_seconds",
+            "sb_shortest_shift_seconds",
+        }
+    )
+
+    def _fmt_duration_display(raw: str) -> str:
+        """
+        Format merge display values for duration stats.
+        Inputs are typically seconds like "754" or conflict strings like "754/760".
+        """
+        s = str(raw or "").strip()
+        if not s:
+            return ""
+        if "/" in s:
+            parts = [p.strip() for p in s.split("/", 1)]
+            if len(parts) == 2:
+                a = format_seconds_to_mmss_or_hhmmss(parts[0])
+                b = format_seconds_to_mmss_or_hhmmss(parts[1])
+                if a and b:
+                    return f"{a}/{b}"
+        out = format_seconds_to_mmss_or_hhmmss(s)
+        return out or s
+
+    for pid in all_pids:
+        for k in duration_keys:
+            disp = merged_disp[pid].get(k)
+            if disp:
+                merged_disp[pid][k] = _fmt_duration_display(disp)
 
     visible_columns: list[dict[str, Any]] = []
     for col in GAME_PLAYER_STATS_COLUMNS:
@@ -10286,26 +10400,18 @@ def _compute_team_player_stats_sources(
         seen.add(k)
         out.append(s)
 
-    # Prefer scanning events CSV sources (multi-valued Source column).
+    # Prefer scanning event row sources (multi-valued Source column semantics).
     try:
         for chunk in _django_orm.iter_chunks(gids, 200):
-            for r in m.HkyGameEvent.objects.filter(game_id__in=chunk).values(
-                "events_csv", "source_label"
-            ):
-                if not isinstance(r, dict):
+            sources = list(
+                m.HkyGameEventRow.objects.filter(game_id__in=chunk).values_list("source", flat=True)
+            )
+            for src in sources:
+                s = str(src or "").strip()
+                if not s:
                     continue
-                csv_text = str(r.get("events_csv") or "").strip()
-                if csv_text:
-                    try:
-                        _h, ev_rows = parse_events_csv(csv_text)
-                        for s in summarize_event_sources(
-                            ev_rows, fallback_source_label=str(r.get("source_label") or "")
-                        ):
-                            _add(s)
-                        continue
-                    except Exception:
-                        pass
-                _add(r.get("source_label"))
+                for tok in re.split(r"[,+;/\\s]+", s):
+                    _add(tok)
     except Exception:
         pass
     return out
@@ -10567,6 +10673,7 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             "pim": _int_or_none(row.get("PIM")),
             "hits": _int_or_none(row.get("Hits")),
             "blocks": _int_or_none(row.get("Blocks")),
+            "toi_seconds": parse_duration_seconds(row.get("TOI Total") or row.get("TOI")),
             "faceoff_wins": _int_or_none(row.get("Faceoff Wins") or row.get("Faceoffs Won")),
             "faceoff_attempts": _int_or_none(row.get("Faceoff Attempts") or row.get("Faceoffs")),
             "goalie_saves": _int_or_none(row.get("Saves") or row.get("Goalie Saves")),
@@ -10589,6 +10696,14 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             "plus_minus": _int_or_none(row.get("Plus Minus") or row.get("Goal +/-")),
             "gf_counted": _int_or_none(row.get("GF Counted")),
             "ga_counted": _int_or_none(row.get("GA Counted")),
+            "shifts": _int_or_none(row.get("Shifts")),
+            "video_toi_seconds": parse_duration_seconds(
+                row.get("TOI Total (Video)") or row.get("TOI (Video)")
+            ),
+            "sb_avg_shift_seconds": parse_duration_seconds(row.get("Average Shift")),
+            "sb_median_shift_seconds": parse_duration_seconds(row.get("Median Shift")),
+            "sb_longest_shift_seconds": parse_duration_seconds(row.get("Longest Shift")),
+            "sb_shortest_shift_seconds": parse_duration_seconds(row.get("Shortest Shift")),
         }
 
         # Period stats: Period {n} GF/GA
@@ -10605,6 +10720,16 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             if m:
                 per = int(m.group(1))
                 period_stats.setdefault(per, {})["ga"] = _int_or_none(v)
+                continue
+            m = re.match(r"^Period\s+(\d+)\s+TOI$", k)
+            if m:
+                per = int(m.group(1))
+                period_stats.setdefault(per, {})["toi_seconds"] = parse_duration_seconds(v)
+                continue
+            m = re.match(r"^Period\s+(\d+)\s+Shifts$", k)
+            if m:
+                per = int(m.group(1))
+                period_stats.setdefault(per, {})["shifts"] = _int_or_none(v)
                 continue
 
         out.append(

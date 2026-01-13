@@ -13,6 +13,7 @@ PARSE_ONLY=0
 T2S_SCRAPE=0
 NO_DEFAULT_USER=0
 REBUILD=0
+INCLUDE_SHIFTS=0
 T2S_LEAGUES=(3 5 18)
 T2S_LEAGUES_SET=0
 
@@ -23,7 +24,7 @@ OWNER_NAME="${OWNER_NAME:-${GIT_USER_NAME:-$OWNER_EMAIL}}"
 
 usage() {
   cat <<'EOF'
-Usage: ./import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--parse-only]
+Usage: ./import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--parse-only] [--shifts]
 
 Environment:
   WEBAPP_URL        Webapp base URL (default: http://127.0.0.1:8008)
@@ -41,6 +42,7 @@ Options:
   --spreadsheets-only  Seed only from shift spreadsheets (skip TimeToScore import; avoids T2S usage in parse_stats_inputs)
   --parse-only      Only run scripts/parse_stats_inputs.py upload (skip reset + TimeToScore import); forces --webapp-replace
   --scrape          Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
+  --shifts          Include TOI/Shifts stats from shift spreadsheets (adds TOI/Shifts columns in webapp tables)
 EOF
 }
 
@@ -71,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --drop-db-only) DROP_DB=1; DROP_DB_ONLY=1; shift ;;
     --no-default-user) NO_DEFAULT_USER=1; shift ;;
     --rebuild) REBUILD=1; shift ;;
+    --shifts) INCLUDE_SHIFTS=1; shift ;;
     --t2s-league=*)
       T2S_LEAGUE_RAW="${1#*=}"
       shift
@@ -371,9 +374,11 @@ fi
 if [[ "${PARSE_ONLY}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--webapp-replace" )
 fi
+if [[ "${INCLUDE_SHIFTS}" == "1" ]]; then
+  SPREADSHEET_ARGS+=( "--shifts" )
+fi
 ./p scripts/parse_stats_inputs.py \
   --file-list "${SHIFT_FILE_LIST}" \
-  --shifts \
   --no-scripts \
   --upload-webapp \
   --webapp-url="${WEBAPP_URL}" \

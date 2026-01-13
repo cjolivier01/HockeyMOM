@@ -12,6 +12,7 @@ HM_WEBAPP_IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"
 LEAGUE_NAME="${LEAGUE_NAME:-CAHA}"
 NO_DEFAULT_USER=0
 REBUILD=0
+INCLUDE_SHIFTS=0
 T2S_LEAGUES=(3 5 18)
 T2S_LEAGUES_SET=0
 T2S_API_BATCH_SIZE="${T2S_API_BATCH_SIZE:-10}"
@@ -58,7 +59,7 @@ require_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only]
+Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--shifts]
 
 Environment:
   WEBAPP_URL              Webapp base URL (default: https://www.jrsharks2013.org)
@@ -81,6 +82,7 @@ Options:
   --rebuild               Reset (delete) existing league hockey data before importing (destructive)
   --spreadsheets-only     Seed only from shift spreadsheets (skip TimeToScore import; avoids T2S usage in parse_stats_inputs)
   --scrape                Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
+  --shifts                Include TOI/Shifts stats from shift spreadsheets (adds TOI/Shifts columns in webapp tables)
 EOF
 }
 
@@ -111,6 +113,7 @@ while [[ $# -gt 0 ]]; do
     --drop-db-only) DROP_DB=1; DROP_DB_ONLY=1; shift ;;
     --no-default-user) NO_DEFAULT_USER=1; shift ;;
     --rebuild) REBUILD=1; shift ;;
+    --shifts) INCLUDE_SHIFTS=1; shift ;;
     --t2s-league=*)
       T2S_LEAGUE_RAW="${1#*=}"
       shift
@@ -411,9 +414,11 @@ SPREADSHEET_ARGS=()
 if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--no-time2score" )
 fi
+if [[ "${INCLUDE_SHIFTS}" == "1" ]]; then
+  SPREADSHEET_ARGS+=( "--shifts" )
+fi
 ./p scripts/parse_stats_inputs.py \
   --file-list "${SHIFT_FILE_LIST}" \
-  --shifts \
   --upload-webapp \
   --webapp-url="${WEBAPP_URL}" \
   "${SPREADSHEET_ARGS[@]}" \
