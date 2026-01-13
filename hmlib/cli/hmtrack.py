@@ -1302,12 +1302,13 @@ def main():
                 game_dir = None
 
         # Validate imports for the pieces hmtrack expects to have available.
-        import mmengine  # noqa: F401
+        import lightglue  # noqa: F401
         import mmcv  # noqa: F401
         import mmdet  # noqa: F401
+        import mmengine  # noqa: F401
         import mmpose  # noqa: F401
         import mmyolo  # noqa: F401
-        import lightglue  # noqa: F401
+
         import hockeymom._hockeymom  # noqa: F401
 
         print(f"Smoke test OK. game_id={getattr(args, 'game_id', None)} game_dir={game_dir}")
