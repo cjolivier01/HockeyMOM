@@ -29,6 +29,7 @@
                 {% csrf_token %}
                 <label style="display:inline; margin-right:8px;"><input type="checkbox" name="is_shared" value="1" {% if L.is_shared %}checked{% endif %}> Shared</label>
                 <label style="display:inline; margin-right:8px;"><input type="checkbox" name="is_public" value="1" {% if L.is_public %}checked{% endif %}> Public</label>
+                <label style="display:inline; margin-right:8px;"><input type="checkbox" name="show_goalie_stats" value="1" {% if L.show_goalie_stats %}checked{% endif %}> Show goalie stats</label>
                 <button type="submit">Save</button>
               </form>
             — <form method="post" action="/leagues/{{ L.id }}/delete" style="display:inline" onsubmit="return confirm('This will delete the league and its data. Continue?')">
@@ -52,6 +53,7 @@
     <input type="text" name="name" required />
     <label><input type="checkbox" name="is_shared" value="1" /> Shared league</label>
     <label><input type="checkbox" name="is_public" value="1" /> Public (viewable without login)</label>
+    <label><input type="checkbox" name="show_goalie_stats" value="1" /> Show goalie stats</label>
     <button class="btn primary" type="submit">Create</button>
   </form>
   <p class="muted">You will be the administrator and can grant access to others.</p>

@@ -70,6 +70,19 @@ def _is_public_league(league_id: int) -> Optional[dict[str, Any]]:
     )
 
 
+def _league_show_goalie_stats(league_id: int) -> bool:
+    _django_orm, m = _orm_modules()
+    try:
+        v = (
+            m.League.objects.filter(id=int(league_id))
+            .values_list("show_goalie_stats", flat=True)
+            .first()
+        )
+        return bool(v)
+    except Exception:
+        return False
+
+
 def _safe_file_response(path: Path, *, as_attachment: bool = False) -> FileResponse:
     if not path.exists() or not path.is_file():
         raise Http404
@@ -3233,8 +3246,14 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
     recent_goalie_stats_rows: list[dict[str, Any]] = []
     recent_goalie_stats_has_sog = False
     recent_goalie_stats_has_xg = False
+    show_goalie_stats = True
+    if league_id:
+        try:
+            show_goalie_stats = _league_show_goalie_stats(int(league_id))
+        except Exception:
+            show_goalie_stats = False
     try:
-        if eligible_game_ids_in_order:
+        if show_goalie_stats and eligible_game_ids_in_order:
             goalie_event_rows = list(
                 m.HkyGameEventRow.objects.filter(
                     game_id__in=list(eligible_game_ids_in_order),
@@ -4067,30 +4086,45 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         game_event_stats_rows = []
 
     goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
-    try:
-        goalie_event_rows = list(
-            m.HkyGameEventRow.objects.filter(
-                game_id=int(game_id),
-                event_type__key__in=["goal", "expectedgoal", "sog", "shotongoal", "goaliechange"],
+    show_goalie_stats = True
+    if league_id:
+        try:
+            show_goalie_stats = _league_show_goalie_stats(int(league_id))
+        except Exception:
+            show_goalie_stats = False
+    if show_goalie_stats:
+        try:
+            goalie_event_rows = list(
+                m.HkyGameEventRow.objects.filter(
+                    game_id=int(game_id),
+                    event_type__key__in=[
+                        "goal",
+                        "expectedgoal",
+                        "sog",
+                        "shotongoal",
+                        "goaliechange",
+                    ],
+                )
+                .select_related("event_type")
+                .values(
+                    "event_type__key",
+                    "event_id",
+                    "team_side",
+                    "period",
+                    "game_seconds",
+                    "player_id",
+                    "attributed_players",
+                    "attributed_jerseys",
+                    "details",
+                )
             )
-            .select_related("event_type")
-            .values(
-                "event_type__key",
-                "event_id",
-                "team_side",
-                "period",
-                "game_seconds",
-                "player_id",
-                "attributed_players",
-                "attributed_jerseys",
-                "details",
+            goalie_stats = logic.compute_goalie_stats_for_game(
+                goalie_event_rows,
+                home_goalies=team1_goalies,
+                away_goalies=team2_goalies,
             )
-        )
-        goalie_stats = logic.compute_goalie_stats_for_game(
-            goalie_event_rows, home_goalies=team1_goalies, away_goalies=team2_goalies
-        )
-    except Exception:
-        goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
+        except Exception:
+            goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
 
     imported_player_stats_csv_text: Optional[str] = None
     player_stats_import_meta: Optional[dict[str, Any]] = None
@@ -4660,7 +4694,7 @@ def leagues_index(request: HttpRequest) -> HttpResponse:  # pragma: no cover
         m.League.objects.filter(Q(is_shared=True) | Q(owner_user_id=uid) | Q(members__user_id=uid))
         .distinct()
         .order_by("name")
-        .values("id", "name", "is_shared", "is_public", "owner_user_id")
+        .values("id", "name", "is_shared", "is_public", "show_goalie_stats", "owner_user_id")
     ):
         lid = int(row["id"])
         is_owner = int(int(row["owner_user_id"]) == uid)
@@ -4671,6 +4705,7 @@ def leagues_index(request: HttpRequest) -> HttpResponse:  # pragma: no cover
                 "name": row["name"],
                 "is_shared": bool(row["is_shared"]),
                 "is_public": bool(row.get("is_public")),
+                "show_goalie_stats": bool(row.get("show_goalie_stats")),
                 "is_owner": is_owner,
                 "is_admin": is_admin,
             }
@@ -4701,6 +4736,7 @@ def leagues_new(request: HttpRequest) -> HttpResponse:  # pragma: no cover
     name = str(request.POST.get("name") or "").strip()
     is_shared = 1 if str(request.POST.get("is_shared") or "") == "1" else 0
     is_public = 1 if str(request.POST.get("is_public") or "") == "1" else 0
+    show_goalie_stats = 1 if str(request.POST.get("show_goalie_stats") or "") == "1" else 0
     if not name:
         messages.error(request, "Name is required")
         return redirect("/leagues")
@@ -4716,6 +4752,7 @@ def leagues_new(request: HttpRequest) -> HttpResponse:  # pragma: no cover
                 owner_user_id=uid,
                 is_shared=bool(is_shared),
                 is_public=bool(is_public),
+                show_goalie_stats=bool(show_goalie_stats),
                 created_at=now,
                 updated_at=None,
             )
@@ -4744,10 +4781,12 @@ def leagues_update(request: HttpRequest, league_id: int) -> HttpResponse:  # pra
         return redirect("/leagues")
     is_shared = 1 if str(request.POST.get("is_shared") or "") == "1" else 0
     is_public = 1 if str(request.POST.get("is_public") or "") == "1" else 0
+    show_goalie_stats = 1 if str(request.POST.get("show_goalie_stats") or "") == "1" else 0
     _django_orm, m = _orm_modules()
     m.League.objects.filter(id=int(league_id)).update(
         is_shared=bool(is_shared),
         is_public=bool(is_public),
+        show_goalie_stats=bool(show_goalie_stats),
         updated_at=dt.datetime.now(),
     )
     messages.success(request, "League settings updated")
@@ -5380,8 +5419,9 @@ def public_league_team_detail(
     recent_goalie_stats_rows: list[dict[str, Any]] = []
     recent_goalie_stats_has_sog = False
     recent_goalie_stats_has_xg = False
+    show_goalie_stats = _league_show_goalie_stats(int(league_id))
     try:
-        if eligible_game_ids_in_order:
+        if show_goalie_stats and eligible_game_ids_in_order:
             goalie_event_rows = list(
                 m.HkyGameEventRow.objects.filter(
                     game_id__in=list(eligible_game_ids_in_order),
@@ -5909,30 +5949,40 @@ def public_hky_game_detail(
     game_event_stats_rows = logic.compute_game_event_stats_by_side(events_rows)
 
     goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
-    try:
-        goalie_event_rows = list(
-            m.HkyGameEventRow.objects.filter(
-                game_id=int(game_id),
-                event_type__key__in=["goal", "expectedgoal", "sog", "shotongoal", "goaliechange"],
+    show_goalie_stats = _league_show_goalie_stats(int(league_id))
+    if show_goalie_stats:
+        try:
+            goalie_event_rows = list(
+                m.HkyGameEventRow.objects.filter(
+                    game_id=int(game_id),
+                    event_type__key__in=[
+                        "goal",
+                        "expectedgoal",
+                        "sog",
+                        "shotongoal",
+                        "goaliechange",
+                    ],
+                )
+                .select_related("event_type")
+                .values(
+                    "event_type__key",
+                    "event_id",
+                    "team_side",
+                    "period",
+                    "game_seconds",
+                    "player_id",
+                    "attributed_players",
+                    "attributed_jerseys",
+                    "details",
+                )
             )
-            .select_related("event_type")
-            .values(
-                "event_type__key",
-                "event_id",
-                "team_side",
-                "period",
-                "game_seconds",
-                "player_id",
-                "attributed_players",
-                "attributed_jerseys",
-                "details",
+            goalie_stats = logic.compute_goalie_stats_for_game(
+                goalie_event_rows,
+                home_goalies=team1_goalies,
+                away_goalies=team2_goalies,
             )
-        )
-        goalie_stats = logic.compute_goalie_stats_for_game(
-            goalie_event_rows, home_goalies=team1_goalies, away_goalies=team2_goalies
-        )
-    except Exception:
-        goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
+        except Exception:
+            goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
 
     imported_player_stats_csv_text: Optional[str] = None
     player_stats_import_meta: Optional[dict[str, Any]] = None
@@ -7401,6 +7451,7 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
             team1_score = game.get("home_score")
             team2_score = game.get("away_score")
             tts_game_id = game.get("timetoscore_game_id")
+            ext_game_key = str(game.get("external_game_key") or "").strip() or None
 
             notes_fields: dict[str, Any] = {}
             if tts_game_id is not None:
@@ -7408,6 +7459,8 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                     notes_fields["timetoscore_game_id"] = int(tts_game_id)
                 except Exception:
                     pass
+            if ext_game_key:
+                notes_fields["external_game_key"] = str(ext_game_key)
             if game.get("season_id") is not None:
                 try:
                     notes_fields["timetoscore_season_id"] = int(game.get("season_id"))
@@ -7421,6 +7474,22 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                 notes_fields["timetoscore_type"] = str(game.get("game_type_name"))
             elif game.get("type") is not None:
                 notes_fields["timetoscore_type"] = str(game.get("type"))
+
+            # Optional schedule metadata (used by CAHA schedule.pl imports).
+            if game.get("caha_schedule_year") is not None:
+                try:
+                    notes_fields["caha_schedule_year"] = int(game.get("caha_schedule_year"))
+                except Exception:
+                    pass
+            if game.get("caha_schedule_group") is not None:
+                notes_fields["caha_schedule_group"] = str(game.get("caha_schedule_group"))
+            if game.get("caha_schedule_game_number") is not None:
+                try:
+                    notes_fields["caha_schedule_game_number"] = int(
+                        game.get("caha_schedule_game_number")
+                    )
+                except Exception:
+                    pass
 
             game_type_id = _ensure_game_type_id_for_import(
                 game.get("game_type_name")

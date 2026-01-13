@@ -24,6 +24,7 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -156,6 +157,17 @@ thead th.sticky-col { background: var(--thead-bg); z-index: 6; }
 tbody tr:nth-child(odd) td.sticky-col { background: var(--row-odd); }
 tbody tr:nth-child(even) td.sticky-col { background: var(--row-even); }
 td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
+
+/* Desktop density: shrink table text/rows without affecting the rest of the UI. */
+@media (min-width: 721px) and (pointer: fine) {
+  table { font-size: .85rem; }
+  th, td { padding: .65rem .85rem; }
+  table a.btn, table button.btn { padding: .4rem .6rem; font-size: 1em; }
+  table input[type=text], table input[type=password], table input[type=email], table input[type=file], table select, table input[type=number], table input[type=datetime-local] {
+    padding: .4rem .5rem;
+    font-size: 1em;
+  }
+}
 
 .status-badge { display: inline-block; padding: .2rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 800; }
 .status-COMPLETED { background: rgba(40,167,69,.15); color: #7bdfa1; border: 1px solid rgba(40,167,69,.3); }

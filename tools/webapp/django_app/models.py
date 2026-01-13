@@ -14,6 +14,7 @@ class League(models.Model):
     )
     is_shared = models.BooleanField(default=False)
     is_public = models.BooleanField(default=False)
+    show_goalie_stats = models.BooleanField(default=False)
     source = models.CharField(max_length=64, null=True, blank=True)
     external_key = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField()

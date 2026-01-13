@@ -1237,6 +1237,74 @@ def should_not_map_games_or_teams_into_external_when_division_is_external_but_te
     assert [str(r.get("division_name")) for r in lt_rows] == ["12AA", "12AA"]
 
 
+def should_upsert_games_batch_by_external_game_key(webapp_mod, monkeypatch) -> None:
+    mod, m = webapp_mod
+    monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
+
+    app = mod.create_app()
+    app.testing = True
+    client = app.test_client()
+
+    ext_key = "caha:schedule_pl:y2025:d14:gm16001"
+    payload1 = {
+        "league_name": "CAHA",
+        "shared": True,
+        "replace": False,
+        "owner_email": "owner@example.com",
+        "source": "caha_schedule_pl",
+        "external_key": "caha:schedule_pl:2025",
+        "games": [
+            {
+                "home_name": "GSE (1)",
+                "away_name": "Jr Sharks",
+                "starts_at": "2025-09-06 09:50:00",
+                "location": "Poway Ice",
+                "home_score": 3,
+                "away_score": 2,
+                "division_name": "16 AA",
+                "external_game_key": ext_key,
+                "caha_schedule_year": 2025,
+                "caha_schedule_group": "16U:AA",
+                "caha_schedule_game_number": 16001,
+            }
+        ],
+    }
+    r1 = _post(client, "/api/import/hockey/games_batch", payload1, token="sekret")
+    assert r1.status_code == 200
+    assert r1.get_json()["ok"] is True
+
+    assert m.HkyGame.objects.filter(external_game_key=ext_key).count() == 1
+    row = (
+        m.HkyGame.objects.filter(external_game_key=ext_key)
+        .values("id", "notes", "team1_score", "team2_score")
+        .first()
+    )
+    assert row is not None
+    assert row["team1_score"] == 3
+    assert row["team2_score"] == 2
+
+    # Second import should upsert the same game via external_game_key (not create a duplicate).
+    payload2 = dict(payload1)
+    payload2["replace"] = True
+    payload2["games"] = [dict(payload1["games"][0])]
+    payload2["games"][0]["home_score"] = 4
+    payload2["games"][0]["away_score"] = 1
+    r2 = _post(client, "/api/import/hockey/games_batch", payload2, token="sekret")
+    assert r2.status_code == 200
+    assert r2.get_json()["ok"] is True
+
+    assert m.HkyGame.objects.filter(external_game_key=ext_key).count() == 1
+    row2 = (
+        m.HkyGame.objects.filter(external_game_key=ext_key)
+        .values("team1_score", "team2_score", "notes")
+        .first()
+    )
+    assert row2 is not None
+    assert row2["team1_score"] == 4
+    assert row2["team2_score"] == 1
+    assert "external_game_key" in str(row2.get("notes") or "")
+
+
 def _snapshot_import_state(m) -> dict[str, Any]:
     def fmt_dt(v: Any) -> Optional[str]:
         if v is None:
