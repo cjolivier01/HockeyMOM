@@ -114,6 +114,25 @@ def _norm_ws(raw: Any) -> str:
     return " ".join(str(raw or "").strip().split())
 
 
+_LEVEL_ORDER = {"AAA": 0, "AA": 1, "A": 2, "BB": 3, "B": 4}
+_AGE_LABELS = {8: "8U (Mite)"}
+
+
+def _age_label(age: int) -> str:
+    if age in _AGE_LABELS:
+        return _AGE_LABELS[int(age)]
+    return f"{int(age)}U"
+
+
+def _level_sort_key(level: str) -> tuple[int, str]:
+    token = str(level or "").strip().upper()
+    return (_LEVEL_ORDER.get(token, 99), token)
+
+
+def _norm_division_name(raw: Any) -> str:
+    return str(raw or "").strip() or "Unknown Division"
+
+
 def _ival(raw: Any) -> Optional[int]:
     try:
         if raw is None:
@@ -2683,7 +2702,8 @@ def teams(request: HttpRequest) -> HttpResponse:
         return r
     include_external = str(request.GET.get("all") or "0") == "1"
     league_id = request.session.get("league_id")
-    selected_division_raw = str(request.GET.get("division") or "").strip()
+    selected_age_raw = str(request.GET.get("age") or "").strip()
+    selected_level_raw = str(request.GET.get("level") or "").strip()
     league_owner_user_id: Optional[int] = None
     is_league_owner = False
     if league_id:
@@ -2773,21 +2793,83 @@ def teams(request: HttpRequest) -> HttpResponse:
             qs = qs.filter(is_external=False)
         rows = list(qs.order_by("name").values())
 
-    division_names: list[str] = []
-    selected_division: Optional[str] = None
+    age_options: list[dict[str, str]] = []
+    level_options: list[str] = []
+    selected_age = ""
+    selected_level = ""
     if league_id:
-        division_names = sorted(
-            {str(t.get("division_name") or "").strip() or "Unknown Division" for t in rows},
-            key=logic.division_sort_key,
-        )
-        if selected_division_raw and selected_division_raw in division_names:
-            selected_division = selected_division_raw
+        meta_by_div: dict[str, dict[str, Any]] = {}
+        for t in rows:
+            dn = _norm_division_name(t.get("division_name"))
+            if dn not in meta_by_div:
+                meta_by_div[dn] = {
+                    "age": logic.parse_age_from_division_name(dn),
+                    "level": logic.parse_level_from_division_name(dn),
+                }
+
+        ages = sorted({int(v["age"]) for v in meta_by_div.values() if v.get("age") is not None})
+        age_options = [{"value": str(a), "label": _age_label(a)} for a in ages]
+
+        selected_age_u: Optional[int] = None
+        if selected_age_raw:
+            m_age = re.search(r"(\d{1,2})", selected_age_raw)
+            if m_age:
+                try:
+                    candidate = int(m_age.group(1))
+                except Exception:
+                    candidate = None
+                if candidate is not None and candidate in set(ages):
+                    selected_age_u = candidate
+
+        candidates = list(meta_by_div.values())
+        if selected_age_u is not None:
+            candidates = [
+                v
+                for v in candidates
+                if v.get("age") is not None and int(v["age"]) == selected_age_u
+            ]
+
+        levels = {str(v["level"]).strip().upper() for v in candidates if v.get("level")}
+        level_options = sorted(levels, key=_level_sort_key)
+        if any(v.get("level") is None for v in candidates):
+            level_options.append("Other")
+
+        selected_level_norm = selected_level_raw.strip().upper()
+        if selected_level_norm == "OTHER":
+            selected_level_norm = "Other"
+        if selected_level_norm in set(level_options):
+            selected_level = selected_level_norm
+
+        if selected_age_u is not None:
+            selected_age = str(selected_age_u)
             rows = [
                 t
                 for t in rows
-                if (str(t.get("division_name") or "").strip() or "Unknown Division")
-                == selected_division
+                if meta_by_div.get(_norm_division_name(t.get("division_name")), {}).get("age")
+                == selected_age_u
             ]
+        if selected_level:
+            if selected_level == "Other":
+                rows = [
+                    t
+                    for t in rows
+                    if meta_by_div.get(_norm_division_name(t.get("division_name")), {}).get("level")
+                    is None
+                ]
+            else:
+                rows = [
+                    t
+                    for t in rows
+                    if str(
+                        meta_by_div.get(_norm_division_name(t.get("division_name")), {}).get(
+                            "level"
+                        )
+                        or ""
+                    )
+                    .strip()
+                    .upper()
+                    == selected_level
+                ]
 
     stats: dict[int, dict[str, Any]] = {}
     for t in rows:
@@ -2810,7 +2892,7 @@ def teams(request: HttpRequest) -> HttpResponse:
     if league_id:
         grouped: dict[str, list[dict[str, Any]]] = {}
         for t in rows:
-            dn = str(t.get("division_name") or "").strip() or "Unknown Division"
+            dn = _norm_division_name(t.get("division_name"))
             grouped.setdefault(dn, []).append(t)
         divisions = []
         for dn in sorted(grouped.keys(), key=logic.division_sort_key):
@@ -2836,8 +2918,10 @@ def teams(request: HttpRequest) -> HttpResponse:
         {
             "teams": rows,
             "divisions": divisions,
-            "division_names": division_names,
-            "selected_division": selected_division or "",
+            "age_options": age_options,
+            "level_options": level_options,
+            "selected_age": selected_age,
+            "selected_level": selected_level,
             "stats": stats,
             "include_external": include_external,
             "league_view": bool(league_id),
@@ -5042,7 +5126,8 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
     if not league:
         raise Http404
     viewer_user_id = _session_user_id(request)
-    selected_division_raw = str(request.GET.get("division") or "").strip()
+    selected_age_raw = str(request.GET.get("age") or "").strip()
+    selected_level_raw = str(request.GET.get("level") or "").strip()
     league_owner_user_id = (
         int(league.get("owner_user_id") or 0) if isinstance(league, dict) else None
     )
@@ -5103,19 +5188,75 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
             }
         )
 
-    division_names = sorted(
-        {str(t.get("division_name") or "").strip() or "Unknown Division" for t in rows},
-        key=logic.division_sort_key,
-    )
-    selected_division = ""
-    if selected_division_raw and selected_division_raw in division_names:
-        selected_division = selected_division_raw
+    meta_by_div: dict[str, dict[str, Any]] = {}
+    for t in rows:
+        dn = _norm_division_name(t.get("division_name"))
+        if dn not in meta_by_div:
+            meta_by_div[dn] = {
+                "age": logic.parse_age_from_division_name(dn),
+                "level": logic.parse_level_from_division_name(dn),
+            }
+
+    ages = sorted({int(v["age"]) for v in meta_by_div.values() if v.get("age") is not None})
+    age_options = [{"value": str(a), "label": _age_label(a)} for a in ages]
+
+    selected_age_u: Optional[int] = None
+    if selected_age_raw:
+        m_age = re.search(r"(\d{1,2})", selected_age_raw)
+        if m_age:
+            try:
+                candidate = int(m_age.group(1))
+            except Exception:
+                candidate = None
+            if candidate is not None and candidate in set(ages):
+                selected_age_u = candidate
+
+    candidates = list(meta_by_div.values())
+    if selected_age_u is not None:
+        candidates = [
+            v for v in candidates if v.get("age") is not None and int(v["age"]) == selected_age_u
+        ]
+
+    levels = {str(v["level"]).strip().upper() for v in candidates if v.get("level")}
+    level_options = sorted(levels, key=_level_sort_key)
+    if any(v.get("level") is None for v in candidates):
+        level_options.append("Other")
+
+    selected_age = str(selected_age_u) if selected_age_u is not None else ""
+    selected_level = ""
+    selected_level_norm = selected_level_raw.strip().upper()
+    if selected_level_norm == "OTHER":
+        selected_level_norm = "Other"
+    if selected_level_norm in set(level_options):
+        selected_level = selected_level_norm
+
+    if selected_age_u is not None:
         rows = [
             t
             for t in rows
-            if (str(t.get("division_name") or "").strip() or "Unknown Division")
-            == selected_division
+            if meta_by_div.get(_norm_division_name(t.get("division_name")), {}).get("age")
+            == selected_age_u
         ]
+    if selected_level:
+        if selected_level == "Other":
+            rows = [
+                t
+                for t in rows
+                if meta_by_div.get(_norm_division_name(t.get("division_name")), {}).get("level")
+                is None
+            ]
+        else:
+            rows = [
+                t
+                for t in rows
+                if str(
+                    meta_by_div.get(_norm_division_name(t.get("division_name")), {}).get("level")
+                    or ""
+                )
+                .strip()
+                .upper()
+                == selected_level
+            ]
 
     stats: dict[int, dict[str, Any]] = {}
     for t in rows:
@@ -5132,7 +5273,7 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
 
     grouped: dict[str, list[dict[str, Any]]] = {}
     for t in rows:
-        dn = str(t.get("division_name") or "").strip() or "Unknown Division"
+        dn = _norm_division_name(t.get("division_name"))
         grouped.setdefault(dn, []).append(t)
     divisions = []
     for dn in sorted(grouped.keys(), key=logic.division_sort_key):
@@ -5158,8 +5299,10 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
         {
             "teams": rows,
             "divisions": divisions,
-            "division_names": division_names,
-            "selected_division": selected_division,
+            "age_options": age_options,
+            "level_options": level_options,
+            "selected_age": selected_age,
+            "selected_level": selected_level,
             "stats": stats,
             "include_external": True,
             "league_view": True,

@@ -45,10 +45,10 @@ def client(monkeypatch, webapp_db):
         updated_at=None,
     )
     m.LeagueTeam.objects.create(
-        league_id=int(league.id), team_id=int(team_a.id), division_name="DivA"
+        league_id=int(league.id), team_id=int(team_a.id), division_name="12AA"
     )
     m.LeagueTeam.objects.create(
-        league_id=int(league.id), team_id=int(team_b.id), division_name="DivB"
+        league_id=int(league.id), team_id=int(team_b.id), division_name="12A"
     )
 
     c = Client()
@@ -61,7 +61,7 @@ def client(monkeypatch, webapp_db):
 
 
 def should_filter_team_dropdown_by_division(client):
-    html = client.get("/schedule?division=DivA").content.decode()
+    html = client.get("/schedule?division=12AA").content.decode()
     assert "Team A" in html
     assert "Team B" not in html
 
@@ -75,10 +75,15 @@ def should_render_teams_in_league_view(client):
     assert "Team B" in html
 
 
-def should_filter_teams_page_by_division(client):
-    html = client.get("/teams?division=DivA").content.decode()
+def should_filter_teams_page_by_age_and_level(client):
+    html = client.get("/teams?age=12").content.decode()
     assert "Team A" in html
-    assert "Team B" not in html
-    assert "DivA" in html
-    assert "DivB" in html
-    assert ">DivB</h3>" not in html
+    assert "Team B" in html
+    assert ">12AA</h3>" in html
+    assert ">12A</h3>" in html
+
+    html2 = client.get("/teams?age=12&level=AA").content.decode()
+    assert "Team A" in html2
+    assert "Team B" not in html2
+    assert ">12AA</h3>" in html2
+    assert ">12A</h3>" not in html2
