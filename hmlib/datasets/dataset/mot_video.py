@@ -245,7 +245,9 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if img.ndim == 3:
             img = img.unsqueeze(0)
         if img.ndim != 4:
-            raise ValueError(f"compute_rgb_stats expects 3D/4D tensor, got shape {tuple(img.shape)}")
+            raise ValueError(
+                f"compute_rgb_stats expects 3D/4D tensor, got shape {tuple(img.shape)}"
+            )
 
         # Normalize to channels-last for simpler slicing
         img_cl = make_channels_last(img)
@@ -502,9 +504,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # Ensure any embedded loader (e.g., StitchDataset) is also shut down so
         # its coordinator/worker threads do not keep the process alive after
         # hmtrack exits with an error.
-        if self._embedded_data_loader is not None and hasattr(
-            self._embedded_data_loader, "close"
-        ):
+        if self._embedded_data_loader is not None and hasattr(self._embedded_data_loader, "close"):
             try:
                 self._embedded_data_loader.close()
             except Exception:
@@ -708,10 +708,12 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     if self._dtype is not None and self._dtype != original_img0.dtype:
                         original_img0 = original_img0.to(self._dtype)
                     img = original_img0
-                data_item.update(dict(
-                    img=make_channels_last(img),
-                    img_id=ids,
-                ))
+                data_item.update(
+                    dict(
+                        img=make_channels_last(img),
+                        img_id=ids,
+                    )
+                )
 
             if self.width_t is None:
                 self.width_t = torch.tensor([image_width(img)], dtype=torch.int64)
@@ -769,6 +771,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             # assert False # Don't use this path anymore
             # return _wrap_original_image(original_img0), img, None, imgs_info, ids
         return data_item
+
     def __next__(self):
         with self._seek_lock:
             self._timer.tic()

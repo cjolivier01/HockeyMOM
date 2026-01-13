@@ -107,5 +107,7 @@ def aggregate_goals_assists(game_stats: dict[str, Any]) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for name, rec in stats_by_player.items():
-        out.append({"name": name, "goals": int(rec.get("goals", 0)), "assists": int(rec.get("assists", 0))})
+        out.append(
+            {"name": name, "goals": int(rec.get("goals", 0)), "assists": int(rec.get("assists", 0))}
+        )
     return out

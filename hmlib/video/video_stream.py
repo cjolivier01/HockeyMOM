@@ -113,7 +113,6 @@ def _max_video_width(codec: str) -> int:
 
 
 class VideoStreamWriterInterface:
-
     def close(self) -> None:
         raise NotImplementedError("close not implemented")
 
@@ -533,7 +532,6 @@ class GStreamerVideoReaderIterator:
 
 
 class PyNvVideoCodecIterator:
-
     def __init__(
         self,
         decoder,
@@ -602,9 +600,7 @@ class CVVideoCaptureIterator:
 
     def __del__(self):
         if hasattr(self, "frames_delivered_count") and self.frames_delivered_count:
-            logger.info(
-                "CVVideoCaptureIterator delivered %d frames", self.frames_delivered_count
-            )
+            logger.info("CVVideoCaptureIterator delivered %d frames", self.frames_delivered_count)
 
 
 class VideoReaderIterator:
@@ -618,6 +614,7 @@ class VideoReaderIterator:
         if next_frame is None:
             raise StopIteration()
         return next_frame["data"].unsqueeze(0)
+
 
 class TAStreamReaderIterator:
     def __init__(self, sr: StreamingMediaDecoder, batch_size: int = 1):

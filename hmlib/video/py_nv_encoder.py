@@ -64,6 +64,7 @@ class PyNvVideoEncoder:
     - Alternative backends using PyAV or a streaming ffmpeg pipe remain
       available via HM_VIDEO_ENCODER_BACKEND or the ``use_pyav`` argument.
     """
+
     @typechecked
     def __init__(
         self,
@@ -220,7 +221,6 @@ class PyNvVideoEncoder:
             else contextlib.nullcontext()
         )
         with batch_ctx:
-            current_stream = torch.cuda.current_stream(batch.device)
             for frame in batch:
                 frame_ctx = (
                     prof.rf("video.nvenc.encode_frame")  # type: ignore[union-attr]
@@ -421,9 +421,7 @@ class PyNvVideoEncoder:
 
         ffmpeg = which("ffmpeg")
         if ffmpeg is None:
-            raise RuntimeError(
-                "ffmpeg is required for container muxing but was not found in PATH."
-            )
+            raise RuntimeError("ffmpeg is required for container muxing but was not found in PATH.")
 
         stream_format = self._bitstream_format()
         expected_duration = None
@@ -435,7 +433,9 @@ class PyNvVideoEncoder:
         muxer = self._container_format()
 
         fps = Fraction(self.fps).limit_denominator(1001)
-        fps_str = f"{fps.numerator}/{fps.denominator}" if fps.denominator != 1 else str(fps.numerator)
+        fps_str = (
+            f"{fps.numerator}/{fps.denominator}" if fps.denominator != 1 else str(fps.numerator)
+        )
         time_base = Fraction(fps.denominator, fps.numerator)
         time_base_str = f"{time_base.numerator}/{time_base.denominator}"
         setts_bsf = f"setts=pts=N:dts=N:duration=1:time_base={time_base_str}"
@@ -614,9 +614,7 @@ class PyNvVideoEncoder:
 
         ffmpeg = which("ffmpeg")
         if ffmpeg is None:
-            raise RuntimeError(
-                "ffmpeg is required for container muxing but was not found in PATH."
-            )
+            raise RuntimeError("ffmpeg is required for container muxing but was not found in PATH.")
 
         stream_format = self._bitstream_format()
 

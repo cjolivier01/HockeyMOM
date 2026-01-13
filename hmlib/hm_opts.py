@@ -1310,7 +1310,10 @@ class hm_opts(object):
             ("video_encoder_backend", "aspen.video_out.encoder_backend"),
             ("output_file", "aspen.plugins.video_out.params.output_video_path"),
             ("save_frame_dir", "aspen.plugins.video_out.params.save_frame_dir"),
-            ("checkerboard_input", ["debug.rgb_stats_check.enable", "aspen.stitching.capture_rgb_stats"]),
+            (
+                "checkerboard_input",
+                ["debug.rgb_stats_check.enable", "aspen.stitching.capture_rgb_stats"],
+            ),
             ("debug_play_tracker", "plot.debug_play_tracker"),
             ("plot_moving_boxes", "plot.plot_moving_boxes"),
             ("plot_trajectories", "plot.plot_trajectories"),
@@ -1396,10 +1399,56 @@ class hm_opts(object):
             else:
                 paths = list(cfg_paths)
             for path in paths:
+                if path.startswith("aspen.plugins."):
+                    # Avoid implicitly creating incomplete Aspen plugin stubs via CLI overrides.
+                    # If the selected Aspen config doesn't declare a plugin, setting
+                    # aspen.plugins.<name>.* here would create a dict without a `class`,
+                    # which later fails AspenNet graph construction.
+                    parts = path.split(".")
+                    if len(parts) >= 3:
+                        plugin_name = parts[2]
+                        aspen_cfg = config.get("aspen")
+                        plugins_cfg = (
+                            aspen_cfg.get("plugins") if isinstance(aspen_cfg, dict) else None
+                        )
+                        if not isinstance(plugins_cfg, dict) or plugin_name not in plugins_cfg:
+                            continue
                 if arg_name in setdefault_set and _has_nested_key(config, path):
                     continue
                 set_nested_value(config, path, mapped_value)
                 changed = True
+        return changed
+
+    @staticmethod
+    def apply_config_overrides(config: Dict[str, Any], overrides: Optional[Sequence[str]]) -> bool:
+        """Apply generic dot-path overrides (``key=value``) to a config dict."""
+        if not isinstance(config, dict) or not overrides:
+            return False
+
+        changed = False
+        for ov in overrides:
+            if not isinstance(ov, str) or "=" not in ov:
+                continue
+            key, val = ov.split("=", 1)
+            sval = val.strip()
+            lval = sval.lower()
+            if lval in ("null", "none"):
+                pval: Any = None
+            elif lval in ("true", "false"):
+                pval = lval == "true"
+            else:
+                try:
+                    if "." in sval:
+                        pval = float(sval)
+                    else:
+                        pval = int(sval)
+                except Exception:
+                    pval = sval
+            try:
+                set_nested_value(config, key.strip(), pval)
+                changed = True
+            except Exception:
+                pass
         return changed
 
     @staticmethod

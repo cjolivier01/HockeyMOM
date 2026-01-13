@@ -8,29 +8,25 @@ Provides :class:`BasicVideoInfo` and small utilities around ``ffprobe`` and
 
 import ctypes
 import os
-from fractions import Fraction
 import platform
 import re
 import signal
 import subprocess
 import traceback
+from fractions import Fraction
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 import cv2
 import numpy as np
 
 from hmlib.log import get_logger
-from hmlib.utils.utils import classinstancememoize
 from hmlib.utils.progress_bar import RICH_CONSOLE
+from hmlib.utils.utils import classinstancememoize
 
 try:
-    from rich.progress import (
-        BarColumn,
-        Progress as RichProgress,
-        ProgressColumn,
-        TextColumn,
-        TimeRemainingColumn,
-    )
+    from rich.progress import BarColumn
+    from rich.progress import Progress as RichProgress
+    from rich.progress import ProgressColumn, TextColumn, TimeRemainingColumn
     from rich.text import Text
 except Exception:  # pragma: no cover - optional dependency during import
     BarColumn = None  # type: ignore[assignment]
@@ -154,9 +150,7 @@ class BasicVideoInfo:
                 self.fps = _frame_rate_to_fraction(cap_fps)
                 # Avoid division by zero if FPS is unavailable
                 self.duration = (
-                    float("inf")
-                    if float(self.fps) == 0.0
-                    else self.frame_count / float(self.fps)
+                    float("inf") if float(self.fps) == 0.0 else self.frame_count / float(self.fps)
                 )
                 self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -394,7 +388,12 @@ class RichFfmpegProgressHandler(FfmpegOutputHandler):
     def _ensure_started(self) -> None:
         if self._started:
             return
-        if RichProgress is None or BarColumn is None or TextColumn is None or TimeRemainingColumn is None:
+        if (
+            RichProgress is None
+            or BarColumn is None
+            or TextColumn is None
+            or TimeRemainingColumn is None
+        ):
             return
         self._progress = RichProgress(
             TextColumn("{task.description}"),

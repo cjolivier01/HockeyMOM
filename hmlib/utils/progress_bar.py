@@ -20,8 +20,9 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress import BarColumn, ProgressColumn, TextColumn
+from rich.progress import BarColumn
 from rich.progress import Progress as RichProgress
+from rich.progress import ProgressColumn, TextColumn
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
@@ -431,7 +432,9 @@ class ProgressBar:
         else:
             completed = self._counter
             total_val = None
-        self._progress.update(self._rich_task, completed=completed, total=total_val, description=description)
+        self._progress.update(
+            self._rich_task, completed=completed, total=total_val, description=description
+        )
         if final and total_val is not None:
             # Ensure we show a fully-complete bar if requested.
             self._progress.update(self._rich_task, completed=total_val, description=description)
@@ -498,6 +501,7 @@ class ProgressBar:
         # Single rich-backed rendering path once started
         self._render_rich(final=final)
 
+
 def convert_seconds_to_hms(total_seconds: Any) -> str:
     hours = int(total_seconds // 3600)  # Calculate the number of hours
     minutes = int((total_seconds % 3600) // 60)  # Calculate the remaining minutes
@@ -540,9 +544,7 @@ def build_aspen_graph_renderable(snapshot: Dict[str, Any]) -> Table:
                 total_capacity = queues.get("total_capacity", None)
                 count = queues.get("count", len(items))
                 if isinstance(total_capacity, int):
-                    stats_parts.append(
-                        f"Queues: {total_current}/{total_capacity} (n={count})"
-                    )
+                    stats_parts.append(f"Queues: {total_current}/{total_capacity} (n={count})")
                 else:
                     stats_parts.append(f"Queues: {total_current} (n={count})")
     elif concurrency:

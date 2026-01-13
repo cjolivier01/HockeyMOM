@@ -9,11 +9,11 @@ other code (e.g. webapp import scripts) can be thin adapters.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import time
-from urllib.parse import urljoin
+from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional
+from urllib.parse import urljoin
 
 
 @dataclass(frozen=True)

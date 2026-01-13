@@ -13,10 +13,10 @@ from hmlib.bbox.tiling import (
     pack_bounding_boxes_as_tiles,
 )
 from hmlib.jersey.number_classifier import TrackJerseyInfo
+from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.ui import show_image  # noqa: F401 (for debugging
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
-from hmlib.tracking_utils.utils import get_track_mask
 
 
 def _to_tensor(x: Any) -> torch.Tensor:

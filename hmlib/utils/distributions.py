@@ -5,7 +5,6 @@ import torch
 
 
 class ImageHorizontalGaussianDistribution:
-
     def __init__(
         self,
         width: int,
@@ -65,8 +64,9 @@ class ImageHorizontalGaussianDistribution:
                 )
 
             # Late import since this usually isn't used
-            import matplotlib.pyplot as plt
             import time
+
+            import matplotlib.pyplot as plt
 
             plt.plot(
                 x.cpu().numpy(), (torch.ones_like(self.gaussian_wide) - self.gaussian_wide).numpy()

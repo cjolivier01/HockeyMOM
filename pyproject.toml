@@ -57,6 +57,7 @@ line_length = 100
 
 [tool.pytest.ini_options]
 python_functions = "should_*"
+testpaths = ["tests", "hmlib/aspen/tests"]
 
 # pytest-asyncio settings
 asyncio_mode = "auto"

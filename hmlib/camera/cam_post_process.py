@@ -13,8 +13,8 @@ from typing import Any, Dict, Optional
 
 import torch
 
-from hmlib.builder import HM
 from hmlib.aspen.plugins.postprocess_plugin import CamPostProcessPlugin
+from hmlib.builder import HM
 
 
 @HM.register_module()

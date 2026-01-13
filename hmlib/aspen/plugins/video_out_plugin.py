@@ -6,8 +6,7 @@ from typing import Any, Dict, Optional
 
 from hmlib.builder import HM
 from hmlib.config import get_nested_value
-from hmlib.utils.image import image_height, image_width
-from hmlib.video.video_out import MAX_NEVC_VIDEO_WIDTH, VideoOutput
+from hmlib.video.video_out import VideoOutput
 
 from .base import Plugin
 

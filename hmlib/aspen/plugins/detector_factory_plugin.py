@@ -8,8 +8,8 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.config import prepend_root_dir
-from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
 from hmlib.utils.nms import DetectorNMS
+from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
 
 from .base import Plugin
 

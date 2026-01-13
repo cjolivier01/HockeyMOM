@@ -2,7 +2,6 @@ import torch
 
 from hmlib.log import get_logger
 
-
 logger = get_logger(__name__)
 
 

@@ -41,8 +41,12 @@ def _mean_iou_tlwh(a_tlwh: torch.Tensor, b_tlwh: torch.Tensor) -> torch.Tensor:
     iw = torch.clamp(ix2 - ix1, min=0.0)
     ih = torch.clamp(iy2 - iy1, min=0.0)
     inter = iw * ih
-    a_area = torch.clamp(a[..., 2] - a[..., 0], min=0.0) * torch.clamp(a[..., 3] - a[..., 1], min=0.0)
-    b_area = torch.clamp(b[..., 2] - b[..., 0], min=0.0) * torch.clamp(b[..., 3] - b[..., 1], min=0.0)
+    a_area = torch.clamp(a[..., 2] - a[..., 0], min=0.0) * torch.clamp(
+        a[..., 3] - a[..., 1], min=0.0
+    )
+    b_area = torch.clamp(b[..., 2] - b[..., 0], min=0.0) * torch.clamp(
+        b[..., 3] - b[..., 1], min=0.0
+    )
     union = a_area + b_area - inter
     iou = inter / torch.clamp(union, min=1e-6)
     return iou.mean()
@@ -89,14 +93,30 @@ def _compute_losses(
         metrics["iou_slow"] = float(iou_slow.detach().item())
         metrics["iou_fast"] = float(iou_fast.detach().item())
 
-        vel_slow = nn.functional.l1_loss(_diff1(pred_slow), _diff1(y_slow)) if pred.size(1) > 1 else pred.new_zeros(())
-        vel_fast = nn.functional.l1_loss(_diff1(pred_fast), _diff1(y_fast)) if pred.size(1) > 1 else pred.new_zeros(())
+        vel_slow = (
+            nn.functional.l1_loss(_diff1(pred_slow), _diff1(y_slow))
+            if pred.size(1) > 1
+            else pred.new_zeros(())
+        )
+        vel_fast = (
+            nn.functional.l1_loss(_diff1(pred_fast), _diff1(y_fast))
+            if pred.size(1) > 1
+            else pred.new_zeros(())
+        )
         vel = vel_slow + float(fast_mult) * vel_fast
         metrics["vel_slow"] = float(vel_slow.detach().item()) if pred.size(1) > 1 else 0.0
         metrics["vel_fast"] = float(vel_fast.detach().item()) if pred.size(1) > 1 else 0.0
 
-        acc_slow = nn.functional.l1_loss(_diff2(pred_slow), _diff2(y_slow)) if pred.size(1) > 2 else pred.new_zeros(())
-        acc_fast = nn.functional.l1_loss(_diff2(pred_fast), _diff2(y_fast)) if pred.size(1) > 2 else pred.new_zeros(())
+        acc_slow = (
+            nn.functional.l1_loss(_diff2(pred_slow), _diff2(y_slow))
+            if pred.size(1) > 2
+            else pred.new_zeros(())
+        )
+        acc_fast = (
+            nn.functional.l1_loss(_diff2(pred_fast), _diff2(y_fast))
+            if pred.size(1) > 2
+            else pred.new_zeros(())
+        )
         acc = acc_slow + float(fast_mult) * acc_fast
         metrics["acc_slow"] = float(acc_slow.detach().item()) if pred.size(1) > 2 else 0.0
         metrics["acc_fast"] = float(acc_fast.detach().item()) if pred.size(1) > 2 else 0.0
@@ -109,8 +129,16 @@ def _compute_losses(
             iou = _mean_iou_tlwh(pred, y)
             iou_loss = 1.0 - iou
             metrics["iou"] = float(iou.detach().item())
-        vel = nn.functional.l1_loss(_diff1(pred), _diff1(y)) if pred.size(1) > 1 else pred.new_zeros(())
-        acc = nn.functional.l1_loss(_diff2(pred), _diff2(y)) if pred.size(1) > 2 else pred.new_zeros(())
+        vel = (
+            nn.functional.l1_loss(_diff1(pred), _diff1(y))
+            if pred.size(1) > 1
+            else pred.new_zeros(())
+        )
+        acc = (
+            nn.functional.l1_loss(_diff2(pred), _diff2(y))
+            if pred.size(1) > 2
+            else pred.new_zeros(())
+        )
         metrics["vel"] = float(vel.detach().item()) if pred.size(1) > 1 else 0.0
         metrics["acc"] = float(acc.detach().item()) if pred.size(1) > 2 else 0.0
 
@@ -231,8 +259,12 @@ def main():
         action="store_true",
         help="Enable scheduled sampling (only when --feature-mode=base_prev_y).",
     )
-    ap.add_argument("--ss-prob-start", type=float, default=0.0, help="Scheduled-sampling prob at step 0.")
-    ap.add_argument("--ss-prob-end", type=float, default=0.3, help="Scheduled-sampling prob after warmup.")
+    ap.add_argument(
+        "--ss-prob-start", type=float, default=0.0, help="Scheduled-sampling prob at step 0."
+    )
+    ap.add_argument(
+        "--ss-prob-end", type=float, default=0.3, help="Scheduled-sampling prob after warmup."
+    )
     ap.add_argument(
         "--ss-warmup-steps",
         type=int,
@@ -253,7 +285,12 @@ def main():
     ap.add_argument("--nlayers", type=int, default=4)
     ap.add_argument("--dropout", type=float, default=0.1)
     ap.add_argument("--loss-l1-weight", type=float, default=1.0, help="Weight for L1 loss.")
-    ap.add_argument("--loss-iou-weight", type=float, default=0.5, help="Weight for (1-IoU) box loss (TLWH modes only).")
+    ap.add_argument(
+        "--loss-iou-weight",
+        type=float,
+        default=0.5,
+        help="Weight for (1-IoU) box loss (TLWH modes only).",
+    )
     ap.add_argument(
         "--loss-vel-weight",
         type=float,
@@ -326,7 +363,9 @@ def main():
             logger.warning("Skipping %s (missing tracking.csv/camera.csv)", gid)
             continue
         if args.target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
-            logger.warning("Skipping %s (missing camera_fast.csv for --target-mode=slow_fast_tlwh)", gid)
+            logger.warning(
+                "Skipping %s (missing camera_fast.csv for --target-mode=slow_fast_tlwh)", gid
+            )
             continue
         try:
             validate_csv_paths(paths)
@@ -336,7 +375,9 @@ def main():
         game_csvs.append(paths)
 
     if not game_csvs:
-        raise SystemExit("No usable games found (need tracking.csv + camera.csv [+ camera_fast.csv]).")
+        raise SystemExit(
+            "No usable games found (need tracking.csv + camera.csv [+ camera_fast.csv])."
+        )
 
     # Use one normalization scale across all games for consistent training.
     max_x = 0.0
@@ -486,8 +527,10 @@ def main():
                     msg += f" iou={metrics['iou']:.4f}"
             logger.info(msg)
 
-        do_eval = val_loader is not None and int(args.eval_every) > 0 and (
-            step % int(args.eval_every) == 0 or step == steps
+        do_eval = (
+            val_loader is not None
+            and int(args.eval_every) > 0
+            and (step % int(args.eval_every) == 0 or step == steps)
         )
         if do_eval:
             val = _eval_loss(
@@ -504,7 +547,9 @@ def main():
             logger.info("step %d/%d: val_loss=%.5f", step, steps, float(val))
             if val < best_val:
                 best_val = float(val)
-                ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg)
+                ckpt = pack_gpt_checkpoint(
+                    model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg
+                )
                 ckpt["step"] = int(step)
                 ckpt["games"] = [p.game_id for p in game_csvs]
                 ckpt["target_mode"] = str(args.target_mode)

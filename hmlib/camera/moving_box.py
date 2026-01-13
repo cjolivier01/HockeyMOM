@@ -189,9 +189,12 @@ class ResizingBox(BasicBox):
 
             # Sizing thresholds
             if draw_thresholds:
-                grow_width, grow_height, shrink_width, shrink_height = (
-                    self._get_grow_wh_and_shrink_wh(bbox=my_bbox)
-                )
+                (
+                    grow_width,
+                    grow_height,
+                    shrink_width,
+                    shrink_height,
+                ) = self._get_grow_wh_and_shrink_wh(bbox=my_bbox)
                 grow_box = make_box_at_center(
                     center_point=center_tensor,
                     w=my_width + grow_width,

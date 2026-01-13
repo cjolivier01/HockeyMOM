@@ -16,9 +16,9 @@ from mmengine.structures import InstanceData
 from hmlib.aspen.plugins.base import Plugin
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.log import logger
+from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first
-from hmlib.tracking_utils.utils import get_track_mask
 
 # Jersey-number-pipeline inspired torso crop parameters
 _PADDING = 5
@@ -218,13 +218,9 @@ class KoshkinaJerseyNumberPlugin(Plugin):
                         )
                         missing, unexpected = model.load_state_dict(state, strict=False)
                         if missing:
-                            logger.info(
-                                "PARSeq load: missing keys: %d", len(missing)
-                            )
+                            logger.info("PARSeq load: missing keys: %d", len(missing))
                         if unexpected:
-                            logger.info(
-                                "PARSeq load: unexpected keys: %d", len(unexpected)
-                            )
+                            logger.info("PARSeq load: unexpected keys: %d", len(unexpected))
                     except Exception as ex_load:
                         logger.info(
                             "PARSeq load_state_dict failed (%s); proceeding with uninitialized model.",
@@ -489,9 +485,9 @@ class KoshkinaJerseyNumberPlugin(Plugin):
             frame_img = original_images[frame_index]  # (C,H,W)
 
             # Build ROIs per track
-            rois: List[Tuple[int, Tuple[int, int, int, int]]] = (
-                []
-            )  # (index in tracks, (x1,y1,x2,y2))
+            rois: List[
+                Tuple[int, Tuple[int, int, int, int]]
+            ] = []  # (index in tracks, (x1,y1,x2,y2))
             if pose_inst is not None and hasattr(pose_inst, "keypoints"):
                 kpts_all = pose_inst.keypoints  # (N,K,2)
                 kps_all = getattr(pose_inst, "keypoint_scores", None)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -143,7 +144,7 @@ class SaveDetectionsPlugin(SavePluginBase):
 
             try:
                 df.add_frame_sample(frame_id=int(fid), data_sample=img_data_sample)
-            except Exception as ex:
+            except Exception:
                 df.add_frame_records(
                     frame_id=int(fid),
                     scores=getattr(inst, "scores", np.empty((0,), dtype=np.float32)),
@@ -329,6 +330,7 @@ class SavePosePlugin(SavePluginBase):
             return None
         os.makedirs(work_dir, exist_ok=True)
         output_path = os.path.join(work_dir, self._output_filename)
+        Path(output_path).touch(exist_ok=True)
         self._pose_dataframe = PoseDataFrame(
             output_file=output_path, write_interval=self._write_interval
         )

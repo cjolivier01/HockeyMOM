@@ -34,4 +34,3 @@ class FlakyOutputPlugin(Plugin):
         if self.calls == 1:
             return {"value": self.calls}
         return {"value": self.calls, "extra_key": 99}
-

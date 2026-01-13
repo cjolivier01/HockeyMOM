@@ -127,9 +127,7 @@ def concatenate_audio(files) -> tempfile.TemporaryFile:
     # Execute the command
     try:
         subprocess.run(command, check=True)
-        get_logger(__name__).info(
-            "Audio concatenated successfully, saved to %s", temp_file.name
-        )
+        get_logger(__name__).info("Audio concatenated successfully, saved to %s", temp_file.name)
     except subprocess.CalledProcessError as e:
         get_logger(__name__).error("Failed to concatenate audio: %s", e)
         temp_file.close()
