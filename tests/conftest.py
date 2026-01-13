@@ -54,10 +54,9 @@ def webapp_orm_modules(webapp_test_config_path: Path):
 
 
 def _reset_webapp_db(django_orm, m) -> None:
-    from werkzeug.security import generate_password_hash
-
-    from django.db import transaction
     from django.contrib.sessions.models import Session
+    from django.db import connection, transaction
+    from werkzeug.security import generate_password_hash
 
     with transaction.atomic():
         m.LeagueGame.objects.all().delete()
@@ -78,6 +77,12 @@ def _reset_webapp_db(django_orm, m) -> None:
         m.GameType.objects.all().delete()
         m.User.objects.all().delete()
         Session.objects.all().delete()
+        if connection.vendor == "sqlite":
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM sqlite_sequence;")
+            except Exception:
+                pass
 
     django_orm.ensure_bootstrap_data(default_admin_password_hash=generate_password_hash("admin"))
 
