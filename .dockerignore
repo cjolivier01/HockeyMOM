@@ -14,12 +14,13 @@ __pycache__
 bazel-*
 
 # Large or generated outputs
-dist
+/dist
 work_dirs
 output_workdirs
 profile
 profile_test
 reports
+player_focus
 
 # Local datasets / pretrained weights (often symlinks)
 datasets
@@ -40,8 +41,8 @@ pretrained
 trace.json
 
 # Vendored OpenMMLab tree is large; keep sources/configs but drop bulky artifacts/data
-openmm/**/build
-openmm/**/dist
+/openmm/*/build
+/openmm/*/dist
 openmm/**/.mim
 openmm/**/.pytest_cache
 openmm/**/__pycache__

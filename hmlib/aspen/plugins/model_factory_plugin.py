@@ -5,6 +5,9 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
+from hmlib.config import prepend_root_dir
+from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
+
 from .base import Plugin
 
 try:
@@ -64,12 +67,13 @@ class ModelFactoryPlugin(Plugin):
         self._post_track = post_tracking_pipeline
         self._to_device = to_device
         self._model = None
-        self._detector_yaml = detector_yaml
+        self._detector_yaml = prepend_root_dir(detector_yaml) if detector_yaml else None
+        self._detector_mmconfig = prepend_root_dir(detector_mmconfig) if detector_mmconfig else None
 
     def _load_detector_from_mmconfig(self, cfg_path: str) -> Dict[str, Any]:
         if Config is None:
             raise RuntimeError("mmengine is not available to load mmconfig.")
-        cfg = Config.fromfile(cfg_path)
+        cfg = Config.fromfile(prepend_root_dir(cfg_path))
         # Try common locations for detector
         det = None
         # Prefer a top-level 'detector' variable if present
@@ -136,7 +140,8 @@ class ModelFactoryPlugin(Plugin):
 
             model = ModelCls(**kwargs)
             if hasattr(model, "init_weights"):
-                model.init_weights()
+                with numpy2_pickle_compat():
+                    model.init_weights()
 
             if (
                 self._to_device

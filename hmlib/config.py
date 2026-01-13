@@ -44,6 +44,11 @@ def prepend_root_dir(path: str) -> str:
         # Likely a URL
         return path
     if path[0] != "/":
+        # Many configs historically used paths like "hmlib/config/...".
+        # When running from an installed wheel, ROOT_DIR is ".../site-packages/hmlib",
+        # so joining ROOT_DIR + "hmlib/..." would incorrectly duplicate the segment.
+        if path.startswith("hmlib/") and Path(ROOT_DIR).name == "hmlib":
+            return str(Path(ROOT_DIR).parent / path)
         return os.path.join(ROOT_DIR, path)
     return path
 

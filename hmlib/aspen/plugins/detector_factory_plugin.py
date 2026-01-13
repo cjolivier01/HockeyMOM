@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from mmengine.structures import InstanceData
 
+from hmlib.config import prepend_root_dir
+from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
 from hmlib.utils.nms import DetectorNMS
 
 from .base import Plugin
@@ -121,7 +123,7 @@ class DetectorFactoryPlugin(Plugin):
     def _load_detector_from_yaml(self, path: str) -> Dict[str, Any]:
         import yaml
 
-        with open(path, "r") as f:
+        with open(prepend_root_dir(path), "r") as f:
             y = yaml.safe_load(f)
         if isinstance(y, dict) and "detector" in y:
             return y["detector"]
@@ -172,7 +174,8 @@ class DetectorFactoryPlugin(Plugin):
             model = MODELS.build(model_cfg)
 
             if hasattr(model, "init_weights"):
-                model.init_weights()
+                with numpy2_pickle_compat():
+                    model.init_weights()
 
             # Enable static-shape detection outputs whenever the head supports
             # it (e.g., YOLOXHead). This avoids dynamic mask-based selects and
@@ -259,9 +262,7 @@ class DetectorFactoryPlugin(Plugin):
                                     self._onnx_cfg.get("nms_backend", self._nms_backend)
                                 ),
                                 nms_test=bool(self._onnx_cfg.get("nms_test", self._nms_test)),
-                                nms_plugin=str(
-                                    self._onnx_cfg.get("nms_plugin", self._nms_plugin)
-                                ),
+                                nms_plugin=str(self._onnx_cfg.get("nms_plugin", self._nms_plugin)),
                             )
                         except Exception as ex:
                             # Fall back to PyTorch if ONNX init fails
@@ -821,9 +822,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
             _torch.save(trt_mod.state_dict(), self.engine_path)
             get_logger(__name__).info("Saved TensorRT engine to %s", self.engine_path)
         except Exception:
-            get_logger(__name__).warning(
-                "Failed to save TensorRT engine to %s", self.engine_path
-            )
+            get_logger(__name__).warning("Failed to save TensorRT engine to %s", self.engine_path)
         self._trt_module = trt_mod
 
     def _preprocess(self, x: torch.Tensor) -> torch.Tensor:
