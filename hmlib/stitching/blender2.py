@@ -933,6 +933,7 @@ def create_stitcher(
     add_alpha_channel: bool,
     python_blender: bool = True,
     minimize_blend: bool = True,
+    max_output_width: Optional[int] = None,
     mapping_basename_1: str = "mapping_0000",
     mapping_basename_2: str = "mapping_0001",
     remapped_basename: str = "mapping_",
@@ -951,13 +952,28 @@ def create_stitcher(
         if blend_mode != "laplacian":
             # Hard seam
             levels = 0
+        max_output_width_i = int(max_output_width) if max_output_width else 0
         if dtype == torch.float32:
             stitcher = CudaStitchPanoF32(
-                str(dir_name), batch_size, levels, size1, size2, auto_adjust_exposure
+                str(dir_name),
+                batch_size,
+                levels,
+                size1,
+                size2,
+                auto_adjust_exposure,
+                minimize_blend,
+                max_output_width_i,
             )
         elif dtype == torch.uint8:
             stitcher = CudaStitchPanoU8(
-                str(dir_name), batch_size, levels, size1, size2, auto_adjust_exposure
+                str(dir_name),
+                batch_size,
+                levels,
+                size1,
+                size2,
+                auto_adjust_exposure,
+                minimize_blend,
+                max_output_width_i,
             )
         else:
             assert False
@@ -1127,7 +1143,7 @@ def blend_video(
             # Hard-seam or other non-laplacian GPU modes: force single level.
             num_levels = 0
         stitcher: CudaStitchPanoU8 = CudaStitchPanoU8(
-            dir_name, batch_size, num_levels, size1, size2, adjust_exposure
+            dir_name, batch_size, num_levels, size1, size2, adjust_exposure, minimize_blend
         )
         canvas_width = stitcher.canvas_width()
         canvas_height = stitcher.canvas_height()

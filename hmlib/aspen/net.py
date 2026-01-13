@@ -172,6 +172,8 @@ class AspenNet(torch.nn.Module):
 
         # Profiler wiring (optional and zero-overhead when absent)
         self._profiler = self.shared.get("profiler", None)
+        # Optional per-plugin audit hook (see hmlib.aspen.audit.AspenAuditHook).
+        self._audit_hook = self.shared.get("_aspen_audit")
 
         self._build_nodes(plugins)
         self._build_graph()
@@ -494,6 +496,12 @@ class AspenNet(torch.nn.Module):
     def _execute_node(self, node: _Node, context: Dict[str, Any]) -> None:
         plugin = node.module
         subctx = self._make_subcontext(plugin, context) if self.minimal_context else context
+        audit_hook = self._audit_hook
+        if audit_hook is not None:
+            try:
+                audit_hook.before_plugin(node.name, subctx, context)
+            except Exception:
+                logger.exception("Aspen audit hook before_plugin failed for %s", node.name)
         name = f"aspen.plugin.{node.name}"
         start_time = None
         if context.get("_aspen_timing_enabled"):
@@ -529,6 +537,11 @@ class AspenNet(torch.nn.Module):
         else:
             with prof_ctx:
                 out = plugin(subctx) or {}
+        if audit_hook is not None:
+            try:
+                audit_hook.after_plugin(node.name, subctx, out, context)
+            except Exception:
+                logger.exception("Aspen audit hook after_plugin failed for %s", node.name)
         if start_time is not None:
             end_time = time.perf_counter()
             self._record_timing(context, node.name, start_time, end_time)

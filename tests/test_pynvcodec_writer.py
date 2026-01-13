@@ -28,8 +28,17 @@ def _ensure_hockeymom_ext(repo_root: Path) -> None:
     if ext_key in sys.modules and hasattr(sys.modules[ext_key], "bgr_to_i420_cuda"):
         return
 
-    ext_path = repo_root / "bazel-bin" / "hockeymom" / "src" / "_hockeymom.so"
-    if not ext_path.is_file():
+    candidate_paths = [repo_root / "bazel-bin" / "hockeymom" / "src" / "_hockeymom.so"]
+    bazel_out = repo_root / "bazel-out"
+    if bazel_out.is_dir():
+        candidate_paths.extend(sorted(bazel_out.glob("*/bin/hockeymom/src/_hockeymom.so")))
+
+    ext_path = None
+    for path in candidate_paths:
+        if path.is_file():
+            ext_path = path
+            break
+    if ext_path is None:
         return
 
     import importlib.util
@@ -118,6 +127,43 @@ def should_support_mkv_container_with_pynvencoder(tmp_path: Path):
         device=writer.device,
     )
     writer.write(frame)
+    writer.close()
+
+    assert filename.is_file()
+    assert filename.stat().st_size > 0
+
+
+def should_accept_frame_ids_with_extra_dim(tmp_path: Path):
+    """
+    Regression test: some callers produce frame_ids with shape [B, 1] instead of [B].
+    The NVENC writer should accept these without crashing and enforce consecutiveness.
+    """
+    torch = _require_torch_cuda()
+    from hmlib.video.video_stream import PyNvVideoEncoderWriter
+
+    filename = tmp_path / "pynvencoder_frame_ids_bx1.mkv"
+
+    writer = PyNvVideoEncoderWriter(
+        filename=str(filename),
+        fps=30.0,
+        width=640,
+        height=360,
+        codec="hevc_nvenc",
+        device=torch.device("cuda", 0),
+        bit_rate=int(5e6),
+        batch_size=1,
+    )
+    writer.open()
+
+    frame = torch.randint(
+        0,
+        256,
+        (1, 360, 640, 3),
+        dtype=torch.uint8,
+        device=writer.device,
+    )
+    writer.write(frame, frame_ids=torch.tensor([[1]], dtype=torch.int64))
+    writer.write(frame, frame_ids=torch.tensor([[2]], dtype=torch.int64))
     writer.close()
 
     assert filename.is_file()
@@ -278,3 +324,47 @@ def should_transcode_with_reader_and_pynvencoder(tmp_path: Path, monkeypatch: "p
     src_dur = float(src_meta.get("duration", frame_count / fps))
     dst_dur = float(dst_meta.get("duration", frame_count / fps))
     assert dst_dur == pytest.approx(src_dur, rel=0, abs=1.0 / fps)
+
+
+def should_synchronize_dlpack_stream_between_producer_and_consumer():
+    """Ensure CUDA stream handoff is synchronized when exporting via __dlpack__().
+
+    PyNvVideoCodec requests a DLPack capsule with a consumer stream pointer.
+    If the producer ignores that pointer, NVENC (or any other consumer running
+    on a different stream) can read incomplete frames, producing temporal
+    jitter and RGB flashing artifacts.
+    """
+
+    torch = _require_torch_cuda()
+    from torch.utils.dlpack import from_dlpack
+
+    from hmlib.video.py_nv_encoder import _DLPackFrame
+
+    device = torch.device("cuda", 0)
+    expected = 123
+
+    # Use explicit stream priorities to increase determinism: ensure the consumer
+    # stream gets scheduled while the producer stream is still sleeping.
+    producer_stream = torch.cuda.Stream(device=device, priority=1)
+    consumer_stream = torch.cuda.Stream(device=device, priority=-1)
+
+    tensor = torch.zeros((2048, 2048), dtype=torch.uint8, device=device)
+
+    # Produce on a non-default stream, delaying the write so the consumer can race.
+    with torch.cuda.stream(producer_stream):
+        torch.cuda._sleep(200_000_000)  # ~68ms on current hardware
+        tensor.fill_(expected)
+        # Export the capsule to a different consumer stream (positional arg matches
+        # PyNvVideoCodec's call signature).
+        capsule = _DLPackFrame(tensor).__dlpack__(consumer_stream.cuda_stream)
+
+    # Consume on the consumer stream; this should block until the producer stream
+    # finishes writing `tensor`.
+    with torch.cuda.stream(consumer_stream):
+        view = from_dlpack(capsule)
+        result = view.sum(dtype=torch.int64)
+
+    consumer_stream.synchronize()
+    producer_stream.synchronize()
+
+    assert int(result.item()) == expected * tensor.numel()

@@ -84,6 +84,8 @@ class VideoOutPlugin(Plugin):
             if not hasattr(cam_args, "crop_output_image"):
                 no_crop = bool(getattr(cam_args, "no_crop", False))
                 cam_args.crop_output_image = not no_crop
+            if not hasattr(cam_args, "output_width"):
+                cam_args.output_width = None
 
         img = context.get("img")
         if img is None:
@@ -140,6 +142,7 @@ class VideoOutPlugin(Plugin):
             skip_final_save=self._skip_final_save,
             cache_size=self._cache,
             device=vo_dev,
+            output_width=cam_args.output_width,
             show_image=bool(getattr(cam_args, "show_image", False)),
             show_scaled=getattr(cam_args, "show_scaled", None),
             profiler=getattr(cam_args, "profiler", None),

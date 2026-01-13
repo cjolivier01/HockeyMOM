@@ -12,7 +12,9 @@ from typing import IO, Any, List, Optional, Union
 import torch
 from typeguard import typechecked
 
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hmlib.video.ffmpeg import build_ffmpeg_output_handler, iter_ffmpeg_output_lines
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hockeymom import bgr_to_i420_cuda
 
 try:
@@ -27,8 +29,9 @@ class _DLPackFrame:
 
     This exists to adapt to PyNvEncoder's expectation of calling
     __dlpack__(consumer_stream) with a positional argument, while newer
-    PyTorch versions require keyword-only parameters. We ignore the
-    consumer stream and delegate to tensor.__dlpack__().
+    PyTorch versions require keyword-only parameters. We forward the
+    consumer stream so PyTorch can synchronize producer/consumer streams
+    correctly before exporting the capsule.
     """
 
     def __init__(self, tensor: torch.Tensor) -> None:
@@ -41,8 +44,25 @@ class _DLPackFrame:
         return self
 
     def __dlpack__(self, *args, **kwargs):
-        # Ignore consumer_stream argument; rely on PyTorch defaults.
-        return self._tensor.__dlpack__()
+        # PyNvVideoCodec calls __dlpack__(consumer_stream) positionally, but
+        # torch.Tensor.__dlpack__ requires keyword-only args. Forward the
+        # consumer stream so PyTorch can perform the required synchronization
+        # between the current stream (producer) and the consumer stream.
+        if args and "stream" not in kwargs:
+            kwargs["stream"] = args[0]
+            args = args[1:]
+        # Be tolerant of any extra positional args from other dlpack callers
+        # (max_version, dl_device, copy), mapping them onto PyTorch keywords.
+        if args and "max_version" not in kwargs:
+            kwargs["max_version"] = args[0]
+            args = args[1:]
+        if args and "dl_device" not in kwargs:
+            kwargs["dl_device"] = args[0]
+            args = args[1:]
+        if args and "copy" not in kwargs:
+            kwargs["copy"] = args[0]
+            args = args[1:]
+        return self._tensor.__dlpack__(**kwargs)
 
     def __dlpack_device__(self):
         return self._tensor.__dlpack_device__()
@@ -198,22 +218,43 @@ class PyNvVideoEncoder:
         if self._encoder is None:
             raise RuntimeError("Encoder is not properly initialized.")
 
-        if frame_ids is not None:
-            # In all likelihood, frame_ids as a tensor have been completed on its
-            # stream for some time
-            if isinstance(frame_ids, torch.Tensor):
-                frame_ids = frame_ids.tolist()
-            frame_count = len(frame_ids)
-            assert frame_count == len(frames)
-            if self.last_frame_id is not None:
-                expected_frame_id = self.last_frame_id + 1
-                if frame_ids[0] != expected_frame_id:
-                    raise ValueError(
-                        f"Non-consecutive frame_id: expected {expected_frame_id}, got {frame_ids}"
-                    )
-            self.last_frame_id = frame_ids[-1]
-
         batch = self._normalize_frames(frames)
+
+        if frame_ids is not None:
+            ids_list: List[int] = []
+
+            if isinstance(frame_ids, StreamTensorBase):
+                frame_ids = unwrap_tensor(frame_ids, get=True)
+
+            if isinstance(frame_ids, torch.Tensor):
+                ids_t = frame_ids.detach()
+                if ids_t.is_cuda:
+                    ids_t = ids_t.cpu()
+                ids_list = [int(x) for x in ids_t.reshape(-1).tolist()]
+            elif isinstance(frame_ids, (list, tuple)):
+                for item in frame_ids:
+                    if isinstance(item, torch.Tensor):
+                        item = item.detach().reshape(-1).cpu().tolist()
+                    if isinstance(item, (list, tuple)) and len(item) == 1:
+                        item = item[0]
+                    ids_list.append(int(item))
+            else:
+                ids_list = [int(frame_ids)]
+
+            frame_count = int(batch.shape[0])
+            if len(ids_list) != frame_count:
+                raise ValueError(
+                    f"frame_ids length mismatch: expected {frame_count}, got {len(ids_list)}"
+                )
+
+            if self.last_frame_id is not None:
+                expected_frame_id = int(self.last_frame_id) + 1
+                if ids_list[0] != expected_frame_id:
+                    raise ValueError(
+                        f"Non-consecutive frame_id: expected {expected_frame_id}, got {ids_list}"
+                    )
+            self.last_frame_id = int(ids_list[-1])
+
         prof = self._profiler
         batch_ctx = (
             prof.rf("video.nvenc.write_batch")  # type: ignore[union-attr]
@@ -231,7 +272,7 @@ class PyNvVideoEncoder:
                     yuv420 = self._bgr_to_yuv420(frame)
                     # Synchronize the stream before sending it to NVENC.
                     # current_stream.synchronize()
-
+                    torch.cuda.current_stream(frame.device).synchronize()
                     # yuv420 is a 2D CUDA tensor with shape [H*3/2, W], uint8.
                     bitstream = self._encoder.Encode(yuv420)  # type: ignore[union-attr]
                     self._frames_in_current_bitstream += 1
@@ -333,10 +374,10 @@ class PyNvVideoEncoder:
         }
 
         # For the raw elementary bitstream backend, request a finite GOP
-        # length so NVENC inserts regular IDR keyframes. A 2-second GOP
-        # (e.g., 60 at 30 fps) is a common high-quality setting.
+        # length so NVENC inserts regular IDR keyframes. A 0.5-second GOP
+        # is better for high-motion content like hockey.
         if self._backend == "raw" and self.fps > 0:
-            gop = max(1, int(round(self.fps * 2.0)))
+            gop = max(1, int(round(self.fps * 0.5)))
             config["gop"] = str(gop)
 
         if self.cuda_context is not None:

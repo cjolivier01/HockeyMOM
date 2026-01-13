@@ -317,7 +317,17 @@ def stitch_videos(
             setattr(cam_args, "show_image", bool(getattr(args, "show_image", False)))
             setattr(cam_args, "show_scaled", getattr(args, "show_scaled", None))
             setattr(cam_args, "output_video_bit_rate", getattr(args, "output_video_bit_rate", None))
-        aspen_shared: Dict[str, Any] = {"device": encoder_device, "cam_args": cam_args}
+
+        work_dir = os.path.join(".", "output_workdirs", (game_id or "stitch"))
+        if args is not None and hasattr(args, "work_dir") and args.work_dir:
+            work_dir = args.work_dir
+        os.makedirs(work_dir, exist_ok=True)
+
+        aspen_shared: Dict[str, Any] = {
+            "device": encoder_device,
+            "cam_args": cam_args,
+            "work_dir": work_dir,
+        }
         if profiler is not None:
             aspen_shared["profiler"] = profiler
         if args is not None:
@@ -366,6 +376,7 @@ def stitch_videos(
                             "stitch_fps": data_loader.fps,
                             "data": {"fps": data_loader.fps},
                             "game_id": game_id,
+                            "work_dir": work_dir,
                         }
                         aspen_net(context)
                     else:
@@ -399,6 +410,7 @@ def stitch_videos(
                             "frame_ids": torch.arange(i * batch_size, (i + 1) * batch_size),
                             "data": {"fps": data_loader.fps},
                             "game_id": game_id,
+                            "work_dir": work_dir,
                         }
                         aspen_net(context)
 
@@ -490,8 +502,9 @@ def _main(args) -> None:
         from hmlib.utils.profiler import build_profiler_from_args
 
         # Use a per-game profiler directory under output_workdirs/<game_id>/profiler
-        results_folder = os.path.join(".", "output_workdirs", args.game_id)
+        results_folder = os.path.join(".", "output_workdirs", args.game_id or "stitch")
         os.makedirs(results_folder, exist_ok=True)
+        args.work_dir = results_folder
         default_prof_dir = os.path.join(results_folder, "profiler")
         profiler = build_profiler_from_args(args, save_dir_fallback=default_prof_dir)
     except Exception:

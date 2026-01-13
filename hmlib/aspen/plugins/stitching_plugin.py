@@ -285,6 +285,48 @@ class StitchingPlugin(Plugin):
             return out[0] if squeezed else out
         raise ValueError(f"Expected 3 or 4 channels, got {c}")
 
+    def _ensure_rgba_channels_last(self, tensor: torch.Tensor) -> torch.Tensor:
+        tensor = unwrap_tensor(tensor)
+        if tensor.ndim == 3:
+            squeezed = True
+            if tensor.shape[-1] in (3, 4):
+                tensor = tensor.unsqueeze(0)
+                channels_last = True
+            else:
+                tensor = tensor.unsqueeze(0)
+                channels_last = False
+        elif tensor.ndim == 4:
+            squeezed = False
+            if tensor.shape[-1] in (3, 4):
+                channels_last = True
+            else:
+                channels_last = False
+        else:
+            raise ValueError(f"Expected tensor with 3 or 4 dims, got {tensor.shape}")
+
+        if channels_last:
+            b, h, w, c = tensor.shape
+            if c == 4:
+                return tensor[0] if squeezed else tensor
+            if c != 3:
+                raise ValueError(f"Expected 3 or 4 channels, got {c}")
+            out = torch.empty((b, h, w, 4), dtype=tensor.dtype, device=tensor.device)
+            out[..., :3] = tensor
+            out[..., 3].fill_(255)
+            return out[0] if squeezed else out
+
+        if tensor.shape[1] not in (3, 4):
+            raise ValueError(f"Expected 3 or 4 channels, got {tensor.shape}")
+        b, c, h, w = tensor.shape
+        if c == 4:
+            out = tensor.permute(0, 2, 3, 1)
+            return out[0] if squeezed else out
+        rgb = tensor.permute(0, 2, 3, 1)
+        out = torch.empty((b, h, w, 4), dtype=tensor.dtype, device=tensor.device)
+        out[..., :3] = rgb
+        out[..., 3].fill_(255)
+        return out[0] if squeezed else out
+
     def _create_stitcher(
         self,
         context: Dict[str, Any],
@@ -318,6 +360,7 @@ class StitchingPlugin(Plugin):
             python_blender=self._python_blender,
             use_cuda_pano=not self._python_blender,
             minimize_blend=self._minimize_blend,
+            max_output_width=self._max_output_width,
             blend_mode=self._blend_mode,
             add_alpha_channel=False,
             levels=levels_arg,
@@ -520,8 +563,8 @@ class StitchingPlugin(Plugin):
         device = imgs_1.device
         self._create_stitcher(context=context, imgs_1=imgs_1, imgs_2=imgs_2, device=device)
         if isinstance(self._stitcher, (CudaStitchPanoF32, CudaStitchPanoU8)):
-            imgs_1 = make_channels_last(self._ensure_rgba(imgs_1))
-            imgs_2 = make_channels_last(self._ensure_rgba(imgs_2))
+            imgs_1 = self._ensure_rgba_channels_last(imgs_1)
+            imgs_2 = self._ensure_rgba_channels_last(imgs_2)
             blended = torch.empty(
                 [
                     imgs_1.shape[0],
@@ -555,7 +598,6 @@ class StitchingPlugin(Plugin):
             rgb_stats = {"left": pre_stats_left, "right": pre_stats_right, "stitched": post_stats}
 
         blended = self._prepare_frame_for_video(blended, image_roi=None)
-        blended = make_channels_last(blended)
 
         stitched_for_output = self._maybe_resize_output(blended)
 
