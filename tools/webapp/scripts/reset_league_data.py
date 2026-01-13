@@ -37,7 +37,6 @@ def wipe_all(m) -> dict:
         # Delete in FK-safe order (teams are referenced with ON DELETE RESTRICT from hky_games).
         m.PlayerStat.objects.all().delete()
         m.PlayerPeriodStat.objects.all().delete()
-        m.HkyGameStat.objects.all().delete()
         m.HkyGameEventSuppression.objects.all().delete()
         m.HkyGamePlayer.objects.all().delete()
         m.HkyGameEventRow.objects.all().delete()

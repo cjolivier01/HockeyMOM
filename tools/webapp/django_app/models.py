@@ -260,21 +260,6 @@ class PlayerPeriodStat(models.Model):
         ]
 
 
-class HkyGameStat(models.Model):
-    game = models.OneToOneField(
-        HkyGame,
-        primary_key=True,
-        on_delete=models.CASCADE,
-        db_column="game_id",
-        related_name="stats_row",
-    )
-    stats_json = models.TextField(null=True, blank=True)
-    updated_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = "hky_game_stats"
-
-
 class HkyEventType(models.Model):
     # A stable normalized key for matching across sources (e.g. "Expected Goal" vs "ExpectedGoal").
     key = models.CharField(max_length=64, unique=True)

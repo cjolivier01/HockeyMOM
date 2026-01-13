@@ -87,7 +87,7 @@ Dev (repo)
 
 Import Shift Spreadsheet Stats
 ------------------------------
-To import the `stats/player_stats.csv` + `stats/game_stats.csv` outputs written by `scripts/parse_stats_inputs.py` and view them per game/player/team:
+To import the `stats/player_stats.csv` output written by `scripts/parse_stats_inputs.py` and view it per game/player/team:
 
 - See `tools/webapp/TUTORIAL_SHIFT_STATS.md`.
 
