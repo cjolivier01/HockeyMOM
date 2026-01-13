@@ -64,6 +64,8 @@ class CudaStitchPanoU8:
         input1: WHDims,
         input2: WHDims,
         match_exposure: bool = True,
+        minimize_blend: bool = True,
+        max_output_width: int = 0,
     ): ...
     def process(
         self, d_input1: int, d_input2: int, d_canvas: int, stream: Optional[int]

@@ -205,6 +205,8 @@ git_repository(
      name = "hm-cupano",
      commit = "a919bc7d47b78e3b729805cb09dd6d9abf1e8a90",
      remote = "https://github.com/cjolivier01/hm-cupano.git",
+     patches = ["@//buildfiles/third_party:hm-cupano-stitching-perf.patch"],
+     patch_args = ["-p1"],
  )
 
 #local_repository(

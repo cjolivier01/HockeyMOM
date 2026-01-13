@@ -870,10 +870,12 @@ class hm_opts(object):
             "--decoder",
             "--video-stream-decode-method",
             dest="video_stream_decode_method",
-            # default="ffmpeg",
-            default="cv2",
+            default="auto",
             type=str,
-            help="Video stream decode method [cv2, ffmpeg, torchvision, torchaudio, gstreamer, pynvcodec]",
+            help=(
+                "Video stream decode method [auto, cv2, ffmpeg, torchvision, torchaudio, "
+                "gstreamer, pynvcodec]"
+            ),
         )
         parser.add_argument(
             "--decoder-device",
@@ -1460,6 +1462,32 @@ class hm_opts(object):
 
         if opt.show_scaled:
             opt.show_image = True
+
+        # Resolve "auto" decoder selection to a concrete backend.
+        # Prefer GPU decode (pynvcodec) when CUDA + PyNvVideoCodec are available.
+        try:
+            method = getattr(opt, "video_stream_decode_method", None)
+            key = method.strip().lower() if isinstance(method, str) else ""
+            if key in ("", "auto", "cuda"):
+                chosen = "cv2"
+                cuda_ok = False
+                try:
+                    import torch
+
+                    cuda_ok = bool(torch.cuda.is_available())
+                except Exception:
+                    cuda_ok = False
+                if cuda_ok:
+                    try:
+                        import importlib.util
+
+                        if importlib.util.find_spec("PyNvVideoCodec") is not None:
+                            chosen = "pynvcodec"
+                    except Exception:
+                        chosen = "cv2"
+                opt.video_stream_decode_method = chosen
+        except Exception:
+            pass
 
         for key in hm_opts.CONFIG_TO_ARGS:
             nested_item = get_nested_value(getattr(opt, "game_config", {}), key, None)
