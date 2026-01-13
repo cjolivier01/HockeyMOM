@@ -3564,6 +3564,13 @@ def create_app():
                             "plus_minus",
                             "hits",
                             "blocks",
+                            "toi_seconds",
+                            "shifts",
+                            "video_toi_seconds",
+                            "sb_avg_shift_seconds",
+                            "sb_median_shift_seconds",
+                            "sb_longest_shift_seconds",
+                            "sb_shortest_shift_seconds",
                             "faceoff_wins",
                             "faceoff_attempts",
                             "goalie_saves",
@@ -5827,6 +5834,13 @@ def create_app():
             "plus_minus",
             "hits",
             "blocks",
+            "toi_seconds",
+            "shifts",
+            "video_toi_seconds",
+            "sb_avg_shift_seconds",
+            "sb_median_shift_seconds",
+            "sb_longest_shift_seconds",
+            "sb_shortest_shift_seconds",
             "faceoff_wins",
             "faceoff_attempts",
             "goalie_saves",
@@ -9160,6 +9174,8 @@ PLAYER_STATS_SUM_KEYS: tuple[str, ...] = (
     "ot_assists",
     "hits",
     "blocks",
+    "toi_seconds",
+    "shifts",
     "faceoff_wins",
     "faceoff_attempts",
     "goalie_saves",
@@ -9169,6 +9185,10 @@ PLAYER_STATS_SUM_KEYS: tuple[str, ...] = (
 
 PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("gp", "GP"),
+    ("toi_seconds", "TOI"),
+    ("toi_seconds_per_game", "TOI per Game"),
+    ("shifts", "Shifts"),
+    ("shifts_per_game", "Shifts per Game"),
     ("goals", "Goals"),
     ("assists", "Assists"),
     ("points", "Points"),
@@ -9216,6 +9236,8 @@ GAME_PLAYER_STATS_COLUMNS: tuple[dict[str, Any], ...] = (
     {"id": "goals", "label": "G", "keys": ("goals",)},
     {"id": "assists", "label": "A", "keys": ("assists",)},
     {"id": "points", "label": "P", "keys": ("goals", "assists"), "op": "sum"},
+    {"id": "toi_seconds", "label": "TOI", "keys": ("toi_seconds",)},
+    {"id": "shifts", "label": "Shifts", "keys": ("shifts",)},
     {"id": "gt_goals", "label": "GT Goals", "keys": ("gt_goals",)},
     {"id": "gw_goals", "label": "GW Goals", "keys": ("gw_goals",)},
     {"id": "ot_goals", "label": "OT Goals", "keys": ("ot_goals",)},
@@ -9541,6 +9563,9 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     assists = _int0(sums.get("assists"))
     points = goals + assists
 
+    toi_seconds = _int0(sums.get("toi_seconds"))
+    shifts = _int0(sums.get("shifts"))
+
     shots = _int0(sums.get("shots"))
     sog = _int0(sums.get("sog"))
     xg = _int0(sums.get("expected_goals"))
@@ -9576,6 +9601,8 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     out["ppg"] = _rate_or_none(points, gp)
 
     # Per-game rates.
+    out["toi_seconds_per_game"] = int(round(float(toi_seconds) / float(gp))) if gp > 0 else None
+    out["shifts_per_game"] = _rate_or_none(shifts, gp)
     out["shots_per_game"] = _rate_or_none(shots, gp)
     out["sog_per_game"] = _rate_or_none(sog, gp)
     out["expected_goals_per_game"] = _rate_or_none(xg, gp)
@@ -9900,6 +9927,41 @@ def build_game_player_stats_table(
             merged_vals[pid][k] = v
             merged_disp[pid][k] = s
             merged_conf[pid][k] = bool(is_conf)
+
+    duration_keys: frozenset[str] = frozenset(
+        {
+            "toi_seconds",
+            "video_toi_seconds",
+            "sb_avg_shift_seconds",
+            "sb_median_shift_seconds",
+            "sb_longest_shift_seconds",
+            "sb_shortest_shift_seconds",
+        }
+    )
+
+    def _fmt_duration_display(raw: str) -> str:
+        """
+        Format merge display values for duration stats.
+        Inputs are typically seconds like "754" or conflict strings like "754/760".
+        """
+        s = str(raw or "").strip()
+        if not s:
+            return ""
+        if "/" in s:
+            parts = [p.strip() for p in s.split("/", 1)]
+            if len(parts) == 2:
+                a = format_seconds_to_mmss_or_hhmmss(parts[0])
+                b = format_seconds_to_mmss_or_hhmmss(parts[1])
+                if a and b:
+                    return f"{a}/{b}"
+        out = format_seconds_to_mmss_or_hhmmss(s)
+        return out or s
+
+    for pid in all_pids:
+        for k in duration_keys:
+            disp = merged_disp[pid].get(k)
+            if disp:
+                merged_disp[pid][k] = _fmt_duration_display(disp)
 
     visible_columns: list[dict[str, Any]] = []
     for col in GAME_PLAYER_STATS_COLUMNS:
@@ -10567,6 +10629,7 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             "pim": _int_or_none(row.get("PIM")),
             "hits": _int_or_none(row.get("Hits")),
             "blocks": _int_or_none(row.get("Blocks")),
+            "toi_seconds": parse_duration_seconds(row.get("TOI Total") or row.get("TOI")),
             "faceoff_wins": _int_or_none(row.get("Faceoff Wins") or row.get("Faceoffs Won")),
             "faceoff_attempts": _int_or_none(row.get("Faceoff Attempts") or row.get("Faceoffs")),
             "goalie_saves": _int_or_none(row.get("Saves") or row.get("Goalie Saves")),
@@ -10589,6 +10652,14 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             "plus_minus": _int_or_none(row.get("Plus Minus") or row.get("Goal +/-")),
             "gf_counted": _int_or_none(row.get("GF Counted")),
             "ga_counted": _int_or_none(row.get("GA Counted")),
+            "shifts": _int_or_none(row.get("Shifts")),
+            "video_toi_seconds": parse_duration_seconds(
+                row.get("TOI Total (Video)") or row.get("TOI (Video)")
+            ),
+            "sb_avg_shift_seconds": parse_duration_seconds(row.get("Average Shift")),
+            "sb_median_shift_seconds": parse_duration_seconds(row.get("Median Shift")),
+            "sb_longest_shift_seconds": parse_duration_seconds(row.get("Longest Shift")),
+            "sb_shortest_shift_seconds": parse_duration_seconds(row.get("Shortest Shift")),
         }
 
         # Period stats: Period {n} GF/GA
@@ -10605,6 +10676,16 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             if m:
                 per = int(m.group(1))
                 period_stats.setdefault(per, {})["ga"] = _int_or_none(v)
+                continue
+            m = re.match(r"^Period\s+(\d+)\s+TOI$", k)
+            if m:
+                per = int(m.group(1))
+                period_stats.setdefault(per, {})["toi_seconds"] = parse_duration_seconds(v)
+                continue
+            m = re.match(r"^Period\s+(\d+)\s+Shifts$", k)
+            if m:
+                per = int(m.group(1))
+                period_stats.setdefault(per, {})["shifts"] = _int_or_none(v)
                 continue
 
         out.append(

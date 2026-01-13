@@ -34,8 +34,17 @@ def should_parse_stats_inputs_player_stats_csv():
     assert r["stats"]["shots"] == 5
     assert r["stats"]["sog"] == 4
     assert r["stats"]["expected_goals"] == 3
+    assert r["stats"]["shifts"] == 10
+    assert r["stats"]["toi_seconds"] == 12 * 60 + 34
+    assert r["stats"]["video_toi_seconds"] == 12 * 60
+    assert r["stats"]["sb_avg_shift_seconds"] == 45
+    assert r["stats"]["sb_median_shift_seconds"] == 42
+    assert r["stats"]["sb_longest_shift_seconds"] == 70
+    assert r["stats"]["sb_shortest_shift_seconds"] == 10
 
     p1 = r["period_stats"][1]
+    assert p1["toi_seconds"] == 4 * 60 + 10
+    assert p1["shifts"] == 3
     assert p1["gf"] == 1
     assert p1["ga"] == 0
 
@@ -432,7 +441,9 @@ def should_not_write_team_assist_clip_scripts_and_sanitize_event_filenames():
 
         # Created Turnovers should blink as singular.
         assert (outdir / "clip_events_Created_Turnovers_For.sh").exists()
-        created_script = (outdir / "clip_events_Created_Turnovers_For.sh").read_text(encoding="utf-8")
+        created_script = (outdir / "clip_events_Created_Turnovers_For.sh").read_text(
+            encoding="utf-8"
+        )
         assert '--blink-event-label "CREATED TURNOVER"' in created_script
 
 
@@ -703,8 +714,12 @@ def should_write_game_stats_consolidated_preserves_result_order():
         outdir_a.mkdir(parents=True, exist_ok=True)
         outdir_b.mkdir(parents=True, exist_ok=True)
 
-        pd.DataFrame({"Stat": ["Goals For"], "game-a": [1]}).to_csv(outdir_a / "game_stats.csv", index=False)
-        pd.DataFrame({"Stat": ["Goals For"], "game-b": [2]}).to_csv(outdir_b / "game_stats.csv", index=False)
+        pd.DataFrame({"Stat": ["Goals For"], "game-a": [1]}).to_csv(
+            outdir_a / "game_stats.csv", index=False
+        )
+        pd.DataFrame({"Stat": ["Goals For"], "game-b": [2]}).to_csv(
+            outdir_b / "game_stats.csv", index=False
+        )
 
         results = [
             {"label": "B", "outdir": outdir_b.parent},
@@ -914,9 +929,33 @@ def should_write_combined_highlight_times_with_deduped_xg_goal():
             event_counts_by_type_team={},
             event_instances={},
             event_player_rows=[
-                {"event_type": "ExpectedGoal", "team": "For", "player": "1_Ethan", "jersey": 1, "period": 1, "video_s": None, "game_s": 100},
-                {"event_type": "ExpectedGoal", "team": "For", "player": "1_Ethan", "jersey": 1, "period": 1, "video_s": None, "game_s": 300},
-                {"event_type": "Takeaway", "team": "For", "player": "1_Ethan", "jersey": 1, "period": 1, "video_s": 400, "game_s": None},
+                {
+                    "event_type": "ExpectedGoal",
+                    "team": "For",
+                    "player": "1_Ethan",
+                    "jersey": 1,
+                    "period": 1,
+                    "video_s": None,
+                    "game_s": 100,
+                },
+                {
+                    "event_type": "ExpectedGoal",
+                    "team": "For",
+                    "player": "1_Ethan",
+                    "jersey": 1,
+                    "period": 1,
+                    "video_s": None,
+                    "game_s": 300,
+                },
+                {
+                    "event_type": "Takeaway",
+                    "team": "For",
+                    "player": "1_Ethan",
+                    "jersey": 1,
+                    "period": 1,
+                    "video_s": 400,
+                    "game_s": None,
+                },
             ],
             team_roster={},
             team_excluded={},
@@ -1038,7 +1077,9 @@ def should_write_season_highlight_script_uses_absolute_timestamp_paths_for_relat
             ts = out / "events_Highlights_1_Ethan_video_times.txt"
             ts.write_text("00:00:10 00:00:20\n", encoding="utf-8")
 
-            results = [{"label": game_label, "outdir": out, "sheet_path": sheet, "video_path": None}]
+            results = [
+                {"label": game_label, "outdir": out, "sheet_path": sheet, "video_path": None}
+            ]
             mod._write_season_highlight_scripts(base_outdir, results, create_scripts=True)  # type: ignore[attr-defined]
 
             script = base_outdir / "season_highlights" / "clip_season_highlights_1_Ethan.sh"
@@ -1089,5 +1130,5 @@ def should_write_season_highlight_script_uses_ffmpeg_concat_for_season_join():
         content = script.read_text(encoding="utf-8")
 
         assert 'echo "file \'$f\'" >> "$LIST_FILE"' in content
-        assert "ffmpeg -f concat -safe 0 -i \"$LIST_FILE\" -c copy \"$OUT_FILE\"" in content
+        assert 'ffmpeg -f concat -safe 0 -i "$LIST_FILE" -c copy "$OUT_FILE"' in content
         assert "--video-file-list" not in content
