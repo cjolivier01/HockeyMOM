@@ -63,6 +63,8 @@ class _ByteTrackConfig:
             weight_iou_with_det_scores=_b("weight_iou_with_det_scores", True),
             num_tentatives=_i("num_tentatives", 3),
         )
+
+
 def _copy_prefix(dst: torch.Tensor, src: torch.Tensor, count: int) -> None:
     if count <= 0:
         return
@@ -225,6 +227,7 @@ class HmByteTrackerCuda:
             config = HmByteTrackConfig() if HmByteTrackConfig is not None else object()  # type: ignore[call-arg]
         self._config = _ByteTrackConfig.from_obj(config)
         self._device = torch.device(device)
+
         def _maybe_int_attr(name: str, default: int) -> int:
             try:
                 return int(getattr(config, name))
@@ -383,7 +386,9 @@ class HmByteTrackerCuda:
         indices = torch.arange(mask_bool.shape[0], dtype=torch.long, device=mask_bool.device)
         return indices.masked_select(mask_bool)
 
-    def _kalman_initiate(self, measurements_cxcyah: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _kalman_initiate(
+        self, measurements_cxcyah: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         count = int(measurements_cxcyah.shape[0])
         mean = measurements_cxcyah.new_zeros((count, 8))
         mean[:, 0:4] = measurements_cxcyah
@@ -410,7 +415,9 @@ class HmByteTrackerCuda:
         cov = torch.diag_embed(std.pow(2))
         return mean, cov
 
-    def _kalman_predict(self, mean: torch.Tensor, covariance: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _kalman_predict(
+        self, mean: torch.Tensor, covariance: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         if mean.numel() == 0:
             return mean, covariance
         h = mean[:, 3]
@@ -496,7 +503,9 @@ class HmByteTrackerCuda:
         lost_mask = self._track_states.eq(self._STATE_LOST)
         frame_delta = frame_id - self._track_last_frame
         too_long = lost_mask & frame_delta.ge(int(self._config.num_frames_to_keep_lost_tracks))
-        stale_tent = self._track_states.eq(self._STATE_TENTATIVE) & self._track_last_frame.ne(frame_id)
+        stale_tent = self._track_states.eq(self._STATE_TENTATIVE) & self._track_last_frame.ne(
+            frame_id
+        )
         remove_mask = too_long | stale_tent
         remove_idx = self._mask_indices(remove_mask)
         if remove_idx.numel() == 0:
@@ -575,8 +584,14 @@ class HmByteTrackerCuda:
 
         if self._track_ids.numel() == 0:
             self._track_ids = ids.clone()
-            state_val = self._STATE_TRACKING if self._track_calls_since_last_empty == 0 else self._STATE_TENTATIVE
-            self._track_states = torch.full((ids.shape[0],), int(state_val), dtype=torch.long, device=self._device)
+            state_val = (
+                self._STATE_TRACKING
+                if self._track_calls_since_last_empty == 0
+                else self._STATE_TENTATIVE
+            )
+            self._track_states = torch.full(
+                (ids.shape[0],), int(state_val), dtype=torch.long, device=self._device
+            )
             self._track_labels = labels.clone()
             self._track_scores = scores.clone()
             self._track_last_frame = ids.new_zeros(ids.shape) + frame_id
@@ -586,8 +601,14 @@ class HmByteTrackerCuda:
             return
 
         self._track_ids = torch.cat((self._track_ids, ids), dim=0)
-        state_val = self._STATE_TRACKING if self._track_calls_since_last_empty == 0 else self._STATE_TENTATIVE
-        new_states = torch.full((ids.shape[0],), int(state_val), dtype=torch.long, device=self._device)
+        state_val = (
+            self._STATE_TRACKING
+            if self._track_calls_since_last_empty == 0
+            else self._STATE_TENTATIVE
+        )
+        new_states = torch.full(
+            (ids.shape[0],), int(state_val), dtype=torch.long, device=self._device
+        )
         self._track_states = torch.cat((self._track_states, new_states), dim=0)
         self._track_labels = torch.cat((self._track_labels, labels), dim=0)
         self._track_scores = torch.cat((self._track_scores, scores), dim=0)
@@ -662,7 +683,10 @@ class HmByteTrackerCuda:
 
             num = int(bboxes.shape[0])
             ids = torch.arange(
-                self._next_track_id, self._next_track_id + num, dtype=torch.long, device=self._device
+                self._next_track_id,
+                self._next_track_id + num,
+                dtype=torch.long,
+                device=self._device,
             )
             self._next_track_id += num
             self._init_new_tracks(ids, bboxes, labels, scores, frame_id)
@@ -707,7 +731,9 @@ class HmByteTrackerCuda:
         confirmed_idx = self._mask_indices(confirmed_mask)
         unconfirmed_idx = self._mask_indices(unconfirmed_mask)
 
-        first_det_ids = torch.full((first_bboxes.shape[0],), -1, dtype=torch.long, device=self._device)
+        first_det_ids = torch.full(
+            (first_bboxes.shape[0],), -1, dtype=torch.long, device=self._device
+        )
         first_track_indices = torch.full_like(first_det_ids, -1)
 
         first_track_to_det, first_det_to_track = self._assign_tracks(
@@ -734,13 +760,19 @@ class HmByteTrackerCuda:
         unmatched_first_mask = first_det_ids.lt(0)
         unmatched_first_idx = self._mask_indices(unmatched_first_mask)
         first_unmatch_bboxes = (
-            first_bboxes.index_select(0, unmatched_first_idx) if unmatched_first_idx.numel() else first_bboxes[:0]
+            first_bboxes.index_select(0, unmatched_first_idx)
+            if unmatched_first_idx.numel()
+            else first_bboxes[:0]
         )
         first_unmatch_labels = (
-            first_labels.index_select(0, unmatched_first_idx) if unmatched_first_idx.numel() else first_labels[:0]
+            first_labels.index_select(0, unmatched_first_idx)
+            if unmatched_first_idx.numel()
+            else first_labels[:0]
         )
         first_unmatch_scores = (
-            first_scores.index_select(0, unmatched_first_idx) if unmatched_first_idx.numel() else first_scores[:0]
+            first_scores.index_select(0, unmatched_first_idx)
+            if unmatched_first_idx.numel()
+            else first_scores[:0]
         )
         first_unmatch_det_ids = (
             first_det_ids.index_select(0, unmatched_first_idx).clone()
@@ -779,7 +811,9 @@ class HmByteTrackerCuda:
         selectable_mask = track_unmatched_mask & recent_mask
         second_selected_idx = self._mask_indices(selectable_mask)
 
-        second_det_ids = torch.full((second_bboxes.shape[0],), -1, dtype=torch.long, device=self._device)
+        second_det_ids = torch.full(
+            (second_bboxes.shape[0],), -1, dtype=torch.long, device=self._device
+        )
         second_track_indices = torch.full_like(second_det_ids, -1)
         if second_selected_idx.numel() > 0 and second_bboxes.shape[0] > 0:
             selected_tracks = confirmed_idx.index_select(0, second_selected_idx)
@@ -806,16 +840,24 @@ class HmByteTrackerCuda:
         first_match_valid = first_det_ids.ge(0)
         first_match_valid_idx = self._mask_indices(first_match_valid)
         first_match_det_bboxes = (
-            first_bboxes.index_select(0, first_match_valid_idx) if first_match_valid_idx.numel() else first_bboxes[:0]
+            first_bboxes.index_select(0, first_match_valid_idx)
+            if first_match_valid_idx.numel()
+            else first_bboxes[:0]
         )
         first_match_det_labels = (
-            first_labels.index_select(0, first_match_valid_idx) if first_match_valid_idx.numel() else first_labels[:0]
+            first_labels.index_select(0, first_match_valid_idx)
+            if first_match_valid_idx.numel()
+            else first_labels[:0]
         )
         first_match_det_scores = (
-            first_scores.index_select(0, first_match_valid_idx) if first_match_valid_idx.numel() else first_scores[:0]
+            first_scores.index_select(0, first_match_valid_idx)
+            if first_match_valid_idx.numel()
+            else first_scores[:0]
         )
         first_match_det_ids = (
-            first_det_ids.index_select(0, first_match_valid_idx) if first_match_valid_idx.numel() else first_det_ids[:0]
+            first_det_ids.index_select(0, first_match_valid_idx)
+            if first_match_valid_idx.numel()
+            else first_det_ids[:0]
         )
         first_match_track_indices = (
             first_track_indices.index_select(0, first_match_valid_idx)
@@ -826,16 +868,24 @@ class HmByteTrackerCuda:
         second_valid = second_det_ids.ge(0)
         second_valid_idx = self._mask_indices(second_valid)
         second_match_bboxes = (
-            second_bboxes.index_select(0, second_valid_idx) if second_valid_idx.numel() else second_bboxes[:0]
+            second_bboxes.index_select(0, second_valid_idx)
+            if second_valid_idx.numel()
+            else second_bboxes[:0]
         )
         second_match_labels = (
-            second_labels.index_select(0, second_valid_idx) if second_valid_idx.numel() else second_labels[:0]
+            second_labels.index_select(0, second_valid_idx)
+            if second_valid_idx.numel()
+            else second_labels[:0]
         )
         second_match_scores = (
-            second_scores.index_select(0, second_valid_idx) if second_valid_idx.numel() else second_scores[:0]
+            second_scores.index_select(0, second_valid_idx)
+            if second_valid_idx.numel()
+            else second_scores[:0]
         )
         second_match_ids = (
-            second_det_ids.index_select(0, second_valid_idx) if second_valid_idx.numel() else second_det_ids[:0]
+            second_det_ids.index_select(0, second_valid_idx)
+            if second_valid_idx.numel()
+            else second_det_ids[:0]
         )
         second_match_track_indices = (
             second_track_indices.index_select(0, second_valid_idx)
@@ -843,12 +893,19 @@ class HmByteTrackerCuda:
             else second_track_indices[:0]
         )
 
-        out_bboxes = torch.cat((first_match_det_bboxes, first_unmatch_bboxes, second_match_bboxes), dim=0)
-        out_labels = torch.cat((first_match_det_labels, first_unmatch_labels, second_match_labels), dim=0)
-        out_scores = torch.cat((first_match_det_scores, first_unmatch_scores, second_match_scores), dim=0)
+        out_bboxes = torch.cat(
+            (first_match_det_bboxes, first_unmatch_bboxes, second_match_bboxes), dim=0
+        )
+        out_labels = torch.cat(
+            (first_match_det_labels, first_unmatch_labels, second_match_labels), dim=0
+        )
+        out_scores = torch.cat(
+            (first_match_det_scores, first_unmatch_scores, second_match_scores), dim=0
+        )
         out_ids = torch.cat((first_match_det_ids, first_unmatch_det_ids, second_match_ids), dim=0)
         out_track_indices = torch.cat(
-            (first_match_track_indices, first_unmatch_track_indices, second_match_track_indices), dim=0
+            (first_match_track_indices, first_unmatch_track_indices, second_match_track_indices),
+            dim=0,
         )
 
         new_track_mask = out_ids.lt(0)
@@ -856,7 +913,10 @@ class HmByteTrackerCuda:
         if new_track_idx.numel() > 0:
             new_count = int(new_track_idx.numel())
             new_ids = torch.arange(
-                self._next_track_id, self._next_track_id + new_count, dtype=torch.long, device=self._device
+                self._next_track_id,
+                self._next_track_id + new_count,
+                dtype=torch.long,
+                device=self._device,
             )
             self._next_track_id += new_count
             out_ids.index_put_((new_track_idx,), new_ids)
@@ -864,7 +924,9 @@ class HmByteTrackerCuda:
         matched_mask = out_track_indices.ge(0)
         matched_det_idx = self._mask_indices(matched_mask)
         matched_global_idx = (
-            out_track_indices.index_select(0, matched_det_idx) if matched_det_idx.numel() else out_track_indices[:0]
+            out_track_indices.index_select(0, matched_det_idx)
+            if matched_det_idx.numel()
+            else out_track_indices[:0]
         )
         self._mark_unmatched_tracking(matched_global_idx)
 
@@ -1331,7 +1393,9 @@ class HmByteTrackerCudaStatic:
 
         if kNumDetectionsKey not in data:
             raise RuntimeError("data must contain 'num_detections' entry")
-        num_detections = data[kNumDetectionsKey].to(device=self._device, dtype=torch.long).reshape(-1)[:1]
+        num_detections = (
+            data[kNumDetectionsKey].to(device=self._device, dtype=torch.long).reshape(-1)[:1]
+        )
         if num_detections.numel() < 1:
             raise RuntimeError("num_detections tensor must contain a value")
         num_detections = torch.clamp(num_detections, min=0, max=int(self._max_detections))

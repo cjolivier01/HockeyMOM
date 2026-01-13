@@ -7,10 +7,10 @@ console entry-point shims in the current Python environment's scripts directory.
 """
 
 import argparse
+import logging
 import os
 import sys
 import sysconfig
-import logging
 from pathlib import Path
 from textwrap import dedent
 
@@ -102,9 +102,7 @@ def main() -> int:
     ]
 
     logger.info("Added %s pointing to %s", pth_file, workspace_root)
-    logger.info(
-        "Installed %d console entry points into %s", len(scripts_written), scripts_dir
-    )
+    logger.info("Installed %d console entry points into %s", len(scripts_written), scripts_dir)
     return 0
 
 

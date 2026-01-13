@@ -1,8 +1,11 @@
 filegroup(
     name = "libtorch_so_files",
     srcs = [
+        "lib/libcaffe2_nvrtc.so",
         "lib/libc10_cuda.so",
         "lib/libtorch_cuda.so",
+        "lib/libtorch_cuda_linalg.so",
+        "lib/libtorch_global_deps.so",
         "lib/libc10.so",
         "lib/libshm.so",
         "lib/libtorch.so",

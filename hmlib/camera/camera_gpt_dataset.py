@@ -7,14 +7,18 @@ import random
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Dict, Iterator, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import IterableDataset, get_worker_info
 
-from hmlib.camera.camera_transformer import CameraNorm, build_frame_base_features, build_frame_features
+from hmlib.camera.camera_transformer import (
+    CameraNorm,
+    build_frame_base_features,
+    build_frame_features,
+)
 
 
 @dataclass(frozen=True)
@@ -154,7 +158,9 @@ def _pose_features_from_json(pose_json: str, norm: CameraNorm) -> np.ndarray:
     bboxes = ds0.get("bboxes")
     bboxes_arr = None
     try:
-        bboxes_arr = np.asarray(bboxes, dtype=np.float32).reshape(-1, 4) if bboxes is not None else None
+        bboxes_arr = (
+            np.asarray(bboxes, dtype=np.float32).reshape(-1, 4) if bboxes is not None else None
+        )
     except Exception:
         bboxes_arr = None
     if bboxes_arr is not None and bboxes_arr.size:
@@ -200,7 +206,9 @@ def _pose_features_from_json(pose_json: str, norm: CameraNorm) -> np.ndarray:
     return feat
 
 
-def _load_game(paths: GameCsvPaths, norm: CameraNorm, target_mode: str, include_pose: bool) -> _LoadedGame:
+def _load_game(
+    paths: GameCsvPaths, norm: CameraNorm, target_mode: str, include_pose: bool
+) -> _LoadedGame:
     tracks = _read_tracking_dataframe(paths.tracking_csv)
     cams = _read_camera_dataframe(paths.camera_csv)
     cams_fast = _read_camera_dataframe(paths.camera_fast_csv) if paths.camera_fast_csv else None
@@ -414,7 +422,11 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
                     if targets:
                         y_prev = targets[-1]
                         if self._target_mode == "slow_center_h":
-                            prev_cx, prev_cy, prev_h = float(y_prev[0]), float(y_prev[1]), float(y_prev[2])
+                            prev_cx, prev_cy, prev_h = (
+                                float(y_prev[0]),
+                                float(y_prev[1]),
+                                float(y_prev[2]),
+                            )
                         else:
                             prev_slow = y_prev[:4]
                             prev_cx = float(prev_slow[0] + prev_slow[2] * 0.5)
@@ -457,7 +469,10 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
                     if fast_tlwh is None:
                         fast_tlwh = slow_tlwh
                     y = np.concatenate(
-                        [slow_tlwh.astype(np.float32, copy=False), fast_tlwh.astype(np.float32, copy=False)],
+                        [
+                            slow_tlwh.astype(np.float32, copy=False),
+                            fast_tlwh.astype(np.float32, copy=False),
+                        ],
                         axis=0,
                     )
                 else:

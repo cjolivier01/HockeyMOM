@@ -386,9 +386,7 @@ class _OnnxPoseRunner:
         x = self._ensure_tensor(x)
         if x.ndim == 3:
             x = x.unsqueeze(0)
-        need_calib = (
-            self.quantize_int8 and not self._quantized and self.calib_target > 0
-        )
+        need_calib = self.quantize_int8 and not self._quantized and self.calib_target > 0
         try:
             dev = next(self.model.parameters()).device
         except StopIteration:
@@ -779,9 +777,7 @@ class _TrtPoseRunner:
             # Fallback: try building non-int8 engine to proceed
             from hmlib.log import get_logger
 
-            get_logger(__name__).warning(
-                "Pose INT8 build failed, falling back to non-INT8: %s", ex
-            )
+            get_logger(__name__).warning("Pose INT8 build failed, falling back to non-INT8: %s", ex)
             try:
                 with torch.inference_mode():
                     trt_mod = torch2trt.torch2trt(

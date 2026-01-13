@@ -19,7 +19,7 @@ from hmlib.log import get_logger
 from hmlib.orientation import configure_game_videos
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
-from hmlib.utils.gpu import GpuAllocator, cuda_stream_scope, wrap_tensor, unwrap_tensor
+from hmlib.utils.gpu import GpuAllocator, cuda_stream_scope, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_suffix_to_filename
@@ -341,9 +341,7 @@ def copy_video(
                                     split_number += 1
                                     time.sleep(2)
                                     video_out.close()
-                                    video_out = _open_output_video(
-                                        _output_file_name(split_number)
-                                    )
+                                    video_out = _open_output_video(_output_file_name(split_number))
 
                                 # Raw VideoStreamWriter path (non-VideoOutput) keeps append().
                                 video_out.append(source_tensor)

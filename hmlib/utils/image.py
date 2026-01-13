@@ -528,9 +528,7 @@ def get_best_resize_mode(
     w1: int, h1: int, w2: int, h2: int, interpolate: bool = False, verbose: bool = True
 ) -> Union[int, str]:
     if h2 & 1 != 0 and w2 & 1 != 0:
-        logger.warning(
-            "Why are you resizing to odd dimensions? %dx%d -> %dx%d", w1, h1, w2, h2
-        )
+        logger.warning("Why are you resizing to odd dimensions? %dx%d -> %dx%d", w1, h1, w2, h2)
     if w1 > w2 or h1 > h2:
         # Just a sanity check assumign we aren't
         # purposely trying to distort
@@ -913,6 +911,9 @@ def rotate_image_batch(
         raise ValueError(
             f"rotate_image_batch expects angle with numel()==B (or 1), got {angle.numel()} vs B={b}"
         )
+
+    if torch.all(angle == 0).item():
+        return img
 
     if not isinstance(rotation_point, torch.Tensor):
         raise TypeError(

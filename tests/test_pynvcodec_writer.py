@@ -1,14 +1,14 @@
+from __future__ import annotations
+
 import json
-import os
 import subprocess
 import sys
 from fractions import Fraction
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import cv2
-import numpy as np
-import pytest
-import torch
+if TYPE_CHECKING:
+    import pytest
 
 
 def _ensure_repo_on_path() -> Path:
@@ -45,13 +45,23 @@ def _ensure_hockeymom_ext(repo_root: Path) -> None:
 _repo_root = _ensure_repo_on_path()
 _ensure_hockeymom_ext(_repo_root)
 
-from hmlib.video.video_stream import PyNvVideoEncoderWriter, VideoStreamReader
+
+def _require_torch_cuda():
+    import pytest
+
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+    return torch
 
 
 def should_write_h265_with_pynvencoder(tmp_path: Path):
     """
     Basic smoke test that exercises the GPU-only PyNvVideoEncoderWriter path.
     """
+    torch = _require_torch_cuda()
+    from hmlib.video.video_stream import PyNvVideoEncoderWriter
+
     filename = tmp_path / "pynvencoder_raw.mp4"
     writer = PyNvVideoEncoderWriter(
         filename=str(filename),
@@ -83,6 +93,9 @@ def should_support_mkv_container_with_pynvencoder(tmp_path: Path):
     """
     Verify that writing to a .mkv path produces a valid container.
     """
+    torch = _require_torch_cuda()
+    from hmlib.video.video_stream import PyNvVideoEncoderWriter
+
     filename = tmp_path / "pynvencoder_out.mkv"
 
     writer = PyNvVideoEncoderWriter(
@@ -111,12 +124,18 @@ def should_support_mkv_container_with_pynvencoder(tmp_path: Path):
     assert filename.stat().st_size > 0
 
 
-def should_use_pyav_backend_with_pynvencoder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def should_use_pyav_backend_with_pynvencoder(tmp_path: Path, monkeypatch: "pytest.MonkeyPatch"):
     """
     Ensure that the PyAV backend is exercised when HM_VIDEO_ENCODER_BACKEND=pyav.
 
     This test imports av at module level, so it will fail if PyAV is not installed.
     """
+    import pytest
+
+    pytest.importorskip("av")
+    torch = _require_torch_cuda()
+    from hmlib.video.video_stream import PyNvVideoEncoderWriter
+
     monkeypatch.setenv("HM_VIDEO_ENCODER_BACKEND", "pyav")
 
     filename = tmp_path / "pynvencoder_pyav.mkv"
@@ -169,6 +188,9 @@ def _ffprobe_stream_metadata(video_path: Path) -> dict:
 
 def _write_test_video_cv2(path: Path, *, fps: float, width: int, height: int, frames: int) -> None:
     """Create a tiny mp4 using OpenCV (CPU) for transcoding tests."""
+    import cv2
+    import numpy as np
+
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
     assert writer.isOpened()
@@ -188,11 +210,17 @@ def _write_test_video_cv2(path: Path, *, fps: float, width: int, height: int, fr
     writer.release()
 
 
-def should_transcode_with_reader_and_pynvencoder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def should_transcode_with_reader_and_pynvencoder(tmp_path: Path, monkeypatch: "pytest.MonkeyPatch"):
     """
     Transcode a CPU-written test clip via VideoStreamReader -> PyNvVideoEncoderWriter
     and ensure fps/frame counts/durations match the source.
     """
+    import pytest
+
+    pytest.importorskip("av")
+    _ = pytest.importorskip("cv2")
+    torch = _require_torch_cuda()
+    from hmlib.video.video_stream import PyNvVideoEncoderWriter, VideoStreamReader
 
     monkeypatch.setenv("HM_VIDEO_ENCODER_BACKEND", "pyav")
 

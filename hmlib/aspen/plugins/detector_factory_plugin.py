@@ -259,9 +259,7 @@ class DetectorFactoryPlugin(Plugin):
                                     self._onnx_cfg.get("nms_backend", self._nms_backend)
                                 ),
                                 nms_test=bool(self._onnx_cfg.get("nms_test", self._nms_test)),
-                                nms_plugin=str(
-                                    self._onnx_cfg.get("nms_plugin", self._nms_plugin)
-                                ),
+                                nms_plugin=str(self._onnx_cfg.get("nms_plugin", self._nms_plugin)),
                             )
                         except Exception as ex:
                             # Fall back to PyTorch if ONNX init fails
@@ -821,9 +819,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
             _torch.save(trt_mod.state_dict(), self.engine_path)
             get_logger(__name__).info("Saved TensorRT engine to %s", self.engine_path)
         except Exception:
-            get_logger(__name__).warning(
-                "Failed to save TensorRT engine to %s", self.engine_path
-            )
+            get_logger(__name__).warning("Failed to save TensorRT engine to %s", self.engine_path)
         self._trt_module = trt_mod
 
     def _preprocess(self, x: torch.Tensor) -> torch.Tensor:

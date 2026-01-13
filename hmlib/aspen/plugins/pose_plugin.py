@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Optional, Set
 import torch
 
 from hmlib.tracking_utils.utils import get_track_mask
-from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 
@@ -272,7 +271,11 @@ class PosePlugin(Plugin):
                             )
                         if hasattr(first, "pred_instances"):
                             merged.pred_instances = InstanceData.cat(
-                                [p.pred_instances for p in predictions if hasattr(p, "pred_instances")]
+                                [
+                                    p.pred_instances
+                                    for p in predictions
+                                    if hasattr(p, "pred_instances")
+                                ]
                             )
                         predictions = [merged]
                     except Exception:

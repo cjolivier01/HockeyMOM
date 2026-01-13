@@ -11,7 +11,7 @@ from __future__ import absolute_import, division, print_function
 import contextlib
 import math
 import os
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
+from typing import Any, Dict, Literal, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -20,13 +20,7 @@ import torch
 from hmlib.log import logger
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
-from hmlib.utils.gpu import (
-    StreamCheckpoint,
-    StreamTensorBase,
-    get_gpu_capabilities,
-    unwrap_tensor,
-    wrap_tensor,
-)
+from hmlib.utils.gpu import get_gpu_capabilities, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import image_height, image_width
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
@@ -301,9 +295,7 @@ class VideoOutput(torch.nn.ModuleDict):
                     allow_scaling=self._allow_scaling,
                 )
                 if not is_gpu:
-                    logger.info(
-                        f"Can't use GPU for output video {self._output_video_path}"
-                    )
+                    logger.info(f"Can't use GPU for output video {self._output_video_path}")
                     self._device = torch.device("cpu")
             else:
                 self._fourcc = "XVID"

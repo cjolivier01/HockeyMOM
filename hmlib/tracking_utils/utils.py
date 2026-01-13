@@ -89,9 +89,7 @@ def model_info(model):  # Plots a line-by-line description of a PyTorch model
             p.mean(),
             p.std(),
         )
-    logger.info(
-        "Model Summary: %g layers, %g parameters, %g gradients", i + 1, n_p, n_g
-    )
+    logger.info("Model Summary: %g layers, %g parameters, %g gradients", i + 1, n_p, n_g)
 
 
 def plot_one_box(

@@ -618,7 +618,10 @@ class AspenNet(torch.nn.Module):
 
             sampler = AspenGraphSampler(max_samples=24, min_interval_ms=12, max_interval_ms=40)
             names = [node.name for node in self.exec_order]
-            degrees = [node.graph_degree if node.graph_degree is not None else 0 for node in self.exec_order]
+            degrees = [
+                node.graph_degree if node.graph_degree is not None else 0
+                for node in self.exec_order
+            ]
             self._progress_sampler_index = {name: idx for idx, name in enumerate(names)}
             edges = [
                 (self._progress_sampler_index[u], self._progress_sampler_index[v])
@@ -783,7 +786,10 @@ class AspenNet(torch.nn.Module):
             return
         state = self._graph_node_state[node_index]
         with state.lock:
-            if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+            if (
+                getattr(self, "_graph_stop_event", None) is not None
+                and self._graph_stop_event.is_set()
+            ):
                 return
             state.ready[item.seq] = item
             self._graph_drain_ready_locked(state)
@@ -866,7 +872,10 @@ class AspenNet(torch.nn.Module):
                     self._thread_error = item
                     self._graph_request_stop()
                     break
-                if getattr(self, "_graph_stop_event", None) is not None and self._graph_stop_event.is_set():
+                if (
+                    getattr(self, "_graph_stop_event", None) is not None
+                    and self._graph_stop_event.is_set()
+                ):
                     break
                 with state.lock:
                     self._graph_drain_ready_locked(state)
@@ -899,9 +908,7 @@ class AspenNet(torch.nn.Module):
             child_idx = self._graph_node_index[child]
             self._graph_children[parent_idx].append(child_idx)
             self._graph_indegree[child_idx] += 1
-        self._graph_roots = [
-            idx for idx, count in enumerate(self._graph_indegree) if count == 0
-        ]
+        self._graph_roots = [idx for idx, count in enumerate(self._graph_indegree) if count == 0]
         self.graph_queues = [
             create_queue(
                 mp=False,

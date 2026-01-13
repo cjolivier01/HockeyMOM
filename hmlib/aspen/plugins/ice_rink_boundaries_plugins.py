@@ -3,7 +3,6 @@ from typing import Any, Dict, Optional
 import torch
 from mmengine.structures import InstanceData
 
-from hmlib.log import get_logger
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 
 from .base import Plugin

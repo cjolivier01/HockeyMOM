@@ -968,7 +968,9 @@ class HmResize:
                     self._random_scale(results)
             else:
                 if not self.override:
-                    assert "scale_factor" not in results, "scale and scale_factor cannot be both set."
+                    assert (
+                        "scale_factor" not in results
+                    ), "scale and scale_factor cannot be both set."
                 else:
                     results.pop("scale")
                     if "scale_factor" in results:
@@ -1402,7 +1404,6 @@ class HmImageColorAdjust:
 
 @TRANSFORMS.register_module()
 class HmCrop:
-
     def __init__(
         self,
         rectangle: List[int] = list(),

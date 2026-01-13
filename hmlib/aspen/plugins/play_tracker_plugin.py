@@ -175,7 +175,9 @@ class PlayTrackerPlugin(Plugin):
         controller = self._camera_controller or get_nested_value(
             game_cfg, "rink.camera.controller", "rule"
         )
-        cam_model = self._camera_model or get_nested_value(game_cfg, "rink.camera.camera_model", None)
+        cam_model = self._camera_model or get_nested_value(
+            game_cfg, "rink.camera.camera_model", None
+        )
         cam_window = (
             self._camera_window
             if self._camera_window is not None

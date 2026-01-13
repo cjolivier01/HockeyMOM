@@ -421,9 +421,7 @@ def analyze_data(
         while True:
 
             if max_frame_id > 0 and last_frame_id > max_frame_id:
-                get_logger(__name__).info(
-                    "Early exit at max frame id %d", last_frame_id
-                )
+                get_logger(__name__).info("Early exit at max frame id %d", last_frame_id)
                 break
 
             # Items are frame_id, tracking_id, ...
@@ -673,9 +671,7 @@ def show_frame_intervals(intervals: List[Tuple[int, int]], fps: float) -> None:
     logger = get_logger(__name__)
     for start_s, duration_s in time_ranges:
         start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
-        logger.info(
-            "%s for %.1f seconds", start_hhmmss, int(duration_s * 10) / 10
-        )
+        logger.info("%s for %.1f seconds", start_hhmmss, int(duration_s * 10) / 10)
 
 
 def show_time_intervals(label: str, intervals: List[Tuple[float, float]]) -> None:
@@ -686,9 +682,7 @@ def show_time_intervals(label: str, intervals: List[Tuple[float, float]]) -> Non
         logger.info("---------------------------------------------")
     for start_s, duration_s in intervals:
         start_hhmmss = format_duration_to_hhmmss(start_s, decimals=0)
-        logger.info(
-            "%s for %.1f seconds", start_hhmmss, int(duration_s * 10) / 10
-        )
+        logger.info("%s for %.1f seconds", start_hhmmss, int(duration_s * 10) / 10)
     logger.info("---------------------------------------------")
 
 

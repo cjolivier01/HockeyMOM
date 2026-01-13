@@ -11,6 +11,7 @@ from mmengine.structures import InstanceData
 
 from hmlib.bbox.box_functions import center, clamp_box, make_box_at_center
 from hmlib.builder import HM
+from hmlib.camera.camera_gpt import CameraGPTConfig, CameraPanZoomGPT, unpack_gpt_checkpoint
 from hmlib.camera.camera_transformer import (
     CameraNorm,
     CameraPanZoomTransformer,
@@ -18,7 +19,6 @@ from hmlib.camera.camera_transformer import (
     build_frame_features,
     unpack_checkpoint,
 )
-from hmlib.camera.camera_gpt import CameraGPTConfig, CameraPanZoomGPT, unpack_gpt_checkpoint
 from hmlib.camera.clusters import ClusterMan
 from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
@@ -138,7 +138,9 @@ class CameraControllerPlugin(Plugin):
         if bxs is not None:
             try:
                 bxs_np = (
-                    bxs.detach().cpu().numpy() if hasattr(bxs, "detach") else np.asarray(bxs, dtype=np.float32)
+                    bxs.detach().cpu().numpy()
+                    if hasattr(bxs, "detach")
+                    else np.asarray(bxs, dtype=np.float32)
                 )
                 bxs_np = bxs_np.reshape(-1, 4)
                 if bxs_np.size:
@@ -159,7 +161,11 @@ class CameraControllerPlugin(Plugin):
             if vv is None:
                 continue
             try:
-                vv_np = vv.detach().cpu().numpy() if hasattr(vv, "detach") else np.asarray(vv, dtype=np.float32)
+                vv_np = (
+                    vv.detach().cpu().numpy()
+                    if hasattr(vv, "detach")
+                    else np.asarray(vv, dtype=np.float32)
+                )
                 if vv_np is not None and vv_np.size:
                     score_val = float(np.mean(vv_np))
                     break
@@ -170,7 +176,11 @@ class CameraControllerPlugin(Plugin):
 
         if kps is not None:
             try:
-                kk = kps.detach().cpu().numpy() if hasattr(kps, "detach") else np.asarray(kps, dtype=np.float32)
+                kk = (
+                    kps.detach().cpu().numpy()
+                    if hasattr(kps, "detach")
+                    else np.asarray(kps, dtype=np.float32)
+                )
                 if kk is not None and kk.size:
                     feat[7] = float(np.mean(kk > 0.5))
             except Exception:
@@ -217,7 +227,11 @@ class CameraControllerPlugin(Plugin):
                 )
                 cam_boxes.append(box)
                 setattr(img_data_sample, "pred_cam_box", box)
-                if self._controller == "gpt" and self._gpt_cfg is not None and int(self._gpt_cfg.d_out) == 8:
+                if (
+                    self._controller == "gpt"
+                    and self._gpt_cfg is not None
+                    and int(self._gpt_cfg.d_out) == 8
+                ):
                     cam_fast_boxes.append(box)
                     setattr(img_data_sample, "pred_cam_fast_box", box)
                 try:
@@ -231,7 +245,8 @@ class CameraControllerPlugin(Plugin):
                 if (
                     self._controller == "gpt"
                     and self._gpt_cfg is not None
-                    and str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow")) == "base_prev_y"
+                    and str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow"))
+                    == "base_prev_y"
                 ):
                     # Seed prev_y from the default wide shot.
                     try:
@@ -240,14 +255,10 @@ class CameraControllerPlugin(Plugin):
                                 float(np.clip(float(box[0]) / max(1.0, float(W)), 0.0, 1.0)),
                                 float(np.clip(float(box[1]) / max(1.0, float(H)), 0.0, 1.0)),
                                 float(
-                                    np.clip(
-                                        float(box[2] - box[0]) / max(1.0, float(W)), 0.0, 1.0
-                                    )
+                                    np.clip(float(box[2] - box[0]) / max(1.0, float(W)), 0.0, 1.0)
                                 ),
                                 float(
-                                    np.clip(
-                                        float(box[3] - box[1]) / max(1.0, float(H)), 0.0, 1.0
-                                    )
+                                    np.clip(float(box[3] - box[1]) / max(1.0, float(H)), 0.0, 1.0)
                                 ),
                             ],
                             dtype=np.float32,
@@ -292,7 +303,11 @@ class CameraControllerPlugin(Plugin):
                 )
                 cam_boxes.append(box)
                 setattr(img_data_sample, "pred_cam_box", box)
-                if self._controller == "gpt" and self._gpt_cfg is not None and int(self._gpt_cfg.d_out) == 8:
+                if (
+                    self._controller == "gpt"
+                    and self._gpt_cfg is not None
+                    and int(self._gpt_cfg.d_out) == 8
+                ):
                     cam_fast_boxes.append(box)
                     setattr(img_data_sample, "pred_cam_fast_box", box)
                 try:
@@ -306,7 +321,8 @@ class CameraControllerPlugin(Plugin):
                 if (
                     self._controller == "gpt"
                     and self._gpt_cfg is not None
-                    and str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow")) == "base_prev_y"
+                    and str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow"))
+                    == "base_prev_y"
                 ):
                     try:
                         slow_tlwh = np.asarray(
@@ -314,14 +330,10 @@ class CameraControllerPlugin(Plugin):
                                 float(np.clip(float(box[0]) / max(1.0, float(W)), 0.0, 1.0)),
                                 float(np.clip(float(box[1]) / max(1.0, float(H)), 0.0, 1.0)),
                                 float(
-                                    np.clip(
-                                        float(box[2] - box[0]) / max(1.0, float(W)), 0.0, 1.0
-                                    )
+                                    np.clip(float(box[2] - box[0]) / max(1.0, float(W)), 0.0, 1.0)
                                 ),
                                 float(
-                                    np.clip(
-                                        float(box[3] - box[1]) / max(1.0, float(H)), 0.0, 1.0
-                                    )
+                                    np.clip(float(box[3] - box[1]) / max(1.0, float(H)), 0.0, 1.0)
                                 ),
                             ],
                             dtype=np.float32,
@@ -407,9 +419,13 @@ class CameraControllerPlugin(Plugin):
                         base_feat = np.concatenate([base_feat, pose_feat], axis=0).astype(
                             np.float32, copy=False
                         )
-                    if self._prev_y is None or int(self._prev_y.shape[0]) != int(self._gpt_cfg.d_out):
+                    if self._prev_y is None or int(self._prev_y.shape[0]) != int(
+                        self._gpt_cfg.d_out
+                    ):
                         self._prev_y = self._default_prev_y(int(self._gpt_cfg.d_out))
-                    feat = np.concatenate([base_feat, self._prev_y], axis=0).astype(np.float32, copy=False)
+                    feat = np.concatenate([base_feat, self._prev_y], axis=0).astype(
+                        np.float32, copy=False
+                    )
                 else:
                     feat = build_frame_features(
                         tlwh=tlwh_np,
@@ -418,7 +434,9 @@ class CameraControllerPlugin(Plugin):
                         prev_cam_h=self._prev_h,
                     )
                     if pose_feat is not None:
-                        feat = np.concatenate([feat, pose_feat], axis=0).astype(np.float32, copy=False)
+                        feat = np.concatenate([feat, pose_feat], axis=0).astype(
+                            np.float32, copy=False
+                        )
 
                 # Pad/truncate to the model's expected input dimension.
                 if int(feat.shape[0]) < int(self._gpt_cfg.d_in):
@@ -471,7 +489,9 @@ class CameraControllerPlugin(Plugin):
                             float((float(box_out[0]) + float(box_out[2])) / (2.0 * float(W))),
                             float((float(box_out[1]) + float(box_out[3])) / (2.0 * float(H))),
                         )
-                        self._prev_h = float((float(box_out[3]) - float(box_out[1])) / max(1.0, float(H)))
+                        self._prev_h = float(
+                            (float(box_out[3]) - float(box_out[1])) / max(1.0, float(H))
+                        )
                     except Exception:
                         pass
                 elif int(self._gpt_cfg.d_out) in (4, 8):
@@ -519,7 +539,9 @@ class CameraControllerPlugin(Plugin):
                         yf = float(fast_tlwh[1] * H)
                         wf = float(max(1.0, fast_tlwh[2] * W))
                         hf = float(max(1.0, fast_tlwh[3] * H))
-                        box_fast_out = torch.tensor([xf, yf, xf + wf, yf + hf], dtype=det_tlbr.dtype)
+                        box_fast_out = torch.tensor(
+                            [xf, yf, xf + wf, yf + hf], dtype=det_tlbr.dtype
+                        )
                         box_fast_out = clamp_box(
                             box_fast_out, torch.tensor([0, 0, W, H], dtype=box_fast_out.dtype)
                         )
@@ -566,16 +588,16 @@ class CameraControllerPlugin(Plugin):
                 try:
                     w_denom = max(1.0, float(W))
                     h_denom = max(1.0, float(H))
-                    l = float(box_out[0])
-                    t = float(box_out[1])
-                    r = float(box_out[2])
-                    b = float(box_out[3])
+                    left_f = float(box_out[0])
+                    top_f = float(box_out[1])
+                    right_f = float(box_out[2])
+                    bottom_f = float(box_out[3])
                     slow_tlwh = np.asarray(
                         [
-                            float(np.clip(l / w_denom, 0.0, 1.0)),
-                            float(np.clip(t / h_denom, 0.0, 1.0)),
-                            float(np.clip((r - l) / w_denom, 0.0, 1.0)),
-                            float(np.clip((b - t) / h_denom, 0.0, 1.0)),
+                            float(np.clip(left_f / w_denom, 0.0, 1.0)),
+                            float(np.clip(top_f / h_denom, 0.0, 1.0)),
+                            float(np.clip((right_f - left_f) / w_denom, 0.0, 1.0)),
+                            float(np.clip((bottom_f - top_f) / h_denom, 0.0, 1.0)),
                         ],
                         dtype=np.float32,
                     )

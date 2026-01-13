@@ -7,7 +7,6 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.datasets.dataframe import HmDataFrameBase
-from hmlib.utils.gpu import unwrap_tensor
 
 try:  # Prefer vendored OpenMMLab structures
     from mmdet.structures import DetDataSample

@@ -1399,6 +1399,20 @@ class hm_opts(object):
             else:
                 paths = list(cfg_paths)
             for path in paths:
+                if path.startswith("aspen.plugins."):
+                    # Avoid implicitly creating incomplete Aspen plugin stubs via CLI overrides.
+                    # If the selected Aspen config doesn't declare a plugin, setting
+                    # aspen.plugins.<name>.* here would create a dict without a `class`,
+                    # which later fails AspenNet graph construction.
+                    parts = path.split(".")
+                    if len(parts) >= 3:
+                        plugin_name = parts[2]
+                        aspen_cfg = config.get("aspen")
+                        plugins_cfg = (
+                            aspen_cfg.get("plugins") if isinstance(aspen_cfg, dict) else None
+                        )
+                        if not isinstance(plugins_cfg, dict) or plugin_name not in plugins_cfg:
+                            continue
                 if arg_name in setdefault_set and _has_nested_key(config, path):
                     continue
                 set_nested_value(config, path, mapped_value)

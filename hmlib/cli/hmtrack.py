@@ -21,7 +21,6 @@ from mmcv.transforms import Compose
 import hmlib
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
-from hmlib.camera.cam_post_process import CamTrackPostProcessor
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.config import (
     get_clip_box,
@@ -46,8 +45,8 @@ from hmlib.tasks.tracking import run_mmtrack
 
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
-from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.path import add_suffix_to_filename
+from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import time_to_frame
@@ -286,7 +285,9 @@ class _StitchRotationController:
             try:
                 val = get_nested_value(self._config, "game.stitching.stitch-rotate-degrees", None)
                 if val is None:
-                    val = get_nested_value(self._config, "game.stitching.stitch_rotate_degrees", None)
+                    val = get_nested_value(
+                        self._config, "game.stitching.stitch_rotate_degrees", None
+                    )
                 if val is not None:
                     return float(val)
             except Exception:
@@ -384,9 +385,9 @@ def _main(args, num_gpu):
         except Exception:
             args.game_dir = None
 
-        tracking_data_path = getattr(args, "input_tracking_data", None) or find_latest_dataframe_file(
-            args.game_dir, "tracking"
-        )
+        tracking_data_path = getattr(
+            args, "input_tracking_data", None
+        ) or find_latest_dataframe_file(args.game_dir, "tracking")
         detection_data_path = getattr(
             args, "input_detection_data", None
         ) or find_latest_dataframe_file(args.game_dir, "detections")
@@ -604,7 +605,12 @@ def _main(args, num_gpu):
                         "tracker",
                         {
                             "class": "hmlib.aspen.plugins.tracker_plugin.TrackerPlugin",
-                            "depends": ["detector", "ice_boundaries", "model_factory", "boundaries"],
+                            "depends": [
+                                "detector",
+                                "ice_boundaries",
+                                "model_factory",
+                                "boundaries",
+                            ],
                             "params": {},
                         },
                     )
@@ -614,9 +620,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params["tracker_class"] = (
-                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
-                        )
+                        tracker_params[
+                            "tracker_class"
+                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)
@@ -679,9 +685,11 @@ def _main(args, num_gpu):
             # For Aspen-built model, boundaries will be applied by BoundariesPlugin.
             # Put boundary inputs into config dict so run_mmtrack can pass to Aspen shared.
             # Recompute tuned boundary lines from game_config (legacy behavior of DefaultArguments).
-            game_bound_cfg = game_config.get("game", {}).get("boundaries", {}) if isinstance(
-                game_config, dict
-            ) else {}
+            game_bound_cfg = (
+                game_config.get("game", {}).get("boundaries", {})
+                if isinstance(game_config, dict)
+                else {}
+            )
             top_border_lines = game_bound_cfg.get("upper", []) or []
             bottom_border_lines = game_bound_cfg.get("lower", []) or []
             upper_tune_position = game_bound_cfg.get("upper_tune_position", []) or []
@@ -789,6 +797,7 @@ def _main(args, num_gpu):
                         "frame_offset": rfo,
                     },
                 }
+
                 def _set_runtime_arg(name: str, value: Any) -> None:
                     setattr(args, name, value)
                     if hasattr(args, "initial_args") and isinstance(args.initial_args, dict):
@@ -921,6 +930,15 @@ def _main(args, num_gpu):
                     dataloader.append_dataset("pano", mot_dataloader)
             else:
                 assert len(input_video_files) == 1
+                if isinstance(aspen_cfg_for_pipeline, dict):
+                    stitching_cfg = aspen_cfg_for_pipeline.get("stitching")
+                    if isinstance(stitching_cfg, dict):
+                        stitching_cfg["enabled"] = False
+                    plugins_cfg = aspen_cfg_for_pipeline.get("plugins")
+                    if isinstance(plugins_cfg, dict):
+                        stitching_plugin = plugins_cfg.get("stitching")
+                        if isinstance(stitching_plugin, dict):
+                            stitching_plugin["enabled"] = False
                 if os.path.isdir(input_video_files[0]):
                     dir_name = input_video_files[0]
                 else:
@@ -1061,8 +1079,11 @@ def _main(args, num_gpu):
         dest_path = None
         is_truncated_run = bool(args.max_time or args.max_frames)
 
-        if (not is_truncated_run) and (not args.no_audio) and output_video_path and os.path.exists(
-            output_video_path
+        if (
+            (not is_truncated_run)
+            and (not args.no_audio)
+            and output_video_path
+            and os.path.exists(output_video_path)
         ):
             try:
                 output_av_path = args.output_video
@@ -1105,7 +1126,9 @@ def _main(args, num_gpu):
         if deploy_dir:
             target_deploy_dir = deploy_dir
         elif not is_truncated_run:
-            target_deploy_dir = args.game_dir if args.game_dir and os.path.isdir(args.game_dir) else None
+            target_deploy_dir = (
+                args.game_dir if args.game_dir and os.path.isdir(args.game_dir) else None
+            )
 
         if target_deploy_dir:
             os.makedirs(target_deploy_dir, exist_ok=True)
@@ -1153,7 +1176,9 @@ def _main(args, num_gpu):
             suffix_num = extract_suffix_num(dest_path)
             if suffix_num is not None and csv_names:
                 for name in csv_names:
-                    if os.path.exists(os.path.join(target_deploy_dir, with_index(name, suffix_num))):
+                    if os.path.exists(
+                        os.path.join(target_deploy_dir, with_index(name, suffix_num))
+                    ):
                         suffix_num = None
                         break
             if suffix_num is None and csv_names:

@@ -6,7 +6,7 @@ from mmengine.registry import TRANSFORMS
 from hmlib.config import get_clip_box, get_config, get_nested_value
 from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.scoreboard.selector import configure_scoreboard
-from hmlib.utils.image import image_height, image_width, make_channels_last
+from hmlib.utils.image import make_channels_last
 
 
 def _try_pop(d: Dict[str, Any], k: str) -> Union[Any, None]:
@@ -17,7 +17,6 @@ def _try_pop(d: Dict[str, Any], k: str) -> Union[Any, None]:
 
 @TRANSFORMS.register_module()
 class HmConfigureScoreboard:
-
     def __init__(
         self,
         game_id: Optional[str] = None,

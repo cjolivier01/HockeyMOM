@@ -387,7 +387,7 @@ class TrackerPlugin(Plugin):
         det_reid: Optional[torch.Tensor] = None,
         num_detections: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
-        frame_id_t = self._coerce_frame_id_tensor(frame_id, device=bboxes.device)
+        frame_id_t = self._coerce_frame_id_tensor(frame_id, device=det_bboxes.device)
         assert self._static_tracker_max_detections is not None
         max_det = self._static_tracker_max_detections
         bboxes = det_bboxes.to(dtype=torch.float32)

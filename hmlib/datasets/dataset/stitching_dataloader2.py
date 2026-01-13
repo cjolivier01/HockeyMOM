@@ -133,7 +133,6 @@ def as_torch_device(device: Any) -> torch.device:
 #
 #
 class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
-
     def __init__(
         self,
         videos: Dict[str, List[Path]],
@@ -428,9 +427,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 async_mode=True,
             )
         )
-        stitching_worker = MultiDataLoaderWrapper(
-            dataloaders=dataloaders
-        )
+        stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders)
         return stitching_worker
 
     def configure_stitching(self):

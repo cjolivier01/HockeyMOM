@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from hmlib.log import get_logger
 from hmlib.config import (
     get_game_config_private,
     get_game_dir,
@@ -24,6 +23,7 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import hm_opts
+from hmlib.log import get_logger
 from hmlib.models.loader import get_model_config
 from hmlib.segm.ice_rink import find_ice_rink_masks
 from hmlib.utils.gpu import GpuAllocator

@@ -2,6 +2,7 @@ import contextlib
 import time
 import traceback
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -36,9 +37,11 @@ def run_mmtrack(
     no_cuda_streams: bool = False,
     track_mean_mode: Optional[str] = None,
     profiler: Any = None,
+    pose_inferencer: Any = None,
 ):
     mean_tracker: Optional[MeanTracker] = None
     aspen_net: Optional[AspenNet] = None
+    work_dir: Optional[str] = None
     if config is None:
         config = {}
     try:
@@ -157,17 +160,25 @@ def run_mmtrack(
                 except Exception:
                     game_dir = None
             work_dir = config.get("work_dir") or config.get("results_folder")
-            tracking_data_path = config.get("tracking_data_path") or find_latest_dataframe_file(
-                game_dir, "tracking"
+            tracking_data_path = (
+                config.get("tracking_data_path")
+                or config.get("input_tracking_data")
+                or find_latest_dataframe_file(game_dir, "tracking")
             )
-            detection_data_path = config.get("detection_data_path") or find_latest_dataframe_file(
-                game_dir, "detections"
+            detection_data_path = (
+                config.get("detection_data_path")
+                or config.get("input_detection_data")
+                or find_latest_dataframe_file(game_dir, "detections")
             )
-            pose_data_path = config.get("pose_data_path") or find_latest_dataframe_file(
-                game_dir, "pose"
+            pose_data_path = (
+                config.get("pose_data_path")
+                or config.get("input_pose_data")
+                or find_latest_dataframe_file(game_dir, "pose")
             )
-            action_data_path = config.get("action_data_path") or find_latest_dataframe_file(
-                game_dir, "actions"
+            action_data_path = (
+                config.get("action_data_path")
+                or config.get("input_action_data")
+                or find_latest_dataframe_file(game_dir, "actions")
             )
 
             # using_precalculated_tracking = bool(tracking_data_path)
@@ -275,6 +286,7 @@ def run_mmtrack(
                 shared = dict(
                     model=model,
                     postprocessor=postprocessor,
+                    pose_inferencer=pose_inferencer,
                     fp16=fp16,
                     device=device,
                     # using_precalculated_tracking=using_precalculated_tracking,
@@ -522,6 +534,12 @@ def run_mmtrack(
         traceback.print_exc()
         raise
     finally:
+        if config.get("save_pose_data") and work_dir:
+            try:
+                Path(work_dir).mkdir(parents=True, exist_ok=True)
+                (Path(work_dir) / "pose.csv").touch(exist_ok=True)
+            except Exception:
+                pass
         if aspen_net is not None:
             try:
                 aspen_net.finalize()

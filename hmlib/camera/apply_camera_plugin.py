@@ -228,9 +228,11 @@ class ApplyCameraPlugin(Plugin):
                 "img": img,
                 "pano_size_wh": pano_size_wh,
             }
-            dataset_results = context.get("data", {}).get("dataset_results") if isinstance(
-                context.get("data"), dict
-            ) else None
+            dataset_results = (
+                context.get("data", {}).get("dataset_results")
+                if isinstance(context.get("data"), dict)
+                else None
+            )
             if dataset_results is not None:
                 ez_data["dataset_results"] = dataset_results
             fast_boxes = context.get("current_fast_box_list")
