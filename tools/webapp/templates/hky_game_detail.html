@@ -2561,11 +2561,24 @@
 
     var PLAYER_EVENTS_SCOPE_LABEL = String("{{ game.team2_name|escapejs }} at {{ game.team1_name|escapejs }}{% if game.starts_at %} {{ game.starts_at|date:'Y-m-d' }}{% endif %}" || "").trim();
 
+    var _tableFitQueued = false;
+    function queueTableFit() {
+      if (_tableFitQueued) return;
+      _tableFitQueued = true;
+      window.requestAnimationFrame(function () {
+        _tableFitQueued = false;
+        try {
+          window.dispatchEvent(new Event("resize"));
+        } catch (e) {}
+      });
+    }
+
     function buildEventsTable(container, rows) {
       var wrap = document.createElement("div");
-      wrap.className = "table-scroll";
+      wrap.className = "table-fit-wrap";
       var table = document.createElement("table");
-      table.className = "table-nowrap table-grid events-drilldown-table";
+      table.className =
+        "table-no-scroll-mobile table-fit-force table-never-wrap table-grid events-drilldown-table";
       var thead = document.createElement("thead");
       var trh = document.createElement("tr");
       ["P", "Time", "Video", "Details", "Source"].forEach(function (h) {
@@ -2644,6 +2657,7 @@
       table.appendChild(tbody);
       wrap.appendChild(table);
       container.appendChild(wrap);
+      queueTableFit();
     }
 
     function sortRowsByPeriodAndGameClockDesc(rows) {
