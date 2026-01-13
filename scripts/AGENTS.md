@@ -6,6 +6,11 @@ This file applies to the `scripts/` subtree.
 
 - Before finalizing changes, run `python -m black` and `ruff check` on any modified/new Python files and fix issues until clean.
 
+## Error handling & CLI args
+
+- Do not silently ignore failures by default: avoid `except Exception: pass` / bare `except:` unless there is a clear, documented best-effort reason and the failure is surfaced (log/error return) with context.
+- For CLI argument access, do not use `getattr(args, "flag", ...)` to tolerate missing attributes; define all expected args in the parser (with defaults) and access via `args.flag` (use subparsers or separate namespaces if modes differ).
+
 ## `scripts/parse_stats_inputs.py`
 
 Parses a per-game “shift spreadsheet” and produces:
@@ -60,6 +65,10 @@ python scripts/parse_stats_inputs.py --input <game stats dir> --outdir <out> --l
 - Each line may end with `:HOME` or `:AWAY` (used for TimeToScore GF/GA mapping).
 - Lines may also be `t2s=<game_id>[:HOME|AWAY][:game_label]` to process a TimeToScore-only game with no spreadsheets.
 - Relative paths are resolved relative to the file-list’s directory.
+- If the file-list ends in `.yaml`/`.yml`, prefer a `games:` list of mapping entries (avoid legacy one-line `|key=value` strings). Example:
+  - `- path: /path/to/stats` with optional `side: HOME|AWAY`
+  - optional metadata either under `meta:`/`metadata:` or as direct subkeys (e.g., `home_team`, `away_team`, `date`, `time` (quote `"HH:MM"`), `game_video`, `home_logo`, `away_logo`)
+  - `- t2s: 51602` for TimeToScore-only entries (optional `side`, `label`)
 
 #### Goals (GF/GA) sources and priority
 The script tries, in order:

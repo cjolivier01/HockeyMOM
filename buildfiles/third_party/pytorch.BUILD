@@ -18,6 +18,11 @@ cc_library(
     name = "libtorch",
     srcs = [":libtorch_so_files"],
     hdrs = glob(["include/**/*.h*"]),
+    defines = [
+        # Must match `torch._C._GLIBCXX_USE_CXX11_ABI` for the installed torch.
+        # Newer CUDA wheels (e.g. cu128) use the C++11 ABI (1).
+        "_GLIBCXX_USE_CXX11_ABI=1",
+    ],
     includes = [
         "include",
         "include/torch/csrc/api/include",
@@ -41,6 +46,9 @@ filegroup(
 cc_library(
     name = "libtorch_python",
     srcs = ["lib/libtorch_python.so"],
+    defines = [
+        "_GLIBCXX_USE_CXX11_ABI=1",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         ":libtorch",

@@ -40,7 +40,7 @@
 	      </div>
       <div style="margin-top:.5rem;font-size:1.1rem;">
         {% if game.team1_score != None and game.team2_score != None %}
-          <strong>{{ game.team1_score }} - {{ game.team2_score }}</strong>
+          <strong>{{ game.team2_score }} - {{ game.team1_score }}</strong>
         {% else %}
           <span class="muted">Score: —</span>
         {% endif %}
@@ -296,7 +296,15 @@
           {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
           <tr>
             <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td data-player-cell="name">{{ p.name|default_if_none:"" }}</td>
+            <td data-player-cell="name">
+              {% with has_events=player_has_events_by_pid|get_item:p.id %}
+                {% if has_events %}
+                  <button type="button" class="btn secondary player-events-btn" title="Show underlying events">{{ p.name|default_if_none:"" }}</button>
+                {% else %}
+                  {{ p.name|default_if_none:"" }}
+                {% endif %}
+              {% endwith %}
+            </td>
             {% for c in game_player_stats_columns %}
               {% with cid=c.id %}
                 {% if edit_mode and not public_league_id %}
@@ -346,7 +354,15 @@
           {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
           <tr>
             <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td data-player-cell="name">{{ p.name|default_if_none:"" }}</td>
+            <td data-player-cell="name">
+              {% with has_events=player_has_events_by_pid|get_item:p.id %}
+                {% if has_events %}
+                  <button type="button" class="btn secondary player-events-btn" title="Show underlying events">{{ p.name|default_if_none:"" }}</button>
+                {% else %}
+                  {{ p.name|default_if_none:"" }}
+                {% endif %}
+              {% endwith %}
+            </td>
             {% for c in game_player_stats_columns %}
               {% with cid=c.id %}
                 {% if edit_mode and not public_league_id %}
@@ -376,6 +392,86 @@
       </tbody>
     </table>
   </div>
+
+  {% if goalie_stats_has_sog %}
+  <h3 style="margin-top:1.25rem;">Goalie Stats</h3>
+
+  <h4 style="display:flex;align-items:center;gap:8px;margin-top:0.75rem;">
+    <img src="{{ home_logo_url }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+    <span>{{ game.team1_name }}</span>
+  </h4>
+  <div class="table-scroll">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+      <thead>
+        <tr>
+          <th>#</th><th>Name</th><th>TOI</th><th>GA</th>
+          {% if goalie_stats_has_xg %}
+            <th>xGA</th><th>xGSV</th><th>xGSV%</th>
+          {% endif %}
+          <th>SA</th><th>SV</th><th>SV%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in goalie_stats_home_rows %}
+          <tr>
+            <td>{{ g.jersey_number|default_if_none:"" }}</td>
+            <td>{{ g.name|default_if_none:"" }}</td>
+            <td>{{ g.toi_seconds|fmt_toi }}</td>
+            <td>{{ g.ga|fmt_stat }}</td>
+            {% if goalie_stats_has_xg %}
+              <td>{{ g.xga|fmt_stat }}</td>
+              <td>{{ g.xg_saves|fmt_stat }}</td>
+              <td>{{ g.xg_sv_pct|fmt_stat }}</td>
+            {% endif %}
+            <td>{{ g.sa|fmt_stat }}</td>
+            <td>{{ g.saves|fmt_stat }}</td>
+            <td>{{ g.sv_pct|fmt_stat }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="{% if goalie_stats_has_xg %}10{% else %}7{% endif %}" class="muted">No goalie stats.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="display:flex;align-items:center;gap:8px;margin-top:0.75rem;">
+    <img src="{{ away_logo_url }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
+    <span>{{ game.team2_name }}</span>
+  </h4>
+  <div class="table-scroll">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+      <thead>
+        <tr>
+          <th>#</th><th>Name</th><th>TOI</th><th>GA</th>
+          {% if goalie_stats_has_xg %}
+            <th>xGA</th><th>xGSV</th><th>xGSV%</th>
+          {% endif %}
+          <th>SA</th><th>SV</th><th>SV%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in goalie_stats_away_rows %}
+          <tr>
+            <td>{{ g.jersey_number|default_if_none:"" }}</td>
+            <td>{{ g.name|default_if_none:"" }}</td>
+            <td>{{ g.toi_seconds|fmt_toi }}</td>
+            <td>{{ g.ga|fmt_stat }}</td>
+            {% if goalie_stats_has_xg %}
+              <td>{{ g.xga|fmt_stat }}</td>
+              <td>{{ g.xg_saves|fmt_stat }}</td>
+              <td>{{ g.xg_sv_pct|fmt_stat }}</td>
+            {% endif %}
+            <td>{{ g.sa|fmt_stat }}</td>
+            <td>{{ g.saves|fmt_stat }}</td>
+            <td>{{ g.sv_pct|fmt_stat }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="{% if goalie_stats_has_xg %}10{% else %}7{% endif %}" class="muted">No goalie stats.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 
   {% if edit_mode and not public_league_id %}
     <div style="margin-top:.75rem;">
@@ -765,6 +861,8 @@
 	            } catch (e) {}
 	            return true;
 	          }
+
+	          try { window.hmOpenVideoClipForRow = openVideoClipForRow; } catch (e) {}
 
           function svgEl(name, attrs) {
             var el = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -1966,8 +2064,20 @@
                 body.textContent = text;
                 wrap.appendChild(body);
                 tooltipEl.appendChild(wrap);
-              }
+	              }
 
+	              addLine("Event ID", getValue(ev.row, ["Event ID", "EventID", "EventId"]));
+	              (function () {
+	                var vt = String(getValue(ev.row, ["Video Time", "VideoTime"]) || "").trim();
+	                var vsn = parseVideoSecondsFromRow(ev.row || {});
+	                var hasVs = (vsn !== null && isFinite(vsn));
+	                if (!vt && hasVs) vt = secondsToLabel(vsn);
+	                if (vt || hasVs) {
+	                  addLine("Video Time", vt);
+	                  if (hasVs) addLine("Video Seconds", String(Math.floor(vsn)));
+	                  if (!gameVideoUrl) addLine("Video URL", "missing");
+	                }
+	              })();
 	              addLine("Players", getValue(ev.row, ["Attributed Players"]));
 	              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
 	              addLine("Details", getValue(ev.row, ["Details"]));
@@ -2369,23 +2479,40 @@
       var n = parseInt(m[1], 10);
       return isFinite(n) ? String(n) : m[1];
     }
-    function parseTimeToSeconds(s) {
-      s = String(s || "").trim();
-      if (!s) return null;
-      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+	    function parseTimeToSeconds(s) {
+	      s = String(s || "").trim();
+	      if (!s) return null;
+	      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
       if (!m) return null;
       var a = parseInt(m[1], 10);
       var b = parseInt(m[2], 10);
       var c = m[3] ? parseInt(m[3], 10) : null;
       if (!isFinite(a) || !isFinite(b)) return null;
-      if (c === null) return a * 60 + b;
-      if (!isFinite(c)) return null;
-      return a * 3600 + b * 60 + c;
-    }
-    function getValue(row, keys) {
-      if (!row) return "";
-      for (var i = 0; i < keys.length; i++) {
-        var k = keys[i];
+	      if (c === null) return a * 60 + b;
+	      if (!isFinite(c)) return null;
+	      return a * 3600 + b * 60 + c;
+	    }
+	    function fmtSecondsToTime(seconds) {
+	      var sec = parseInt(String(seconds), 10);
+	      if (!isFinite(sec) || sec < 0) return "";
+	      var h = Math.floor(sec / 3600);
+	      var m = Math.floor((sec % 3600) / 60);
+	      var s = sec % 60;
+	      if (h > 0) {
+	        return (
+	          String(h) +
+	          ":" +
+	          (m < 10 ? "0" + String(m) : String(m)) +
+	          ":" +
+	          (s < 10 ? "0" + String(s) : String(s))
+	        );
+	      }
+	      return String(m) + ":" + (s < 10 ? "0" + String(s) : String(s));
+	    }
+	    function getValue(row, keys) {
+	      if (!row) return "";
+	      for (var i = 0; i < keys.length; i++) {
+	        var k = keys[i];
         if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
         var kl = String(k).toLowerCase();
         for (var kk in row) {
@@ -2432,6 +2559,8 @@
       gfga: ["goal"],
     };
 
+    var PLAYER_EVENTS_SCOPE_LABEL = String("{{ game.team2_name|escapejs }} at {{ game.team1_name|escapejs }}{% if game.starts_at %} {{ game.starts_at|date:'Y-m-d' }}{% endif %}" || "").trim();
+
     function buildEventsTable(container, rows) {
       var wrap = document.createElement("div");
       wrap.className = "table-scroll";
@@ -2447,18 +2576,69 @@
       thead.appendChild(trh);
       table.appendChild(thead);
       var tbody = document.createElement("tbody");
-      rows.forEach(function (row) {
-        var tr = document.createElement("tr");
-        var period = String(getValue(row, ["Period"]) || "").trim();
-        var tGame = String(getValue(row, ["Game Time", "GameTime", "Time"]) || "").trim();
-        var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
-        var details = String(getValue(row, ["Details"]) || "").trim();
-        var src = String(getValue(row, ["Source"]) || "").trim();
-        [period, tGame, tVideo, details, src].forEach(function (v) {
-          var td = document.createElement("td");
-          td.textContent = v;
-          tr.appendChild(td);
-        });
+	      rows.forEach(function (row) {
+	        var tr = document.createElement("tr");
+	        var period = String(getValue(row, ["Period"]) || "").trim();
+	        var tGame = String(getValue(row, ["Game Time", "GameTime", "Time"]) || "").trim();
+	        var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
+	        if (!tVideo) {
+	          var vsTxt = String(
+	            getValue(row, ["Video Seconds", "VideoSeconds", "Video S", "VideoS"]) || ""
+	          ).trim();
+	          var vs2 = null;
+	          if (vsTxt) {
+	            if (vsTxt.match(/^-?\d+(\.\d+)?$/)) {
+	              var f = parseFloat(vsTxt);
+	              vs2 = isFinite(f) ? Math.floor(f) : null;
+	            } else {
+	              var t = parseTimeToSeconds(vsTxt);
+	              vs2 = t !== null && isFinite(t) ? Math.floor(t) : null;
+	            }
+	          }
+	          if (vs2 !== null && vs2 >= 0) {
+	            tVideo = fmtSecondsToTime(vs2);
+	          }
+	        }
+	        var details = String(getValue(row, ["Details"]) || "").trim();
+	        var src = String(getValue(row, ["Source"]) || "").trim();
+
+        var tdP = document.createElement("td");
+        tdP.textContent = period;
+        tr.appendChild(tdP);
+
+        var tdT = document.createElement("td");
+        tdT.textContent = tGame;
+        tr.appendChild(tdT);
+
+        var tdV = document.createElement("td");
+        if (tVideo && typeof window.hmOpenVideoClipForRow === "function") {
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn secondary";
+          btn.style.padding = ".25rem .55rem";
+          btn.style.fontSize = ".85rem";
+          btn.textContent = tVideo;
+          btn.addEventListener("click", function () {
+            var et = String(getValue(row, ["Event Type", "Event"]) || "").trim();
+            var atTxt = "";
+            if (period) atTxt = "P" + period + (tGame ? (" " + tGame) : "");
+            else if (tGame) atTxt = tGame;
+            try { window.hmOpenVideoClipForRow(row, { label: et, at: atTxt }); } catch (e) {}
+          });
+          tdV.appendChild(btn);
+        } else {
+          tdV.textContent = tVideo || "";
+        }
+        tr.appendChild(tdV);
+
+        var tdD = document.createElement("td");
+        tdD.textContent = details;
+        tr.appendChild(tdD);
+
+        var tdS = document.createElement("td");
+        tdS.textContent = src;
+        tr.appendChild(tdS);
+
         tbody.appendChild(tr);
       });
       table.appendChild(tbody);
@@ -2511,6 +2691,7 @@
 
 	    function buildShotChainTables(rows) {
 	      var goals = [];
+	      var assists = [];
 	      var xg = [];
 	      var sog = [];
 	      var shot = [];
@@ -2521,6 +2702,8 @@
 	          xg.push(withDetailsTag(row, "Goal"));
 	          sog.push(withDetailsTag(row, "Goal"));
 	          shot.push(withDetailsTag(row, "Goal"));
+	        } else if (k === "assist") {
+	          assists.push(row);
 	        } else if (k === "expectedgoal") {
 	          xg.push(withDetailsTag(row, "xG"));
 	          sog.push(withDetailsTag(row, "xG"));
@@ -2532,7 +2715,7 @@
 	          shot.push(row);
 	        }
 	      });
-	      return { goals: goals, xg: xg, sog: sog, shot: shot };
+	      return { goals: goals, assists: assists, xg: xg, sog: sog, shot: shot };
 	    }
 
 	    function extractNumberSet(raw) {
@@ -2627,8 +2810,9 @@
       var bodyEl = document.getElementById("events-drilldown-body");
       if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
 
-      titleEl.textContent = playerName + (playerJersey ? " (#" + extractJersey(playerJersey) + ")" : "");
-      subtitleEl.textContent = statLabel ? (statLabel + " events") : "Events";
+      titleEl.textContent = "Player Events — " + (PLAYER_EVENTS_SCOPE_LABEL || "Game");
+      var pLabel = playerName + (playerJersey ? " (#" + extractJersey(playerJersey) + ")" : "");
+      subtitleEl.textContent = statLabel ? (pLabel + " • " + statLabel) : pLabel;
       bodyEl.innerHTML = "";
 
       if (!filtered.length && !onIceGoals.length) {
@@ -2637,34 +2821,12 @@
         p.textContent = "No events matched this selection.";
         bodyEl.appendChild(p);
       } else {
-        if (onIceGoals.length) {
-          var byFA = groupRows(onIceGoals, function (r) {
-            var fa = String(r.__forAgainst || "").trim();
-            return fa ? ("Goals " + fa) : "Goals";
-          });
-          ["goals for", "goals against"].forEach(function (k) {
-            if (!byFA.groups[k]) return;
-            var h = document.createElement("h4");
-            h.style.margin = "0.75rem 0 0.35rem 0";
-            h.textContent = byFA.groups[k].label;
-            bodyEl.appendChild(h);
-            buildEventsTable(bodyEl, byFA.groups[k].rows);
-          });
-          byFA.order.forEach(function (k) {
-            if (k === "goals for" || k === "goals against") return;
-            var h = document.createElement("h4");
-            h.style.margin = "0.75rem 0 0.35rem 0";
-            h.textContent = byFA.groups[k].label;
-            bodyEl.appendChild(h);
-            buildEventsTable(bodyEl, byFA.groups[k].rows);
-          });
-        }
-
 	        if (filtered.length) {
 	          if (!statKey) {
 	            var chain = buildShotChainTables(filtered);
 	            [
 	              ["Goals", chain.goals],
+	              ["Assists", chain.assists],
 	              ["xG (Expected Goal)", chain.xg],
 	              ["SOG", chain.sog],
 	              ["Shot", chain.shot],
@@ -2679,7 +2841,7 @@
 	              buildEventsTable(bodyEl, rows);
 	            });
 
-	            var chainKeys = { goal: true, expectedgoal: true, sog: true, shot: true };
+	            var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
 	            var remaining = filtered.filter(function (row) {
 	              return !chainKeys[normTypeKey(getValue(row, ["Event Type", "Event"]))];
 	            });
@@ -2744,6 +2906,30 @@
 	            });
 	          }
 	        }
+
+        // Keep derived On-Ice Goals (For/Against) at the bottom.
+        if (onIceGoals.length) {
+          var byFA = groupRows(onIceGoals, function (r) {
+            var fa = String(r.__forAgainst || "").trim();
+            return fa ? ("Goals " + fa) : "Goals";
+          });
+          ["goals for", "goals against"].forEach(function (k) {
+            if (!byFA.groups[k]) return;
+            var h = document.createElement("h4");
+            h.style.margin = "0.75rem 0 0.35rem 0";
+            h.textContent = byFA.groups[k].label;
+            bodyEl.appendChild(h);
+            buildEventsTable(bodyEl, byFA.groups[k].rows);
+          });
+          byFA.order.forEach(function (k) {
+            if (k === "goals for" || k === "goals against") return;
+            var h = document.createElement("h4");
+            h.style.margin = "0.75rem 0 0.35rem 0";
+            h.textContent = byFA.groups[k].label;
+            bodyEl.appendChild(h);
+            buildEventsTable(bodyEl, byFA.groups[k].rows);
+          });
+        }
 	      }
 
       try {
@@ -2779,11 +2965,13 @@
         if (!nameTxt) return;
 
         if (nameCell) {
-          nameCell.title = "Double-click to show events";
-          nameCell.style.cursor = "pointer";
-          nameCell.addEventListener("dblclick", function () {
-            openDrilldown({ playerName: nameTxt, playerJersey: jerseyTxt, teamSide: side, statKey: "", statLabel: "" });
-          });
+          var btn = nameCell.querySelector("button.player-events-btn");
+          if (btn) {
+            btn.addEventListener("click", function (e) {
+              e.preventDefault();
+              openDrilldown({ playerName: nameTxt, playerJersey: jerseyTxt, teamSide: side, statKey: "", statLabel: "" });
+            });
+          }
         }
 
         tr.querySelectorAll("td[data-stat-key]").forEach(function (td) {

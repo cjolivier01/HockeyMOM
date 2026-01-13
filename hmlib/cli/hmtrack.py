@@ -58,6 +58,14 @@ def make_parser(parser: argparse.ArgumentParser = None):
     if parser is None:
         parser = argparse.ArgumentParser("HockeyMOM Tracking")
     parser = hm_opts.parser(parser)
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help=(
+            "Validate that key dependencies can be imported and that the game directory can be "
+            "resolved, then exit (does not require a working CUDA runtime)."
+        ),
+    )
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
 
@@ -308,6 +316,7 @@ class _StitchRotationController:
 
 def _main(args, num_gpu):
     dataloader = None
+    postprocessor = None
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
 
@@ -1283,6 +1292,26 @@ def main():
     args.game_config = game_config
 
     args = configure_model(config=args.game_config, args=args)
+
+    if getattr(args, "smoke_test", False):
+        game_dir = None
+        if getattr(args, "game_id", None):
+            try:
+                game_dir = get_game_dir(args.game_id, assert_exists=False)
+            except Exception:
+                game_dir = None
+
+        # Validate imports for the pieces hmtrack expects to have available.
+        import mmengine  # noqa: F401
+        import mmcv  # noqa: F401
+        import mmdet  # noqa: F401
+        import mmpose  # noqa: F401
+        import mmyolo  # noqa: F401
+        import lightglue  # noqa: F401
+        import hockeymom._hockeymom  # noqa: F401
+
+        print(f"Smoke test OK. game_id={getattr(args, 'game_id', None)} game_dir={game_dir}")
+        return 0
 
     if args.game_id:
         num_gpus = 1

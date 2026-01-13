@@ -91,6 +91,77 @@ To import the `stats/player_stats.csv` + `stats/game_stats.csv` outputs written 
 
 - See `tools/webapp/TUTORIAL_SHIFT_STATS.md`.
 
+### Shift spreadsheet file-list YAML (`game_list_long.yaml`)
+
+`./import_webapp.sh` and `./gcp_import_webapp.sh` pass `SHIFT_FILE_LIST` to `scripts/parse_stats_inputs.py --file-list`.
+Prefer a readable YAML mapping format (avoid legacy one-line `|key=value` strings).
+
+Recommended structure:
+
+```yaml
+games:
+  # Spreadsheet-backed game (directory or .xlsx path)
+  - path: /home/colivier/RVideos/stockton-r2/stats
+    side: HOME # optional (HOME/AWAY)
+    label: stockton-r2 # optional
+    metadata: # alias: meta
+      home_team: "San Jose Jr Sharks 12AA-2"
+      away_team: "Stockton Colts 12AA"
+      date: "2025-12-07"
+      time: "16:15" # quote "HH:MM" (YAML may parse unquoted times as base-60)
+      game_video: /home/colivier/RVideos/stockton-r2/game.mp4
+      home_logo: /home/colivier/RVideos/stockton-r2/home_logo.png
+      away_logo: /home/colivier/RVideos/stockton-r2/away_logo.png
+
+  # TimeToScore-only game (no spreadsheets)
+  - t2s: 51602
+    side: HOME # optional
+    label: stockton-r2 # optional
+    metadata:
+      game_video: "https://youtu.be/…"
+```
+
+Notes:
+- Relative paths are resolved relative to the YAML file’s directory.
+- `metadata:` is optional; you can also put metadata keys directly under the game mapping (e.g., `home_team: ...`).
+
+### Event correction YAML
+
+To persist idempotent fixes (suppress bad imported events, and upsert corrected ones), use `scripts/parse_stats_inputs.py --corrections-yaml <file> --upload-webapp` (calls `POST /api/internal/apply_event_corrections`).
+
+Recommended structure:
+
+```yaml
+create_missing_players: true # optional
+corrections:
+  - timetoscore_game_id: 51602 # or: game_id: 123
+    reason: "Fix scorer/assists for goal at 1/12:34"
+    suppress:
+      - event_type: Goal
+        period: 1
+        game_time: "12:34"
+        team_side: Away
+        jersey: "12"
+    upsert:
+      - event_type: Goal
+        period: 1
+        game_time: "12:34"
+        team_side: Away
+        jersey: "91"
+        video_time: "1:02:03"
+        details: "Correction: scorer is #91"
+      - event_type: Assist
+        period: 1
+        game_time: "12:34"
+        team_side: Away
+        jersey: "15"
+        details: "Correction: primary assist is #15"
+```
+
+Notes:
+- Corrections are idempotent. Event identity is derived from the event spec fields (`event_type`, time, side, jersey, and optionally `details`/`event_id`).
+- If multiple events can exist at the same timestamp (e.g., stacked penalties), include `details` and/or `event_id` to disambiguate.
+
 Demo Data
 ---------
 To quickly demo the Teams/Schedule features, seed sample data into your configured DB:

@@ -308,24 +308,29 @@ WantedBy=timers.target
 
     print("Writing nginx site...")
     nginx_conf = f"""
-	server {{
-	    listen {args.nginx_port} default_server;
-	    server_name {args.server_name};
-	    client_max_body_size {args.client_max_body_size};
+server {{
+    listen {args.nginx_port} default_server;
+    server_name {args.server_name};
+    client_max_body_size {args.client_max_body_size};
 
-	    location /static/ {{
-	        alias {static_dir}/;
-	    }}
+    location /static/ {{
+        alias {static_dir}/;
+    }}
 
-	    location / {{
-	        proxy_pass http://127.0.0.1:{args.port};
-	        proxy_set_header Host $host;
-	        proxy_set_header X-Real-IP $remote_addr;
+    location / {{
+        proxy_pass http://127.0.0.1:{args.port};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Webapp import endpoints can run for minutes; keep nginx timeouts >= gunicorn's --timeout.
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
     }}
 }}
-"""
+""".lstrip()
     sudo_write_text(NGINX_SITE, nginx_conf)
 
     sites_enabled = Path("/etc/nginx/sites-enabled/hm-webapp")

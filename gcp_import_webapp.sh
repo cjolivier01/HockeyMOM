@@ -5,7 +5,7 @@ set -euo pipefail
 WEBAPP_URL="${WEBAPP_URL:-https://www.jrsharks2013.org}"
 
 # Import token (required for production; local dev typically does not require it).
-# Do NOT hardcode this in the script; pass it via env.
+# Do NOT hardcode this in the script; pass it via env (or store it locally/remote per read_default_token()).
 HM_WEBAPP_IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"
 
 # League/user defaults.
@@ -14,6 +14,7 @@ NO_DEFAULT_USER=0
 REBUILD=0
 T2S_LEAGUES=(3 5 18)
 T2S_LEAGUES_SET=0
+T2S_API_BATCH_SIZE="${T2S_API_BATCH_SIZE:-10}"
 
 GIT_USER_EMAIL="$(git config --get user.email 2>/dev/null || true)"
 GIT_USER_NAME="$(git config --get user.name 2>/dev/null || true)"
@@ -61,11 +62,12 @@ Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--sp
 
 Environment:
   WEBAPP_URL              Webapp base URL (default: https://www.jrsharks2013.org)
-  HM_WEBAPP_IMPORT_TOKEN  Import token (required for reset/import/upload; not needed for --deploy-only)
+  HM_WEBAPP_IMPORT_TOKEN  Import token (required for reset/import/upload; not needed for --deploy-only; if unset, tries ~/.ssh/hm-webapp-token.txt and the GCE instance config.json)
   LEAGUE_NAME             League name (default: CAHA)
   OWNER_EMAIL             League owner email (default: git config user.email, else cjolivier01@gmail.com)
   OWNER_NAME              League owner display name (default: git config user.name, else OWNER_EMAIL)
   SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/RVideos/game_list_long.yaml if present, else ~/Videos/game_list_long.yaml, else .txt)
+  T2S_API_BATCH_SIZE      TimeToScore REST batch size for /api/import/hockey/games_batch (default: 10; lower avoids nginx 504 timeouts)
   PROJECT_ID              GCP project id (default: sage-courier-241217)
   ZONE                    GCE zone (default: us-central1-a)
   INSTANCE                GCE instance name (default: hm-webapp)
@@ -168,6 +170,49 @@ read_default_token() {
   fi
   if [[ -f "${token_file}" ]]; then
     HM_WEBAPP_IMPORT_TOKEN="$(cat "${token_file}")"
+    HM_WEBAPP_IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN//$'\r'/}"
+    HM_WEBAPP_IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN//$'\n'/}"
+    if [[ -n "${HM_WEBAPP_IMPORT_TOKEN}" ]]; then
+      return 0
+    fi
+  fi
+
+  # Fall back to the token configured on the GCE instance (if readable).
+  local remote_token=""
+  remote_token="$(
+    gcp_ssh "python3 - <<'PY'
+import json
+from pathlib import Path
+
+cfg_path = Path('/opt/hm-webapp/app/config.json')
+try:
+    cfg = json.loads(cfg_path.read_text(encoding='utf-8'))
+except Exception:
+    cfg = {}
+print(str(cfg.get('import_token') or '').strip())
+PY" 2>/dev/null || true
+  )"
+  remote_token="${remote_token//$'\r'/}"
+  remote_token="${remote_token//$'\n'/}"
+  if [[ -z "${remote_token}" ]]; then
+    remote_token="$(
+      gcp_ssh "sudo -n python3 - <<'PY'
+import json
+from pathlib import Path
+
+cfg_path = Path('/opt/hm-webapp/app/config.json')
+try:
+    cfg = json.loads(cfg_path.read_text(encoding='utf-8'))
+except Exception:
+    cfg = {}
+print(str(cfg.get('import_token') or '').strip())
+PY" 2>/dev/null || true
+    )"
+    remote_token="${remote_token//$'\r'/}"
+    remote_token="${remote_token//$'\n'/}"
+  fi
+  if [[ -n "${remote_token}" ]]; then
+    HM_WEBAPP_IMPORT_TOKEN="${remote_token}"
   fi
 }
 
@@ -291,6 +336,7 @@ else
   if ! is_local_url; then
     echo "[!] HM_WEBAPP_IMPORT_TOKEN is not set. Production imports will be rejected." >&2
     echo "    Set it like: export HM_WEBAPP_IMPORT_TOKEN='...'" >&2
+    echo "    Or put it in: ~/.ssh/hm-webapp-token.txt  (single line, no trailing newline)" >&2
     exit 2
   fi
 fi
@@ -334,16 +380,17 @@ else
   fi
   for T2S_LEAGUE_ID in "${T2S_LEAGUES[@]}"; do
     echo "[i]   - CAHA TimeToScore league=${T2S_LEAGUE_ID}"
-    ./p tools/webapp/scripts/import_time2score.py \
-      --source=caha \
-      --t2s-league-id "${T2S_LEAGUE_ID}" \
-      --league-name="${LEAGUE_NAME}" \
-      --season 0 \
-      --api-url "${WEBAPP_URL}" \
-      "${T2S_ARGS[@]}" \
-      "${TOKEN_ARGS[@]}" \
-      --user-email "${OWNER_EMAIL}"
-  done
+	    ./p tools/webapp/scripts/import_time2score.py \
+	      --source=caha \
+	      --t2s-league-id "${T2S_LEAGUE_ID}" \
+	      --league-name="${LEAGUE_NAME}" \
+	      --season 0 \
+	      --api-url "${WEBAPP_URL}" \
+	      --api-batch-size "${T2S_API_BATCH_SIZE}" \
+	      "${T2S_ARGS[@]}" \
+	      "${TOKEN_ARGS[@]}" \
+	      --user-email "${OWNER_EMAIL}"
+	  done
 fi
 
 echo "[i] Uploading shift spreadsheets via REST"

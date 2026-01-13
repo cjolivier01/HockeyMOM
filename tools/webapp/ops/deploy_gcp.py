@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import time
+import textwrap
 from dataclasses import dataclass
 
 
@@ -384,6 +385,75 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
                 zone,
                 "--command",
                 certbot_cmd,
+            ],
+            project=project,
+            check=True,
+        )
+        ensure_nginx_cmd = textwrap.dedent(
+            """
+            set -euo pipefail
+
+            sudo python3 - <<'PY'
+            from __future__ import annotations
+
+            import re
+            from pathlib import Path
+
+            path = Path("/etc/nginx/sites-available/hm-webapp")
+            text = path.read_text(encoding="utf-8")
+            changed = False
+
+            # Certbot may generate a TLS server block that omits /static; patch it back in.
+            if "location /static/" not in text:
+                m = re.search(r"(?m)^(?P<indent>[ \\t]*)location\\s+/\\s*\\{", text)
+                if m:
+                    indent = m.group("indent")
+                    block = (
+                        f"{indent}location /static/ {{\\n"
+                        f"{indent}    alias /opt/hm-webapp/app/static/;\\n"
+                        f"{indent}}}\\n\\n"
+                    )
+                    text = text[: m.start()] + block + text[m.start() :]
+                    changed = True
+
+            directives = [
+                ("proxy_connect_timeout", "60s"),
+                ("proxy_send_timeout", "600s"),
+                ("proxy_read_timeout", "600s"),
+            ]
+            missing = [
+                (name, value)
+                for name, value in directives
+                if re.search(rf"(?m)^\\s*{re.escape(name)}\\b", text) is None
+            ]
+            if missing:
+                m = re.search(
+                    r"(?m)^(?P<indent>[ \\t]*)proxy_pass\\s+http://127\\.0\\.0\\.1:\\d+;\\s*$",
+                    text,
+                )
+                if m:
+                    indent = m.group("indent")
+                    block = "\\n".join(f"{indent}{name} {value};" for name, value in missing)
+                    text = text[: m.end()] + "\\n" + block + text[m.end() :]
+                    changed = True
+
+            if changed:
+                path.write_text(text, encoding="utf-8")
+            PY
+
+            sudo nginx -t
+            sudo systemctl reload nginx
+            """
+        ).strip()
+        _gcloud(
+            [
+                "compute",
+                "ssh",
+                names.instance,
+                "--zone",
+                zone,
+                "--command",
+                ensure_nginx_cmd,
             ],
             project=project,
             check=True,

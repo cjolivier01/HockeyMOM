@@ -128,7 +128,7 @@
             <td>{{ g.location|default_if_none:"" }}</td>
             <td>
               {% if s1 != None and s2 != None %}
-                {{ s1 }} - {{ s2 }}
+                {{ s2 }} - {{ s1 }}
               {% else %}
                 <span class="muted">—</span>
               {% endif %}
@@ -313,13 +313,18 @@
           <tr>
             <td>{{ r.jersey_number|default_if_none:"" }}</td>
             <td>
-              <a
-                href="#"
-                class="player-events-link"
-                data-player-id="{{ r.player_id }}"
-                style="text-decoration:none;color:inherit;"
-                title="Show underlying events"
-              >{{ r.name|default_if_none:"" }}</a>
+              {% if r.has_events %}
+                <button
+                  type="button"
+                  class="btn secondary player-events-link"
+                  data-player-id="{{ r.player_id }}"
+                  data-scope="all"
+                  data-scope-label="{{ game_type_filter_label|default:'All' }}"
+                  title="Show underlying events"
+                >{{ r.name|default_if_none:"" }}</button>
+              {% else %}
+                {{ r.name|default_if_none:"" }}
+              {% endif %}
             </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in player_stats_columns %}
@@ -386,13 +391,19 @@
           <tr>
             <td>{{ r.jersey_number|default_if_none:"" }}</td>
             <td>
-              <a
-                href="#"
-                class="player-events-link"
-                data-player-id="{{ r.player_id }}"
-                style="text-decoration:none;color:inherit;"
-                title="Show underlying events"
-              >{{ r.name|default_if_none:"" }}</a>
+              {% if r.has_events %}
+                <button
+                  type="button"
+                  class="btn secondary player-events-link"
+                  data-player-id="{{ r.player_id }}"
+                  data-scope="recent"
+                  data-recent-n="{{ recent_n|default:'5' }}"
+                  data-scope-label="Last {{ recent_n|default:'5' }} Games"
+                  title="Show underlying events"
+                >{{ r.name|default_if_none:"" }}</button>
+              {% else %}
+                {{ r.name|default_if_none:"" }}
+              {% endif %}
             </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in recent_player_stats_columns %}
@@ -407,6 +418,128 @@
   </div>
 </div>
 
+{% if recent_goalie_stats_has_sog %}
+<h3 style="margin-top:1.25rem;">Goalie Stats (Last {{ recent_n|default:"5" }} Games)</h3>
+<div class="card">
+  <div class="table-scroll">
+    <table class="table-nowrap table-grid" data-freeze-cols="2">
+      <thead>
+        <tr>
+          <th>#</th><th>Name</th><th>GP</th><th>TOI</th><th>GA</th>
+          {% if recent_goalie_stats_has_xg %}
+            <th>xGA</th><th>xGSV</th><th>xGSV%</th>
+          {% endif %}
+          <th>SA</th><th>SV</th><th>SV%</th>
+          <th>GAA</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in recent_goalie_stats_rows %}
+          <tr>
+            <td>{{ g.jersey_number|default_if_none:"" }}</td>
+            <td>
+              {% if g.gp %}
+                <button
+                  type="button"
+                  class="btn secondary goalie-stats-link"
+                  data-player-id="{{ g.player_id }}"
+                  data-scope="recent"
+                  data-recent-n="{{ recent_n|default:'5' }}"
+                  data-scope-label="Last {{ recent_n|default:'5' }} Games"
+                  title="Show underlying games"
+                >{{ g.name|default_if_none:"" }}</button>
+              {% else %}
+                {{ g.name|default_if_none:"" }}
+              {% endif %}
+            </td>
+            <td>{{ g.gp|fmt_stat }}</td>
+            <td>{{ g.toi_seconds|fmt_toi }}</td>
+            <td>{{ g.ga|fmt_stat }}</td>
+            {% if recent_goalie_stats_has_xg %}
+              <td>{{ g.xga|fmt_stat }}</td>
+              <td>{{ g.xg_saves|fmt_stat }}</td>
+              <td>{{ g.xg_sv_pct|fmt_stat }}</td>
+            {% endif %}
+            <td>{{ g.sa|fmt_stat }}</td>
+            <td>{{ g.saves|fmt_stat }}</td>
+            <td>{{ g.sv_pct|fmt_stat }}</td>
+            <td>{{ g.gaa|fmt_stat }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="{% if recent_goalie_stats_has_xg %}12{% else %}9{% endif %}" class="muted">No recent goalie stats.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if goalie_stats_has_sog %}
+<h3 style="margin-top:1.25rem;">Goalie Stats</h3>
+<div class="card">
+  <div class="table-scroll">
+    <table class="table-nowrap table-grid" data-freeze-cols="2">
+      <thead>
+        <tr>
+          <th>#</th><th>Name</th><th>GP</th><th>TOI</th><th>GA</th>
+          {% if goalie_stats_has_xg %}
+            <th>xGA</th><th>xGSV</th><th>xGSV%</th>
+          {% endif %}
+          <th>SA</th><th>SV</th><th>SV%</th>
+          <th>GAA</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in goalie_stats_rows %}
+          <tr>
+            <td>{{ g.jersey_number|default_if_none:"" }}</td>
+            <td>
+              {% if g.gp %}
+                <button
+                  type="button"
+                  class="btn secondary goalie-stats-link"
+                  data-player-id="{{ g.player_id }}"
+                  data-scope="all"
+                  data-scope-label="All Games"
+                  title="Show underlying games"
+                >{{ g.name|default_if_none:"" }}</button>
+              {% else %}
+                {{ g.name|default_if_none:"" }}
+              {% endif %}
+            </td>
+            <td>{{ g.gp|fmt_stat }}</td>
+            <td>{{ g.toi_seconds|fmt_toi }}</td>
+            <td>{{ g.ga|fmt_stat }}</td>
+            {% if goalie_stats_has_xg %}
+              <td>{{ g.xga|fmt_stat }}</td>
+              <td>{{ g.xg_saves|fmt_stat }}</td>
+              <td>{{ g.xg_sv_pct|fmt_stat }}</td>
+            {% endif %}
+            <td>{{ g.sa|fmt_stat }}</td>
+            <td>{{ g.saves|fmt_stat }}</td>
+            <td>{{ g.sv_pct|fmt_stat }}</td>
+            <td>{{ g.gaa|fmt_stat }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="{% if goalie_stats_has_xg %}12{% else %}9{% endif %}" class="muted">No goalie stats yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<dialog id="team-goalie-stats-modal" style="max-width:960px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
+  <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
+    <div>
+      <div id="team-goalie-stats-title" style="font-weight:700;"></div>
+      <div id="team-goalie-stats-subtitle" class="muted" style="font-size:.9rem;"></div>
+    </div>
+    <button id="team-goalie-stats-close" class="btn" type="button">Close</button>
+  </div>
+  <div id="team-goalie-stats-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
+</dialog>
+{% endif %}
+
 <dialog id="team-player-events-modal" style="max-width:960px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
   <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
     <div>
@@ -414,6 +547,38 @@
       <div id="team-player-events-subtitle" class="muted" style="font-size:.9rem;"></div>
     </div>
     <button id="team-player-events-close" class="btn" type="button">Close</button>
+  </div>
+  <div id="team-player-events-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.10);">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+      <div>
+        <strong>Video Clip</strong>
+        <span id="team-player-events-video-meta" class="muted" style="margin-left:.5rem;"></span>
+      </div>
+      <div style="display:flex; align-items:center; gap:.5rem;">
+        <a
+          id="team-player-events-video-open-link"
+          class="btn"
+          href=""
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:none;"
+        >Open on YouTube</a>
+        <button type="button" class="btn" id="team-player-events-video-close">Close</button>
+      </div>
+    </div>
+    <div style="margin-top:.75rem; width:100%; max-width: 900px;">
+      <div style="position:relative; width:100%; aspect-ratio:16/9; background:#0b1220; border-radius:12px; overflow:hidden;">
+        <iframe
+          id="team-player-events-video-iframe"
+          title="Game video clip"
+          src=""
+          style="position:absolute; inset:0; width:100%; height:100%; border:0;"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+        ></iframe>
+      </div>
+    </div>
+    <p class="muted" style="margin:.75rem 0 0 0;">Tip: goals/assists show 20s before and 10s after; other events show 10s before and 10s after.</p>
   </div>
   <div id="team-player-events-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
 </dialog>
@@ -550,8 +715,18 @@
 	        var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
 	        var hasVideoTime = videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
 	        var videoLabel = hasVideoTime ? (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) : "";
-	        var videoHref = (r.video_url && hasVideoTime) ? urlWithTime(r.video_url, videoSeconds) : "";
-	        var videoCell = videoHref ? el("a", { href: videoHref, target: "_blank", rel: "noopener noreferrer" }, videoLabel) : el("span", { className: "muted" }, "");
+	        var videoCell = el("span", { className: "muted" }, "");
+	        if (r.video_url && hasVideoTime) {
+	          var btn = el(
+	            "button",
+	            { type: "button", className: "btn secondary", style: "padding:.25rem .55rem;font-size:.85rem;" },
+	            videoLabel
+	          );
+	          btn.addEventListener("click", function () {
+	            openVideoClipForEventRow(r);
+	          });
+	          videoCell = btn;
+	        }
 	
 	        addRow(tbody, opts.rowCells(r, { gameCell: gameCell, videoCell: videoCell }));
 	      });
@@ -584,16 +759,131 @@
 	      return copy;
 	    }
 
+	    function extractYoutubeId(url) {
+	      if (!url) return null;
+	      try {
+	        var u = new URL(String(url), window.location.origin);
+	        var host = String(u.hostname || "").toLowerCase();
+	        if (host === "youtu.be") {
+	          var p = String(u.pathname || "").replace(/^\//, "");
+	          return p ? p.split("/")[0] : null;
+	        }
+	        var v = u.searchParams.get("v");
+	        if (v) return v;
+	        var path = String(u.pathname || "");
+	        var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
+	        return m ? m[1] : null;
+	      } catch (e) {}
+	      return null;
+	    }
+
+	    function buildYoutubeWatchUrl(url, startSec) {
+	      var id = extractYoutubeId(url);
+	      if (!id) return null;
+	      var start = Math.max(0, Math.floor(startSec || 0));
+	      try {
+	        var w = new URL("https://www.youtube.com/watch");
+	        w.searchParams.set("v", String(id));
+	        w.searchParams.set("t", String(start) + "s");
+	        w.searchParams.set("autoplay", "1");
+	        w.searchParams.set("vq", "hd1080");
+	        return w.toString();
+	      } catch (e) {
+	        return null;
+	      }
+	    }
+
+	    function buildYoutubeEmbedUrl(url, startSec, endSec) {
+	      var id = extractYoutubeId(url);
+	      if (!id) return null;
+	      var start = Math.max(0, Math.floor(startSec || 0));
+	      var end = Math.max(start + 1, Math.floor(endSec || 0));
+	      var params = new URLSearchParams();
+	      params.set("autoplay", "1");
+	      params.set("mute", "1");
+	      params.set("enablejsapi", "1");
+	      params.set("origin", String(window.location.origin || ""));
+	      params.set("start", String(start));
+	      params.set("end", String(end));
+	      params.set("vq", "hd1080");
+	      params.set("rel", "0");
+	      params.set("modestbranding", "1");
+	      params.set("playsinline", "1");
+	      return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+	    }
+
+	    function clipTimingForEvent(r) {
+	      var kindKey = normTypeKey(r.event_type_key || r.event_type || r.kind || "");
+	      if (kindKey === "onicegoal") kindKey = "goal";
+	      var isGoalOrAssist = kindKey === "goal" || kindKey === "assist";
+	      // `pre` is seconds before the event; `dur` (totalDuration) is the total clip length (pre + post).
+	      var pre = isGoalOrAssist ? 20 : 10;
+	      var totalDuration = isGoalOrAssist ? 30 : 20;
+	      return { pre: pre, dur: totalDuration, kindKey: kindKey };
+	    }
+
+	    function openVideoClipForEventRow(r) {
+	      if (!videoPane || !videoIframe) return false;
+	      if (!r || !r.video_url) return false;
+	      var vs2 = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
+	      if (vs2 === null || vs2 === undefined) return false;
+	      var vs = parseInt(String(vs2), 10);
+	      if (!isFinite(vs) || vs < 0) return false;
+
+	      var timing = clipTimingForEvent(r);
+	      var start2 = Math.max(0, Math.floor(vs - timing.pre));
+	      var end2 = Math.max(start2 + 1, start2 + timing.dur);
+
+	      var watchUrl = buildYoutubeWatchUrl(r.video_url, start2);
+	      if (videoOpen) {
+	        videoOpen.href = watchUrl || "";
+	        videoOpen.style.display = watchUrl ? "" : "none";
+	      }
+	      var embed = buildYoutubeEmbedUrl(r.video_url, start2, end2);
+	      if (!embed) {
+	        try {
+	          window.open(urlWithTime(r.video_url, start2), "_blank", "noopener");
+	        } catch (e) {}
+	        return true;
+	      }
+	      videoIframe.src = embed;
+	      videoIframe.setAttribute("src", embed);
+	      if (videoMeta) {
+	        var tLabel = timing.kindKey ? timing.kindKey.toUpperCase() : "";
+	        var at = (String(r.video_time || "").trim() || fmtSecondsToTime(vs));
+	        videoMeta.textContent = (tLabel ? (tLabel + " • ") : "") + at + " • " + timing.dur + "s clip";
+	      }
+	      videoPane.style.display = "block";
+	      return true;
+	    }
+
 	    var teamId = {{ team.id|default:"0" }};
 	    var publicLeagueId = {{ public_league_id|default:"null" }};
 	    var dlg = document.getElementById("team-player-events-modal");
 	    var titleEl = document.getElementById("team-player-events-title");
 	    var subtitleEl = document.getElementById("team-player-events-subtitle");
     var bodyEl = document.getElementById("team-player-events-body");
+    var videoPane = document.getElementById("team-player-events-video-pane");
+    var videoIframe = document.getElementById("team-player-events-video-iframe");
+    var videoMeta = document.getElementById("team-player-events-video-meta");
+    var videoOpen = document.getElementById("team-player-events-video-open-link");
+    var videoClose = document.getElementById("team-player-events-video-close");
     var closeBtn = document.getElementById("team-player-events-close");
     if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
 
+    function closeVideo() {
+      if (videoIframe) videoIframe.src = "";
+      if (videoOpen) {
+        videoOpen.href = "";
+        videoOpen.style.display = "none";
+      }
+      if (videoPane) videoPane.style.display = "none";
+      if (videoMeta) videoMeta.textContent = "";
+    }
+    if (videoClose) videoClose.addEventListener("click", closeVideo);
+
     function closeModal() {
+      closeVideo();
       try { dlg.close(); } catch (e) { dlg.open = false; }
     }
     if (closeBtn) closeBtn.addEventListener("click", closeModal);
@@ -608,20 +898,37 @@
       bodyEl.appendChild(p);
     }
 
-    function buildApiUrl(playerId) {
+    function buildApiUrl(playerId, opts) {
+      opts = opts || {};
       var api = new URL("/api/hky/teams/" + String(teamId) + "/players/" + String(playerId) + "/events", window.location.origin);
       var cur = new URL(window.location.href);
       cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+      var rn = null;
+      try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
+      if (rn !== null && isFinite(rn) && rn > 0) {
+        rn = Math.max(1, Math.min(10, rn));
+        api.searchParams.set("recent_n", String(rn));
+      }
       if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
       return api;
     }
 
-    function loadPlayer(playerId) {
-      titleEl.textContent = "Loading…";
+    function normScopeLabel(s) {
+      var t = String(s || "").trim();
+      if (!t) return "All";
+      if (t === "Tournament") return "Tournaments";
+      return t;
+    }
+
+    function loadPlayer(playerId, opts) {
+      opts = opts || {};
+      var scopeLabel = normScopeLabel(opts.scopeLabel);
+      titleEl.textContent = "Player Events — " + scopeLabel;
       subtitleEl.textContent = "";
       bodyEl.innerHTML = "<p class=\"muted\">Loading events…</p>";
+      closeVideo();
       showModal();
-      var api = buildApiUrl(playerId);
+      var api = buildApiUrl(playerId, opts);
       fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
         return resp.json().then(function (data) {
           if (!resp.ok || !data || !data.ok) {
@@ -629,8 +936,11 @@
             showError("Unable to load events (" + err + ").");
             return;
           }
-          titleEl.textContent = String(data.player_name || "Player") + (data.jersey_number ? (" (#" + String(data.jersey_number) + ")") : "");
-          subtitleEl.textContent = "Eligible games: " + String(data.eligible_games || 0);
+          titleEl.textContent = "Player Events — " + scopeLabel;
+          subtitleEl.textContent =
+            String(data.player_name || "Player") +
+            (data.jersey_number ? (" (#" + String(data.jersey_number) + ")") : "") +
+            " • Eligible games: " + String(data.eligible_games || 0);
           bodyEl.innerHTML = "";
 
           var onIce = Array.isArray(data.on_ice_goals) ? data.on_ice_goals : [];
@@ -641,31 +951,6 @@
             return;
           }
 
-          if (onIce.length) {
-            bodyEl.appendChild(el("h4", { style: "margin:.25rem 0 .5rem 0;" }, "On-Ice Goals (For/Against)"));
-            var og = groupRows(onIce, function (r) {
-              var fa = String(r.for_against || "").trim();
-              return fa ? ("Goals " + fa) : "Goals";
-            });
-            og.order.forEach(function (k) {
-              var g = og.groups[k];
-              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
-              renderEventsTable(bodyEl, g.rows, {
-                headers: ["Game", "P", "Time", "Video", "Details", "Source"],
-                rowCells: function (r, ctx) {
-                  return [
-                    ctx.gameCell,
-                    String(r.period || ""),
-                    String(r.game_time || ""),
-                    ctx.videoCell,
-                    String(r.details || ""),
-                    String(r.source || ""),
-                  ];
-                },
-              });
-            });
-          }
-
 	          if (attributed.length) {
 	            bodyEl.appendChild(el("h4", { style: "margin:1rem 0 .5rem 0;" }, "Attributed Events"));
 	            var filtered = attributed.filter(function (r) {
@@ -674,6 +959,7 @@
 	            });
 
 	            var goals = [];
+	            var assists = [];
 	            var xg = [];
 	            var sog = [];
 	            var shot = [];
@@ -684,6 +970,8 @@
 	                xg.push(withDetailsTag(r, "Goal"));
 	                sog.push(withDetailsTag(r, "Goal"));
 	                shot.push(withDetailsTag(r, "Goal"));
+	              } else if (k === "assist") {
+	                assists.push(r);
 	              } else if (k === "expectedgoal") {
 	                xg.push(withDetailsTag(r, "xG"));
 	                sog.push(withDetailsTag(r, "xG"));
@@ -698,6 +986,7 @@
 
 	            [
 	              ["Goals", goals],
+	              ["Assists", assists],
 	              ["xG (Expected Goal)", xg],
 	              ["SOG", sog],
 	              ["Shot", shot],
@@ -722,7 +1011,7 @@
 	              });
 	            });
 
-	            var chainKeys = { goal: true, expectedgoal: true, sog: true, shot: true };
+	            var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
 	            var remaining = filtered.filter(function (r) {
 	              var k = normTypeKey(r.event_type_key || r.event_type);
 	              return !chainKeys[k];
@@ -749,19 +1038,228 @@
 	              });
 	            }
 	          }
+
+          // Keep derived On-Ice Goals (For/Against) at the bottom.
+          if (onIce.length) {
+            bodyEl.appendChild(
+              el("h4", { style: "margin:1rem 0 .5rem 0;" }, "On-Ice Goals (For/Against)")
+            );
+            var og = groupRows(onIce, function (r) {
+              var fa = String(r.for_against || "").trim();
+              return fa ? ("Goals " + fa) : "Goals";
+            });
+            og.order.forEach(function (k) {
+              var g = og.groups[k];
+              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+              renderEventsTable(bodyEl, g.rows, {
+                headers: ["Game", "P", "Time", "Video", "Details", "Source"],
+                rowCells: function (r, ctx) {
+                  return [
+                    ctx.gameCell,
+                    String(r.period || ""),
+                    String(r.game_time || ""),
+                    ctx.videoCell,
+                    String(r.details || ""),
+                    String(r.source || ""),
+                  ];
+                },
+              });
+            });
+          }
 	        });
 	      }).catch(function (e) {
 	        showError("Unable to load events (" + String(e || "error") + ").");
 	      });
     }
 
-    document.querySelectorAll("a.player-events-link").forEach(function (a) {
+    document.querySelectorAll(".player-events-link").forEach(function (a) {
       a.style.cursor = "pointer";
       a.addEventListener("click", function (e) {
         e.preventDefault();
         var pid = a.getAttribute("data-player-id");
         if (!pid) return;
-        loadPlayer(pid);
+        loadPlayer(pid, {
+          recentN: a.getAttribute("data-recent-n"),
+          scopeLabel: a.getAttribute("data-scope-label"),
+          scope: a.getAttribute("data-scope"),
+        });
+      });
+    });
+
+    // ----------------------------
+    // Goalie stats breakdown modal
+    // ----------------------------
+    var goalieDlg = document.getElementById("team-goalie-stats-modal");
+    var goalieTitleEl = document.getElementById("team-goalie-stats-title");
+    var goalieSubtitleEl = document.getElementById("team-goalie-stats-subtitle");
+    var goalieBodyEl = document.getElementById("team-goalie-stats-body");
+    var goalieCloseBtn = document.getElementById("team-goalie-stats-close");
+
+    function fmtStat(v) {
+      if (v === null || v === undefined) return "";
+      if (typeof v === "boolean") return v ? "1" : "0";
+      var n = Number(v);
+      if (!isFinite(n)) return String(v);
+      if (Math.floor(n) === n) return String(n);
+      var s = n.toFixed(2);
+      s = s.replace(/0+$/, "").replace(/\.$/, "");
+      return s;
+    }
+
+    function showGoalieModal() {
+      if (!goalieDlg) return;
+      try { goalieDlg.showModal(); } catch (e) { goalieDlg.open = true; }
+    }
+    function closeGoalieModal() {
+      if (!goalieDlg) return;
+      try { goalieDlg.close(); } catch (e) { goalieDlg.open = false; }
+    }
+    if (goalieCloseBtn) goalieCloseBtn.addEventListener("click", closeGoalieModal);
+
+    function buildGoalieApiUrl(goalieId, opts) {
+      opts = opts || {};
+      var api = new URL("/api/hky/teams/" + String(teamId) + "/goalies/" + String(goalieId) + "/stats", window.location.origin);
+      var cur = new URL(window.location.href);
+      cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+      var rn = null;
+      try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
+      if (rn !== null && isFinite(rn) && rn > 0) {
+        rn = Math.max(1, Math.min(10, rn));
+        api.searchParams.set("recent_n", String(rn));
+      }
+      if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
+      return api;
+    }
+
+    function renderGoalieGamesTable(rows, opts) {
+      opts = opts || {};
+      var hasSog = !!opts.hasSog;
+      var hasXg = !!opts.hasXg;
+
+      var wrap = document.createElement("div");
+      wrap.className = "table-scroll";
+      var table = document.createElement("table");
+      table.className = "table-nowrap table-grid";
+      var thead = document.createElement("thead");
+      var trh = document.createElement("tr");
+
+      function th(label) { trh.appendChild(el("th", null, label)); }
+      th("Game");
+      th("Result");
+      th("TOI");
+      th("GA");
+      if (hasXg) { th("xGA"); th("xGSV"); th("xGSV%"); }
+      if (hasSog) { th("SA"); th("SV"); th("SV%"); }
+      th("GAA");
+      thead.appendChild(trh);
+      table.appendChild(thead);
+
+      var tbody = document.createElement("tbody");
+      (rows || []).forEach(function (r) {
+        var tr = document.createElement("tr");
+
+        var opp = String(r.opponent || "").trim();
+        var side = String(r.our_side || "").trim();
+        var homeAway = side === "away" ? "@" : "vs";
+        var gameLabel = (fmtDate(r.game_starts_at) || "Game") + " " + homeAway + (opp ? (" " + opp) : "");
+        if (String(r.game_type || "").trim()) gameLabel += " (" + String(r.game_type || "").trim() + ")";
+        var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
+        tr.appendChild(el("td", null, gameCell));
+
+        var res = "";
+        if (r.score_for !== null && r.score_for !== undefined && r.score_against !== null && r.score_against !== undefined) {
+          var sf = parseInt(String(r.score_for), 10);
+          var sa = parseInt(String(r.score_against), 10);
+          var tag = (sf > sa) ? "W" : ((sf < sa) ? "L" : "T");
+          if (isFinite(sf) && isFinite(sa)) res = tag + " " + String(sf) + "-" + String(sa);
+        }
+        tr.appendChild(el("td", { className: "muted" }, res));
+
+        tr.appendChild(el("td", null, fmtSecondsToTime(r.toi_seconds)));
+        tr.appendChild(el("td", null, fmtStat(r.ga)));
+        if (hasXg) {
+          tr.appendChild(el("td", null, fmtStat(r.xga)));
+          tr.appendChild(el("td", null, fmtStat(r.xg_saves)));
+          tr.appendChild(el("td", null, fmtStat(r.xg_sv_pct)));
+        }
+        if (hasSog) {
+          tr.appendChild(el("td", null, fmtStat(r.sa)));
+          tr.appendChild(el("td", null, fmtStat(r.saves)));
+          tr.appendChild(el("td", null, fmtStat(r.sv_pct)));
+        }
+        tr.appendChild(el("td", null, fmtStat(r.gaa)));
+
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    function loadGoalieStats(goalieId, opts) {
+      opts = opts || {};
+      if (!goalieDlg || !goalieTitleEl || !goalieSubtitleEl || !goalieBodyEl) return;
+      var scopeLabel = normScopeLabel(opts.scopeLabel);
+      goalieTitleEl.textContent = "Goalie Stats — " + scopeLabel;
+      goalieSubtitleEl.textContent = "";
+      goalieBodyEl.innerHTML = "<p class=\"muted\">Loading…</p>";
+      showGoalieModal();
+
+      var api = buildGoalieApiUrl(goalieId, opts);
+      fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
+        return resp.json().then(function (data) {
+          if (!resp.ok || !data || !data.ok) {
+            var err = (data && data.error) ? String(data.error) : ("HTTP " + String(resp.status || ""));
+            goalieBodyEl.innerHTML = "";
+            goalieBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load goalie stats (" + err + ")."));
+            return;
+          }
+
+          var games = Array.isArray(data.games) ? data.games : [];
+          var totals = data.totals || {};
+          var hasSog = !!(data.meta && data.meta.has_sog);
+          var hasXg = !!(data.meta && data.meta.has_xg);
+
+          goalieTitleEl.textContent = "Goalie Stats — " + scopeLabel;
+          goalieSubtitleEl.textContent =
+            String(data.player_name || "Goalie") +
+            (data.jersey_number ? (" (#" + String(data.jersey_number) + ")") : "") +
+            " • Eligible games: " + String(data.eligible_games || 0) +
+            " • GP: " + String(totals.gp || 0);
+
+          goalieBodyEl.innerHTML = "";
+          if (!games.length) {
+            goalieBodyEl.appendChild(el("p", { className: "muted" }, "No goalie games found in this scope."));
+            return;
+          }
+
+          var parts = [];
+          parts.push("TOI: " + fmtSecondsToTime(totals.toi_seconds || 0));
+          parts.push("GA: " + fmtStat(totals.ga));
+          if (hasXg) parts.push("xGA: " + fmtStat(totals.xga) + " • xGSV%: " + fmtStat(totals.xg_sv_pct));
+          if (hasSog) parts.push("SA: " + fmtStat(totals.sa) + " • SV%: " + fmtStat(totals.sv_pct));
+          parts.push("GAA: " + fmtStat(totals.gaa));
+          goalieBodyEl.appendChild(el("p", { className: "muted" }, parts.join(" • ")));
+
+          goalieBodyEl.appendChild(renderGoalieGamesTable(games, { hasSog: hasSog, hasXg: hasXg }));
+        });
+      }).catch(function (e) {
+        if (!goalieBodyEl) return;
+        goalieBodyEl.innerHTML = "";
+        goalieBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load goalie stats (" + String(e || "error") + ")."));
+      });
+    }
+
+    document.querySelectorAll(".goalie-stats-link").forEach(function (a) {
+      a.style.cursor = "pointer";
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        var pid = a.getAttribute("data-player-id");
+        if (!pid) return;
+        loadGoalieStats(pid, {
+          recentN: (a.getAttribute("data-scope") === "recent") ? a.getAttribute("data-recent-n") : null,
+          scopeLabel: a.getAttribute("data-scope-label"),
+        });
       });
     });
   })();
