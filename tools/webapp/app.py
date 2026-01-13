@@ -2658,7 +2658,6 @@ def create_app():
 
                 stats_rows = game.get("player_stats") or []
                 events_csv = game.get("events_csv")
-                game_stats_json = game.get("game_stats")
                 played = (
                     bool(game.get("is_final"))
                     or (t1s is not None and t2s is not None)
@@ -2769,24 +2768,6 @@ def create_app():
                             "goaliechange",
                         },
                     )
-
-                if isinstance(game_stats_json, dict) and game_stats_json:
-                    try:
-                        stats_json_text = json.dumps(game_stats_json)
-                    except Exception:
-                        stats_json_text = None
-                    if stats_json_text:
-                        now3 = dt.datetime.now()
-                        if game_replace:
-                            m.HkyGameStat.objects.update_or_create(
-                                game_id=int(gid),
-                                defaults={"stats_json": stats_json_text, "updated_at": now3},
-                            )
-                        else:
-                            m.HkyGameStat.objects.get_or_create(
-                                game_id=int(gid),
-                                defaults={"stats_json": stats_json_text, "updated_at": now3},
-                            )
 
                 results.append({"game_id": gid, "team1_id": team1_id, "team2_id": team2_id})
 
@@ -3347,18 +3328,36 @@ def create_app():
 
                 if isinstance(game_stats_csv, str) and game_stats_csv.strip():
                     try:
-                        game_stats = parse_shift_stats_game_stats_csv(game_stats_csv)
+                        parsed_gs = parse_shift_stats_game_stats_csv(game_stats_csv)
+                        gf = parsed_gs.get("Goals For")
+                        ga = parsed_gs.get("Goals Against")
+                        gf_i = int(gf) if gf not in (None, "") else None
+                        ga_i = int(ga) if ga not in (None, "") else None
+                        if (
+                            gf_i is not None
+                            and ga_i is not None
+                            and team_side in {"home", "away"}
+                            and int(resolved_game_id) > 0
+                        ):
+                            if team_side == "home":
+                                t1_score_new, t2_score_new = gf_i, ga_i
+                            else:
+                                t1_score_new, t2_score_new = ga_i, gf_i
+                            if replace:
+                                m.HkyGame.objects.filter(id=int(resolved_game_id)).update(
+                                    team1_score=int(t1_score_new),
+                                    team2_score=int(t2_score_new),
+                                    updated_at=now,
+                                )
+                            else:
+                                m.HkyGame.objects.filter(
+                                    id=int(resolved_game_id), team1_score__isnull=True
+                                ).update(team1_score=int(t1_score_new), updated_at=now)
+                                m.HkyGame.objects.filter(
+                                    id=int(resolved_game_id), team2_score__isnull=True
+                                ).update(team2_score=int(t2_score_new), updated_at=now)
                     except Exception:
-                        game_stats = None
-                    if game_stats is not None:
-                        game_stats = filter_game_stats_for_display(game_stats)
-                        m.HkyGameStat.objects.update_or_create(
-                            game_id=int(resolved_game_id),
-                            defaults={
-                                "stats_json": json.dumps(game_stats, ensure_ascii=False),
-                                "updated_at": now,
-                            },
-                        )
+                        pass
 
                 if isinstance(player_stats_csv, str) and player_stats_csv.strip():
                     parsed_rows = parse_shift_stats_player_stats_csv(player_stats_csv)
@@ -4511,25 +4510,11 @@ def create_app():
             )
         )
         stats_rows = list(m.PlayerStat.objects.filter(game_id=int(game_id)).values())
-        game_stats_row = (
-            m.HkyGameStat.objects.filter(game_id=int(game_id))
-            .values("stats_json", "updated_at")
-            .first()
-        )
         team1_skaters, team1_goalies, team1_hc, team1_ac = split_roster(team1_players)
         team2_skaters, team2_goalies, team2_hc, team2_ac = split_roster(team2_players)
         team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
         team2_roster = list(team2_skaters) + list(team2_goalies) + list(team2_hc) + list(team2_ac)
         stats_by_pid = {r["player_id"]: r for r in stats_rows}
-        game_stats = None
-        game_stats_updated_at = None
-        try:
-            if game_stats_row and game_stats_row.get("stats_json"):
-                game_stats = json.loads(game_stats_row["stats_json"])
-                game_stats_updated_at = game_stats_row.get("updated_at")
-        except Exception:
-            game_stats = None
-        game_stats = filter_game_stats_for_display(game_stats)
         period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
         tts_linked = _extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
 
@@ -4727,8 +4712,6 @@ def create_app():
             team2_players=team2_skaters_sorted,
             stats_by_pid=stats_by_pid,
             period_stats_by_pid=period_stats_by_pid,
-            game_stats=game_stats,
-            game_stats_updated_at=game_stats_updated_at,
             editable=False,
             can_edit=False,
             edit_mode=False,
@@ -5710,16 +5693,6 @@ def create_app():
             flash(f"Failed to parse player_stats.csv: {e}", "error")
             return redirect(url_for("hky_game_detail", game_id=game_id))
 
-        # Optional game_stats.csv
-        game_stats = None
-        gs_file = request.files.get("game_stats_csv")
-        if gs_file and gs_file.filename:
-            try:
-                gs_text = gs_file.stream.read().decode("utf-8", errors="replace")
-                game_stats = parse_shift_stats_game_stats_csv(gs_text)
-            except Exception:
-                game_stats = None
-
         # Load players for both teams so we can map by jersey/name.
         owner_user_id = int(game.get("user_id") or 0)
         players = list(
@@ -5861,16 +5834,6 @@ def create_app():
                         m.PlayerStat.objects.filter(id=ps.id).update(**updates)
 
                 imported += 1
-
-            if game_stats is not None:
-                game_stats = filter_game_stats_for_display(game_stats)
-                m.HkyGameStat.objects.update_or_create(
-                    game_id=int(game_id),
-                    defaults={
-                        "stats_json": json.dumps(game_stats, ensure_ascii=False),
-                        "updated_at": now,
-                    },
-                )
 
             # Track import time
             m.HkyGame.objects.filter(id=int(game_id)).update(stats_imported_at=now)
@@ -6092,27 +6055,11 @@ def create_app():
             )
         )
         stats_rows = list(m.PlayerStat.objects.filter(game_id=int(game_id)).values())
-        game_stats_row = (
-            m.HkyGameStat.objects.filter(game_id=int(game_id))
-            .values("stats_json", "updated_at")
-            .first()
-        )
         team1_skaters, team1_goalies, team1_hc, team1_ac = split_roster(team1_players or [])
         team2_skaters, team2_goalies, team2_hc, team2_ac = split_roster(team2_players or [])
         team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
         team2_roster = list(team2_skaters) + list(team2_goalies) + list(team2_hc) + list(team2_ac)
         stats_by_pid = {r["player_id"]: r for r in stats_rows}
-
-        game_stats = None
-        game_stats_updated_at = None
-        try:
-            if game_stats_row and game_stats_row.get("stats_json"):
-                game_stats = json.loads(game_stats_row["stats_json"])
-                game_stats_updated_at = game_stats_row.get("updated_at")
-        except Exception:
-            game_stats = None
-
-        game_stats = filter_game_stats_for_display(game_stats)
         period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
 
         events_headers: list[str] = []
@@ -6407,8 +6354,6 @@ def create_app():
             team2_players=team2_skaters_sorted,
             stats_by_pid=stats_by_pid,
             period_stats_by_pid=period_stats_by_pid,
-            game_stats=game_stats,
-            game_stats_updated_at=game_stats_updated_at,
             editable=bool(edit_mode),
             can_edit=bool(can_edit),
             edit_mode=bool(edit_mode),

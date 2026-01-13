@@ -3082,30 +3082,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         ]
         player_stats_out.sort(key=lambda r: str(r.get("name") or "").casefold())
 
-        def _sum_pim(side_key: str) -> int:
-            return sum(
-                int(r.get("minutes") or 0)
-                for r in (penalties_by_side.get(side_key) or [])
-                if r.get("minutes") is not None
-            )
-
-        home_pim_total = _sum_pim("home")
-        away_pim_total = _sum_pim("away")
-
-        game_stats_json = {
-            "Home Score": t1_score if t1_score is not None else "",
-            "Away Score": t2_score if t2_score is not None else "",
-            "Home Penalties": str(
-                len([r for r in penalties_by_side.get("home", []) if r.get("start_s") is not None])
-            ),
-            "Away Penalties": str(
-                len([r for r in penalties_by_side.get("away", []) if r.get("start_s") is not None])
-            ),
-            "Home PIM": str(home_pim_total) if home_pim_total else "",
-            "Away PIM": str(away_pim_total) if away_pim_total else "",
-            "TTS Schedule Only": "1" if schedule_only_game else "",
-        }
-
         if rest_mode:
             # Prefer mapping tournament games involving an External division to that External division,
             # otherwise keep the team's primary division.
@@ -3186,7 +3162,6 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "away_roster": list(tts_norm.extract_roster(stats, "away")),
                     "player_stats": player_stats_out,
                     "events_csv": events_csv_text,
-                    "game_stats": game_stats_json,
                 }
             )
             if len(api_games_batch) >= api_batch_size:

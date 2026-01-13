@@ -90,7 +90,6 @@ def _all_models() -> list[Type]:
         m.HkyGame,
         m.PlayerStat,
         m.PlayerPeriodStat,
-        m.HkyGameStat,
         m.HkyEventType,
         m.HkyGameEventRow,
         m.HkyGamePlayer,
@@ -238,11 +237,6 @@ def merge_hky_games(*, keep_id: int, drop_id: int) -> None:
                 game_id=int(drop_id), player_id=int(pid), period=int(period)
             ).delete()
         m.PlayerPeriodStat.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
-
-        if m.HkyGameStat.objects.filter(game_id=int(keep_id)).exists():
-            m.HkyGameStat.objects.filter(game_id=int(drop_id)).delete()
-        else:
-            m.HkyGameStat.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
 
         keep_event_keys = set(
             m.HkyGameEventRow.objects.filter(game_id=int(keep_id)).values_list(

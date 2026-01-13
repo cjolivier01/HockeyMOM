@@ -4233,11 +4233,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         )
     )
     stats_rows = list(m.PlayerStat.objects.filter(game_id=int(game_id)).values())
-    game_stats_row = (
-        m.HkyGameStat.objects.filter(game_id=int(game_id))
-        .values("stats_json", "updated_at")
-        .first()
-    )
     team1_skaters, team1_goalies, team1_hc, team1_ac = logic.split_roster(team1_players or [])
     team2_skaters, team2_goalies, team2_hc, team2_ac = logic.split_roster(team2_players or [])
     team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
@@ -4251,16 +4246,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         except Exception:
             # Best-effort: event-derived overlays are optional and should not break page rendering.
             pass
-
-    game_stats = None
-    game_stats_updated_at = None
-    try:
-        if game_stats_row and game_stats_row.get("stats_json"):
-            game_stats = json.loads(game_stats_row["stats_json"])
-            game_stats_updated_at = game_stats_row.get("updated_at")
-    except Exception:
-        game_stats = None
-    game_stats = logic.filter_game_stats_for_display(game_stats)
     period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
 
     events_headers, events_rows, events_meta = _load_game_events_for_display(game_id=int(game_id))
@@ -4588,8 +4573,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "team2_players": team2_skaters_sorted,
             "stats_by_pid": stats_by_pid,
             "period_stats_by_pid": period_stats_by_pid,
-            "game_stats": game_stats,
-            "game_stats_updated_at": game_stats_updated_at,
             "editable": bool(edit_mode),
             "can_edit": bool(can_edit),
             "edit_mode": bool(edit_mode),
@@ -4708,16 +4691,6 @@ def hky_game_import_shift_stats(
             }
         )
         return redirect(f"/hky/games/{int(game_id)}?{qs}")
-
-    # Optional game_stats.csv
-    game_stats = None
-    gs_file = request.FILES.get("game_stats_csv")
-    if gs_file and getattr(gs_file, "name", ""):
-        try:
-            gs_text = gs_file.read().decode("utf-8", errors="replace")
-            game_stats = logic.parse_shift_stats_game_stats_csv(gs_text)
-        except Exception:
-            game_stats = None
 
     owner_user_id = int(game.get("user_id") or 0)
     team1_id = int(game["team1_id"])
@@ -4862,19 +4835,6 @@ def hky_game_import_shift_stats(
                 if updates:
                     m.PlayerStat.objects.filter(id=ps.id).update(**updates)
             imported += 1
-
-        if game_stats is not None:
-            try:
-                game_stats = logic.filter_game_stats_for_display(game_stats)
-            except Exception:
-                pass
-            m.HkyGameStat.objects.update_or_create(
-                game_id=int(game_id),
-                defaults={
-                    "stats_json": json.dumps(game_stats, ensure_ascii=False),
-                    "updated_at": now,
-                },
-            )
 
         m.HkyGame.objects.filter(id=int(game_id)).update(stats_imported_at=now)
 
@@ -5075,7 +5035,6 @@ def leagues_delete(request: HttpRequest, league_id: int) -> HttpResponse:  # pra
                     ).delete()
                     m.HkyGamePlayer.objects.filter(game_id__in=[int(x) for x in chunk]).delete()
                     m.HkyGameEventRow.objects.filter(game_id__in=[int(x) for x in chunk]).delete()
-                    m.HkyGameStat.objects.filter(game_id__in=[int(x) for x in chunk]).delete()
 
                 still_used = set(
                     m.LeagueGame.objects.filter(game_id__in=[int(x) for x in game_ids]).values_list(
@@ -6190,11 +6149,6 @@ def public_hky_game_detail(
         )
     )
     stats_rows = list(m.PlayerStat.objects.filter(game_id=int(game_id)).values())
-    game_stats_row = (
-        m.HkyGameStat.objects.filter(game_id=int(game_id))
-        .values("stats_json", "updated_at")
-        .first()
-    )
     team1_skaters, team1_goalies, team1_hc, team1_ac = logic.split_roster(team1_players)
     team2_skaters, team2_goalies, team2_hc, team2_ac = logic.split_roster(team2_players)
     team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
@@ -6205,16 +6159,6 @@ def public_hky_game_detail(
     except Exception:
         # Best-effort: event-derived overlays are optional and should not break page rendering.
         pass
-
-    game_stats = None
-    game_stats_updated_at = None
-    try:
-        if game_stats_row and game_stats_row.get("stats_json"):
-            game_stats = json.loads(game_stats_row["stats_json"])
-            game_stats_updated_at = game_stats_row.get("updated_at")
-    except Exception:
-        game_stats = None
-    game_stats = logic.filter_game_stats_for_display(game_stats)
 
     period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
     tts_linked = logic._extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
@@ -6461,8 +6405,6 @@ def public_hky_game_detail(
             "team2_players": team2_skaters_sorted,
             "stats_by_pid": stats_by_pid,
             "period_stats_by_pid": period_stats_by_pid,
-            "game_stats": game_stats,
-            "game_stats_updated_at": game_stats_updated_at,
             "editable": False,
             "can_edit": False,
             "edit_mode": False,
@@ -7907,7 +7849,6 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
 
             stats_rows = game.get("player_stats") or []
             events_csv = game.get("events_csv")
-            game_stats_json = game.get("game_stats")
             played = (
                 bool(game.get("is_final"))
                 or (t1s is not None and t2s is not None)
@@ -8012,24 +7953,6 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                         exc_info=True,
                     )
                     raise
-
-            if isinstance(game_stats_json, dict) and game_stats_json:
-                try:
-                    stats_json_text = json.dumps(game_stats_json)
-                except Exception:
-                    stats_json_text = None
-                if stats_json_text:
-                    now3 = dt.datetime.now()
-                    if game_replace:
-                        m.HkyGameStat.objects.update_or_create(
-                            game_id=int(gid),
-                            defaults={"stats_json": stats_json_text, "updated_at": now3},
-                        )
-                    else:
-                        m.HkyGameStat.objects.get_or_create(
-                            game_id=int(gid),
-                            defaults={"stats_json": stats_json_text, "updated_at": now3},
-                        )
 
             results.append({"game_id": gid, "team1_id": team1_id, "team2_id": team2_id})
 
@@ -8552,18 +8475,36 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
 
             if isinstance(game_stats_csv, str) and game_stats_csv.strip():
                 try:
-                    game_stats = logic.parse_shift_stats_game_stats_csv(game_stats_csv)
+                    parsed_gs = logic.parse_shift_stats_game_stats_csv(game_stats_csv)
+                    gf = parsed_gs.get("Goals For")
+                    ga = parsed_gs.get("Goals Against")
+                    gf_i = int(gf) if gf not in (None, "") else None
+                    ga_i = int(ga) if ga not in (None, "") else None
+                    if (
+                        gf_i is not None
+                        and ga_i is not None
+                        and team_side in {"home", "away"}
+                        and int(resolved_game_id) > 0
+                    ):
+                        if team_side == "home":
+                            t1_score_new, t2_score_new = gf_i, ga_i
+                        else:
+                            t1_score_new, t2_score_new = ga_i, gf_i
+                        if replace:
+                            m.HkyGame.objects.filter(id=int(resolved_game_id)).update(
+                                team1_score=int(t1_score_new),
+                                team2_score=int(t2_score_new),
+                                updated_at=now,
+                            )
+                        else:
+                            m.HkyGame.objects.filter(
+                                id=int(resolved_game_id), team1_score__isnull=True
+                            ).update(team1_score=int(t1_score_new), updated_at=now)
+                            m.HkyGame.objects.filter(
+                                id=int(resolved_game_id), team2_score__isnull=True
+                            ).update(team2_score=int(t2_score_new), updated_at=now)
                 except Exception:
-                    game_stats = None
-                if game_stats is not None:
-                    game_stats = logic.filter_game_stats_for_display(game_stats)
-                    m.HkyGameStat.objects.update_or_create(
-                        game_id=int(resolved_game_id),
-                        defaults={
-                            "stats_json": json.dumps(game_stats, ensure_ascii=False),
-                            "updated_at": now,
-                        },
-                    )
+                    pass
 
             if isinstance(player_stats_csv, str) and player_stats_csv.strip():
                 parsed_rows = logic.parse_shift_stats_player_stats_csv(player_stats_csv)

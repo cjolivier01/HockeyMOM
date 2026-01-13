@@ -115,7 +115,7 @@ Body highlights (many optional fields exist):
 - `team_side` (`"home"` or `"away"`, optional; used to interpret Goals For/Against)
 - `replace` (bool, optional)
 - `create_missing_players` (bool, optional)
-- CSV payloads (strings): `game_stats_csv`, `events_csv`, `player_stats_csv`, plus shift-related CSVs
+- CSV payloads (strings): `events_csv`, `player_stats_csv`, plus shift-related CSVs (`game_stats_csv` is optional and only used to fill missing final scores)
 
 Response:
 - `game_id`, plus import counts and any “unmatched” player names when relevant.
