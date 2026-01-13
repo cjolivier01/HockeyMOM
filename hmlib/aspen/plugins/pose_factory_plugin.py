@@ -2,6 +2,9 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
+from hmlib.config import prepend_root_dir
+from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
+
 from .base import Plugin
 
 
@@ -95,7 +98,12 @@ class PoseInferencerFactoryPlugin(Plugin):
             from mmpose.apis.inferencers import MMPoseInferencer
 
             cfg = self._pose_config
+            if isinstance(cfg, str) and cfg and "://" not in cfg and not cfg.startswith("/"):
+                if cfg.endswith((".py", ".yaml", ".yml")):
+                    cfg = prepend_root_dir(cfg)
             ckpt = self._pose_checkpoint
+            if isinstance(ckpt, str) and ckpt and "://" not in ckpt and not ckpt.startswith("/"):
+                ckpt = prepend_root_dir(ckpt)
             dev = self._device
             if dev is None:
                 device_obj = context.get("device")
@@ -112,13 +120,14 @@ class PoseInferencerFactoryPlugin(Plugin):
             except Exception:
                 det_model = None
 
-            inferencer = MMPoseInferencer(
-                pose2d=cfg,
-                pose2d_weights=ckpt,
-                device=dev,
-                det_model=det_model,
-                show_progress=self._show_progress,
-            )
+            with numpy2_pickle_compat():
+                inferencer = MMPoseInferencer(
+                    pose2d=cfg,
+                    pose2d_weights=ckpt,
+                    device=dev,
+                    det_model=det_model,
+                    show_progress=self._show_progress,
+                )
             # Merge default + provided filter args
             fa = self._default_filter_args(cfg)
             fa.update(self._filter_args)
@@ -386,9 +395,7 @@ class _OnnxPoseRunner:
         x = self._ensure_tensor(x)
         if x.ndim == 3:
             x = x.unsqueeze(0)
-        need_calib = (
-            self.quantize_int8 and not self._quantized and self.calib_target > 0
-        )
+        need_calib = self.quantize_int8 and not self._quantized and self.calib_target > 0
         try:
             dev = next(self.model.parameters()).device
         except StopIteration:
@@ -779,9 +786,7 @@ class _TrtPoseRunner:
             # Fallback: try building non-int8 engine to proceed
             from hmlib.log import get_logger
 
-            get_logger(__name__).warning(
-                "Pose INT8 build failed, falling back to non-INT8: %s", ex
-            )
+            get_logger(__name__).warning("Pose INT8 build failed, falling back to non-INT8: %s", ex)
             try:
                 with torch.inference_mode():
                     trt_mod = torch2trt.torch2trt(
