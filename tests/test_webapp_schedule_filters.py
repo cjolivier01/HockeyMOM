@@ -23,7 +23,9 @@ def client(monkeypatch, webapp_db):
         created_at=now,
         updated_at=None,
     )
-    m.LeagueMember.objects.create(league_id=int(league.id), user_id=int(user.id), role="admin", created_at=now)
+    m.LeagueMember.objects.create(
+        league_id=int(league.id), user_id=int(user.id), role="admin", created_at=now
+    )
     team_a = m.Team.objects.create(
         id=1,
         user_id=int(user.id),
@@ -42,8 +44,12 @@ def client(monkeypatch, webapp_db):
         created_at=now,
         updated_at=None,
     )
-    m.LeagueTeam.objects.create(league_id=int(league.id), team_id=int(team_a.id), division_name="DivA")
-    m.LeagueTeam.objects.create(league_id=int(league.id), team_id=int(team_b.id), division_name="DivB")
+    m.LeagueTeam.objects.create(
+        league_id=int(league.id), team_id=int(team_a.id), division_name="DivA"
+    )
+    m.LeagueTeam.objects.create(
+        league_id=int(league.id), team_id=int(team_b.id), division_name="DivB"
+    )
 
     c = Client()
     sess = c.session
@@ -67,3 +73,12 @@ def should_render_teams_in_league_view(client):
     html = client.get("/teams").content.decode()
     assert "Team A" in html
     assert "Team B" in html
+
+
+def should_filter_teams_page_by_division(client):
+    html = client.get("/teams?division=DivA").content.decode()
+    assert "Team A" in html
+    assert "Team B" not in html
+    assert "DivA" in html
+    assert "DivB" in html
+    assert ">DivB</h3>" not in html

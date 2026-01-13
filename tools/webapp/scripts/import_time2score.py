@@ -99,6 +99,119 @@ def _parse_mmss_to_seconds(val: Any, *, period_len_s: Optional[int] = None) -> O
         return None
 
 
+def build_timetoscore_goal_and_assist_events(
+    *,
+    stats: dict[str, Any],
+    period_len_s: int,
+    num_to_name_home: dict[str, str],
+    num_to_name_away: dict[str, str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Build Goal + Assist event rows from TimeToScore scoring tables.
+
+    Assists share the goal's (period, game time/seconds) so video mappings can be propagated
+    across events at the same instant.
+    """
+
+    def _side_label(side: str) -> str:
+        return "Home" if str(side).strip().lower() == "home" else "Away"
+
+    def _norm_jersey(val: Any) -> Optional[str]:
+        s = str(val or "").strip()
+        if not s:
+            return None
+        m = re.search(r"(\d+)", s)
+        return m.group(1) if m else None
+
+    def _cell_text(raw: Any) -> str:
+        if isinstance(raw, dict):
+            txt = str(raw.get("text") or "").strip()
+            if txt:
+                return txt
+        return str(raw or "").strip()
+
+    def _resolve_player_name(
+        raw: Any, jersey_num: Optional[str], roster_map: dict[str, str]
+    ) -> str:
+        if jersey_num and jersey_num in roster_map:
+            return str(roster_map.get(jersey_num) or "").strip()
+        return _cell_text(raw)
+
+    goal_events: list[dict[str, Any]] = []
+    assist_events: list[dict[str, Any]] = []
+
+    for side_key, roster_map in (("home", num_to_name_home), ("away", num_to_name_away)):
+        scoring = stats.get(f"{side_key}Scoring") or []
+        if not isinstance(scoring, list):
+            continue
+        for srow in scoring:
+            if not isinstance(srow, dict):
+                continue
+            per = _parse_period_token(srow.get("period"))
+            if per is None:
+                continue
+            time_txt = str(srow.get("time") or "").strip()
+            time_s = _parse_mmss_to_seconds(time_txt, period_len_s=period_len_s)
+            scorer_raw = srow.get("goal")
+            a1_raw = srow.get("assist1")
+            a2_raw = srow.get("assist2")
+
+            scorer_num = _norm_jersey(scorer_raw)
+            scorer_name = _resolve_player_name(scorer_raw, scorer_num, roster_map)
+
+            a1_num = _norm_jersey(a1_raw)
+            a2_num = _norm_jersey(a2_raw)
+            a1_name = _resolve_player_name(a1_raw, a1_num, roster_map)
+            a2_name = _resolve_player_name(a2_raw, a2_num, roster_map)
+
+            assists_txt = ", ".join([x for x in [a1_name, a2_name] if x])
+            details = f"{scorer_name}" + (f" (A: {assists_txt})" if assists_txt else "")
+
+            goal_events.append(
+                {
+                    "Event Type": "Goal",
+                    "Source": "timetoscore",
+                    "Team Side": _side_label(side_key),
+                    "For/Against": "For",
+                    "Team Rel": _side_label(side_key),
+                    "Team Raw": _side_label(side_key),
+                    "Period": int(per),
+                    "Game Time": time_txt,
+                    "Game Seconds": time_s if time_s is not None else "",
+                    "Game Seconds End": "",
+                    "Details": details,
+                    "Attributed Players": scorer_name if scorer_name else "",
+                    "Attributed Jerseys": scorer_num or "",
+                }
+            )
+
+            for a_num, a_name in ((a1_num, a1_name), (a2_num, a2_name)):
+                if not a_name:
+                    continue
+                a_details = f"Assist: {a_name}"
+                if scorer_name:
+                    a_details += f" (Goal: {scorer_name})"
+                assist_events.append(
+                    {
+                        "Event Type": "Assist",
+                        "Source": "timetoscore",
+                        "Team Side": _side_label(side_key),
+                        "For/Against": "For",
+                        "Team Rel": _side_label(side_key),
+                        "Team Raw": _side_label(side_key),
+                        "Period": int(per),
+                        "Game Time": time_txt,
+                        "Game Seconds": time_s if time_s is not None else "",
+                        "Game Seconds End": "",
+                        "Details": a_details,
+                        "Attributed Players": a_name,
+                        "Attributed Jerseys": a_num or "",
+                    }
+                )
+
+    return goal_events, assist_events
+
+
 def _format_mmss(seconds: int) -> str:
     s = max(0, int(seconds))
     return f"{s // 60}:{s % 60:02d}"
@@ -2709,62 +2822,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                     if nm:
                         pim_by_player_name[nm] = pim_by_player_name.get(nm, 0) + int(minutes)
 
-        # Build basic goal events from scoring tables when available.
-        goal_events: list[dict[str, Any]] = []
-        for side_key, roster_map in (("home", num_to_name_home), ("away", num_to_name_away)):
-            scoring = stats.get(f"{side_key}Scoring") or []
-            if not isinstance(scoring, list):
-                continue
-            for srow in scoring:
-                if not isinstance(srow, dict):
-                    continue
-                per = _parse_period_token(srow.get("period"))
-                if per is None:
-                    continue
-                time_txt = str(srow.get("time") or "").strip()
-                time_s = _parse_mmss_to_seconds(time_txt, period_len_s=period_len_s)
-                scorer_raw = srow.get("goal")
-                a1_raw = srow.get("assist1")
-                a2_raw = srow.get("assist2")
-
-                scorer_num = _norm_jersey(scorer_raw)
-                scorer_name = (
-                    roster_map.get(scorer_num)
-                    if scorer_num and scorer_num in roster_map
-                    else str(scorer_raw or "").strip()
-                )
-                a1_num = _norm_jersey(a1_raw)
-                a2_num = _norm_jersey(a2_raw)
-                a1_name = (
-                    roster_map.get(a1_num)
-                    if a1_num and a1_num in roster_map
-                    else str(a1_raw or "").strip()
-                )
-                a2_name = (
-                    roster_map.get(a2_num)
-                    if a2_num and a2_num in roster_map
-                    else str(a2_raw or "").strip()
-                )
-
-                assists_txt = ", ".join([x for x in [a1_name, a2_name] if x])
-                details = f"{scorer_name}" + (f" (A: {assists_txt})" if assists_txt else "")
-                goal_events.append(
-                    {
-                        "Event Type": "Goal",
-                        "Source": "timetoscore",
-                        "Team Side": _side_label(side_key),
-                        "For/Against": "For",
-                        "Team Rel": _side_label(side_key),
-                        "Team Raw": _side_label(side_key),
-                        "Period": int(per),
-                        "Game Time": time_txt,
-                        "Game Seconds": time_s if time_s is not None else "",
-                        "Game Seconds End": "",
-                        "Details": details,
-                        "Attributed Players": scorer_name if scorer_name else "",
-                        "Attributed Jerseys": scorer_num or "",
-                    }
-                )
+        # Build basic goal/assist events from scoring tables when available.
+        goal_events, assist_events = build_timetoscore_goal_and_assist_events(
+            stats=stats,
+            period_len_s=period_len_s,
+            num_to_name_home=num_to_name_home,
+            num_to_name_away=num_to_name_away,
+        )
 
         # Determine per-period time mode and fill missing penalty end times (best-effort).
         penalties_events_rows: list[dict[str, Any]] = []
@@ -2978,6 +3042,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         ]
         events_rows = (
             list(goal_events)
+            + list(assist_events)
             + list(goalie_change_events_rows)
             + list(penalties_events_rows)
             + list(penalty_expired_events_rows)

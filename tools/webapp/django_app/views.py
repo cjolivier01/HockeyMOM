@@ -449,6 +449,33 @@ def _upsert_game_event_rows_from_events_csv(
             }
         )
 
+    # Propagate clip metadata across all events at the same instant so any event row can be used
+    # as a video anchor (e.g. assists share the same clip time as the goal / xG / SOG at that time).
+    best_video_seconds: dict[tuple[int, int], int] = {}
+    for rec in parsed:
+        per = rec.get("period")
+        gs = rec.get("game_seconds")
+        vs = rec.get("video_seconds")
+        if not isinstance(per, int) or not isinstance(gs, int) or not isinstance(vs, int):
+            continue
+        prev = best_video_seconds.get((int(per), int(gs)))
+        if prev is None or int(vs) < int(prev):
+            best_video_seconds[(int(per), int(gs))] = int(vs)
+
+    if best_video_seconds:
+        for rec in parsed:
+            per = rec.get("period")
+            gs = rec.get("game_seconds")
+            if not isinstance(per, int) or not isinstance(gs, int):
+                continue
+            if rec.get("video_seconds") is not None:
+                continue
+            best = best_video_seconds.get((int(per), int(gs)))
+            if best is None:
+                continue
+            rec["video_seconds"] = int(best)
+            rec["video_time"] = logic.format_seconds_to_mmss_or_hhmmss(int(best))
+
     # De-duplicate redundant shot implication rows (Goal > ExpectedGoal > SOG > Shot) at the same instant/player/side.
     chain_keys = {"goal", "expectedgoal", "sog", "shot"}
     groups: dict[
@@ -2656,6 +2683,7 @@ def teams(request: HttpRequest) -> HttpResponse:
         return r
     include_external = str(request.GET.get("all") or "0") == "1"
     league_id = request.session.get("league_id")
+    selected_division_raw = str(request.GET.get("division") or "").strip()
     league_owner_user_id: Optional[int] = None
     is_league_owner = False
     if league_id:
@@ -2745,6 +2773,22 @@ def teams(request: HttpRequest) -> HttpResponse:
             qs = qs.filter(is_external=False)
         rows = list(qs.order_by("name").values())
 
+    division_names: list[str] = []
+    selected_division: Optional[str] = None
+    if league_id:
+        division_names = sorted(
+            {str(t.get("division_name") or "").strip() or "Unknown Division" for t in rows},
+            key=logic.division_sort_key,
+        )
+        if selected_division_raw and selected_division_raw in division_names:
+            selected_division = selected_division_raw
+            rows = [
+                t
+                for t in rows
+                if (str(t.get("division_name") or "").strip() or "Unknown Division")
+                == selected_division
+            ]
+
     stats: dict[int, dict[str, Any]] = {}
     for t in rows:
         tid = int(t["id"])
@@ -2792,6 +2836,8 @@ def teams(request: HttpRequest) -> HttpResponse:
         {
             "teams": rows,
             "divisions": divisions,
+            "division_names": division_names,
+            "selected_division": selected_division or "",
             "stats": stats,
             "include_external": include_external,
             "league_view": bool(league_id),
@@ -4996,6 +5042,7 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
     if not league:
         raise Http404
     viewer_user_id = _session_user_id(request)
+    selected_division_raw = str(request.GET.get("division") or "").strip()
     league_owner_user_id = (
         int(league.get("owner_user_id") or 0) if isinstance(league, dict) else None
     )
@@ -5056,6 +5103,20 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
             }
         )
 
+    division_names = sorted(
+        {str(t.get("division_name") or "").strip() or "Unknown Division" for t in rows},
+        key=logic.division_sort_key,
+    )
+    selected_division = ""
+    if selected_division_raw and selected_division_raw in division_names:
+        selected_division = selected_division_raw
+        rows = [
+            t
+            for t in rows
+            if (str(t.get("division_name") or "").strip() or "Unknown Division")
+            == selected_division
+        ]
+
     stats: dict[int, dict[str, Any]] = {}
     for t in rows:
         tid = int(t["id"])
@@ -5097,6 +5158,8 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
         {
             "teams": rows,
             "divisions": divisions,
+            "division_names": division_names,
+            "selected_division": selected_division,
             "stats": stats,
             "include_external": True,
             "league_view": True,
@@ -5419,10 +5482,12 @@ def public_league_team_detail(
     recent_goalie_stats_rows: list[dict[str, Any]] = []
     recent_goalie_stats_has_sog = False
     recent_goalie_stats_has_xg = False
-    try:
-        show_goalie_stats = _league_show_goalie_stats(int(league_id))
-    except Exception:
-        show_goalie_stats = False
+    show_goalie_stats = True
+    if league_id:
+        try:
+            show_goalie_stats = _league_show_goalie_stats(int(league_id))
+        except Exception:
+            show_goalie_stats = False
     try:
         if show_goalie_stats and eligible_game_ids_in_order:
             goalie_event_rows = list(
@@ -5952,10 +6017,12 @@ def public_hky_game_detail(
     game_event_stats_rows = logic.compute_game_event_stats_by_side(events_rows)
 
     goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
-    try:
-        show_goalie_stats = _league_show_goalie_stats(int(league_id))
-    except Exception:
-        show_goalie_stats = False
+    show_goalie_stats = True
+    if league_id:
+        try:
+            show_goalie_stats = _league_show_goalie_stats(int(league_id))
+        except Exception:
+            show_goalie_stats = False
     if show_goalie_stats:
         try:
             goalie_event_rows = list(
