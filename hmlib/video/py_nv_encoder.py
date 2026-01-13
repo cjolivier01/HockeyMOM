@@ -13,6 +13,7 @@ import torch
 from typeguard import typechecked
 
 from hmlib.video.ffmpeg import build_ffmpeg_output_handler, iter_ffmpeg_output_lines
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hockeymom import bgr_to_i420_cuda
 
 try:
@@ -216,22 +217,43 @@ class PyNvVideoEncoder:
         if self._encoder is None:
             raise RuntimeError("Encoder is not properly initialized.")
 
-        if frame_ids is not None:
-            # In all likelihood, frame_ids as a tensor have been completed on its
-            # stream for some time
-            if isinstance(frame_ids, torch.Tensor):
-                frame_ids = frame_ids.tolist()
-            frame_count = len(frame_ids)
-            assert frame_count == len(frames)
-            if self.last_frame_id is not None:
-                expected_frame_id = self.last_frame_id + 1
-                if frame_ids[0] != expected_frame_id:
-                    raise ValueError(
-                        f"Non-consecutive frame_id: expected {expected_frame_id}, got {frame_ids}"
-                    )
-            self.last_frame_id = frame_ids[-1]
-
         batch = self._normalize_frames(frames)
+
+        if frame_ids is not None:
+            ids_list: List[int] = []
+
+            if isinstance(frame_ids, StreamTensorBase):
+                frame_ids = unwrap_tensor(frame_ids, get=True)
+
+            if isinstance(frame_ids, torch.Tensor):
+                ids_t = frame_ids.detach()
+                if ids_t.is_cuda:
+                    ids_t = ids_t.cpu()
+                ids_list = [int(x) for x in ids_t.reshape(-1).tolist()]
+            elif isinstance(frame_ids, (list, tuple)):
+                for item in frame_ids:
+                    if isinstance(item, torch.Tensor):
+                        item = item.detach().reshape(-1).cpu().tolist()
+                    if isinstance(item, (list, tuple)) and len(item) == 1:
+                        item = item[0]
+                    ids_list.append(int(item))
+            else:
+                ids_list = [int(frame_ids)]
+
+            frame_count = int(batch.shape[0])
+            if len(ids_list) != frame_count:
+                raise ValueError(
+                    f"frame_ids length mismatch: expected {frame_count}, got {len(ids_list)}"
+                )
+
+            if self.last_frame_id is not None:
+                expected_frame_id = int(self.last_frame_id) + 1
+                if ids_list[0] != expected_frame_id:
+                    raise ValueError(
+                        f"Non-consecutive frame_id: expected {expected_frame_id}, got {ids_list}"
+                    )
+            self.last_frame_id = int(ids_list[-1])
+
         prof = self._profiler
         batch_ctx = (
             prof.rf("video.nvenc.write_batch")  # type: ignore[union-attr]

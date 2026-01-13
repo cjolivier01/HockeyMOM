@@ -122,6 +122,49 @@ class hm_opts(object):
                 "and emit per-frame RGB statistics for debugging."
             ),
         )
+        audit = parser.add_argument_group(
+            "audit",
+            "Pipeline audit (per-plugin frame hashing / comparison)",
+        )
+        audit.add_argument(
+            "--audit-dir",
+            dest="audit_dir",
+            type=str,
+            default=None,
+            help=(
+                "Directory to write per-plugin frame hashes (audit.jsonl). "
+                "When --audit-reference-dir is provided, hashes are compared and mismatches "
+                "are written to mismatches.jsonl."
+            ),
+        )
+        audit.add_argument(
+            "--audit-reference-dir",
+            dest="audit_reference_dir",
+            type=str,
+            default=None,
+            help="Directory containing a reference audit.jsonl to compare against.",
+        )
+        audit.add_argument(
+            "--audit-plugins",
+            dest="audit_plugins",
+            type=str,
+            default=None,
+            help="Comma-separated Aspen plugin names to audit (default: all plugins).",
+        )
+        audit.add_argument(
+            "--audit-dump-images",
+            dest="audit_dump_images",
+            action="store_true",
+            help="Dump PNG images for all captured audit tensors (can be large).",
+        )
+        audit.add_argument(
+            "--audit-fail-fast",
+            dest="audit_fail_fast",
+            type=int,
+            default=1,
+            choices=[0, 1],
+            help="Stop execution on the first audit mismatch (default: 1).",
+        )
         parser.add_argument(
             "--crop-play-box",
             default=None,

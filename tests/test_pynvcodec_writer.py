@@ -133,6 +133,43 @@ def should_support_mkv_container_with_pynvencoder(tmp_path: Path):
     assert filename.stat().st_size > 0
 
 
+def should_accept_frame_ids_with_extra_dim(tmp_path: Path):
+    """
+    Regression test: some callers produce frame_ids with shape [B, 1] instead of [B].
+    The NVENC writer should accept these without crashing and enforce consecutiveness.
+    """
+    torch = _require_torch_cuda()
+    from hmlib.video.video_stream import PyNvVideoEncoderWriter
+
+    filename = tmp_path / "pynvencoder_frame_ids_bx1.mkv"
+
+    writer = PyNvVideoEncoderWriter(
+        filename=str(filename),
+        fps=30.0,
+        width=640,
+        height=360,
+        codec="hevc_nvenc",
+        device=torch.device("cuda", 0),
+        bit_rate=int(5e6),
+        batch_size=1,
+    )
+    writer.open()
+
+    frame = torch.randint(
+        0,
+        256,
+        (1, 360, 640, 3),
+        dtype=torch.uint8,
+        device=writer.device,
+    )
+    writer.write(frame, frame_ids=torch.tensor([[1]], dtype=torch.int64))
+    writer.write(frame, frame_ids=torch.tensor([[2]], dtype=torch.int64))
+    writer.close()
+
+    assert filename.is_file()
+    assert filename.stat().st_size > 0
+
+
 def should_use_pyav_backend_with_pynvencoder(tmp_path: Path, monkeypatch: "pytest.MonkeyPatch"):
     """
     Ensure that the PyAV backend is exercised when HM_VIDEO_ENCODER_BACKEND=pyav.
