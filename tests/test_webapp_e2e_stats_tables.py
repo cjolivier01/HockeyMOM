@@ -64,6 +64,35 @@ def _extract_events_table_event_id(html: str, *, event_type: str) -> str:
     return str(row_m.group("eid") or "").strip()
 
 
+def _extract_player_stats_cell(
+    html: str, *, team_side: str, player_name: str, stat_key: str
+) -> str:
+    table_m = re.search(
+        rf'<table[^>]*data-player-stats-table="1"[^>]*data-team-side="{re.escape(team_side)}"[^>]*>'
+        r".*?<tbody>(?P<tbody>.*?)</tbody>",
+        html,
+        re.DOTALL,
+    )
+    assert table_m is not None, f"Player stats table not found for side={team_side!r}"
+    tbody = table_m.group("tbody")
+    row_m = re.search(
+        rf"<tr>.*?<td[^>]*data-player-cell=\"name\"[^>]*>.*?{re.escape(player_name)}.*?</td>"
+        r"(?P<rest>.*?)</tr>",
+        tbody,
+        re.DOTALL,
+    )
+    assert row_m is not None, f"Player row not found: {player_name!r} side={team_side!r}"
+    rest = row_m.group("rest")
+    cell_m = re.search(
+        rf"<td[^>]*data-stat-key=\"{re.escape(stat_key)}\"[^>]*>(?P<val>.*?)</td>",
+        rest,
+        re.DOTALL,
+    )
+    assert cell_m is not None, f"Stat cell not found: {stat_key!r} for {player_name!r}"
+    raw = str(cell_m.group("val") or "")
+    return re.sub(r"<[^>]*>", "", raw).strip()
+
+
 def _fmt_dt(v: Any) -> Optional[str]:
     if v is None:
         return None
@@ -254,6 +283,74 @@ def should_render_game_stats_table_without_double_counting_duplicate_goals_and_b
     assert page2.status_code == 200
     html2 = page2.content.decode()
     assert _extract_game_stats_counts(html2, event_type="Goal") == (1, 2)
+
+
+def should_render_game_winning_goal_from_goal_events_when_not_provided_in_player_stats(
+    client_and_models,
+):
+    client, _m = client_and_models
+
+    events_csv = (
+        "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Source,Details,Game Seconds End\n"
+        "Goal,Home,1,1000,10,timetoscore,,\n"
+        "Goal,Away,1,950,21,timetoscore,,\n"
+        "Goal,Home,1,900,10,timetoscore,,\n"
+        "Goal,Away,1,850,21,timetoscore,,\n"
+        "Goal,Home,1,800,10,timetoscore,,\n"
+        "Goal,Home,1,700,10,timetoscore,,\n"
+        "Goal,Away,1,650,21,timetoscore,,\n"
+        "Goal,Home,1,600,9,timetoscore,,\n"
+        "Goal,Away,1,550,21,timetoscore,,\n"
+        "Goal,Home,1,500,10,timetoscore,,\n"
+    )
+
+    payload = {
+        "league_name": "CAHA",
+        "shared": True,
+        "replace": False,
+        "owner_email": "owner@example.com",
+        "source": "timetoscore",
+        "external_key": "caha:gwg",
+        "games": [
+            {
+                "home_name": "Home A",
+                "away_name": "Away A",
+                "starts_at": "2026-01-02 10:00:00",
+                "location": "Rink 1",
+                "home_score": 6,
+                "away_score": 4,
+                "is_final": True,
+                "timetoscore_game_id": 555,
+                "season_id": 77,
+                "division_name": "12AA",
+                "home_division_name": "12AA",
+                "away_division_name": "12AA",
+                "home_roster": [
+                    {"name": "Alice", "number": "9", "position": "F"},
+                    {"name": "Carol", "number": "10", "position": "F"},
+                ],
+                "away_roster": [{"name": "Bob", "number": "21", "position": "F"}],
+                "events_csv": events_csv,
+            }
+        ],
+    }
+
+    r1 = _post_json(client, "/api/import/hockey/games_batch", payload)
+    assert r1.status_code == 200
+    out1 = json.loads(r1.content)
+    assert out1["ok"] is True
+    gid = int(out1["results"][0]["game_id"])
+    league_id = int(out1["league_id"])
+    owner_user_id = int(out1["owner_user_id"])
+
+    _set_session(client, user_id=owner_user_id, email="owner@example.com", league_id=league_id)
+    page = client.get(f"/hky/games/{gid}?return_to=/teams")
+    assert page.status_code == 200
+    html = page.content.decode()
+    assert (
+        _extract_player_stats_cell(html, team_side="home", player_name="Alice", stat_key="gw_goals")
+        == "1"
+    )
 
 
 def should_run_games_batch_plus_shift_package_twice_and_keep_stable_state(client_and_models):
