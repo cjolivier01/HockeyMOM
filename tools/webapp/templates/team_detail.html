@@ -694,11 +694,24 @@
       tbody.appendChild(tr);
     }
 
+    var _tableFitQueued = false;
+    function queueTableFit() {
+      if (_tableFitQueued) return;
+      _tableFitQueued = true;
+      window.requestAnimationFrame(function () {
+        _tableFitQueued = false;
+        try {
+          window.dispatchEvent(new Event("resize"));
+        } catch (e) {}
+      });
+    }
+
     function renderEventsTable(container, rows, opts) {
       var wrap = document.createElement("div");
-      wrap.className = "table-scroll";
+      wrap.className = "table-fit-wrap";
       var table = document.createElement("table");
-      table.className = "table-nowrap table-grid team-player-events-table";
+      table.className =
+        "table-no-scroll-mobile table-fit-force table-never-wrap table-grid team-player-events-table";
       var thead = document.createElement("thead");
       var trh = document.createElement("tr");
       (opts.headers || []).forEach(function (h) {
@@ -733,6 +746,7 @@
       table.appendChild(tbody);
       wrap.appendChild(table);
       container.appendChild(wrap);
+      queueTableFit();
     }
 
 	    function groupRows(rows, keyFn) {

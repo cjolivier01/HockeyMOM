@@ -214,7 +214,10 @@
           }
 
           function shouldFitAlways(table) {
-            if (!table || !table.classList || !table.classList.contains("table-fit-always")) return false;
+            if (!table || !table.classList) return false;
+            // Force-fit for specific UI surfaces (e.g., popups) where horizontal scrolling is undesirable.
+            if (table.classList.contains("table-fit-force")) return true;
+            if (!table.classList.contains("table-fit-always")) return false;
             // Apply on mobile + small landscape tablets/phones; avoid shrinking on large desktops.
             var coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
             return coarse || (window.innerWidth && window.innerWidth <= 980);

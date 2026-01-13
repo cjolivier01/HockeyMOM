@@ -38,15 +38,22 @@
   <div style="display:flex;align-items:center;gap:.5rem;margin:0 0 1rem 0;">
     <form method="get" style="display:flex;align-items:center;gap:.5rem;">
       {% for k,v in request.GET.items %}
-        {% if k != "division" %}
+        {% if k != "age" and k != "level" %}
           <input type="hidden" name="{{ k }}" value="{{ v }}">
         {% endif %}
       {% endfor %}
-      <label for="division-select" class="muted">Division:</label>
-      <select id="division-select" name="division" onchange="this.form.submit()" style="padding:.35rem .5rem;">
+      <label for="age-select" class="muted">Age:</label>
+      <select id="age-select" name="age" onchange="this.form.submit()" style="padding:.35rem .5rem;">
+        <option value="">All ages</option>
+        {% for opt in age_options %}
+          <option value="{{ opt.value }}" {% if opt.value == selected_age %}selected{% endif %}>{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+      <label for="level-select" class="muted">Division:</label>
+      <select id="level-select" name="level" onchange="this.form.submit()" style="padding:.35rem .5rem;">
         <option value="">All divisions</option>
-        {% for dn in division_names %}
-          <option value="{{ dn }}" {% if dn == selected_division %}selected{% endif %}>{{ dn }}</option>
+        {% for lvl in level_options %}
+          <option value="{{ lvl }}" {% if lvl == selected_level %}selected{% endif %}>{{ lvl }}</option>
         {% endfor %}
       </select>
     </form>
