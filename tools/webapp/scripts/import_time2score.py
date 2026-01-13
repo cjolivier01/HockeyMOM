@@ -212,6 +212,86 @@ def build_timetoscore_goal_and_assist_events(
     return goal_events, assist_events
 
 
+def _format_mmss(seconds: int) -> str:
+    s = max(0, int(seconds))
+    return f"{s // 60}:{s % 60:02d}"
+
+
+def _within_to_elapsed(within_s: int, *, mode: str, period_len_s: int) -> int:
+    m = str(mode or "").strip().lower()
+    if m == "remaining":
+        return max(0, int(period_len_s) - int(within_s))
+    return max(0, int(within_s))
+
+
+def _infer_end_period_for_within_times(
+    *,
+    start_period: int,
+    start_within_s: Optional[int],
+    end_within_s: Optional[int],
+    mode: str,
+    period_len_s: int,
+    max_advance_periods: int = 3,
+) -> int:
+    """
+    TimeToScore penalty rows sometimes include an end time that is in the *next* period without
+    bumping the period number (e.g. P1 1:00 -> end 14:00 meaning P2 14:00).
+
+    Given a start period/time and end time (both in the same within-period time mode), infer the
+    smallest end period >= start_period such that end occurs after start in absolute time.
+    """
+    per0 = int(start_period)
+    if start_within_s is None or end_within_s is None:
+        return per0
+
+    start_elapsed = _within_to_elapsed(int(start_within_s), mode=mode, period_len_s=period_len_s)
+    end_elapsed = _within_to_elapsed(int(end_within_s), mode=mode, period_len_s=period_len_s)
+    start_abs = (per0 - 1) * int(period_len_s) + int(start_elapsed)
+
+    per_end = per0
+    end_abs = (per_end - 1) * int(period_len_s) + int(end_elapsed)
+    while end_abs + 0.5 < start_abs and per_end < per0 + max_advance_periods:
+        per_end += 1
+        end_abs = (per_end - 1) * int(period_len_s) + int(end_elapsed)
+    return int(per_end)
+
+
+def _compute_end_from_start_and_delta(
+    *,
+    start_period: int,
+    start_within_s: int,
+    delta_s: int,
+    mode: str,
+    period_len_s: int,
+    max_advance_periods: int = 3,
+) -> tuple[int, int]:
+    """
+    Compute a penalty end time from start within-period time + duration, allowing it to wrap to
+    subsequent periods (rather than clamping at 0 or period_len_s).
+    """
+    per0 = int(start_period)
+    start_w = max(0, int(start_within_s))
+    delta = max(0, int(delta_s))
+    m = str(mode or "").strip().lower()
+
+    if m == "remaining":
+        remaining = int(start_w) - int(delta)
+        per_end = per0
+        while remaining < 0 and per_end < per0 + max_advance_periods:
+            per_end += 1
+            remaining = int(period_len_s) + int(remaining)
+        remaining = max(0, min(int(period_len_s), int(remaining)))
+        return int(per_end), int(remaining)
+
+    elapsed = int(start_w) + int(delta)
+    per_end = per0
+    while elapsed > int(period_len_s) and per_end < per0 + max_advance_periods:
+        elapsed -= int(period_len_s)
+        per_end += 1
+    elapsed = max(0, min(int(period_len_s), int(elapsed)))
+    return int(per_end), int(elapsed)
+
+
 def _to_csv_text(headers: list[str], rows: list[dict[str, Any]]) -> str:
     if not headers:
         return ""
@@ -2785,7 +2865,17 @@ def main(argv: Optional[list[str]] = None) -> int:
                                         if rec.get("minutes") is not None
                                         else ""
                                     ),
-                                    (f"(end {rec.get('end_txt')})" if rec.get("end_txt") else ""),
+                                    (
+                                        f"(end P{int(rec.get('end_period'))} {rec.get('end_txt')})"
+                                        if rec.get("end_txt")
+                                        and rec.get("end_period")
+                                        and int(rec.get("end_period") or 0) != int(per)
+                                        else (
+                                            f"(end {rec.get('end_txt')})"
+                                            if rec.get("end_txt")
+                                            else ""
+                                        )
+                                    ),
                                 ]
                                 if x
                             ]
@@ -2803,53 +2893,50 @@ def main(argv: Optional[list[str]] = None) -> int:
                     }
                 )
 
-        def _infer_time_mode(period: int) -> str:
-            times: list[int] = []
-            for ev in goal_events:
-                if int(ev.get("Period") or 0) != int(period):
-                    continue
-                gs = ev.get("Game Seconds")
-                if isinstance(gs, int):
-                    times.append(int(gs))
-            for row in penalties_events_rows:
-                if int(row.get("Period") or 0) != int(period):
-                    continue
-                gs = row.get("Game Seconds")
-                ge = row.get("Game Seconds End")
-                if isinstance(gs, int):
-                    times.append(int(gs))
-                if isinstance(ge, int):
-                    times.append(int(ge))
-            if not times:
-                return "elapsed"
-            near_zero = sum(1 for t in times if t <= 120)
-            near_high = sum(1 for t in times if t >= period_len_s - 120)
-            return "remaining" if near_high > near_zero else "elapsed"
-
-        # Fill missing end times using inferred mode.
+        # Fill missing end times (and correct cross-period end times) using the TimeToScore
+        # scoreboard clock model (counts down each period).
         mode_by_period: dict[int, str] = {}
         for p in range(1, 6):
             if any(int(r.get("Period") or 0) == p for r in penalties_events_rows) or any(
                 int(g.get("Period") or 0) == p for g in goal_events
             ):
-                mode_by_period[p] = _infer_time_mode(p)
+                mode_by_period[p] = "remaining"
 
         for side_key, recs in penalties_by_side.items():
             for rec in recs:
-                if rec.get("end_s") is not None:
-                    continue
                 start_s = rec.get("start_s")
-                if start_s is None:
-                    continue
-                delta = rec.get("end_s_guess_delta")
-                if not isinstance(delta, int) or delta <= 0:
-                    continue
                 per = int(rec["period"])
                 mode = mode_by_period.get(per, "elapsed")
-                if mode == "remaining":
-                    rec["end_s"] = max(0, int(start_s) - int(delta))
+
+                end_s = rec.get("end_s")
+                if end_s is None:
+                    if start_s is None:
+                        continue
+                    delta = rec.get("end_s_guess_delta")
+                    if not isinstance(delta, int) or delta <= 0:
+                        continue
+                    per_end, end_s2 = _compute_end_from_start_and_delta(
+                        start_period=int(per),
+                        start_within_s=int(start_s),
+                        delta_s=int(delta),
+                        mode=str(mode),
+                        period_len_s=int(period_len_s),
+                    )
+                    rec["end_s"] = int(end_s2)
+                    if not str(rec.get("end_txt") or "").strip():
+                        rec["end_txt"] = _format_mmss(int(end_s2))
+                    if int(per_end) != int(per):
+                        rec["end_period"] = int(per_end)
                 else:
-                    rec["end_s"] = min(int(period_len_s), int(start_s) + int(delta))
+                    per_end = _infer_end_period_for_within_times(
+                        start_period=int(per),
+                        start_within_s=int(start_s) if start_s is not None else None,
+                        end_within_s=int(end_s),
+                        mode=str(mode),
+                        period_len_s=int(period_len_s),
+                    )
+                    if int(per_end) != int(per):
+                        rec["end_period"] = int(per_end)
 
         # Emit explicit "Penalty Expired" events for each penalty with a known end time.
         penalty_expired_events_rows: list[dict[str, Any]] = []
@@ -2858,7 +2945,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 end_s = rec.get("end_s")
                 if end_s is None:
                     continue
-                per = int(rec.get("period") or 0)
+                per = int(rec.get("end_period") or rec.get("period") or 0)
                 details = " ".join(
                     [
                         x
@@ -2884,7 +2971,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         "Team Rel": _side_label(side_key),
                         "Team Raw": _side_label(side_key),
                         "Period": per,
-                        "Game Time": rec.get("end_txt") or "",
+                        "Game Time": rec.get("end_txt") or _format_mmss(int(end_s)),
                         "Game Seconds": int(end_s),
                         "Game Seconds End": "",
                         "Details": details,

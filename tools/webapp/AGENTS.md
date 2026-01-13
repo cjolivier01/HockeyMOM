@@ -128,3 +128,5 @@ Django cannot be “reconfigured” once initialized in a Python process. To avo
 - When touching import/reset scripts, be careful with deletion order and FK constraints; use `transaction.atomic()` for
   multi-table operations and keep plans idempotent when possible.
 - Before finalizing changes, run `python -m black` and `ruff check` on any modified/new Python files and fix issues until clean.
+- Do not silently ignore failures by default: avoid `except Exception: pass` / bare `except:` unless there is a clear, documented best-effort reason and the failure is surfaced (log/error return) with context.
+- For CLI argument access, do not use `getattr(args, "flag", ...)` to tolerate missing attributes; define all expected args in the parser (with defaults) and access via `args.flag` (use subparsers or separate namespaces if modes differ).

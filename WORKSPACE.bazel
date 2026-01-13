@@ -203,8 +203,8 @@ conda_repository(
 ################################ HockeyMOM Sub-Modules ################################
 git_repository(
      name = "hm-cupano",
-     commit = "5df08e5061ec98cbf7135c04250264b4a96e7f26",
-     remote = "ssh://git@github.com/cjolivier01/hm-cupano",
+     commit = "a919bc7d47b78e3b729805cb09dd6d9abf1e8a90",
+     remote = "https://github.com/cjolivier01/hm-cupano.git",
  )
 
 #local_repository(
@@ -215,7 +215,7 @@ git_repository(
 git_repository(
      name = "jetson-utils",
      branch = "colivier/hm",
-     remote = "ssh://git@github.com/cjolivier01/jetson-utils",
+     remote = "https://github.com/cjolivier01/jetson-utils.git",
 )
 
 # local_repository(
@@ -227,7 +227,7 @@ git_repository(
 git_repository(
     name = "multiblend",
     commit = "4fe978fbd6b89a61dbcc290e22e656e5ed0cefd8",
-    remote = "ssh://git@github.com/cjolivier01/multiblend",
+    remote = "https://github.com/cjolivier01/multiblend.git",
 )
 
 ################################ Enblend/Enfuse ################################
@@ -235,7 +235,7 @@ git_repository(
 git_repository(
     name = "enblend-enfuse",
     commit = "211ec910fed567ac12b6e1ba455e77764585c367",
-    remote = "ssh://git@github.com/cjolivier01/enblend-enfuse",
+    remote = "https://github.com/cjolivier01/enblend-enfuse.git",
 )
 
 new_local_repository(

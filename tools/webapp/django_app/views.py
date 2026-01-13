@@ -5446,7 +5446,12 @@ def public_league_team_detail(
     recent_goalie_stats_rows: list[dict[str, Any]] = []
     recent_goalie_stats_has_sog = False
     recent_goalie_stats_has_xg = False
-    show_goalie_stats = _league_show_goalie_stats(int(league_id))
+    show_goalie_stats = True
+    if league_id:
+        try:
+            show_goalie_stats = _league_show_goalie_stats(int(league_id))
+        except Exception:
+            show_goalie_stats = False
     try:
         if show_goalie_stats and eligible_game_ids_in_order:
             goalie_event_rows = list(
@@ -5976,7 +5981,12 @@ def public_hky_game_detail(
     game_event_stats_rows = logic.compute_game_event_stats_by_side(events_rows)
 
     goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
-    show_goalie_stats = _league_show_goalie_stats(int(league_id))
+    show_goalie_stats = True
+    if league_id:
+        try:
+            show_goalie_stats = _league_show_goalie_stats(int(league_id))
+        except Exception:
+            show_goalie_stats = False
     if show_goalie_stats:
         try:
             goalie_event_rows = list(
