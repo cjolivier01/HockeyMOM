@@ -8,17 +8,16 @@ Consumers should treat the scraped "GM" numbers as CAHA schedule game numbers, n
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import datetime as dt
 import logging
 import os
 import re
+from dataclasses import dataclass
 from typing import Iterable, Optional
 from urllib.parse import parse_qsl, urljoin, urlsplit
 
 import bs4
 import requests
-
 
 logger = logging.getLogger(__name__)
 
