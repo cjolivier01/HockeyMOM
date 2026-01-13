@@ -2683,6 +2683,7 @@ def teams(request: HttpRequest) -> HttpResponse:
         return r
     include_external = str(request.GET.get("all") or "0") == "1"
     league_id = request.session.get("league_id")
+    selected_division_raw = str(request.GET.get("division") or "").strip()
     league_owner_user_id: Optional[int] = None
     is_league_owner = False
     if league_id:
@@ -2772,6 +2773,22 @@ def teams(request: HttpRequest) -> HttpResponse:
             qs = qs.filter(is_external=False)
         rows = list(qs.order_by("name").values())
 
+    division_names: list[str] = []
+    selected_division: Optional[str] = None
+    if league_id:
+        division_names = sorted(
+            {str(t.get("division_name") or "").strip() or "Unknown Division" for t in rows},
+            key=logic.division_sort_key,
+        )
+        if selected_division_raw and selected_division_raw in division_names:
+            selected_division = selected_division_raw
+            rows = [
+                t
+                for t in rows
+                if (str(t.get("division_name") or "").strip() or "Unknown Division")
+                == selected_division
+            ]
+
     stats: dict[int, dict[str, Any]] = {}
     for t in rows:
         tid = int(t["id"])
@@ -2819,6 +2836,8 @@ def teams(request: HttpRequest) -> HttpResponse:
         {
             "teams": rows,
             "divisions": divisions,
+            "division_names": division_names,
+            "selected_division": selected_division or "",
             "stats": stats,
             "include_external": include_external,
             "league_view": bool(league_id),
@@ -5023,6 +5042,7 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
     if not league:
         raise Http404
     viewer_user_id = _session_user_id(request)
+    selected_division_raw = str(request.GET.get("division") or "").strip()
     league_owner_user_id = (
         int(league.get("owner_user_id") or 0) if isinstance(league, dict) else None
     )
@@ -5083,6 +5103,20 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
             }
         )
 
+    division_names = sorted(
+        {str(t.get("division_name") or "").strip() or "Unknown Division" for t in rows},
+        key=logic.division_sort_key,
+    )
+    selected_division = ""
+    if selected_division_raw and selected_division_raw in division_names:
+        selected_division = selected_division_raw
+        rows = [
+            t
+            for t in rows
+            if (str(t.get("division_name") or "").strip() or "Unknown Division")
+            == selected_division
+        ]
+
     stats: dict[int, dict[str, Any]] = {}
     for t in rows:
         tid = int(t["id"])
@@ -5124,6 +5158,8 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
         {
             "teams": rows,
             "divisions": divisions,
+            "division_names": division_names,
+            "selected_division": selected_division,
             "stats": stats,
             "include_external": True,
             "league_view": True,
