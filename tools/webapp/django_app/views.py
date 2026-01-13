@@ -449,6 +449,33 @@ def _upsert_game_event_rows_from_events_csv(
             }
         )
 
+    # Propagate clip metadata across all events at the same instant so any event row can be used
+    # as a video anchor (e.g. assists share the same clip time as the goal / xG / SOG at that time).
+    best_video_seconds: dict[tuple[int, int], int] = {}
+    for rec in parsed:
+        per = rec.get("period")
+        gs = rec.get("game_seconds")
+        vs = rec.get("video_seconds")
+        if not isinstance(per, int) or not isinstance(gs, int) or not isinstance(vs, int):
+            continue
+        prev = best_video_seconds.get((int(per), int(gs)))
+        if prev is None or int(vs) < int(prev):
+            best_video_seconds[(int(per), int(gs))] = int(vs)
+
+    if best_video_seconds:
+        for rec in parsed:
+            per = rec.get("period")
+            gs = rec.get("game_seconds")
+            if not isinstance(per, int) or not isinstance(gs, int):
+                continue
+            if rec.get("video_seconds") is not None:
+                continue
+            best = best_video_seconds.get((int(per), int(gs)))
+            if best is None:
+                continue
+            rec["video_seconds"] = int(best)
+            rec["video_time"] = logic.format_seconds_to_mmss_or_hhmmss(int(best))
+
     # De-duplicate redundant shot implication rows (Goal > ExpectedGoal > SOG > Shot) at the same instant/player/side.
     chain_keys = {"goal", "expectedgoal", "sog", "shot"}
     groups: dict[
