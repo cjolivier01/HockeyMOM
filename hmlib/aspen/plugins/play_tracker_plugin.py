@@ -275,6 +275,7 @@ class PlayTrackerPlugin(Plugin):
                 "img",
                 "current_box",
                 "current_fast_box_list",
+                "frame_ids",
                 "player_bottom_points",
                 "player_ids",
                 "play_box",

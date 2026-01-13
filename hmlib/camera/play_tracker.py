@@ -782,7 +782,8 @@ class PlayTracker(torch.nn.Module):
 
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             scalar_frame_id = video_data_sample.frame_id
-            frame_id = torch.tensor([scalar_frame_id], dtype=torch.int64)
+            # Use scalar tensors so stacking yields shape [B] (not [B, 1]).
+            frame_id = torch.tensor(int(scalar_frame_id), dtype=torch.int64)
 
             track_inst = video_data_sample.pred_track_instances
 

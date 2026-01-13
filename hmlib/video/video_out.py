@@ -21,7 +21,7 @@ from hmlib.log import logger
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import get_gpu_capabilities, unwrap_tensor, wrap_tensor
-from hmlib.utils.image import image_height, image_width
+from hmlib.utils.image import image_height, image_width, resize_image, to_uint8_image
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
@@ -45,13 +45,13 @@ def get_best_codec(
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
     if compute >= 7 and (width <= MAX_NEVC_VIDEO_WIDTH or allow_scaling):
-        return "hevc_nvenc", True
+        # return "hevc_nvenc", True
         # return "h264_nvenc", True
-        # return "av1_nvenc", True
+        return "av1_nvenc", True
     elif compute >= 6 and width <= 4096:
-        return "hevc_nvenc", True
+        # return "hevc_nvenc", True
         # return "h264_nvenc", True
-        # return "av1_nvenc", True
+        return "av1_nvenc", True
     else:
         return "XVID", False
     # return "XVID", False
@@ -165,6 +165,7 @@ class VideoOutput(torch.nn.ModuleDict):
         visualization_config: Dict[str, Any] | None = None,
         dtype: torch.dtype | None = None,
         device: Union[torch.device, str, None] = None,
+        output_width: int | None = None,
         show_image: bool = False,
         show_scaled: Optional[float] = None,
         profiler: Any = None,
@@ -205,6 +206,9 @@ class VideoOutput(torch.nn.ModuleDict):
         @param device: Torch device or device string (e.g., ``"cuda:0"`` or
                        ``"cpu"``) on which encoding should run. When ``None``,
                        the device is inferred from input tensors at first call.
+        @param output_width: Optional width (in pixels) to resize the final
+                             rendered frames to before encoding. Aspect ratio
+                             is preserved.
         @param show_image: When True, enables an interactive OpenCV window that
                            displays frames as they are written.
         @param show_scaled: Optional scale factor for the interactive viewer.
@@ -222,6 +226,9 @@ class VideoOutput(torch.nn.ModuleDict):
         self._visualization_config = visualization_config
         self._dtype = dtype if dtype is not None else torch.get_default_dtype()
         assert self._dtype in _FP_TYPES
+
+        self._output_width = int(output_width) if output_width is not None else None
+        self._output_resize_wh: Optional[Tuple[int, int]] = None
 
         if device is not None:
             self._device = device if isinstance(device, torch.device) else torch.device(device)
@@ -271,6 +278,35 @@ class VideoOutput(torch.nn.ModuleDict):
         )
 
         self._mean_tracker: Optional[MeanTracker] = None
+
+    def _get_output_resize_wh(self, width: int, height: int) -> Optional[Tuple[int, int]]:
+        """Return (width, height) to resize output frames to, if configured."""
+        if self._output_width is None:
+            return None
+        target_w = int(self._output_width)
+        if target_w <= 0:
+            raise ValueError(f"output_width must be positive; got {target_w}")
+        if target_w == int(width):
+            return None
+        if target_w % 2 != 0:
+            adjusted = target_w + 1
+            logger.warning(
+                "output_width=%d is not even; adjusting to %d for YUV420 encoders",
+                target_w,
+                adjusted,
+            )
+            target_w = adjusted
+        scale = float(target_w) / float(width)
+        target_h = int(round(float(height) * scale))
+        if target_h <= 0:
+            raise ValueError(
+                f"Invalid resize height computed from output_width={target_w} and input={width}x{height}"
+            )
+        if target_h % 2 != 0:
+            target_h += 1
+        if target_w == int(width) and target_h == int(height):
+            return None
+        return target_w, target_h
 
     def _ensure_initialized(self, context: Dict[str, Any]) -> None:
         """Resolve device and codec configuration before the first write.
@@ -397,7 +433,7 @@ class VideoOutput(torch.nn.ModuleDict):
                 self._shower.show(show_img, clone=True)
 
         # torch.cuda.synchronize()
-        # torch.cuda.current_stream(online_im.device).synchronize()
+        torch.cuda.current_stream(online_im.device).synchronize()
 
         if not self._skip_final_save:
             if self.VIDEO_DEFAULT in self._output_videos:
@@ -442,15 +478,6 @@ class VideoOutput(torch.nn.ModuleDict):
         @return: The updated ``results`` dict (for chaining if desired).
         """
         with self._fctx:
-            # Step 1: Lazy initialization of device + codec
-            self._ensure_initialized(results)
-
-            # Step 2: Ensure underlying video streams are open
-            if not self._output_videos:
-                self.create_output_videos(results)
-
-            # Step 3: Normalize image tensors onto the writer device
-            # online_im = unwrap_tensor(results.get("img"))
             online_im = results["img"]
 
             if isinstance(online_im, np.ndarray):
@@ -460,7 +487,33 @@ class VideoOutput(torch.nn.ModuleDict):
                 # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
                 online_im = online_im.unsqueeze(0)
 
-            # online_im = self._make_visible_image(online_im)
+            # Optional output resize (keeps aspect ratio).
+            resize_wh = self._output_resize_wh
+            if self._output_width is not None:
+                if resize_wh is None:
+                    resize_wh = self._get_output_resize_wh(
+                        width=image_width(online_im),
+                        height=image_height(online_im),
+                    )
+                    self._output_resize_wh = resize_wh
+                if resize_wh is not None:
+                    video_frame_cfg = results.get("video_frame_cfg")
+                    if isinstance(video_frame_cfg, dict):
+                        target_w, target_h = resize_wh
+                        video_frame_cfg_local = dict(video_frame_cfg)
+                        video_frame_cfg_local["output_frame_width"] = target_w
+                        video_frame_cfg_local["output_frame_height"] = target_h
+                        video_frame_cfg_local["output_aspect_ratio"] = float(target_w) / float(
+                            target_h
+                        )
+                        results["video_frame_cfg"] = video_frame_cfg_local
+
+            # Step 1: Lazy initialization of device + codec
+            self._ensure_initialized(results)
+
+            # Step 2: Ensure underlying video streams are open
+            if not self._output_videos:
+                self.create_output_videos(results)
 
             if not self._skip_final_save:
                 if self._device is not None:
@@ -477,7 +530,40 @@ class VideoOutput(torch.nn.ModuleDict):
                     online_im = online_im.to("cpu", non_blocking=True)
                     online_im = wrap_tensor(online_im)
 
-                assert self._device is None or results["img"].device == self._device
+                assert self._device is None or online_im.device == self._device
+
+            if resize_wh is not None:
+                target_w, target_h = resize_wh
+                if image_width(online_im) != target_w or image_height(online_im) != target_h:
+                    online_im_t = unwrap_tensor(online_im)
+                    online_im_t = resize_image(
+                        img=online_im_t,
+                        new_width=target_w,
+                        new_height=target_h,
+                    )
+                    online_im = to_uint8_image(online_im_t).contiguous()
+
+                ez_img = results.get("end_zone_img")
+                if ez_img is not None:
+                    if isinstance(ez_img, np.ndarray):
+                        ez_img = torch.from_numpy(ez_img)
+                    if ez_img.ndim == 3:
+                        ez_img = ez_img.unsqueeze(0)
+                    if (
+                        not self._skip_final_save
+                        and self._device is not None
+                        and str(ez_img.device) != str(self._device)
+                    ):
+                        ez_img = unwrap_tensor(ez_img).to(self._device)
+                    if image_width(ez_img) != target_w or image_height(ez_img) != target_h:
+                        ez_t = unwrap_tensor(ez_img)
+                        ez_t = resize_image(
+                            img=ez_t,
+                            new_width=target_w,
+                            new_height=target_h,
+                        )
+                        ez_img = to_uint8_image(ez_t).contiguous()
+                    results["end_zone_img"] = ez_img
 
             results["img"] = online_im
 

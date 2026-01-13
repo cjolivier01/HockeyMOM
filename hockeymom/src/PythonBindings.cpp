@@ -229,12 +229,17 @@ class PyCudaStitchPano : public CudaStitchPano<T, T_compute> {
       int num_levels,
       WHDims input1_size,
       WHDims input2_size,
-      bool match_exposure)
+      bool match_exposure,
+      bool minimize_blend,
+      int max_output_width)
       : CudaStitchPano<T, T_compute>(
             batch_size,
             num_levels,
             hm::pano::ControlMasks(std::move(game_dir)),
-            match_exposure),
+            match_exposure,
+            /*quiet=*/false,
+            /*minimize_blend=*/minimize_blend,
+            /*max_output_width=*/max_output_width),
         input1_size_(input1_size),
         input2_size_(input2_size) {
     if (!Super::status().ok()) {
@@ -1713,7 +1718,16 @@ void init_cuda_pano(::pybind11::module_& m) {
       PyCudaStitchPano<uchar4, T_compute>,
       std::shared_ptr<PyCudaStitchPano<uchar4, T_compute>>>(
       m, "CudaStitchPanoU8")
-      .def(py::init<std::string, int, int, WHDims, WHDims, bool>())
+      .def(
+          py::init<std::string, int, int, WHDims, WHDims, bool, bool, int>(),
+          py::arg("game_dir"),
+          py::arg("batch_size"),
+          py::arg("num_levels"),
+          py::arg("input1"),
+          py::arg("input2"),
+          py::arg("match_exposure") = true,
+          py::arg("minimize_blend") = true,
+          py::arg("max_output_width") = 0)
       .def("canvas_width", &PyCudaStitchPano<uchar4, T_compute>::canvas_width)
       .def("canvas_height", &PyCudaStitchPano<uchar4, T_compute>::canvas_height)
       .def(
@@ -1796,7 +1810,16 @@ void init_cuda_pano(::pybind11::module_& m) {
       PyCudaStitchPano<float4, T_compute>,
       std::shared_ptr<PyCudaStitchPano<float4, T_compute>>>(
       m, "CudaStitchPanoF32")
-      .def(py::init<std::string, int, int, WHDims, WHDims, bool>())
+      .def(
+          py::init<std::string, int, int, WHDims, WHDims, bool, bool, int>(),
+          py::arg("game_dir"),
+          py::arg("batch_size"),
+          py::arg("num_levels"),
+          py::arg("input1"),
+          py::arg("input2"),
+          py::arg("match_exposure") = true,
+          py::arg("minimize_blend") = true,
+          py::arg("max_output_width") = 0)
       .def("canvas_width", &PyCudaStitchPano<float4, T_compute>::canvas_width)
       .def("canvas_height", &PyCudaStitchPano<float4, T_compute>::canvas_height)
       .def(
