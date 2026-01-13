@@ -2162,6 +2162,7 @@ def create_app():
         team1_score = game.get("home_score")
         team2_score = game.get("away_score")
         tts_game_id = game.get("timetoscore_game_id")
+        ext_game_key = str(game.get("external_game_key") or "").strip() or None
 
         notes_fields: dict[str, Any] = {}
         if tts_game_id is not None:
@@ -2169,6 +2170,8 @@ def create_app():
                 notes_fields["timetoscore_game_id"] = int(tts_game_id)
             except Exception:
                 pass
+        if ext_game_key:
+            notes_fields["external_game_key"] = str(ext_game_key)
         if game.get("season_id") is not None:
             try:
                 notes_fields["timetoscore_season_id"] = int(game.get("season_id"))
@@ -2182,6 +2185,22 @@ def create_app():
             notes_fields["timetoscore_type"] = str(game.get("game_type_name"))
         elif game.get("type") is not None:
             notes_fields["timetoscore_type"] = str(game.get("type"))
+
+        # Optional schedule metadata (used by CAHA schedule.pl imports).
+        if game.get("caha_schedule_year") is not None:
+            try:
+                notes_fields["caha_schedule_year"] = int(game.get("caha_schedule_year"))
+            except Exception:
+                pass
+        if game.get("caha_schedule_group") is not None:
+            notes_fields["caha_schedule_group"] = str(game.get("caha_schedule_group"))
+        if game.get("caha_schedule_game_number") is not None:
+            try:
+                notes_fields["caha_schedule_game_number"] = int(
+                    game.get("caha_schedule_game_number")
+                )
+            except Exception:
+                pass
 
         game_type_id = _ensure_game_type_id_for_import(
             game.get("game_type_name")
@@ -2509,6 +2528,7 @@ def create_app():
                 team1_score = game.get("home_score")
                 team2_score = game.get("away_score")
                 tts_game_id = game.get("timetoscore_game_id")
+                ext_game_key = str(game.get("external_game_key") or "").strip() or None
 
                 notes_fields: dict[str, Any] = {}
                 if tts_game_id is not None:
@@ -2516,6 +2536,8 @@ def create_app():
                         notes_fields["timetoscore_game_id"] = int(tts_game_id)
                     except Exception:
                         pass
+                if ext_game_key:
+                    notes_fields["external_game_key"] = str(ext_game_key)
                 if game.get("season_id") is not None:
                     try:
                         notes_fields["timetoscore_season_id"] = int(game.get("season_id"))
@@ -2529,6 +2551,22 @@ def create_app():
                     notes_fields["timetoscore_type"] = str(game.get("game_type_name"))
                 elif game.get("type") is not None:
                     notes_fields["timetoscore_type"] = str(game.get("type"))
+
+                # Optional schedule metadata (used by CAHA schedule.pl imports).
+                if game.get("caha_schedule_year") is not None:
+                    try:
+                        notes_fields["caha_schedule_year"] = int(game.get("caha_schedule_year"))
+                    except Exception:
+                        pass
+                if game.get("caha_schedule_group") is not None:
+                    notes_fields["caha_schedule_group"] = str(game.get("caha_schedule_group"))
+                if game.get("caha_schedule_game_number") is not None:
+                    try:
+                        notes_fields["caha_schedule_game_number"] = int(
+                            game.get("caha_schedule_game_number")
+                        )
+                    except Exception:
+                        pass
 
                 game_type_id = _ensure_game_type_id_for_import(
                     game.get("game_type_name")

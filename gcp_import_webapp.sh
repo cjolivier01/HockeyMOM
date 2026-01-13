@@ -391,6 +391,14 @@ else
 	      "${TOKEN_ARGS[@]}" \
 	      --user-email "${OWNER_EMAIL}"
 	  done
+
+  echo "[i] Importing CAHA tier schedule.pl (AA/AAA Major/Minor/15O AAA) -> ${LEAGUE_NAME} via REST"
+  ./p tools/webapp/scripts/import_caha_schedule_pl.py \
+    --league-name="${LEAGUE_NAME}" \
+    --api-url "${WEBAPP_URL}" \
+    --api-batch-size "${T2S_API_BATCH_SIZE}" \
+    "${TOKEN_ARGS[@]}" \
+    --owner-email "${OWNER_EMAIL}"
 fi
 
 echo "[i] Uploading shift spreadsheets via REST"

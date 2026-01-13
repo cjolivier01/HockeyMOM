@@ -333,6 +333,13 @@ PY
         ${WEB_ACCESS_KEY} \
         --user-email "${OWNER_EMAIL}"
     done
+
+    echo "[i] Importing CAHA tier schedule.pl (AA/AAA Major/Minor/15O AAA) -> ${LEAGUE_NAME}"
+    ./p tools/webapp/scripts/import_caha_schedule_pl.py \
+      --league-name="${LEAGUE_NAME}" \
+      --api-url "${WEBAPP_URL}" \
+      ${WEB_ACCESS_KEY} \
+      --owner-email "${OWNER_EMAIL}"
   fi
 fi
 

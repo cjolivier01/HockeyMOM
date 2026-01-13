@@ -13,7 +13,9 @@ def client(monkeypatch, webapp_db):
     from django.test import Client
 
     now = dt.datetime.now()
-    owner = m.User.objects.create(id=10, email="owner@example.com", password_hash="x", name="Owner", created_at=now)
+    owner = m.User.objects.create(
+        id=10, email="owner@example.com", password_hash="x", name="Owner", created_at=now
+    )
     m.League.objects.create(
         id=1,
         name="L1",
@@ -41,4 +43,4 @@ def should_render_leagues_page_for_logged_in_user(client):
     assert "Leagues" in html
     assert "Your Leagues" in html
     assert "L1" in html
-
+    assert 'name="show_goalie_stats"' in html
