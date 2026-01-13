@@ -1035,9 +1035,13 @@ def _overlay_game_player_stats_from_event_rows(
         stats_by_pid[pid]["sog"] = int(sog)
         stats_by_pid[pid]["shots"] = int(shots)
 
-    # On-ice goal +/-: requires goal rows with Home/Away on-ice lists.
+    # Game-winning / game-tying goals + on-ice goal +/- are computed from goal event rows.
     try:
-        game = m.HkyGame.objects.filter(id=int(game_id)).values("team1_id", "team2_id").first()
+        game = (
+            m.HkyGame.objects.filter(id=int(game_id))
+            .values("team1_id", "team2_id", "team1_score", "team2_score", "is_final")
+            .first()
+        )
         if not game:
             return
         team1_id = int(game.get("team1_id") or 0)
@@ -1052,6 +1056,7 @@ def _overlay_game_player_stats_from_event_rows(
         )
 
         jersey_to_pids: dict[tuple[int, str], list[int]] = {}
+        team_id_by_player_id: dict[int, int] = {}
         all_player_ids: set[int] = set()
         for p in players:
             try:
@@ -1062,6 +1067,7 @@ def _overlay_game_player_stats_from_event_rows(
             if pid <= 0 or tid <= 0:
                 continue
             all_player_ids.add(pid)
+            team_id_by_player_id[pid] = tid
             jn = logic.normalize_jersey_number(p.get("jersey_number"))
             if not jn:
                 continue
@@ -1085,19 +1091,144 @@ def _overlay_game_player_stats_from_event_rows(
                 return "away"
             return None
 
+        goal_qs = m.HkyGameEventRow.objects.filter(game_id=int(game_id), event_type__key="goal")
+        goal_qs = goal_qs.exclude(
+            import_key__in=m.HkyGameEventSuppression.objects.filter(
+                game_id=int(game_id)
+            ).values_list("import_key", flat=True)
+        )
         goal_rows = list(
-            m.HkyGameEventRow.objects.filter(game_id=int(game_id), event_type__key="goal")
-            .exclude(
-                import_key__in=m.HkyGameEventSuppression.objects.filter(
-                    game_id=int(game_id)
-                ).values_list("import_key", flat=True)
-            )
-            .values(
-                "team_side", "team_rel", "team_raw", "on_ice_players_home", "on_ice_players_away"
+            goal_qs.values(
+                "id",
+                "event_id",
+                "period",
+                "game_seconds",
+                "game_time",
+                "team_id",
+                "team_side",
+                "team_rel",
+                "team_raw",
+                "player_id",
+                "on_ice_players_home",
+                "on_ice_players_away",
             )
         )
-        if not goal_rows:
-            return
+
+        def _int_or_none(raw: Any) -> Optional[int]:
+            try:
+                if raw is None:
+                    return None
+                s = str(raw).strip()
+                if not s:
+                    return None
+                return int(float(s))
+            except Exception:
+                return None
+
+        def _scoring_team_id(row: dict[str, Any]) -> Optional[int]:
+            tid = _int_or_none(row.get("team_id"))
+            if tid in {team1_id, team2_id}:
+                return int(tid)
+            pid = _int_or_none(row.get("player_id"))
+            if pid is not None:
+                ptid = team_id_by_player_id.get(int(pid))
+                if ptid in {team1_id, team2_id}:
+                    return int(ptid)
+            side = (
+                _norm_side(row.get("team_side"))
+                or _norm_side(row.get("team_rel"))
+                or _norm_side(row.get("team_raw"))
+            )
+            if side == "home":
+                return int(team1_id)
+            if side == "away":
+                return int(team2_id)
+            return None
+
+        def _goal_sort_key(row: dict[str, Any]) -> tuple:
+            per = _int_or_none(row.get("period"))
+            period_key = int(per) if per is not None and per > 0 else 999
+            gs = _int_or_none(row.get("game_seconds"))
+            if gs is None:
+                gs = logic.parse_duration_seconds(row.get("game_time"))
+            gs_missing = 1 if gs is None else 0
+            gs_key = -int(gs) if gs is not None else 0  # time remaining: higher => earlier
+            eid = _int_or_none(row.get("event_id"))
+            eid_key = int(eid) if eid is not None else 1_000_000_000
+            row_id = _int_or_none(row.get("id")) or 0
+            return (period_key, gs_missing, gs_key, eid_key, row_id)
+
+        # Derive GT/GW goals from goal ordering and final score when possible.
+        if goal_rows and bool(game.get("is_final")):
+            t1_score = _int_or_none(game.get("team1_score"))
+            t2_score = _int_or_none(game.get("team2_score"))
+
+            if t1_score is None or t2_score is None:
+                # Fall back to event-derived totals if the game record doesn't have a score.
+                t1_score = 0
+                t2_score = 0
+                for r0 in goal_rows:
+                    tid = _scoring_team_id(r0)
+                    if tid == team1_id:
+                        t1_score += 1
+                    elif tid == team2_id:
+                        t2_score += 1
+                    else:
+                        t1_score = None
+                        t2_score = None
+                        break
+
+            if (
+                t1_score is not None
+                and t2_score is not None
+                and int(t1_score) != int(t2_score)
+                and int(t1_score) >= 0
+                and int(t2_score) >= 0
+            ):
+                winner_team_id = team1_id if int(t1_score) > int(t2_score) else team2_id
+                loser_score = min(int(t1_score), int(t2_score))
+                target_winner_goal_num = int(loser_score) + 1
+
+                gt_goals_by_pid: dict[int, int] = {}
+                gw_pid: Optional[int] = None
+                score_team1 = 0
+                score_team2 = 0
+                winner_goal_num = 0
+                for r0 in sorted(goal_rows, key=_goal_sort_key):
+                    scoring_tid = _scoring_team_id(r0)
+                    if scoring_tid is None:
+                        gt_goals_by_pid = {}
+                        gw_pid = None
+                        break
+
+                    if scoring_tid == team1_id:
+                        score_team1 += 1
+                    elif scoring_tid == team2_id:
+                        score_team2 += 1
+                    else:
+                        continue
+
+                    pid = _int_or_none(r0.get("player_id"))
+                    if pid is not None and score_team1 == score_team2:
+                        gt_goals_by_pid[int(pid)] = gt_goals_by_pid.get(int(pid), 0) + 1
+
+                    if scoring_tid == int(winner_team_id):
+                        winner_goal_num += 1
+                        if winner_goal_num == int(target_winner_goal_num):
+                            gw_pid = int(pid) if pid is not None else None
+                            break
+
+                if gw_pid is not None:
+                    stats_by_pid.setdefault(
+                        gw_pid, {"player_id": int(gw_pid), "game_id": int(game_id)}
+                    )
+                    stats_by_pid[gw_pid]["gw_goals"] = 1
+
+                for pid, n in gt_goals_by_pid.items():
+                    if int(n) <= 0:
+                        continue
+                    stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
+                    stats_by_pid[pid]["gt_goals"] = int(n)
 
         total_goals = 0
         complete_goals = 0
