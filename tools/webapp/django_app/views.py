@@ -2095,18 +2095,6 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             return JsonResponse({"ok": False, "error": "invalid limit"}, status=400)
     limit = max(1, min(int(limit), 10000))
 
-    def _int0(v: Any) -> int:
-        if v is None:
-            return 0
-        if isinstance(v, bool):
-            return 1 if v else 0
-        if isinstance(v, int):
-            return int(v)
-        try:
-            return int(float(str(v)))
-        except Exception:
-            return 0
-
     # Per-game counts from PlayerStat (source of truth for the team stats table).
     # Use these to:
     #   - include non-TimeToScore events that lack resolved player_id (jersey-based fallback), and
@@ -2127,8 +2115,8 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             continue
         games_with_player_stats.add(int(gid))
         needed_by_game_id[int(gid)] = {
-            "goal": _int0(r0.get("goals")),
-            "assist": _int0(r0.get("assists")),
+            "goal": logic._int0(r0.get("goals")),
+            "assist": logic._int0(r0.get("assists")),
         }
 
     attributed_values = (
@@ -2207,15 +2195,15 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                 else 1
             ),
             int(r0.get("period") or 0) if str(r0.get("period") or "").strip() else 0,
-            _int0(r0.get("game_seconds")),
-            _int0(r0.get("id")),
+            logic._int0(r0.get("game_seconds")),
+            logic._int0(r0.get("id")),
         )
 
     # Cap goal/assist events per game to match PlayerStat (avoids duplicates across sources).
     grouped: dict[tuple[int, str], list[dict[str, Any]]] = {}
     passthrough: list[dict[str, Any]] = []
     for r0 in attributed_rows:
-        gid = _int0(r0.get("game_id"))
+        gid = logic._int0(r0.get("game_id"))
         if gid not in eligible_game_ids_set:
             continue
         ek = str(r0.get("event_type__key") or "").strip()
