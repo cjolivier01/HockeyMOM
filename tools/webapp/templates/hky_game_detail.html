@@ -32,12 +32,12 @@
           <strong>{{ game.team1_name }}</strong>
         </a>
       </div>
-	      <div class="muted" style="margin-top:.5rem;">
-	        <span class="nowrap">{{ game.starts_at|fmt_date }}</span>
-	        <span class="nowrap">{{ game.starts_at|fmt_time }}</span>
-	        {% if game.location %}<span> | {{ game.location }}</span>{% endif %}
-	        {% if game.game_video_url %}<span> | Video: <a class="game-video-link" href="{{ game.game_video_url|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">link</a></span>{% endif %}
-	      </div>
+        <div class="muted" style="margin-top:.5rem;">
+          <span class="nowrap">{{ game.starts_at|fmt_date }}</span>
+          <span class="nowrap">{{ game.starts_at|fmt_time }}</span>
+          {% if game.location %}<span> | {{ game.location }}</span>{% endif %}
+          {% if game.game_video_url %}<span> | Video: <a class="game-video-link" href="{{ game.game_video_url|youtube_best_quality_url }}" target="_blank" rel="noopener noreferrer">link</a></span>{% endif %}
+        </div>
       <div style="margin-top:.5rem;font-size:1.1rem;">
         {% if game.team1_score != None and game.team2_score != None %}
           <strong>{{ game.team2_score }} - {{ game.team1_score }}</strong>
@@ -74,45 +74,45 @@
       </div>
     </div>
   </div>
-	</div>
+  </div>
 
-	{% if game.game_video_url %}
-		  <div id="event-video-pane" class="card" style="margin-top:1rem; display:none;">
-		    <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
-		      <div>
-		        <strong>Video Clip</strong>
-		        <span id="event-video-pane-meta" class="muted" style="margin-left:.5rem;"></span>
-		      </div>
-		      <div style="display:flex; align-items:center; gap:.5rem;">
-		        <a
-		          id="event-video-open-link"
-		          class="btn"
-		          href=""
-		          target="_blank"
-		          rel="noopener noreferrer"
-		          style="display:none;"
-		        >Open on YouTube</a>
-		        <button type="button" class="btn" id="event-video-pane-close">Close</button>
-		      </div>
-		    </div>
-		    <div style="margin-top:.75rem; width:100%; max-width: 980px;">
-		      <div style="position:relative; width:100%; aspect-ratio:16/9; background:#0b1220; border-radius:12px; overflow:hidden;">
-		        <iframe
-		          id="event-video-iframe"
-	          title="Game video clip"
-	          src=""
-	          style="position:absolute; inset:0; width:100%; height:100%; border:0;"
-	          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-	          allowfullscreen
-	        ></iframe>
-	      </div>
-	    </div>
-	    <p class="muted" style="margin:.75rem 0 0 0;">Tip: double-click an event row, or open the timeline tooltip and press Video to view a clip (2/3 before, 1/3 after the event).</p>
-	  </div>
-	{% endif %}
-	
-	{% if scoring_by_period_rows %}
-	  <div class="card" style="margin-top:1rem;">
+  {% if game.game_video_url %}
+      <div id="event-video-pane" class="card" style="margin-top:1rem; display:none;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+          <div>
+            <strong>Video Clip</strong>
+            <span id="event-video-pane-meta" class="muted" style="margin-left:.5rem;"></span>
+          </div>
+          <div style="display:flex; align-items:center; gap:.5rem;">
+            <a
+              id="event-video-open-link"
+              class="btn"
+              href=""
+              target="_blank"
+              rel="noopener noreferrer"
+              style="display:none;"
+            >Open on YouTube</a>
+            <button type="button" class="btn" id="event-video-pane-close">Close</button>
+          </div>
+        </div>
+        <div style="margin-top:.75rem; width:100%; max-width: 980px;">
+          <div style="position:relative; width:100%; aspect-ratio:16/9; background:#0b1220; border-radius:12px; overflow:hidden;">
+            <iframe
+              id="event-video-iframe"
+            title="Game video clip"
+            src=""
+            style="position:absolute; inset:0; width:100%; height:100%; border:0;"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+          ></iframe>
+        </div>
+      </div>
+      <p class="muted" style="margin:.75rem 0 0 0;">Tip: double-click an event row, or open the timeline tooltip and press Video to view a clip (2/3 before, 1/3 after the event).</p>
+    </div>
+  {% endif %}
+  
+  {% if scoring_by_period_rows %}
+    <div class="card" style="margin-top:1rem;">
     <h3 style="margin-top:0;">Scoring By Period</h3>
     <div class="table-scroll">
       <table class="table-grid table-nowrap">
@@ -413,17 +413,17 @@
     </p>
   {% endif %}
   {% if events_rows and events_headers %}
-	    <div id="timeline-clip-controls" class="muted" style="margin:.25rem 0 .5rem 0; display:none; align-items:center; gap:.35rem; flex-wrap:wrap;">
-	      <label for="timeline-clip-len" class="muted" style="font-size:.85rem;">Clip Length</label>
-	      <select id="timeline-clip-len" style="padding:.25rem .5rem;border-radius:10px;">
-	        <option value="15">15s</option>
-	        <option value="20">20s</option>
-	        <option value="30" selected>30s</option>
-	        <option value="45">45s</option>
-	        <option value="60">60s</option>
-	        <option value="90">90s</option>
-	      </select>
-	    </div>
+      <div id="timeline-clip-controls" class="muted" style="margin:.25rem 0 .5rem 0; display:none; align-items:center; gap:.35rem; flex-wrap:wrap;">
+        <label for="timeline-clip-len" class="muted" style="font-size:.85rem;">Clip Length</label>
+        <select id="timeline-clip-len" style="padding:.25rem .5rem;border-radius:10px;">
+          <option value="15">15s</option>
+          <option value="20">20s</option>
+          <option value="30" selected>30s</option>
+          <option value="45">45s</option>
+          <option value="60">60s</option>
+          <option value="90">90s</option>
+        </select>
+      </div>
     <div class="events-timeline">
       <div class="events-timeline-header">
         <div class="muted">Timeline</div>
@@ -444,25 +444,25 @@
           var userClipLenS = {{ user_video_clip_len_s|tojson }};
           var userIsLoggedIn = {{ user_is_logged_in|tojson }};
 
-	          var homeTeamName = {{ game.team1_name|default:"Home"|tojson }};
-	          var awayTeamName = {{ game.team2_name|default:"Away"|tojson }};
-	          var gameVideoUrl = {{ game.game_video_url|default:""|tojson }};
-	
-		          var videoPane = document.getElementById("event-video-pane");
-		          var videoIframe = document.getElementById("event-video-iframe");
-		          var videoMeta = document.getElementById("event-video-pane-meta");
-		          var videoOpen = document.getElementById("event-video-open-link");
-		          var videoClose = document.getElementById("event-video-pane-close");
-		          if (videoClose) {
-		            videoClose.addEventListener("click", function () {
-		              if (videoIframe) videoIframe.src = "";
-		              if (videoOpen) {
-		                videoOpen.href = "";
-		                videoOpen.style.display = "none";
-		              }
-		              if (videoPane) videoPane.style.display = "none";
-		            });
-		          }
+            var homeTeamName = {{ game.team1_name|default:"Home"|tojson }};
+            var awayTeamName = {{ game.team2_name|default:"Away"|tojson }};
+            var gameVideoUrl = {{ game.game_video_url|default:""|tojson }};
+  
+              var videoPane = document.getElementById("event-video-pane");
+              var videoIframe = document.getElementById("event-video-iframe");
+              var videoMeta = document.getElementById("event-video-pane-meta");
+              var videoOpen = document.getElementById("event-video-open-link");
+              var videoClose = document.getElementById("event-video-pane-close");
+              if (videoClose) {
+                videoClose.addEventListener("click", function () {
+                  if (videoIframe) videoIframe.src = "";
+                  if (videoOpen) {
+                    videoOpen.href = "";
+                    videoOpen.style.display = "none";
+                  }
+                  if (videoPane) videoPane.style.display = "none";
+                });
+              }
 
           var eventsRows = [];
           try {
@@ -484,7 +484,7 @@
             return a * 3600 + b * 60 + c; // h:mm:ss
           }
 
-	          function parseTimeToSecondsLoose(s) {
+            function parseTimeToSecondsLoose(s) {
             var t = parseTimeToSeconds(s);
             if (t !== null && isFinite(t)) return t;
             s = String(s || "").trim();
@@ -504,7 +504,7 @@
             return a * 60 + b;
           }
 
-	          function getValue(row, keys) {
+            function getValue(row, keys) {
             if (!row) return "";
             for (var i = 0; i < keys.length; i++) {
               var k = keys[i];
@@ -594,167 +594,167 @@
             return iconKey;
           }
 
-	          function parseSide(row) {
+            function parseSide(row) {
             // Absolute side (Home/Away). Do NOT treat For/Against as a team; it's only a relative
             // direction *with respect to* Home or Away.
             var tr = String(getValue(row, ["Team Side", "TeamSide", "Team Rel", "TeamRel", "Side", "Team", "Team Raw", "TeamRaw"]) || "").trim();
             var trl = tr.toLowerCase();
             if (trl === "home" || trl === "team1") return "Home";
             if (trl === "away" || trl === "team2") return "Away";
-	            return "Neutral";
-	          }
-	
-	          function parseVideoSecondsFromRow(row) {
-	            var vs = String(getValue(row, ["Video Seconds", "VideoSeconds", "Video S", "VideoS"]) || "").trim();
-	            if (vs && vs.match(/^-?\d+$/)) {
-	              var n = parseInt(vs, 10);
-	              return isFinite(n) ? n : null;
-	            }
-	            var vt = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
-	            var t = parseTimeToSeconds(vt);
-	            return t !== null && isFinite(t) ? t : null;
-	          }
-	
-	          function extractYoutubeId(url) {
-	            if (!url) return null;
-	            try {
-	              var u = new URL(String(url));
-	              var host = String(u.hostname || "").toLowerCase();
-	              if (host === "youtu.be") {
-	                var p = String(u.pathname || "").replace(/^\//, "");
-	                return p ? p.split("/")[0] : null;
-	              }
-		              if (host.indexOf("youtube.com") >= 0 || host.indexOf("youtube-nocookie.com") >= 0) {
-		                var v = u.searchParams.get("v");
-		                if (v) return v;
-		                var path = String(u.pathname || "");
-		                var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
-		                return m ? m[1] : null;
-		              }
-		            } catch (e) {}
-		            return null;
-		          }
+              return "Neutral";
+            }
+  
+            function parseVideoSecondsFromRow(row) {
+              var vs = String(getValue(row, ["Video Seconds", "VideoSeconds", "Video S", "VideoS"]) || "").trim();
+              if (vs && vs.match(/^-?\d+$/)) {
+                var n = parseInt(vs, 10);
+                return isFinite(n) ? n : null;
+              }
+              var vt = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
+              var t = parseTimeToSeconds(vt);
+              return t !== null && isFinite(t) ? t : null;
+            }
+  
+            function extractYoutubeId(url) {
+              if (!url) return null;
+              try {
+                var u = new URL(String(url));
+                var host = String(u.hostname || "").toLowerCase();
+                if (host === "youtu.be") {
+                  var p = String(u.pathname || "").replace(/^\//, "");
+                  return p ? p.split("/")[0] : null;
+                }
+                  if (host.indexOf("youtube.com") >= 0 || host.indexOf("youtube-nocookie.com") >= 0) {
+                    var v = u.searchParams.get("v");
+                    if (v) return v;
+                    var path = String(u.pathname || "");
+                    var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
+                    return m ? m[1] : null;
+                  }
+                } catch (e) {}
+                return null;
+              }
 
-		          function buildYoutubeWatchUrl(url, startSec) {
-		            var id = extractYoutubeId(url);
-		            if (!id) return null;
-		            var start = Math.max(0, Math.floor(startSec || 0));
-		            try {
-		              var w = new URL("https://www.youtube.com/watch");
-		              w.searchParams.set("v", String(id));
-		              w.searchParams.set("t", String(start) + "s");
-		              w.searchParams.set("autoplay", "1");
-		              w.searchParams.set("vq", "hd1080");
-		              return w.toString();
-		            } catch (e) {
-		              return null;
-		            }
-		          }
+              function buildYoutubeWatchUrl(url, startSec) {
+                var id = extractYoutubeId(url);
+                if (!id) return null;
+                var start = Math.max(0, Math.floor(startSec || 0));
+                try {
+                  var w = new URL("https://www.youtube.com/watch");
+                  w.searchParams.set("v", String(id));
+                  w.searchParams.set("t", String(start) + "s");
+                  w.searchParams.set("autoplay", "1");
+                  w.searchParams.set("vq", "hd1080");
+                  return w.toString();
+                } catch (e) {
+                  return null;
+                }
+              }
 
-		          function buildYoutubeEmbedUrl(url, startSec, endSec) {
-		            var id = extractYoutubeId(url);
-		            if (!id) return null;
-		            var start = Math.max(0, Math.floor(startSec || 0));
-		            var end = Math.max(start + 1, Math.floor(endSec || 0));
-		            var params = new URLSearchParams();
-		            params.set("autoplay", "1");
-		            // Mobile browsers often block autoplay unless muted (even when initiated by a tap).
-		            params.set("mute", "1");
-		            // Enable JS API so we can request the highest available resolution.
-		            params.set("enablejsapi", "1");
-		            params.set("origin", String(window.location.origin || ""));
-		            params.set("start", String(start));
-		            params.set("end", String(end));
-		            // Best-effort quality hint (YouTube may ignore based on bandwidth/device/player size).
-		            params.set("vq", "hd1080");
-		            params.set("rel", "0");
-	            params.set("modestbranding", "1");
-	            params.set("playsinline", "1");
-	            return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
-	          }
+              function buildYoutubeEmbedUrl(url, startSec, endSec) {
+                var id = extractYoutubeId(url);
+                if (!id) return null;
+                var start = Math.max(0, Math.floor(startSec || 0));
+                var end = Math.max(start + 1, Math.floor(endSec || 0));
+                var params = new URLSearchParams();
+                params.set("autoplay", "1");
+                // Mobile browsers often block autoplay unless muted (even when initiated by a tap).
+                params.set("mute", "1");
+                // Enable JS API so we can request the highest available resolution.
+                params.set("enablejsapi", "1");
+                params.set("origin", String(window.location.origin || ""));
+                params.set("start", String(start));
+                params.set("end", String(end));
+                // Best-effort quality hint (YouTube may ignore based on bandwidth/device/player size).
+                params.set("vq", "hd1080");
+                params.set("rel", "0");
+              params.set("modestbranding", "1");
+              params.set("playsinline", "1");
+              return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+            }
 
-	          function requestYouTubeBestQuality(iframeEl) {
-	            try {
-	              if (!iframeEl || !iframeEl.contentWindow) return;
-	              var cmds = [
-	                { func: "setPlaybackQuality", args: ["highres"] },
-	                { func: "setPlaybackQuality", args: ["hd2160"] },
-	                { func: "setPlaybackQuality", args: ["hd1440"] },
-	                { func: "setPlaybackQuality", args: ["hd1080"] },
-	                { func: "setPlaybackQuality", args: ["hd720"] },
-	                { func: "setPlaybackQuality", args: ["large"] },
-	                { func: "setPlaybackQualityRange", args: ["highres", "hd1080"] },
-	              ];
-	              for (var i = 0; i < cmds.length; i++) {
-	                iframeEl.contentWindow.postMessage(
-	                  JSON.stringify({ event: "command", func: cmds[i].func, args: cmds[i].args || [] }),
-	                  "*"
-	                );
-	              }
-	            } catch (e) {}
-	          }
-	
-			          function openVideoClipForRow(row, opts) {
-			            opts = opts || {};
-			            if (!gameVideoUrl || !videoPane || !videoIframe) return false;
-			            var vs2 = parseVideoSecondsFromRow(row);
-			            if (vs2 === null || !isFinite(vs2)) return false;
-		            var totalClipS = (function () {
-		              var v = 30;
-		              try {
-		                if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
-		              } catch (e) {}
-		              if (!isFinite(v) || v <= 0) v = 30;
-		              if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
-		              return v;
-		            })();
-		            var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
-		            var postS = Math.max(0, totalClipS - preS);
-		            var start2 = Math.max(0, Math.floor(vs2 - preS));
-		            var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
-		            var watchUrl = buildYoutubeWatchUrl(gameVideoUrl, start2);
-		            if (videoOpen) {
-		              videoOpen.href = watchUrl || "";
-		              videoOpen.style.display = watchUrl ? "" : "none";
-		            }
-		            var embed = buildYoutubeEmbedUrl(gameVideoUrl, start2, end2);
-		            if (!embed) {
-		              try {
-		                var u2 = new URL(String(gameVideoUrl));
-		                u2.searchParams.set("t", String(start2) + "s");
-		                u2.searchParams.set("autoplay", "1");
-		                u2.searchParams.set("vq", u2.searchParams.get("vq") || "hd1080");
-		                window.open(u2.toString(), "_blank", "noopener");
-		              } catch (e) {
-		                window.open(String(gameVideoUrl), "_blank", "noopener");
-		              }
-	              return true;
-	            }
-	            videoIframe.src = embed;
-	            videoIframe.setAttribute("src", embed);
-	            // Best-effort: request highest available quality after navigation.
-	            try {
-	              requestYouTubeBestQuality(videoIframe);
-	              window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 250);
-	              window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 800);
-	            } catch (e) {}
-	            if (videoMeta) {
-	              var label = (opts.label ? String(opts.label) : "");
-	              var at = (opts.at ? String(opts.at) : "");
-	              var metaTxt = [];
-	              if (label) metaTxt.push(label);
-	              if (at) metaTxt.push(at);
-	              metaTxt.push(totalClipS + "s clip (" + preS + "s before, " + postS + "s after)");
-	              videoMeta.textContent = metaTxt.join(" • ");
-	            }
-	            videoPane.style.display = "block";
-	            try {
-	              videoPane.scrollIntoView({ behavior: "smooth", block: "start" });
-	            } catch (e) {}
-	            return true;
-	          }
+            function requestYouTubeBestQuality(iframeEl) {
+              try {
+                if (!iframeEl || !iframeEl.contentWindow) return;
+                var cmds = [
+                  { func: "setPlaybackQuality", args: ["highres"] },
+                  { func: "setPlaybackQuality", args: ["hd2160"] },
+                  { func: "setPlaybackQuality", args: ["hd1440"] },
+                  { func: "setPlaybackQuality", args: ["hd1080"] },
+                  { func: "setPlaybackQuality", args: ["hd720"] },
+                  { func: "setPlaybackQuality", args: ["large"] },
+                  { func: "setPlaybackQualityRange", args: ["highres", "hd1080"] },
+                ];
+                for (var i = 0; i < cmds.length; i++) {
+                  iframeEl.contentWindow.postMessage(
+                    JSON.stringify({ event: "command", func: cmds[i].func, args: cmds[i].args || [] }),
+                    "*"
+                  );
+                }
+              } catch (e) {}
+            }
+  
+                function openVideoClipForRow(row, opts) {
+                  opts = opts || {};
+                  if (!gameVideoUrl || !videoPane || !videoIframe) return false;
+                  var vs2 = parseVideoSecondsFromRow(row);
+                  if (vs2 === null || !isFinite(vs2)) return false;
+                var totalClipS = (function () {
+                  var v = 30;
+                  try {
+                    if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
+                  } catch (e) {}
+                  if (!isFinite(v) || v <= 0) v = 30;
+                  if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
+                  return v;
+                })();
+                var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
+                var postS = Math.max(0, totalClipS - preS);
+                var start2 = Math.max(0, Math.floor(vs2 - preS));
+                var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
+                var watchUrl = buildYoutubeWatchUrl(gameVideoUrl, start2);
+                if (videoOpen) {
+                  videoOpen.href = watchUrl || "";
+                  videoOpen.style.display = watchUrl ? "" : "none";
+                }
+                var embed = buildYoutubeEmbedUrl(gameVideoUrl, start2, end2);
+                if (!embed) {
+                  try {
+                    var u2 = new URL(String(gameVideoUrl));
+                    u2.searchParams.set("t", String(start2) + "s");
+                    u2.searchParams.set("autoplay", "1");
+                    u2.searchParams.set("vq", u2.searchParams.get("vq") || "hd1080");
+                    window.open(u2.toString(), "_blank", "noopener");
+                  } catch (e) {
+                    window.open(String(gameVideoUrl), "_blank", "noopener");
+                  }
+                return true;
+              }
+              videoIframe.src = embed;
+              videoIframe.setAttribute("src", embed);
+              // Best-effort: request highest available quality after navigation.
+              try {
+                requestYouTubeBestQuality(videoIframe);
+                window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 250);
+                window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 800);
+              } catch (e) {}
+              if (videoMeta) {
+                var label = (opts.label ? String(opts.label) : "");
+                var at = (opts.at ? String(opts.at) : "");
+                var metaTxt = [];
+                if (label) metaTxt.push(label);
+                if (at) metaTxt.push(at);
+                metaTxt.push(totalClipS + "s clip (" + preS + "s before, " + postS + "s after)");
+                videoMeta.textContent = metaTxt.join(" • ");
+              }
+              videoPane.style.display = "block";
+              try {
+                videoPane.scrollIntoView({ behavior: "smooth", block: "start" });
+              } catch (e) {}
+              return true;
+            }
 
-	          try { window.hmOpenVideoClipForRow = openVideoClipForRow; } catch (e) {}
+            try { window.hmOpenVideoClipForRow = openVideoClipForRow; } catch (e) {}
 
           function svgEl(name, attrs) {
             var el = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -997,11 +997,11 @@
               return endWithin !== null && isFinite(endWithin) ? endWithin : null;
             }
 
-	            for (var i = 0; i < eventsRows.length; i++) {
-	              var r = eventsRows[i] || {};
-	              r.__rowIndex = i;
-	              var period = parsePeriod(getValue(r, ["Period"]));
-	              if (period === null) continue;
+              for (var i = 0; i < eventsRows.length; i++) {
+                var r = eventsRows[i] || {};
+                r.__rowIndex = i;
+                var period = parsePeriod(getValue(r, ["Period"]));
+                if (period === null) continue;
 
               var gs = String(getValue(r, ["Game Seconds", "GameSeconds"]) || "").trim();
               var tWithin = null;
@@ -1165,61 +1165,61 @@
 
             // Infer PP/PK spans from penalty windows: only when penalty counts differ (4v4 etc -> no span).
             spans = [];
-	            (function inferSpansFromPenalties() {
-	              if (!penaltyStarts.length) return;
+              (function inferSpansFromPenalties() {
+                if (!penaltyStarts.length) return;
 
-	              var startsByPS = {};
-	              var endsByPS = {};
-	              var penaltyWindowsByPS = {};
-	              var goalsByPeriod = {};
+                var startsByPS = {};
+                var endsByPS = {};
+                var penaltyWindowsByPS = {};
+                var goalsByPeriod = {};
 
-	              function keyPS(p, s) { return String(p) + "|" + String(s); }
+                function keyPS(p, s) { return String(p) + "|" + String(s); }
 
-	              for (var g0 = 0; g0 < filtered.length; g0++) {
-	                var evg = filtered[g0];
-	                if (!evg || evg.iconKey !== "goal") continue;
-	                var p0 = evg.period;
-	                var el = withinToElapsed(p0, evg.tWithin);
-	                if (!isFinite(el)) continue;
-	                if (!goalsByPeriod[p0]) goalsByPeriod[p0] = [];
-	                goalsByPeriod[p0].push({ elapsed: el, side: evg.side });
-	              }
-	              for (var gp in goalsByPeriod) {
-	                if (!Object.prototype.hasOwnProperty.call(goalsByPeriod, gp)) continue;
-	                goalsByPeriod[gp].sort(function (a, b) { return a.elapsed - b.elapsed; });
-	              }
+                for (var g0 = 0; g0 < filtered.length; g0++) {
+                  var evg = filtered[g0];
+                  if (!evg || evg.iconKey !== "goal") continue;
+                  var p0 = evg.period;
+                  var el = withinToElapsed(p0, evg.tWithin);
+                  if (!isFinite(el)) continue;
+                  if (!goalsByPeriod[p0]) goalsByPeriod[p0] = [];
+                  goalsByPeriod[p0].push({ elapsed: el, side: evg.side });
+                }
+                for (var gp in goalsByPeriod) {
+                  if (!Object.prototype.hasOwnProperty.call(goalsByPeriod, gp)) continue;
+                  goalsByPeriod[gp].sort(function (a, b) { return a.elapsed - b.elapsed; });
+                }
 
-	              function parsePenaltyMinutes(row) {
-	                var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
-	                var m = det.match(/\b(\d+)\s*m\b/i);
-	                if (m) {
-	                  var v = parseInt(m[1], 10);
-	                  return isFinite(v) ? v : null;
-	                }
-	                return null;
-	              }
+                function parsePenaltyMinutes(row) {
+                  var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
+                  var m = det.match(/\b(\d+)\s*m\b/i);
+                  if (m) {
+                    var v = parseInt(m[1], 10);
+                    return isFinite(v) ? v : null;
+                  }
+                  return null;
+                }
 
-	              function parsePenaltyInfraction(row) {
-	                var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
-	                if (!det) return "";
-	                det = det.replace(/^Expired\b\s*/i, "");
-	                det = det.replace(/#\s*\d+\s*/g, "");
-	                det = det.replace(/\b\d+\s*m\b/gi, "");
-	                det = det.replace(/\(\s*end\s+[^\)]+\)/gi, "");
-	                det = det.replace(/\s+/g, " ").trim();
-	                return det;
-	              }
+                function parsePenaltyInfraction(row) {
+                  var det = String(getValue(row, ["Details", "Detail"]) || "").trim();
+                  if (!det) return "";
+                  det = det.replace(/^Expired\b\s*/i, "");
+                  det = det.replace(/#\s*\d+\s*/g, "");
+                  det = det.replace(/\b\d+\s*m\b/gi, "");
+                  det = det.replace(/\(\s*end\s+[^\)]+\)/gi, "");
+                  det = det.replace(/\s+/g, " ").trim();
+                  return det;
+                }
 
-	              function findGoalNear(period, otherSide, elapsed, tolS) {
-	                tolS = tolS || 2.0;
-	                var arr = goalsByPeriod[period] || [];
-	                for (var i = 0; i < arr.length; i++) {
-	                  var g = arr[i];
-	                  if (g.side !== otherSide) continue;
-	                  if (Math.abs(g.elapsed - elapsed) <= tolS) return true;
-	                }
-	                return false;
-	              }
+                function findGoalNear(period, otherSide, elapsed, tolS) {
+                  tolS = tolS || 2.0;
+                  var arr = goalsByPeriod[period] || [];
+                  for (var i = 0; i < arr.length; i++) {
+                    var g = arr[i];
+                    if (g.side !== otherSide) continue;
+                    if (Math.abs(g.elapsed - elapsed) <= tolS) return true;
+                  }
+                  return false;
+                }
 
                 function firstGoalBetween(period, otherSide, aEl, bEl) {
                   var arr = goalsByPeriod[period] || [];
@@ -1231,35 +1231,35 @@
                   return null;
                 }
 
-	              for (var a0 = 0; a0 < penaltyStarts.length; a0++) {
-	                var st = penaltyStarts[a0];
-	                var k = keyPS(st.period, st.side);
-	                if (!startsByPS[k]) startsByPS[k] = [];
+                for (var a0 = 0; a0 < penaltyStarts.length; a0++) {
+                  var st = penaltyStarts[a0];
+                  var k = keyPS(st.period, st.side);
+                  if (!startsByPS[k]) startsByPS[k] = [];
                 startsByPS[k].push(st);
               }
               for (var e0 = 0; e0 < penaltyEnds.length; e0++) {
                 var en = penaltyEnds[e0];
                 var k2 = keyPS(en.period, en.side);
-	                if (!endsByPS[k2]) endsByPS[k2] = [];
-	                endsByPS[k2].push(en);
-	              }
+                  if (!endsByPS[k2]) endsByPS[k2] = [];
+                  endsByPS[k2].push(en);
+                }
 
-	              function buildPenaltyWindows(period, side) {
-	                var k = keyPS(period, side);
-	                if (penaltyWindowsByPS[k]) return penaltyWindowsByPS[k];
-	                var starts = (startsByPS[k] || []).slice();
-	                var ends = (endsByPS[k] || []).slice();
-	                for (var i = 0; i < starts.length; i++) starts[i]._startElapsed = withinToElapsed(period, starts[i].tWithin);
-	                for (var j = 0; j < ends.length; j++) ends[j]._endElapsed = withinToElapsed(period, ends[j].tWithin);
-	                starts.sort(function (a, b) { return a._startElapsed - b._startElapsed; });
-	                ends.sort(function (a, b) { return a._endElapsed - b._endElapsed; });
+                function buildPenaltyWindows(period, side) {
+                  var k = keyPS(period, side);
+                  if (penaltyWindowsByPS[k]) return penaltyWindowsByPS[k];
+                  var starts = (startsByPS[k] || []).slice();
+                  var ends = (endsByPS[k] || []).slice();
+                  for (var i = 0; i < starts.length; i++) starts[i]._startElapsed = withinToElapsed(period, starts[i].tWithin);
+                  for (var j = 0; j < ends.length; j++) ends[j]._endElapsed = withinToElapsed(period, ends[j].tWithin);
+                  starts.sort(function (a, b) { return a._startElapsed - b._startElapsed; });
+                  ends.sort(function (a, b) { return a._endElapsed - b._endElapsed; });
 
-	                var used = {};
-	                var wins = [];
+                  var used = {};
+                  var wins = [];
 
-	                function firstUnusedEnd(afterElapsed, jersey) {
-	                  for (var k0 = 0; k0 < ends.length; k0++) {
-	                    if (used[k0]) continue;
+                  function firstUnusedEnd(afterElapsed, jersey) {
+                    for (var k0 = 0; k0 < ends.length; k0++) {
+                      if (used[k0]) continue;
                     if (ends[k0]._endElapsed < afterElapsed) continue;
                     if (jersey && ends[k0].jersey && String(ends[k0].jersey) !== String(jersey)) continue;
                     used[k0] = true;
@@ -1268,121 +1268,121 @@
                   return null;
                 }
 
-	                var d = durations[period - 1] || 1200;
-	                for (var s0 = 0; s0 < starts.length; s0++) {
-	                  var st = starts[s0];
-	                  var a = st._startElapsed;
-	                  var b = null;
-	                  var endWithin = null;
-	                  var endRow = null;
-	                  var pRow = st.row || {};
-	                  var minutes = parsePenaltyMinutes(pRow);
-	                  var affectsManpower = minutes === 2;
-	                  if (st.endWithin !== null && isFinite(st.endWithin)) {
-	                    b = withinToElapsed(period, st.endWithin);
-	                    endWithin = st.endWithin;
-	                  } else {
-	                    var match = firstUnusedEnd(a, st.jersey || "");
-	                    if (!match && (st.jersey || "")) match = firstUnusedEnd(a, "");
-	                    if (match) {
-	                      b = match._endElapsed;
-	                      endWithin = match.tWithin;
-	                      endRow = match.row || null;
-	                    }
-	                  }
-	                  if ((b === null || !isFinite(b)) && minutes !== null) {
-	                    b = a + minutes * 60;
-	                    endWithin = elapsedToWithin(period, b);
-	                  }
-	                  if (b === null || !isFinite(b)) continue;
-	                  var lo = Math.max(0, Math.min(d, Math.min(a, b)));
-	                  var hi = Math.max(0, Math.min(d, Math.max(a, b)));
-	                  if (hi <= lo) continue;
-	                  var infraction = parsePenaltyInfraction(pRow);
-	                  var player = String(getValue(pRow, ["Attributed Players", "Player", "Name"]) || "").trim();
-	                  var jersey = String(st.jersey || extractPenaltyJersey(pRow) || "").trim();
-	                  var expectedEnd = minutes !== null ? (lo + minutes * 60) : null;
-	                  var reason = "";
-	                  if (minutes !== null && expectedEnd !== null) {
-	                    var otherSide2 = side === "Home" ? "Away" : "Home";
-	                    var desiredHi = Math.min(d, expectedEnd);
-	                    if (affectsManpower) {
-	                      var gEnd = firstGoalBetween(period, otherSide2, lo, desiredHi);
-	                      if (gEnd !== null && isFinite(gEnd) && gEnd < desiredHi - 0.1) desiredHi = Math.max(lo, Math.min(d, gEnd));
-	                    }
-	                    if (Math.abs((hi - lo) - minutes * 60) > 5) {
-	                      hi = desiredHi;
-	                      endWithin = elapsedToWithin(period, hi);
-	                    }
-	                  }
-	                  if (minutes !== null && expectedEnd !== null) {
-	                    if (Math.abs(hi - expectedEnd) <= 2) {
-	                      reason = "Timed out";
-	                    } else if (hi < expectedEnd - 2) {
-	                      var otherSide = side === "Home" ? "Away" : "Home";
-	                      if (findGoalNear(period, otherSide, hi, 2.0)) {
-	                        reason = "Ended by goal";
-	                      } else if (hi >= d - 1) {
-	                        reason = period === maxPeriod ? "End of game" : "End of period";
-	                      } else {
-	                        reason = "Ended early";
-	                      }
-	                    } else if (hi >= d - 1) {
-	                      reason = period === maxPeriod ? "End of game" : "End of period";
-	                    }
-	                  } else if (hi >= d - 1) {
-	                    reason = period === maxPeriod ? "End of game" : "End of period";
-	                  }
-	                  var startLabel = secondsToLabel(st.tWithin);
-	                  var endLabel = endWithin !== null && isFinite(endWithin) ? secondsToLabel(endWithin) : secondsToLabel(elapsedToWithin(period, hi));
-	                  var lineParts = [];
-	                  if (jersey) lineParts.push("#" + jersey);
-	                  if (player) lineParts.push(player);
-	                  if (infraction) lineParts.push("— " + infraction);
-	                  if (minutes !== null) lineParts.push("(" + minutes + "m)");
-	                  lineParts.push(startLabel + "–" + endLabel);
-	                  lineParts.push("dur " + secondsToLabel(Math.max(0, hi - lo)));
-	                  if (reason) lineParts.push("[" + reason + "]");
-	                  wins.push({
-	                    period: period,
-	                    side: side,
-	                    lo: lo,
-	                    hi: hi,
-	                    startWithin: st.tWithin,
-	                    endWithin: endWithin,
-	                    affectsManpower: affectsManpower,
-	                    row: pRow,
-	                    endRow: endRow,
-	                    line: lineParts.join(" "),
-	                  });
-	                }
-	                penaltyWindowsByPS[k] = wins;
-	                return wins;
-	              }
+                  var d = durations[period - 1] || 1200;
+                  for (var s0 = 0; s0 < starts.length; s0++) {
+                    var st = starts[s0];
+                    var a = st._startElapsed;
+                    var b = null;
+                    var endWithin = null;
+                    var endRow = null;
+                    var pRow = st.row || {};
+                    var minutes = parsePenaltyMinutes(pRow);
+                    var affectsManpower = minutes === 2;
+                    if (st.endWithin !== null && isFinite(st.endWithin)) {
+                      b = withinToElapsed(period, st.endWithin);
+                      endWithin = st.endWithin;
+                    } else {
+                      var match = firstUnusedEnd(a, st.jersey || "");
+                      if (!match && (st.jersey || "")) match = firstUnusedEnd(a, "");
+                      if (match) {
+                        b = match._endElapsed;
+                        endWithin = match.tWithin;
+                        endRow = match.row || null;
+                      }
+                    }
+                    if ((b === null || !isFinite(b)) && minutes !== null) {
+                      b = a + minutes * 60;
+                      endWithin = elapsedToWithin(period, b);
+                    }
+                    if (b === null || !isFinite(b)) continue;
+                    var lo = Math.max(0, Math.min(d, Math.min(a, b)));
+                    var hi = Math.max(0, Math.min(d, Math.max(a, b)));
+                    if (hi <= lo) continue;
+                    var infraction = parsePenaltyInfraction(pRow);
+                    var player = String(getValue(pRow, ["Attributed Players", "Player", "Name"]) || "").trim();
+                    var jersey = String(st.jersey || extractPenaltyJersey(pRow) || "").trim();
+                    var expectedEnd = minutes !== null ? (lo + minutes * 60) : null;
+                    var reason = "";
+                    if (minutes !== null && expectedEnd !== null) {
+                      var otherSide2 = side === "Home" ? "Away" : "Home";
+                      var desiredHi = Math.min(d, expectedEnd);
+                      if (affectsManpower) {
+                        var gEnd = firstGoalBetween(period, otherSide2, lo, desiredHi);
+                        if (gEnd !== null && isFinite(gEnd) && gEnd < desiredHi - 0.1) desiredHi = Math.max(lo, Math.min(d, gEnd));
+                      }
+                      if (Math.abs((hi - lo) - minutes * 60) > 5) {
+                        hi = desiredHi;
+                        endWithin = elapsedToWithin(period, hi);
+                      }
+                    }
+                    if (minutes !== null && expectedEnd !== null) {
+                      if (Math.abs(hi - expectedEnd) <= 2) {
+                        reason = "Timed out";
+                      } else if (hi < expectedEnd - 2) {
+                        var otherSide = side === "Home" ? "Away" : "Home";
+                        if (findGoalNear(period, otherSide, hi, 2.0)) {
+                          reason = "Ended by goal";
+                        } else if (hi >= d - 1) {
+                          reason = period === maxPeriod ? "End of game" : "End of period";
+                        } else {
+                          reason = "Ended early";
+                        }
+                      } else if (hi >= d - 1) {
+                        reason = period === maxPeriod ? "End of game" : "End of period";
+                      }
+                    } else if (hi >= d - 1) {
+                      reason = period === maxPeriod ? "End of game" : "End of period";
+                    }
+                    var startLabel = secondsToLabel(st.tWithin);
+                    var endLabel = endWithin !== null && isFinite(endWithin) ? secondsToLabel(endWithin) : secondsToLabel(elapsedToWithin(period, hi));
+                    var lineParts = [];
+                    if (jersey) lineParts.push("#" + jersey);
+                    if (player) lineParts.push(player);
+                    if (infraction) lineParts.push("— " + infraction);
+                    if (minutes !== null) lineParts.push("(" + minutes + "m)");
+                    lineParts.push(startLabel + "–" + endLabel);
+                    lineParts.push("dur " + secondsToLabel(Math.max(0, hi - lo)));
+                    if (reason) lineParts.push("[" + reason + "]");
+                    wins.push({
+                      period: period,
+                      side: side,
+                      lo: lo,
+                      hi: hi,
+                      startWithin: st.tWithin,
+                      endWithin: endWithin,
+                      affectsManpower: affectsManpower,
+                      row: pRow,
+                      endRow: endRow,
+                      line: lineParts.join(" "),
+                    });
+                  }
+                  penaltyWindowsByPS[k] = wins;
+                  return wins;
+                }
 
-	              function buildIntervals(period, side) {
-	                var wins = buildPenaltyWindows(period, side);
-	                var ints = [];
-	                for (var i = 0; i < wins.length; i++) {
-	                  if (!wins[i].affectsManpower) continue;
-	                  ints.push([wins[i].lo, wins[i].hi]);
-	                }
-	                return ints;
-	              }
+                function buildIntervals(period, side) {
+                  var wins = buildPenaltyWindows(period, side);
+                  var ints = [];
+                  for (var i = 0; i < wins.length; i++) {
+                    if (!wins[i].affectsManpower) continue;
+                    ints.push([wins[i].lo, wins[i].hi]);
+                  }
+                  return ints;
+                }
 
-	              function penaltiesTextForSpan(period, penalizedSide, aEl, bEl) {
-	                var wins = buildPenaltyWindows(period, penalizedSide) || [];
-	                var lines = [];
-	                for (var i = 0; i < wins.length; i++) {
-	                  var w = wins[i];
-	                  if (!w.affectsManpower) continue;
-	                  if (w.lo < bEl && w.hi > aEl) lines.push(w.line);
-	                }
-	                return lines.join("\\n");
-	              }
+                function penaltiesTextForSpan(period, penalizedSide, aEl, bEl) {
+                  var wins = buildPenaltyWindows(period, penalizedSide) || [];
+                  var lines = [];
+                  for (var i = 0; i < wins.length; i++) {
+                    var w = wins[i];
+                    if (!w.affectsManpower) continue;
+                    if (w.lo < bEl && w.hi > aEl) lines.push(w.line);
+                  }
+                  return lines.join("\\n");
+                }
 
-	              function countActive(ints, t) {
-	                var c = 0;
+                function countActive(ints, t) {
+                  var c = 0;
                 for (var i = 0; i < ints.length; i++) {
                   if (ints[i][0] <= t && t < ints[i][1]) c++;
                 }
@@ -1412,59 +1412,59 @@
                   var forPen = countActive(forInts, mid);
                   var againstPen = countActive(againstInts, mid);
                   if (forPen === againstPen) continue;
-	                  var forSk = Math.max(3, 5 - forPen);
-	                  var againstSk = Math.max(3, 5 - againstPen);
-	                  var penalizedSide = forPen < againstPen ? "Away" : "Home";
-	                  var penaltiesText = penaltiesTextForSpan(p, penalizedSide, a0, b0);
-	                  if (forPen < againstPen) {
-	                    spans.push({
-	                      period: p,
-	                      startWithin: elapsedToWithin(p, a0),
-	                      endWithin: elapsedToWithin(p, b0),
-	                      typeLabel: "Power Play",
-	                      iconKey: "pp",
-	                      laneKey: "special_teams",
-	                      side: "Home",
-	                      row: { Details: forSk + "v" + againstSk },
-	                      penaltiesText: penaltiesText,
-	                    });
-	                    spans.push({
-	                      period: p,
-	                      startWithin: elapsedToWithin(p, a0),
-	                      endWithin: elapsedToWithin(p, b0),
-	                      typeLabel: "Penalty Kill",
-	                      iconKey: "pk",
-	                      laneKey: "special_teams",
-	                      side: "Away",
-	                      row: { Details: againstSk + "v" + forSk },
-	                      penaltiesText: penaltiesText,
-	                    });
-	                  } else {
-	                    spans.push({
-	                      period: p,
-	                      startWithin: elapsedToWithin(p, a0),
-	                      endWithin: elapsedToWithin(p, b0),
-	                      typeLabel: "Power Play",
-	                      iconKey: "pp",
-	                      laneKey: "special_teams",
-	                      side: "Away",
-	                      row: { Details: againstSk + "v" + forSk },
-	                      penaltiesText: penaltiesText,
-	                    });
-	                    spans.push({
-	                      period: p,
-	                      startWithin: elapsedToWithin(p, a0),
-	                      endWithin: elapsedToWithin(p, b0),
-	                      typeLabel: "Penalty Kill",
-	                      iconKey: "pk",
-	                      laneKey: "special_teams",
-	                      side: "Home",
-	                      row: { Details: forSk + "v" + againstSk },
-	                      penaltiesText: penaltiesText,
-	                    });
-	                  }
-	                }
-	              }
+                    var forSk = Math.max(3, 5 - forPen);
+                    var againstSk = Math.max(3, 5 - againstPen);
+                    var penalizedSide = forPen < againstPen ? "Away" : "Home";
+                    var penaltiesText = penaltiesTextForSpan(p, penalizedSide, a0, b0);
+                    if (forPen < againstPen) {
+                      spans.push({
+                        period: p,
+                        startWithin: elapsedToWithin(p, a0),
+                        endWithin: elapsedToWithin(p, b0),
+                        typeLabel: "Power Play",
+                        iconKey: "pp",
+                        laneKey: "special_teams",
+                        side: "Home",
+                        row: { Details: forSk + "v" + againstSk },
+                        penaltiesText: penaltiesText,
+                      });
+                      spans.push({
+                        period: p,
+                        startWithin: elapsedToWithin(p, a0),
+                        endWithin: elapsedToWithin(p, b0),
+                        typeLabel: "Penalty Kill",
+                        iconKey: "pk",
+                        laneKey: "special_teams",
+                        side: "Away",
+                        row: { Details: againstSk + "v" + forSk },
+                        penaltiesText: penaltiesText,
+                      });
+                    } else {
+                      spans.push({
+                        period: p,
+                        startWithin: elapsedToWithin(p, a0),
+                        endWithin: elapsedToWithin(p, b0),
+                        typeLabel: "Power Play",
+                        iconKey: "pp",
+                        laneKey: "special_teams",
+                        side: "Away",
+                        row: { Details: againstSk + "v" + forSk },
+                        penaltiesText: penaltiesText,
+                      });
+                      spans.push({
+                        period: p,
+                        startWithin: elapsedToWithin(p, a0),
+                        endWithin: elapsedToWithin(p, b0),
+                        typeLabel: "Penalty Kill",
+                        iconKey: "pk",
+                        laneKey: "special_teams",
+                        side: "Home",
+                        row: { Details: forSk + "v" + againstSk },
+                        penaltiesText: penaltiesText,
+                      });
+                    }
+                  }
+                }
             })();
 
             // Determine type ordering and side-specific row maps.
@@ -1761,30 +1761,30 @@
                 if (vs !== null && isFinite(vs)) { hasAnyVideo = true; break; }
               }
             } catch (e) {}
-		            if (clipControlsEl && clipLenEl && gameVideoUrl && hasAnyVideo) {
-		              clipControlsEl.style.display = "flex";
-		              try {
-		                var sv = null;
-		                if (userClipLenS === 15 || userClipLenS === 20 || userClipLenS === 30 || userClipLenS === 45 || userClipLenS === 60 || userClipLenS === 90) {
-		                  sv = userClipLenS;
-		                } else {
-		                  var saved = localStorage.getItem("hm_clip_len_s");
-		                  if (saved) {
-		                    var lv = parseInt(String(saved), 10);
-		                    if (lv === 15 || lv === 20 || lv === 30 || lv === 45 || lv === 60 || lv === 90) sv = lv;
-		                  }
-		                }
-		                if (sv === 15 || sv === 20 || sv === 30 || sv === 45 || sv === 60 || sv === 90) clipLenEl.value = String(sv);
-		              } catch (e) {}
-		              if (clipLenEl) {
-		                clipLenEl.addEventListener("change", function () {
-		                  var v = 30;
-		                  try { v = parseInt(String(clipLenEl.value || "30"), 10); } catch (e) { v = 30; }
-		                  if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
-		                  if (!userIsLoggedIn) {
-		                    try { localStorage.setItem("hm_clip_len_s", String(v)); } catch (e) {}
-		                    return;
-		                  }
+                if (clipControlsEl && clipLenEl && gameVideoUrl && hasAnyVideo) {
+                  clipControlsEl.style.display = "flex";
+                  try {
+                    var sv = null;
+                    if (userClipLenS === 15 || userClipLenS === 20 || userClipLenS === 30 || userClipLenS === 45 || userClipLenS === 60 || userClipLenS === 90) {
+                      sv = userClipLenS;
+                    } else {
+                      var saved = localStorage.getItem("hm_clip_len_s");
+                      if (saved) {
+                        var lv = parseInt(String(saved), 10);
+                        if (lv === 15 || lv === 20 || lv === 30 || lv === 45 || lv === 60 || lv === 90) sv = lv;
+                      }
+                    }
+                    if (sv === 15 || sv === 20 || sv === 30 || sv === 45 || sv === 60 || sv === 90) clipLenEl.value = String(sv);
+                  } catch (e) {}
+                  if (clipLenEl) {
+                    clipLenEl.addEventListener("change", function () {
+                      var v = 30;
+                      try { v = parseInt(String(clipLenEl.value || "30"), 10); } catch (e) { v = 30; }
+                      if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
+                      if (!userIsLoggedIn) {
+                        try { localStorage.setItem("hm_clip_len_s", String(v)); } catch (e) {}
+                        return;
+                      }
                   try {
                     fetch("/api/user/video_clip_len", {
                       method: "POST",
@@ -1893,21 +1893,21 @@
               header.appendChild(title);
               tooltipEl.appendChild(header);
 
-	              var meta = document.createElement("div");
-	              meta.className = "events-timeline-tooltip-meta";
-	              var pLabel = ev.period === 4 ? "OT" : "P" + ev.period;
-	              if (ev.startWithin !== undefined && ev.endWithin !== undefined && ev.startWithin !== null && ev.endWithin !== null) {
-	                atTxt = pLabel + " " + secondsToLabel(ev.startWithin);
-	                meta.appendChild(
-	                  document.createTextNode(pLabel + " " + secondsToLabel(ev.startWithin) + "–" + secondsToLabel(ev.endWithin))
-	                );
-	              } else {
-	                var timeTxt = String(getValue(ev.row, ["Game Time", "GameTime", "Time"]) || "").trim();
-	                if (!timeTxt) timeTxt = secondsToLabel(ev.tWithin);
-	                atTxt = pLabel + " " + timeTxt;
-	                meta.appendChild(document.createTextNode(pLabel + " @ " + timeTxt));
-	              }
-	              tooltipEl.appendChild(meta);
+                var meta = document.createElement("div");
+                meta.className = "events-timeline-tooltip-meta";
+                var pLabel = ev.period === 4 ? "OT" : "P" + ev.period;
+                if (ev.startWithin !== undefined && ev.endWithin !== undefined && ev.startWithin !== null && ev.endWithin !== null) {
+                  atTxt = pLabel + " " + secondsToLabel(ev.startWithin);
+                  meta.appendChild(
+                    document.createTextNode(pLabel + " " + secondsToLabel(ev.startWithin) + "–" + secondsToLabel(ev.endWithin))
+                  );
+                } else {
+                  var timeTxt = String(getValue(ev.row, ["Game Time", "GameTime", "Time"]) || "").trim();
+                  if (!timeTxt) timeTxt = secondsToLabel(ev.tWithin);
+                  atTxt = pLabel + " " + timeTxt;
+                  meta.appendChild(document.createTextNode(pLabel + " @ " + timeTxt));
+                }
+                tooltipEl.appendChild(meta);
 
               function addLine(label, v) {
                 var s = String(v || "").trim();
@@ -1956,43 +1956,43 @@
                 body.textContent = text;
                 wrap.appendChild(body);
                 tooltipEl.appendChild(wrap);
-	              }
+                }
 
-	              addLine("Event ID", getValue(ev.row, ["Event ID", "EventID", "EventId"]));
-	              (function () {
-	                var vt = String(getValue(ev.row, ["Video Time", "VideoTime"]) || "").trim();
-	                var vsn = parseVideoSecondsFromRow(ev.row || {});
-	                var hasVs = (vsn !== null && isFinite(vsn));
-	                if (!vt && hasVs) vt = secondsToLabel(vsn);
-	                if (vt || hasVs) {
-	                  addLine("Video Time", vt);
-	                  if (hasVs) addLine("Video Seconds", String(Math.floor(vsn)));
-	                  if (!gameVideoUrl) addLine("Video URL", "missing");
-	                }
-	              })();
-	              addLine("Players", getValue(ev.row, ["Attributed Players"]));
-	              addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
-	              addLine("Details", getValue(ev.row, ["Details"]));
-	              (function () {
-	                var onIceHome = getValue(ev.row, ["On-Ice Players (Home)", "On-Ice Home", "OnIceHome"]);
-	                var onIceAway = getValue(ev.row, ["On-Ice Players (Away)", "On-Ice Away", "OnIceAway"]);
-	                var onIceLegacy = getValue(ev.row, ["On-Ice Players", "OnIcePlayers"]);
-	                var hasSplit = String(onIceHome || "").trim() || String(onIceAway || "").trim();
-	                if (!hasSplit) {
-	                  addSectionBlock("On-Ice", onIceLegacy);
-	                  return;
-	                }
-	                var homeLabel = "On-Ice (Home — " + (homeTeamName || "Home") + ")";
-	                var awayLabel = "On-Ice (Away — " + (awayTeamName || "Away") + ")";
-	                if (String(ev.side || "") === "Away") {
-	                  addSectionBlock(awayLabel, onIceAway);
-	                  addSectionBlock(homeLabel, onIceHome);
-	                } else {
-	                  addSectionBlock(homeLabel, onIceHome);
-	                  addSectionBlock(awayLabel, onIceAway);
-	                }
-	              })();
-	              if (ev.penaltiesText) addMultiline("Penalties", ev.penaltiesText);
+                addLine("Event ID", getValue(ev.row, ["Event ID", "EventID", "EventId"]));
+                (function () {
+                  var vt = String(getValue(ev.row, ["Video Time", "VideoTime"]) || "").trim();
+                  var vsn = parseVideoSecondsFromRow(ev.row || {});
+                  var hasVs = (vsn !== null && isFinite(vsn));
+                  if (!vt && hasVs) vt = secondsToLabel(vsn);
+                  if (vt || hasVs) {
+                    addLine("Video Time", vt);
+                    if (hasVs) addLine("Video Seconds", String(Math.floor(vsn)));
+                    if (!gameVideoUrl) addLine("Video URL", "missing");
+                  }
+                })();
+                addLine("Players", getValue(ev.row, ["Attributed Players"]));
+                addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
+                addLine("Details", getValue(ev.row, ["Details"]));
+                (function () {
+                  var onIceHome = getValue(ev.row, ["On-Ice Players (Home)", "On-Ice Home", "OnIceHome"]);
+                  var onIceAway = getValue(ev.row, ["On-Ice Players (Away)", "On-Ice Away", "OnIceAway"]);
+                  var onIceLegacy = getValue(ev.row, ["On-Ice Players", "OnIcePlayers"]);
+                  var hasSplit = String(onIceHome || "").trim() || String(onIceAway || "").trim();
+                  if (!hasSplit) {
+                    addSectionBlock("On-Ice", onIceLegacy);
+                    return;
+                  }
+                  var homeLabel = "On-Ice (Home — " + (homeTeamName || "Home") + ")";
+                  var awayLabel = "On-Ice (Away — " + (awayTeamName || "Away") + ")";
+                  if (String(ev.side || "") === "Away") {
+                    addSectionBlock(awayLabel, onIceAway);
+                    addSectionBlock(homeLabel, onIceHome);
+                  } else {
+                    addSectionBlock(homeLabel, onIceHome);
+                    addSectionBlock(awayLabel, onIceAway);
+                  }
+                })();
+                if (ev.penaltiesText) addMultiline("Penalties", ev.penaltiesText);
 
                 // Action buttons (mobile-friendly: tap icon to show tooltip, then press Video).
                 try {
@@ -2018,7 +2018,7 @@
                     }
                   }
                 } catch (e) {}
-	            }
+              }
 
             function positionTooltip(clientX, clientY) {
               if (!tooltipEl) return;
@@ -2067,82 +2067,82 @@
               }
               return null;
             }
-	            for (var sp = 0; sp < spans.length; sp++) {
-	              var sEv = spans[sp];
-	              var yS = spanDrawY(sEv.side, sEv.laneKey);
-	              if (yS === null) continue;
-	              var x1 = xForTime(sEv.period, sEv.startWithin);
-	              var x2 = xForTime(sEv.period, sEv.endWithin);
-	              var xa = Math.min(x1, x2);
-	              var xb = Math.max(x1, x2);
-	              if (!isFinite(xa) || !isFinite(xb) || xb <= xa) continue;
-	              var col = sEv.iconKey === "pp" ? "#22c55e" : "#ef4444";
-	              var ln = svgEl("line", { x1: xa, y1: yS, x2: xb, y2: yS, stroke: col, "stroke-width": 6, "stroke-linecap": "round", opacity: 0.85 });
-	              ln.style.cursor = "pointer";
-	              var spTitle = svgEl("title");
-	              var pLbl = sEv.period === 4 ? "OT" : "P" + sEv.period;
-	              spTitle.appendChild(document.createTextNode(sEv.typeLabel + " (" + sEv.side + ") • " + pLbl + " " + secondsToLabel(sEv.startWithin) + "–" + secondsToLabel(sEv.endWithin)));
-	              ln.appendChild(spTitle);
-	              (function (evCopy) {
-	                ln.addEventListener("mouseenter", function (e) {
-	                  if (!tooltipEl) return;
-	                  if (tooltipEl.dataset.pinned === "1") return;
-	                  setTooltipContent(evCopy);
-	                  positionTooltip(e.clientX, e.clientY);
-	                });
-	                ln.addEventListener("mousemove", function (e) {
-	                  if (!tooltipEl) return;
-	                  if (tooltipEl.dataset.pinned === "1") return;
-	                  positionTooltip(e.clientX, e.clientY);
-	                });
-	                ln.addEventListener("mouseleave", function () {
-	                  if (!tooltipEl) return;
-	                  if (tooltipEl.dataset.pinned === "1") return;
-	                  scheduleHideTooltip();
-	                });
-		                ln.addEventListener("click", function (e) {
-		                  if (isTouchDevice) {
-		                    var atTap = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
-		                    if (isDoubleTap(ln) && openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTap })) {
-		                      if (tooltipEl) {
-		                        tooltipEl.style.display = "none";
-		                        tooltipEl.dataset.pinned = "0";
-		                      }
-		                      e.stopPropagation();
-		                      return;
-		                    }
-		                  }
-		                  if (!isTouchDevice) {
-		                    var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
-		                    if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
-		                      if (tooltipEl) {
-		                        tooltipEl.style.display = "none";
-		                        tooltipEl.dataset.pinned = "0";
-		                      }
-		                      e.stopPropagation();
-		                      return;
-		                    }
-		                  }
-		                  if (!tooltipEl) return;
-		                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
-		                    tooltipEl.dataset.pinned = "1";
-		                    setTooltipContent(evCopy);
-		                    positionTooltip(e.clientX, e.clientY);
-	                  } else {
-	                    tooltipEl.style.display = "none";
-	                    tooltipEl.dataset.pinned = "0";
-	                  }
-	                  e.stopPropagation();
-	                });
-	                ln.addEventListener("dblclick", function (e) {
-	                  var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
-	                  openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt });
-	                  e.preventDefault();
-	                  e.stopPropagation();
-	                });
-	              })(sEv);
-	              svg.appendChild(ln);
-	            }
+              for (var sp = 0; sp < spans.length; sp++) {
+                var sEv = spans[sp];
+                var yS = spanDrawY(sEv.side, sEv.laneKey);
+                if (yS === null) continue;
+                var x1 = xForTime(sEv.period, sEv.startWithin);
+                var x2 = xForTime(sEv.period, sEv.endWithin);
+                var xa = Math.min(x1, x2);
+                var xb = Math.max(x1, x2);
+                if (!isFinite(xa) || !isFinite(xb) || xb <= xa) continue;
+                var col = sEv.iconKey === "pp" ? "#22c55e" : "#ef4444";
+                var ln = svgEl("line", { x1: xa, y1: yS, x2: xb, y2: yS, stroke: col, "stroke-width": 6, "stroke-linecap": "round", opacity: 0.85 });
+                ln.style.cursor = "pointer";
+                var spTitle = svgEl("title");
+                var pLbl = sEv.period === 4 ? "OT" : "P" + sEv.period;
+                spTitle.appendChild(document.createTextNode(sEv.typeLabel + " (" + sEv.side + ") • " + pLbl + " " + secondsToLabel(sEv.startWithin) + "–" + secondsToLabel(sEv.endWithin)));
+                ln.appendChild(spTitle);
+                (function (evCopy) {
+                  ln.addEventListener("mouseenter", function (e) {
+                    if (!tooltipEl) return;
+                    if (tooltipEl.dataset.pinned === "1") return;
+                    setTooltipContent(evCopy);
+                    positionTooltip(e.clientX, e.clientY);
+                  });
+                  ln.addEventListener("mousemove", function (e) {
+                    if (!tooltipEl) return;
+                    if (tooltipEl.dataset.pinned === "1") return;
+                    positionTooltip(e.clientX, e.clientY);
+                  });
+                  ln.addEventListener("mouseleave", function () {
+                    if (!tooltipEl) return;
+                    if (tooltipEl.dataset.pinned === "1") return;
+                    scheduleHideTooltip();
+                  });
+                    ln.addEventListener("click", function (e) {
+                      if (isTouchDevice) {
+                        var atTap = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
+                        if (isDoubleTap(ln) && openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTap })) {
+                          if (tooltipEl) {
+                            tooltipEl.style.display = "none";
+                            tooltipEl.dataset.pinned = "0";
+                          }
+                          e.stopPropagation();
+                          return;
+                        }
+                      }
+                      if (!isTouchDevice) {
+                        var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
+                        if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
+                          if (tooltipEl) {
+                            tooltipEl.style.display = "none";
+                            tooltipEl.dataset.pinned = "0";
+                          }
+                          e.stopPropagation();
+                          return;
+                        }
+                      }
+                      if (!tooltipEl) return;
+                      if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
+                        tooltipEl.dataset.pinned = "1";
+                        setTooltipContent(evCopy);
+                        positionTooltip(e.clientX, e.clientY);
+                    } else {
+                      tooltipEl.style.display = "none";
+                      tooltipEl.dataset.pinned = "0";
+                    }
+                    e.stopPropagation();
+                  });
+                  ln.addEventListener("dblclick", function (e) {
+                    var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.startWithin || evCopy.tWithin);
+                    openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt });
+                    e.preventDefault();
+                    e.stopPropagation();
+                  });
+                })(sEv);
+                svg.appendChild(ln);
+              }
             for (var e2 = 0; e2 < drawList.length; e2++) {
               var ev3 = drawList[e2];
               var x = xForTime(ev3.period, ev3.tWithin);
@@ -2191,51 +2191,51 @@
                   if (tooltipEl.dataset.pinned === "1") return;
                   positionTooltip(e.clientX, e.clientY);
                 });
-	                g.addEventListener("mouseleave", function () {
-	                  if (!tooltipEl) return;
-	                  if (tooltipEl.dataset.pinned === "1") return;
-	                  scheduleHideTooltip();
-	                });
-		                g.addEventListener("click", function (e) {
-		                  if (isTouchDevice) {
-		                    var atTap = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
-		                    if (isDoubleTap(g) && openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTap })) {
-		                      if (tooltipEl) {
-		                        tooltipEl.style.display = "none";
-		                        tooltipEl.dataset.pinned = "0";
-		                      }
-		                      e.stopPropagation();
-		                      return;
-		                    }
-		                  }
-		                  if (!isTouchDevice) {
-		                    var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
-		                    if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
-		                      if (tooltipEl) {
-		                        tooltipEl.style.display = "none";
-		                        tooltipEl.dataset.pinned = "0";
-		                      }
-		                      e.stopPropagation();
-		                      return;
-		                    }
-		                  }
-		                  if (!tooltipEl) return;
-		                  if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
-		                    tooltipEl.dataset.pinned = "1";
-		                    setTooltipContent(evCopy);
-		                    positionTooltip(e.clientX, e.clientY);
+                  g.addEventListener("mouseleave", function () {
+                    if (!tooltipEl) return;
+                    if (tooltipEl.dataset.pinned === "1") return;
+                    scheduleHideTooltip();
+                  });
+                    g.addEventListener("click", function (e) {
+                      if (isTouchDevice) {
+                        var atTap = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
+                        if (isDoubleTap(g) && openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTap })) {
+                          if (tooltipEl) {
+                            tooltipEl.style.display = "none";
+                            tooltipEl.dataset.pinned = "0";
+                          }
+                          e.stopPropagation();
+                          return;
+                        }
+                      }
+                      if (!isTouchDevice) {
+                        var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
+                        if (openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt })) {
+                          if (tooltipEl) {
+                            tooltipEl.style.display = "none";
+                            tooltipEl.dataset.pinned = "0";
+                          }
+                          e.stopPropagation();
+                          return;
+                        }
+                      }
+                      if (!tooltipEl) return;
+                      if (tooltipEl.style.display === "none" || tooltipEl.dataset.pinned !== "1") {
+                        tooltipEl.dataset.pinned = "1";
+                        setTooltipContent(evCopy);
+                        positionTooltip(e.clientX, e.clientY);
                   } else {
                     tooltipEl.style.display = "none";
                     tooltipEl.dataset.pinned = "0";
                   }
                   e.stopPropagation();
                 });
-	                g.addEventListener("dblclick", function (e) {
-	                  var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
-	                  openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt });
-	                  e.preventDefault();
-	                  e.stopPropagation();
-	                });
+                  g.addEventListener("dblclick", function (e) {
+                    var atTxt = (evCopy.period === 4 ? "OT" : "P" + evCopy.period) + " " + secondsToLabel(evCopy.tWithin);
+                    openVideoClipForRow(evCopy.row, { label: evCopy.typeLabel, at: atTxt });
+                    e.preventDefault();
+                    e.stopPropagation();
+                  });
               })(ev3);
 
               svg.appendChild(g);
@@ -2251,41 +2251,41 @@
 
           render();
           var resizeTimer = null;
-	          window.addEventListener("resize", function () {
-	            if (resizeTimer) window.clearTimeout(resizeTimer);
-	            resizeTimer = window.setTimeout(render, 120);
-	          });
+            window.addEventListener("resize", function () {
+              if (resizeTimer) window.clearTimeout(resizeTimer);
+              resizeTimer = window.setTimeout(render, 120);
+            });
 
-	          function attachEventsTableVideoHandlers() {
-	            if (!gameVideoUrl || !videoPane || !videoIframe) return;
-	            var tbl = document.getElementById("game-events-table");
-	            if (!tbl) return;
-	            var trs = tbl.querySelectorAll("tbody tr[data-event-row-index]");
-	            for (var i = 0; i < trs.length; i++) {
-	              (function (tr) {
-	                tr.addEventListener("dblclick", function () {
-	                  var idx = parseInt(String(tr.getAttribute("data-event-row-index") || ""), 10);
-	                  if (!isFinite(idx) || idx < 0 || idx >= eventsRows.length) return;
-	                  var r = eventsRows[idx] || {};
-	                  var et = String(getValue(r, ["Event Type", "EventType", "Event", "Type"]) || "").trim();
-	                  var per = String(getValue(r, ["Period"]) || "").trim();
-	                  var gt = String(getValue(r, ["Game Time", "GameTime", "Time"]) || "").trim();
-	                  openVideoClipForRow(r, { label: et, at: (per ? ("P" + per + (gt ? (" " + gt) : "")) : "") });
-	                });
-	              })(trs[i]);
-	            }
-	          }
-	          if (document.readyState === "loading") {
-	            document.addEventListener("DOMContentLoaded", attachEventsTableVideoHandlers);
-	          } else {
-	            attachEventsTableVideoHandlers();
-	          }
-	        })();
-	      </script>
+            function attachEventsTableVideoHandlers() {
+              if (!gameVideoUrl || !videoPane || !videoIframe) return;
+              var tbl = document.getElementById("game-events-table");
+              if (!tbl) return;
+              var trs = tbl.querySelectorAll("tbody tr[data-event-row-index]");
+              for (var i = 0; i < trs.length; i++) {
+                (function (tr) {
+                  tr.addEventListener("dblclick", function () {
+                    var idx = parseInt(String(tr.getAttribute("data-event-row-index") || ""), 10);
+                    if (!isFinite(idx) || idx < 0 || idx >= eventsRows.length) return;
+                    var r = eventsRows[idx] || {};
+                    var et = String(getValue(r, ["Event Type", "EventType", "Event", "Type"]) || "").trim();
+                    var per = String(getValue(r, ["Period"]) || "").trim();
+                    var gt = String(getValue(r, ["Game Time", "GameTime", "Time"]) || "").trim();
+                    openVideoClipForRow(r, { label: et, at: (per ? ("P" + per + (gt ? (" " + gt) : "")) : "") });
+                  });
+                })(trs[i]);
+              }
+            }
+            if (document.readyState === "loading") {
+              document.addEventListener("DOMContentLoaded", attachEventsTableVideoHandlers);
+            } else {
+              attachEventsTableVideoHandlers();
+            }
+          })();
+        </script>
     </div>
-	    <div class="table-scroll table-scroll-y">
-	      <table id="game-events-table" class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
-	        <thead>
+      <div class="table-scroll table-scroll-y">
+        <table id="game-events-table" class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="1">
+          <thead>
           <tr>
             {% for h in events_headers %}
               {% if h != 'Video Seconds' and h != 'VideoSeconds' and h != 'Game Seconds' and h != 'GameSeconds' and h != 'Game Seconds End' and h != 'GameSecondsEnd' %}
@@ -2306,13 +2306,13 @@
             {% endfor %}
           </tr>
         </thead>
-	        <tbody>
-	          {% for r in events_rows %}
-	            <tr data-event-row-index="{{ forloop.counter0 }}">
-	              {% for h in events_headers %}
+          <tbody>
+            {% for r in events_rows %}
+              <tr data-event-row-index="{{ forloop.counter0 }}">
+                {% for h in events_headers %}
                   {% if h != 'Video Seconds' and h != 'VideoSeconds' and h != 'Game Seconds' and h != 'GameSeconds' and h != 'Game Seconds End' and h != 'GameSecondsEnd' %}
-	                  {% if "On-Ice Players (Home)" in events_headers or "On-Ice Players (Away)" in events_headers %}
-	                    {% if h == "On-Ice Players" or h == "On-Ice Players (PM)" %}
+                    {% if "On-Ice Players (Home)" in events_headers or "On-Ice Players (Away)" in events_headers %}
+                      {% if h == "On-Ice Players" or h == "On-Ice Players (PM)" %}
                         {# Hide legacy on-ice column when split Home/Away columns exist. #}
                       {% elif h == "On-Ice Players" or h == "On-Ice Players (PM)" or h == "On-Ice Players (Home)" or h == "On-Ice Players (Away)" %}
                         <td class="cell-pre">{{ r|get_item:h|commas_to_newlines }}</td>
@@ -2371,40 +2371,40 @@
       var n = parseInt(m[1], 10);
       return isFinite(n) ? String(n) : m[1];
     }
-	    function parseTimeToSeconds(s) {
-	      s = String(s || "").trim();
-	      if (!s) return null;
-	      var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+      function parseTimeToSeconds(s) {
+        s = String(s || "").trim();
+        if (!s) return null;
+        var m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
       if (!m) return null;
       var a = parseInt(m[1], 10);
       var b = parseInt(m[2], 10);
       var c = m[3] ? parseInt(m[3], 10) : null;
       if (!isFinite(a) || !isFinite(b)) return null;
-	      if (c === null) return a * 60 + b;
-	      if (!isFinite(c)) return null;
-	      return a * 3600 + b * 60 + c;
-	    }
-	    function fmtSecondsToTime(seconds) {
-	      var sec = parseInt(String(seconds), 10);
-	      if (!isFinite(sec) || sec < 0) return "";
-	      var h = Math.floor(sec / 3600);
-	      var m = Math.floor((sec % 3600) / 60);
-	      var s = sec % 60;
-	      if (h > 0) {
-	        return (
-	          String(h) +
-	          ":" +
-	          (m < 10 ? "0" + String(m) : String(m)) +
-	          ":" +
-	          (s < 10 ? "0" + String(s) : String(s))
-	        );
-	      }
-	      return String(m) + ":" + (s < 10 ? "0" + String(s) : String(s));
-	    }
-	    function getValue(row, keys) {
-	      if (!row) return "";
-	      for (var i = 0; i < keys.length; i++) {
-	        var k = keys[i];
+        if (c === null) return a * 60 + b;
+        if (!isFinite(c)) return null;
+        return a * 3600 + b * 60 + c;
+      }
+      function fmtSecondsToTime(seconds) {
+        var sec = parseInt(String(seconds), 10);
+        if (!isFinite(sec) || sec < 0) return "";
+        var h = Math.floor(sec / 3600);
+        var m = Math.floor((sec % 3600) / 60);
+        var s = sec % 60;
+        if (h > 0) {
+          return (
+            String(h) +
+            ":" +
+            (m < 10 ? "0" + String(m) : String(m)) +
+            ":" +
+            (s < 10 ? "0" + String(s) : String(s))
+          );
+        }
+        return String(m) + ":" + (s < 10 ? "0" + String(s) : String(s));
+      }
+      function getValue(row, keys) {
+        if (!row) return "";
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
         if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
         var kl = String(k).toLowerCase();
         for (var kk in row) {
@@ -2482,31 +2482,31 @@
       thead.appendChild(trh);
       table.appendChild(thead);
       var tbody = document.createElement("tbody");
-	      rows.forEach(function (row) {
-	        var tr = document.createElement("tr");
-	        var period = String(getValue(row, ["Period"]) || "").trim();
-	        var tGame = String(getValue(row, ["Game Time", "GameTime", "Time"]) || "").trim();
-	        var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
-	        if (!tVideo) {
-	          var vsTxt = String(
-	            getValue(row, ["Video Seconds", "VideoSeconds", "Video S", "VideoS"]) || ""
-	          ).trim();
-	          var vs2 = null;
-	          if (vsTxt) {
-	            if (vsTxt.match(/^-?\d+(\.\d+)?$/)) {
-	              var f = parseFloat(vsTxt);
-	              vs2 = isFinite(f) ? Math.floor(f) : null;
-	            } else {
-	              var t = parseTimeToSeconds(vsTxt);
-	              vs2 = t !== null && isFinite(t) ? Math.floor(t) : null;
-	            }
-	          }
-	          if (vs2 !== null && vs2 >= 0) {
-	            tVideo = fmtSecondsToTime(vs2);
-	          }
-	        }
-	        var details = String(getValue(row, ["Details"]) || "").trim();
-	        var src = String(getValue(row, ["Source"]) || "").trim();
+        rows.forEach(function (row) {
+          var tr = document.createElement("tr");
+          var period = String(getValue(row, ["Period"]) || "").trim();
+          var tGame = String(getValue(row, ["Game Time", "GameTime", "Time"]) || "").trim();
+          var tVideo = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
+          if (!tVideo) {
+            var vsTxt = String(
+              getValue(row, ["Video Seconds", "VideoSeconds", "Video S", "VideoS"]) || ""
+            ).trim();
+            var vs2 = null;
+            if (vsTxt) {
+              if (vsTxt.match(/^-?\d+(\.\d+)?$/)) {
+                var f = parseFloat(vsTxt);
+                vs2 = isFinite(f) ? Math.floor(f) : null;
+              } else {
+                var t = parseTimeToSeconds(vsTxt);
+                vs2 = t !== null && isFinite(t) ? Math.floor(t) : null;
+              }
+            }
+            if (vs2 !== null && vs2 >= 0) {
+              tVideo = fmtSecondsToTime(vs2);
+            }
+          }
+          var details = String(getValue(row, ["Details"]) || "").trim();
+          var src = String(getValue(row, ["Source"]) || "").trim();
 
         var tdP = document.createElement("td");
         tdP.textContent = period;
@@ -2581,11 +2581,11 @@
 	      }
 	    }
 
-	    function groupRows(rows, labelFn) {
-	      var order = [];
-	      var groups = {};
-	      (rows || []).forEach(function (r) {
-	        var label = String(labelFn(r) || "").trim() || "Unknown";
+      function groupRows(rows, labelFn) {
+        var order = [];
+        var groups = {};
+        (rows || []).forEach(function (r) {
+          var label = String(labelFn(r) || "").trim() || "Unknown";
         var k = label.toLowerCase();
         if (!Object.prototype.hasOwnProperty.call(groups, k)) {
           groups[k] = { label: label, rows: [] };
@@ -2593,51 +2593,51 @@
         }
         groups[k].rows.push(r);
       });
-	      return { order: order, groups: groups };
-	    }
+        return { order: order, groups: groups };
+      }
 
-	    function withDetailsTag(row, tag) {
-	      var copy = Object.assign({}, row);
-	      var base = String(getValue(row, ["Details"]) || "").trim();
-	      var t = String(tag || "").trim();
-	      if (!t) return copy;
-	      copy["Details"] = base ? (t + " — " + base) : t;
-	      return copy;
-	    }
+      function withDetailsTag(row, tag) {
+        var copy = Object.assign({}, row);
+        var base = String(getValue(row, ["Details"]) || "").trim();
+        var t = String(tag || "").trim();
+        if (!t) return copy;
+        copy["Details"] = base ? (t + " — " + base) : t;
+        return copy;
+      }
 
-	    function buildShotChainTables(rows) {
-	      var goals = [];
-	      var assists = [];
-	      var xg = [];
-	      var sog = [];
-	      var shot = [];
-	      (rows || []).forEach(function (row) {
-	        var k = normTypeKey(getValue(row, ["Event Type", "Event"]));
-	        if (k === "goal") {
-	          goals.push(row);
-	          xg.push(withDetailsTag(row, "Goal"));
-	          sog.push(withDetailsTag(row, "Goal"));
-	          shot.push(withDetailsTag(row, "Goal"));
-	        } else if (k === "assist") {
-	          assists.push(row);
-	        } else if (k === "expectedgoal") {
-	          xg.push(withDetailsTag(row, "xG"));
-	          sog.push(withDetailsTag(row, "xG"));
-	          shot.push(withDetailsTag(row, "xG"));
-	        } else if (k === "sog") {
-	          sog.push(withDetailsTag(row, "SOG"));
-	          shot.push(withDetailsTag(row, "SOG"));
-	        } else if (k === "shot") {
-	          shot.push(row);
-	        }
-	      });
-	      return { goals: goals, assists: assists, xg: xg, sog: sog, shot: shot };
-	    }
+      function buildShotChainTables(rows) {
+        var goals = [];
+        var assists = [];
+        var xg = [];
+        var sog = [];
+        var shot = [];
+        (rows || []).forEach(function (row) {
+          var k = normTypeKey(getValue(row, ["Event Type", "Event"]));
+          if (k === "goal") {
+            goals.push(row);
+            xg.push(withDetailsTag(row, "Goal"));
+            sog.push(withDetailsTag(row, "Goal"));
+            shot.push(withDetailsTag(row, "Goal"));
+          } else if (k === "assist") {
+            assists.push(row);
+          } else if (k === "expectedgoal") {
+            xg.push(withDetailsTag(row, "xG"));
+            sog.push(withDetailsTag(row, "xG"));
+            shot.push(withDetailsTag(row, "xG"));
+          } else if (k === "sog") {
+            sog.push(withDetailsTag(row, "SOG"));
+            shot.push(withDetailsTag(row, "SOG"));
+          } else if (k === "shot") {
+            shot.push(row);
+          }
+        });
+        return { goals: goals, assists: assists, xg: xg, sog: sog, shot: shot };
+      }
 
-	    function extractNumberSet(raw) {
-	      var s = String(raw || "");
-	      var out = {};
-	      var m = s.match(/(\d+)/g);
+      function extractNumberSet(raw) {
+        var s = String(raw || "");
+        var out = {};
+        var m = s.match(/(\d+)/g);
       if (!m) return out;
       m.forEach(function (v) {
         try {
@@ -2670,10 +2670,10 @@
       }
 
       var filtered = [];
-	      if (showAttributedEvents) {
-	        filtered = eventsRows.filter(function (row) {
-	          if (side) {
-	            var rs = rowSide(row);
+        if (showAttributedEvents) {
+          filtered = eventsRows.filter(function (row) {
+            if (side) {
+              var rs = rowSide(row);
             if (rs && rs !== side) return false;
           }
           var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
@@ -2683,13 +2683,13 @@
           if (playerJersey && rowJ && rowJ === extractJersey(playerJersey)) return true;
           var rowP = normName(getValue(row, ["Attributed Players", "AttributedPlayers", "Player", "Name"]));
           if (playerNameNorm && rowP && rowP === playerNameNorm) return true;
-	          return false;
-	        });
-	        sortRowsByPeriodAndGameClockDesc(filtered);
-	        filtered = filtered.filter(function (row) {
-	          return normTypeKey(getValue(row, ["Event Type", "Event"])) !== "penaltyexpired";
-	        });
-	      }
+            return false;
+          });
+          sortRowsByPeriodAndGameClockDesc(filtered);
+          filtered = filtered.filter(function (row) {
+            return normTypeKey(getValue(row, ["Event Type", "Event"])) !== "penaltyexpired";
+          });
+        }
 
       var onIceGoals = [];
       var playerJerseyNorm = extractJersey(playerJersey);
@@ -2742,91 +2742,91 @@
         p.textContent = "No events matched this selection.";
         bodyEl.appendChild(p);
       } else {
-	        if (filtered.length) {
-	          if (!statKey) {
-	            var chain = buildShotChainTables(filtered);
-	            [
-	              ["Goals", chain.goals],
-	              ["Assists", chain.assists],
-	              ["xG (Expected Goal)", chain.xg],
-	              ["SOG", chain.sog],
-	              ["Shot", chain.shot],
-	            ].forEach(function (pair) {
-	              var label = pair[0];
-	              var rows = pair[1] || [];
-	              if (!rows.length) return;
-	              var h = document.createElement("h4");
-	              h.style.margin = "0.75rem 0 0.35rem 0";
-	              h.textContent = label;
-	              bodyEl.appendChild(h);
-	              buildEventsTable(bodyEl, rows);
-	            });
+          if (filtered.length) {
+            if (!statKey) {
+              var chain = buildShotChainTables(filtered);
+              [
+                ["Goals", chain.goals],
+                ["Assists", chain.assists],
+                ["xG (Expected Goal)", chain.xg],
+                ["SOG", chain.sog],
+                ["Shot", chain.shot],
+              ].forEach(function (pair) {
+                var label = pair[0];
+                var rows = pair[1] || [];
+                if (!rows.length) return;
+                var h = document.createElement("h4");
+                h.style.margin = "0.75rem 0 0.35rem 0";
+                h.textContent = label;
+                bodyEl.appendChild(h);
+                buildEventsTable(bodyEl, rows);
+              });
 
-	            var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
-	            var remaining = filtered.filter(function (row) {
-	              return !chainKeys[normTypeKey(getValue(row, ["Event Type", "Event"]))];
-	            });
-	            if (remaining.length) {
-	              var byType = groupRows(remaining, function (r) {
-	                return getValue(r, ["Event Type", "Event"]);
-	              });
-	              byType.order.forEach(function (k) {
-	                var h = document.createElement("h4");
-	                h.style.margin = "0.75rem 0 0.35rem 0";
-	                h.textContent = byType.groups[k].label;
-	                bodyEl.appendChild(h);
-	                buildEventsTable(bodyEl, byType.groups[k].rows);
-	              });
-	            }
-	          } else if (statKey === "expected_goals") {
-	            var xgRows = buildShotChainTables(filtered).xg;
-	            if (xgRows.length) {
-	              var h = document.createElement("h4");
-	              h.style.margin = "0.75rem 0 0.35rem 0";
-	              h.textContent = "xG (Expected Goal)";
-	              bodyEl.appendChild(h);
-	              buildEventsTable(bodyEl, xgRows);
-	            }
-	          } else if (statKey === "sog") {
-	            var sogRows = buildShotChainTables(filtered).sog;
-	            if (sogRows.length) {
-	              var h = document.createElement("h4");
-	              h.style.margin = "0.75rem 0 0.35rem 0";
-	              h.textContent = "SOG";
-	              bodyEl.appendChild(h);
-	              buildEventsTable(bodyEl, sogRows);
-	            }
-	          } else if (statKey === "shots") {
-	            var shotRows = buildShotChainTables(filtered).shot;
-	            if (shotRows.length) {
-	              var h = document.createElement("h4");
-	              h.style.margin = "0.75rem 0 0.35rem 0";
-	              h.textContent = "Shot";
-	              bodyEl.appendChild(h);
-	              buildEventsTable(bodyEl, shotRows);
-	            }
-	          } else if (statKey === "goals") {
-	            var goalRows = buildShotChainTables(filtered).goals;
-	            if (goalRows.length) {
-	              var h = document.createElement("h4");
-	              h.style.margin = "0.75rem 0 0.35rem 0";
-	              h.textContent = "Goals";
-	              bodyEl.appendChild(h);
-	              buildEventsTable(bodyEl, goalRows);
-	            }
-	          } else {
-	            var byType = groupRows(filtered, function (r) {
-	              return getValue(r, ["Event Type", "Event"]);
-	            });
-	            byType.order.forEach(function (k) {
-	              var h = document.createElement("h4");
-	              h.style.margin = "0.75rem 0 0.35rem 0";
-	              h.textContent = byType.groups[k].label;
-	              bodyEl.appendChild(h);
-	              buildEventsTable(bodyEl, byType.groups[k].rows);
-	            });
-	          }
-	        }
+              var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
+              var remaining = filtered.filter(function (row) {
+                return !chainKeys[normTypeKey(getValue(row, ["Event Type", "Event"]))];
+              });
+              if (remaining.length) {
+                var byType = groupRows(remaining, function (r) {
+                  return getValue(r, ["Event Type", "Event"]);
+                });
+                byType.order.forEach(function (k) {
+                  var h = document.createElement("h4");
+                  h.style.margin = "0.75rem 0 0.35rem 0";
+                  h.textContent = byType.groups[k].label;
+                  bodyEl.appendChild(h);
+                  buildEventsTable(bodyEl, byType.groups[k].rows);
+                });
+              }
+            } else if (statKey === "expected_goals") {
+              var xgRows = buildShotChainTables(filtered).xg;
+              if (xgRows.length) {
+                var h = document.createElement("h4");
+                h.style.margin = "0.75rem 0 0.35rem 0";
+                h.textContent = "xG (Expected Goal)";
+                bodyEl.appendChild(h);
+                buildEventsTable(bodyEl, xgRows);
+              }
+            } else if (statKey === "sog") {
+              var sogRows = buildShotChainTables(filtered).sog;
+              if (sogRows.length) {
+                var h = document.createElement("h4");
+                h.style.margin = "0.75rem 0 0.35rem 0";
+                h.textContent = "SOG";
+                bodyEl.appendChild(h);
+                buildEventsTable(bodyEl, sogRows);
+              }
+            } else if (statKey === "shots") {
+              var shotRows = buildShotChainTables(filtered).shot;
+              if (shotRows.length) {
+                var h = document.createElement("h4");
+                h.style.margin = "0.75rem 0 0.35rem 0";
+                h.textContent = "Shot";
+                bodyEl.appendChild(h);
+                buildEventsTable(bodyEl, shotRows);
+              }
+            } else if (statKey === "goals") {
+              var goalRows = buildShotChainTables(filtered).goals;
+              if (goalRows.length) {
+                var h = document.createElement("h4");
+                h.style.margin = "0.75rem 0 0.35rem 0";
+                h.textContent = "Goals";
+                bodyEl.appendChild(h);
+                buildEventsTable(bodyEl, goalRows);
+              }
+            } else {
+              var byType = groupRows(filtered, function (r) {
+                return getValue(r, ["Event Type", "Event"]);
+              });
+              byType.order.forEach(function (k) {
+                var h = document.createElement("h4");
+                h.style.margin = "0.75rem 0 0.35rem 0";
+                h.textContent = byType.groups[k].label;
+                bodyEl.appendChild(h);
+                buildEventsTable(bodyEl, byType.groups[k].rows);
+              });
+            }
+          }
 
         // Keep derived On-Ice Goals (For/Against) at the bottom.
         if (onIceGoals.length) {
@@ -2851,7 +2851,7 @@
             buildEventsTable(bodyEl, byFA.groups[k].rows);
           });
         }
-	      }
+        }
 
       try {
         dlg.showModal();
