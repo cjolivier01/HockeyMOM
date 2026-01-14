@@ -727,30 +727,45 @@
       });
       thead.appendChild(trh);
       table.appendChild(thead);
-        var tbody = document.createElement("tbody");
-        (rows || []).forEach(function (r) {
-          var gameLabel = (fmtDate(r.game_starts_at) || "Game") + " vs " + String(r.opponent || "").trim();
-          if (String(r.game_type || "").trim()) gameLabel += " (" + String(r.game_type || "").trim() + ")";
-          var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
-  
-          var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
-          var hasVideoTime = videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
-          var videoLabel = hasVideoTime ? (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) : "";
-          var videoCell = el("span", { className: "muted" }, "");
-          if (r.video_url && hasVideoTime) {
-            var btn = el(
-              "button",
-              { type: "button", className: "btn secondary", style: "padding:.25rem .55rem;font-size:.85rem;" },
-              videoLabel
-            );
-            btn.addEventListener("click", function () {
-              openVideoClipForEventRow(r);
-            });
-            videoCell = btn;
-          }
-  
-          addRow(tbody, opts.rowCells(r, { gameCell: gameCell, videoCell: videoCell }));
-        });
+      var tbody = document.createElement("tbody");
+      (rows || []).forEach(function (r) {
+        var dateText = fmtDate(r.game_starts_at) || "";
+        var opponentLabel = String(r.opponent || "").trim();
+        if (!opponentLabel) opponentLabel = "—";
+        var opponentCell =
+          r.game_url
+            ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, opponentLabel)
+            : el("span", null, opponentLabel);
+        var typeText = String(r.game_type || "").trim();
+
+        var videoSeconds =
+          r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
+        var hasVideoTime =
+          videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
+        var videoLabel = hasVideoTime ? (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) : "";
+        var videoCell = el("span", { className: "muted" }, "");
+        if (r.video_url && hasVideoTime) {
+          var btn = el(
+            "button",
+            { type: "button", className: "btn secondary", style: "padding:.25rem .55rem;font-size:.85rem;" },
+            videoLabel
+          );
+          btn.addEventListener("click", function () {
+            openVideoClipForEventRow(r);
+          });
+          videoCell = btn;
+        }
+
+        addRow(
+          tbody,
+          opts.rowCells(r, {
+            dateText: dateText,
+            opponentCell: opponentCell,
+            typeText: typeText,
+            videoCell: videoCell,
+          })
+        );
+      });
       table.appendChild(tbody);
       wrap.appendChild(table);
       container.appendChild(wrap);
@@ -1018,14 +1033,15 @@
                 if (!rows.length) return;
                 bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, label));
                 renderEventsTable(bodyEl, rows, {
-                  headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+                  headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                   rowCells: function (r, ctx) {
                     return [
-                      ctx.gameCell,
+                      ctx.dateText,
+                      ctx.opponentCell,
+                      ctx.typeText,
                       String(r.period || ""),
                       String(r.game_time || ""),
                       ctx.videoCell,
-                      String(r.for_against || ""),
                       String(r.details || ""),
                       String(r.source || ""),
                     ];
@@ -1044,14 +1060,15 @@
                   var g = eg.groups[k];
                   bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
                   renderEventsTable(bodyEl, g.rows, {
-                    headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+                  headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                     rowCells: function (r, ctx) {
                       return [
-                        ctx.gameCell,
+                        ctx.dateText,
+                        ctx.opponentCell,
+                        ctx.typeText,
                         String(r.period || ""),
                         String(r.game_time || ""),
                         ctx.videoCell,
-                        String(r.for_against || ""),
                         String(r.details || ""),
                         String(r.source || ""),
                       ];
@@ -1074,10 +1091,12 @@
               var g = og.groups[k];
               bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
               renderEventsTable(bodyEl, g.rows, {
-                headers: ["Game", "P", "Time", "Video", "Details", "Source"],
+                headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                 rowCells: function (r, ctx) {
                   return [
-                    ctx.gameCell,
+                    ctx.dateText,
+                    ctx.opponentCell,
+                    ctx.typeText,
                     String(r.period || ""),
                     String(r.game_time || ""),
                     ctx.videoCell,
