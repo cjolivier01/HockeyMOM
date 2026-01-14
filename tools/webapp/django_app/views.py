@@ -2093,34 +2093,160 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             return JsonResponse({"ok": False, "error": "invalid limit"}, status=400)
     limit = max(1, min(int(limit), 10000))
 
-    # Attributed events: direct player attribution.
-    attributed_rows = list(
-        qs.filter(player_id=int(player_id))[:limit].values(
-            "id",
-            "import_key",
-            "game_id",
-            "event_type__name",
-            "event_type__key",
-            "source",
-            "event_id",
-            "team_id",
-            "team_raw",
-            "team_side",
-            "for_against",
-            "team_rel",
-            "period",
-            "game_time",
-            "video_time",
-            "game_seconds",
-            "video_seconds",
-            "details",
-            "attributed_players",
-            "attributed_jerseys",
-        )
+    def _int0(v: Any) -> int:
+        if v is None:
+            return 0
+        if isinstance(v, bool):
+            return 1 if v else 0
+        if isinstance(v, int):
+            return int(v)
+        try:
+            return int(float(str(v)))
+        except Exception:
+            return 0
+
+    # Per-game counts from PlayerStat (source of truth for the team stats table).
+    # Use these to:
+    #   - include non-TimeToScore events that lack resolved player_id (jersey-based fallback), and
+    #   - avoid duplicates across sources by capping returned events to the per-game totals.
+    ps_counts = list(
+        m.PlayerStat.objects.filter(
+            team_id=int(team_id), player_id=int(player_id), game_id__in=eligible_game_ids
+        ).values("game_id", "goals", "assists")
+    )
+    needed_by_game_id: dict[int, dict[str, int]] = {}
+    games_with_player_stats: set[int] = set()
+    for r0 in ps_counts:
+        try:
+            gid = int(r0.get("game_id") or 0)
+        except Exception:
+            continue
+        if gid <= 0:
+            continue
+        games_with_player_stats.add(int(gid))
+        needed_by_game_id[int(gid)] = {
+            "goal": _int0(r0.get("goals")),
+            "assist": _int0(r0.get("assists")),
+        }
+
+    attributed_values = (
+        "id",
+        "import_key",
+        "game_id",
+        "event_type__name",
+        "event_type__key",
+        "source",
+        "event_id",
+        "team_id",
+        "team_raw",
+        "team_side",
+        "for_against",
+        "team_rel",
+        "period",
+        "game_time",
+        "video_time",
+        "game_seconds",
+        "video_seconds",
+        "details",
+        "attributed_players",
+        "attributed_jerseys",
+        "player_id",
     )
 
+    direct_rows = list(qs.filter(player_id=int(player_id))[:limit].values(*attributed_values))
+    fallback_rows: list[dict[str, Any]] = []
+    if jersey_norm:
+        jersey_re = rf"(^|[^0-9]){re.escape(jersey_norm)}([^0-9]|$)"
+        # Only fill gaps for core counting stats; other event types should be attributed via player_id.
+        fallback_rows = list(
+            qs.filter(
+                player_id__isnull=True,
+                team_id=int(team_id),
+                event_type__key__in=["goal", "assist"],
+                attributed_jerseys__regex=str(jersey_re),
+            )[:limit].values(*attributed_values)
+        )
+
+    # De-dupe by row id (defensive).
+    attributed_rows: list[dict[str, Any]] = []
+    seen_row_ids: set[int] = set()
+    for r0 in list(direct_rows) + list(fallback_rows):
+        try:
+            rid = int(r0.get("id") or 0)
+        except Exception:
+            rid = 0
+        if rid and rid in seen_row_ids:
+            continue
+        if rid:
+            seen_row_ids.add(rid)
+        attributed_rows.append(r0)
+
     events_out: list[dict[str, Any]] = []
+
+    def _source_rank(raw: Any) -> int:
+        s = str(raw or "").strip().casefold()
+        if s in {"timetoscore", "t2s", "tts"}:
+            return 0
+        if s in {"primary", "shift_package"} or s.startswith("parse_stats_inputs"):
+            return 1
+        if s == "long":
+            return 2
+        if s == "goals":
+            return 3
+        return 9
+
+    def _row_rank(r0: dict[str, Any]) -> tuple:
+        # Prefer events with resolved player_id (authoritative attribution).
+        try:
+            pid = int(r0.get("player_id") or 0)
+        except Exception:
+            pid = 0
+        direct_rank = 0 if pid == int(player_id) else 1
+        return (
+            direct_rank,
+            _source_rank(r0.get("source")),
+            0 if str(r0.get("details") or "").strip() else 1,
+            (
+                0
+                if (r0.get("game_seconds") is not None or str(r0.get("game_time") or "").strip())
+                else 1
+            ),
+            (
+                0
+                if (r0.get("video_seconds") is not None or str(r0.get("video_time") or "").strip())
+                else 1
+            ),
+            int(r0.get("period") or 0) if str(r0.get("period") or "").strip() else 0,
+            _int0(r0.get("game_seconds")),
+            _int0(r0.get("id")),
+        )
+
+    # Cap goal/assist events per game to match PlayerStat (avoids duplicates across sources).
+    grouped: dict[tuple[int, str], list[dict[str, Any]]] = {}
+    passthrough: list[dict[str, Any]] = []
     for r0 in attributed_rows:
+        gid = _int0(r0.get("game_id"))
+        if gid not in eligible_game_ids_set:
+            continue
+        ek = str(r0.get("event_type__key") or "").strip()
+        if ek in {"goal", "assist"}:
+            grouped.setdefault((int(gid), ek), []).append(r0)
+        else:
+            passthrough.append(r0)
+
+    selected_rows: list[dict[str, Any]] = []
+    selected_rows.extend(passthrough)
+    for (gid, ek), rows in grouped.items():
+        need: Optional[int] = None
+        if int(gid) in games_with_player_stats:
+            need = (needed_by_game_id.get(int(gid)) or {}).get(str(ek), 0)
+        rows_sorted = sorted(list(rows), key=_row_rank)
+        if need is None:
+            selected_rows.extend(rows_sorted)
+        elif int(need) > 0:
+            selected_rows.extend(rows_sorted[: int(need)])
+
+    for r0 in selected_rows:
         gid = int(r0.get("game_id") or 0)
         if gid not in eligible_game_ids_set:
             continue
