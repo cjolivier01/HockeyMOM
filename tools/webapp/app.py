@@ -10342,28 +10342,61 @@ def _player_stats_columns_with_coverage(
     return out
 
 
-def _canon_source_label_for_ui(raw: Any) -> str:
+def canon_event_source_key(raw: Any) -> str:
+    """
+    Return a canonical event source key used for ordering and display.
+
+    Keys are intentionally coarse so we don't leak per-game/per-import labels into the UI.
+    """
     s = str(raw or "").strip()
     if not s:
         return ""
     sl = s.casefold()
-    if sl in {"t2s", "tts"}:
-        return "TimeToScore"
-    if sl == "timetoscore":
-        return "TimeToScore"
-    if sl == "long":
-        return "Long"
-    if sl == "primary":
-        return "Primary"
-    if sl.startswith("parse_stats_inputs:") or sl == "parse_stats_inputs":
-        return "Primary"
-    if sl.startswith("parse_shift_spreadsheet:") or sl == "parse_shift_spreadsheet":
-        return "Primary"
+    if sl in {"timetoscore", "t2s", "tts"}:
+        return "timetoscore"
+    if sl == "primary" or sl.startswith("parse_stats_inputs"):
+        return "primary"
+    if sl.startswith("parse_shift_spreadsheet"):
+        return "primary"
     if sl == "shift_package":
-        return "Shift Package"
+        return "shift_package"
+    if sl == "long":
+        return "long"
     if sl == "goals":
+        return "goals"
+    return ""
+
+
+def event_source_rank(raw: Any) -> int:
+    """
+    Rank event sources by preference for de-duping/selection.
+
+    Lower is better.
+    """
+    k = canon_event_source_key(raw)
+    if k == "timetoscore":
+        return 0
+    if k in {"primary", "shift_package"}:
+        return 1
+    if k == "long":
+        return 2
+    if k == "goals":
+        return 3
+    return 9
+
+
+def _canon_source_label_for_ui(raw: Any) -> str:
+    k = canon_event_source_key(raw)
+    if k == "timetoscore":
+        return "TimeToScore"
+    if k == "long":
+        return "Long"
+    if k == "primary":
+        return "Primary"
+    if k == "shift_package":
+        return "Shift Package"
+    if k == "goals":
         return "Goals"
-    # Only show recognized, high-level source types (avoid per-game labels like "sharks-12-2-r1").
     return ""
 
 

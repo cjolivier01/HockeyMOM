@@ -2183,18 +2183,6 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
 
     events_out: list[dict[str, Any]] = []
 
-    def _source_rank(raw: Any) -> int:
-        s = str(raw or "").strip().casefold()
-        if s in {"timetoscore", "t2s", "tts"}:
-            return 0
-        if s in {"primary", "shift_package"} or s.startswith("parse_stats_inputs"):
-            return 1
-        if s == "long":
-            return 2
-        if s == "goals":
-            return 3
-        return 9
-
     def _row_rank(r0: dict[str, Any]) -> tuple:
         # Prefer events with resolved player_id (authoritative attribution).
         try:
@@ -2204,7 +2192,7 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
         direct_rank = 0 if pid == int(player_id) else 1
         return (
             direct_rank,
-            _source_rank(r0.get("source")),
+            logic.event_source_rank(r0.get("source")),
             0 if str(r0.get("details") or "").strip() else 1,
             (
                 0
