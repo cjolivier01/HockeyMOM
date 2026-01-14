@@ -37,6 +37,7 @@
 - Typing: mypy is configured; prefer typed public APIs in `hmlib/`.
 - Naming: modules and functions `snake_case`; classes `PascalCase`; constants `UPPER_SNAKE`.
 - C/C++: follow `.clang-format`; standard set to C++17 in CMake.
+- Indentation: use spaces (not tabs) in all source files (Python/C/C++/JS/HTML/CSS/etc). Tabs are only allowed where they have special meaning (e.g., Makefiles).
 
 ## Error Handling & CLI Args
 - Do not silently ignore failures by default: avoid `except Exception: pass` / bare `except:` / catching-and-returning-success unless there is a clear, documented best-effort reason and the failure is surfaced (log/error return) with context.

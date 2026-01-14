@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% load webapp_tags %}
 {% block content %}
 <h2>Your Jobs</h2>
 <table>
@@ -13,8 +14,8 @@
       <td><code>{{ j.dir_path }}</code></td>
       <td>{{ j.slurm_job_id|default_if_none:"" }}</td>
       <td><span class="status-badge status-{{ j.status|default_if_none:""|upper }}">{{ j.status }}</span></td>
-      <td>{{ j.created_at }}</td>
-      <td>{{ j.updated_at|default_if_none:"" }}</td>
+      <td>{{ j.created_at|fmt_date }}</td>
+      <td>{{ j.updated_at|fmt_date }}</td>
     </tr>
   {% endfor %}
   </tbody>

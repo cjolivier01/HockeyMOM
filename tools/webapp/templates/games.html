@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% load webapp_tags %}
 {% block content %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
   <h2>Your Games</h2>
@@ -14,7 +15,7 @@
         <td><a class="btn secondary" href="/games/{{ g.id }}">{{ g.name }}</a></td>
         <td><code>{{ g.dir_path }}</code></td>
         <td><span class="status-badge status-{{ st|default_if_none:""|upper }}">{{ st|default_if_none:"" }}</span></td>
-        <td>{{ g.created_at }}</td>
+        <td>{{ g.created_at|fmt_date }}</td>
       </tr>
       {% endwith %}
     {% endfor %}
