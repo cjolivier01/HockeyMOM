@@ -9250,6 +9250,54 @@ GAME_PLAYER_STATS_COLUMNS: tuple[dict[str, Any], ...] = (
     {"id": "gfga", "label": "GF/GA", "keys": ("gf_counted", "ga_counted")},
 )
 
+# Per-game player stats columns on the game page should use the same labels as the team page.
+# Keep this set intentionally small; `filter_player_stats_display_columns_for_rows()` hides any
+# column where all players have 0/blank values.
+GAME_PLAYER_STATS_DISPLAY_KEYS: tuple[str, ...] = (
+    "goals",
+    "assists",
+    "points",
+    "toi_seconds",
+    "shifts",
+    "gt_goals",
+    "gw_goals",
+    "ot_goals",
+    "ot_assists",
+    "shots",
+    "pim",
+    "plus_minus",
+    "sog",
+    "expected_goals",
+    "controlled_entry_for",
+    "controlled_entry_against",
+    "controlled_exit_for",
+    "controlled_exit_against",
+    "giveaways",
+    "takeaways",
+    "gf_counted",
+    "ga_counted",
+)
+
+
+def build_game_player_stats_display_columns(
+    *,
+    rows: list[dict[str, Any]],
+    base_keys: tuple[str, ...] = GAME_PLAYER_STATS_DISPLAY_KEYS,
+) -> list[dict[str, Any]]:
+    """
+    Return per-game player stat columns for the game page, using team-page wording.
+    """
+    label_by_key: dict[str, str] = {str(k): str(label) for k, label in PLAYER_STATS_DISPLAY_COLUMNS}
+    base_cols: list[tuple[str, str]] = []
+    for k in base_keys:
+        label = label_by_key.get(str(k))
+        if not label:
+            continue
+        base_cols.append((str(k), label))
+    filtered = filter_player_stats_display_columns_for_rows(tuple(base_cols), rows)
+    return [{"key": str(k), "label": str(label), "show_count": False} for k, label in filtered]
+
+
 _PLAYER_STATS_IDENTITY_HEADERS: frozenset[str] = frozenset(
     {
         "player",

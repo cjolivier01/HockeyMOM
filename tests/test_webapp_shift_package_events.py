@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import importlib.util
 import json
+import re
 from typing import Any
 
 import pytest
@@ -1083,9 +1084,10 @@ def should_compute_on_ice_gfga_from_goal_event_on_ice_lists(client_and_models):
     assert "12 Bob" in str(goal.get("on_ice_players_away") or "")
 
     html = client.get("/public/leagues/1/hky/games/1001").content.decode()
-    assert "GF/GA" in html
-    assert "1 / 0" in html
-    assert "0 / 1" in html
+    assert "GF Counted" in html
+    assert "GA Counted" in html
+    assert re.search(r'<td[^>]*data-stat-key="gf_counted"[^>]*>\s*1\s*<', html, flags=re.S)
+    assert re.search(r'<td[^>]*data-stat-key="ga_counted"[^>]*>\s*1\s*<', html, flags=re.S)
 
 
 def should_find_existing_game_when_notes_are_legacy_game_id_token(client_and_models):
@@ -1173,8 +1175,9 @@ def should_import_player_stats_via_shift_package_and_render_public_game_page(cli
 
     html = client.get("/public/leagues/1/hky/games/1001").content.decode()
     assert "Imported Player Stats" not in html
-    assert "GF/GA" in html
-    assert "+/-" in html
+    assert "GF Counted" in html
+    assert "GA Counted" in html
+    assert "Goal +/-" in html
 
 
 def should_merge_shift_package_overlays_missing_video_and_on_ice_for_duplicates(client_and_models):

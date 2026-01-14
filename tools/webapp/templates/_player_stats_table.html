@@ -1,0 +1,102 @@
+{% load webapp_tags %}
+<div class="table-scroll">
+  <table
+    class="table-nowrap table-grid{% if table_sortable %} table-sortable{% endif %}"
+    {% if table_sortable %}data-sortable="1"{% endif %}
+    {% if freeze_cols %}data-freeze-cols="{{ freeze_cols }}"{% endif %}
+    {% if player_stats_table %}data-player-stats-table="1"{% endif %}
+    {% if team_side %}data-team-side="{{ team_side }}"{% endif %}
+  >
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Name</th>
+        {% if show_position %}<th>Pos</th>{% endif %}
+        {% for col in columns %}
+          <th{% if include_stat_key_attrs %} data-stat-key="{{ col.key }}"{% endif %}>
+            <div>{{ col.label }}</div>
+            {% if col.show_count %}
+              <div class="th-subnote">({{ col.n_games }} Games)</div>
+            {% endif %}
+          </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        {% with row_conf=cell_conflicts_by_player_id|get_item:r.player_id %}
+        <tr>
+          <td>{{ r.jersey_number|default_if_none:"" }}</td>
+          <td data-player-cell="name">
+            {% if r.has_events %}
+              {% if events_button_kind == "team" %}
+                <button
+                  type="button"
+                  class="btn secondary player-events-link"
+                  data-player-id="{{ r.player_id }}"
+                  data-scope="{{ events_scope|default:'all' }}"
+                  {% if events_recent_n %}data-recent-n="{{ events_recent_n }}"{% endif %}
+                  data-scope-label="{{ events_scope_label|default:'All Games' }}"
+                  title="Show underlying events"
+                >{{ r.name|default_if_none:"" }}</button>
+              {% elif events_button_kind == "game" %}
+                <button type="button" class="btn secondary player-events-btn" title="Show underlying events">{{ r.name|default_if_none:"" }}</button>
+              {% else %}
+                {{ r.name|default_if_none:"" }}
+              {% endif %}
+            {% else %}
+              {{ r.name|default_if_none:"" }}
+            {% endif %}
+          </td>
+          {% if show_position %}<td>{{ r.position|default_if_none:"" }}</td>{% endif %}
+          {% for col in columns %}
+            {% with k=col.key %}
+              {% if edit_mode and not public_league_id %}
+                {% if k == "goals" %}
+                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_goals_{{ r.player_id }}" value="{{ r.goals|default_if_none:'' }}" min="0" style="width:70px"></td>
+                {% elif k == "assists" %}
+                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_assists_{{ r.player_id }}" value="{{ r.assists|default_if_none:'' }}" min="0" style="width:70px"></td>
+                {% elif k == "shots" %}
+                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_shots_{{ r.player_id }}" value="{{ r.shots|default_if_none:'' }}" min="0" style="width:70px"></td>
+                {% elif k == "pim" %}
+                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_pim_{{ r.player_id }}" value="{{ r.pim|default_if_none:'' }}" min="0" style="width:70px"></td>
+                {% elif k == "plus_minus" %}
+                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_plusminus_{{ r.player_id }}" value="{{ r.plus_minus|default_if_none:'' }}" style="width:70px"></td>
+                {% else %}
+                  <td
+                    {% if include_stat_key_attrs %}data-stat-key="{{ k }}"{% endif %}
+                    {% if row_conf|get_item:k %}style="color:#ff6b6b;font-weight:600;"{% endif %}
+                  >
+                    {% if k == "toi_seconds" or k == "toi_seconds_per_game" %}
+                      {{ r|get_item:k|fmt_toi }}
+                    {% else %}
+                      {{ r|get_item:k|fmt_stat }}
+                    {% endif %}
+                  </td>
+                {% endif %}
+              {% else %}
+                <td
+                  {% if include_stat_key_attrs %}data-stat-key="{{ k }}"{% endif %}
+                  {% if row_conf|get_item:k %}style="color:#ff6b6b;font-weight:600;"{% endif %}
+                >
+                  {% if k == "toi_seconds" or k == "toi_seconds_per_game" %}
+                    {{ r|get_item:k|fmt_toi }}
+                  {% else %}
+                    {{ r|get_item:k|fmt_stat }}
+                  {% endif %}
+                </td>
+              {% endif %}
+            {% endwith %}
+          {% endfor %}
+        </tr>
+        {% endwith %}
+      {% empty %}
+        {% if show_position %}
+          <tr><td colspan="{{ columns|length|add:'3' }}" class="muted">{{ empty_label|default:"No player stats yet." }}</td></tr>
+        {% else %}
+          <tr><td colspan="{{ columns|length|add:'2' }}" class="muted">{{ empty_label|default:"No player stats yet." }}</td></tr>
+        {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

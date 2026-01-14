@@ -1289,6 +1289,98 @@ def _overlay_game_player_stats_from_event_rows(
         pass
 
 
+def _compute_player_has_events_by_pid_for_game(
+    *,
+    events_rows: list[dict[str, Any]],
+    team1_players: list[dict[str, Any]],
+    team2_players: list[dict[str, Any]],
+) -> dict[int, bool]:
+    """
+    Best-effort: mark which players have any underlying events for the Player Events popup.
+    """
+    player_has_events_by_pid: dict[int, bool] = {}
+
+    home_by_jersey: dict[str, list[int]] = {}
+    for p in team1_players or []:
+        try:
+            pid_i = int(p.get("id") or 0)
+        except Exception:
+            continue
+        if pid_i <= 0:
+            continue
+        player_has_events_by_pid[pid_i] = False
+        j = logic.normalize_jersey_number(p.get("jersey_number"))
+        if j:
+            home_by_jersey.setdefault(j, []).append(pid_i)
+
+    away_by_jersey: dict[str, list[int]] = {}
+    for p in team2_players or []:
+        try:
+            pid_i = int(p.get("id") or 0)
+        except Exception:
+            continue
+        if pid_i <= 0:
+            continue
+        player_has_events_by_pid[pid_i] = False
+        j = logic.normalize_jersey_number(p.get("jersey_number"))
+        if j:
+            away_by_jersey.setdefault(j, []).append(pid_i)
+
+    def _num_set(raw: Any) -> set[str]:
+        if not raw:
+            return set()
+        return {str(int(x)) for x in re.findall(r"([0-9]+)", str(raw))}
+
+    for row in events_rows or []:
+        side_raw = (
+            str(
+                row.get("Team Side")
+                or row.get("TeamSide")
+                or row.get("Team Rel")
+                or row.get("TeamRel")
+                or row.get("Team")
+                or ""
+            )
+            .strip()
+            .lower()
+        )
+        side = ""
+        if side_raw in {"home", "team1"}:
+            side = "home"
+        elif side_raw in {"away", "team2"}:
+            side = "away"
+
+        # Attributed events (team-side specific).
+        attr = _num_set(row.get("Attributed Jerseys") or row.get("AttributedJerseys"))
+        if attr and side:
+            jmap = home_by_jersey if side == "home" else away_by_jersey
+            for j in attr:
+                for pid_i in jmap.get(j, []):
+                    player_has_events_by_pid[int(pid_i)] = True
+
+        # On-ice columns can be split Home/Away or a single legacy column.
+        on_home = row.get("On-Ice Players (Home)") or row.get("On-Ice Players Home")
+        on_away = row.get("On-Ice Players (Away)") or row.get("On-Ice Players Away")
+        if on_home:
+            for j in _num_set(on_home):
+                for pid_i in home_by_jersey.get(j, []):
+                    player_has_events_by_pid[int(pid_i)] = True
+        if on_away:
+            for j in _num_set(on_away):
+                for pid_i in away_by_jersey.get(j, []):
+                    player_has_events_by_pid[int(pid_i)] = True
+
+        if not on_home and not on_away and side:
+            on_generic = row.get("On-Ice Players") or row.get("On-Ice Players (PM)")
+            if on_generic:
+                jmap = home_by_jersey if side == "home" else away_by_jersey
+                for j in _num_set(on_generic):
+                    for pid_i in jmap.get(j, []):
+                        player_has_events_by_pid[int(pid_i)] = True
+
+    return player_has_events_by_pid
+
+
 # ----------------------------
 # Landing/auth
 # ----------------------------
@@ -2148,9 +2240,21 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             )
 
     # Sort by date (if known), then by game/time.
+    game_type_order: dict[str, int] = {
+        str(gt).strip().casefold(): int(idx)
+        for idx, gt in enumerate(list(game_type_options or []))
+        if str(gt).strip()
+    }
+
     def _ev_sort_key(e: dict[str, Any]) -> tuple:
         gid = int(e.get("game_id") or 0)
         g2 = games_by_id.get(gid) or {}
+        gt_label = str(g2.get("_game_type_label") or "").strip()
+        gt_rank = game_type_order.get(gt_label.casefold(), len(game_type_order))
+        sdt = logic.to_dt(g2.get("starts_at"))
+        has_dt = sdt is not None
+        date_key = sdt.strftime("%Y-%m-%d") if sdt else "9999-99-99"
+        time_key = sdt.strftime("%H:%M:%S") if sdt else "99:99:99"
         gs: Optional[int] = None
         try:
             raw = e.get("game_seconds")
@@ -2166,8 +2270,10 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
         gs_missing = 1 if gs is None else 0
         gs_neg = 0 if gs is None else -int(gs)
         return (
-            0 if g2.get("starts_at") is not None else 1,
-            str(g2.get("starts_at") or ""),
+            int(gt_rank),
+            0 if has_dt else 1,
+            str(date_key),
+            str(time_key),
             gid,
             int(e.get("period") or 0) if str(e.get("period") or "").strip() else 0,
             gs_missing,
@@ -4377,7 +4483,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         except Exception:
             # Best-effort: event-derived overlays are optional and should not break page rendering.
             pass
-    period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
 
     events_headers, events_rows, events_meta = _load_game_events_for_display(game_id=int(game_id))
 
@@ -4473,52 +4578,49 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         except Exception:
             goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
 
-    imported_player_stats_csv_text: Optional[str] = None
     player_stats_import_meta: Optional[dict[str, Any]] = None
 
-    (
-        game_player_stats_columns,
-        player_stats_cells_by_pid,
-        player_stats_cell_conflicts_by_pid,
-        player_stats_import_warning,
-    ) = logic.build_game_player_stats_table(
-        players=list(team1_skaters) + list(team2_skaters),
-        stats_by_pid=stats_by_pid,
-        imported_csv_text=imported_player_stats_csv_text,
-        prefer_db_stats_for_keys={"goals", "assists"} if tts_linked else None,
-    )
-    team1_skaters_sorted = list(team1_skaters)
-    team2_skaters_sorted = list(team2_skaters)
     try:
-
-        def _sort_players_for_game(players_in: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            rows = []
-            by_pid = {}
-            for p in players_in:
-                pid = int(p.get("id"))
-                cells = (player_stats_cells_by_pid or {}).get(pid, {})
-                g = logic._parse_int_from_cell_text(cells.get("goals", ""))
-                a = logic._parse_int_from_cell_text(cells.get("assists", ""))
-                rows.append(
-                    {
-                        "player_id": pid,
-                        "name": str(p.get("name") or ""),
-                        "goals": g,
-                        "assists": a,
-                        "points": g + a,
-                    }
-                )
-                by_pid[pid] = p
-            sorted_rows = logic.sort_players_table_default(rows)
-            return [
-                by_pid[int(r0["player_id"])] for r0 in sorted_rows if int(r0["player_id"]) in by_pid
-            ]
-
-        team1_skaters_sorted = _sort_players_for_game(team1_skaters_sorted)
-        team2_skaters_sorted = _sort_players_for_game(team2_skaters_sorted)
+        player_has_events_by_pid = _compute_player_has_events_by_pid_for_game(
+            events_rows=events_rows,
+            team1_players=list(team1_skaters),
+            team2_players=list(team2_skaters),
+        )
     except Exception:
-        team1_skaters_sorted = list(team1_skaters)
-        team2_skaters_sorted = list(team2_skaters)
+        player_has_events_by_pid = {}
+
+    display_by_pid: dict[int, dict[str, Any]] = {}
+    for p in list(team1_skaters) + list(team2_skaters):
+        try:
+            pid = int(p.get("id") or 0)
+        except Exception:
+            continue
+        if pid <= 0:
+            continue
+        db_row = stats_by_pid.get(pid) or {}
+        base: dict[str, Any] = {"player_id": int(pid), "gp": 1}
+        for k in logic.PLAYER_STATS_SUM_KEYS:
+            base[str(k)] = logic._int0(db_row.get(str(k)))
+        display_by_pid[int(pid)] = logic.compute_player_display_stats(base)
+
+    team1_player_stats_rows = logic.sort_players_table_default(
+        logic.build_player_stats_table_rows(list(team1_skaters), display_by_pid)
+    )
+    team2_player_stats_rows = logic.sort_players_table_default(
+        logic.build_player_stats_table_rows(list(team2_skaters), display_by_pid)
+    )
+    for r0 in list(team1_player_stats_rows) + list(team2_player_stats_rows):
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = bool(player_has_events_by_pid.get(pid_i))
+
+    game_player_stats_columns = logic.build_game_player_stats_display_columns(
+        rows=list(team1_player_stats_rows) + list(team2_player_stats_rows)
+    )
+    player_stats_cell_conflicts_by_pid: dict[int, dict[str, bool]] = {}
+    player_stats_import_warning: Optional[str] = None
 
     if request.method == "POST" and not edit_mode:
         messages.error(
@@ -4615,84 +4717,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             ),
         }
 
-    player_has_events_by_pid: dict[int, bool] = {}
-    try:
-        home_by_jersey: dict[str, list[int]] = {}
-        for p in team1_skaters_sorted or []:
-            try:
-                pid_i = int(p.get("id"))
-            except Exception:
-                continue
-            j = logic.normalize_jersey_number(p.get("jersey_number"))
-            if j:
-                home_by_jersey.setdefault(j, []).append(pid_i)
-            player_has_events_by_pid[pid_i] = False
-
-        away_by_jersey: dict[str, list[int]] = {}
-        for p in team2_skaters_sorted or []:
-            try:
-                pid_i = int(p.get("id"))
-            except Exception:
-                continue
-            j = logic.normalize_jersey_number(p.get("jersey_number"))
-            if j:
-                away_by_jersey.setdefault(j, []).append(pid_i)
-            player_has_events_by_pid[pid_i] = False
-
-        def _num_set(raw: Any) -> set[str]:
-            if not raw:
-                return set()
-            return {str(int(x)) for x in re.findall(r"([0-9]+)", str(raw))}
-
-        for row in events_rows or []:
-            side_raw = (
-                str(
-                    row.get("Team Side")
-                    or row.get("TeamSide")
-                    or row.get("Team Rel")
-                    or row.get("TeamRel")
-                    or row.get("Team")
-                    or ""
-                )
-                .strip()
-                .lower()
-            )
-            side = ""
-            if side_raw in {"home", "team1"}:
-                side = "home"
-            elif side_raw in {"away", "team2"}:
-                side = "away"
-
-            # Attributed events (team-side specific).
-            attr = _num_set(row.get("Attributed Jerseys") or row.get("AttributedJerseys"))
-            if attr and side:
-                jmap = home_by_jersey if side == "home" else away_by_jersey
-                for j in attr:
-                    for pid_i in jmap.get(j, []):
-                        player_has_events_by_pid[int(pid_i)] = True
-
-            # On-ice columns can be split Home/Away or a single legacy column.
-            on_home = row.get("On-Ice Players (Home)") or row.get("On-Ice Players Home")
-            on_away = row.get("On-Ice Players (Away)") or row.get("On-Ice Players Away")
-            if on_home:
-                for j in _num_set(on_home):
-                    for pid_i in home_by_jersey.get(j, []):
-                        player_has_events_by_pid[int(pid_i)] = True
-            if on_away:
-                for j in _num_set(on_away):
-                    for pid_i in away_by_jersey.get(j, []):
-                        player_has_events_by_pid[int(pid_i)] = True
-
-            if not on_home and not on_away and side:
-                on_generic = row.get("On-Ice Players") or row.get("On-Ice Players (PM)")
-                if on_generic:
-                    jmap = home_by_jersey if side == "home" else away_by_jersey
-                    for j in _num_set(on_generic):
-                        for pid_i in jmap.get(j, []):
-                            player_has_events_by_pid[int(pid_i)] = True
-    except Exception:
-        player_has_events_by_pid = {}
-
     return render(
         request,
         "hky_game_detail.html",
@@ -4700,10 +4724,8 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "game": game,
             "team1_roster": team1_roster,
             "team2_roster": team2_roster,
-            "team1_players": team1_skaters_sorted,
-            "team2_players": team2_skaters_sorted,
-            "stats_by_pid": stats_by_pid,
-            "period_stats_by_pid": period_stats_by_pid,
+            "team1_player_stats_rows": team1_player_stats_rows,
+            "team2_player_stats_rows": team2_player_stats_rows,
             "editable": bool(edit_mode),
             "can_edit": bool(can_edit),
             "edit_mode": bool(edit_mode),
@@ -4719,7 +4741,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             ),
             "user_is_logged_in": True,
             "game_player_stats_columns": game_player_stats_columns,
-            "player_stats_cells_by_pid": player_stats_cells_by_pid,
             "player_stats_cell_conflicts_by_pid": player_stats_cell_conflicts_by_pid,
             "player_stats_import_meta": player_stats_import_meta,
             "player_stats_import_warning": player_stats_import_warning,
@@ -4727,7 +4748,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "goalie_stats_away_rows": goalie_stats.get("away") or [],
             "goalie_stats_has_sog": bool((goalie_stats.get("meta") or {}).get("has_sog")),
             "goalie_stats_has_xg": bool((goalie_stats.get("meta") or {}).get("has_xg")),
-            "player_has_events_by_pid": player_has_events_by_pid,
             "league_page_views": league_page_views,
         },
     )
@@ -6290,8 +6310,6 @@ def public_hky_game_detail(
     except Exception:
         # Best-effort: event-derived overlays are optional and should not break page rendering.
         pass
-
-    period_stats_by_pid: dict[int, dict[int, dict[str, Any]]] = {}
     tts_linked = logic._extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
 
     events_headers, events_rows, events_meta = _load_game_events_for_display(game_id=int(game_id))
@@ -6387,52 +6405,49 @@ def public_hky_game_detail(
         except Exception:
             goalie_stats = {"home": [], "away": [], "meta": {"has_sog": False}}
 
-    imported_player_stats_csv_text: Optional[str] = None
     player_stats_import_meta: Optional[dict[str, Any]] = None
 
-    (
-        game_player_stats_columns,
-        player_stats_cells_by_pid,
-        player_stats_cell_conflicts_by_pid,
-        player_stats_import_warning,
-    ) = logic.build_game_player_stats_table(
-        players=list(team1_skaters) + list(team2_skaters),
-        stats_by_pid=stats_by_pid,
-        imported_csv_text=imported_player_stats_csv_text,
-        prefer_db_stats_for_keys={"goals", "assists"} if tts_linked else None,
-    )
-    team1_skaters_sorted = list(team1_skaters)
-    team2_skaters_sorted = list(team2_skaters)
     try:
-
-        def _sort_players_for_game(players_in: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            rows = []
-            by_pid = {}
-            for p in players_in:
-                pid = int(p.get("id"))
-                cells = (player_stats_cells_by_pid or {}).get(pid, {})
-                g = logic._parse_int_from_cell_text(cells.get("goals", ""))
-                a = logic._parse_int_from_cell_text(cells.get("assists", ""))
-                rows.append(
-                    {
-                        "player_id": pid,
-                        "name": str(p.get("name") or ""),
-                        "goals": g,
-                        "assists": a,
-                        "points": g + a,
-                    }
-                )
-                by_pid[pid] = p
-            sorted_rows = logic.sort_players_table_default(rows)
-            return [
-                by_pid[int(r0["player_id"])] for r0 in sorted_rows if int(r0["player_id"]) in by_pid
-            ]
-
-        team1_skaters_sorted = _sort_players_for_game(team1_skaters_sorted)
-        team2_skaters_sorted = _sort_players_for_game(team2_skaters_sorted)
+        player_has_events_by_pid = _compute_player_has_events_by_pid_for_game(
+            events_rows=events_rows,
+            team1_players=list(team1_skaters),
+            team2_players=list(team2_skaters),
+        )
     except Exception:
-        team1_skaters_sorted = list(team1_skaters)
-        team2_skaters_sorted = list(team2_skaters)
+        player_has_events_by_pid = {}
+
+    display_by_pid: dict[int, dict[str, Any]] = {}
+    for p in list(team1_skaters) + list(team2_skaters):
+        try:
+            pid = int(p.get("id") or 0)
+        except Exception:
+            continue
+        if pid <= 0:
+            continue
+        db_row = stats_by_pid.get(pid) or {}
+        base: dict[str, Any] = {"player_id": int(pid), "gp": 1}
+        for k in logic.PLAYER_STATS_SUM_KEYS:
+            base[str(k)] = logic._int0(db_row.get(str(k)))
+        display_by_pid[int(pid)] = logic.compute_player_display_stats(base)
+
+    team1_player_stats_rows = logic.sort_players_table_default(
+        logic.build_player_stats_table_rows(list(team1_skaters), display_by_pid)
+    )
+    team2_player_stats_rows = logic.sort_players_table_default(
+        logic.build_player_stats_table_rows(list(team2_skaters), display_by_pid)
+    )
+    for r0 in list(team1_player_stats_rows) + list(team2_player_stats_rows):
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        r0["has_events"] = bool(player_has_events_by_pid.get(pid_i))
+
+    game_player_stats_columns = logic.build_game_player_stats_display_columns(
+        rows=list(team1_player_stats_rows) + list(team2_player_stats_rows)
+    )
+    player_stats_cell_conflicts_by_pid: dict[int, dict[str, bool]] = {}
+    player_stats_import_warning: Optional[str] = None
 
     default_back_url = f"/public/leagues/{int(league_id)}/schedule"
     return_to = logic._safe_return_to_url(request.GET.get("return_to"), default=default_back_url)
@@ -6449,82 +6464,6 @@ def public_hky_game_detail(
             ),
         }
 
-    player_has_events_by_pid: dict[int, bool] = {}
-    try:
-        home_by_jersey: dict[str, list[int]] = {}
-        for p in team1_skaters_sorted or []:
-            try:
-                pid_i = int(p.get("id"))
-            except Exception:
-                continue
-            j = logic.normalize_jersey_number(p.get("jersey_number"))
-            if j:
-                home_by_jersey.setdefault(j, []).append(pid_i)
-            player_has_events_by_pid[pid_i] = False
-
-        away_by_jersey: dict[str, list[int]] = {}
-        for p in team2_skaters_sorted or []:
-            try:
-                pid_i = int(p.get("id"))
-            except Exception:
-                continue
-            j = logic.normalize_jersey_number(p.get("jersey_number"))
-            if j:
-                away_by_jersey.setdefault(j, []).append(pid_i)
-            player_has_events_by_pid[pid_i] = False
-
-        def _num_set(raw: Any) -> set[str]:
-            if not raw:
-                return set()
-            return {str(int(x)) for x in re.findall(r"([0-9]+)", str(raw))}
-
-        for row in events_rows or []:
-            side_raw = (
-                str(
-                    row.get("Team Side")
-                    or row.get("TeamSide")
-                    or row.get("Team Rel")
-                    or row.get("TeamRel")
-                    or row.get("Team")
-                    or ""
-                )
-                .strip()
-                .lower()
-            )
-            side = ""
-            if side_raw in {"home", "team1"}:
-                side = "home"
-            elif side_raw in {"away", "team2"}:
-                side = "away"
-
-            attr = _num_set(row.get("Attributed Jerseys") or row.get("AttributedJerseys"))
-            if attr and side:
-                jmap = home_by_jersey if side == "home" else away_by_jersey
-                for j in attr:
-                    for pid_i in jmap.get(j, []):
-                        player_has_events_by_pid[int(pid_i)] = True
-
-            on_home = row.get("On-Ice Players (Home)") or row.get("On-Ice Players Home")
-            on_away = row.get("On-Ice Players (Away)") or row.get("On-Ice Players Away")
-            if on_home:
-                for j in _num_set(on_home):
-                    for pid_i in home_by_jersey.get(j, []):
-                        player_has_events_by_pid[int(pid_i)] = True
-            if on_away:
-                for j in _num_set(on_away):
-                    for pid_i in away_by_jersey.get(j, []):
-                        player_has_events_by_pid[int(pid_i)] = True
-
-            if not on_home and not on_away and side:
-                on_generic = row.get("On-Ice Players") or row.get("On-Ice Players (PM)")
-                if on_generic:
-                    jmap = home_by_jersey if side == "home" else away_by_jersey
-                    for j in _num_set(on_generic):
-                        for pid_i in jmap.get(j, []):
-                            player_has_events_by_pid[int(pid_i)] = True
-    except Exception:
-        player_has_events_by_pid = {}
-
     return render(
         request,
         "hky_game_detail.html",
@@ -6532,10 +6471,8 @@ def public_hky_game_detail(
             "game": game,
             "team1_roster": team1_roster,
             "team2_roster": team2_roster,
-            "team1_players": team1_skaters_sorted,
-            "team2_players": team2_skaters_sorted,
-            "stats_by_pid": stats_by_pid,
-            "period_stats_by_pid": period_stats_by_pid,
+            "team1_player_stats_rows": team1_player_stats_rows,
+            "team2_player_stats_rows": team2_player_stats_rows,
             "editable": False,
             "can_edit": False,
             "edit_mode": False,
@@ -6554,7 +6491,6 @@ def public_hky_game_detail(
             ),
             "user_is_logged_in": public_is_logged_in,
             "game_player_stats_columns": game_player_stats_columns,
-            "player_stats_cells_by_pid": player_stats_cells_by_pid,
             "player_stats_cell_conflicts_by_pid": player_stats_cell_conflicts_by_pid,
             "player_stats_import_meta": player_stats_import_meta,
             "player_stats_import_warning": player_stats_import_warning,
@@ -6562,7 +6498,6 @@ def public_hky_game_detail(
             "goalie_stats_away_rows": goalie_stats.get("away") or [],
             "goalie_stats_has_sog": bool((goalie_stats.get("meta") or {}).get("has_sog")),
             "goalie_stats_has_xg": bool((goalie_stats.get("meta") or {}).get("has_xg")),
-            "player_has_events_by_pid": player_has_events_by_pid,
             "league_page_views": league_page_views,
         },
     )

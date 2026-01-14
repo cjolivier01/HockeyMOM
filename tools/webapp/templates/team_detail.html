@@ -291,56 +291,7 @@
     </p>
   {% endif %}
 
-  <div class="table-scroll">
-    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Name</th>
-          <th>Pos</th>
-          {% for col in player_stats_columns %}
-            <th>
-              <div>{{ col.label }}</div>
-              {% if col.show_count %}
-                <div class="th-subnote">({{ col.n_games }} Games)</div>
-              {% endif %}
-            </th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in player_stats_rows %}
-          <tr>
-            <td>{{ r.jersey_number|default_if_none:"" }}</td>
-            <td>
-              {% if r.has_events %}
-                <button
-                  type="button"
-                  class="btn secondary player-events-link"
-                  data-player-id="{{ r.player_id }}"
-                  data-scope="all"
-                  data-scope-label="{{ game_type_filter_label|default:'All' }}"
-                  title="Show underlying events"
-                >{{ r.name|default_if_none:"" }}</button>
-              {% else %}
-                {{ r.name|default_if_none:"" }}
-              {% endif %}
-            </td>
-            <td>{{ r.position|default_if_none:"" }}</td>
-            {% for col in player_stats_columns %}
-              {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
-                <td>{{ r|get_item:col.key|fmt_toi }}</td>
-              {% else %}
-                <td>{{ r|get_item:col.key|fmt_stat }}</td>
-              {% endif %}
-            {% endfor %}
-          </tr>
-        {% empty %}
-          <tr><td colspan="{{ player_stats_columns|length|add:'3' }}" class="muted">No player stats yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% include "_player_stats_table.html" with rows=player_stats_rows columns=player_stats_columns show_position=False table_sortable=True freeze_cols=2 events_button_kind="team" events_scope="all" events_scope_label=game_type_filter_label|default:"All" empty_label="No player stats yet." %}
 </div>
 
 <h3 style="margin-top:1.25rem;">Recent Player Stats  -- Are They On a Roll?</h3>
@@ -374,10 +325,6 @@
           {% sort_label recent_sort recent_dir "name" "Name" as sort_txt %}
           <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
 
-          {% sort_toggle_url "position" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
-          {% sort_label recent_sort recent_dir "position" "Pos" as sort_txt %}
-          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
-
           {% for col in recent_player_stats_columns %}
             {% sort_toggle_url col.key sort_key=recent_sort sort_dir=recent_dir as sort_href %}
             {% sort_label recent_sort recent_dir col.key col.label as sort_txt %}
@@ -409,7 +356,6 @@
                 {{ r.name|default_if_none:"" }}
               {% endif %}
             </td>
-            <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in recent_player_stats_columns %}
               {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
                 <td>{{ r|get_item:col.key|fmt_toi }}</td>
@@ -419,7 +365,7 @@
             {% endfor %}
           </tr>
         {% empty %}
-          <tr><td colspan="{{ recent_player_stats_columns|length|add:'3' }}" class="muted">No recent stats.</td></tr>
+          <tr><td colspan="{{ recent_player_stats_columns|length|add:'2' }}" class="muted">No recent stats.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -714,10 +660,10 @@
       });
     }
 
-    function renderEventsTable(container, rows, opts) {
-      var wrap = document.createElement("div");
-      wrap.className = "table-fit-wrap";
-      var table = document.createElement("table");
+	    function renderEventsTable(container, rows, opts) {
+	      var wrap = document.createElement("div");
+	      wrap.className = "table-fit-wrap";
+	      var table = document.createElement("table");
       table.className =
         "table-no-scroll-mobile table-fit-force table-never-wrap table-grid team-player-events-table";
       var thead = document.createElement("thead");
@@ -729,8 +675,10 @@
       table.appendChild(thead);
 	      var tbody = document.createElement("tbody");
 	      (rows || []).forEach(function (r) {
-	        var gameLabel = (fmtDate(r.game_starts_at) || "Game") + " vs " + String(r.opponent || "").trim();
-	        if (String(r.game_type || "").trim()) gameLabel += " (" + String(r.game_type || "").trim() + ")";
+	        var dateText = fmtDate(r.game_starts_at) || "";
+	        var typeText = String(r.game_type || "").trim();
+	        var opp = String(r.opponent || "").trim();
+	        var gameLabel = opp || "Game";
 	        var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
 	
 	        var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
@@ -749,7 +697,7 @@
 	          videoCell = btn;
 	        }
 	
-	        addRow(tbody, opts.rowCells(r, { gameCell: gameCell, videoCell: videoCell }));
+	        addRow(tbody, opts.rowCells(r, { dateText: dateText, typeText: typeText, gameCell: gameCell, videoCell: videoCell }));
 	      });
       table.appendChild(tbody);
       wrap.appendChild(table);
@@ -1018,10 +966,12 @@
 	              if (!rows.length) return;
 	              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, label));
 	              renderEventsTable(bodyEl, rows, {
-	                headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+	                headers: ["Date", "Game", "Type", "P", "Time", "Video", "For/Against", "Details", "Source"],
 	                rowCells: function (r, ctx) {
 	                  return [
+	                    String(ctx.dateText || ""),
 	                    ctx.gameCell,
+	                    String(ctx.typeText || ""),
 	                    String(r.period || ""),
 	                    String(r.game_time || ""),
 	                    ctx.videoCell,
@@ -1044,10 +994,12 @@
 	                var g = eg.groups[k];
 	                bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
 	                renderEventsTable(bodyEl, g.rows, {
-	                  headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+	                  headers: ["Date", "Game", "Type", "P", "Time", "Video", "For/Against", "Details", "Source"],
 	                  rowCells: function (r, ctx) {
 	                    return [
+	                      String(ctx.dateText || ""),
 	                      ctx.gameCell,
+	                      String(ctx.typeText || ""),
 	                      String(r.period || ""),
 	                      String(r.game_time || ""),
 	                      ctx.videoCell,
@@ -1074,10 +1026,12 @@
               var g = og.groups[k];
               bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
               renderEventsTable(bodyEl, g.rows, {
-                headers: ["Game", "P", "Time", "Video", "Details", "Source"],
+                headers: ["Date", "Game", "Type", "P", "Time", "Video", "Details", "Source"],
                 rowCells: function (r, ctx) {
                   return [
+                    String(ctx.dateText || ""),
                     ctx.gameCell,
+                    String(ctx.typeText || ""),
                     String(r.period || ""),
                     String(r.game_time || ""),
                     ctx.videoCell,

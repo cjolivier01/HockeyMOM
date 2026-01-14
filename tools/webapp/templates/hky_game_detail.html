@@ -150,7 +150,7 @@
       {% else %}
         —
       {% endif %}
-      {% if events_meta and events_meta.updated_at %} | Updated: {{ events_meta.updated_at }}{% endif %}
+      {% if events_meta and events_meta.updated_at %} | Updated: {{ events_meta.updated_at|fmt_date }}{% endif %}
     </p>
     <div class="table-scroll">
       <table class="table-grid table-sortable" data-sortable="1">
@@ -270,7 +270,7 @@
   {% if player_stats_import_meta %}
     <p class="muted" style="margin-top:0;">
       {% if player_stats_import_meta.source_label %}Source: {{ player_stats_import_meta.source_label }}{% endif %}
-      {% if player_stats_import_meta.updated_at %} | Updated: {{ player_stats_import_meta.updated_at }}{% endif %}
+      {% if player_stats_import_meta.updated_at %} | Updated: {{ player_stats_import_meta.updated_at|fmt_date }}{% endif %}
     </p>
   {% endif %}
   {% if player_stats_import_warning %}
@@ -281,117 +281,13 @@
     <img src="{{ home_logo_url }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
     <span>{{ game.team1_name }}</span>
   </h4>
-  <div class="table-scroll">
-    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2" data-player-stats-table="1" data-team-side="home">
-      <thead>
-        <tr>
-          <th>#</th><th>Name</th>
-          {% for c in game_player_stats_columns %}
-            <th data-stat-key="{{ c.id }}">{{ c.label }}</th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in team1_players %}
-          {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
-          <tr>
-            <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td data-player-cell="name">
-              {% with has_events=player_has_events_by_pid|get_item:p.id %}
-                {% if has_events %}
-                  <button type="button" class="btn secondary player-events-btn" title="Show underlying events">{{ p.name|default_if_none:"" }}</button>
-                {% else %}
-                  {{ p.name|default_if_none:"" }}
-                {% endif %}
-              {% endwith %}
-            </td>
-            {% for c in game_player_stats_columns %}
-              {% with cid=c.id %}
-                {% if edit_mode and not public_league_id %}
-                  {% if cid == "goals" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
-                  {% elif cid == "assists" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
-                  {% elif cid == "shots" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
-                  {% elif cid == "pim" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
-                  {% elif cid == "plus_minus" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
-                  {% else %}
-                    <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
-                  {% endif %}
-                {% else %}
-                  <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
-                {% endif %}
-              {% endwith %}
-            {% endfor %}
-          </tr>
-          {% endwith %}
-        {% empty %}
-          <tr><td colspan="{{ game_player_stats_columns|length|add:'2' }}" class="muted">No players</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% include "_player_stats_table.html" with rows=team1_player_stats_rows columns=game_player_stats_columns show_position=False table_sortable=True freeze_cols=2 player_stats_table=True team_side="home" include_stat_key_attrs=True events_button_kind="game" cell_conflicts_by_player_id=player_stats_cell_conflicts_by_pid edit_mode=edit_mode public_league_id=public_league_id empty_label="No players" %}
 
   <h4 style="display:flex;align-items:center;gap:8px;margin-top:0.75rem;">
     <img src="{{ away_logo_url }}" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;" onerror="this.style.display='none'" />
     <span>{{ game.team2_name }}</span>
   </h4>
-  <div class="table-scroll">
-    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2" data-player-stats-table="1" data-team-side="away">
-      <thead>
-        <tr>
-          <th>#</th><th>Name</th>
-          {% for c in game_player_stats_columns %}
-            <th data-stat-key="{{ c.id }}">{{ c.label }}</th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in team2_players %}
-          {% with s=stats_by_pid|get_item:p.id row_cells=player_stats_cells_by_pid|get_item:p.id row_conf=player_stats_cell_conflicts_by_pid|get_item:p.id %}
-          <tr>
-            <td>{{ p.jersey_number|default_if_none:"" }}</td>
-            <td data-player-cell="name">
-              {% with has_events=player_has_events_by_pid|get_item:p.id %}
-                {% if has_events %}
-                  <button type="button" class="btn secondary player-events-btn" title="Show underlying events">{{ p.name|default_if_none:"" }}</button>
-                {% else %}
-                  {{ p.name|default_if_none:"" }}
-                {% endif %}
-              {% endwith %}
-            </td>
-            {% for c in game_player_stats_columns %}
-              {% with cid=c.id %}
-                {% if edit_mode and not public_league_id %}
-                  {% if cid == "goals" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_goals_{{ p.id }}" value="{{ s.goals|default_if_none:"" }}" min="0" style="width:70px"></td>
-                  {% elif cid == "assists" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_assists_{{ p.id }}" value="{{ s.assists|default_if_none:"" }}" min="0" style="width:70px"></td>
-                  {% elif cid == "shots" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_shots_{{ p.id }}" value="{{ s.shots|default_if_none:"" }}" min="0" style="width:70px"></td>
-                  {% elif cid == "pim" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_pim_{{ p.id }}" value="{{ s.pim|default_if_none:"" }}" min="0" style="width:70px"></td>
-                  {% elif cid == "plus_minus" %}
-                    <td data-stat-key="{{ cid }}"><input type="number" name="ps_plusminus_{{ p.id }}" value="{{ s.plus_minus|default_if_none:"" }}" style="width:70px"></td>
-                  {% else %}
-                    <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
-                  {% endif %}
-                {% else %}
-                  <td data-stat-key="{{ cid }}" {% if row_conf|get_item:cid %}style="color:#ff6b6b;font-weight:600;"{% endif %}>{{ row_cells|get_item:cid }}</td>
-                {% endif %}
-              {% endwith %}
-            {% endfor %}
-          </tr>
-          {% endwith %}
-        {% empty %}
-          <tr><td colspan="{{ game_player_stats_columns|length|add:'2' }}" class="muted">No players</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% include "_player_stats_table.html" with rows=team2_player_stats_rows columns=game_player_stats_columns show_position=False table_sortable=True freeze_cols=2 player_stats_table=True team_side="away" include_stat_key_attrs=True events_button_kind="game" cell_conflicts_by_player_id=player_stats_cell_conflicts_by_pid edit_mode=edit_mode public_league_id=public_league_id empty_label="No players" %}
 
   {% if goalie_stats_has_sog %}
   <h3 style="margin-top:1.25rem;">Goalie Stats</h3>
@@ -498,7 +394,7 @@
           <div style="display:flex;align-items:center;gap:1rem;">
             <button class="btn" type="submit">Import stats</button>
             {% if game.stats_imported_at %}
-              <span class="muted">Last import: {{ game.stats_imported_at }}</span>
+              <span class="muted">Last import: {{ game.stats_imported_at|fmt_date }}</span>
             {% endif %}
           </div>
         </form>
@@ -512,7 +408,7 @@
   {% if events_meta %}
     <p class="muted" style="margin-top:0;">
       {% if events_meta.sources %}Sources: {{ events_meta.sources|join:", " }}{% elif events_meta.source_label %}Source: {{ events_meta.source_label }}{% endif %}
-      {% if events_meta.updated_at %} | Updated: {{ events_meta.updated_at }}{% endif %}
+      {% if events_meta.updated_at %} | Updated: {{ events_meta.updated_at|fmt_date }}{% endif %}
       {% if events_meta.count %} | Rows: {{ events_meta.count }}{% endif %}
     </p>
   {% endif %}
@@ -2552,7 +2448,8 @@
       shots: ["shot", "sog", "expectedgoal", "goal"],
       pim: ["penalty"],
       plus_minus: ["goal"],
-      gfga: ["goal"],
+      gf_counted: ["goal"],
+      ga_counted: ["goal"],
     };
 
     var PLAYER_EVENTS_SCOPE_LABEL = String("{{ game.team2_name|escapejs }} at {{ game.team1_name|escapejs }}{% if game.starts_at %} {{ game.starts_at|date:'Y-m-d' }}{% endif %}" || "").trim();
@@ -2751,7 +2648,7 @@
       var statKey = String(opts.statKey || "").trim();
       var statLabel = String(opts.statLabel || "").trim();
 
-      var isOnIceGoalStat = statKey === "plus_minus" || statKey === "gfga";
+      var isOnIceGoalStat = statKey === "plus_minus" || statKey === "gf_counted" || statKey === "ga_counted";
       var showOnIceGoals = !statKey || isOnIceGoalStat;
       var showAttributedEvents = !statKey || !isOnIceGoalStat;
 
@@ -2812,6 +2709,11 @@
           onIceGoals.push(copy);
         });
         sortRowsByPeriodAndGameClockDesc(onIceGoals);
+        if (statKey === "gf_counted") {
+          onIceGoals = onIceGoals.filter(function (r) { return String(r.__forAgainst || "") === "For"; });
+        } else if (statKey === "ga_counted") {
+          onIceGoals = onIceGoals.filter(function (r) { return String(r.__forAgainst || "") === "Against"; });
+        }
       }
 
       var dlg = document.getElementById("events-drilldown-modal");
