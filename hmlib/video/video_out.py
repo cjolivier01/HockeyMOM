@@ -39,6 +39,23 @@ def get_and_pop(map: Dict[str, Any], key: str) -> Any:
     return result
 
 
+def is_number(value) -> bool:
+    if isinstance(value, (int, float)):
+        return not isinstance(value, bool)  # exclude True/False
+
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return False
+        try:
+            x = float(s)
+            return not (x != x or x in (float("inf"), float("-inf")))
+        except ValueError:
+            return False
+
+    return False
+
+
 def get_best_codec(
     gpu_number: int, width: int, height: int, allow_scaling: bool = False
 ) -> Tuple[Literal["hevc_nvenc"] | Literal[True]] | Tuple[Literal["XVID"] | Literal[False]]:
@@ -165,11 +182,12 @@ class VideoOutput(torch.nn.ModuleDict):
         visualization_config: Dict[str, Any] | None = None,
         dtype: torch.dtype | None = None,
         device: Union[torch.device, str, None] = None,
-        output_width: int | None = None,
+        output_width: int | str | None = None,
         show_image: bool = False,
         show_scaled: Optional[float] = None,
         profiler: Any = None,
         enable_end_zones: bool = False,
+        encoder_backend: Optional[str] = None,
     ):
         """Construct a synchronous video writer.
 
@@ -226,7 +244,10 @@ class VideoOutput(torch.nn.ModuleDict):
         self._visualization_config = visualization_config
         self._dtype = dtype if dtype is not None else torch.get_default_dtype()
         assert self._dtype in _FP_TYPES
-
+        # TODO(colivier) not yet implemented (is it worth it?)
+        self._encoder_backend = (
+            None if not (encoder_backend or encoder_backend == "auto") else encoder_backend
+        )
         self._output_width = int(output_width) if output_width is not None else None
         self._output_resize_wh: Optional[Tuple[int, int]] = None
 
@@ -283,6 +304,16 @@ class VideoOutput(torch.nn.ModuleDict):
         """Return (width, height) to resize output frames to, if configured."""
         if self._output_width is None:
             return None
+        elif not is_number(self._output_width):
+            if self._output_width == "auto":
+                return width, height
+            elif self._output_width == "4k":
+                self._output_width = 4096
+            elif self._output_width == "8k":
+                self._output_width = 8192
+            else:
+                raise ValueError(f'Invalid output width: "{self._output_width}"')
+
         target_w = int(self._output_width)
         if target_w <= 0:
             raise ValueError(f"output_width must be positive; got {target_w}")
