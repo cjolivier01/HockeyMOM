@@ -142,7 +142,7 @@ class VideoOutPlugin(Plugin):
             skip_final_save=self._skip_final_save,
             cache_size=self._cache,
             device=vo_dev,
-            output_width=cam_args.output_width,
+            output_width=getattr(cam_args, "output_width", None),
             show_image=bool(getattr(cam_args, "show_image", False)),
             show_scaled=getattr(cam_args, "show_scaled", None),
             profiler=getattr(cam_args, "profiler", None),
