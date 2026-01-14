@@ -291,7 +291,56 @@
     </p>
   {% endif %}
 
-  {% include "_player_stats_table.html" with rows=player_stats_rows columns=player_stats_columns show_position=False table_sortable=True freeze_cols=2 events_button_kind="team" events_scope="all" events_scope_label=game_type_filter_label|default:"All" empty_label="No player stats yet." %}
+  <div class="table-scroll">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Pos</th>
+          {% for col in player_stats_columns %}
+            <th>
+              <div>{{ col.label }}</div>
+              {% if col.show_count %}
+                <div class="th-subnote">({{ col.n_games }} Games)</div>
+              {% endif %}
+            </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in player_stats_rows %}
+          <tr>
+            <td>{{ r.jersey_number|default_if_none:"" }}</td>
+            <td>
+              {% if r.has_events %}
+                <button
+                  type="button"
+                  class="btn secondary player-events-link"
+                  data-player-id="{{ r.player_id }}"
+                  data-scope="all"
+                  data-scope-label="{{ game_type_filter_label|default:'All' }}"
+                  title="Show underlying events"
+                >{{ r.name|default_if_none:"" }}</button>
+              {% else %}
+                {{ r.name|default_if_none:"" }}
+              {% endif %}
+            </td>
+            <td>{{ r.position|default_if_none:"" }}</td>
+            {% for col in player_stats_columns %}
+              {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
+                <td>{{ r|get_item:col.key|fmt_toi }}</td>
+              {% else %}
+                <td>{{ r|get_item:col.key|fmt_stat }}</td>
+              {% endif %}
+            {% endfor %}
+          </tr>
+        {% empty %}
+          <tr><td colspan="{{ player_stats_columns|length|add:'3' }}" class="muted">No player stats yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <h3 style="margin-top:1.25rem;">Recent Player Stats  -- Are They On a Roll?</h3>
@@ -325,6 +374,10 @@
           {% sort_label recent_sort recent_dir "name" "Name" as sort_txt %}
           <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
 
+          {% sort_toggle_url "position" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
+          {% sort_label recent_sort recent_dir "position" "Pos" as sort_txt %}
+          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
+
           {% for col in recent_player_stats_columns %}
             {% sort_toggle_url col.key sort_key=recent_sort sort_dir=recent_dir as sort_href %}
             {% sort_label recent_sort recent_dir col.key col.label as sort_txt %}
@@ -356,6 +409,7 @@
                 {{ r.name|default_if_none:"" }}
               {% endif %}
             </td>
+            <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in recent_player_stats_columns %}
               {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
                 <td>{{ r|get_item:col.key|fmt_toi }}</td>
@@ -365,7 +419,7 @@
             {% endfor %}
           </tr>
         {% empty %}
-          <tr><td colspan="{{ recent_player_stats_columns|length|add:'2' }}" class="muted">No recent stats.</td></tr>
+          <tr><td colspan="{{ recent_player_stats_columns|length|add:'3' }}" class="muted">No recent stats.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -574,136 +628,55 @@
         return String(m) + ":" + (s < 10 ? "0" + String(s) : String(s));
       }
 
-    function fmtDate(value) {
-      var s = String(value || "").trim();
-      if (!s) return "";
-      var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+      function fmtDate(value) {
+        var s = String(value || "").trim();
+        if (!s) return "";
+        var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
       return m ? m[1] : s;
     }
 
-    function sortEventRowsStable(rows) {
-      // Stable ordering for Player Events tables:
-      //   - newest games first (by game start datetime),
-      //   - then chronological within a game: period asc, time desc (clock counts down).
-      function parseGameStartKey(value) {
-        var s = String(value || "").trim();
-        if (!s) return null;
-        var m = s.match(
-          /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/
-        );
-        if (!m) return null;
-        var y = parseInt(m[1], 10);
-        var mo = parseInt(m[2], 10);
-        var da = parseInt(m[3], 10);
-        var hh = m[4] ? parseInt(m[4], 10) : 0;
-        var mm = m[5] ? parseInt(m[5], 10) : 0;
-        var ss = m[6] ? parseInt(m[6], 10) : 0;
-        if (!isFinite(y) || !isFinite(mo) || !isFinite(da)) return null;
-        if (!isFinite(hh) || !isFinite(mm) || !isFinite(ss)) return null;
-        var keyStr =
-          String(y).padStart(4, "0") +
-          String(mo).padStart(2, "0") +
-          String(da).padStart(2, "0") +
-          String(hh).padStart(2, "0") +
-          String(mm).padStart(2, "0") +
-          String(ss).padStart(2, "0");
-        var key = parseInt(keyStr, 10);
-        return isFinite(key) ? key : null;
-      }
-
-      function gameSeconds(r) {
-        if (!r) return null;
-        if (r.game_seconds !== undefined && r.game_seconds !== null) {
-          var n = parseInt(String(r.game_seconds), 10);
-          if (isFinite(n)) return n;
-        }
-        return parseTimeToSeconds(r.game_time);
-      }
-
-      function periodNum(r) {
-        if (!r) return null;
-        var p = parseInt(String(r.period || "").trim(), 10);
-        return isFinite(p) ? p : null;
-      }
-
-      var decorated = [];
-      (rows || []).forEach(function (r, idx) {
-        decorated.push({ row: r, idx: idx });
-      });
-      decorated.sort(function (aa, bb) {
-        var a = aa.row || {};
-        var b = bb.row || {};
-
-        var sa = parseGameStartKey(a.game_starts_at);
-        var sb = parseGameStartKey(b.game_starts_at);
-        sa = sa === null ? -1 : sa;
-        sb = sb === null ? -1 : sb;
-        if (sa !== sb) return sb - sa; // newest first
-
-        var pa = periodNum(a);
-        var pb = periodNum(b);
-        pa = pa === null ? 999 : pa;
-        pb = pb === null ? 999 : pb;
-        if (pa !== pb) return pa - pb;
-
-        var ga = gameSeconds(a);
-        var gb = gameSeconds(b);
-        ga = ga === null ? -1 : ga;
-        gb = gb === null ? -1 : gb;
-        if (ga !== gb) return gb - ga; // clock counts down
-
-        return aa.idx - bb.idx;
-      });
-      return decorated.map(function (d) {
-        return d.row;
-      });
-    }
-
-    function urlWithTime(url, seconds) {
-      if (!url) return "";
-      if (seconds === null || seconds === undefined) return String(url);
-      var sec = parseInt(String(seconds), 10);
-      if (!isFinite(sec) || sec < 0) return String(url);
-      try {
-        var u = new URL(String(url), window.location.origin);
-        var host = String(u.hostname || "").toLowerCase();
-        var isYouTube =
-          host.indexOf("youtube.com") >= 0 ||
-          host.indexOf("youtu.be") >= 0 ||
-          host.indexOf("youtube-nocookie.com") >= 0;
-        if (isYouTube) {
-          // Prefer a standard watch URL so it plays reliably in a new tab, even if embed URLs are stored.
-          var id = null;
-          if (host === "youtu.be") {
-            var p = String(u.pathname || "").replace(/^\//, "");
-            id = p ? p.split("/")[0] : null;
-          } else {
-            id = u.searchParams.get("v");
-            if (!id) {
-              var path = String(u.pathname || "");
-              var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
-              id = m ? m[1] : null;
+      function urlWithTime(url, seconds) {
+        if (!url) return "";
+        if (seconds === null || seconds === undefined) return String(url);
+        var sec = parseInt(String(seconds), 10);
+        if (!isFinite(sec) || sec < 0) return String(url);
+        try {
+          var u = new URL(String(url), window.location.origin);
+          var host = String(u.hostname || "").toLowerCase();
+          var isYouTube = host.indexOf("youtube.com") >= 0 || host.indexOf("youtu.be") >= 0 || host.indexOf("youtube-nocookie.com") >= 0;
+          if (isYouTube) {
+            // Prefer a standard watch URL so it plays reliably in a new tab, even if embed URLs are stored.
+            var id = null;
+            if (host === "youtu.be") {
+              var p = String(u.pathname || "").replace(/^\//, "");
+              id = p ? p.split("/")[0] : null;
+            } else {
+              id = u.searchParams.get("v");
+              if (!id) {
+                var path = String(u.pathname || "");
+                var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
+                id = m ? m[1] : null;
+              }
             }
+            if (id) {
+              var w = new URL("https://www.youtube.com/watch");
+              w.searchParams.set("v", String(id));
+              w.searchParams.set("t", String(sec) + "s");
+              w.searchParams.set("autoplay", "1");
+              w.searchParams.set("vq", "hd1080");
+              return w.toString();
+            }
+            u.searchParams.set("t", String(sec) + "s");
+            u.searchParams.set("autoplay", "1");
+            u.searchParams.set("vq", "hd1080");
+            return u.toString();
           }
-          if (id) {
-            var w = new URL("https://www.youtube.com/watch");
-            w.searchParams.set("v", String(id));
-            w.searchParams.set("t", String(sec) + "s");
-            w.searchParams.set("autoplay", "1");
-            w.searchParams.set("vq", "hd1080");
-            return w.toString();
-          }
-          u.searchParams.set("t", String(sec) + "s");
-          u.searchParams.set("autoplay", "1");
-          u.searchParams.set("vq", "hd1080");
+          u.hash = "t=" + String(sec);
           return u.toString();
+        } catch (e) {
+          return String(url);
         }
-        u.hash = "t=" + String(sec);
-        return u.toString();
-      } catch (e) {
-        return String(url);
       }
-    }
 
     function el(tag, attrs, text) {
       var node = document.createElement(tag);
@@ -741,10 +714,10 @@
       });
     }
 
-        function renderEventsTable(container, rows, opts) {
-          var wrap = document.createElement("div");
-          wrap.className = "table-fit-wrap";
-          var table = document.createElement("table");
+    function renderEventsTable(container, rows, opts) {
+      var wrap = document.createElement("div");
+      wrap.className = "table-fit-wrap";
+      var table = document.createElement("table");
       table.className =
         "table-no-scroll-mobile table-fit-force table-never-wrap table-grid team-player-events-table";
       var thead = document.createElement("thead");
@@ -754,17 +727,15 @@
       });
       thead.appendChild(trh);
       table.appendChild(thead);
-          var tbody = document.createElement("tbody");
-          (rows || []).forEach(function (r) {
-            var dateText = fmtDate(r.game_starts_at) || "";
-            var typeText = String(r.game_type || "").trim();
-            var opp = String(r.opponent || "").trim();
-            var gameLabel = opp || "—";
-            var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
-    
-            var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
-            var hasVideoTime = videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
-            var videoLabel = hasVideoTime ? (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) : "";
+        var tbody = document.createElement("tbody");
+        (rows || []).forEach(function (r) {
+          var gameLabel = (fmtDate(r.game_starts_at) || "Game") + " vs " + String(r.opponent || "").trim();
+          if (String(r.game_type || "").trim()) gameLabel += " (" + String(r.game_type || "").trim() + ")";
+          var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
+  
+          var videoSeconds = r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
+          var hasVideoTime = videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
+          var videoLabel = hasVideoTime ? (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) : "";
           var videoCell = el("span", { className: "muted" }, "");
           if (r.video_url && hasVideoTime) {
             var btn = el(
@@ -778,7 +749,7 @@
             videoCell = btn;
           }
   
-          addRow(tbody, opts.rowCells(r, { dateText: dateText, typeText: typeText, gameCell: gameCell, videoCell: videoCell }));
+          addRow(tbody, opts.rowCells(r, { gameCell: gameCell, videoCell: videoCell }));
         });
       table.appendChild(tbody);
       wrap.appendChild(table);
@@ -1035,32 +1006,31 @@
                 }
               });
 
-                [
-                  ["Goals", goals],
-                  ["Assists", assists],
-                  ["xG (Expected Goal)", xg],
-                  ["SOG", sog],
-                  ["Shot", shot],
-                ].forEach(function (pair) {
-                  var label = pair[0];
-                  var rows = sortEventRowsStable(pair[1] || []);
-                  if (!rows.length) return;
-                  bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, label));
-                    renderEventsTable(bodyEl, rows, {
-                      headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
-                    rowCells: function (r, ctx) {
-                      return [
-                        String(ctx.dateText || ""),
-                        ctx.gameCell,
-                        String(ctx.typeText || ""),
-                        String(r.period || ""),
-                        String(r.game_time || ""),
-                        ctx.videoCell,
-                        String(r.details || ""),
-                        String(r.source || ""),
-                      ];
-                    },
-                  });
+              [
+                ["Goals", goals],
+                ["Assists", assists],
+                ["xG (Expected Goal)", xg],
+                ["SOG", sog],
+                ["Shot", shot],
+              ].forEach(function (pair) {
+                var label = pair[0];
+                var rows = pair[1] || [];
+                if (!rows.length) return;
+                bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, label));
+                renderEventsTable(bodyEl, rows, {
+                  headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+                  rowCells: function (r, ctx) {
+                    return [
+                      ctx.gameCell,
+                      String(r.period || ""),
+                      String(r.game_time || ""),
+                      ctx.videoCell,
+                      String(r.for_against || ""),
+                      String(r.details || ""),
+                      String(r.source || ""),
+                    ];
+                  },
+                });
               });
 
               var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
@@ -1068,49 +1038,46 @@
                 var k = normTypeKey(r.event_type_key || r.event_type);
                 return !chainKeys[k];
               });
-                  if (remaining.length) {
-                  var eg = groupRows(remaining, function (r) { return r.event_type; });
-                  eg.order.forEach(function (k) {
-                    var g = eg.groups[k];
-                      bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
-                      renderEventsTable(bodyEl, sortEventRowsStable(g.rows), {
-                        headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
-                        rowCells: function (r, ctx) {
-                          return [
-                            String(ctx.dateText || ""),
-                          ctx.gameCell,
-                          String(ctx.typeText || ""),
-                          String(r.period || ""),
-                          String(r.game_time || ""),
-                          ctx.videoCell,
-                          String(r.details || ""),
-                          String(r.source || ""),
-                        ];
-                      },
-                    });
+              if (remaining.length) {
+                var eg = groupRows(remaining, function (r) { return r.event_type; });
+                eg.order.forEach(function (k) {
+                  var g = eg.groups[k];
+                  bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+                  renderEventsTable(bodyEl, g.rows, {
+                    headers: ["Game", "P", "Time", "Video", "For/Against", "Details", "Source"],
+                    rowCells: function (r, ctx) {
+                      return [
+                        ctx.gameCell,
+                        String(r.period || ""),
+                        String(r.game_time || ""),
+                        ctx.videoCell,
+                        String(r.for_against || ""),
+                        String(r.details || ""),
+                        String(r.source || ""),
+                      ];
+                    },
                   });
+                });
               }
             }
 
           // Keep derived On-Ice Goals (For/Against) at the bottom.
-            if (onIce.length) {
-              bodyEl.appendChild(
-                el("h4", { style: "margin:1rem 0 .5rem 0;" }, "On-Ice Goals (For/Against)")
-              );
-              var og = groupRows(onIce, function (r) {
+          if (onIce.length) {
+            bodyEl.appendChild(
+              el("h4", { style: "margin:1rem 0 .5rem 0;" }, "On-Ice Goals (For/Against)")
+            );
+            var og = groupRows(onIce, function (r) {
               var fa = String(r.for_against || "").trim();
               return fa ? ("Goals " + fa) : "Goals";
             });
-              og.order.forEach(function (k) {
-                var g = og.groups[k];
-                bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
-                  renderEventsTable(bodyEl, sortEventRowsStable(g.rows), {
-                    headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
-                    rowCells: function (r, ctx) {
-                      return [
-                        String(ctx.dateText || ""),
-                      ctx.gameCell,
-                      String(ctx.typeText || ""),
+            og.order.forEach(function (k) {
+              var g = og.groups[k];
+              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+              renderEventsTable(bodyEl, g.rows, {
+                headers: ["Game", "P", "Time", "Video", "Details", "Source"],
+                rowCells: function (r, ctx) {
+                  return [
+                    ctx.gameCell,
                     String(r.period || ""),
                     String(r.game_time || ""),
                     ctx.videoCell,
@@ -1186,45 +1153,44 @@
       return api;
     }
 
-      function renderGoalieGamesTable(rows, opts) {
-        opts = opts || {};
-        var hasSog = !!opts.hasSog;
-        var hasXg = !!opts.hasXg;
+    function renderGoalieGamesTable(rows, opts) {
+      opts = opts || {};
+      var hasSog = !!opts.hasSog;
+      var hasXg = !!opts.hasXg;
 
       var wrap = document.createElement("div");
       wrap.className = "table-scroll";
       var table = document.createElement("table");
       table.className = "table-nowrap table-grid";
-        var thead = document.createElement("thead");
-        var trh = document.createElement("tr");
-  
-        function th(label) { trh.appendChild(el("th", null, label)); }
-        th("Date");
-        th("Opponent");
-        th("Type");
-        th("Result");
-        th("TOI");
-        th("GA");
-        if (hasXg) { th("xGA"); th("xGSV"); th("xGSV%"); }
-        if (hasSog) { th("SA"); th("SV"); th("SV%"); }
+      var thead = document.createElement("thead");
+      var trh = document.createElement("tr");
+
+      function th(label) { trh.appendChild(el("th", null, label)); }
+      th("Game");
+      th("Result");
+      th("TOI");
+      th("GA");
+      if (hasXg) { th("xGA"); th("xGSV"); th("xGSV%"); }
+      if (hasSog) { th("SA"); th("SV"); th("SV%"); }
       th("GAA");
       thead.appendChild(trh);
       table.appendChild(thead);
 
-        var tbody = document.createElement("tbody");
-        (rows || []).forEach(function (r) {
-          var tr = document.createElement("tr");
-  
-          var opp = String(r.opponent || "").trim();
-          var gameLabel = opp || "—";
-          var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
-          tr.appendChild(el("td", { className: "muted" }, fmtDate(r.game_starts_at) || ""));
-          tr.appendChild(el("td", null, gameCell));
-          tr.appendChild(el("td", { className: "muted" }, String(r.game_type || "").trim()));
-  
-          var res = "";
-          if (r.score_for !== null && r.score_for !== undefined && r.score_against !== null && r.score_against !== undefined) {
-            var sf = parseInt(String(r.score_for), 10);
+      var tbody = document.createElement("tbody");
+      (rows || []).forEach(function (r) {
+        var tr = document.createElement("tr");
+
+        var opp = String(r.opponent || "").trim();
+        var side = String(r.our_side || "").trim();
+        var homeAway = side === "away" ? "@" : "vs";
+        var gameLabel = (fmtDate(r.game_starts_at) || "Game") + " " + homeAway + (opp ? (" " + opp) : "");
+        if (String(r.game_type || "").trim()) gameLabel += " (" + String(r.game_type || "").trim() + ")";
+        var gameCell = r.game_url ? el("a", { href: r.game_url, target: "_blank", rel: "noopener noreferrer" }, gameLabel) : el("span", null, gameLabel);
+        tr.appendChild(el("td", null, gameCell));
+
+        var res = "";
+        if (r.score_for !== null && r.score_for !== undefined && r.score_against !== null && r.score_against !== undefined) {
+          var sf = parseInt(String(r.score_for), 10);
           var sa = parseInt(String(r.score_against), 10);
           var tag = (sf > sa) ? "W" : ((sf < sa) ? "L" : "T");
           if (isFinite(sf) && isFinite(sa)) res = tag + " " + String(sf) + "-" + String(sa);

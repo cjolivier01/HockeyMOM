@@ -1705,6 +1705,16 @@ def _load_input_entries_from_yaml_file_list(
         t2s: 51602                          # TimeToScore-only (no spreadsheets)
         side: HOME|AWAY                     # optional
         label: "stockton-r2"                # optional
+      or:
+        label: "tv-12-1-r1"                 # required for `sheets:` entries
+        shared_long_path: "/path/to/stats"  # optional; used to attach '*-long*' sheets to all sides
+        metadata:
+          game_video: "https://youtu.be/..."
+        sheets:
+          - side: AWAY
+            path: "/path/to/away/stats"
+          - side: HOME
+            path: "/path/to/home/stats"
     """
 
     raw = file_list_path.read_text(encoding="utf-8", errors="ignore").lstrip("\ufeff")
@@ -1793,6 +1803,8 @@ def _load_input_entries_from_yaml_file_list(
             "label",
             "meta",
             "metadata",
+            "sheets",
+            "shared_long_path",
         }
         meta: dict[str, str] = {}
         if isinstance(item.get("meta"), dict):
@@ -1814,6 +1826,7 @@ def _load_input_entries_from_yaml_file_list(
 
         if item.get("token"):
             token = str(item.get("token") or "").strip()
+            label_key = str(item.get("label") or "").strip() or None
             if not warned_pipe_meta and "|" in token:
                 warned_pipe_meta = True
                 print(
@@ -1845,7 +1858,14 @@ def _load_input_entries_from_yaml_file_list(
                 continue
 
             p, side, inline_meta = _parse_input_token_with_meta(token0, base_dir=base_dir)
-            out_entries.append(InputEntry(path=p, side=side, meta=_merge_meta(meta, inline_meta)))
+            out_entries.append(
+                InputEntry(
+                    path=p,
+                    side=side,
+                    label=label_key,
+                    meta=_merge_meta(meta, inline_meta),
+                )
+            )
             continue
 
         if item.get("t2s") is not None or item.get("timetoscore_game_id") is not None:
@@ -1866,15 +1886,104 @@ def _load_input_entries_from_yaml_file_list(
             )
             continue
 
+        if item.get("sheets") is not None:
+            label_key = str(item.get("label") or "").strip() or None
+            if not label_key:
+                raise ValueError(f"missing 'label' for games[{idx}] (required when using 'sheets')")
+            sheets_raw = item.get("sheets")
+            if not isinstance(sheets_raw, list):
+                raise ValueError(f"games[{idx}] 'sheets' must be a list")
+
+            shared_long_token = str(item.get("shared_long_path") or "").strip() or None
+            if shared_long_token:
+                shared_long_path = Path(shared_long_token).expanduser()
+                if not shared_long_path.is_absolute():
+                    shared_long_path = (base_dir / shared_long_path).resolve()
+                if shared_long_path.is_dir():
+                    for cand in _discover_spreadsheet_inputs_in_dir(shared_long_path):
+                        if not _is_long_sheet_path(cand):
+                            continue
+                        if _base_label_from_path(cand) != str(label_key):
+                            continue
+                        out_entries.append(
+                            InputEntry(path=cand, side=None, label=label_key, meta=dict(meta))
+                        )
+                elif shared_long_path.is_file():
+                    if not _is_long_sheet_path(shared_long_path):
+                        raise ValueError(
+                            f"games[{idx}] shared_long_path must point to a '*-long*' sheet: {shared_long_path}"
+                        )
+                    out_entries.append(
+                        InputEntry(
+                            path=shared_long_path, side=None, label=label_key, meta=dict(meta)
+                        )
+                    )
+                else:
+                    raise ValueError(
+                        f"games[{idx}] shared_long_path does not exist: {shared_long_path}"
+                    )
+
+            for sidx, s in enumerate(sheets_raw):
+                if isinstance(s, str):
+                    token = str(s).strip()
+                    if not token:
+                        continue
+                    p, side, inline_meta = _parse_input_token_with_meta(token, base_dir=base_dir)
+                    out_entries.append(
+                        InputEntry(
+                            path=p,
+                            side=side,
+                            label=label_key,
+                            meta=_merge_meta(meta, inline_meta),
+                        )
+                    )
+                    continue
+
+                if not isinstance(s, dict):
+                    raise ValueError(f"games[{idx}].sheets[{sidx}] must be a string or mapping")
+                sheet_meta = dict(meta)
+                if isinstance(s.get("meta"), dict):
+                    sheet_meta = _merge_meta(
+                        sheet_meta, {str(k): str(v) for k, v in s["meta"].items() if v is not None}
+                    )
+                if isinstance(s.get("metadata"), dict):
+                    sheet_meta = _merge_meta(
+                        sheet_meta,
+                        {str(k): str(v) for k, v in s["metadata"].items() if v is not None},
+                    )
+
+                path_token = str(s.get("path") or s.get("file") or s.get("dir") or "").strip()
+                if not path_token:
+                    raise ValueError(f"missing 'path'/'file' for games[{idx}].sheets[{sidx}]")
+                side_hint = _parse_side(s.get("side"))
+                if side_hint and not re.search(r"(?i):(?:home|away)(?::|$)", path_token):
+                    path_token = f"{path_token}:{side_hint.upper()}"
+                p, side, inline_meta = _parse_input_token_with_meta(path_token, base_dir=base_dir)
+                out_entries.append(
+                    InputEntry(
+                        path=p,
+                        side=side or side_hint,
+                        label=label_key,
+                        meta=_merge_meta(sheet_meta, inline_meta),
+                    )
+                )
+            continue
+
         path_token = str(item.get("path") or item.get("file") or item.get("dir") or "").strip()
         if not path_token:
             raise ValueError(f"missing 'path'/'file' for games[{idx}]")
         side_hint = _parse_side(item.get("side"))
+        label_key = str(item.get("label") or "").strip() or None
         if side_hint and not re.search(r"(?i):(?:home|away)(?::|$)", path_token):
             path_token = f"{path_token}:{side_hint.upper()}"
         p, side, inline_meta = _parse_input_token_with_meta(path_token, base_dir=base_dir)
         out_entries.append(
-            InputEntry(path=p, side=side or side_hint, meta=_merge_meta(meta, inline_meta))
+            InputEntry(
+                path=p,
+                side=side or side_hint,
+                label=label_key,
+                meta=_merge_meta(meta, inline_meta),
+            )
         )
 
     return out_entries
@@ -5799,8 +5908,8 @@ def _write_video_times_and_scripts(
         script_path = outdir / f"clip_{player_key}.sh"
         player_label = player_key.replace("_", " ")
         script_body = """#!/usr/bin/env bash
-	set -euo pipefail
-	if [ $# -lt 2 ]; then
+    set -euo pipefail
+    if [ $# -lt 2 ]; then
   echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
   exit 1
 fi
@@ -8739,18 +8848,18 @@ def _write_event_summaries_and_clips(
                 label = f"{_no_parens_label(etype_disp)} {_no_parens_label(team)}"
                 blink_label = _blink_event_label(str(etype))
                 body = f"""#!/usr/bin/env bash
-		set -euo pipefail
-		if [ $# -lt 2 ]; then
-		  echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
+        set -euo pipefail
+        if [ $# -lt 2 ]; then
+          echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
   exit 1
 fi
 INPUT=\"$1\"
 OPP=\"$2\"
-	THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
-	TS_FILE=\"$THIS_DIR/{vfile.name}\"
-	shift 2 || true
-	python -m hmlib.cli.video_clipper -j 4 --blink-event-text --blink-event-label \"{blink_label}\" --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype_safe}_{team_safe}\" \"{label} vs $OPP\" \"$@\"
-	"""
+    THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
+    TS_FILE=\"$THIS_DIR/{vfile.name}\"
+    shift 2 || true
+    python -m hmlib.cli.video_clipper -j 4 --blink-event-text --blink-event-label \"{blink_label}\" --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype_safe}_{team_safe}\" \"{label} vs $OPP\" \"$@\"
+    """
                 script.write_text(body, encoding="utf-8")
                 try:
                     import os as _os
@@ -8936,7 +9045,7 @@ def _write_player_event_highlights(
         script_name = f"clip_{etype.lower()}_{pk}.sh"
         script = outdir / script_name
         body = f"""#!/usr/bin/env bash
-	set -euo pipefail
+    set -euo pipefail
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
   exit 1
@@ -9255,6 +9364,7 @@ def process_sheet(
     write_events_summary: Optional[bool] = None,
     skip_validation: bool = False,
     create_scripts: bool = True,
+    write_opponent_stats_from_long_shifts: bool = True,
 ) -> Tuple[
     Path,
     List[Dict[str, str]],
@@ -10141,7 +10251,7 @@ def process_sheet(
 
     # If a long sheet provides embedded shift tables for both teams, also write the opponent's
     # per-player stats under the opposite Home/Away subtree (primarily for webapp import).
-    if long_shift_tables_by_team and shift_cmp_summary:
+    if write_opponent_stats_from_long_shifts and long_shift_tables_by_team and shift_cmp_summary:
         try:
             opp_outdir = _write_opponent_team_stats_from_long_shifts(
                 game_out_root=outdir.parent.parent,
@@ -11380,7 +11490,7 @@ def main() -> None:
             if entry.path is None:
                 continue
             p = Path(entry.path)
-            label = _base_label_from_path(p)
+            label = str(entry.label or _base_label_from_path(p))
             existing_key = display_label_to_key.get(label)
             if existing_key is not None and existing_key != label:
                 print(
@@ -11394,20 +11504,20 @@ def main() -> None:
                 {
                     "label": label,
                     "primary": None,
+                    "primaries": [],
                     "long_paths": [],
                     "side": None,
                     "order": order_idx,
                     "meta": {},
                 },
             )
-        if g.get("side") is None:
-            g["side"] = side
-        elif side and g.get("side") != side:
-            print(
-                f"Error: conflicting side overrides for {g.get('label')}: {g.get('side')} vs {side}",
-                file=sys.stderr,
-            )
-            sys.exit(2)
+        if side:
+            if g.get("side") is None:
+                g["side"] = side
+            elif g.get("side") != side:
+                # Allow multiple per-sheet side overrides for the same game label (e.g., one HOME sheet and one AWAY sheet).
+                # Downstream processing uses per-primary sides; this group-level side is only a default.
+                g["side"] = None
 
         meta = getattr(entry, "meta", None) or {}
         if meta:
@@ -11433,9 +11543,9 @@ def main() -> None:
         else:
             if g.get("primary") is None:
                 g["primary"] = p
-            else:
-                # Prefer the first primary; keep extras as additional long inputs.
-                g["long_paths"].append(p)
+            primaries = g.get("primaries") or []
+            primaries.append({"path": p, "side": side, "order": order_idx})
+            g["primaries"] = primaries
 
     groups = sorted(groups_by_label.values(), key=lambda x: int(x.get("order", 0)))
     multiple_inputs = len(groups) > 1
@@ -11497,7 +11607,7 @@ def main() -> None:
             meta = dict(gg.get("meta") or {})
             t2s_id_inferred = (
                 None
-                if _no_t2s_for_game(meta)
+                if (not use_t2s or _no_t2s_for_game(meta))
                 else (_infer_t2s_from_filename(Path(primary)) if primary else None)
             )
             if t2s_id_inferred is not None:
@@ -11664,306 +11774,474 @@ def main() -> None:
                 print("✅ Done.")
             continue
 
-        primary_path = g.get("primary")
-        in_path = primary_path
-        if in_path is None:
-            long_paths = g.get("long_paths") or []
-            if long_paths:
-                in_path = long_paths[0]
-            else:
-                continue
-        in_path = Path(in_path)
-        path_side = g.get("side")
-        long_paths: List[Path] = [
-            Path(p) for p in (g.get("long_paths") or []) if Path(p) != in_path
-        ]
-
-        # Prefer an explicit --t2s value; otherwise, infer a T2S id from the
-        # filename only when the trailing numeric suffix is large enough
-        # (>= 10000). Smaller suffixes (e.g., 'chicago-1') remain part of the
-        # game name and do not trigger T2S usage.
-        t2s_id = (
-            (t2s_arg_id if t2s_arg_id is not None else _infer_t2s_from_filename(in_path))
-            if use_t2s and (not no_t2s_for_group)
-            else None
-        )
-        label = str(g.get("label") or _base_label_from_path(in_path))
-        outdir = base_outdir if not multiple_inputs else base_outdir / label
-        manual_goals = load_goals(args.goal, args.goals_file)
-
-        jersey_numbers = set()
-        if t2s_id is not None and not manual_goals:
+        primary_specs_raw = list(g.get("primaries") or [])
+        primary_specs_sorted = sorted(primary_specs_raw, key=lambda x: int(x.get("order", 0)))
+        primary_specs: list[dict[str, Any]] = []
+        seen_primary_paths: set[str] = set()
+        for s in primary_specs_sorted:
             try:
-                jersey_numbers = _collect_sheet_jerseys(in_path, args.sheet, args.keep_goalies)
-            except Exception as e:
-                print(f"Error parsing sheet for jersey numbers ({in_path}): {e}", file=sys.stderr)
+                p0 = Path(s.get("path"))
+            except Exception:
+                continue
+            k0 = str(p0)
+            if not k0 or k0 in seen_primary_paths:
+                continue
+            seen_primary_paths.add(k0)
+            primary_specs.append({"path": p0, "side": s.get("side")})
 
-        side_override: Optional[str] = (
-            path_side or t2s_arg_side or ("home" if args.home else ("away" if args.away else None))
-        )
-        inferred_side: Optional[str] = None
-        side_infer_debug: Dict[str, Any] = {}
-        if manual_goals:
-            side_to_use = side_override
-        else:
-            if side_override:
-                side_to_use = side_override
-            elif t2s_id is not None:
-                inferred_side = _infer_side_from_rosters(
-                    int(t2s_id), jersey_numbers, hockey_db_dir, debug=side_infer_debug
-                )
-                side_to_use = inferred_side
-            else:
-                side_to_use = None
+        multi_primary_processed = False
+        if len(primary_specs) > 1:
+            # Multi-primary game: process each primary sheet (HOME/AWAY) into its own subtree, sharing any long sheets.
+            multi_primary_processed = True
+            primary_path = Path(primary_specs[0]["path"])
+            in_path = Path(primary_path)
 
-        # If a TimeToScore id is in use and we don't have a side override, we
-        # must determine whether our team is Home or Away to map GF/GA.
-        if t2s_id is not None and (not manual_goals) and side_to_use is None:
-            t2s_source = (
-                f"--t2s {args.t2s}"
-                if t2s_arg_id is not None
-                else f"inferred from filename suffix: {in_path.name}"
-            )
-            cli_side = "--home" if args.home else ("--away" if args.away else "<none>")
+            label = str(g.get("label") or _base_label_from_path(in_path))
+            outdir = base_outdir if not multiple_inputs else base_outdir / label
 
-            def _safe_int(token: Any) -> int:
+            long_paths_all: list[Path] = []
+            _seen_lp: set[str] = set()
+            primary_path_set: set[str] = {str(Path(s["path"])) for s in primary_specs}
+            for lp in g.get("long_paths") or []:
                 try:
-                    return int(str(token))
+                    p = Path(lp)
                 except Exception:
-                    return 0
+                    continue
+                kp = str(p)
+                if not kp or kp in _seen_lp or kp in primary_path_set:
+                    continue
+                _seen_lp.add(kp)
+                long_paths_all.append(p)
 
-            jerseys_sorted = (
-                sorted(list(jersey_numbers or set()), key=_safe_int) if jersey_numbers else []
+            # Prefer an explicit --t2s value; otherwise infer from filename (if enabled).
+            t2s_id = (
+                (t2s_arg_id if t2s_arg_id is not None else _infer_t2s_from_filename(in_path))
+                if use_t2s and (not no_t2s_for_group)
+                else None
             )
-            sample = ", ".join(jerseys_sorted[:20])
-            extra = f", ... (+{len(jerseys_sorted) - 20} more)" if len(jerseys_sorted) > 20 else ""
 
-            print(
-                f"Error: cannot determine HOME/AWAY side for TimeToScore game {t2s_id} while processing '{label}'.",
-                file=sys.stderr,
-            )
-            print(f"  Input sheet: {in_path}", file=sys.stderr)
-            if args.file_list:
-                print(f"  File list: {args.file_list}", file=sys.stderr)
-            print(f"  T2S id source: {t2s_source}", file=sys.stderr)
-            print("  Side overrides checked:", file=sys.stderr)
-            print(
-                f"    - from --file-list ':HOME' / ':AWAY': {path_side or '<none>'}",
-                file=sys.stderr,
-            )
-            print(f"    - from --t2s spec side: {t2s_arg_side or '<none>'}", file=sys.stderr)
-            print(f"    - from CLI flags: {cli_side}", file=sys.stderr)
-            print(
-                f"  Jerseys found in sheet: {len(jerseys_sorted)}"
-                + (f" ({sample}{extra})" if jerseys_sorted else ""),
-                file=sys.stderr,
-            )
-            if side_infer_debug:
-                failure = side_infer_debug.get("failure")
-                if failure:
-                    print(f"  Side inference result: {failure}", file=sys.stderr)
-                if side_infer_debug.get("t2s_api_available") is False:
-                    import_err = side_infer_debug.get("t2s_api_import_error")
-                    details = f": {import_err}" if import_err else ""
+            manual_goals = load_goals(args.goal, args.goals_file)
+            if manual_goals:
+                print(
+                    "Error: manual --goal/--goals-file is not supported when multiple primary sheets are provided for one game.",
+                    file=sys.stderr,
+                )
+                print(f"  Game: {label}", file=sys.stderr)
+                sys.exit(2)
+
+            rep: Optional[dict[str, Any]] = None
+            rep_side: Optional[str] = None
+            rep_in_path: Optional[Path] = None
+
+            for spec in primary_specs:
+                sheet_path = Path(spec["path"])
+                sheet_side = str(spec.get("side") or "").strip().lower() or None
+                if sheet_side not in {"home", "away"}:
                     print(
-                        f"  TimeToScore API: not available (failed to import hmlib.time2score.api){details}.",
+                        f"Error: multi-sheet game '{label}' requires a per-sheet HOME/AWAY side for '{sheet_path}'.",
                         file=sys.stderr,
                     )
-                exc = side_infer_debug.get("exception")
-                if exc:
-                    print(f"  TimeToScore fetch error: {exc}", file=sys.stderr)
-                hr = side_infer_debug.get("home_roster_count")
-                ar = side_infer_debug.get("away_roster_count")
-                if isinstance(hr, int) or isinstance(ar, int):
                     print(
-                        f"  TimeToScore roster sizes: home={hr or 0}, away={ar or 0}",
+                        "Fix: set `side: HOME|AWAY` for each entry under `sheets:` in the YAML file-list.",
                         file=sys.stderr,
                     )
-                ho = side_infer_debug.get("home_overlap")
-                ao = side_infer_debug.get("away_overlap")
-                if isinstance(ho, int) or isinstance(ao, int):
-                    print(
-                        f"  Overlap with sheet jerseys: home={ho or 0}, away={ao or 0}",
-                        file=sys.stderr,
-                    )
-                hoj = side_infer_debug.get("home_overlap_jerseys")
-                aoj = side_infer_debug.get("away_overlap_jerseys")
-                if isinstance(hoj, list) or isinstance(aoj, list):
+                    sys.exit(2)
+
+                goals = _resolve_goals_for_file(sheet_path, t2s_id, sheet_side)
+
+                roster_map: Optional[Dict[str, str]] = None
+                t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None
+                if t2s_id is not None:
                     try:
-                        h_txt = ", ".join(str(x) for x in (hoj or [])[:20])
-                        a_txt = ", ".join(str(x) for x in (aoj or [])[:20])
-                    except Exception:
-                        h_txt = ""
-                        a_txt = ""
-                    if h_txt or a_txt:
+                        t2s_rosters_by_side = _get_t2s_game_rosters(int(t2s_id), hockey_db_dir)
+                        roster_map = dict(t2s_rosters_by_side.get(str(sheet_side), {}) or {})
+                    except Exception as e:  # noqa: BLE001
                         print(
-                            f"  Overlap jersey numbers: home=[{h_txt}], away=[{a_txt}]",
+                            f"Error: failed to fetch roster from TimeToScore for game {t2s_id} while processing '{label}'.",
                             file=sys.stderr,
                         )
-            print(
-                "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
-                file=sys.stderr,
-            )
-            sys.exit(2)
+                        print(f"  Input sheet: {sheet_path}", file=sys.stderr)
+                        if args.file_list:
+                            print(f"  File list: {args.file_list}", file=sys.stderr)
+                        print(f"  Side: {sheet_side}", file=sys.stderr)
+                        print(f"  Cause: {e}", file=sys.stderr)
+                        sys.exit(2)
 
-        # For output organization (Home/Away subdirs) and webapp upload, we always
-        # require a known HOME/AWAY side for spreadsheet-backed games.
-        if side_to_use not in {"home", "away"}:
-            if t2s_id is None:
-                print(
-                    f"Error: cannot determine HOME/AWAY side for '{label}' while processing '{in_path.name}'.",
-                    file=sys.stderr,
+                long_paths_for_sheet = [p for p in long_paths_all if Path(p) != sheet_path]
+                (
+                    final_outdir,
+                    stats_rows,
+                    periods,
+                    per_player_events,
+                    pair_on_ice_rows,
+                ) = process_sheet(
+                    xls_path=sheet_path,
+                    sheet_name=args.sheet,
+                    outdir=outdir,
+                    keep_goalies=args.keep_goalies,
+                    goals=goals,
+                    roster_map=roster_map,
+                    t2s_rosters_by_side=t2s_rosters_by_side,
+                    t2s_side=sheet_side,
+                    t2s_game_id=t2s_id,
+                    long_xls_paths=long_paths_for_sheet,
+                    focus_team_override=focus_team_override,
+                    include_shifts_in_stats=include_shifts_in_stats,
+                    write_events_summary=write_events_summary,
+                    skip_validation=args.skip_validation,
+                    create_scripts=create_scripts,
+                    write_opponent_stats_from_long_shifts=False,
                 )
-                print(
-                    "  Reason: no ':HOME' / ':AWAY' provided and no TimeToScore id inferred.",
-                    file=sys.stderr,
-                )
-                if args.file_list:
-                    print(f"  File list: {args.file_list}", file=sys.stderr)
-                print(
-                    "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
-                    file=sys.stderr,
-                )
+
+                if rep is None or sheet_side == "home":
+                    rep = {
+                        "final_outdir": final_outdir,
+                        "stats_rows": stats_rows,
+                        "periods": periods,
+                        "per_player_events": per_player_events,
+                        "pair_on_ice_rows": pair_on_ice_rows,
+                    }
+                    rep_side = sheet_side
+                    rep_in_path = sheet_path
+
+            if rep is None or rep_in_path is None:
+                continue
+            # Representative outputs (used for summary + webapp upload). Prefer Home when present.
+            final_outdir = Path(rep["final_outdir"])
+            stats_rows = list(rep["stats_rows"] or [])
+            periods = list(rep["periods"] or [])
+            per_player_events = dict(rep["per_player_events"] or {})
+            pair_on_ice_rows = list(rep["pair_on_ice_rows"] or [])
+            in_path = Path(rep_in_path)
+            side_to_use = rep_side
+            primary_path = Path(primary_path)
+            long_paths = list(long_paths_all)
+
+        if not multi_primary_processed:
+            primary_path = g.get("primary")
+            in_path = primary_path
+            if in_path is None:
+                long_paths = g.get("long_paths") or []
+                if long_paths:
+                    in_path = long_paths[0]
+                else:
+                    continue
+            in_path = Path(in_path)
+            path_side = (
+                str(primary_specs[0].get("side") or "").strip().lower() or None
+                if primary_specs
+                else g.get("side")
+            )
+            long_paths: List[Path] = [
+                Path(p) for p in (g.get("long_paths") or []) if Path(p) != in_path
+            ]
+
+            # Prefer an explicit --t2s value; otherwise, infer a T2S id from the
+            # filename only when the trailing numeric suffix is large enough
+            # (>= 10000). Smaller suffixes (e.g., 'chicago-1') remain part of the
+            # game name and do not trigger T2S usage.
+            t2s_id = (
+                (t2s_arg_id if t2s_arg_id is not None else _infer_t2s_from_filename(in_path))
+                if use_t2s and (not no_t2s_for_group)
+                else None
+            )
+            label = str(g.get("label") or _base_label_from_path(in_path))
+            outdir = base_outdir if not multiple_inputs else base_outdir / label
+            manual_goals = load_goals(args.goal, args.goals_file)
+
+            jersey_numbers = set()
+            if t2s_id is not None and not manual_goals:
+                try:
+                    jersey_numbers = _collect_sheet_jerseys(in_path, args.sheet, args.keep_goalies)
+                except Exception as e:
+                    print(
+                        f"Error parsing sheet for jersey numbers ({in_path}): {e}",
+                        file=sys.stderr,
+                    )
+
+            side_override: Optional[str] = (
+                path_side
+                or t2s_arg_side
+                or ("home" if args.home else ("away" if args.away else None))
+            )
+            inferred_side: Optional[str] = None
+            side_infer_debug: Dict[str, Any] = {}
+            if manual_goals:
+                side_to_use = side_override
             else:
+                if side_override:
+                    side_to_use = side_override
+                elif t2s_id is not None:
+                    inferred_side = _infer_side_from_rosters(
+                        int(t2s_id), jersey_numbers, hockey_db_dir, debug=side_infer_debug
+                    )
+                    side_to_use = inferred_side
+                else:
+                    side_to_use = None
+
+            # If a TimeToScore id is in use and we don't have a side override, we
+            # must determine whether our team is Home or Away to map GF/GA.
+            if t2s_id is not None and (not manual_goals) and side_to_use is None:
+                t2s_source = (
+                    f"--t2s {args.t2s}"
+                    if t2s_arg_id is not None
+                    else f"inferred from filename suffix: {in_path.name}"
+                )
+                cli_side = "--home" if args.home else ("--away" if args.away else "<none>")
+
+                def _safe_int(token: Any) -> int:
+                    try:
+                        return int(str(token))
+                    except Exception:
+                        return 0
+
+                jerseys_sorted = (
+                    sorted(list(jersey_numbers or set()), key=_safe_int) if jersey_numbers else []
+                )
+                sample = ", ".join(jerseys_sorted[:20])
+                extra = (
+                    f", ... (+{len(jerseys_sorted) - 20} more)" if len(jerseys_sorted) > 20 else ""
+                )
+
                 print(
                     f"Error: cannot determine HOME/AWAY side for TimeToScore game {t2s_id} while processing '{label}'.",
-                    file=sys.stderr,
-                )
-                print(
-                    "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
-                    file=sys.stderr,
-                )
-            sys.exit(2)
-
-        goals = _resolve_goals_for_file(in_path, t2s_id, side_to_use)
-
-        # Build a TimeToScore roster map (normalized jersey -> name) for GP
-        # accounting, so that players listed on the official roster are
-        # credited with a game played even if they have no recorded shifts.
-        roster_map: Optional[Dict[str, str]] = None
-        t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None
-        if t2s_id is not None and side_to_use is not None:
-            try:
-                t2s_rosters_by_side = _get_t2s_game_rosters(int(t2s_id), hockey_db_dir)
-                roster_map = dict(t2s_rosters_by_side.get(str(side_to_use), {}) or {})
-            except Exception as e:  # noqa: BLE001
-                print(
-                    f"Error: failed to fetch roster from TimeToScore for game {t2s_id} while processing '{label}'.",
                     file=sys.stderr,
                 )
                 print(f"  Input sheet: {in_path}", file=sys.stderr)
                 if args.file_list:
                     print(f"  File list: {args.file_list}", file=sys.stderr)
-                print(f"  Side: {side_to_use}", file=sys.stderr)
-                print(f"  Cause: {e}", file=sys.stderr)
+                print(f"  T2S id source: {t2s_source}", file=sys.stderr)
+                print("  Side overrides checked:", file=sys.stderr)
+                print(
+                    f"    - from --file-list ':HOME' / ':AWAY': {path_side or '<none>'}",
+                    file=sys.stderr,
+                )
+                print(
+                    f"    - from --t2s spec side: {t2s_arg_side or '<none>'}",
+                    file=sys.stderr,
+                )
+                print(f"    - from CLI flags: {cli_side}", file=sys.stderr)
+                print(
+                    f"  Jerseys found in sheet: {len(jerseys_sorted)}"
+                    + (f" ({sample}{extra})" if jerseys_sorted else ""),
+                    file=sys.stderr,
+                )
+                if side_infer_debug:
+                    failure = side_infer_debug.get("failure")
+                    if failure:
+                        print(f"  Side inference result: {failure}", file=sys.stderr)
+                    if side_infer_debug.get("t2s_api_available") is False:
+                        import_err = side_infer_debug.get("t2s_api_import_error")
+                        details = f": {import_err}" if import_err else ""
+                        print(
+                            f"  TimeToScore API: not available (failed to import hmlib.time2score.api){details}.",
+                            file=sys.stderr,
+                        )
+                    exc = side_infer_debug.get("exception")
+                    if exc:
+                        print(f"  TimeToScore fetch error: {exc}", file=sys.stderr)
+                    hr = side_infer_debug.get("home_roster_count")
+                    ar = side_infer_debug.get("away_roster_count")
+                    if isinstance(hr, int) or isinstance(ar, int):
+                        print(
+                            f"  TimeToScore roster sizes: home={hr or 0}, away={ar or 0}",
+                            file=sys.stderr,
+                        )
+                    ho = side_infer_debug.get("home_overlap")
+                    ao = side_infer_debug.get("away_overlap")
+                    if isinstance(ho, int) or isinstance(ao, int):
+                        print(
+                            f"  Overlap with sheet jerseys: home={ho or 0}, away={ao or 0}",
+                            file=sys.stderr,
+                        )
+                    hoj = side_infer_debug.get("home_overlap_jerseys")
+                    aoj = side_infer_debug.get("away_overlap_jerseys")
+                    if isinstance(hoj, list) or isinstance(aoj, list):
+                        try:
+                            h_txt = ", ".join(str(x) for x in (hoj or [])[:20])
+                            a_txt = ", ".join(str(x) for x in (aoj or [])[:20])
+                        except Exception:
+                            h_txt = ""
+                            a_txt = ""
+                        if h_txt or a_txt:
+                            print(
+                                f"  Overlap jersey numbers: home=[{h_txt}], away=[{a_txt}]",
+                                file=sys.stderr,
+                            )
+                print(
+                    "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
+                    file=sys.stderr,
+                )
                 sys.exit(2)
 
-        # Compare TimeToScore's official scoring vs long-sheet recorded goals/assists (auditing).
-        long_paths_for_compare: List[Path] = []
-        if primary_path is None:
-            long_paths_for_compare.append(in_path)
-        long_paths_for_compare.extend(list(long_paths or []))
-        long_paths_for_compare = [Path(p) for p in long_paths_for_compare if p is not None]
-        # De-dupe while preserving order.
-        _seen_lp: set[str] = set()
-        _tmp_lp: List[Path] = []
-        for _p in long_paths_for_compare:
-            k = str(Path(_p))
-            if k in _seen_lp:
-                continue
-            _seen_lp.add(k)
-            _tmp_lp.append(Path(_p))
-        long_paths_for_compare = _tmp_lp
+            # For output organization (Home/Away subdirs) and webapp upload, we always
+            # require a known HOME/AWAY side for spreadsheet-backed games.
+            if side_to_use not in {"home", "away"}:
+                if t2s_id is None:
+                    print(
+                        f"Error: cannot determine HOME/AWAY side for '{label}' while processing '{in_path.name}'.",
+                        file=sys.stderr,
+                    )
+                    print(
+                        "  Reason: no ':HOME' / ':AWAY' provided and no TimeToScore id inferred.",
+                        file=sys.stderr,
+                    )
+                    if args.file_list:
+                        print(f"  File list: {args.file_list}", file=sys.stderr)
+                    print(
+                        "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        f"Error: cannot determine HOME/AWAY side for TimeToScore game {t2s_id} while processing '{label}'.",
+                        file=sys.stderr,
+                    )
+                    print(
+                        "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
+                        file=sys.stderr,
+                    )
+                sys.exit(2)
 
-        if t2s_id is not None and long_paths_for_compare:
-            try:
-                with _working_directory(hockey_db_dir):
-                    t2s_goals_for_compare = goals_from_t2s(int(t2s_id), side=str(side_to_use))
-            except Exception:
-                t2s_goals_for_compare = []
+            goals = _resolve_goals_for_file(in_path, t2s_id, side_to_use)
 
-            if t2s_goals_for_compare:
-                # Best-effort fetch of team names from the TimeToScore scoresheet HTML.
-                home_team_name: Optional[str] = None
-                away_team_name: Optional[str] = None
+            # Build a TimeToScore roster map (normalized jersey -> name) for GP
+            # accounting, so that players listed on the official roster are
+            # credited with a game played even if they have no recorded shifts.
+            roster_map: Optional[Dict[str, str]] = None
+            t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None
+            if t2s_id is not None and side_to_use is not None:
                 try:
-                    html = _fetch_t2s_scoresheet_html(int(t2s_id))
-                    visitor, home = _t2s_team_names_from_scoresheet_html(html)
-                    away_team_name = str(visitor or "").strip() or None
-                    home_team_name = str(home or "").strip() or None
+                    t2s_rosters_by_side = _get_t2s_game_rosters(int(t2s_id), hockey_db_dir)
+                    roster_map = dict(t2s_rosters_by_side.get(str(side_to_use), {}) or {})
+                except Exception as e:  # noqa: BLE001
+                    print(
+                        f"Error: failed to fetch roster from TimeToScore for game {t2s_id} while processing '{label}'.",
+                        file=sys.stderr,
+                    )
+                    print(f"  Input sheet: {in_path}", file=sys.stderr)
+                    if args.file_list:
+                        print(f"  File list: {args.file_list}", file=sys.stderr)
+                    print(f"  Side: {side_to_use}", file=sys.stderr)
+                    print(f"  Cause: {e}", file=sys.stderr)
+                    sys.exit(2)
+
+            # Compare TimeToScore's official scoring vs long-sheet recorded goals/assists (auditing).
+            long_paths_for_compare: List[Path] = []
+            if primary_path is None:
+                long_paths_for_compare.append(in_path)
+            long_paths_for_compare.extend(list(long_paths or []))
+            long_paths_for_compare = [Path(p) for p in long_paths_for_compare if p is not None]
+            # De-dupe while preserving order.
+            _seen_lp: set[str] = set()
+            _tmp_lp: List[Path] = []
+            for _p in long_paths_for_compare:
+                k = str(Path(_p))
+                if k in _seen_lp:
+                    continue
+                _seen_lp.add(k)
+                _tmp_lp.append(Path(_p))
+            long_paths_for_compare = _tmp_lp
+
+            if t2s_id is not None and long_paths_for_compare:
+                try:
+                    with _working_directory(hockey_db_dir):
+                        t2s_goals_for_compare = goals_from_t2s(int(t2s_id), side=str(side_to_use))
                 except Exception:
-                    home_team_name = None
-                    away_team_name = None
+                    t2s_goals_for_compare = []
 
-                long_goal_rows_all: List[Dict[str, Any]] = []
-                jerseys_by_team_all: Dict[str, set[int]] = {}
-                for lp in long_paths_for_compare:
+                if t2s_goals_for_compare:
+                    # Best-effort fetch of team names from the TimeToScore scoresheet HTML.
+                    home_team_name: Optional[str] = None
+                    away_team_name: Optional[str] = None
                     try:
-                        long_df = pd.read_excel(Path(lp).expanduser(), sheet_name=0, header=None)
+                        html = _fetch_t2s_scoresheet_html(int(t2s_id))
+                        visitor, home = _t2s_team_names_from_scoresheet_html(html)
+                        away_team_name = str(visitor or "").strip() or None
+                        home_team_name = str(home or "").strip() or None
                     except Exception:
-                        continue
-                    try:
-                        _long_events, long_goal_rows, jerseys_by_team = (
-                            _parse_long_left_event_table(long_df)
-                        )
-                    except Exception:
-                        continue
-                    long_goal_rows_all.extend(list(long_goal_rows or []))
-                    for team, nums in (jerseys_by_team or {}).items():
-                        jerseys_by_team_all.setdefault(str(team), set()).update(set(nums or set()))
+                        home_team_name = None
+                        away_team_name = None
 
-                if long_goal_rows_all:
-                    our_jerseys: set[str] = set((roster_map or {}).keys())
-                    focus_team_for_compare = _infer_focus_team_from_long_sheet(
-                        our_jerseys, jerseys_by_team_all
-                    )
-                    goal_discrepancy_rows.extend(
-                        _compare_t2s_vs_long_goals(
-                            label=str(label or ""),
-                            t2s_id=int(t2s_id),
-                            side=str(side_to_use),
-                            t2s_goals=t2s_goals_for_compare,
-                            long_goal_rows=long_goal_rows_all,
-                            focus_team=focus_team_for_compare,
-                            home_team_name=home_team_name,
-                            away_team_name=away_team_name,
-                        )
-                    )
+                    long_goal_rows_all: List[Dict[str, Any]] = []
+                    jerseys_by_team_all: Dict[str, set[int]] = {}
+                    for lp in long_paths_for_compare:
+                        try:
+                            long_df = pd.read_excel(
+                                Path(lp).expanduser(), sheet_name=0, header=None
+                            )
+                        except Exception:
+                            continue
+                        try:
+                            _long_events, long_goal_rows, jerseys_by_team = (
+                                _parse_long_left_event_table(long_df)
+                            )
+                        except Exception:
+                            continue
+                        long_goal_rows_all.extend(list(long_goal_rows or []))
+                        for team, nums in (jerseys_by_team or {}).items():
+                            jerseys_by_team_all.setdefault(str(team), set()).update(
+                                set(nums or set())
+                            )
 
-        if primary_path is None and long_paths_for_compare:
-            final_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = (
-                process_long_only_sheets(
-                    long_xls_paths=list(long_paths_for_compare),
+                    if long_goal_rows_all:
+                        our_jerseys: set[str] = set((roster_map or {}).keys())
+                        focus_team_for_compare = _infer_focus_team_from_long_sheet(
+                            our_jerseys, jerseys_by_team_all
+                        )
+                        goal_discrepancy_rows.extend(
+                            _compare_t2s_vs_long_goals(
+                                label=str(label or ""),
+                                t2s_id=int(t2s_id),
+                                side=str(side_to_use),
+                                t2s_goals=t2s_goals_for_compare,
+                                long_goal_rows=long_goal_rows_all,
+                                focus_team=focus_team_for_compare,
+                                home_team_name=home_team_name,
+                                away_team_name=away_team_name,
+                            )
+                        )
+
+            if primary_path is None and long_paths_for_compare:
+                final_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = (
+                    process_long_only_sheets(
+                        long_xls_paths=list(long_paths_for_compare),
+                        outdir=outdir,
+                        goals=goals,
+                        roster_map=roster_map,
+                        t2s_rosters_by_side=t2s_rosters_by_side,
+                        t2s_side=side_to_use,
+                        t2s_game_id=t2s_id,
+                        focus_team_override=focus_team_override,
+                        include_shifts_in_stats=include_shifts_in_stats,
+                        write_events_summary=write_events_summary,
+                        create_scripts=create_scripts,
+                    )
+                )
+            else:
+                (
+                    final_outdir,
+                    stats_rows,
+                    periods,
+                    per_player_events,
+                    pair_on_ice_rows,
+                ) = process_sheet(
+                    xls_path=in_path,
+                    sheet_name=args.sheet,
                     outdir=outdir,
+                    keep_goalies=args.keep_goalies,
                     goals=goals,
                     roster_map=roster_map,
                     t2s_rosters_by_side=t2s_rosters_by_side,
                     t2s_side=side_to_use,
                     t2s_game_id=t2s_id,
+                    long_xls_paths=long_paths,
                     focus_team_override=focus_team_override,
                     include_shifts_in_stats=include_shifts_in_stats,
                     write_events_summary=write_events_summary,
+                    skip_validation=args.skip_validation,
                     create_scripts=create_scripts,
                 )
-            )
-        else:
-            final_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = process_sheet(
-                xls_path=in_path,
-                sheet_name=args.sheet,
-                outdir=outdir,
-                keep_goalies=args.keep_goalies,
-                goals=goals,
-                roster_map=roster_map,
-                t2s_rosters_by_side=t2s_rosters_by_side,
-                t2s_side=side_to_use,
-                t2s_game_id=t2s_id,
-                long_xls_paths=long_paths,
-                focus_team_override=focus_team_override,
-                include_shifts_in_stats=include_shifts_in_stats,
-                write_events_summary=write_events_summary,
-                skip_validation=args.skip_validation,
-                create_scripts=create_scripts,
-            )
         video_path = _find_tracking_output_video_for_sheet_path(in_path) if create_scripts else None
         results.append(
             {
