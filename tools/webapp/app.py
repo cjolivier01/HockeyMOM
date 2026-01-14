@@ -8814,9 +8814,12 @@ def normalize_video_time_and_seconds(
     return vt, vs
 
 
-def sort_events_rows_default(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+def _event_table_sort_key(r: dict[str, Any]) -> tuple[int, int, int]:
     """
-    Default ordering for the Game Events table: period asc, then decreasing game time within period.
+    Stable default ordering for event tables:
+      1) game datetime (descending; newest game first),
+      2) period (ascending),
+      3) game time within period (descending; clock counts down).
     """
 
     def _parse_int(v: Any) -> Optional[int]:
@@ -8825,23 +8828,52 @@ def sort_events_rows_default(rows: list[dict[str, str]]) -> list[dict[str, str]]
         except Exception:
             return None
 
-    def _period(r: dict[str, str]) -> int:
-        p = _parse_int(r.get("Period"))
-        return int(p) if p is not None and p > 0 else 999
+    gs = _parse_int(
+        r.get("Game Seconds")
+        or r.get("GameSeconds")
+        or r.get("game_seconds")
+        or r.get("gameSeconds")
+    )
+    if gs is None:
+        gs = parse_duration_seconds(
+            r.get("Game Time")
+            or r.get("GameTime")
+            or r.get("Time")
+            or r.get("game_time")
+            or r.get("gameTime")
+        )
+    game_seconds = int(gs) if gs is not None else -1
 
-    def _game_seconds(r: dict[str, str]) -> int:
-        gs = _parse_int(r.get("Game Seconds") or r.get("GameSeconds"))
-        if gs is not None:
-            return int(gs)
-        gt = parse_duration_seconds(r.get("Game Time") or r.get("GameTime") or r.get("Time"))
-        return int(gt) if gt is not None else -1
+    p = _parse_int(r.get("Period") or r.get("period"))
+    period = int(p) if p is not None and p > 0 else 999
 
-    def _ev_type(r: dict[str, str]) -> str:
-        return str(r.get("Event Type") or r.get("Event") or "").strip().casefold()
+    dt_raw = r.get("game_starts_at") or r.get("starts_at") or r.get("Date") or r.get("date")
+    dt_obj = to_dt(dt_raw)
+    if dt_obj is None:
+        game_dt_key = 99999999999999
+    else:
+        game_dt_key = -int(dt_obj.strftime("%Y%m%d%H%M%S"))
 
+    return (int(game_dt_key), int(period), -int(game_seconds))
+
+
+def sort_events_rows_default(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """
+    Default ordering for the Game Events table: see `_event_table_sort_key`.
+    """
     return sorted(
         [r for r in (rows or []) if isinstance(r, dict)],
-        key=lambda r: (_period(r), -_game_seconds(r), _ev_type(r)),
+        key=_event_table_sort_key,
+    )
+
+
+def sort_event_dicts_for_table_display(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Sort event dicts for UI tables using `_event_table_sort_key`.
+    """
+    return sorted(
+        [r for r in (rows or []) if isinstance(r, dict)],
+        key=_event_table_sort_key,
     )
 
 

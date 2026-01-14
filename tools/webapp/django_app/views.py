@@ -1759,6 +1759,8 @@ def api_hky_game_events(request: HttpRequest, game_id: int) -> JsonResponse:
             }
         )
 
+    out = logic.sort_event_dicts_for_table_display(out)
+
     return JsonResponse(
         {
             "ok": True,
@@ -2353,51 +2355,9 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                 }
             )
 
-    # Sort by date (if known), then by game/time.
-    game_type_order: dict[str, int] = {
-        str(gt).strip().casefold(): int(idx)
-        for idx, gt in enumerate(list(game_type_options or []))
-        if str(gt).strip()
-    }
-
-    def _ev_sort_key(e: dict[str, Any]) -> tuple:
-        gid = int(e.get("game_id") or 0)
-        g2 = games_by_id.get(gid) or {}
-        gt_label = str(g2.get("_game_type_label") or "").strip()
-        gt_rank = game_type_order.get(gt_label.casefold(), len(game_type_order))
-        sdt = logic.to_dt(g2.get("starts_at"))
-        has_dt = sdt is not None
-        date_key = sdt.strftime("%Y-%m-%d") if sdt else "9999-99-99"
-        time_key = sdt.strftime("%H:%M:%S") if sdt else "99:99:99"
-        gs: Optional[int] = None
-        try:
-            raw = e.get("game_seconds")
-            if raw is not None and str(raw).strip():
-                gs = int(raw)
-        except Exception:
-            gs = None
-        if gs is None:
-            try:
-                gs = logic.parse_duration_seconds(e.get("game_time"))
-            except Exception:
-                gs = None
-        gs_missing = 1 if gs is None else 0
-        gs_neg = 0 if gs is None else -int(gs)
-        return (
-            int(gt_rank),
-            0 if has_dt else 1,
-            str(date_key),
-            str(time_key),
-            gid,
-            int(e.get("period") or 0) if str(e.get("period") or "").strip() else 0,
-            gs_missing,
-            gs_neg,
-            str(e.get("game_time") or ""),
-            str(e.get("event_type") or ""),
-        )
-
-    events_out.sort(key=_ev_sort_key)
-    on_ice_goals_out.sort(key=_ev_sort_key)
+    # Stable ordering for event tables.
+    events_out = logic.sort_event_dicts_for_table_display(events_out)
+    on_ice_goals_out = logic.sort_event_dicts_for_table_display(on_ice_goals_out)
 
     return JsonResponse(
         {

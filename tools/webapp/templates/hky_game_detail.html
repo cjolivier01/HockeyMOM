@@ -2553,24 +2553,33 @@
       queueTableFit();
     }
 
-    function sortRowsByPeriodAndGameClockDesc(rows) {
-      rows.sort(function (a, b) {
-        var pa = rowPeriod(a);
-        var pb = rowPeriod(b);
-        pa = pa === null ? 999 : pa;
-        pb = pb === null ? 999 : pb;
-        if (pa !== pb) return pa - pb;
-        var ga = rowGameSeconds(a);
-        var gb = rowGameSeconds(b);
-        ga = ga === null ? -1 : ga;
-        gb = gb === null ? -1 : gb;
-        if (ga !== gb) return gb - ga; // clock counts down
-        var ta = normTypeKey(getValue(a, ["Event Type", "Event"]));
-        var tb = normTypeKey(getValue(b, ["Event Type", "Event"]));
-        if (ta !== tb) return ta < tb ? -1 : 1;
-        return 0;
-      });
-    }
+	    function sortRowsByPeriodAndGameClockDesc(rows) {
+	      // Chronological within a game:
+	      //   - period asc,
+	      //   - time within period desc (clock counts down).
+	      var decorated = [];
+	      for (var i = 0; i < (rows || []).length; i++) {
+	        decorated.push({ idx: i, row: rows[i] });
+	      }
+	      decorated.sort(function (aa, bb) {
+	        var a = aa.row;
+	        var b = bb.row;
+	        var pa = rowPeriod(a);
+	        var pb = rowPeriod(b);
+	        pa = pa === null ? 999 : pa;
+	        pb = pb === null ? 999 : pb;
+	        if (pa !== pb) return pa - pb;
+	        var ga = rowGameSeconds(a);
+	        var gb = rowGameSeconds(b);
+	        ga = ga === null ? -1 : ga;
+	        gb = gb === null ? -1 : gb;
+	        if (ga !== gb) return gb - ga;
+	        return aa.idx - bb.idx;
+	      });
+	      for (var j = 0; j < decorated.length; j++) {
+	        rows[j] = decorated[j].row;
+	      }
+	    }
 
 	    function groupRows(rows, labelFn) {
 	      var order = [];
