@@ -5908,8 +5908,8 @@ def _write_video_times_and_scripts(
         script_path = outdir / f"clip_{player_key}.sh"
         player_label = player_key.replace("_", " ")
         script_body = """#!/usr/bin/env bash
-    set -euo pipefail
-    if [ $# -lt 2 ]; then
+set -euo pipefail
+if [ $# -lt 2 ]; then
   echo "Usage: $0 <input_video> <opposing_team> [--quick|-q] [--hq]"
   exit 1
 fi
