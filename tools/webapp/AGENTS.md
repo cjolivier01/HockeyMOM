@@ -125,6 +125,7 @@ Django cannot be “reconfigured” once initialized in a Python process. To avo
 
 - Keep changes scoped: webapp code changes should stay within `tools/webapp/` + related tests/docs.
 - Prefer small, explicit ORM queries (`select_related`, `values`, `values_list`) to avoid N+1 performance issues.
+- Indentation: use spaces (not tabs) in all source files (Python/C/C++/JS/HTML/CSS/etc). Tabs are only allowed where they have special meaning (e.g., Makefiles).
 - When touching import/reset scripts, be careful with deletion order and FK constraints; use `transaction.atomic()` for
   multi-table operations and keep plans idempotent when possible.
 - Before finalizing changes, run `python -m black` and `ruff check` on any modified/new Python files and fix issues until clean.
