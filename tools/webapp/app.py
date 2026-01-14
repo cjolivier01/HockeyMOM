@@ -9840,6 +9840,12 @@ def _is_blank_stat(v: Any) -> bool:
 def _is_zero_or_blank_stat(v: Any) -> bool:
     if _is_blank_stat(v):
         return True
+    if isinstance(v, str):
+        s = v.strip()
+        if "/" in s:
+            parts = s.split("/")
+            if parts and all(_is_zero_or_blank_stat(part) for part in parts):
+                return True
     try:
         return float(v) == 0.0  # type: ignore[arg-type]
     except Exception:
@@ -9858,11 +9864,24 @@ def filter_player_stats_display_columns_for_rows(
     if not columns:
         return columns
     out: list[tuple[str, str]] = []
+    gf_counted_all_zero: Optional[bool] = None
+    ga_counted_all_zero: Optional[bool] = None
     for k, label in columns:
         vals = [r.get(k) for r in (rows or [])]
-        if all(_is_zero_or_blank_stat(v) for v in vals):
+        all_zero = all(_is_zero_or_blank_stat(v) for v in vals)
+        if k == "gf_counted":
+            gf_counted_all_zero = all_zero
+        elif k == "ga_counted":
+            ga_counted_all_zero = all_zero
+        if all_zero:
             continue
         out.append((k, label))
+    if gf_counted_all_zero and ga_counted_all_zero:
+        out = [
+            (key, label)
+            for key, label in out
+            if key not in {"plus_minus", "plus_minus_per_game", "gf_counted", "ga_counted"}
+        ]
     return tuple(out)
 
 
