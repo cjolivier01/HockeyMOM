@@ -3,11 +3,11 @@
 namespace hm {
 
 struct GeoTIFFInfo {
-	double XGeoRef, YGeoRef;
-	double XCellRes, YCellRes;
-	double projection[16];
-	int    nodata;
-	bool   set;
+  double XGeoRef, YGeoRef;
+  double XCellRes, YCellRes;
+  double projection[16];
+  int    nodata;
+  bool   set;
 };
 
 #define TIFFTAG_GEOPIXELSCALE   33550
@@ -54,20 +54,20 @@ int geotiff_read(TIFF* tiff, GeoTIFFInfo* info) {
 
   if (!TIFFGetField(tiff, TIFFTAG_GEOPIXELSCALE, &nCount, &geo_scale) || nCount<2) return false;
 
-	info->XCellRes = geo_scale[0];
+  info->XCellRes = geo_scale[0];
   info->YCellRes = geo_scale[1];
   double* tiepoints;
 
-	if (!TIFFGetField(tiff, TIFFTAG_GEOTIEPOINTS, &nCount, &tiepoints) || nCount<6) return false;
+  if (!TIFFGetField(tiff, TIFFTAG_GEOTIEPOINTS, &nCount, &tiepoints) || nCount<6) return false;
   info->XGeoRef = tiepoints[3] - tiepoints[0]*(geo_scale[0]);
   info->YGeoRef = tiepoints[4] - tiepoints[1]*(geo_scale[1]);
   // TODO: check if tiepoints refer to center of upper left pixel or upper left edge of upper left pixel
   char* nodata;
 
-	if (TIFFGetField(tiff, TIFFTAG_GDAL_NODATA, &nCount, &nodata)) info->nodata = atoi(nodata);
+  if (TIFFGetField(tiff, TIFFTAG_GDAL_NODATA, &nCount, &nodata)) info->nodata = atoi(nodata);
 
-	// TODO: read coordinate system definitions...
-	info->set=true;
+  // TODO: read coordinate system definitions...
+  info->set=true;
   return true;
 }
 
