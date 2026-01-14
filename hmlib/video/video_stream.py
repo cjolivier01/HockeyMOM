@@ -829,9 +829,11 @@ class VideoStreamReader:
         elif isinstance(self._video_in, torchvision.io.VideoReader):
             self._video_in.seek(time_s=timestamp)
         elif isinstance(self._video_in, cv2.VideoCapture):
+            if isinstance(frame_number, Fraction):
+                frame_number = frame_number.numerator / frame_number.denominator
             self._video_in.set(
                 cv2.CAP_PROP_POS_FRAMES,
-                frame_number.numerator / frame_number.denominator,
+                frame_number,
             )
         elif isinstance(self._video_in, FFMpegVideoReader):
             self._ss = timestamp
