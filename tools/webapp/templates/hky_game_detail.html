@@ -2314,20 +2314,21 @@
                 if (!cell || cell.getAttribute("data-iconified") === "1") continue;
                 var label = (cell.textContent || "").trim();
                 if (!label) continue;
-                var iconKey = typeKey(normalizeTypeLabel(label));
+                var normalizedLabel = normalizeTypeLabel(label) || label;
+                var iconKey = typeKey(normalizedLabel);
                 var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                 svg.setAttribute("viewBox", "0 0 24 24");
                 svg.setAttribute("aria-hidden", "true");
                 svg.classList.add("event-type-icon");
                 var gWrap = document.createElementNS("http://www.w3.org/2000/svg", "g");
                 gWrap.setAttribute("transform", "translate(12,12)");
-                gWrap.appendChild(iconGroup(iconKey, { size: 20, label: label }));
+                gWrap.appendChild(iconGroup(iconKey, { size: 20, label: normalizedLabel }));
                 svg.appendChild(gWrap);
                 var wrap = document.createElement("div");
                 wrap.className = "event-type-cell";
                 wrap.appendChild(svg);
                 var txtNode = document.createElement("span");
-                txtNode.textContent = label;
+                txtNode.textContent = normalizedLabel;
                 wrap.appendChild(txtNode);
                 while (cell.firstChild) cell.removeChild(cell.firstChild);
                 cell.appendChild(wrap);
@@ -2676,6 +2677,12 @@
       gf_counted: ["goal"],
       ga_counted: ["goal"],
     };
+    var PLAYER_EVENT_TYPE_EXCLUDE = {
+      completedpass: true,
+      controlledentry: true,
+      controlledexit: true,
+      oddmanrush: true,
+    };
 
     var PLAYER_EVENTS_SCOPE_LABEL = String("{{ game.team2_name|escapejs }} at {{ game.team1_name|escapejs }}{% if game.starts_at %} {{ game.starts_at|date:'Y-m-d' }}{% endif %}" || "").trim();
 
@@ -2902,6 +2909,7 @@
             if (rs && rs !== side) return false;
           }
           var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+          if (PLAYER_EVENT_TYPE_EXCLUDE[etKey]) return false;
           if (allowedTypeKeys && !allowedTypeKeys[etKey]) return false;
 
           var rowJ = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));

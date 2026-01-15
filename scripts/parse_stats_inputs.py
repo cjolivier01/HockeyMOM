@@ -398,6 +398,7 @@ def t2s_events_from_scoresheet(
     game_id: int,
     *,
     our_side: Optional[str],
+    allow_remote: bool = True,
 ) -> List[Dict[str, Any]]:
     """
     Best-effort TimeToScore (CAHA) event scraper used to enrich `all_events_summary.csv`.
@@ -406,6 +407,12 @@ def t2s_events_from_scoresheet(
       - penalties (start times)
       - goalie changes (including empty net + starting goalie)
     """
+    if not allow_remote:
+        print(
+            f"[t2s:{game_id}] Skipping scoresheet fetch (cache-only; pass without --t2s-cache-only to enable).",
+            file=sys.stderr,
+        )
+        return []
     try:
         html = _fetch_t2s_scoresheet_html(int(game_id))
     except Exception as e:  # noqa: BLE001
@@ -677,7 +684,11 @@ def _starts_at_from_meta(meta: Dict[str, str], *, warn_label: str = "") -> Optio
 
 
 def _starts_at_from_t2s_game_id(
-    t2s_game_id: int, *, hockey_db_dir: Path, warn_label: str = ""
+    t2s_game_id: int,
+    *,
+    hockey_db_dir: Path,
+    warn_label: str = "",
+    allow_remote: bool = True,
 ) -> Optional[str]:
     def _warn(msg: str) -> None:
         if not msg:
@@ -696,7 +707,7 @@ def _starts_at_from_t2s_game_id(
             info = get_game_details(
                 int(t2s_game_id),
                 season=None,
-                sync_if_missing=True,
+                sync_if_missing=bool(allow_remote),
                 fetch_stats_if_missing=False,
             )
     except Exception as e:  # noqa: BLE001
@@ -2229,7 +2240,7 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
     return events
 
 
-def goals_from_t2s(game_id: int, *, side: str) -> List[GoalEvent]:
+def goals_from_t2s(game_id: int, *, side: str, allow_remote: bool = True) -> List[GoalEvent]:
     """
     Retrieve goals from TimeToScore for a game id and map them to GF/GA based on
     the selected side (home/away).
@@ -2241,7 +2252,11 @@ def goals_from_t2s(game_id: int, *, side: str) -> List[GoalEvent]:
             f"TimeToScore API not available (failed to import hmlib.time2score.api){details}"
         )
 
-    info = t2s_api.get_game_details(game_id)
+    info = t2s_api.get_game_details(
+        game_id,
+        sync_if_missing=bool(allow_remote),
+        fetch_stats_if_missing=bool(allow_remote),
+    )
     if not isinstance(info, dict):
         raise RuntimeError(
             f"TimeToScore API returned invalid game details type for game {game_id}: {type(info)}"
@@ -2249,8 +2264,9 @@ def goals_from_t2s(game_id: int, *, side: str) -> List[GoalEvent]:
     stats = info.get("stats")
     if not isinstance(stats, dict) or not stats:
         keys = ", ".join(sorted(list(info.keys()))) if isinstance(info, dict) else ""
+        suffix = " (cache-only; run import_time2score or omit --t2s-cache-only)" if not allow_remote else ""
         raise RuntimeError(
-            f"TimeToScore returned no usable stats for game {game_id} (keys=[{keys}]); cannot compute goals."
+            f"TimeToScore returned no usable stats for game {game_id} (keys=[{keys}]); cannot compute goals.{suffix}"
         )
 
     home_sc = stats.get("homeScoring") or []
@@ -7072,6 +7088,12 @@ def _display_event_type(event_type: str) -> str:
         return "Created Turnovers"
     if et == "CompletedPass":
         return "Completed Pass"
+    if et == "ControlledEntry":
+        return "Controlled Entry"
+    if et == "ControlledExit":
+        return "Controlled Exit"
+    if et in {"Rush", "OddManRush"}:
+        return "Odd-Man Rush"
     return et
 
 
@@ -8455,6 +8477,7 @@ def _infer_side_from_rosters(
     jersey_numbers: set[str],
     hockey_db_dir: Path,
     *,
+    allow_remote: bool = True,
     debug: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     t2s_api = _get_t2s_api()
@@ -8481,7 +8504,11 @@ def _infer_side_from_rosters(
         return None
     try:
         with _working_directory(hockey_db_dir):
-            info = t2s_api.get_game_details(int(t2s_id))
+            info = t2s_api.get_game_details(
+                int(t2s_id),
+                sync_if_missing=bool(allow_remote),
+                fetch_stats_if_missing=bool(allow_remote),
+            )
     except Exception as e:
         if debug is not None:
             debug.clear()
@@ -8602,6 +8629,8 @@ def _get_t2s_team_roster(
     t2s_id: int,
     side: str,
     hockey_db_dir: Path,
+    *,
+    allow_remote: bool = True,
 ) -> Dict[str, str]:
     """
     Return a mapping of normalized jersey number -> player name for the given
@@ -8618,14 +8647,19 @@ def _get_t2s_team_roster(
         )
     try:
         with _working_directory(hockey_db_dir):
-            info = t2s_api.get_game_details(int(t2s_id))
+            info = t2s_api.get_game_details(
+                int(t2s_id),
+                sync_if_missing=bool(allow_remote),
+                fetch_stats_if_missing=bool(allow_remote),
+            )
     except Exception as e:
         raise RuntimeError(f"TimeToScore API failed to load game {t2s_id} for roster: {e}") from e
 
     stats = (info or {}).get("stats")
     if not isinstance(stats, dict) or not stats:
+        suffix = " (cache-only; run import_time2score or omit --t2s-cache-only)" if not allow_remote else ""
         raise RuntimeError(
-            f"TimeToScore returned no usable stats for game {t2s_id}; cannot load roster."
+            f"TimeToScore returned no usable stats for game {t2s_id}; cannot load roster.{suffix}"
         )
     players_key = "homePlayers" if side == "home" else "awayPlayers"
     rows = stats.get(players_key) or []
@@ -8654,6 +8688,8 @@ def _get_t2s_team_roster(
 def _get_t2s_game_rosters(
     t2s_id: int,
     hockey_db_dir: Path,
+    *,
+    allow_remote: bool = True,
 ) -> Dict[str, Dict[str, str]]:
     """
     Return both rosters (home/away) as normalized jersey number -> player name mappings.
@@ -8669,14 +8705,19 @@ def _get_t2s_game_rosters(
         )
     try:
         with _working_directory(hockey_db_dir):
-            info = t2s_api.get_game_details(int(t2s_id))
+            info = t2s_api.get_game_details(
+                int(t2s_id),
+                sync_if_missing=bool(allow_remote),
+                fetch_stats_if_missing=bool(allow_remote),
+            )
     except Exception as e:
         raise RuntimeError(f"TimeToScore API failed to load game {t2s_id} for rosters: {e}") from e
 
     stats = (info or {}).get("stats")
     if not isinstance(stats, dict) or not stats:
+        suffix = " (cache-only; run import_time2score or omit --t2s-cache-only)" if not allow_remote else ""
         raise RuntimeError(
-            f"TimeToScore returned no usable stats for game {t2s_id}; cannot load rosters."
+            f"TimeToScore returned no usable stats for game {t2s_id}; cannot load rosters.{suffix}"
         )
 
     out: Dict[str, Dict[str, str]] = {"home": {}, "away": {}}
@@ -9895,7 +9936,11 @@ def process_sheet(
     if write_events_summary:
         t2s_events: List[Dict[str, Any]] = []
         if t2s_game_id is not None:
-            t2s_events = t2s_events_from_scoresheet(int(t2s_game_id), our_side=t2s_side)
+            t2s_events = t2s_events_from_scoresheet(
+                int(t2s_game_id),
+                our_side=t2s_side,
+                allow_remote=t2s_allow_remote,
+            )
 
         # Build Home/Away shift maps (for on-ice players in all_events_summary).
         side_l = str(t2s_side or "").strip().lower()
@@ -10677,7 +10722,11 @@ def process_long_only_sheets(
     if write_events_summary:
         t2s_events: List[Dict[str, Any]] = []
         if t2s_game_id is not None:
-            t2s_events = t2s_events_from_scoresheet(int(t2s_game_id), our_side=side)
+            t2s_events = t2s_events_from_scoresheet(
+                int(t2s_game_id),
+                our_side=side,
+                allow_remote=t2s_allow_remote,
+            )
         goals_by_period: Dict[int, List[GoalEvent]] = {}
         for ev in goals or []:
             goals_by_period.setdefault(int(ev.period), []).append(ev)
@@ -10775,6 +10824,7 @@ def process_t2s_only_game(
     label: str,
     hockey_db_dir: Path,
     include_shifts_in_stats: bool,
+    allow_remote: bool = True,
 ) -> Tuple[
     Path,
     List[Dict[str, str]],
@@ -10800,8 +10850,8 @@ def process_t2s_only_game(
 
     # Load roster + scoring from TimeToScore.
     with _working_directory(hockey_db_dir):
-        goals = goals_from_t2s(int(t2s_id), side=side)
-    roster_map = _get_t2s_team_roster(int(t2s_id), side, hockey_db_dir)
+        goals = goals_from_t2s(int(t2s_id), side=side, allow_remote=allow_remote)
+    roster_map = _get_t2s_team_roster(int(t2s_id), side, hockey_db_dir, allow_remote=allow_remote)
 
     # Annotate game-tying / game-winning roles.
     _annotate_goal_roles(goals)
@@ -11070,6 +11120,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Disable all TimeToScore usage: ignore `t2s=...` file-list lines, do not infer T2S ids from filenames, "
             "and do not fetch goals/start times from TimeToScore."
+        ),
+    )
+    p.add_argument(
+        "--t2s-cache-only",
+        action="store_true",
+        help=(
+            "Allow TimeToScore usage, but only from the local cache/DB (no sync/scrape). "
+            "If a game is missing locally, TimeToScore lookups will fail."
         ),
     )
     p.add_argument(
@@ -11356,6 +11414,10 @@ def main() -> None:
     args = build_arg_parser().parse_args()
     hockey_db_dir = args.hockey_db_dir.expanduser()
     use_t2s = not bool(getattr(args, "no_time2score", False))
+    t2s_allow_remote = not bool(getattr(args, "t2s_cache_only", False))
+    if not use_t2s and not t2s_allow_remote:
+        print("Error: --t2s-cache-only cannot be combined with --no-time2score.", file=sys.stderr)
+        sys.exit(2)
     create_scripts = not args.no_scripts
     include_shifts_in_stats = bool(getattr(args, "shifts", False))
     write_events_summary = include_shifts_in_stats or bool(getattr(args, "upload_webapp", False))
@@ -11761,7 +11823,11 @@ def main() -> None:
         sys.exit(2)
 
     def _resolve_goals_for_file(
-        in_path: Path, t2s_id: Optional[int], side: Optional[str]
+        in_path: Path,
+        t2s_id: Optional[int],
+        side: Optional[str],
+        *,
+        allow_remote: bool,
     ) -> List[GoalEvent]:
         g = load_goals(args.goal, args.goals_file)
         if g:
@@ -11791,7 +11857,7 @@ def main() -> None:
             sys.exit(2)
         try:
             with _working_directory(hockey_db_dir):
-                g = goals_from_t2s(int(t2s_id), side=side)
+                g = goals_from_t2s(int(t2s_id), side=side, allow_remote=allow_remote)
         except Exception as e:  # noqa: BLE001
             print(
                 f"Error: failed to fetch goals from TimeToScore for game {t2s_id} while processing "
@@ -11846,6 +11912,7 @@ def main() -> None:
                     label=label,
                     hockey_db_dir=hockey_db_dir,
                     include_shifts_in_stats=include_shifts_in_stats,
+                    allow_remote=t2s_allow_remote,
                 )
             except Exception as e:  # noqa: BLE001
                 print(
@@ -11952,13 +12019,22 @@ def main() -> None:
                     )
                     sys.exit(2)
 
-                goals = _resolve_goals_for_file(sheet_path, t2s_id, sheet_side)
+                goals = _resolve_goals_for_file(
+                    sheet_path,
+                    t2s_id,
+                    sheet_side,
+                    allow_remote=t2s_allow_remote,
+                )
 
                 roster_map: Optional[Dict[str, str]] = None
                 t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None
                 if t2s_id is not None:
                     try:
-                        t2s_rosters_by_side = _get_t2s_game_rosters(int(t2s_id), hockey_db_dir)
+                        t2s_rosters_by_side = _get_t2s_game_rosters(
+                            int(t2s_id),
+                            hockey_db_dir,
+                            allow_remote=t2s_allow_remote,
+                        )
                         roster_map = dict(t2s_rosters_by_side.get(str(sheet_side), {}) or {})
                     except Exception as e:  # noqa: BLE001
                         print(
@@ -12078,7 +12154,11 @@ def main() -> None:
                     side_to_use = side_override
                 elif t2s_id is not None:
                     inferred_side = _infer_side_from_rosters(
-                        int(t2s_id), jersey_numbers, hockey_db_dir, debug=side_infer_debug
+                        int(t2s_id),
+                        jersey_numbers,
+                        hockey_db_dir,
+                        allow_remote=t2s_allow_remote,
+                        debug=side_infer_debug,
                     )
                     side_to_use = inferred_side
                 else:
@@ -12208,7 +12288,12 @@ def main() -> None:
                     )
                 sys.exit(2)
 
-            goals = _resolve_goals_for_file(in_path, t2s_id, side_to_use)
+            goals = _resolve_goals_for_file(
+                in_path,
+                t2s_id,
+                side_to_use,
+                allow_remote=t2s_allow_remote,
+            )
 
             # Build a TimeToScore roster map (normalized jersey -> name) for GP
             # accounting, so that players listed on the official roster are
@@ -12217,7 +12302,11 @@ def main() -> None:
             t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None
             if t2s_id is not None and side_to_use is not None:
                 try:
-                    t2s_rosters_by_side = _get_t2s_game_rosters(int(t2s_id), hockey_db_dir)
+                    t2s_rosters_by_side = _get_t2s_game_rosters(
+                        int(t2s_id),
+                        hockey_db_dir,
+                        allow_remote=t2s_allow_remote,
+                    )
                     roster_map = dict(t2s_rosters_by_side.get(str(side_to_use), {}) or {})
                 except Exception as e:  # noqa: BLE001
                     print(
@@ -12251,7 +12340,11 @@ def main() -> None:
             if t2s_id is not None and long_paths_for_compare:
                 try:
                     with _working_directory(hockey_db_dir):
-                        t2s_goals_for_compare = goals_from_t2s(int(t2s_id), side=str(side_to_use))
+                        t2s_goals_for_compare = goals_from_t2s(
+                            int(t2s_id),
+                            side=str(side_to_use),
+                            allow_remote=t2s_allow_remote,
+                        )
                 except Exception:
                     t2s_goals_for_compare = []
 
@@ -12259,14 +12352,15 @@ def main() -> None:
                     # Best-effort fetch of team names from the TimeToScore scoresheet HTML.
                     home_team_name: Optional[str] = None
                     away_team_name: Optional[str] = None
-                    try:
-                        html = _fetch_t2s_scoresheet_html(int(t2s_id))
-                        visitor, home = _t2s_team_names_from_scoresheet_html(html)
-                        away_team_name = str(visitor or "").strip() or None
-                        home_team_name = str(home or "").strip() or None
-                    except Exception:
-                        home_team_name = None
-                        away_team_name = None
+                    if t2s_allow_remote:
+                        try:
+                            html = _fetch_t2s_scoresheet_html(int(t2s_id))
+                            visitor, home = _t2s_team_names_from_scoresheet_html(html)
+                            away_team_name = str(visitor or "").strip() or None
+                            home_team_name = str(home or "").strip() or None
+                        except Exception:
+                            home_team_name = None
+                            away_team_name = None
 
                     long_goal_rows_all: List[Dict[str, Any]] = []
                     jerseys_by_team_all: Dict[str, set[int]] = {}
@@ -12417,7 +12511,10 @@ def main() -> None:
             starts_at = _starts_at_from_meta(meta, warn_label=str(label or ""))
             if starts_at is None and t2s_id is not None:
                 starts_at = _starts_at_from_t2s_game_id(
-                    int(t2s_id), hockey_db_dir=hockey_db_dir, warn_label=str(label or "")
+                    int(t2s_id),
+                    hockey_db_dir=hockey_db_dir,
+                    warn_label=str(label or ""),
+                    allow_remote=t2s_allow_remote,
                 )
             if starts_at is None:
                 print(
