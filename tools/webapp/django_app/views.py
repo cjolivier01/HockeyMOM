@@ -110,6 +110,34 @@ def _event_type_key(raw: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", s)
 
 
+def _normalize_player_name_no_middle(raw: Any) -> str:
+    parts = [p for p in str(raw or "").strip().split() if p]
+    if len(parts) >= 3:
+        kept: list[str] = []
+        for idx, token in enumerate(parts):
+            t = token.strip(".")
+            if 0 < idx < (len(parts) - 1) and len(t) == 1:
+                continue
+            kept.append(token)
+        parts = kept or parts
+    return logic.normalize_player_name(" ".join(parts))
+
+
+def _strip_jersey_from_player_name(raw: Any, jersey_number: Optional[str]) -> str:
+    name = str(raw or "").strip()
+    if not name:
+        return ""
+    jersey_norm = logic.normalize_jersey_number(jersey_number) if jersey_number else None
+    if jersey_norm:
+        tail = re.sub(rf"\s*[\(#]?\s*{re.escape(jersey_norm)}\s*\)?\s*$", "", name).strip()
+        if tail:
+            name = tail
+        head = re.sub(rf"^#?\s*{re.escape(jersey_norm)}\s+", "", name).strip()
+        if head:
+            name = head
+    return name
+
+
 def _norm_ws(raw: Any) -> str:
     return " ".join(str(raw or "").strip().split())
 
@@ -4951,8 +4979,15 @@ def hky_game_import_shift_stats(
         nm = logic.normalize_player_name(p.get("name") or "")
         if nm:
             name_to_player_ids.setdefault((tid, nm), []).append(pid)
+        nm_no_mid = _normalize_player_name_no_middle(p.get("name") or "")
+        if nm_no_mid:
+            name_to_player_ids.setdefault((tid, nm_no_mid), []).append(pid)
 
-    def _resolve_player_id(jersey_norm: Optional[str], name_norm: str) -> Optional[int]:
+    def _resolve_player_id(
+        jersey_norm: Optional[str],
+        name_norm: str,
+        name_norm_no_middle: str,
+    ) -> Optional[int]:
         candidates: list[int] = []
         for tid in (team1_id, team2_id):
             if jersey_norm:
@@ -4965,6 +5000,12 @@ def hky_game_import_shift_stats(
             candidates.extend(name_to_player_ids.get((tid, name_norm), []))
         if len(set(candidates)) == 1:
             return int(list(set(candidates))[0])
+        if name_norm_no_middle and name_norm_no_middle != name_norm:
+            candidates = []
+            for tid in (team1_id, team2_id):
+                candidates.extend(name_to_player_ids.get((tid, name_norm_no_middle), []))
+            if len(set(candidates)) == 1:
+                return int(list(set(candidates))[0])
 
         # Jersey match + fuzzy name tie-breaker
         if jersey_norm:
@@ -4982,7 +5023,14 @@ def hky_game_import_shift_stats(
                     if not pl:
                         continue
                     n2 = logic.normalize_player_name(pl.get("name") or "")
+                    n2_no_mid = _normalize_player_name_no_middle(pl.get("name") or "")
                     if n2 and (n2 in name_norm or name_norm in n2):
+                        fuzzy.append(int(pid0))
+                    elif (
+                        name_norm_no_middle
+                        and n2_no_mid
+                        and (n2_no_mid in name_norm_no_middle or name_norm_no_middle in n2_no_mid)
+                    ):
                         fuzzy.append(int(pid0))
             if len(set(fuzzy)) == 1:
                 return int(list(set(fuzzy))[0])
@@ -5038,7 +5086,8 @@ def hky_game_import_shift_stats(
         for row in parsed_rows:
             jersey_norm = row.get("jersey_number")
             name_norm = row.get("name_norm") or ""
-            pid = _resolve_player_id(jersey_norm, name_norm)
+            name_norm_no_middle = row.get("name_norm_no_middle") or ""
+            pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
             if pid is None:
                 unmatched.append(row.get("player_label") or "")
                 continue
@@ -6788,7 +6837,8 @@ def _ensure_player_for_import(
     commit: bool = True,
 ) -> int:
     del commit
-    nm = (name or "").strip()
+    raw_name = str(name or "").strip()
+    nm = _strip_jersey_from_player_name(raw_name, jersey_number)
     if not nm:
         raise ValueError("player name is required")
     _django_orm, m = _orm_modules()
@@ -6797,6 +6847,17 @@ def _ensure_player_for_import(
         .values_list("id", flat=True)
         .first()
     )
+    if existing is None and raw_name and raw_name != nm:
+        existing_raw = (
+            m.Player.objects.filter(user_id=int(owner_user_id), team_id=int(team_id), name=raw_name)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if existing_raw is not None:
+            m.Player.objects.filter(id=int(existing_raw)).update(
+                name=nm, updated_at=dt.datetime.now()
+            )
+            existing = int(existing_raw)
     if existing is not None:
         pid = int(existing)
         if jersey_number or position:
@@ -8538,6 +8599,35 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
     imported = 0
     unmatched: list[str] = []
 
+    # Optional roster seed (provided by client, e.g., parse_stats_inputs scraping TimeToScore).
+    # This lets the webapp create missing roster players (including goalies) without contacting T2S.
+    roster_home = payload.get("roster_home") or []
+    roster_away = payload.get("roster_away") or []
+    if isinstance(roster_home, list) or isinstance(roster_away, list):
+        try:
+            for side, roster in (("home", roster_home), ("away", roster_away)):
+                if not isinstance(roster, list):
+                    continue
+                tid = team1_id if side == "home" else team2_id
+                for rec in roster:
+                    if not isinstance(rec, dict):
+                        continue
+                    nm = str(rec.get("name") or "").strip()
+                    if not nm:
+                        continue
+                    jersey_norm = logic.normalize_jersey_number(rec.get("jersey_number"))
+                    pos = str(rec.get("position") or "").strip() or None
+                    _ensure_player_for_import(
+                        int(owner_user_id),
+                        int(tid),
+                        nm,
+                        str(jersey_norm) if jersey_norm else None,
+                        pos,
+                        commit=False,
+                    )
+        except Exception:
+            pass
+
     try:
         from django.db import transaction
 
@@ -8562,6 +8652,9 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             nm = logic.normalize_player_name(name or "")
             if nm:
                 name_to_player_ids.setdefault((int(tid), nm), []).append(int(pid))
+            nm_no_mid = _normalize_player_name_no_middle(name or "")
+            if nm_no_mid:
+                name_to_player_ids.setdefault((int(tid), nm_no_mid), []).append(int(pid))
 
         for p in players:
             _register_player(
@@ -8571,7 +8664,11 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 jersey_number=p.get("jersey_number"),
             )
 
-        def _resolve_player_id(jersey_norm: Optional[str], name_norm: str) -> Optional[int]:
+        def _resolve_player_id(
+            jersey_norm: Optional[str],
+            name_norm: str,
+            name_norm_no_middle: str,
+        ) -> Optional[int]:
             candidates: list[int] = []
             for tid in (team1_id, team2_id):
                 if jersey_norm:
@@ -8583,6 +8680,12 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 candidates.extend(name_to_player_ids.get((tid, name_norm), []))
             if len(set(candidates)) == 1:
                 return int(list(set(candidates))[0])
+            if name_norm_no_middle and name_norm_no_middle != name_norm:
+                candidates = []
+                for tid in (team1_id, team2_id):
+                    candidates.extend(name_to_player_ids.get((tid, name_norm_no_middle), []))
+                if len(set(candidates)) == 1:
+                    return int(list(set(candidates))[0])
             return None
 
         now = dt.datetime.now()
@@ -8671,7 +8774,8 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 for row in parsed_rows:
                     jersey_norm = row.get("jersey_number")
                     name_norm = row.get("name_norm") or ""
-                    pid = _resolve_player_id(jersey_norm, name_norm)
+                    name_norm_no_middle = row.get("name_norm_no_middle") or ""
+                    pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
                     if pid is None:
                         if create_missing_players and team_side in {"home", "away"}:
                             target_team_id = team1_id if team_side == "home" else team2_id
@@ -8827,6 +8931,11 @@ def api_internal_ensure_league_owner(request: HttpRequest) -> JsonResponse:
     owner_email = str(payload.get("owner_email") or "").strip().lower()
     owner_name = str(payload.get("owner_name") or owner_email).strip() or owner_email
     is_shared = bool(payload["shared"]) if "shared" in payload else None
+    is_public = None
+    if "is_public" in payload:
+        is_public = bool(payload["is_public"])
+    elif "public" in payload:
+        is_public = bool(payload["public"])
     if not league_name or not owner_email:
         return JsonResponse(
             {"ok": False, "error": "owner_email and league_name are required"}, status=400
@@ -8844,15 +8953,19 @@ def api_internal_ensure_league_owner(request: HttpRequest) -> JsonResponse:
             updates: dict[str, Any] = {"owner_user_id": int(owner_user_id), "updated_at": now}
             if is_shared is not None:
                 updates["is_shared"] = bool(is_shared)
+            if is_public is not None:
+                updates["is_public"] = bool(is_public)
             m.League.objects.filter(id=league_id).update(**updates)
         else:
             if is_shared is None:
                 is_shared = True
+            if is_public is None:
+                is_public = False
             league = m.League.objects.create(
                 name=league_name,
                 owner_user_id=int(owner_user_id),
                 is_shared=bool(is_shared),
-                is_public=False,
+                is_public=bool(is_public),
                 created_at=now,
                 updated_at=None,
             )

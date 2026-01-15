@@ -807,7 +807,22 @@ def upsert_hky_game(
 def ensure_player(
     conn, *, user_id: int, team_id: int, name: str, jersey: Optional[str], position: Optional[str]
 ) -> int:
-    nm = (name or "").strip()
+    def _strip_jersey_from_name(raw: str, jersey_number: Optional[str]) -> str:
+        nm = str(raw or "").strip()
+        if not nm:
+            return ""
+        jersey_norm = _norm_jersey(jersey_number) if jersey_number else None
+        if jersey_norm:
+            tail = re.sub(rf"\s*[\(#]?\s*{re.escape(jersey_norm)}\s*\)?\s*$", "", nm).strip()
+            if tail:
+                nm = tail
+            head = re.sub(rf"^#?\s*{re.escape(jersey_norm)}\s+", "", nm).strip()
+            if head:
+                nm = head
+        return nm
+
+    raw_name = str(name or "").strip()
+    nm = _strip_jersey_from_name(raw_name, jersey)
     if not nm:
         nm = "UNKNOWN"
     del conn
@@ -815,6 +830,12 @@ def ensure_player(
     now = dt.datetime.now()
 
     p = m.Player.objects.filter(user_id=int(user_id), team_id=int(team_id), name=str(nm)).first()
+    if not p and raw_name and raw_name != nm:
+        p = m.Player.objects.filter(
+            user_id=int(user_id), team_id=int(team_id), name=str(raw_name)
+        ).first()
+        if p:
+            m.Player.objects.filter(id=p.id).update(name=str(nm), updated_at=now)
     if p:
         updates: dict[str, Any] = {}
         if jersey and not str(p.jersey_number or "").strip():

@@ -1349,7 +1349,8 @@ def create_app():
         *,
         commit: bool = True,
     ) -> int:
-        nm = (name or "").strip()
+        raw_name = str(name or "").strip()
+        nm = strip_jersey_from_player_name(raw_name, jersey_number)
         if not nm:
             raise ValueError("player name is required")
         _django_orm, m = _orm_modules()
@@ -1358,6 +1359,19 @@ def create_app():
             .values_list("id", flat=True)
             .first()
         )
+        if existing is None and raw_name and raw_name != nm:
+            existing_raw = (
+                m.Player.objects.filter(
+                    user_id=int(owner_user_id), team_id=int(team_id), name=raw_name
+                )
+                .values_list("id", flat=True)
+                .first()
+            )
+            if existing_raw is not None:
+                m.Player.objects.filter(id=int(existing_raw)).update(
+                    name=nm, updated_at=dt.datetime.now()
+                )
+                existing = int(existing_raw)
         if existing is not None:
             pid = int(existing)
             if jersey_number or position:
@@ -3236,6 +3250,35 @@ def create_app():
         imported = 0
         unmatched: list[str] = []
 
+        # Optional roster seed (provided by client, e.g., parse_stats_inputs scraping TimeToScore).
+        # This lets the webapp create missing roster players (including goalies) without contacting T2S.
+        roster_home = payload.get("roster_home") or []
+        roster_away = payload.get("roster_away") or []
+        if isinstance(roster_home, list) or isinstance(roster_away, list):
+            try:
+                for side, roster in (("home", roster_home), ("away", roster_away)):
+                    if not isinstance(roster, list):
+                        continue
+                    tid = team1_id if side == "home" else team2_id
+                    for rec in roster:
+                        if not isinstance(rec, dict):
+                            continue
+                        nm = str(rec.get("name") or "").strip()
+                        if not nm:
+                            continue
+                        jersey_norm = normalize_jersey_number(rec.get("jersey_number"))
+                        pos = str(rec.get("position") or "").strip() or None
+                        _ensure_player_for_import(
+                            int(owner_user_id),
+                            int(tid),
+                            nm,
+                            str(jersey_norm) if jersey_norm else None,
+                            pos,
+                            commit=False,
+                        )
+            except Exception:
+                pass
+
         try:
             from django.db import transaction
 
@@ -3539,6 +3582,11 @@ def create_app():
         owner_email = str(payload.get("owner_email") or "").strip().lower()
         owner_name = str(payload.get("owner_name") or owner_email).strip() or owner_email
         is_shared = bool(payload["shared"]) if "shared" in payload else None
+        is_public = None
+        if "is_public" in payload:
+            is_public = bool(payload["is_public"])
+        elif "public" in payload:
+            is_public = bool(payload["public"])
         if not league_name or not owner_email:
             return jsonify({"ok": False, "error": "owner_email and league_name are required"}), 400
 
@@ -3554,15 +3602,19 @@ def create_app():
                 updates: dict[str, Any] = {"owner_user_id": int(owner_user_id), "updated_at": now}
                 if is_shared is not None:
                     updates["is_shared"] = bool(is_shared)
+                if is_public is not None:
+                    updates["is_public"] = bool(is_public)
                 m.League.objects.filter(id=league_id).update(**updates)
             else:
                 if is_shared is None:
                     is_shared = True
+                if is_public is None:
+                    is_public = False
                 league = m.League.objects.create(
                     name=league_name,
                     owner_user_id=int(owner_user_id),
                     is_shared=bool(is_shared),
-                    is_public=False,
+                    is_public=bool(is_public),
                     created_at=now,
                     updated_at=None,
                 )
@@ -9529,6 +9581,7 @@ def _build_game_player_stats_table_from_imported_csv(
                 jersey_norm = normalize_jersey_number(m.group(1))
                 name_part = m.group(2).strip()
         name_norm = normalize_player_name(name_part)
+        name_norm_no_middle = normalize_player_name_no_middle(name_part)
         pid = _resolve_player_id(jersey_norm, name_norm)
         if pid is None:
             continue
@@ -10695,6 +10748,40 @@ def normalize_player_name(raw: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(raw or "").strip().lower())
 
 
+def strip_jersey_from_player_name(raw: str, jersey_number: Optional[str]) -> str:
+    """
+    Strip embedded jersey numbers from a player name when the jersey matches.
+    """
+    name = str(raw or "").strip()
+    if not name:
+        return ""
+    jersey_norm = normalize_jersey_number(jersey_number) if jersey_number else None
+    if jersey_norm:
+        tail = re.sub(rf"\s*[\(#]?\s*{re.escape(jersey_norm)}\s*\)?\s*$", "", name).strip()
+        if tail:
+            name = tail
+        head = re.sub(rf"^#?\s*{re.escape(jersey_norm)}\s+", "", name).strip()
+        if head:
+            name = head
+    return name
+
+
+def normalize_player_name_no_middle(raw: str) -> str:
+    """
+    Normalize a name while dropping single-letter middle initials (e.g. "Brock T Birkey").
+    """
+    parts = [p for p in str(raw or "").strip().split() if p]
+    if len(parts) >= 3:
+        kept: list[str] = []
+        for idx, token in enumerate(parts):
+            t = token.strip(".")
+            if 0 < idx < (len(parts) - 1) and len(t) == 1:
+                continue
+            kept.append(token)
+        parts = kept or parts
+    return normalize_player_name(" ".join(parts))
+
+
 def parse_duration_seconds(raw: Any) -> Optional[int]:
     if raw is None:
         return None
@@ -10763,14 +10850,17 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
 
         # Back-compat: older outputs encoded jersey in the Player field (e.g. " 8 Adam Ro").
         name_part = player_name
-        if jersey_norm is None:
-            m = re.match(r"^\s*(\d+)\s+(.*)$", player_name)
-            if m:
-                jersey_norm = normalize_jersey_number(m.group(1))
+        m = re.match(r"^\s*(\d+)\s+(.*)$", player_name)
+        if m:
+            jersey_from_name = normalize_jersey_number(m.group(1))
+            if jersey_norm is None:
+                jersey_norm = jersey_from_name
+            if jersey_from_name and jersey_norm and jersey_from_name == jersey_norm:
                 name_part = m.group(2).strip()
 
         player_label = f"{jersey_norm} {name_part}".strip() if jersey_norm else name_part
         name_norm = normalize_player_name(name_part)
+        name_norm_no_middle = normalize_player_name_no_middle(name_part)
 
         stats: dict[str, Any] = {
             "goals": _int_or_none(row.get("Goals")),
@@ -10843,6 +10933,7 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
                 "player_label": player_label,
                 "jersey_number": jersey_norm,
                 "name_norm": name_norm,
+                "name_norm_no_middle": name_norm_no_middle,
                 "stats": stats,
                 "period_stats": period_stats,
             }

@@ -275,6 +275,66 @@ def _t2s_team_names_for_game(
     return home_name, away_name
 
 
+def _t2s_team_logo_urls_for_game(
+    t2s_id: int,
+    *,
+    allow_remote: bool,
+    allow_full_sync: bool,
+    hockey_db_dir: Path,
+) -> tuple[Optional[str], Optional[str]]:
+    if not allow_remote:
+        return None, None
+    t2s_api = _get_t2s_api()
+    if t2s_api is None:
+        return None, None
+    try:
+        if not allow_full_sync:
+            _log_t2s_scrape(int(t2s_id), "team logos")
+        with _working_directory(hockey_db_dir):
+            info = t2s_api.get_game_details(
+                int(t2s_id),
+                sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
+                fetch_stats_if_missing=bool(allow_remote),
+            )
+    except Exception:
+        return None, None
+    game = (info or {}).get("game") or {}
+    home = ((info or {}).get("home") or {}).get("team") or {}
+    away = ((info or {}).get("away") or {}).get("team") or {}
+    try:
+        season_id = int(game.get("season_id") or 0)
+    except Exception:
+        season_id = 0
+    league_id = None
+    try:
+        league_id = int(game.get("league") or 0)
+    except Exception:
+        league_id = None
+    try:
+        from hmlib.time2score import direct as t2s_direct  # type: ignore
+    except Exception:
+        return None, None
+    home_url = None
+    away_url = None
+    try:
+        home_id = int(home.get("team_id") or 0)
+        if home_id:
+            home_url = t2s_direct.scrape_team_logo_url(
+                "caha", season_id=season_id, team_id=home_id, league_id=league_id
+            )
+    except Exception:
+        home_url = None
+    try:
+        away_id = int(away.get("team_id") or 0)
+        if away_id:
+            away_url = t2s_direct.scrape_team_logo_url(
+                "caha", season_id=season_id, team_id=away_id, league_id=league_id
+            )
+    except Exception:
+        away_url = None
+    return home_url, away_url
+
+
 def _t2s_default_period_length_seconds_from_scoresheet_html(html: str) -> int:
     # Example: "<td colspan=2>Period Lengths:</td><td align=center>15</td>..."
     m = re.search(r"(?is)Period\s*Lengths\s*:\s*</td>\s*<td[^>]*>\s*(\d+)\s*<", html)
@@ -907,7 +967,8 @@ def _autosize_columns(writer: pd.ExcelWriter, sheet_name: str, df: pd.DataFrame)
         for col in df.columns:
             header_len = max([len(x) for x in str(col).splitlines()] or [len(str(col))])
             max_len = max([header_len] + [len(str(x)) for x in df[col].astype(str).fillna("")])
-            col_widths.append(min(max_len + 2, 80))
+            # Leave extra room for Excel's filter dropdown arrow so it doesn't overlap the header text.
+            col_widths.append(min(max(max_len + 4, 10), 80))
         if writer.engine == "openpyxl":
             from openpyxl.utils import get_column_letter
 
@@ -1183,6 +1244,15 @@ def _apply_excel_table_style(
         for r in range(title_row, last_row + 1):
             for c in range(1, ncols + 1):
                 ws.cell(row=r, column=c).border = white_border
+
+        # Enable Excel auto-filters (dropdowns) on the header row.
+        try:
+            from openpyxl.utils import get_column_letter
+
+            last_col = get_column_letter(ncols)
+            ws.auto_filter.ref = f"A{header_row}:{last_col}{last_row}"
+        except Exception:
+            pass
 
         # Right-align duration/time-like columns (strings such as '54', '1:02', '2:10:03').
         try:
@@ -2153,7 +2223,9 @@ def _discover_spreadsheet_inputs_in_dir(dir_path: Path) -> List[Path]:
     return out
 
 
-def _expand_dir_input_to_game_sheets(dir_path: Path) -> List[Path]:
+def _expand_dir_input_to_game_sheets(
+    dir_path: Path, *, ignore_primary: bool = False, ignore_long: bool = False
+) -> List[Path]:
     """
     Expand a directory passed to --input into the game sheet(s) inside:
       - exactly one non-'-long' shift sheet (primary)
@@ -2185,6 +2257,32 @@ def _expand_dir_input_to_game_sheets(dir_path: Path) -> List[Path]:
     paths = by_label[only_label]
     primaries = [p for p in paths if not _is_long_sheet_path(p)]
     long_paths = [p for p in paths if _is_long_sheet_path(p)]
+    if ignore_primary and ignore_long:
+        raise ValueError("cannot combine --ignore-primary and --ignore-long")
+
+    # Sheet selection rules:
+    # - Default: require exactly one primary, plus any companion '*-long*' sheets.
+    # - --ignore-primary: prefer long sheets when present; fall back to primary-only.
+    # - --ignore-long: prefer primary sheet when present; fall back to long-only.
+    if ignore_primary:
+        if long_paths:
+            return long_paths
+        if len(primaries) != 1:
+            raise ValueError(
+                f"Directory {dir_path} has {len(primaries)} primary sheets for {only_label}; "
+                f"expected exactly 1: {[p.name for p in primaries]}"
+            )
+        return [primaries[0]]
+    if ignore_long:
+        if primaries:
+            if len(primaries) != 1:
+                raise ValueError(
+                    f"Directory {dir_path} has {len(primaries)} primary sheets for {only_label}; "
+                    f"expected exactly 1: {[p.name for p in primaries]}"
+                )
+            return [primaries[0]]
+        return long_paths
+
     # Long-only games: allow processing from the embedded long-sheet shift tables.
     if not primaries and long_paths:
         return long_paths
@@ -3528,6 +3626,9 @@ def _compare_primary_shifts_to_long_shifts(
     total_long_shifts = 0
     nonsensical_primary = 0
     nonsensical_long = 0
+    total_primary_toi_s = 0
+    total_long_toi_s = 0
+    total_len_diff_over_threshold = 0
     per_player_rows: List[Dict[str, Any]] = []
     mismatch_rows: List[Dict[str, Any]] = []
 
@@ -3565,6 +3666,9 @@ def _compare_primary_shifts_to_long_shifts(
         player_sum_ds = 0
         player_sum_de = 0
         player_pairs = 0
+        player_primary_toi_s = 0
+        player_long_toi_s = 0
+        player_len_diff_over_threshold = 0
 
         for period, prim_ints in sorted(prim_by_period.items(), key=lambda x: x[0]):
             long_ints = long_by_period.get(period, [])
@@ -3573,9 +3677,13 @@ def _compare_primary_shifts_to_long_shifts(
             for a, b in prim_ints:
                 if _dur(a, b) <= 0 or _dur(a, b) > MAX_SHIFT_SECONDS:
                     nonsensical_primary += 1
+                player_primary_toi_s += _dur(a, b)
+                total_primary_toi_s += _dur(a, b)
             for a, b in long_ints:
                 if _dur(a, b) <= 0 or _dur(a, b) > MAX_SHIFT_SECONDS:
                     nonsensical_long += 1
+                player_long_toi_s += _dur(a, b)
+                total_long_toi_s += _dur(a, b)
 
             pairs = _match_intervals(prim_ints, long_ints)
             # Extra shifts in long are those not used by the matching.
@@ -3622,6 +3730,9 @@ def _compare_primary_shifts_to_long_shifts(
                 player_max_ds = max(player_max_ds, int(ds))
                 player_max_de = max(player_max_de, int(de))
                 player_max_dlen = max(player_max_dlen, int(dlen))
+                if int(dlen) > int(threshold_seconds):
+                    total_len_diff_over_threshold += 1
+                    player_len_diff_over_threshold += 1
                 if ds > int(threshold_seconds) or de > int(threshold_seconds):
                     total_mismatched += 1
                     player_mismatched += 1
@@ -3656,10 +3767,13 @@ def _compare_primary_shifts_to_long_shifts(
                 "jersey": jersey,
                 "primary_shifts": player_total_primary,
                 "long_shifts": player_total_long,
+                "primary_toi_s": int(player_primary_toi_s),
+                "long_toi_s": int(player_long_toi_s),
                 "checked_shifts": player_checked,
                 "mismatched": player_mismatched,
                 "missing_in_long": player_missing,
                 "extra_in_long": player_extra,
+                "len_diff_over_threshold": player_len_diff_over_threshold,
                 "max_delta_start_s": player_max_ds,
                 "max_delta_end_s": player_max_de,
                 "max_delta_len_s": player_max_dlen,
@@ -3695,6 +3809,9 @@ def _compare_primary_shifts_to_long_shifts(
         "extra_in_long": int(total_extra_in_long),
         "nonsensical_primary_shifts": int(nonsensical_primary),
         "nonsensical_long_shifts": int(nonsensical_long),
+        "total_primary_toi_s": int(total_primary_toi_s),
+        "total_long_toi_s": int(total_long_toi_s),
+        "len_diff_over_threshold": int(total_len_diff_over_threshold),
         "per_player": per_player_rows,
         "mismatch_rows": mismatch_rows,
     }
@@ -3774,6 +3891,143 @@ def _print_shift_discrepancy_rich_summary(summary: Dict[str, Any]) -> None:
         f"nonsensical_primary={summary.get('nonsensical_primary_shifts')} nonsensical_long={summary.get('nonsensical_long_shifts')}"
     )
     console.print(totals)
+
+
+def _write_shift_discrepancy_xlsx(stats_dir: Path, summary: Dict[str, Any]) -> None:
+    if not summary:
+        return
+    try:
+        stats_dir.mkdir(parents=True, exist_ok=True)
+        out_path = stats_dir / "shift_discrepancies.xlsx"
+        per_player = list(summary.get("per_player") or [])
+        mismatch_rows = list(summary.get("mismatch_rows") or [])
+
+        def _fmt_secs(val: Any) -> str:
+            try:
+                return seconds_to_mmss_or_hhmmss(int(val))
+            except Exception:
+                return ""
+
+        def _safe_sheet_name(raw: str, used: set[str]) -> str:
+            name = re.sub(r"[\[\]\:\*\?\/\\]", " ", str(raw or "").strip())
+            name = " ".join(name.split())
+            if not name:
+                name = "Player"
+            name = name[:31]
+            base = name
+            idx = 2
+            while name in used:
+                suffix = f" {idx}"
+                name = (base[: max(0, 31 - len(suffix))] + suffix).strip()
+                idx += 1
+            used.add(name)
+            return name
+
+        overview_rows: list[dict[str, Any]] = [
+            {"Metric": "Matched Team", "Value": summary.get("matched_team")},
+            {"Metric": "Threshold Seconds", "Value": summary.get("threshold_seconds")},
+            {"Metric": "Primary Jerseys", "Value": summary.get("primary_jerseys")},
+            {"Metric": "Team Overlap", "Value": summary.get("team_overlap")},
+            {"Metric": "Long Team Roster", "Value": summary.get("long_team_roster")},
+            {"Metric": "Total Primary Shifts", "Value": summary.get("total_primary_shifts")},
+            {"Metric": "Total Long Shifts", "Value": summary.get("total_long_shifts")},
+            {"Metric": "Total Compared", "Value": summary.get("total_compared")},
+            {"Metric": "Mismatched", "Value": summary.get("mismatched")},
+            {"Metric": "Missing In Long", "Value": summary.get("missing_in_long")},
+            {"Metric": "Extra In Long", "Value": summary.get("extra_in_long")},
+            {
+                "Metric": "Length Diffs > Threshold",
+                "Value": summary.get("len_diff_over_threshold"),
+            },
+            {
+                "Metric": "Nonsensical Primary Shifts",
+                "Value": summary.get("nonsensical_primary_shifts"),
+            },
+            {
+                "Metric": "Nonsensical Long Shifts",
+                "Value": summary.get("nonsensical_long_shifts"),
+            },
+            {"Metric": "Total Primary TOI (s)", "Value": summary.get("total_primary_toi_s")},
+            {
+                "Metric": "Total Primary TOI",
+                "Value": _fmt_secs(summary.get("total_primary_toi_s")),
+            },
+            {"Metric": "Total Long TOI (s)", "Value": summary.get("total_long_toi_s")},
+            {
+                "Metric": "Total Long TOI",
+                "Value": _fmt_secs(summary.get("total_long_toi_s")),
+            },
+            {"Metric": "Long Sheets", "Value": ", ".join(summary.get("long_sheets") or [])},
+        ]
+        with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+            # Summary sheet: overall discrepancy metrics.
+            df_summary = pd.DataFrame(overview_rows)
+            df_summary.columns = [
+                _wrap_header_after_words(str(c), words_per_line=2) for c in df_summary.columns
+            ]
+            df_summary.to_excel(writer, sheet_name="summary", index=False, startrow=1)
+            _apply_excel_table_style(writer, "summary", title="Shift Discrepancies", df=df_summary)
+            _autosize_columns(writer, "summary", df_summary)
+
+            used_names: set[str] = {"summary"}
+            for row in per_player:
+                pk = str(row.get("player") or "")
+                jersey = str(row.get("jersey") or "")
+                player_disp = _format_player_name_only(pk)
+                sheet_name = _safe_sheet_name(f"{jersey} {player_disp}", used_names)
+
+                player_mismatches = [m for m in mismatch_rows if str(m.get("player")) == pk]
+                mismatch_table: list[dict[str, Any]] = []
+                for m in player_mismatches:
+                    mismatch_table.append(
+                        {
+                            "Period": m.get("period"),
+                            "Shift": m.get("shift"),
+                            "Kind": m.get("kind"),
+                            "Primary Start": _fmt_secs(m.get("primary_start")),
+                            "Primary End": _fmt_secs(m.get("primary_end")),
+                            "Long Start": _fmt_secs(m.get("long_start")),
+                            "Long End": _fmt_secs(m.get("long_end")),
+                            "ΔStart (s)": m.get("delta_start_s"),
+                            "ΔEnd (s)": m.get("delta_end_s"),
+                            "ΔLen (s)": m.get("delta_len_s"),
+                        }
+                    )
+
+                if not mismatch_table:
+                    mismatch_table = [
+                        {
+                            "Period": "",
+                            "Shift": "",
+                            "Kind": "no_discrepancies",
+                            "Primary Start": "",
+                            "Primary End": "",
+                            "Long Start": "",
+                            "Long End": "",
+                            "ΔStart (s)": "",
+                            "ΔEnd (s)": "",
+                            "ΔLen (s)": "",
+                        }
+                    ]
+
+                df_player = pd.DataFrame(mismatch_table)
+                df_player.columns = [
+                    _wrap_header_after_words(str(c), words_per_line=2) for c in df_player.columns
+                ]
+                df_player.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1)
+
+                title = (
+                    f"{jersey} {player_disp} "
+                    f"(Psh={int(row.get('primary_shifts') or 0)}, "
+                    f"Lsh={int(row.get('long_shifts') or 0)}, "
+                    f"mis={int(row.get('mismatched') or 0)}, "
+                    f"miss={int(row.get('missing_in_long') or 0)}, "
+                    f"extra={int(row.get('extra_in_long') or 0)})"
+                ).strip()
+                _apply_excel_table_style(writer, sheet_name, title=title, df=df_player)
+                _autosize_columns(writer, sheet_name, df_player)
+    except Exception:
+        return
 
 
 def _print_game_inputs_rich_summary(results: List[Dict[str, Any]]) -> None:
@@ -8785,7 +9039,11 @@ def _get_t2s_team_roster(
 
     stats = (info or {}).get("stats")
     if not isinstance(stats, dict) or not stats:
-        suffix = " (cache-only; run import_time2score or omit --t2s-cache-only)" if not allow_remote else ""
+        suffix = (
+            " (cache-only; run import_time2score or omit --t2s-cache-only)"
+            if not allow_remote
+            else ""
+        )
         raise RuntimeError(
             f"TimeToScore returned no usable stats for game {t2s_id}; cannot load roster.{suffix}"
         )
@@ -8846,7 +9104,11 @@ def _get_t2s_game_rosters(
 
     stats = (info or {}).get("stats")
     if not isinstance(stats, dict) or not stats:
-        suffix = " (cache-only; run import_time2score or omit --t2s-cache-only)" if not allow_remote else ""
+        suffix = (
+            " (cache-only; run import_time2score or omit --t2s-cache-only)"
+            if not allow_remote
+            else ""
+        )
         raise RuntimeError(
             f"TimeToScore returned no usable stats for game {t2s_id}; cannot load rosters.{suffix}"
         )
@@ -9623,6 +9885,8 @@ def process_sheet(
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
     t2s_side: Optional[str] = None,
     t2s_game_id: Optional[int] = None,
+    allow_remote: bool = True,
+    allow_full_sync: bool = True,
     long_xls_paths: Optional[List[Path]] = None,
     focus_team_override: Optional[str] = None,
     include_shifts_in_stats: bool = False,
@@ -9802,6 +10066,8 @@ def process_sheet(
             warn_label=str(xls_path.name),
             long_sheet_paths=long_sheet_paths_used,
         )
+        if shift_cmp_summary:
+            _write_shift_discrepancy_xlsx(stats_dir, shift_cmp_summary)
 
     # If we still don't know our color, try inferring from the primary sheet's event-log rosters.
     if (
@@ -10070,8 +10336,8 @@ def process_sheet(
             t2s_events = t2s_events_from_scoresheet(
                 int(t2s_game_id),
                 our_side=t2s_side,
-                allow_remote=t2s_allow_remote,
-                allow_full_sync=t2s_allow_full_sync,
+                allow_remote=allow_remote,
+                allow_full_sync=allow_full_sync,
             )
 
         # Build Home/Away shift maps (for on-ice players in all_events_summary).
@@ -11228,6 +11494,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--sheet", "-s", type=str, default=None, help="Worksheet name (default: first sheet)."
     )
     p.add_argument(
+        "--ignore-primary",
+        action="store_true",
+        help=(
+            "Prefer '*-long*' companion spreadsheets when both primary and '*-long*' are present. "
+            "Falls back to primary-only if no '*-long*' sheet exists for a game."
+        ),
+    )
+    p.add_argument(
+        "--ignore-long",
+        action="store_true",
+        help=(
+            "Prefer primary shift spreadsheets when both primary and '*-long*' are present. "
+            "Falls back to '*-long*' only if no primary sheet exists for a game."
+        ),
+    )
+    p.add_argument(
         "--outdir", "-o", type=Path, default=Path("player_focus"), help="Output directory."
     )
     p.add_argument(
@@ -11465,7 +11747,11 @@ def _upload_shift_package_to_webapp(
     home_logo_content_type: Optional[str] = None,
     away_logo_b64: Optional[str] = None,
     away_logo_content_type: Optional[str] = None,
+    home_logo_url: Optional[str] = None,
+    away_logo_url: Optional[str] = None,
     game_video_url: Optional[str] = None,
+    roster_home: Optional[List[Dict[str, Any]]] = None,
+    roster_away: Optional[List[Dict[str, Any]]] = None,
     create_missing_players: bool = False,
     include_player_stats: bool = True,
     include_game_stats: bool = True,
@@ -11526,6 +11812,14 @@ def _upload_shift_package_to_webapp(
         payload["away_logo_b64"] = str(away_logo_b64)
     if away_logo_content_type:
         payload["away_logo_content_type"] = str(away_logo_content_type)
+    if home_logo_url:
+        payload["home_logo_url"] = str(home_logo_url)
+    if away_logo_url:
+        payload["away_logo_url"] = str(away_logo_url)
+    if roster_home:
+        payload["roster_home"] = roster_home
+    if roster_away:
+        payload["roster_away"] = roster_away
     if create_missing_players:
         payload["create_missing_players"] = True
     if game_video_url:
@@ -11591,11 +11885,19 @@ def main() -> None:
     use_t2s = not bool(getattr(args, "no_time2score", False))
     t2s_cache_only = bool(getattr(args, "t2s_cache_only", False))
     t2s_scrape_only = bool(getattr(args, "t2s_scrape_only", False))
+    ignore_primary = bool(args.ignore_primary)
+    ignore_long = bool(args.ignore_long)
+    if ignore_primary and ignore_long:
+        print("Error: --ignore-primary cannot be combined with --ignore-long.", file=sys.stderr)
+        sys.exit(2)
     if t2s_cache_only and t2s_scrape_only:
         print("Error: --t2s-cache-only cannot be combined with --t2s-scrape-only.", file=sys.stderr)
         sys.exit(2)
     if not use_t2s and (t2s_cache_only or t2s_scrape_only):
-        print("Error: TimeToScore is disabled; drop --t2s-cache-only/--t2s-scrape-only.", file=sys.stderr)
+        print(
+            "Error: TimeToScore is disabled; drop --t2s-cache-only/--t2s-scrape-only.",
+            file=sys.stderr,
+        )
         sys.exit(2)
     t2s_allow_remote = not t2s_cache_only
     t2s_allow_full_sync = bool(t2s_allow_remote and not t2s_scrape_only)
@@ -11772,7 +12074,9 @@ def main() -> None:
         pp = Path(entry.path).expanduser()
         if pp.is_dir():
             try:
-                discovered = _expand_dir_input_to_game_sheets(pp)
+                discovered = _expand_dir_input_to_game_sheets(
+                    pp, ignore_primary=ignore_primary, ignore_long=ignore_long
+                )
             except Exception as e:  # noqa: BLE001
                 print(f"Error expanding directory input {pp}: {e}", file=sys.stderr)
                 sys.exit(2)
@@ -11781,26 +12085,69 @@ def main() -> None:
                     InputEntry(path=fp, side=entry.side, meta=dict(entry.meta or {}))
                 )
         else:
-            expanded_entries.append(
-                InputEntry(path=pp, side=entry.side, meta=dict(entry.meta or {}))
-            )
-            # If a primary sheet is provided directly, auto-discover any companion '*-long*' sheet(s)
-            # with the same base label in the same directory.
             try:
-                if (
-                    pp.is_file()
-                    and _is_spreadsheet_input_path(pp)
-                    and (not _is_long_sheet_path(pp))
-                ):
-                    base_label = _base_label_from_path(pp)
-                    for cand in _discover_spreadsheet_inputs_in_dir(pp.parent):
-                        if not _is_long_sheet_path(cand):
+                if pp.is_file() and _is_spreadsheet_input_path(pp):
+                    if ignore_primary and (not _is_long_sheet_path(pp)):
+                        base_label = _base_label_from_path(pp)
+                        found_long: list[Path] = []
+                        for cand in _discover_spreadsheet_inputs_in_dir(pp.parent):
+                            if not _is_long_sheet_path(cand):
+                                continue
+                            if _base_label_from_path(cand) != base_label:
+                                continue
+                            found_long.append(cand)
+                        if found_long:
+                            for cand in found_long:
+                                expanded_entries.append(
+                                    InputEntry(
+                                        path=cand, side=entry.side, meta=dict(entry.meta or {})
+                                    )
+                                )
                             continue
-                        if _base_label_from_path(cand) != base_label:
+                    if ignore_long and _is_long_sheet_path(pp):
+                        base_label = _base_label_from_path(pp)
+                        found_primary: list[Path] = []
+                        for cand in _discover_spreadsheet_inputs_in_dir(pp.parent):
+                            if _is_long_sheet_path(cand):
+                                continue
+                            if _base_label_from_path(cand) != base_label:
+                                continue
+                            found_primary.append(cand)
+                        if len(found_primary) == 1:
+                            expanded_entries.append(
+                                InputEntry(
+                                    path=found_primary[0],
+                                    side=entry.side,
+                                    meta=dict(entry.meta or {}),
+                                )
+                            )
                             continue
-                        expanded_entries.append(
-                            InputEntry(path=cand, side=entry.side, meta=dict(entry.meta or {}))
-                        )
+                        if len(found_primary) > 1:
+                            print(
+                                f"Error: --ignore-long is set but expected exactly 1 primary sheet for {pp} "
+                                f"(found {len(found_primary)}).",
+                                file=sys.stderr,
+                            )
+                            sys.exit(2)
+                    expanded_entries.append(
+                        InputEntry(path=pp, side=entry.side, meta=dict(entry.meta or {}))
+                    )
+                    # If a primary sheet is provided directly, auto-discover any companion '*-long*' sheet(s)
+                    # with the same base label in the same directory.
+                    if (not ignore_primary) and (not ignore_long) and (not _is_long_sheet_path(pp)):
+                        base_label = _base_label_from_path(pp)
+                        for cand in _discover_spreadsheet_inputs_in_dir(pp.parent):
+                            if not _is_long_sheet_path(cand):
+                                continue
+                            if _base_label_from_path(cand) != base_label:
+                                continue
+                            expanded_entries.append(
+                                InputEntry(path=cand, side=entry.side, meta=dict(entry.meta or {}))
+                            )
+                else:
+                    expanded_entries.append(
+                        InputEntry(path=pp, side=entry.side, meta=dict(entry.meta or {}))
+                    )
             except Exception:
                 pass
     input_entries = expanded_entries
@@ -11887,7 +12234,8 @@ def main() -> None:
         if entry.path is None:
             continue
         if _is_long_sheet_path(p):
-            g["long_paths"].append(p)
+            if not ignore_long:
+                g["long_paths"].append(p)
         else:
             if g.get("primary") is None:
                 g["primary"] = p
@@ -12279,6 +12627,8 @@ def main() -> None:
                     t2s_rosters_by_side=t2s_rosters_by_side,
                     t2s_side=sheet_side,
                     t2s_game_id=t2s_id,
+                    allow_remote=t2s_allow_remote,
+                    allow_full_sync=t2s_allow_full_sync,
                     long_xls_paths=long_paths_for_sheet,
                     focus_team_override=focus_team_override,
                     include_shifts_in_stats=include_shifts_in_stats,
@@ -12653,6 +13003,8 @@ def main() -> None:
                     t2s_rosters_by_side=t2s_rosters_by_side,
                     t2s_side=side_to_use,
                     t2s_game_id=t2s_id,
+                    allow_remote=t2s_allow_remote,
+                    allow_full_sync=t2s_allow_full_sync,
                     long_xls_paths=long_paths,
                     focus_team_override=focus_team_override,
                     include_shifts_in_stats=include_shifts_in_stats,
@@ -12748,6 +13100,10 @@ def main() -> None:
 
             upload_home = external_home
             upload_away = external_away
+            upload_home_logo_url = None
+            upload_away_logo_url = None
+            roster_home_payload: Optional[List[Dict[str, Any]]] = None
+            roster_away_payload: Optional[List[Dict[str, Any]]] = None
             if t2s_id is not None and (not upload_home or not upload_away):
                 t2s_home, t2s_away = _t2s_team_names_for_game(
                     int(t2s_id),
@@ -12759,6 +13115,46 @@ def main() -> None:
                     upload_home = t2s_home
                 if not upload_away:
                     upload_away = t2s_away
+            if t2s_id is not None:
+                try:
+                    rosters = _get_t2s_game_rosters(
+                        int(t2s_id),
+                        hockey_db_dir,
+                        allow_remote=t2s_allow_remote,
+                        allow_full_sync=t2s_allow_full_sync,
+                    )
+
+                    def _roster_list(side: str) -> List[Dict[str, Any]]:
+                        out: List[Dict[str, Any]] = []
+                        for jersey, name in (rosters.get(side) or {}).items():
+                            jj = str(jersey or "").strip()
+                            nn = str(name or "").strip()
+                            if not jj or not nn:
+                                continue
+                            out.append({"jersey_number": jj, "name": nn})
+                        out.sort(
+                            key=lambda r: int(
+                                re.sub(r"[^0-9]+", "", str(r.get("jersey_number") or "0")) or "0"
+                            )
+                        )
+                        return out
+
+                    roster_home_payload = _roster_list("home")
+                    roster_away_payload = _roster_list("away")
+                except Exception:
+                    roster_home_payload = None
+                    roster_away_payload = None
+            if t2s_id is not None and not (
+                logo_fields.get("home_logo_b64") or logo_fields.get("away_logo_b64")
+            ):
+                home_logo_url, away_logo_url = _t2s_team_logo_urls_for_game(
+                    int(t2s_id),
+                    allow_remote=t2s_allow_remote,
+                    allow_full_sync=t2s_allow_full_sync,
+                    hockey_db_dir=hockey_db_dir,
+                )
+                upload_home_logo_url = home_logo_url or None
+                upload_away_logo_url = away_logo_url or None
 
             try:
                 print(f"[webapp] Uploading {idx + 1}/{len(groups)}: {label}")
@@ -12817,6 +13213,10 @@ def main() -> None:
                             home_logo_content_type=logo_fields.get("home_logo_content_type"),
                             away_logo_b64=logo_fields.get("away_logo_b64"),
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                            home_logo_url=upload_home_logo_url,
+                            away_logo_url=upload_away_logo_url,
+                            roster_home=roster_home_payload,
+                            roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=False,
                             source_label_suffix=f":{primary_side}",
@@ -12852,6 +13252,10 @@ def main() -> None:
                             home_logo_content_type=logo_fields.get("home_logo_content_type"),
                             away_logo_b64=logo_fields.get("away_logo_b64"),
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                            home_logo_url=upload_home_logo_url,
+                            away_logo_url=upload_away_logo_url,
+                            roster_home=roster_home_payload,
+                            roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=False,
                             include_game_stats=False,
@@ -12910,6 +13314,8 @@ def main() -> None:
                             home_logo_content_type=logo_fields.get("home_logo_content_type"),
                             away_logo_b64=logo_fields.get("away_logo_b64"),
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                            home_logo_url=upload_home_logo_url,
+                            away_logo_url=upload_away_logo_url,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=True,
                             source_label_suffix=f":{primary_side}",
@@ -12944,6 +13350,8 @@ def main() -> None:
                                 home_logo_content_type=logo_fields.get("home_logo_content_type"),
                                 away_logo_b64=logo_fields.get("away_logo_b64"),
                                 away_logo_content_type=logo_fields.get("away_logo_content_type"),
+                                home_logo_url=upload_home_logo_url,
+                                away_logo_url=upload_away_logo_url,
                                 game_video_url=_meta("game_video", "game_video_url", "video_url"),
                                 create_missing_players=True,
                                 include_game_stats=False,
