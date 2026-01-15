@@ -2831,12 +2831,12 @@ def _parse_long_left_event_table(
             is_unforced_to = label_l.startswith(("unforced", "unfoced", "unforcd"))
             is_turnover = ("turnover" in label_l) and (not is_unforced_to)
             is_giveaway = ("giveaway" in label_l) and (not is_turnover) and (not is_unforced_to)
-            is_expected_goal = "expected goal" in label_l
+            is_expected_goal = ("expected goal" in label_l) or ("expected goal" in marker_l)
             is_controlled_entry = bool(re.search(r"con?trolled", label_l)) and ("entr" in label_l)
             is_controlled_exit = ("controlled" in label_l) and ("exit" in label_l)
             is_rush = "rush" in label_l
             is_goal = (label_l == "goal") or (marker_l == "goal")
-            is_sog = marker_l in {"sog", "goal"}
+            is_sog = (label_l == "sog") or (marker_l in {"sog", "goal"})
             is_completed_pass = ("completed pass" in label_l) or ("complete pass" in label_l)
 
             if is_completed_pass:
@@ -4521,6 +4521,12 @@ def _write_team_stats_from_long_shift_team(
         has_completed_passes_local = "CompletedPass" in player_event_types_present
         shots_cnt = int(ev_counts.get("Shot", 0) or 0)
         sog_cnt = int(ev_counts.get("SOG", 0) or 0)
+        # When SOG isn't explicitly collected, fall back to Shots.
+        if not has_player_sog and has_player_shots:
+            sog_cnt = shots_cnt
+            if sog_cnt > 0 and "SOG" not in ev_counts:
+                ev_counts = dict(ev_counts)
+                ev_counts["SOG"] = sog_cnt
         expected_goals_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
         turnovers_forced_cnt = int(ev_counts.get("TurnoverForced", 0) or 0)
         created_turnovers_cnt = int(ev_counts.get("CreatedTurnover", 0) or 0)
@@ -4650,9 +4656,11 @@ def _write_team_stats_from_long_shift_team(
             pass
 
         row_map["shots"] = str(shots_cnt) if has_player_shots else ""
-        row_map["sog"] = str(sog_cnt) if has_player_sog else ""
+        row_map["sog"] = (
+            str(sog_cnt) if (has_player_sog or (has_player_shots and sog_cnt >= 0)) else ""
+        )
         row_map["expected_goals"] = str(expected_goals_cnt) if has_player_expected_goals else ""
-        if has_player_expected_goals and has_player_sog:
+        if has_player_expected_goals and (has_player_sog or has_player_shots):
             row_map["expected_goals_per_sog"] = (
                 f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
             )
@@ -5574,6 +5582,7 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
         shots_col = label_to_col.get("shots")
         goals_col = label_to_col.get("goals")
         assists_col = label_to_col.get("assist")
+        sog_col = None
         # tolerate wording variations and capitalization
         entries_col = None
         exits_col = None
@@ -5583,6 +5592,8 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                 entries_col = c
             if "controlled" in kl and "exit" in kl:
                 exits_col = c
+            if "shots on goal" in kl or "shot on goal" in kl or kl == "sog":
+                sog_col = c
 
         # Guess team column
         team_col: Optional[int] = None
@@ -5691,6 +5702,14 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                     t = team_val or _parse_team_from_text(sv)
                     jerseys = _extract_nums(sv)
                     _record_event("Shot", t, jerseys, current_period, row_vsec, row_gsec)
+            if sog_col is not None:
+                sogv = df.iat[r, sog_col]
+                if isinstance(sogv, str) and sogv.strip():
+                    t = team_val or _parse_team_from_text(sogv)
+                    jerseys = _extract_nums(sogv)
+                    # SOG is also a shot attempt.
+                    _record_event("Shot", t, jerseys, current_period, row_vsec, row_gsec)
+                    _record_event("SOG", t, jerseys, current_period, row_vsec, row_gsec)
             if goals_col is not None:
                 gv = df.iat[r, goals_col]
                 if isinstance(gv, str) and gv.strip():
@@ -8683,7 +8702,7 @@ def _write_event_summaries_and_clips(
     *,
     focus_team: Optional[str] = None,
 ) -> None:
-    raw_evt_by_team = event_log_context.event_counts_by_type_team or {}
+    raw_evt_by_team = dict(event_log_context.event_counts_by_type_team or {})
     raw_instances = event_log_context.event_instances or {}
     invert_event_type: set[str] = set()
     if focus_team in {"Blue", "White"}:
@@ -8700,6 +8719,13 @@ def _write_event_summaries_and_clips(
         turnover_teams = {t for t in turnover_teams if t in {"Blue", "White"}}
         if len(turnover_teams) > 1:
             invert_event_type.add("TurnoverForced")
+
+    # If the sheet only collected generic Shots (no explicit SOG), mirror those counts to SOG so
+    # downstream summaries aren't empty.
+    if not any(str(et) == "SOG" for et, _ in raw_evt_by_team.keys()):
+        for (et, tm), cnt in list(raw_evt_by_team.items()):
+            if str(et) == "Shot":
+                raw_evt_by_team[("SOG", tm)] = cnt
 
     def _no_parens_label(s: str) -> str:
         return re.sub(r"[()]", "", str(s or "")).strip()
@@ -10204,6 +10230,11 @@ def process_sheet(
         has_completed_passes_local = "CompletedPass" in player_event_types_present
         shots_cnt = int(ev_counts.get("Shot", 0) or 0)
         sog_cnt = int(ev_counts.get("SOG", 0) or 0)
+        if not has_player_sog and has_player_shots:
+            sog_cnt = shots_cnt
+            if sog_cnt > 0 and "SOG" not in ev_counts:
+                ev_counts = dict(ev_counts)
+                ev_counts["SOG"] = sog_cnt
         expected_goals_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
         turnovers_forced_cnt = int(ev_counts.get("TurnoverForced", 0) or 0)
         created_turnovers_cnt = int(ev_counts.get("CreatedTurnover", 0) or 0)
@@ -10215,17 +10246,16 @@ def process_sheet(
         else:
             row_map["shots"] = ""
 
-        if has_player_sog:
-            row_map["sog"] = str(sog_cnt)
-        else:
-            row_map["sog"] = ""
+        row_map["sog"] = (
+            str(sog_cnt) if (has_player_sog or (has_player_shots and sog_cnt >= 0)) else ""
+        )
 
         if has_player_expected_goals:
             row_map["expected_goals"] = str(expected_goals_cnt)
         else:
             row_map["expected_goals"] = ""
 
-        if has_player_expected_goals and has_player_sog:
+        if has_player_expected_goals and (has_player_sog or has_player_shots):
             row_map["expected_goals_per_sog"] = (
                 f"{(expected_goals_cnt / sog_cnt):.2f}" if sog_cnt > 0 else ""
             )
