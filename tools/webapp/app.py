@@ -7730,7 +7730,7 @@ def enrich_timetoscore_penalties_with_video_times(
 
     # Build generic per-period mapping points from incoming rows with both game+video seconds.
     # These points already incorporate stoppages because they are derived from shift sync.
-    mapping_by_period: dict[int, list[tuple[int, int]]] = {}
+    mapping_by_period: dict[int, list[tuple[int, int, dict[str, str]]]] = {}
     for r in incoming_rows or []:
         if not isinstance(r, dict):
             continue
@@ -7739,30 +7739,37 @@ def enrich_timetoscore_penalties_with_video_times(
         vs = _video_seconds(r)
         if per is None or gs is None or vs is None:
             continue
-        mapping_by_period.setdefault(int(per), []).append((int(gs), int(vs)))
+        mapping_by_period.setdefault(int(per), []).append((int(gs), int(vs), r))
     for per, pts in list(mapping_by_period.items()):
         # Deduplicate by game seconds, keeping the earliest (minimum) video timestamp for that instant.
-        best_by_gs: dict[int, int] = {}
-        for gs, vs in pts:
+        best_by_gs: dict[int, tuple[int, dict[str, str]]] = {}
+        for gs, vs, rr in pts:
             prev = best_by_gs.get(int(gs))
-            if prev is None or int(vs) < int(prev):
-                best_by_gs[int(gs)] = int(vs)
-        mapping_by_period[per] = sorted(best_by_gs.items(), key=lambda x: x[0])
+            if prev is None or int(vs) < int(prev[0]):
+                best_by_gs[int(gs)] = (int(vs), dict(rr))
+        mapping_by_period[per] = sorted(
+            [(gs, vs, rr) for gs, (vs, rr) in best_by_gs.items()], key=lambda x: x[0]
+        )
 
-    def _interp_video_seconds(period: int, game_s: int) -> Optional[int]:
+    def _interp_video_seconds(
+        period: int, game_s: int
+    ) -> Optional[
+        tuple[int, tuple[tuple[int, int, dict[str, str]], tuple[int, int, dict[str, str]]]]
+    ]:
         pts = mapping_by_period.get(int(period)) or []
         if len(pts) < 2:
             return None
         for i in range(len(pts) - 1):
-            g0, v0 = pts[i]
-            g1, v1 = pts[i + 1]
+            g0, v0, r0 = pts[i]
+            g1, v1, r1 = pts[i + 1]
             lo, hi = (g0, g1) if g0 <= g1 else (g1, g0)
             if not (lo <= int(game_s) <= hi):
                 continue
             if g0 == g1:
                 continue
             # Linear interpolation (works for both increasing and decreasing mappings).
-            return int(round(v0 + (int(game_s) - g0) * (v1 - v0) / (g1 - g0)))
+            v = int(round(v0 + (int(game_s) - g0) * (v1 - v0) / (g1 - g0)))
+            return v, ((int(g0), int(v0), dict(r0)), (int(g1), int(v1), dict(r1)))
         return None
 
     # Build lookup from incoming penalty rows with video times.
@@ -7818,8 +7825,9 @@ def enrich_timetoscore_penalties_with_video_times(
                     _add_source(rr, "shift_spreadsheet")
                 else:
                     # Fallback: interpolate from any available shift-synced mapping points.
-                    vs2 = _interp_video_seconds(int(per), int(gs))
-                    if vs2 is not None:
+                    interp = _interp_video_seconds(int(per), int(gs))
+                    if interp is not None:
+                        vs2, (a, b) = interp
                         rr["Video Seconds"] = str(int(vs2))
                         rr["Video Time"] = format_seconds_to_mmss_or_hhmmss(int(vs2))
                         _add_source(rr, "shift_spreadsheet")
@@ -8693,7 +8701,7 @@ def normalize_events_video_time_for_display(
         return ",".join(out)
 
     # Propagate missing clip/on-ice metadata across events at the same (period, game seconds).
-    best_video_seconds: dict[tuple[int, int], int] = {}
+    best_video_seconds: dict[tuple[int, int], dict[str, Any]] = {}
     best_on_ice_home: dict[tuple[int, int], str] = {}
     best_on_ice_away: dict[tuple[int, int], str] = {}
 
@@ -8713,8 +8721,16 @@ def normalize_events_video_time_for_display(
         )
         if vs0 is not None:
             prev = best_video_seconds.get(k)
-            if prev is None or int(vs0) < int(prev):
-                best_video_seconds[k] = int(vs0)
+            if prev is None or int(vs0) < int(prev.get("video_seconds") or 0):
+                best_video_seconds[k] = {
+                    "video_seconds": int(vs0),
+                    "video_time": str(vt0 or "").strip(),
+                    "period": int(k[0]),
+                    "game_seconds": int(k[1]),
+                    "game_time": str(
+                        rr.get("Game Time") or rr.get("GameTime") or rr.get("Time") or ""
+                    ).strip(),
+                }
 
         on_home = _normalize_on_ice_str(
             rr.get("On-Ice Players (Home)") or rr.get("OnIce Players (Home)") or ""
@@ -8748,8 +8764,11 @@ def normalize_events_video_time_for_display(
                 or rr.get("VideoS"),
             )
             if vs0 is None:
-                vs_best = best_video_seconds.get(k)
-                if vs_best is not None:
+                best = best_video_seconds.get(k)
+                if best is not None:
+                    vs_best = best.get("video_seconds")
+                    if vs_best is None:
+                        continue
                     vs_s = str(int(vs_best))
                     rr.setdefault("Video Seconds", vs_s)
                     if not str(rr.get("Video Seconds") or "").strip():

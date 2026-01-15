@@ -6537,7 +6537,8 @@ def _write_all_events_summary(
         except Exception:
             return
         cur = anchors_by_period.setdefault(p, {})
-        if gs not in cur or vs < cur[gs]:
+        prev = cur.get(gs)
+        if prev is None or vs < int(prev):
             cur[gs] = vs
 
     # 1) Existing event rows that already have video time.
@@ -6570,9 +6571,14 @@ def _write_all_events_summary(
         anchors_list_by_period[int(per)] = items
 
     def _best_video_for_game_time(period: int, game_s: int) -> Optional[int]:
-        return anchors_by_period.get(int(period), {}).get(int(game_s))
+        rec = anchors_by_period.get(int(period), {}).get(int(game_s))
+        if rec is None:
+            return None
+        return int(rec)
 
-    def _best_video_within_window(period: int, game_s: int, window_s: int) -> Optional[int]:
+    def _best_video_within_window(
+        period: int, game_s: int, window_s: int
+    ) -> Optional[Tuple[int, int]]:
         items = anchors_list_by_period.get(int(period)) or []
         if not items:
             return None
@@ -6591,7 +6597,9 @@ def _write_all_events_summary(
                 best_vs = int(vs)
             elif d == best_delta and best_vs is not None and int(vs) < best_vs:
                 best_vs = int(vs)
-        return best_vs
+        if best_delta is None or best_vs is None:
+            return None
+        return int(best_vs), int(best_delta)
 
     for r in rows:
         per = _parse_int_or_none(r.get("Period")) or 0
@@ -6599,19 +6607,20 @@ def _write_all_events_summary(
         if per <= 0 or gs is None:
             continue
         et = str(r.get("Event Type") or "").strip().casefold()
-
         if et == "penalty":
             candidate = _best_video_within_window(per, gs, 3)
             if candidate is not None:
-                r["Video Seconds"] = int(candidate)
-                r["Video Time"] = _seconds_to_compact_hms(int(candidate))
+                vs_i, _delta = candidate
+                r["Video Seconds"] = int(vs_i)
+                r["Video Time"] = _seconds_to_compact_hms(int(vs_i))
             continue
 
         if _is_missing_video(r):
             candidate = _best_video_for_game_time(per, gs)
             if candidate is not None:
-                r["Video Seconds"] = int(candidate)
-                r["Video Time"] = _seconds_to_compact_hms(int(candidate))
+                vs_i = candidate
+                r["Video Seconds"] = int(vs_i)
+                r["Video Time"] = _seconds_to_compact_hms(int(vs_i))
 
     # Stable sort by time, then id.
     def _sort_key(r: Dict[str, Any]) -> Tuple[int, int, int]:

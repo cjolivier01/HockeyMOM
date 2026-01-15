@@ -504,20 +504,19 @@
             return a * 60 + b;
           }
 
-            function getValue(row, keys) {
-            if (!row) return "";
-            for (var i = 0; i < keys.length; i++) {
-              var k = keys[i];
-              if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
-              var kl = String(k).toLowerCase();
-              for (var kk in row) {
-                if (!Object.prototype.hasOwnProperty.call(row, kk)) continue;
-                if (String(kk).toLowerCase() === kl) return row[kk];
-              }
-            }
-            return "";
-          }
-
+    function getValue(row, keys) {
+      if (!row) return "";
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
+        var kl = String(k).toLowerCase();
+        for (var kk in row) {
+          if (!Object.prototype.hasOwnProperty.call(row, kk)) continue;
+          if (String(kk).toLowerCase() === kl) return row[kk];
+        }
+      }
+      return "";
+    }
           function parsePeriod(p) {
             var s = String(p || "").trim();
             if (!s) return null;
@@ -2346,6 +2345,32 @@
     </div>
     <button id="events-drilldown-close" class="btn" type="button">Close</button>
   </div>
+  <div id="events-drilldown-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.12);">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-weight:600;">Video clip</span>
+        <span id="events-drilldown-video-meta" class="muted" style="margin-left:.5rem;"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <a
+          id="events-drilldown-video-open-link"
+          class="btn secondary"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:none;"
+        >Open</a>
+        <button type="button" class="btn" id="events-drilldown-video-close">Close</button>
+      </div>
+    </div>
+    <div style="margin-top:10px;aspect-ratio:16/9;max-width:100%;">
+      <iframe
+        id="events-drilldown-video-iframe"
+        title="Game video clip"
+        style="border:0;width:100%;height:100%;background:#000;"
+        allow="autoplay; fullscreen; picture-in-picture"
+      ></iframe>
+    </div>
+  </div>
   <div id="events-drilldown-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
 </dialog>
 
@@ -2413,6 +2438,146 @@
         }
       }
       return "";
+    }
+    var gameVideoUrl = {{ game.game_video_url|default:""|tojson }};
+    var drilldownClipLenEl = document.getElementById("timeline-clip-len");
+
+    function parseVideoSecondsFromRow(row) {
+      var vsTxt = String(
+        getValue(row, ["Video Seconds", "VideoSeconds", "Video S", "VideoS"]) || ""
+      ).trim();
+      if (vsTxt) {
+        if (vsTxt.match(/^-?\d+(\.\d+)?$/)) {
+          var f = parseFloat(vsTxt);
+          return isFinite(f) ? Math.floor(f) : null;
+        }
+        var t = parseTimeToSeconds(vsTxt);
+        if (t !== null && isFinite(t)) return Math.floor(t);
+      }
+      var vt = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
+      var vtS = parseTimeToSeconds(vt);
+      return vtS !== null && isFinite(vtS) ? Math.floor(vtS) : null;
+    }
+
+    function extractYoutubeId(url) {
+      if (!url) return null;
+      try {
+        var u = new URL(String(url), window.location.origin);
+        var host = String(u.hostname || "").toLowerCase();
+        if (host === "youtu.be") {
+          var p = String(u.pathname || "").replace(/^\//, "");
+          return p ? p.split("/")[0] : null;
+        }
+        var v = u.searchParams.get("v");
+        if (v) return v;
+        var path = String(u.pathname || "");
+        var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
+        return m ? m[1] : null;
+      } catch (e) {}
+      return null;
+    }
+
+    function buildYoutubeWatchUrl(url, startSec) {
+      var id = extractYoutubeId(url);
+      if (!id) return null;
+      var start = Math.max(0, Math.floor(startSec || 0));
+      try {
+        var w = new URL("https://www.youtube.com/watch");
+        w.searchParams.set("v", String(id));
+        w.searchParams.set("t", String(start) + "s");
+        w.searchParams.set("autoplay", "1");
+        w.searchParams.set("vq", "hd1080");
+        return w.toString();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function buildYoutubeEmbedUrl(url, startSec, endSec) {
+      var id = extractYoutubeId(url);
+      if (!id) return null;
+      var start = Math.max(0, Math.floor(startSec || 0));
+      var end = Math.max(start + 1, Math.floor(endSec || 0));
+      var params = new URLSearchParams();
+      params.set("autoplay", "1");
+      params.set("mute", "1");
+      params.set("enablejsapi", "1");
+      params.set("origin", String(window.location.origin || ""));
+      params.set("start", String(start));
+      params.set("end", String(end));
+      params.set("vq", "hd1080");
+      params.set("rel", "0");
+      params.set("modestbranding", "1");
+      params.set("playsinline", "1");
+      return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+    }
+
+    function closeDrilldownVideo() {
+      var pane = document.getElementById("events-drilldown-video-pane");
+      var iframe = document.getElementById("events-drilldown-video-iframe");
+      var meta = document.getElementById("events-drilldown-video-meta");
+      var open = document.getElementById("events-drilldown-video-open-link");
+      if (iframe) iframe.src = "";
+      if (open) {
+        open.href = "";
+        open.style.display = "none";
+      }
+      if (pane) pane.style.display = "none";
+      if (meta) meta.textContent = "";
+    }
+
+    var drilldownVideoClose = document.getElementById("events-drilldown-video-close");
+    if (drilldownVideoClose) {
+      drilldownVideoClose.addEventListener("click", closeDrilldownVideo);
+    }
+
+    function openDrilldownVideoClipForRow(row, opts) {
+      opts = opts || {};
+      if (!gameVideoUrl) return false;
+      var pane = document.getElementById("events-drilldown-video-pane");
+      var iframe = document.getElementById("events-drilldown-video-iframe");
+      var meta = document.getElementById("events-drilldown-video-meta");
+      var open = document.getElementById("events-drilldown-video-open-link");
+      if (!pane || !iframe) return false;
+      var vs2 = parseVideoSecondsFromRow(row);
+      if (vs2 === null || !isFinite(vs2)) return false;
+
+      var totalClipS = 30;
+      try {
+        var v = parseInt(String(drilldownClipLenEl && drilldownClipLenEl.value || "").trim(), 10);
+        if (isFinite(v) && v > 0) totalClipS = v;
+      } catch (e) {}
+      if (totalClipS !== 15 && totalClipS !== 20 && totalClipS !== 30 && totalClipS !== 45 && totalClipS !== 60 && totalClipS !== 90) {
+        totalClipS = 30;
+      }
+      var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
+      var postS = Math.max(0, totalClipS - preS);
+      var start2 = Math.max(0, Math.floor(vs2 - preS));
+      var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
+
+      var watchUrl = buildYoutubeWatchUrl(gameVideoUrl, start2);
+      if (open) {
+        open.href = watchUrl || "";
+        open.style.display = watchUrl ? "" : "none";
+      }
+      var embed = buildYoutubeEmbedUrl(gameVideoUrl, start2, end2);
+      if (!embed) return false;
+      iframe.src = embed;
+      iframe.setAttribute("src", embed);
+      if (meta) {
+        var label = (opts.label ? String(opts.label) : "");
+        var at = (opts.at ? String(opts.at) : "");
+        var metaTxt = [];
+        if (label) metaTxt.push(label);
+        if (at) metaTxt.push(at);
+        metaTxt.push(totalClipS + "s clip (" + preS + "s before, " + postS + "s after)");
+        meta.textContent = metaTxt.join(" • ");
+      }
+      pane.style.display = "block";
+      try {
+        pane.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (e) {}
+      return true;
     }
     function rowSide(row) {
       var s = String(getValue(row, ["Team Side", "TeamSide", "Side", "Team Rel", "TeamRel", "Team"])).trim().toLowerCase();
@@ -2517,7 +2682,7 @@
         tr.appendChild(tdT);
 
         var tdV = document.createElement("td");
-        if (tVideo && typeof window.hmOpenVideoClipForRow === "function") {
+        if (tVideo && typeof openDrilldownVideoClipForRow === "function") {
           var btn = document.createElement("button");
           btn.type = "button";
           btn.className = "btn secondary";
@@ -2529,7 +2694,7 @@
             var atTxt = "";
             if (period) atTxt = "P" + period + (tGame ? (" " + tGame) : "");
             else if (tGame) atTxt = tGame;
-            try { window.hmOpenVideoClipForRow(row, { label: et, at: atTxt }); } catch (e) {}
+            try { openDrilldownVideoClipForRow(row, { label: et, at: atTxt }); } catch (e) {}
           });
           tdV.appendChild(btn);
         } else {
@@ -2735,6 +2900,7 @@
       var pLabel = playerName + (playerJersey ? " (#" + extractJersey(playerJersey) + ")" : "");
       subtitleEl.textContent = statLabel ? (pLabel + " • " + statLabel) : pLabel;
       bodyEl.innerHTML = "";
+      closeDrilldownVideo();
 
       if (!filtered.length && !onIceGoals.length) {
         var p = document.createElement("p");
@@ -2865,8 +3031,13 @@
       closeBtn.addEventListener("click", function () {
         var dlg = document.getElementById("events-drilldown-modal");
         if (!dlg) return;
+        closeDrilldownVideo();
         try { dlg.close(); } catch (e) { dlg.open = false; }
       });
+    }
+    var drilldownDlg = document.getElementById("events-drilldown-modal");
+    if (drilldownDlg) {
+      drilldownDlg.addEventListener("close", closeDrilldownVideo);
     }
 
     document.querySelectorAll('table[data-player-stats-table="1"]').forEach(function (table) {

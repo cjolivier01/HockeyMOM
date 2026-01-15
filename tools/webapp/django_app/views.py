@@ -487,18 +487,21 @@ def _upsert_game_event_rows_from_events_csv(
 
     # Propagate clip metadata across all events at the same instant so any event row can be used
     # as a video anchor (e.g. assists share the same clip time as the goal / xG / SOG at that time).
-    best_video_seconds: dict[tuple[int, int], int] = {}
+    best_video: dict[tuple[int, int], dict[str, Any]] = {}
     for rec in parsed:
         per = rec.get("period")
         gs = rec.get("game_seconds")
         vs = rec.get("video_seconds")
         if not isinstance(per, int) or not isinstance(gs, int) or not isinstance(vs, int):
             continue
-        prev = best_video_seconds.get((int(per), int(gs)))
-        if prev is None or int(vs) < int(prev):
-            best_video_seconds[(int(per), int(gs))] = int(vs)
+        prev = best_video.get((int(per), int(gs)))
+        if prev is None or int(vs) < int(prev.get("video_seconds") or 0):
+            best_video[(int(per), int(gs))] = {
+                "video_seconds": int(vs),
+                "video_time": str(rec.get("video_time") or "").strip(),
+            }
 
-    if best_video_seconds:
+    if best_video:
         for rec in parsed:
             per = rec.get("period")
             gs = rec.get("game_seconds")
@@ -506,11 +509,14 @@ def _upsert_game_event_rows_from_events_csv(
                 continue
             if rec.get("video_seconds") is not None:
                 continue
-            best = best_video_seconds.get((int(per), int(gs)))
-            if best is None:
+            best = best_video.get((int(per), int(gs)))
+            if not best:
                 continue
-            rec["video_seconds"] = int(best)
-            rec["video_time"] = logic.format_seconds_to_mmss_or_hhmmss(int(best))
+            best_vs = best.get("video_seconds")
+            if not isinstance(best_vs, int):
+                continue
+            rec["video_seconds"] = int(best_vs)
+            rec["video_time"] = logic.format_seconds_to_mmss_or_hhmmss(int(best_vs))
 
     # De-duplicate redundant shot implication rows (Goal > ExpectedGoal > SOG > Shot) at the same instant/player/side.
     chain_keys = {"goal", "expectedgoal", "sog", "shot"}
@@ -777,9 +783,15 @@ def _upsert_game_event_rows_from_events_csv(
                     game_id=int(game_id),
                     period__isnull=False,
                     game_seconds__isnull=False,
-                ).values("id", "period", "game_seconds", "video_time", "video_seconds")
+                ).values(
+                    "id",
+                    "period",
+                    "game_seconds",
+                    "video_time",
+                    "video_seconds",
+                )
             )
-            best_by_time: dict[tuple[int, int], int] = {}
+            best_by_time: dict[tuple[int, int], dict[str, Any]] = {}
             for r0 in all_rows:
                 per = r0.get("period")
                 gs = r0.get("game_seconds")
@@ -792,8 +804,11 @@ def _upsert_game_event_rows_from_events_csv(
                     continue
                 key = (int(per), int(gs))
                 prev = best_by_time.get(key)
-                if prev is None or int(vs) < int(prev):
-                    best_by_time[key] = int(vs)
+                if prev is None or int(vs) < int(prev.get("video_seconds") or 0):
+                    best_by_time[key] = {
+                        "video_seconds": int(vs),
+                        "video_time": str(vt or "").strip(),
+                    }
 
             if best_by_time:
                 to_fill: list[Any] = []
@@ -802,9 +817,13 @@ def _upsert_game_event_rows_from_events_csv(
                     gs = r0.get("game_seconds")
                     if per is None or gs is None:
                         continue
-                    best_vs = best_by_time.get((int(per), int(gs)))
-                    if best_vs is None:
+                    best = best_by_time.get((int(per), int(gs)))
+                    if not best:
                         continue
+                    best_vs = best.get("video_seconds")
+                    if not isinstance(best_vs, int):
+                        continue
+
                     has_video_time = bool(str(r0.get("video_time") or "").strip())
                     has_video_seconds = r0.get("video_seconds") is not None
                     if has_video_time and has_video_seconds:
@@ -817,6 +836,7 @@ def _upsert_game_event_rows_from_events_csv(
                         vt1, vs1 = logic.normalize_video_time_and_seconds("", int(best_vs))
                     if vs1 is None:
                         continue
+
                     to_fill.append(
                         m.HkyGameEventRow(
                             id=int(r0["id"]),
