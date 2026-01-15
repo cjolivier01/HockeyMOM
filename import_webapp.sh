@@ -39,7 +39,7 @@ Options:
   --no-default-user Skip auto-creating a default webapp user from git config (user.email/user.name)
   --t2s-league ID   Only import these TimeToScore league ids (repeatable or comma-separated; default: 3,5,18)
   --rebuild         Reset (delete) existing league hockey data before importing (destructive)
-  --spreadsheets-only  Seed only from shift spreadsheets (skip TimeToScore import; use local T2S cache only in parse_stats_inputs)
+  --spreadsheets-only  Seed only from shift spreadsheets (skip TimeToScore import; still uses T2S lookups in parse_stats_inputs)
   --parse-only      Only run scripts/parse_stats_inputs.py upload (skip reset + TimeToScore import); forces --webapp-replace
   --scrape          Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
   --shifts          Include TOI/Shifts stats from shift spreadsheets (adds TOI/Shifts columns in webapp tables)
@@ -369,7 +369,7 @@ if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
 fi
 SPREADSHEET_ARGS=()
 if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
-  SPREADSHEET_ARGS+=( "--t2s-cache-only" )
+  :
 fi
 if [[ "${PARSE_ONLY}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--webapp-replace" )

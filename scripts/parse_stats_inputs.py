@@ -10507,6 +10507,7 @@ def process_long_only_sheets(
     include_shifts_in_stats: bool = False,
     write_events_summary: Optional[bool] = None,
     create_scripts: bool = True,
+    allow_remote: bool = True,
 ) -> Tuple[
     Path,
     List[Dict[str, str]],
@@ -10725,7 +10726,7 @@ def process_long_only_sheets(
             t2s_events = t2s_events_from_scoresheet(
                 int(t2s_game_id),
                 our_side=side,
-                allow_remote=t2s_allow_remote,
+                allow_remote=allow_remote,
             )
         goals_by_period: Dict[int, List[GoalEvent]] = {}
         for ev in goals or []:
@@ -11735,6 +11736,23 @@ def main() -> None:
             return raw in {"1", "true", "yes", "y", "on"} or True
         return False
 
+    def _meta_t2s_id(meta: dict[str, str]) -> Optional[int]:
+        for k in (
+            "t2s",
+            "t2s_id",
+            "timetoscore_game_id",
+            "timetoscore",
+            "time2score",
+        ):
+            raw = meta.get(str(k).strip().lower())
+            if raw is None:
+                continue
+            try:
+                return int(str(raw).strip())
+            except Exception:
+                continue
+        return None
+
     def _no_t2s_for_game(meta: dict[str, str]) -> bool:
         return _meta_truthy(
             meta,
@@ -11772,11 +11790,18 @@ def main() -> None:
                 continue
             primary = gg.get("primary")
             meta = dict(gg.get("meta") or {})
-            t2s_id_inferred = (
-                None
-                if (not use_t2s or _no_t2s_for_game(meta))
-                else (_infer_t2s_from_filename(Path(primary)) if primary else None)
-            )
+            t2s_id_inferred = None
+            if use_t2s and not _no_t2s_for_game(meta):
+                t2s_id_inferred = _meta_t2s_id(meta)
+                if t2s_id_inferred is None:
+                    if primary:
+                        t2s_id_inferred = _infer_t2s_from_filename(Path(primary))
+                    else:
+                        long_paths = list(gg.get("long_paths") or [])
+                        for lp in long_paths:
+                            t2s_id_inferred = _infer_t2s_from_filename(Path(lp))
+                            if t2s_id_inferred is not None:
+                                break
             if t2s_id_inferred is not None:
                 continue
 
@@ -11986,11 +12011,11 @@ def main() -> None:
                 long_paths_all.append(p)
 
             # Prefer an explicit --t2s value; otherwise infer from filename (if enabled).
-            t2s_id = (
-                (t2s_arg_id if t2s_arg_id is not None else _infer_t2s_from_filename(in_path))
-                if use_t2s and (not no_t2s_for_group)
-                else None
-            )
+            t2s_id = None
+            if use_t2s and (not no_t2s_for_group):
+                t2s_id = t2s_arg_id if t2s_arg_id is not None else _meta_t2s_id(meta_for_group)
+                if t2s_id is None:
+                    t2s_id = _infer_t2s_from_filename(in_path)
 
             manual_goals = load_goals(args.goal, args.goals_file)
             if manual_goals:
@@ -12121,11 +12146,11 @@ def main() -> None:
             # filename only when the trailing numeric suffix is large enough
             # (>= 10000). Smaller suffixes (e.g., 'chicago-1') remain part of the
             # game name and do not trigger T2S usage.
-            t2s_id = (
-                (t2s_arg_id if t2s_arg_id is not None else _infer_t2s_from_filename(in_path))
-                if use_t2s and (not no_t2s_for_group)
-                else None
-            )
+            t2s_id = None
+            if use_t2s and (not no_t2s_for_group):
+                t2s_id = t2s_arg_id if t2s_arg_id is not None else _meta_t2s_id(meta_for_group)
+                if t2s_id is None:
+                    t2s_id = _infer_t2s_from_filename(in_path)
             label = str(g.get("label") or _base_label_from_path(in_path))
             outdir = base_outdir if not multiple_inputs else base_outdir / label
             manual_goals = load_goals(args.goal, args.goals_file)
@@ -12415,6 +12440,7 @@ def main() -> None:
                         include_shifts_in_stats=include_shifts_in_stats,
                         write_events_summary=write_events_summary,
                         create_scripts=create_scripts,
+                        allow_remote=t2s_allow_remote,
                     )
                 )
             else:

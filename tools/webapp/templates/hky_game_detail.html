@@ -591,7 +591,8 @@
           function laneKey(iconKey) {
             if (iconKey === "penalty" || iconKey === "pp" || iconKey === "pk") return "special_teams";
             if (isFinishFamily(iconKey)) return "finish";
-            if (iconKey === "controlled_entry" || iconKey === "controlled_exit" || iconKey === "completed_pass") return "transition";
+            if (iconKey === "controlled_entry" || iconKey === "controlled_exit") return "transition";
+            if (iconKey === "completed_pass") return "completed_pass";
             return iconKey;
           }
 
@@ -884,13 +885,8 @@
               path("M9.5 12h10", "none", "#43b3ff", 3, "round", "round");
               path("M16.5 8.5l4 3.5-4 3.5", "none", "#43b3ff", 3, "round", "round");
             } else if (icon === "completed_pass") {
-              // Tape-to-tape pass: dotted path + checkmark confirming completion.
-              path("M5.0 15.2c2.6-4.5 7.1-6.9 12.3-7.2", "none", "rgba(255,255,255,0.45)", 2.2, "round", "round");
-              path("M6.2 12.4l2.2-1.6", "none", "rgba(255,255,255,0.45)", 2.2, "round", "round");
-              path("M9.2 10.4l2.2-1.6", "none", "rgba(255,255,255,0.45)", 2.2, "round", "round");
-              rect(15.5, 6.3, 5.4, 11.4, 2.2, "rgba(0,0,0,0.0)", "#7dd3fc", 2.2);
-              path("M10.0 16.6l2.6 2.6 5.0-6.0", "none", "#34d399", 2.8, "round", "round");
-              circle(15.6, 12.8, 1.7, "#34d399", "rgba(0,0,0,0.38)", 0.8);
+              // Completed pass: bold yellow "C".
+              text(12, 12, "C", "#fbbf24", 14, 900);
             } else if (icon === "odd_man_rush") {
               // 3 arrows rushing vs 2 defenders (dots): "3-on-2".
               path("M4 9h7", "none", "#f59e0b", 2.8, "round", "round");
@@ -1481,6 +1477,7 @@
               "special_teams",
               "finish",
               "transition",
+              "completed_pass",
               "odd_man_rush",
               "takeaway",
               "giveaway",
