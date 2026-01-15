@@ -7299,6 +7299,11 @@ def _write_game_stats_files(
 
     shots_for, shots_against = _for_against("Shot")
     sog_for, sog_against = _for_against("SOG")
+    # Fallback: when sheets only log generic Shots (no explicit SOG), treat Shots as SOG.
+    if sog_for == "" and isinstance(shots_for, (int, float)):
+        sog_for = shots_for
+    if sog_against == "" and isinstance(shots_against, (int, float)):
+        sog_against = shots_against
     xg_for, xg_against = _for_against("ExpectedGoal")
     turnovers_forced_for, turnovers_forced_against = _for_against("TurnoverForced")
     created_turnovers_for, created_turnovers_against = _for_against("CreatedTurnover")

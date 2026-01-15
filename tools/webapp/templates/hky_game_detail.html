@@ -541,6 +541,7 @@
             if (sl === "penalty expired" || sl === "penaltyexpired") return "Penalty Expired";
             if (sl === "powerplay" || sl === "power play" || sl === "pp") return "Power Play";
             if (sl === "penaltykill" || sl === "penalty kill" || sl === "pk") return "Penalty Kill";
+            if (sl === "completedpass" || sl === "completed pass" || sl === "completed passes") return "Completed Pass";
             if (sl.indexOf("rush") >= 0) return "Odd-Man Rush";
             if (sl === "controlledentry" || sl === "controlled entry") return "Controlled Entry";
             if (sl === "controlledexit" || sl === "controlled exit") return "Controlled Exit";
@@ -564,6 +565,7 @@
             if (sl === "penalty kill" || sl === "pk") return "pk";
             if (sl === "controlled entry") return "controlled_entry";
             if (sl === "controlled exit") return "controlled_exit";
+            if (sl === "completed pass" || sl === "completed passes") return "completed_pass";
             if (sl.indexOf("rush") >= 0) return "odd_man_rush";
             if (sl.indexOf("turnovers") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
             if (sl.indexOf("created") >= 0 && sl.indexOf("turnovers") >= 0) return "turnover_created";
@@ -589,7 +591,7 @@
           function laneKey(iconKey) {
             if (iconKey === "penalty" || iconKey === "pp" || iconKey === "pk") return "special_teams";
             if (isFinishFamily(iconKey)) return "finish";
-            if (iconKey === "controlled_entry" || iconKey === "controlled_exit") return "transition";
+            if (iconKey === "controlled_entry" || iconKey === "controlled_exit" || iconKey === "completed_pass") return "transition";
             return iconKey;
           }
 
@@ -881,6 +883,14 @@
               rect(4, 7, 4.5, 10, 2, "rgba(0,0,0,0.0)", "#43b3ff", 2.2);
               path("M9.5 12h10", "none", "#43b3ff", 3, "round", "round");
               path("M16.5 8.5l4 3.5-4 3.5", "none", "#43b3ff", 3, "round", "round");
+            } else if (icon === "completed_pass") {
+              // Tape-to-tape pass: dotted path + checkmark confirming completion.
+              path("M5.0 15.2c2.6-4.5 7.1-6.9 12.3-7.2", "none", "rgba(255,255,255,0.45)", 2.2, "round", "round");
+              path("M6.2 12.4l2.2-1.6", "none", "rgba(255,255,255,0.45)", 2.2, "round", "round");
+              path("M9.2 10.4l2.2-1.6", "none", "rgba(255,255,255,0.45)", 2.2, "round", "round");
+              rect(15.5, 6.3, 5.4, 11.4, 2.2, "rgba(0,0,0,0.0)", "#7dd3fc", 2.2);
+              path("M10.0 16.6l2.6 2.6 5.0-6.0", "none", "#34d399", 2.8, "round", "round");
+              circle(15.6, 12.8, 1.7, "#34d399", "rgba(0,0,0,0.38)", 0.8);
             } else if (icon === "odd_man_rush") {
               // 3 arrows rushing vs 2 defenders (dots): "3-on-2".
               path("M4 9h7", "none", "#f59e0b", 2.8, "round", "round");
@@ -1486,6 +1496,7 @@
               "shot",
               "controlled_entry",
               "controlled_exit",
+              "completed_pass",
               "odd_man_rush",
               "takeaway",
               "giveaway",
@@ -2278,6 +2289,55 @@
               document.addEventListener("DOMContentLoaded", attachEventsTableVideoHandlers);
             } else {
               attachEventsTableVideoHandlers();
+            }
+
+            function decorateEventTypeCells() {
+              var tbl = document.getElementById("game-events-table");
+              if (!tbl) return;
+              var headRow = tbl.querySelector("thead tr");
+              if (!headRow) return;
+              var ths = headRow.querySelectorAll("th");
+              var targetIdx = -1;
+              for (var i = 0; i < ths.length; i++) {
+                var txt = (ths[i].textContent || "").trim().toLowerCase();
+                if (txt === "event type" || txt === "event" || txt === "type") {
+                  targetIdx = i;
+                  break;
+                }
+              }
+              if (targetIdx === -1) return;
+              var rows = tbl.querySelectorAll("tbody tr");
+              for (var r = 0; r < rows.length; r++) {
+                var cells = rows[r].children;
+                if (targetIdx >= cells.length) continue;
+                var cell = cells[targetIdx];
+                if (!cell || cell.getAttribute("data-iconified") === "1") continue;
+                var label = (cell.textContent || "").trim();
+                if (!label) continue;
+                var iconKey = typeKey(normalizeTypeLabel(label));
+                var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.setAttribute("viewBox", "0 0 24 24");
+                svg.setAttribute("aria-hidden", "true");
+                svg.classList.add("event-type-icon");
+                var gWrap = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                gWrap.setAttribute("transform", "translate(12,12)");
+                gWrap.appendChild(iconGroup(iconKey, { size: 20, label: label }));
+                svg.appendChild(gWrap);
+                var wrap = document.createElement("div");
+                wrap.className = "event-type-cell";
+                wrap.appendChild(svg);
+                var txtNode = document.createElement("span");
+                txtNode.textContent = label;
+                wrap.appendChild(txtNode);
+                while (cell.firstChild) cell.removeChild(cell.firstChild);
+                cell.appendChild(wrap);
+                cell.setAttribute("data-iconified", "1");
+              }
+            }
+            if (document.readyState === "loading") {
+              document.addEventListener("DOMContentLoaded", decorateEventTypeCells);
+            } else {
+              decorateEventTypeCells();
             }
           })();
         </script>
