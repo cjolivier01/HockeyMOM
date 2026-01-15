@@ -1144,12 +1144,15 @@ def _collect_sheet_jerseys(
         event_log_context,
     ) = _parse_event_log_layout(df)
     if not used_event_log:
-        (
-            _video_pairs_by_player,
-            sb_pairs_by_player,
-            _conv_segments_by_period,
-            _validation_errors,
-        ) = _parse_per_player_layout(df, keep_goalies=keep_goalies, skip_validation=True)
+        try:
+            (
+                _video_pairs_by_player,
+                sb_pairs_by_player,
+                _conv_segments_by_period,
+                _validation_errors,
+            ) = _parse_per_player_layout(df, keep_goalies=keep_goalies, skip_validation=True)
+        except Exception:
+            sb_pairs_by_player = {}
 
     jerseys: set[str] = set()
     for pk in sb_pairs_by_player.keys():
@@ -1223,8 +1226,14 @@ def find_header_row(df: pd.DataFrame, start: int, end: int) -> Optional[int]:
     Often pattern is: 'Period', blank, header.
     """
     for r in range(start, min(end, start + 12)):
-        if str(df.iloc[r, 0]).strip().lower() in ["jersey no", "jersey number"]:
-            return r
+        row = df.iloc[r]
+        for c in range(min(len(row), 20)):  # quick scan of first 20 cols
+            val = row.iloc[c]
+            if not isinstance(val, str):
+                continue
+            norm = _normalize_header_label(val)
+            if norm in {"jerseyno", "jerseynumber"} or ("jersey" in norm and "number" in norm):
+                return r
     # Fallback (Period + blank + header)
     return start + 2 if start + 2 < end else None
 
