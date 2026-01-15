@@ -7328,6 +7328,7 @@ def _write_game_stats_files(
     created_turnovers_for, created_turnovers_against = _for_against("CreatedTurnover")
     giveaways_for, giveaways_against = _for_against("Giveaway")
     takeaways_for, takeaways_against = _for_against("Takeaway")
+    completed_pass_for, completed_pass_against = _for_against("CompletedPass")
     ce_for, ce_against = _for_against("ControlledEntry")
     cx_for, cx_against = _for_against("ControlledExit")
     rush_for, rush_against = _for_against("Rush")
@@ -7363,6 +7364,8 @@ def _write_game_stats_files(
             "Giveaways Against": giveaways_against,
             "Takeaways For": takeaways_for,
             "Takeaways Against": takeaways_against,
+            "Completed Pass For": completed_pass_for,
+            "Completed Pass Against": completed_pass_against,
             "Controlled Entry For": ce_for,
             "Controlled Entry Against": ce_against,
             "Controlled Exit For": cx_for,
