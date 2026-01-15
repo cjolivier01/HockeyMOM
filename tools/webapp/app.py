@@ -3443,6 +3443,7 @@ def create_app():
                             "goalie_sa",
                             "sog",
                             "expected_goals",
+                            "completed_passes",
                             "giveaways",
                             "turnovers_forced",
                             "created_turnovers",
@@ -5781,6 +5782,7 @@ def create_app():
             "goalie_sa",
             "sog",
             "expected_goals",
+            "completed_passes",
             "giveaways",
             "turnovers_forced",
             "created_turnovers",
@@ -9206,6 +9208,7 @@ PLAYER_STATS_SUM_KEYS: tuple[str, ...] = (
     "sog",
     "expected_goals",
     "plus_minus",
+    "completed_passes",
     "giveaways",
     "turnovers_forced",
     "created_turnovers",
@@ -9254,6 +9257,8 @@ PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("expected_goals", "xG"),
     ("expected_goals_per_game", "xG per Game"),
     ("expected_goals_per_sog", "xG per SOG"),
+    ("completed_passes", "Completed Passes"),
+    ("completed_passes_per_game", "Completed Passes per Game"),
     ("turnovers_forced", "Turnovers (forced)"),
     ("turnovers_forced_per_game", "Turnovers (forced) per Game"),
     ("created_turnovers", "Created Turnovers"),
@@ -9319,6 +9324,7 @@ GAME_PLAYER_STATS_DISPLAY_KEYS: tuple[str, ...] = (
     "plus_minus",
     "sog",
     "expected_goals",
+    "completed_passes",
     "controlled_entry_for",
     "controlled_entry_against",
     "controlled_exit_for",
@@ -9384,6 +9390,8 @@ _PLAYER_STATS_HEADER_TO_DB_KEY: dict[str, str] = {
     "goalie sa": "goalie_sa",
     "sog": "sog",
     "xg": "expected_goals",
+    "completed passes": "completed_passes",
+    "completed pass": "completed_passes",
     "giveaways": "giveaways",
     "turnovers (forced)": "turnovers_forced",
     "created turnovers": "created_turnovers",
@@ -9671,6 +9679,7 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     ga = _int0(sums.get("ga_counted"))
     giveaways = _int0(sums.get("giveaways"))
     takeaways = _int0(sums.get("takeaways"))
+    completed_passes = _int0(sums.get("completed_passes"))
     turnovers_forced = _int0(sums.get("turnovers_forced"))
     created_turnovers = _int0(sums.get("created_turnovers"))
     ce_for = _int0(sums.get("controlled_entry_for"))
@@ -9707,6 +9716,7 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     out["ga_per_game"] = _rate_or_none(ga, gp)
     out["giveaways_per_game"] = _rate_or_none(giveaways, gp)
     out["takeaways_per_game"] = _rate_or_none(takeaways, gp)
+    out["completed_passes_per_game"] = _rate_or_none(completed_passes, gp)
     out["turnovers_forced_per_game"] = _rate_or_none(turnovers_forced, gp)
     out["created_turnovers_per_game"] = _rate_or_none(created_turnovers, gp)
     out["controlled_entry_for_per_game"] = _rate_or_none(ce_for, gp)

@@ -216,6 +216,7 @@ class PlayerStat(models.Model):
 
     sog = models.IntegerField(null=True, blank=True)
     expected_goals = models.IntegerField(null=True, blank=True)
+    completed_passes = models.IntegerField(null=True, blank=True)
     giveaways = models.IntegerField(null=True, blank=True)
     turnovers_forced = models.IntegerField(null=True, blank=True)
     created_turnovers = models.IntegerField(null=True, blank=True)

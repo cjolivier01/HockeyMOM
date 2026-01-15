@@ -2828,6 +2828,23 @@ def _parse_long_left_event_table(
             is_rush = "rush" in label_l
             is_goal = (label_l == "goal") or (marker_l == "goal")
             is_sog = marker_l in {"sog", "goal"}
+            is_completed_pass = label_l == "completed pass"
+
+            if is_completed_pass:
+                if shooter:
+                    events.append(
+                        LongEvent(
+                            event_type="CompletedPass",
+                            team=team,
+                            period=period,
+                            video_s=vsec,
+                            game_s=gsec,
+                            jerseys=tuple(shooter),
+                        )
+                    )
+                    for j in shooter:
+                        jerseys_by_team.setdefault(team, set()).add(int(j))
+                continue
 
             if is_turnover or is_giveaway or is_unforced_to:
                 # Turnover rows use:
@@ -4492,6 +4509,7 @@ def _write_team_stats_from_long_shift_team(
             ev_counts = (event_log_context.event_counts_by_player or {}).get(player_key, {})
         else:
             ev_counts = {}
+        has_completed_passes_local = "CompletedPass" in player_event_types_present
         shots_cnt = int(ev_counts.get("Shot", 0) or 0)
         sog_cnt = int(ev_counts.get("SOG", 0) or 0)
         expected_goals_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
@@ -4499,6 +4517,7 @@ def _write_team_stats_from_long_shift_team(
         created_turnovers_cnt = int(ev_counts.get("CreatedTurnover", 0) or 0)
         giveaways_cnt = int(ev_counts.get("Giveaway", 0) or 0)
         takeaways_cnt = int(ev_counts.get("Takeaway", 0) or 0)
+        completed_passes_cnt = int(ev_counts.get("CompletedPass", 0) or 0)
 
         # Per-player stats file (for parity with primary sheet outputs).
         try:
@@ -4586,6 +4605,7 @@ def _write_team_stats_from_long_shift_team(
                     "CreatedTurnover",
                     "Giveaway",
                     "Takeaway",
+                    "CompletedPass",
                     "ControlledEntry",
                     "ControlledExit",
                 ]
@@ -4637,6 +4657,9 @@ def _write_team_stats_from_long_shift_team(
         )
         row_map["giveaways"] = str(giveaways_cnt) if has_player_giveaways else ""
         row_map["takeaways"] = str(takeaways_cnt) if has_player_takeaways else ""
+        row_map["completed_passes"] = (
+            str(completed_passes_cnt) if has_completed_passes_local else ""
+        )
 
         if has_controlled_entry_events:
             row_map["controlled_entry_for"] = str(on_ice["controlled_entry_for"])
@@ -6817,6 +6840,8 @@ def _build_stats_dataframe(
         "giveaways_per_game",
         "takeaways",
         "takeaways_per_game",
+        "completed_passes",
+        "completed_passes_per_game",
         "controlled_entry_for",
         "controlled_entry_for_per_game",
         "controlled_entry_against",
@@ -6926,6 +6951,8 @@ def _display_col_name(key: str) -> str:
         "giveaways_per_game": "Giveaways per Game",
         "takeaways": "Takeaways",
         "takeaways_per_game": "Takeaways per Game",
+        "completed_passes": "Completed Passes",
+        "completed_passes_per_game": "Completed Passes per Game",
         "controlled_entry_for": "Controlled Entry For (On-Ice)",
         "controlled_entry_for_per_game": "Controlled Entry For (On-Ice) per Game",
         "controlled_entry_against": "Controlled Entry Against (On-Ice)",
@@ -7015,6 +7042,8 @@ def _display_event_type(event_type: str) -> str:
         return "Turnovers (forced)"
     if et == "CreatedTurnover":
         return "Created Turnovers"
+    if et == "CompletedPass":
+        return "Completed Pass"
     return et
 
 
@@ -7038,6 +7067,7 @@ def _blink_event_label(event_type: str) -> str:
         "CreatedTurnover": "CREATED TURNOVER",
         "Giveaway": "GIVEAWAY",
         "Takeaway": "TAKEAWAY",
+        "CompletedPass": "COMPLETED PASS",
     }
     if et in mapping:
         return mapping[et]
@@ -7613,6 +7643,7 @@ def _aggregate_stats_rows(
         "created_turnovers",
         "giveaways",
         "takeaways",
+        "completed_passes",
         "controlled_entry_for",
         "controlled_entry_against",
         "controlled_exit_for",
@@ -7644,6 +7675,7 @@ def _aggregate_stats_rows(
                 "created_turnovers": 0,
                 "giveaways": 0,
                 "takeaways": 0,
+                "completed_passes": 0,
                 "controlled_entry_for": 0,
                 "controlled_entry_against": 0,
                 "controlled_exit_for": 0,
@@ -7679,6 +7711,7 @@ def _aggregate_stats_rows(
             dest["created_turnovers"] += int(str(row.get("created_turnovers", 0) or 0))
             dest["giveaways"] += int(str(row.get("giveaways", 0) or 0))
             dest["takeaways"] += int(str(row.get("takeaways", 0) or 0))
+            dest["completed_passes"] += int(str(row.get("completed_passes", 0) or 0))
             dest["controlled_entry_for"] += int(str(row.get("controlled_entry_for", 0) or 0))
             dest["controlled_entry_against"] += int(
                 str(row.get("controlled_entry_against", 0) or 0)
@@ -7737,6 +7770,7 @@ def _aggregate_stats_rows(
         total_created_turnovers = data.get("created_turnovers", 0) or 0
         total_giveaways = data.get("giveaways", 0) or 0
         total_takeaways = data.get("takeaways", 0) or 0
+        total_completed_passes = data.get("completed_passes", 0) or 0
         total_ce_for = data.get("controlled_entry_for", 0) or 0
         total_ce_against = data.get("controlled_entry_against", 0) or 0
         total_cx_for = data.get("controlled_exit_for", 0) or 0
@@ -7748,6 +7782,7 @@ def _aggregate_stats_rows(
         created_turnovers_games = per_game_denoms.get("created_turnovers_per_game", 0) or 0
         giveaway_games = per_game_denoms.get("giveaways_per_game", 0) or 0
         takeaway_games = per_game_denoms.get("takeaways_per_game", 0) or 0
+        completed_pass_games = per_game_denoms.get("completed_passes_per_game", 0) or 0
         ce_for_games = per_game_denoms.get("controlled_entry_for_per_game", 0) or 0
         ce_against_games = per_game_denoms.get("controlled_entry_against_per_game", 0) or 0
         cx_for_games = per_game_denoms.get("controlled_exit_for_per_game", 0) or 0
@@ -7795,6 +7830,12 @@ def _aggregate_stats_rows(
             "takeaways": str(total_takeaways) if takeaway_games > 0 else "",
             "takeaways_per_game": (
                 f"{(total_takeaways / takeaway_games):.1f}" if takeaway_games > 0 else ""
+            ),
+            "completed_passes": str(total_completed_passes) if completed_pass_games > 0 else "",
+            "completed_passes_per_game": (
+                f"{(total_completed_passes / completed_pass_games):.1f}"
+                if completed_pass_games > 0
+                else ""
             ),
             "controlled_entry_for": str(total_ce_for) if ce_for_games > 0 else "",
             "controlled_entry_for_per_game": (
@@ -10079,6 +10120,7 @@ def process_sheet(
                     "CreatedTurnover",
                     "Giveaway",
                     "Takeaway",
+                    "CompletedPass",
                     "ControlledEntry",
                     "ControlledExit",
                 ]
@@ -10145,6 +10187,7 @@ def process_sheet(
             ev_counts = (event_log_context.event_counts_by_player or {}).get(player_key, {})
         else:
             ev_counts = {}
+        has_completed_passes_local = "CompletedPass" in player_event_types_present
         shots_cnt = int(ev_counts.get("Shot", 0) or 0)
         sog_cnt = int(ev_counts.get("SOG", 0) or 0)
         expected_goals_cnt = int(ev_counts.get("ExpectedGoal", 0) or 0)
@@ -10152,6 +10195,7 @@ def process_sheet(
         created_turnovers_cnt = int(ev_counts.get("CreatedTurnover", 0) or 0)
         giveaways_cnt = int(ev_counts.get("Giveaway", 0) or 0)
         takeaways_cnt = int(ev_counts.get("Takeaway", 0) or 0)
+        completed_passes_cnt = int(ev_counts.get("CompletedPass", 0) or 0)
         if has_player_shots:
             row_map["shots"] = str(shots_cnt)
         else:
@@ -10193,6 +10237,11 @@ def process_sheet(
             row_map["takeaways"] = str(takeaways_cnt)
         else:
             row_map["takeaways"] = ""
+
+        if has_completed_passes_local:
+            row_map["completed_passes"] = str(completed_passes_cnt)
+        else:
+            row_map["completed_passes"] = ""
 
         if has_controlled_entry_events:
             row_map["controlled_entry_for"] = str(on_ice["controlled_entry_for"])
