@@ -2819,16 +2819,16 @@ def _parse_long_left_event_table(
             #  - "Turnover" / "Turnover (forced)"  -> forced turnover (lost puck)
             #  - "Unforced TO" (and occasional typos like "Unforced OT") -> unforced turnover (giveaway)
             #  - legacy: "Giveaway"
-            is_unforced_to = label_l.startswith("unforced")
+            is_unforced_to = label_l.startswith(("unforced", "unfoced", "unforcd"))
             is_turnover = ("turnover" in label_l) and (not is_unforced_to)
             is_giveaway = ("giveaway" in label_l) and (not is_turnover) and (not is_unforced_to)
             is_expected_goal = "expected goal" in label_l
-            is_controlled_entry = ("controlled" in label_l) and ("entr" in label_l)
+            is_controlled_entry = bool(re.search(r"con?trolled", label_l)) and ("entr" in label_l)
             is_controlled_exit = ("controlled" in label_l) and ("exit" in label_l)
             is_rush = "rush" in label_l
             is_goal = (label_l == "goal") or (marker_l == "goal")
             is_sog = marker_l in {"sog", "goal"}
-            is_completed_pass = label_l == "completed pass"
+            is_completed_pass = ("completed pass" in label_l) or ("complete pass" in label_l)
 
             if is_completed_pass:
                 if shooter:
