@@ -88,6 +88,24 @@ def should_compute_per_game_rates_using_stat_coverage_denominators():
     assert abs(float(r10["shots_per_game"]) - (10.0 / 3.0)) < 1e-9
 
 
+def should_not_infer_shot_rates_from_goals_when_shots_missing():
+    mod = _load_app_module()
+
+    player_stats_rows = [
+        {"player_id": 10, "game_id": 1, "goals": 1, "assists": 0, "shots": None},
+        {"player_id": 10, "game_id": 2, "goals": 1, "assists": 0, "shots": None},
+        {"player_id": 10, "game_id": 3, "goals": 1, "assists": 0, "shots": None},
+    ]
+    totals = mod._aggregate_player_totals_from_rows(
+        player_stats_rows=player_stats_rows, allowed_game_ids={1, 2, 3}
+    )
+    p10 = totals[10]
+    assert p10["gp"] == 3
+    assert p10["goals"] == 3
+    assert p10["shots"] == 0
+    assert p10["shots_per_game"] is None
+
+
 def should_render_recent_player_stats_section_in_team_template(webapp_test_config_path):
     _load_app_module()
     from tools.webapp import django_orm

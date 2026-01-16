@@ -9789,9 +9789,15 @@ def compute_player_display_stats(
     out: dict[str, Any] = dict(sums)
     # Stat implications for display/aggregation:
     #   Goals ⊆ xG ⊆ SOG ⊆ Shots
-    xg = max(xg, goals)
-    sog = max(sog, xg)
-    shots = max(shots, sog)
+    #
+    # Important: for team-page aggregates we may be mixing games that have full shot-tracking
+    # (long spreadsheet) with games that only have goals. When `per_game_denoms` is provided,
+    # treat shots/SOG/xG as "measured" stats and do not infer them from goals, otherwise per-game
+    # rates become misleading.
+    if per_game_denoms is None:
+        xg = max(xg, goals)
+        sog = max(sog, xg)
+        shots = max(shots, sog)
     out["expected_goals"] = xg
     out["sog"] = sog
     out["shots"] = shots
@@ -10339,7 +10345,6 @@ def compute_recent_player_totals_from_rows(
         for _idx, rr in chosen:
             if rr.get("goals") is not None and rr.get("assists") is not None:
                 ppg_games += 1
-        gp_i = int(sums.get("gp") or 0)
         denoms = {
             "ppg": int(ppg_games),
             "toi_seconds_per_game": int(present.get("toi_seconds", 0) or 0),
@@ -10365,9 +10370,6 @@ def compute_recent_player_totals_from_rows(
             "hits_per_game": int(present.get("hits", 0) or 0),
             "blocks_per_game": int(present.get("blocks", 0) or 0),
         }
-        for dk in list(denoms.keys()):
-            if int(denoms.get(dk) or 0) <= 0:
-                denoms[dk] = int(gp_i)
         out[int(pid)] = compute_player_display_stats(sums, per_game_denoms=denoms)
     return out
 
@@ -10469,7 +10471,6 @@ def _aggregate_player_totals_from_rows(
     out: dict[int, dict[str, Any]] = {}
     for pid, base in sums_by_pid.items():
         base["gp"] = int(gp_by_pid.get(pid, 0))
-        gp_i = int(base.get("gp") or 0)
         present = present_counts_by_pid.get(int(pid)) or {}
         denoms = {
             "ppg": int(ppg_games_by_pid.get(int(pid), 0) or 0),
@@ -10496,11 +10497,6 @@ def _aggregate_player_totals_from_rows(
             "hits_per_game": int(present.get("hits", 0) or 0),
             "blocks_per_game": int(present.get("blocks", 0) or 0),
         }
-        # If a denom is missing (0), fall back to GP for backward-compatible display.
-        for dk in list(denoms.keys()):
-            if int(denoms.get(dk) or 0) <= 0:
-                denoms[dk] = int(gp_i)
-
         out[int(pid)] = compute_player_display_stats(dict(base), per_game_denoms=denoms)
     return out
 
