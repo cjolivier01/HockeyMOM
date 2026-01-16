@@ -1032,7 +1032,14 @@ def _overlay_game_player_stats_from_event_rows(
         m.HkyGameEventRow.objects.filter(
             game_id=int(game_id),
             player_id__isnull=False,
-            event_type__key__in=["goal", "assist", "expectedgoal", "sog", "shot"],
+            event_type__key__in=[
+                "goal",
+                "assist",
+                "expectedgoal",
+                "sog",
+                "shot",
+                "completedpass",
+            ],
         )
         .exclude(
             import_key__in=m.HkyGameEventSuppression.objects.filter(
@@ -1042,46 +1049,46 @@ def _overlay_game_player_stats_from_event_rows(
         .values("player_id", "event_type__key")
         .annotate(n=Count("id"))
     )
-    if not rows:
-        return
+    if rows:
+        counts: dict[int, dict[str, int]] = {}
+        for r in rows:
+            try:
+                pid = int(r.get("player_id") or 0)
+            except Exception:
+                continue
+            if pid <= 0:
+                continue
+            k = str(r.get("event_type__key") or "").strip().casefold()
+            try:
+                n = int(r.get("n") or 0)
+            except Exception:
+                n = 0
+            if not k:
+                continue
+            counts.setdefault(pid, {})
+            counts[pid][k] = counts[pid].get(k, 0) + max(0, int(n))
 
-    counts: dict[int, dict[str, int]] = {}
-    for r in rows:
-        try:
-            pid = int(r.get("player_id") or 0)
-        except Exception:
-            continue
-        if pid <= 0:
-            continue
-        k = str(r.get("event_type__key") or "").strip().casefold()
-        try:
-            n = int(r.get("n") or 0)
-        except Exception:
-            n = 0
-        if not k:
-            continue
-        counts.setdefault(pid, {})
-        counts[pid][k] = counts[pid].get(k, 0) + max(0, int(n))
+        for pid, c in counts.items():
+            goals = int(c.get("goal") or 0)
+            assists = int(c.get("assist") or 0)
+            xg_direct = int(c.get("expectedgoal") or 0)
+            sog_direct = int(c.get("sog") or 0)
+            shots_direct = int(c.get("shot") or 0)
+            completed_passes = int(c.get("completedpass") or 0)
 
-    for pid, c in counts.items():
-        goals = int(c.get("goal") or 0)
-        assists = int(c.get("assist") or 0)
-        xg_direct = int(c.get("expectedgoal") or 0)
-        sog_direct = int(c.get("sog") or 0)
-        shots_direct = int(c.get("shot") or 0)
+            # Stat implications:
+            #   Goals ⊆ xG ⊆ SOG ⊆ Shots
+            xg = goals + xg_direct
+            sog = xg + sog_direct
+            shots = sog + shots_direct
 
-        # Stat implications:
-        #   Goals ⊆ xG ⊆ SOG ⊆ Shots
-        xg = goals + xg_direct
-        sog = xg + sog_direct
-        shots = sog + shots_direct
-
-        stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
-        stats_by_pid[pid]["goals"] = int(goals)
-        stats_by_pid[pid]["assists"] = int(assists)
-        stats_by_pid[pid]["expected_goals"] = int(xg)
-        stats_by_pid[pid]["sog"] = int(sog)
-        stats_by_pid[pid]["shots"] = int(shots)
+            stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
+            stats_by_pid[pid]["goals"] = int(goals)
+            stats_by_pid[pid]["assists"] = int(assists)
+            stats_by_pid[pid]["expected_goals"] = int(xg)
+            stats_by_pid[pid]["sog"] = int(sog)
+            stats_by_pid[pid]["shots"] = int(shots)
+            stats_by_pid[pid]["completed_passes"] = int(completed_passes)
 
     # Game-winning / game-tying goals + on-ice goal +/- are computed from goal event rows.
     try:
@@ -1099,13 +1106,27 @@ def _overlay_game_player_stats_from_event_rows(
 
         players = list(
             m.Player.objects.filter(team_id__in=[team1_id, team2_id]).values(
-                "id", "team_id", "jersey_number"
+                "id", "team_id", "jersey_number", "name"
             )
         )
 
         jersey_to_pids: dict[tuple[int, str], list[int]] = {}
         team_id_by_player_id: dict[int, int] = {}
         all_player_ids: set[int] = set()
+
+        def _player_jersey_norm(p: dict[str, Any]) -> Optional[str]:
+            j0 = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j0:
+                return j0
+            nm = str(p.get("name") or "").strip()
+            m0 = re.match(r"^\s*#?\s*(\d+)\b", nm)
+            if m0:
+                return logic.normalize_jersey_number(m0.group(1))
+            m1 = re.search(r"\(\s*#\s*(\d+)\s*\)\s*$", nm)
+            if m1:
+                return logic.normalize_jersey_number(m1.group(1))
+            return None
+
         for p in players:
             try:
                 pid = int(p.get("id") or 0)
@@ -1116,10 +1137,10 @@ def _overlay_game_player_stats_from_event_rows(
                 continue
             all_player_ids.add(pid)
             team_id_by_player_id[pid] = tid
-            jn = logic.normalize_jersey_number(p.get("jersey_number"))
+            jn = _player_jersey_norm(p)
             if not jn:
                 continue
-            jersey_to_pids.setdefault((tid, jn), []).append(pid)
+            jersey_to_pids.setdefault((tid, str(jn)), []).append(pid)
 
         def _extract_numbers(raw: Any) -> set[str]:
             s = str(raw or "")
@@ -1157,6 +1178,7 @@ def _overlay_game_player_stats_from_event_rows(
                 "team_rel",
                 "team_raw",
                 "player_id",
+                "attributed_jerseys",
                 "on_ice_players_home",
                 "on_ice_players_away",
             )
@@ -1205,6 +1227,27 @@ def _overlay_game_player_stats_from_event_rows(
             eid_key = int(eid) if eid is not None else 1_000_000_000
             row_id = _int_or_none(row.get("id")) or 0
             return (period_key, gs_missing, gs_key, eid_key, row_id)
+
+        def _scorer_pid(row: dict[str, Any], scoring_tid: Optional[int]) -> Optional[int]:
+            pid = _int_or_none(row.get("player_id"))
+            if pid is not None and pid > 0:
+                return int(pid)
+            if scoring_tid not in {team1_id, team2_id}:
+                return None
+            jerseys_raw = str(row.get("attributed_jerseys") or "").strip()
+            if not jerseys_raw:
+                return None
+            nums = sorted(
+                _extract_numbers(jerseys_raw),
+                key=lambda x: int(x) if str(x).isdigit() else 9999,
+            )
+            if not nums:
+                return None
+            scorer_num = nums[0]
+            candidates = jersey_to_pids.get((int(scoring_tid), str(scorer_num)), [])
+            if len(set(candidates)) == 1:
+                return int(list(set(candidates))[0])
+            return None
 
         # Derive GT/GW goals from goal ordering and final score when possible.
         if goal_rows and bool(game.get("is_final")):
@@ -1256,7 +1299,7 @@ def _overlay_game_player_stats_from_event_rows(
                     else:
                         continue
 
-                    pid = _int_or_none(r0.get("player_id"))
+                    pid = _scorer_pid(r0, scoring_tid)
                     if pid is not None and score_team1 == score_team2:
                         gt_goals_by_pid[int(pid)] = gt_goals_by_pid.get(int(pid), 0) + 1
 
@@ -1284,11 +1327,17 @@ def _overlay_game_player_stats_from_event_rows(
         ga_by_pid: dict[int, int] = {}
 
         for r in goal_rows:
-            side = (
-                _norm_side(r.get("team_side"))
-                or _norm_side(r.get("team_rel"))
-                or _norm_side(r.get("team_raw"))
-            )
+            scoring_tid = _scoring_team_id(r)
+            if scoring_tid == team1_id:
+                side = "home"
+            elif scoring_tid == team2_id:
+                side = "away"
+            else:
+                side = (
+                    _norm_side(r.get("team_side"))
+                    or _norm_side(r.get("team_rel"))
+                    or _norm_side(r.get("team_raw"))
+                )
             if side not in {"home", "away"}:
                 continue
             total_goals += 1
@@ -1322,7 +1371,8 @@ def _overlay_game_player_stats_from_event_rows(
                 else:
                     ga_by_pid[pid] = ga_by_pid.get(pid, 0) + 1
 
-        if total_goals <= 0 or complete_goals != total_goals:
+        # Only compute on-ice GF/GA when at least one goal has complete on-ice lists.
+        if total_goals <= 0 or complete_goals <= 0:
             return
 
         for pid in all_player_ids:
@@ -1335,6 +1385,73 @@ def _overlay_game_player_stats_from_event_rows(
     except Exception:
         # Best-effort: this overlay is optional and should not break page rendering.
         pass
+
+
+def _overlay_completed_passes_into_player_stat_rows(
+    *,
+    game_ids: list[int],
+    player_stats_rows: list[dict[str, Any]],
+) -> None:
+    """
+    Best-effort: if `PlayerStat.completed_passes` is missing/0, derive it from normalized event rows.
+    This makes Completed Passes show up in team-level aggregated player stats even when only events
+    were imported.
+    """
+    if not game_ids or not player_stats_rows:
+        return
+    _django_orm, m = _orm_modules()
+    from django.db.models import Count
+
+    by_key: dict[tuple[int, int], dict[str, Any]] = {}
+    for r in player_stats_rows:
+        try:
+            pid = int(r.get("player_id") or 0)
+            gid = int(r.get("game_id") or 0)
+        except Exception:
+            continue
+        if pid > 0 and gid > 0:
+            by_key[(pid, gid)] = r
+    if not by_key:
+        return
+
+    gids = [int(x) for x in game_ids]
+    pids = sorted({int(pid) for (pid, _gid) in by_key.keys()})
+    if not pids:
+        return
+
+    suppressed = m.HkyGameEventSuppression.objects.filter(game_id__in=gids).values_list(
+        "import_key", flat=True
+    )
+    qs = (
+        m.HkyGameEventRow.objects.filter(
+            game_id__in=gids,
+            player_id__in=pids,
+            event_type__key="completedpass",
+        )
+        .exclude(import_key__in=suppressed)
+        .values("player_id", "game_id")
+        .annotate(n=Count("id"))
+    )
+    for r in qs:
+        try:
+            pid = int(r.get("player_id") or 0)
+            gid = int(r.get("game_id") or 0)
+            n = int(r.get("n") or 0)
+        except Exception:
+            continue
+        if pid <= 0 or gid <= 0 or n <= 0:
+            continue
+        row = by_key.get((pid, gid))
+        if not row:
+            continue
+        try:
+            existing = int(row.get("completed_passes") or 0)
+        except Exception:
+            existing = 0
+        if existing <= 0:
+            row["completed_passes"] = int(n)
+
+    return
 
 
 def _compute_player_has_events_by_pid_for_game(
@@ -3606,6 +3723,12 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
             )
         )
+        try:
+            _overlay_completed_passes_into_player_stat_rows(
+                game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+            )
+        except Exception:
+            pass
     else:
         tstats = logic.compute_team_stats(None, int(team_id), team_owner_id)
         schedule_rows = list(
@@ -3684,6 +3807,12 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
             )
         )
+        try:
+            _overlay_completed_passes_into_player_stat_rows(
+                game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+            )
+        except Exception:
+            pass
 
     for g2 in schedule_games or []:
         try:
@@ -5839,6 +5968,12 @@ def public_league_team_detail(
             "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
         )
     )
+    try:
+        _overlay_completed_passes_into_player_stat_rows(
+            game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+        )
+    except Exception:
+        pass
 
     for g2 in schedule_games or []:
         try:
