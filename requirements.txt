@@ -1,5 +1,6 @@
 cython
 numpy
+imgaug
 pymysql
 importlib-metadata
 rich
