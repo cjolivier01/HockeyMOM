@@ -149,6 +149,21 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 .table-scroll-y { overflow-y: auto; max-height: 50vh; position: relative; }
 .table-scroll-y thead th { position: sticky; top: 0; z-index: 4; }
 
+/* Table export */
+.table-export-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.15rem 0 0.35rem 0;
+}
+.table-export-link {
+  font-size: 0.9rem;
+  color: var(--muted-strong);
+  text-decoration: underline;
+}
+.table-export-link:hover {
+  color: #e5e7eb;
+}
+
 /* Sortable tables */
 .table-sortable th { cursor: pointer; user-select: none; }
 .table-sortable th.sorted-asc::after { content: " ▲"; font-size: .85em; color: var(--muted); }

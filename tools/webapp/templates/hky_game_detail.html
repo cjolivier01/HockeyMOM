@@ -474,17 +474,7 @@
             eventsRows = [];
           }
           if (!Array.isArray(eventsRows)) eventsRows = [];
-          if (showShiftData && shiftEl) {
-            var shiftRows = [];
-            try {
-              shiftRows = JSON.parse(shiftEl.textContent || "[]") || [];
-            } catch (e) {
-              shiftRows = [];
-            }
-            if (Array.isArray(shiftRows) && shiftRows.length) {
-              eventsRows = eventsRows.concat(shiftRows);
-            }
-          }
+          // Shift on-ice/off-ice events are intentionally not shown on the game events timeline.
           if (eventsRows.length === 0) return;
 
           function parseTimeToSeconds(s) {
@@ -573,6 +563,7 @@
             var sl = String(label || "").trim().toLowerCase();
             if (!sl) return "other";
             if (sl === "goal") return "goal";
+            if (sl === "assist") return "assist";
             if (sl === "xg" || sl === "expected goal" || sl === "expectedgoal" || sl === "expected goal (xg)" || sl.indexOf("xg") >= 0) return "xg";
             if (sl === "sog") return "sog";
             if (sl === "shot") return "shot";
@@ -902,6 +893,18 @@
               circle(9.5, 14.5, 3.8, "#111827", "rgba(255,255,255,0.2)", 1);
               path("M13 12l8-6", "none", stroke, 2, "round", "round");
               path("M15 14l6-4", "none", stroke, 2, "round", "round");
+            } else if (icon === "assist") {
+              // Assist: simple hand.
+              var skin2 = "rgba(230,232,236,0.92)";
+              var edge2 = "rgba(0,0,0,0.42)";
+              // Palm + thumb.
+              rect(7.2, 10.2, 8.8, 9.0, 2.2, skin2, edge2, 1.0);
+              rect(5.0, 12.0, 3.0, 5.2, 1.6, skin2, edge2, 1.0);
+              // Fingers.
+              rect(7.0, 6.0, 2.2, 5.0, 1.1, skin2, edge2, 1.0);
+              rect(9.4, 5.6, 2.2, 5.4, 1.1, skin2, edge2, 1.0);
+              rect(11.8, 5.8, 2.2, 5.2, 1.1, skin2, edge2, 1.0);
+              rect(14.2, 6.4, 2.2, 4.6, 1.1, skin2, edge2, 1.0);
             } else if (icon === "penalty") {
               // Penalty: yellow striped box (transparent background).
               rect(6.3, 6.6, 11.4, 14.2, 2.2, "#fbbf24", "rgba(0,0,0,0.55)", 1.2);
@@ -973,14 +976,24 @@
               path("M12 8.2c-1.8 0-3.6-.3-5.0-1.0", "none", "#f7c6a5", 2.2, "round", "round");
               path("M12 8.2c1.8 0 3.6-.3 5.0-1.0", "none", "#f7c6a5", 2.2, "round", "round");
             } else if (icon === "takeaway") {
-              // Takeaway: simple "gun" hand (no diamond/sparkle).
-              var skin = "rgba(230,232,236,0.92)";
-              var edge = "rgba(0,0,0,0.42)";
-              // Index finger + hand
-              rect(4.0, 7.2, 9.8, 3.0, 1.5, skin, edge, 1.0);
-              rect(4.6, 10.4, 8.6, 3.0, 1.5, skin, edge, 1.0);
-              // "Barrel" extension to read as a gun hand gesture.
-              rect(13.0, 7.6, 7.0, 2.6, 1.3, skin, edge, 1.0);
+              // Takeaway: simple revolver pictogram (non-violent, no muzzle flash).
+              var gunFill = "rgba(230,232,236,0.92)";
+              var gunEdge = "rgba(0,0,0,0.42)";
+              // Frame/body.
+              rect(5.8, 9.4, 7.4, 4.6, 1.6, gunFill, gunEdge, 1.0);
+              // Cylinder.
+              circle(14.1, 11.7, 2.3, gunFill, gunEdge, 1.0);
+              circle(14.1, 11.7, 0.7, "rgba(255,255,255,0.35)", "none", 0);
+              // Barrel + muzzle.
+              rect(15.9, 10.5, 6.1, 2.4, 1.2, gunFill, gunEdge, 1.0);
+              rect(21.6, 10.9, 1.3, 1.6, 0.7, gunFill, gunEdge, 1.0);
+              // Hammer.
+              rect(8.1, 7.8, 3.2, 1.6, 0.8, gunFill, gunEdge, 1.0);
+              // Grip.
+              path("M7.2 14.0h4.7v7.1c0 .7-.6 1.3-1.3 1.3H8.5c-.7 0-1.3-.6-1.3-1.3z", gunFill, gunEdge, 1.0, "round", "round");
+              // Trigger guard + trigger (subtle outline).
+              path("M12.7 14.1c1.6.1 2.6 1.3 2.6 2.7 0 1.7-1.4 3.1-3.1 3.1h-1.0", "none", gunEdge, 1.0, "round", "round");
+              path("M13.0 15.8c-.4.5-.4 1.2 0 1.6", "none", gunEdge, 1.0, "round", "round");
             } else {
               rect(5.5, 5.5, 13, 13, 3, "rgba(0,0,0,0.0)", "rgba(255,255,255,0.35)", 1.2);
               var t = String(opts.label || "?").trim();
@@ -988,6 +1001,14 @@
             }
             return g;
           }
+
+          // Reuse these icon helpers in other scripts on this page (e.g., Player Events headings).
+          try {
+            window.HM_EVENT_ICONS = window.HM_EVENT_ICONS || {};
+            window.HM_EVENT_ICONS.typeKey = typeKey;
+            window.HM_EVENT_ICONS.iconGroup = iconGroup;
+            window.HM_EVENT_ICONS.normalizeTypeLabel = normalizeTypeLabel;
+          } catch (e) {}
 
           function clearSvg(el) {
             while (el.firstChild) el.removeChild(el.firstChild);
@@ -1056,6 +1077,7 @@
 
               var side = parseSide(r);
               var ik = typeKey(label);
+              if (ik === "on_ice" || ik === "off_ice") continue; // never show shift markers on this timeline
               var ll = String(label).trim().toLowerCase();
               if (ll === "penalty expired") {
                 penaltyEnds.push({
@@ -1200,8 +1222,6 @@
               (function inferSpansFromPenalties() {
                 if (!penaltyStarts.length) return;
 
-                var startsByPS = {};
-                var endsByPS = {};
                 var penaltyWindowsByPS = {};
                 var goalsByPeriod = {};
 
@@ -1263,133 +1283,148 @@
                   return null;
                 }
 
-                for (var a0 = 0; a0 < penaltyStarts.length; a0++) {
-                  var st = penaltyStarts[a0];
-                  var k = keyPS(st.period, st.side);
-                  if (!startsByPS[k]) startsByPS[k] = [];
-                startsByPS[k].push(st);
-              }
-              for (var e0 = 0; e0 < penaltyEnds.length; e0++) {
-                var en = penaltyEnds[e0];
-                var k2 = keyPS(en.period, en.side);
-                  if (!endsByPS[k2]) endsByPS[k2] = [];
-                  endsByPS[k2].push(en);
-                }
+                var allPenaltyWindowsBuilt = false;
+                function buildAllPenaltyWindows() {
+                  if (allPenaltyWindowsBuilt) return;
+                  allPenaltyWindowsBuilt = true;
 
-                function buildPenaltyWindows(period, side) {
-                  var k = keyPS(period, side);
-                  if (penaltyWindowsByPS[k]) return penaltyWindowsByPS[k];
-                  var starts = (startsByPS[k] || []).slice();
-                  var ends = (endsByPS[k] || []).slice();
-                  for (var i = 0; i < starts.length; i++) starts[i]._startElapsed = withinToElapsed(period, starts[i].tWithin);
-                  for (var j = 0; j < ends.length; j++) ends[j]._endElapsed = withinToElapsed(period, ends[j].tWithin);
-                  starts.sort(function (a, b) { return a._startElapsed - b._startElapsed; });
-                  ends.sort(function (a, b) { return a._endElapsed - b._endElapsed; });
-
-                  var used = {};
-                  var wins = [];
-
-                  function firstUnusedEnd(afterElapsed, jersey) {
-                    for (var k0 = 0; k0 < ends.length; k0++) {
-                      if (used[k0]) continue;
-                    if (ends[k0]._endElapsed < afterElapsed) continue;
-                    if (jersey && ends[k0].jersey && String(ends[k0].jersey) !== String(jersey)) continue;
-                    used[k0] = true;
-                    return ends[k0];
+                  // Init empty lists for each period+side so callers can always rely on an array.
+                  for (var pInit = 1; pInit <= maxPeriod; pInit++) {
+                    penaltyWindowsByPS[keyPS(pInit, "Home")] = [];
+                    penaltyWindowsByPS[keyPS(pInit, "Away")] = [];
                   }
-                  return null;
-                }
 
-                  var d = durations[period - 1] || 1200;
-                  for (var s0 = 0; s0 < starts.length; s0++) {
-                    var st = starts[s0];
-                    var a = st._startElapsed;
-                    var b = null;
-                    var endWithin = null;
-                    var endRow = null;
+                  // Flatten goals to absolute game seconds so we can end penalties by goal even
+                  // when they carry over to the next period.
+                  var goalsAbs = [];
+                  for (var pG = 1; pG <= maxPeriod; pG++) {
+                    var arr = goalsByPeriod[pG] || [];
+                    for (var gi = 0; gi < arr.length; gi++) {
+                      var g = arr[gi];
+                      goalsAbs.push({ abs: (offsets[pG - 1] || 0) + (g.elapsed || 0), side: g.side });
+                    }
+                  }
+                  goalsAbs.sort(function (a, b) { return a.abs - b.abs; });
+
+                  function findGoalNearAbs(otherSide, abs, tolS) {
+                    tolS = tolS || 2.0;
+                    for (var i = 0; i < goalsAbs.length; i++) {
+                      var g = goalsAbs[i];
+                      if (g.side !== otherSide) continue;
+                      if (Math.abs(g.abs - abs) <= tolS) return true;
+                    }
+                    return false;
+                  }
+
+                  function firstGoalBetweenAbs(otherSide, aAbs, bAbs) {
+                    for (var i = 0; i < goalsAbs.length; i++) {
+                      var g = goalsAbs[i];
+                      if (g.side !== otherSide) continue;
+                      if (g.abs >= aAbs - 0.5 && g.abs <= bAbs + 0.5) return g.abs;
+                    }
+                    return null;
+                  }
+
+                  var gameEndAbs = offsets[maxPeriod] || totalDuration;
+
+                  for (var s0 = 0; s0 < penaltyStarts.length; s0++) {
+                    var st = penaltyStarts[s0];
                     var pRow = st.row || {};
                     var minutes = parsePenaltyMinutes(pRow);
+                    if (minutes === null || !isFinite(minutes)) continue;
+
+                    var startAbs = (offsets[st.period - 1] || 0) + withinToElapsed(st.period, st.tWithin);
+                    if (!isFinite(startAbs)) continue;
+                    if (startAbs < 0) startAbs = 0;
+
+                    var scheduledEndAbs = startAbs + minutes * 60;
+                    var endAbs = Math.min(gameEndAbs, scheduledEndAbs);
+                    var reason = "";
                     var affectsManpower = minutes === 2;
-                    if (st.endWithin !== null && isFinite(st.endWithin)) {
-                      b = withinToElapsed(period, st.endWithin);
-                      endWithin = st.endWithin;
-                    } else {
-                      var match = firstUnusedEnd(a, st.jersey || "");
-                      if (!match && (st.jersey || "")) match = firstUnusedEnd(a, "");
-                      if (match) {
-                        b = match._endElapsed;
-                        endWithin = match.tWithin;
-                        endRow = match.row || null;
+
+                    // Minor penalties end early on a goal by the other team (modelled approximately).
+                    if (affectsManpower) {
+                      var otherSide = st.side === "Home" ? "Away" : "Home";
+                      var gEndAbs = firstGoalBetweenAbs(otherSide, startAbs, endAbs);
+                      if (gEndAbs !== null && isFinite(gEndAbs) && gEndAbs < endAbs - 0.1) endAbs = Math.max(startAbs, gEndAbs);
+                      if (Math.abs(endAbs - scheduledEndAbs) <= 2) {
+                        reason = "Timed out";
+                      } else if (findGoalNearAbs(otherSide, endAbs, 2.0)) {
+                        reason = "Ended by goal";
+                      } else if (endAbs >= gameEndAbs - 1) {
+                        reason = "End of game";
+                      } else if (endAbs < scheduledEndAbs - 2) {
+                        reason = "Ended early";
                       }
+                    } else if (endAbs >= gameEndAbs - 1) {
+                      reason = "End of game";
+                    } else if (Math.abs(endAbs - scheduledEndAbs) <= 2) {
+                      reason = "Timed out";
                     }
-                    if ((b === null || !isFinite(b)) && minutes !== null) {
-                      b = a + minutes * 60;
-                      endWithin = elapsedToWithin(period, b);
-                    }
-                    if (b === null || !isFinite(b)) continue;
-                    var lo = Math.max(0, Math.min(d, Math.min(a, b)));
-                    var hi = Math.max(0, Math.min(d, Math.max(a, b)));
-                    if (hi <= lo) continue;
+
+                    if (!isFinite(endAbs) || endAbs <= startAbs + 0.1) continue;
+
                     var infraction = parsePenaltyInfraction(pRow);
                     var player = String(getValue(pRow, ["Attributed Players", "Player", "Name"]) || "").trim();
                     var jersey = String(st.jersey || extractPenaltyJersey(pRow) || "").trim();
-                    var expectedEnd = minutes !== null ? (lo + minutes * 60) : null;
-                    var reason = "";
-                    if (minutes !== null && expectedEnd !== null) {
-                      var otherSide2 = side === "Home" ? "Away" : "Home";
-                      var desiredHi = Math.min(d, expectedEnd);
-                      if (affectsManpower) {
-                        var gEnd = firstGoalBetween(period, otherSide2, lo, desiredHi);
-                        if (gEnd !== null && isFinite(gEnd) && gEnd < desiredHi - 0.1) desiredHi = Math.max(lo, Math.min(d, gEnd));
-                      }
-                      if (Math.abs((hi - lo) - minutes * 60) > 5) {
-                        hi = desiredHi;
-                        endWithin = elapsedToWithin(period, hi);
-                      }
+
+                    // Split across periods so PP/PK spans visually carry over.
+                    for (var p = st.period; p <= maxPeriod; p++) {
+                      var pStartAbs = offsets[p - 1] || 0;
+                      var pEndAbs = offsets[p] || (pStartAbs + (durations[p - 1] || 1200));
+                      if (endAbs <= pStartAbs + 1e-6) break;
+
+                      var segStartAbs = Math.max(startAbs, pStartAbs);
+                      var segEndAbs = Math.min(endAbs, pEndAbs);
+                      if (segEndAbs <= segStartAbs + 1e-6) continue;
+
+                      var lo = segStartAbs - pStartAbs;
+                      var hi = segEndAbs - pStartAbs;
+                      if (hi <= lo + 1e-6) continue;
+
+                      var startWithin = elapsedToWithin(p, lo);
+                      var endWithin = elapsedToWithin(p, hi);
+                      var segReason = segEndAbs < endAbs - 0.5 ? "Carryover" : reason;
+
+                      var startLabel = secondsToLabel(startWithin);
+                      var endLabel = secondsToLabel(endWithin);
+                      var lineParts = [];
+                      if (jersey) lineParts.push("#" + jersey);
+                      if (player) lineParts.push(player);
+                      if (infraction) lineParts.push("— " + infraction);
+                      lineParts.push("(" + minutes + "m)");
+                      lineParts.push(startLabel + "–" + endLabel);
+                      lineParts.push("dur " + secondsToLabel(Math.max(0, hi - lo)));
+                      if (segReason) lineParts.push("[" + segReason + "]");
+
+                      penaltyWindowsByPS[keyPS(p, st.side)].push({
+                        period: p,
+                        side: st.side,
+                        lo: lo,
+                        hi: hi,
+                        startWithin: startWithin,
+                        endWithin: endWithin,
+                        affectsManpower: affectsManpower,
+                        row: pRow,
+                        endRow: null,
+                        line: lineParts.join(" "),
+                      });
                     }
-                    if (minutes !== null && expectedEnd !== null) {
-                      if (Math.abs(hi - expectedEnd) <= 2) {
-                        reason = "Timed out";
-                      } else if (hi < expectedEnd - 2) {
-                        var otherSide = side === "Home" ? "Away" : "Home";
-                        if (findGoalNear(period, otherSide, hi, 2.0)) {
-                          reason = "Ended by goal";
-                        } else if (hi >= d - 1) {
-                          reason = period === maxPeriod ? "End of game" : "End of period";
-                        } else {
-                          reason = "Ended early";
-                        }
-                      } else if (hi >= d - 1) {
-                        reason = period === maxPeriod ? "End of game" : "End of period";
-                      }
-                    } else if (hi >= d - 1) {
-                      reason = period === maxPeriod ? "End of game" : "End of period";
-                    }
-                    var startLabel = secondsToLabel(st.tWithin);
-                    var endLabel = endWithin !== null && isFinite(endWithin) ? secondsToLabel(endWithin) : secondsToLabel(elapsedToWithin(period, hi));
-                    var lineParts = [];
-                    if (jersey) lineParts.push("#" + jersey);
-                    if (player) lineParts.push(player);
-                    if (infraction) lineParts.push("— " + infraction);
-                    if (minutes !== null) lineParts.push("(" + minutes + "m)");
-                    lineParts.push(startLabel + "–" + endLabel);
-                    lineParts.push("dur " + secondsToLabel(Math.max(0, hi - lo)));
-                    if (reason) lineParts.push("[" + reason + "]");
-                    wins.push({
-                      period: period,
-                      side: side,
-                      lo: lo,
-                      hi: hi,
-                      startWithin: st.tWithin,
-                      endWithin: endWithin,
-                      affectsManpower: affectsManpower,
-                      row: pRow,
-                      endRow: endRow,
-                      line: lineParts.join(" "),
+                  }
+
+                  for (var pSort = 1; pSort <= maxPeriod; pSort++) {
+                    ["Home", "Away"].forEach(function (s) {
+                      var k = keyPS(pSort, s);
+                      var wins = penaltyWindowsByPS[k] || [];
+                      wins.sort(function (a, b) { return a.lo - b.lo; });
                     });
                   }
-                  penaltyWindowsByPS[k] = wins;
-                  return wins;
+                }
+
+                function buildPenaltyWindows(period, side) {
+                  buildAllPenaltyWindows();
+                  var k = keyPS(period, side);
+                  return penaltyWindowsByPS[k] || [];
                 }
 
                 function buildIntervals(period, side) {
@@ -2514,7 +2549,7 @@
         }
         return String(m) + ":" + (s < 10 ? "0" + String(s) : String(s));
       }
-      function getValue(row, keys) {
+    function getValue(row, keys) {
         if (!row) return "";
         for (var i = 0; i < keys.length; i++) {
           var k = keys[i];
@@ -2526,6 +2561,59 @@
         }
       }
       return "";
+    }
+
+    function headingIconKey(label) {
+      var sl = String(label || "").trim().toLowerCase();
+      if (!sl) return "other";
+      if (sl.indexOf("goals") === 0 || sl.indexOf("goal") === 0) return "goal";
+      if (sl.indexOf("xg") === 0) return "xg";
+      if (sl.indexOf("sog") === 0) return "sog";
+      if (sl.indexOf("shot") === 0) return "shot";
+      if (sl.indexOf("assists") === 0 || sl === "assist") return "assist";
+      if (sl.indexOf("completed pass") === 0) return "completed_pass";
+      if (sl.indexOf("controlled entry") === 0) return "controlled_entry";
+      if (sl.indexOf("controlled exit") === 0) return "controlled_exit";
+      if (sl.indexOf("odd-man") === 0 || sl.indexOf("odd man") === 0 || sl.indexOf("rush") >= 0) return "odd_man_rush";
+      if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
+      if (sl.indexOf("created") >= 0 && sl.indexOf("turnover") >= 0) return "turnover_created";
+      if (sl.indexOf("giveaway") === 0) return "giveaway";
+      if (sl.indexOf("takeaway") === 0) return "takeaway";
+      if (sl.indexOf("penalty expired") === 0) return "penalty_expired";
+      if (sl.indexOf("penalty") === 0) return "penalty";
+      var icons = window.HM_EVENT_ICONS || {};
+      if (typeof icons.typeKey === "function") return icons.typeKey(label);
+      return "other";
+    }
+
+    function makeHeadingIcon(label) {
+      var icons = window.HM_EVENT_ICONS || {};
+      if (typeof icons.iconGroup !== "function") return null;
+      var iconKey = headingIconKey(label);
+      if (!iconKey) return null;
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      svg.classList.add("event-type-icon");
+      var gWrap = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      gWrap.setAttribute("transform", "translate(12,12)");
+      gWrap.appendChild(icons.iconGroup(iconKey, { size: 18, label: label }));
+      svg.appendChild(gWrap);
+      return svg;
+    }
+
+    function makeEventsHeading(tagName, label) {
+      var h = document.createElement(tagName || "h4");
+      h.style.margin = "0.75rem 0 0.35rem 0";
+      var wrap = document.createElement("span");
+      wrap.className = "event-type-cell";
+      var icon = makeHeadingIcon(label);
+      if (icon) wrap.appendChild(icon);
+      var txt = document.createElement("span");
+      txt.textContent = String(label || "");
+      wrap.appendChild(txt);
+      h.appendChild(wrap);
+      return h;
     }
     var gameVideoUrl = {{ game.game_video_url|default:""|tojson }};
     var drilldownClipLenEl = document.getElementById("timeline-clip-len");
@@ -3048,10 +3136,7 @@
                 var label = pair[0];
                 var rows = pair[1] || [];
                 if (!rows.length) return;
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = label;
-                bodyEl.appendChild(h);
+                bodyEl.appendChild(makeEventsHeading("h4", label));
                 buildEventsTable(bodyEl, rows);
               });
 
@@ -3065,47 +3150,32 @@
                 });
                 byType = moveGroupToEnd(byType, "completed pass");
                 byType.order.forEach(function (k) {
-                  var h = document.createElement("h4");
-                  h.style.margin = "0.75rem 0 0.35rem 0";
-                  h.textContent = byType.groups[k].label;
-                  bodyEl.appendChild(h);
+                  bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
                   buildEventsTable(bodyEl, byType.groups[k].rows);
                 });
               }
             } else if (statKey === "expected_goals") {
               var xgRows = buildShotChainTables(filtered).xg;
               if (xgRows.length) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = "xG (Expected Goal)";
-                bodyEl.appendChild(h);
+                bodyEl.appendChild(makeEventsHeading("h4", "xG (Expected Goal)"));
                 buildEventsTable(bodyEl, xgRows);
               }
             } else if (statKey === "sog") {
               var sogRows = buildShotChainTables(filtered).sog;
               if (sogRows.length) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = "SOG";
-                bodyEl.appendChild(h);
+                bodyEl.appendChild(makeEventsHeading("h4", "SOG"));
                 buildEventsTable(bodyEl, sogRows);
               }
             } else if (statKey === "shots") {
               var shotRows = buildShotChainTables(filtered).shot;
               if (shotRows.length) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = "Shot";
-                bodyEl.appendChild(h);
+                bodyEl.appendChild(makeEventsHeading("h4", "Shot"));
                 buildEventsTable(bodyEl, shotRows);
               }
             } else if (statKey === "goals") {
               var goalRows = buildShotChainTables(filtered).goals;
               if (goalRows.length) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = "Goals";
-                bodyEl.appendChild(h);
+                bodyEl.appendChild(makeEventsHeading("h4", "Goals"));
                 buildEventsTable(bodyEl, goalRows);
               }
             } else {
@@ -3114,10 +3184,7 @@
               });
               byType = moveGroupToEnd(byType, "completed pass");
               byType.order.forEach(function (k) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = byType.groups[k].label;
-                bodyEl.appendChild(h);
+                bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
                 buildEventsTable(bodyEl, byType.groups[k].rows);
               });
             }
@@ -3131,18 +3198,12 @@
           });
           ["goals for", "goals against"].forEach(function (k) {
             if (!byFA.groups[k]) return;
-            var h = document.createElement("h4");
-            h.style.margin = "0.75rem 0 0.35rem 0";
-            h.textContent = byFA.groups[k].label;
-            bodyEl.appendChild(h);
+            bodyEl.appendChild(makeEventsHeading("h4", byFA.groups[k].label));
             buildEventsTable(bodyEl, byFA.groups[k].rows);
           });
           byFA.order.forEach(function (k) {
             if (k === "goals for" || k === "goals against") return;
-            var h = document.createElement("h4");
-            h.style.margin = "0.75rem 0 0.35rem 0";
-            h.textContent = byFA.groups[k].label;
-            bodyEl.appendChild(h);
+            bodyEl.appendChild(makeEventsHeading("h4", byFA.groups[k].label));
             buildEventsTable(bodyEl, byFA.groups[k].rows);
           });
         }

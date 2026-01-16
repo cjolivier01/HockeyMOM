@@ -173,6 +173,13 @@ if ! /opt/hm-webapp/venv/bin/python -c "import django" >/dev/null 2>&1; then
     || sudo /opt/hm-webapp/venv/bin/python -m pip install django
 fi
 
+echo "[i] Ensuring openpyxl is installed in the webapp venv"
+if ! /opt/hm-webapp/venv/bin/python -c "import openpyxl" >/dev/null 2>&1; then
+  echo "[i] Installing openpyxl into /opt/hm-webapp/venv"
+  /opt/hm-webapp/venv/bin/python -m pip install -q openpyxl 2>/dev/null \
+    || sudo /opt/hm-webapp/venv/bin/python -m pip install openpyxl
+fi
+
 # Ensure gunicorn logs to journald (so Internal Server Error always has a traceback in `journalctl`).
 if sudo test -f "$SERVICE_FILE"; then
   if sudo grep -q -- "app:app" "$SERVICE_FILE"; then

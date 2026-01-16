@@ -1519,6 +1519,202 @@ def _overlay_game_player_stats_from_event_rows(
         )
 
 
+def _overlay_on_ice_goal_stats_from_shift_rows(
+    *,
+    game_id: int,
+    stats_by_pid: dict[int, dict[str, Any]],
+) -> None:
+    """
+    Compute on-ice GF/GA/+/- from goal events + shift intervals (hky_game_shift_rows) and overlay
+    into `stats_by_pid`.
+
+    This intentionally avoids relying on per-goal on-ice lists (which may be missing) and instead
+    uses the canonical shift intervals imported from spreadsheets.
+    """
+    _django_orm, m = _orm_modules()
+
+    game = m.HkyGame.objects.filter(id=int(game_id)).values("team1_id", "team2_id").first()
+    if not game:
+        return
+    team1_id = int(game.get("team1_id") or 0)
+    team2_id = int(game.get("team2_id") or 0)
+    if team1_id <= 0 or team2_id <= 0:
+        return
+
+    suppressed = m.HkyGameEventSuppression.objects.filter(game_id=int(game_id)).values_list(
+        "import_key", flat=True
+    )
+
+    goal_rows = list(
+        m.HkyGameEventRow.objects.filter(game_id=int(game_id), event_type__key="goal")
+        .exclude(import_key__in=suppressed)
+        .values(
+            "source",
+            "period",
+            "game_seconds",
+            "game_time",
+            "team_id",
+            "team_side",
+            "team_rel",
+            "team_raw",
+            "player_id",
+        )
+    )
+    if not goal_rows:
+        return
+
+    # Prefer TimeToScore goals when present to avoid duplicate goal streams.
+    if any("timetoscore" in str(r.get("source") or "").casefold() for r in goal_rows):
+        goal_rows = [r for r in goal_rows if "timetoscore" in str(r.get("source") or "").casefold()]
+        if not goal_rows:
+            return
+
+    team_id_by_player_id: dict[int, int] = {}
+    for p in m.Player.objects.filter(team_id__in=[team1_id, team2_id]).values("id", "team_id"):
+        try:
+            pid = int(p.get("id") or 0)
+            tid = int(p.get("team_id") or 0)
+        except Exception:
+            continue
+        if pid > 0 and tid > 0:
+            team_id_by_player_id[int(pid)] = int(tid)
+
+    def _int_or_none(raw: Any) -> Optional[int]:
+        try:
+            if raw is None:
+                return None
+            s = str(raw).strip()
+            if not s:
+                return None
+            return int(float(s))
+        except Exception:
+            return None
+
+    def _norm_side(raw: Any) -> Optional[str]:
+        v = str(raw or "").strip().casefold()
+        if v in {"home", "team1"}:
+            return "home"
+        if v in {"away", "team2"}:
+            return "away"
+        return None
+
+    def _scoring_side(row: dict[str, Any]) -> Optional[str]:
+        tid = _int_or_none(row.get("team_id"))
+        if tid == team1_id:
+            return "home"
+        if tid == team2_id:
+            return "away"
+        pid = _int_or_none(row.get("player_id"))
+        if pid is not None:
+            ptid = team_id_by_player_id.get(int(pid))
+            if ptid == team1_id:
+                return "home"
+            if ptid == team2_id:
+                return "away"
+        side = (
+            _norm_side(row.get("team_side"))
+            or _norm_side(row.get("team_rel"))
+            or _norm_side(row.get("team_raw"))
+        )
+        if side in {"home", "away"}:
+            return side
+        return None
+
+    def _goal_seconds(row: dict[str, Any]) -> Optional[int]:
+        gs = _int_or_none(row.get("game_seconds"))
+        if gs is not None:
+            return int(gs)
+        return logic.parse_duration_seconds(row.get("game_time"))
+
+    shift_rows = list(
+        m.HkyGameShiftRow.objects.filter(game_id=int(game_id), player_id__isnull=False)
+        .exclude(period__isnull=True)
+        .exclude(game_seconds__isnull=True)
+        .exclude(game_seconds_end__isnull=True)
+        .values("player_id", "team_side", "period", "game_seconds", "game_seconds_end")
+    )
+    if not shift_rows:
+        return
+
+    shifts_by_period: dict[int, dict[str, list[tuple[int, int, int]]]] = {}
+    all_pids: set[int] = set()
+    for r in shift_rows:
+        try:
+            pid = int(r.get("player_id") or 0)
+            per = int(r.get("period") or 0)
+            gs0 = int(r.get("game_seconds") or 0)
+            gs1 = int(r.get("game_seconds_end") or 0)
+        except Exception:
+            continue
+        if pid <= 0 or per <= 0:
+            continue
+        side = _norm_side(r.get("team_side"))
+        if side not in {"home", "away"}:
+            continue
+        all_pids.add(int(pid))
+        shifts_by_period.setdefault(int(per), {}).setdefault(str(side), []).append((pid, gs0, gs1))
+
+    if not shifts_by_period:
+        return
+
+    def _shift_contains(*, t: int, start: int, end: int) -> bool:
+        lo = start if start <= end else end
+        hi = end if start <= end else start
+        if t < lo or t > hi:
+            return False
+        # Match scripts/parse_stats_inputs.py: don't count goals exactly at shift start.
+        return int(t) != int(start)
+
+    gf_by_pid: dict[int, int] = {}
+    ga_by_pid: dict[int, int] = {}
+
+    for gr in goal_rows:
+        try:
+            per = int(gr.get("period") or 0)
+        except Exception:
+            continue
+        if per <= 0:
+            continue
+        t = _goal_seconds(gr)
+        if t is None:
+            continue
+        side = _scoring_side(gr)
+        if side not in {"home", "away"}:
+            continue
+
+        period_shifts = shifts_by_period.get(int(per), {})
+        home_shifts = period_shifts.get("home", [])
+        away_shifts = period_shifts.get("away", [])
+
+        home_on: set[int] = set()
+        for pid, start, end in home_shifts:
+            if _shift_contains(t=int(t), start=int(start), end=int(end)):
+                home_on.add(int(pid))
+        away_on: set[int] = set()
+        for pid, start, end in away_shifts:
+            if _shift_contains(t=int(t), start=int(start), end=int(end)):
+                away_on.add(int(pid))
+
+        if side == "home":
+            for pid in home_on:
+                gf_by_pid[int(pid)] = gf_by_pid.get(int(pid), 0) + 1
+            for pid in away_on:
+                ga_by_pid[int(pid)] = ga_by_pid.get(int(pid), 0) + 1
+        else:
+            for pid in away_on:
+                gf_by_pid[int(pid)] = gf_by_pid.get(int(pid), 0) + 1
+            for pid in home_on:
+                ga_by_pid[int(pid)] = ga_by_pid.get(int(pid), 0) + 1
+
+    for pid in all_pids:
+        gf = int(gf_by_pid.get(int(pid), 0) or 0)
+        ga = int(ga_by_pid.get(int(pid), 0) or 0)
+        stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
+        stats_by_pid[pid]["gf_counted"] = int(gf)
+        stats_by_pid[pid]["ga_counted"] = int(ga)
+        stats_by_pid[pid]["plus_minus"] = int(gf) - int(ga)
+
+
 def _overlay_completed_passes_into_player_stat_rows(
     *,
     game_ids: list[int],
@@ -1964,6 +2160,83 @@ def api_user_video_clip_len(request: HttpRequest) -> JsonResponse:
     except Exception as e:  # noqa: BLE001
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
     return JsonResponse({"ok": True, "clip_len_s": int(v)})
+
+
+@csrf_exempt
+def api_export_table_xlsx(request: HttpRequest) -> HttpResponse:
+    """
+    Export a rendered HTML table as an XLSX spreadsheet.
+
+    This is a stateless endpoint: callers POST the table headers/rows and receive a styled XLSX.
+    Shift/TOI columns are always removed from exports (privacy/sensitivity).
+    """
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "method_not_allowed"}, status=405)
+    try:
+        payload = json.loads(request.body or b"{}")
+    except Exception:
+        return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({"ok": False, "error": "invalid_payload"}, status=400)
+
+    title = str(payload.get("title") or payload.get("sheet_name") or "Table").strip() or "Table"
+    sheet_name = str(payload.get("sheet_name") or title).strip() or title
+    filename = str(payload.get("filename") or title).strip() or title
+
+    headers_raw = payload.get("headers") or []
+    if not isinstance(headers_raw, list):
+        return JsonResponse({"ok": False, "error": "invalid_headers"}, status=400)
+    headers = [str(h or "") for h in headers_raw]
+
+    rows_raw = payload.get("rows") or []
+    if not isinstance(rows_raw, list):
+        return JsonResponse({"ok": False, "error": "invalid_rows"}, status=400)
+    rows: list[list[str]] = []
+    for r in rows_raw:
+        if not isinstance(r, list):
+            continue
+        rows.append([str(v or "") for v in r])
+
+    col_keys_raw = payload.get("col_keys")
+    col_keys = None
+    if isinstance(col_keys_raw, list):
+        col_keys = [str(k).strip() if k is not None else None for k in col_keys_raw]
+
+    try:
+        freeze_cols = int(payload.get("freeze_cols") or 0)
+    except Exception:
+        freeze_cols = 0
+    if freeze_cols < 0:
+        freeze_cols = 0
+
+    # Safety guardrails (avoid pathological payload sizes).
+    if len(headers) > 250:
+        return JsonResponse({"ok": False, "error": "too_many_columns"}, status=400)
+    if len(rows) > 50_000:
+        return JsonResponse({"ok": False, "error": "too_many_rows"}, status=400)
+
+    try:
+        from .xlsx_export import export_table_xlsx
+
+        out_name, out_bytes = export_table_xlsx(
+            title=title,
+            headers=headers,
+            rows=rows,
+            col_keys=col_keys,
+            freeze_cols=int(freeze_cols),
+            sheet_name=sheet_name,
+            filename=filename,
+        )
+    except Exception:
+        logger.exception("api_export_table_xlsx failed")
+        return JsonResponse({"ok": False, "error": "xlsx_export_failed"}, status=500)
+
+    resp = HttpResponse(
+        out_bytes,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = f'attachment; filename="{out_name}"'
+    return resp
 
 
 def api_league_page_views(request: HttpRequest, league_id: int) -> JsonResponse:
@@ -4974,6 +5247,21 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         )
     )
     stats_rows = list(m.PlayerStat.objects.filter(game_id=int(game_id)).values())
+    player_stats_imported_by_pid: dict[int, dict[str, Optional[int]]] = {}
+    for r0 in stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        if pid_i <= 0:
+            continue
+        player_stats_imported_by_pid[int(pid_i)] = {
+            "toi_seconds": (r0.get("toi_seconds") if r0.get("toi_seconds") is not None else None),
+            "shifts": (r0.get("shifts") if r0.get("shifts") is not None else None),
+            "gf_counted": (r0.get("gf_counted") if r0.get("gf_counted") is not None else None),
+            "ga_counted": (r0.get("ga_counted") if r0.get("ga_counted") is not None else None),
+            "plus_minus": (r0.get("plus_minus") if r0.get("plus_minus") is not None else None),
+        }
     if not show_shift_data:
         _mask_shift_stats_in_player_stat_rows(stats_rows)
     if show_shift_data and stats_rows:
@@ -4998,6 +5286,14 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         except Exception:
             # Best-effort: event-derived overlays are optional and should not break page rendering.
             pass
+        if show_shift_data:
+            try:
+                _overlay_on_ice_goal_stats_from_shift_rows(
+                    game_id=int(game_id), stats_by_pid=stats_by_pid
+                )
+            except Exception:
+                # Best-effort: shift-derived overlays are optional and should not break page rendering.
+                pass
 
     events_headers, events_rows, events_meta = _load_game_events_for_display(game_id=int(game_id))
 
@@ -5134,7 +5430,51 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
     game_player_stats_columns = logic.build_game_player_stats_display_columns(
         rows=list(team1_player_stats_rows) + list(team2_player_stats_rows)
     )
-    player_stats_cell_conflicts_by_pid: dict[int, dict[str, bool]] = {}
+    player_stats_cell_conflicts_by_pid: dict[int, dict[str, str]] = {}
+    if show_shift_data and player_stats_imported_by_pid:
+        for pid, imported in (player_stats_imported_by_pid or {}).items():
+            try:
+                pid_i = int(pid)
+            except Exception:
+                continue
+            cur = stats_by_pid.get(int(pid_i)) or {}
+
+            def _cmp_int(key: str) -> tuple[Optional[int], Optional[int]]:
+                try:
+                    a0 = imported.get(key)
+                    a = int(a0) if a0 is not None else None
+                except Exception:
+                    a = None
+                try:
+                    b0 = cur.get(key)
+                    b = int(b0) if b0 is not None else None
+                except Exception:
+                    b = None
+                return a, b
+
+            for k in ("toi_seconds", "shifts", "gf_counted", "ga_counted", "plus_minus"):
+                a, b = _cmp_int(k)
+                if a is None or b is None or int(a) == int(b):
+                    continue
+
+                msg = f"Imported {k}={a}, computed from shifts={b}"
+                if k == "plus_minus":
+                    gf = logic._int0(cur.get("gf_counted"))
+                    ga = logic._int0(cur.get("ga_counted"))
+                    msg = (
+                        f"Imported +/-={a:+d}, computed from shifts={b:+d} "
+                        f"(GF={int(gf)}, GA={int(ga)}; goals at shift start excluded)"
+                    )
+                elif k == "gf_counted":
+                    msg = f"Imported GF counted={a}, computed from shifts={b}"
+                elif k == "ga_counted":
+                    msg = f"Imported GA counted={a}, computed from shifts={b}"
+                elif k == "toi_seconds":
+                    msg = f"Imported TOI={a}s, computed from shifts={b}s"
+                elif k == "shifts":
+                    msg = f"Imported shifts={a}, computed from shift rows={b}"
+
+                player_stats_cell_conflicts_by_pid.setdefault(int(pid_i), {})[str(k)] = str(msg)
     player_stats_import_warning: Optional[str] = None
 
     if request.method == "POST" and not edit_mode:
@@ -6892,6 +7232,21 @@ def public_hky_game_detail(
         )
     )
     stats_rows = list(m.PlayerStat.objects.filter(game_id=int(game_id)).values())
+    player_stats_imported_by_pid: dict[int, dict[str, Optional[int]]] = {}
+    for r0 in stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        if pid_i <= 0:
+            continue
+        player_stats_imported_by_pid[int(pid_i)] = {
+            "toi_seconds": (r0.get("toi_seconds") if r0.get("toi_seconds") is not None else None),
+            "shifts": (r0.get("shifts") if r0.get("shifts") is not None else None),
+            "gf_counted": (r0.get("gf_counted") if r0.get("gf_counted") is not None else None),
+            "ga_counted": (r0.get("ga_counted") if r0.get("ga_counted") is not None else None),
+            "plus_minus": (r0.get("plus_minus") if r0.get("plus_minus") is not None else None),
+        }
     if not show_shift_data:
         _mask_shift_stats_in_player_stat_rows(stats_rows)
     if show_shift_data and stats_rows:
@@ -6913,6 +7268,14 @@ def public_hky_game_detail(
     except Exception:
         # Best-effort: event-derived overlays are optional and should not break page rendering.
         pass
+    if show_shift_data:
+        try:
+            _overlay_on_ice_goal_stats_from_shift_rows(
+                game_id=int(game_id), stats_by_pid=stats_by_pid
+            )
+        except Exception:
+            # Best-effort: shift-derived overlays are optional and should not break page rendering.
+            pass
     tts_linked = logic._extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
 
     events_headers, events_rows, events_meta = _load_game_events_for_display(game_id=int(game_id))
@@ -7049,7 +7412,51 @@ def public_hky_game_detail(
     game_player_stats_columns = logic.build_game_player_stats_display_columns(
         rows=list(team1_player_stats_rows) + list(team2_player_stats_rows)
     )
-    player_stats_cell_conflicts_by_pid: dict[int, dict[str, bool]] = {}
+    player_stats_cell_conflicts_by_pid: dict[int, dict[str, str]] = {}
+    if show_shift_data and player_stats_imported_by_pid:
+        for pid, imported in (player_stats_imported_by_pid or {}).items():
+            try:
+                pid_i = int(pid)
+            except Exception:
+                continue
+            cur = stats_by_pid.get(int(pid_i)) or {}
+
+            def _cmp_int(key: str) -> tuple[Optional[int], Optional[int]]:
+                try:
+                    a0 = imported.get(key)
+                    a = int(a0) if a0 is not None else None
+                except Exception:
+                    a = None
+                try:
+                    b0 = cur.get(key)
+                    b = int(b0) if b0 is not None else None
+                except Exception:
+                    b = None
+                return a, b
+
+            for k in ("toi_seconds", "shifts", "gf_counted", "ga_counted", "plus_minus"):
+                a, b = _cmp_int(k)
+                if a is None or b is None or int(a) == int(b):
+                    continue
+
+                msg = f"Imported {k}={a}, computed from shifts={b}"
+                if k == "plus_minus":
+                    gf = logic._int0(cur.get("gf_counted"))
+                    ga = logic._int0(cur.get("ga_counted"))
+                    msg = (
+                        f"Imported +/-={a:+d}, computed from shifts={b:+d} "
+                        f"(GF={int(gf)}, GA={int(ga)}; goals at shift start excluded)"
+                    )
+                elif k == "gf_counted":
+                    msg = f"Imported GF counted={a}, computed from shifts={b}"
+                elif k == "ga_counted":
+                    msg = f"Imported GA counted={a}, computed from shifts={b}"
+                elif k == "toi_seconds":
+                    msg = f"Imported TOI={a}s, computed from shifts={b}s"
+                elif k == "shifts":
+                    msg = f"Imported shifts={a}, computed from shift rows={b}"
+
+                player_stats_cell_conflicts_by_pid.setdefault(int(pid_i), {})[str(k)] = str(msg)
     player_stats_import_warning: Optional[str] = None
 
     default_back_url = f"/public/leagues/{int(league_id)}/schedule"

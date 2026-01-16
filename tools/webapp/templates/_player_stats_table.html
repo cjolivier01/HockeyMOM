@@ -63,9 +63,10 @@
                 {% elif k == "plus_minus" %}
                   <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_plusminus_{{ r.player_id }}" value="{{ r.plus_minus|default_if_none:'' }}" style="width:70px"></td>
                 {% else %}
+                  {% with conflict=row_conf|get_item:k %}
                   <td
                     {% if include_stat_key_attrs %}data-stat-key="{{ k }}"{% endif %}
-                    {% if row_conf|get_item:k %}style="color:#ff6b6b;font-weight:600;"{% endif %}
+                    {% if conflict %}style="color:#ff6b6b;font-weight:600;" title="{{ conflict }}"{% endif %}
                   >
                     {% if k == "toi_seconds" or k == "toi_seconds_per_game" %}
                       {{ r|get_item:k|fmt_toi }}
@@ -73,11 +74,13 @@
                       {{ r|get_item:k|fmt_stat }}
                     {% endif %}
                   </td>
+                  {% endwith %}
                 {% endif %}
               {% else %}
+                {% with conflict=row_conf|get_item:k %}
                 <td
                   {% if include_stat_key_attrs %}data-stat-key="{{ k }}"{% endif %}
-                  {% if row_conf|get_item:k %}style="color:#ff6b6b;font-weight:600;"{% endif %}
+                  {% if conflict %}style="color:#ff6b6b;font-weight:600;" title="{{ conflict }}"{% endif %}
                 >
                   {% if k == "toi_seconds" or k == "toi_seconds_per_game" %}
                     {{ r|get_item:k|fmt_toi }}
@@ -85,6 +88,7 @@
                     {{ r|get_item:k|fmt_stat }}
                   {% endif %}
                 </td>
+                {% endwith %}
               {% endif %}
             {% endwith %}
           {% endfor %}
