@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import os
 from typing import Any, Dict, Optional
 
@@ -21,7 +20,7 @@ class VideoOutPlugin(Plugin):
       - current_box: TLBR camera boxes per frame
       - frame_ids: tensor[B]
       - play_box: TLBR arena/play box (for sizing when crop_play_box)
-      - shared.cam_args: Namespace (optional)
+      - shared.game_config: full game config dict
       - shared.original_clip_box: optional clip box
       - shared.device: preferred device
       - data.fps: float
@@ -34,6 +33,11 @@ class VideoOutPlugin(Plugin):
       - no_cuda_streams: bool
       - skip_final_save: bool
       - save_frame_dir: optional frame dump dir
+      - encoder_backend: optional encoder/muxer backend selection
+      - output_width: optional target output width
+      - show_image: enable live preview window
+      - show_scaled: optional preview scale factor
+      - bit_rate: optional encoder bit rate
     """
 
     def __init__(
@@ -48,6 +52,9 @@ class VideoOutPlugin(Plugin):
         save_frame_dir: Optional[str] = None,
         encoder_backend: Optional[str] = None,
         output_width: Optional[str | int] = None,
+        show_image: Optional[bool] = None,
+        show_scaled: Optional[float] = None,
+        bit_rate: Optional[int] = None,
     ) -> None:
         super().__init__(enabled=enabled)
         self._vo: Optional[VideoOutput] = None
@@ -60,6 +67,9 @@ class VideoOutPlugin(Plugin):
         self._save_dir = save_frame_dir
         self._encoder_backend = encoder_backend
         self._output_width = output_width
+        self._show_image = bool(show_image) if show_image is not None else None
+        self._show_scaled = show_scaled
+        self._bit_rate = bit_rate
 
     def is_output(self) -> bool:
         """If enabled, this node is an output."""
@@ -69,28 +79,6 @@ class VideoOutPlugin(Plugin):
         if self._vo is not None:
             return
         shared = context.get("shared", {})
-        cam_args: Optional[argparse.Namespace] = shared.get("cam_args")  # type: ignore[name-defined]
-        if cam_args is None:
-            # Fallback: construct a minimal args holder from config.initial_args
-            cfg = shared.get("game_config") or {}
-            init_args = cfg.get("initial_args") or {}
-            try:
-                cam_args = argparse.Namespace(**init_args)  # type: ignore[name-defined]
-            except Exception:
-                cam_args = argparse.Namespace()  # type: ignore[name-defined]
-            cam_args.game_config = cfg
-            if not hasattr(cam_args, "cam_ignore_largest"):
-                cam_args.cam_ignore_largest = get_nested_value(
-                    cfg, "rink.tracking.cam_ignore_largest", default_value=False
-                )
-            if not hasattr(cam_args, "crop_play_box"):
-                cam_args.crop_play_box = bool(getattr(cam_args, "crop_play_box", False))
-            if not hasattr(cam_args, "crop_output_image"):
-                no_crop = bool(getattr(cam_args, "no_crop", False))
-                cam_args.crop_output_image = not no_crop
-            if not hasattr(cam_args, "output_width"):
-                cam_args.output_width = None
-
         img = context.get("img")
         if img is None:
             # Try fallbacks
@@ -102,11 +90,11 @@ class VideoOutPlugin(Plugin):
         vo_dev = self._vo_dev if self._vo_dev is not None else device
         # Resolve the output video path:
         #   1. Explicit path passed via plugin params (_out_path)
-        #   2. CLI/config-derived path on cam_args.output_video_path
+        #   2. CLI/config-derived path in game_config.aspen.video_out.output_video_path
         #   3. Fallback to <work_dir>/tracking_output.mkv
         out_path = self._out_path
         if not out_path or "/" not in out_path:
-            candidate = getattr(cam_args, "output_video_path", None)
+            candidate = get_nested_value(cfg, "aspen.video_out.output_video_path", default_value=None)
             if not candidate:
                 work_dir = context.get("work_dir") or os.path.join(os.getcwd(), "output_workdirs")
                 candidate = os.path.join(str(work_dir), out_path or "tracking_output.mkv")
@@ -121,7 +109,9 @@ class VideoOutPlugin(Plugin):
         if fps is None:
             fps = 30.0
 
-        bit_rate = getattr(cam_args, "output_video_bit_rate", None)
+        bit_rate = self._bit_rate
+        if bit_rate is None:
+            bit_rate = get_nested_value(cfg, "aspen.video_out.bit_rate", default_value=None)
         if bit_rate is None:
             bit_rate = int(55e6)
         self._vo = VideoOutput(
@@ -134,9 +124,17 @@ class VideoOutPlugin(Plugin):
             cache_size=self._cache,
             device=vo_dev,
             output_width=self._output_width,
-            show_image=bool(getattr(cam_args, "show_image", False)),
-            show_scaled=getattr(cam_args, "show_scaled", None),
-            profiler=getattr(cam_args, "profiler", None),
+            show_image=bool(
+                self._show_image
+                if self._show_image is not None
+                else get_nested_value(cfg, "aspen.video_out.show_image", default_value=False)
+            ),
+            show_scaled=(
+                self._show_scaled
+                if self._show_scaled is not None
+                else get_nested_value(cfg, "aspen.video_out.show_scaled", default_value=None)
+            ),
+            profiler=shared.get("profiler", None),
             enable_end_zones=False,
             encoder_backend=self._encoder_backend,
         )

@@ -51,6 +51,10 @@ aspen:
     graph: true
     queue_size: 2
     cuda_streams: true
+  apply_camera:
+    crop_play_box: false
+    crop_output_image: true
+    end_zones: false
   video_out:
     # Whether to skip final container flush/save in VideoOutput.
     # CLI flag --skip-final-video-save overrides this when provided.
@@ -65,6 +69,10 @@ aspen:
     # The CLI flag --video-encoder-backend overrides this when provided.
     encoder_backend: "auto"
     output_width: "auto"
+    bit_rate: 55000000
+    show_image: false
+    show_scaled: null
+    output_video_path: null
   stitching:
     # Controlled by --aspen-stitching / --no-aspen-stitching.
     enabled: true
