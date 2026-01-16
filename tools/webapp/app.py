@@ -7255,8 +7255,18 @@ def filter_events_rows_prefer_timetoscore_for_goal_assist(
         return [p for p in (pp.strip() for pp in parts) if p]
 
     def _is_tts_row(r: dict[str, str]) -> bool:
+        def _is_t2s_token(tok: str) -> bool:
+            t = _norm(tok)
+            if not t:
+                return False
+            # Common values seen in DB and CSV sources.
+            if t in {"timetoscore", "t2s", "tts"}:
+                return True
+            # Some sources are stamped like "t2s:54183" or "timetoscore:54183".
+            return t.startswith("t2s") or t.startswith("timetoscore")
+
         toks = _split_sources(r.get("Source") or "")
-        return any(_norm(t) == "timetoscore" for t in toks)
+        return any(_is_t2s_token(t) for t in toks)
 
     if not events_rows:
         return []
@@ -7265,7 +7275,8 @@ def filter_events_rows_prefer_timetoscore_for_goal_assist(
         for r in events_rows
         if isinstance(r, dict)
     )
-    if not has_tts and not tts_linked:
+    # If we don't actually have TimeToScore Goal/Assist rows, don't drop anything: keep whatever we have.
+    if not has_tts:
         return list(events_rows)
     return [
         r
@@ -7317,7 +7328,7 @@ def summarize_event_sources(
 
     def _canon(s: str) -> str:
         sl = s.strip().casefold()
-        if sl == "timetoscore":
+        if sl in {"timetoscore", "t2s", "tts"} or sl.startswith("t2s") or sl.startswith("timetoscore"):
             return "TimeToScore"
         if sl == "long":
             return "Long"

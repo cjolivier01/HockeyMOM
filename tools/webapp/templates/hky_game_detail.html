@@ -695,6 +695,10 @@
                 }
               } catch (e) {}
             }
+
+            function normTypeKey(s) {
+              return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+            }
   
                 function openVideoClipForRow(row, opts) {
                   opts = opts || {};
@@ -943,27 +947,15 @@
               path("M12 8.2c-1.8 0-3.6-.3-5.0-1.0", "none", "#f7c6a5", 2.2, "round", "round");
               path("M12 8.2c1.8 0 3.6-.3 5.0-1.0", "none", "#f7c6a5", 2.2, "round", "round");
             } else if (icon === "takeaway") {
-              // Hand picking up a shiny diamond (transparent background).
+              // Takeaway: simple "gun" hand (no diamond/sparkle).
               var skin = "rgba(230,232,236,0.92)";
               var edge = "rgba(0,0,0,0.42)";
-              var shine = "rgba(255,255,255,0.85)";
               // Fingers (pinch)
               rect(4.0, 7.0, 9.4, 2.8, 1.4, skin, edge, 1.0);
               rect(4.4, 10.0, 8.2, 2.8, 1.4, skin, edge, 1.0);
               // Thumb curve approaching diamond
               path("M13.2 11.2c2.2.4 3.7 1.5 4.6 3.2.8 1.5.9 3.1.2 4.6", "none", skin, 2.8, "round", "round");
               path("M13.2 11.2c2.2.4 3.7 1.5 4.6 3.2.8 1.5.9 3.1.2 4.6", "none", edge, 1.0, "round", "round");
-              // Palm (top-right)
-              rect(12.4, 3.4, 8.8, 7.6, 3.8, skin, edge, 1.0);
-
-              // Diamond being picked up (near pinch)
-              path("M11.0 13.8l3.2 3.2L11.0 20.2 7.8 17.0z", "#a7f3d0", edge, 1.0, "round", "round");
-              path("M11.0 13.8l1.6 3.2-1.6 3.2-1.6-3.2z", "rgba(255,255,255,0.30)", "none", 0, "round", "round");
-              // Sparkle lines
-              path("M15.6 13.4h2.1", "none", shine, 1.8, "round", "round");
-              path("M14.9 11.9v2.1", "none", shine, 1.8, "round", "round");
-              path("M6.6 16.5h2.1", "none", shine, 1.6, "round", "round");
-              path("M7.6 15.5v2.1", "none", shine, 1.6, "round", "round");
             } else {
               rect(5.5, 5.5, 13, 13, 3, "rgba(0,0,0,0.0)", "rgba(255,255,255,0.35)", 1.2);
               var t = String(opts.label || "?").trim();

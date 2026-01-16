@@ -9253,6 +9253,7 @@ def _get_t2s_team_roster(
     side: str,
     hockey_db_dir: Path,
     *,
+    keep_goalies: bool = True,
     allow_remote: bool = True,
     allow_full_sync: bool = True,
 ) -> Dict[str, str]:
@@ -9300,6 +9301,9 @@ def _get_t2s_team_roster(
     roster: Dict[str, str] = {}
 
     for r in rows:
+        pos = str((r or {}).get("position") or "").strip()
+        if not keep_goalies and pos and pos.upper().startswith("G"):
+            continue
         try:
             raw_num = str((r or {}).get("number")).strip()
         except Exception:
@@ -9322,6 +9326,7 @@ def _get_t2s_game_rosters(
     t2s_id: int,
     hockey_db_dir: Path,
     *,
+    keep_goalies: bool = True,
     allow_remote: bool = True,
     allow_full_sync: bool = True,
 ) -> Dict[str, Dict[str, str]]:
@@ -9341,11 +9346,14 @@ def _get_t2s_game_rosters(
         with _working_directory(hockey_db_dir):
             if allow_remote and not allow_full_sync:
                 _log_t2s_scrape(int(t2s_id), "game details (home/away rosters)")
-            info = t2s_api.get_game_details(
-                int(t2s_id),
-                sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
-                fetch_stats_if_missing=bool(allow_remote),
-            )
+            try:
+                info = t2s_api.get_game_details(
+                    int(t2s_id),
+                    sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
+                    fetch_stats_if_missing=bool(allow_remote),
+                )
+            except TypeError:
+                info = t2s_api.get_game_details(int(t2s_id))
     except Exception as e:
         raise RuntimeError(f"TimeToScore API failed to load game {t2s_id} for rosters: {e}") from e
 
@@ -9365,6 +9373,9 @@ def _get_t2s_game_rosters(
         rows = stats.get(key) or []
         roster: Dict[str, str] = {}
         for r in rows:
+            pos = str((r or {}).get("position") or "").strip()
+            if not keep_goalies and pos and pos.upper().startswith("G"):
+                continue
             raw_num = (r or {}).get("number")
             num_norm = _normalize_jersey_number(raw_num)
             if not num_norm:
@@ -11523,6 +11534,7 @@ def process_t2s_only_game(
     label: str,
     hockey_db_dir: Path,
     include_shifts_in_stats: bool,
+    keep_goalies: bool = False,
     allow_remote: bool = True,
     allow_full_sync: bool = True,
 ) -> Tuple[
@@ -11560,6 +11572,7 @@ def process_t2s_only_game(
         int(t2s_id),
         side,
         hockey_db_dir,
+        keep_goalies=bool(keep_goalies),
         allow_remote=allow_remote,
         allow_full_sync=allow_full_sync,
     )
@@ -12784,6 +12797,7 @@ def main() -> None:
                     label=label,
                     hockey_db_dir=hockey_db_dir,
                     include_shifts_in_stats=include_shifts_in_stats,
+                    keep_goalies=bool(args.keep_goalies),
                     allow_remote=t2s_allow_remote,
                     allow_full_sync=t2s_allow_full_sync,
                 )
@@ -12907,6 +12921,7 @@ def main() -> None:
                         t2s_rosters_by_side = _get_t2s_game_rosters(
                             int(t2s_id),
                             hockey_db_dir,
+                            keep_goalies=bool(args.keep_goalies),
                             allow_remote=t2s_allow_remote,
                             allow_full_sync=t2s_allow_full_sync,
                         )
@@ -13185,6 +13200,7 @@ def main() -> None:
                     t2s_rosters_by_side = _get_t2s_game_rosters(
                         int(t2s_id),
                         hockey_db_dir,
+                        keep_goalies=bool(args.keep_goalies),
                         allow_remote=t2s_allow_remote,
                         allow_full_sync=t2s_allow_full_sync,
                     )
