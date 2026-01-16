@@ -333,6 +333,7 @@ def _upsert_game_event_rows_from_events_csv(
             "id", "team_id", "name", "jersey_number", "position"
         )
     )
+    pid_to_team_id: dict[int, int] = {}
     jersey_to_pids: dict[tuple[int, str], list[int]] = {}
     name_to_pids: dict[tuple[int, str], list[int]] = {}
     for p in players:
@@ -340,6 +341,7 @@ def _upsert_game_event_rows_from_events_csv(
         pid = int(p.get("id") or 0)
         if not tid or not pid:
             continue
+        pid_to_team_id[int(pid)] = int(tid)
         jn = logic.normalize_jersey_number(p.get("jersey_number"))
         if jn:
             jersey_to_pids.setdefault((tid, jn), []).append(pid)
@@ -397,6 +399,33 @@ def _upsert_game_event_rows_from_events_csv(
     }
 
     parsed: list[dict[str, Any]] = []
+
+    def _unique_pid(candidates: list[int]) -> Optional[int]:
+        uniq = sorted(set(int(x) for x in (candidates or []) if int(x) > 0))
+        if len(uniq) == 1:
+            return int(uniq[0])
+        return None
+
+    def _resolve_unique_pid_any_team(
+        *, jersey_norm: Optional[str], attributed_players: str
+    ) -> Optional[int]:
+        if jersey_norm:
+            cands: list[int] = []
+            for tid0 in (team1_id, team2_id):
+                cands.extend(jersey_to_pids.get((int(tid0), str(jersey_norm)), []))
+            pid = _unique_pid(cands)
+            if pid is not None:
+                return int(pid)
+        if attributed_players:
+            name_norm = logic.normalize_player_name(attributed_players)
+            cands = []
+            for tid0 in (team1_id, team2_id):
+                cands.extend(name_to_pids.get((int(tid0), str(name_norm)), []))
+            pid = _unique_pid(cands)
+            if pid is not None:
+                return int(pid)
+        return None
+
     for r in rows:
         if not isinstance(r, dict):
             continue
@@ -420,12 +449,6 @@ def _upsert_game_event_rows_from_events_csv(
         )
 
         side_norm, side_label = _best_effort_side_from_row(r)
-        if side_norm == "home":
-            team_id = team1_id
-        elif side_norm == "away":
-            team_id = team2_id
-        else:
-            team_id = None
 
         player_cell = _norm_ws(r.get("Player"))
         attributed_jerseys = _norm_ws(r.get("Attributed Jerseys") or r.get("AttributedJerseys"))
@@ -437,8 +460,35 @@ def _upsert_game_event_rows_from_events_csv(
             # Common legacy encoding: "#9 Alice" or "9 Alice"
             attributed_players = re.sub(r"^#?\s*\d+\s*", "", str(player_cell)).strip()
 
+        player_id_any: Optional[int] = None
+        if side_norm == "home":
+            team_id = team1_id
+        elif side_norm == "away":
+            team_id = team2_id
+        else:
+            team_id = None
+            # For Goal events, we require a resolvable scoring team (Home/Away).
+            # If Team Side is missing, attempt to infer it from the scorer jersey/name when possible.
+            if et_key == "goal":
+                player_id_any = _resolve_unique_pid_any_team(
+                    jersey_norm=jersey_norm, attributed_players=attributed_players
+                )
+                inferred_team_id = (
+                    int(pid_to_team_id.get(int(player_id_any)))
+                    if player_id_any is not None and int(player_id_any) in pid_to_team_id
+                    else None
+                )
+                if inferred_team_id == int(team1_id):
+                    team_id = int(team1_id)
+                    side_norm, side_label = "home", "Home"
+                elif inferred_team_id == int(team2_id):
+                    team_id = int(team2_id)
+                    side_norm, side_label = "away", "Away"
+
         player_id: Optional[int] = None
-        if team_id is not None and jersey_norm:
+        if player_id_any is not None and team_id is not None:
+            player_id = int(player_id_any)
+        if player_id is None and team_id is not None and jersey_norm:
             candidates = jersey_to_pids.get((int(team_id), str(jersey_norm)), [])
             if len(set(candidates)) == 1:
                 player_id = int(list(set(candidates))[0])
@@ -487,6 +537,33 @@ def _upsert_game_event_rows_from_events_csv(
         if not source and default_source:
             source = default_source
 
+        game_time_txt = _norm_ws(r.get("Game Time") or r.get("GameTime") or r.get("Time"))
+        if not game_time_txt and game_seconds is not None:
+            game_time_txt = logic.format_seconds_to_mmss_or_hhmmss(int(game_seconds))
+
+        # Tight validation for Goal events: they must be timestamped and tied to a scoring team.
+        # This is required for correctness of goal-based derived stats (plus/minus, pair overlap GF/GA, etc.).
+        if et_key == "goal":
+            if period is None or int(period) <= 0:
+                raise ValueError(
+                    "invalid_goal_event_row: missing Period "
+                    f"(game_id={int(game_id)}, game_seconds={game_seconds}, team_side={side_label!r}, "
+                    f"attributed_jerseys={attributed_jerseys!r})"
+                )
+            if game_seconds is None:
+                raise ValueError(
+                    "invalid_goal_event_row: missing Game Seconds/Game Time "
+                    f"(game_id={int(game_id)}, period={int(period)}, team_side={side_label!r}, "
+                    f"attributed_jerseys={attributed_jerseys!r})"
+                )
+            if team_id is None or side_norm not in {"home", "away"}:
+                raise ValueError(
+                    "invalid_goal_event_row: missing/unknown Team Side (must be Home/Away or inferable from jersey) "
+                    f"(game_id={int(game_id)}, period={int(period)}, game_seconds={int(game_seconds)}, "
+                    f"team_side={side_label!r}, team_raw={_norm_ws(r.get('Team') or r.get('Team Raw') or '')!r}, "
+                    f"attributed_jerseys={attributed_jerseys!r}, attributed_players={attributed_players!r})"
+                )
+
         parsed.append(
             {
                 "import_key": import_key,
@@ -502,7 +579,7 @@ def _upsert_game_event_rows_from_events_csv(
                 "for_against": _norm_ws(r.get("For/Against") or r.get("ForAgainst")),
                 "team_rel": _norm_ws(r.get("Team Rel") or r.get("TeamRel")),
                 "period": int(period) if period is not None else None,
-                "game_time": _norm_ws(r.get("Game Time") or r.get("GameTime") or r.get("Time")),
+                "game_time": game_time_txt,
                 "video_time": video_time,
                 "game_seconds": int(game_seconds) if game_seconds is not None else None,
                 "game_seconds_end": (
