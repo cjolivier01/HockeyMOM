@@ -11113,6 +11113,120 @@ def parse_shift_stats_game_stats_csv(csv_text: str) -> dict[str, Any]:
     return out
 
 
+def parse_shift_rows_csv(csv_text: str) -> list[dict[str, Any]]:
+    """
+    Parse stats/shift_rows.csv written by scripts/parse_stats_inputs.py.
+
+    Returns rows with:
+      - player_label: display label (e.g. "59 Ryan S Donahue")
+      - jersey_number: normalized jersey number ("59") when present
+      - name_norm/name_norm_no_middle: normalized names for matching
+      - period: int
+      - game_seconds/game_seconds_end: within-period seconds (typically "remaining" clock)
+      - video_seconds/video_seconds_end: optional video seconds
+      - import_key: optional idempotency key (caller may derive if missing)
+    """
+    f = io.StringIO(csv_text)
+    reader = csv.DictReader(f)
+    if not reader.fieldnames:
+        raise ValueError("missing CSV headers")
+
+    def _get(row: dict[str, Any], keys: tuple[str, ...]) -> Any:
+        for k in keys:
+            if k in row:
+                return row.get(k)
+        return None
+
+    def _int_or_none_flex(v: Any) -> Optional[int]:
+        if v is None:
+            return None
+        s = str(v).strip()
+        if not s:
+            return None
+        if re.fullmatch(r"-?\d+", s):
+            try:
+                return int(s)
+            except Exception:
+                return None
+        return parse_duration_seconds(s)
+
+    out: list[dict[str, Any]] = []
+    for raw_row in reader:
+        row = {k.strip(): v for k, v in (raw_row or {}).items() if k}
+
+        player_name = str(_get(row, ("Player", "Name")) or "").strip()
+        jersey_raw = _get(
+            row,
+            ("Jersey #", "Jersey", "Jersey No", "JerseyNo", "Jersey Number", "JerseyNumber"),
+        )
+        jersey_norm = normalize_jersey_number(jersey_raw) if str(jersey_raw or "").strip() else None
+
+        # Back-compat: allow jersey in the Player cell (e.g. " 8 Adam Ro").
+        name_part = player_name
+        m = re.match(r"^\s*(\d+)\s+(.*)$", player_name)
+        if m:
+            jersey_from_name = normalize_jersey_number(m.group(1))
+            if jersey_norm is None:
+                jersey_norm = jersey_from_name
+            if jersey_from_name and jersey_norm and jersey_from_name == jersey_norm:
+                name_part = m.group(2).strip()
+
+        player_label = f"{jersey_norm} {name_part}".strip() if jersey_norm else name_part
+        name_norm = normalize_player_name(name_part)
+        name_norm_no_middle = normalize_player_name_no_middle(name_part)
+
+        period = _int_or_none(_get(row, ("Period",)))
+        game_seconds = _int_or_none_flex(
+            _get(row, ("Game Seconds", "GameSeconds", "Start Game Seconds", "StartGameSeconds"))
+        )
+        game_seconds_end = _int_or_none_flex(
+            _get(
+                row,
+                (
+                    "Game Seconds End",
+                    "GameSecondsEnd",
+                    "End Game Seconds",
+                    "EndGameSeconds",
+                    "Game Seconds (End)",
+                ),
+            )
+        )
+        video_seconds = _int_or_none_flex(
+            _get(row, ("Video Seconds", "VideoSeconds", "Start Video Seconds", "StartVideoSeconds"))
+        )
+        video_seconds_end = _int_or_none_flex(
+            _get(
+                row,
+                (
+                    "Video Seconds End",
+                    "VideoSecondsEnd",
+                    "End Video Seconds",
+                    "EndVideoSeconds",
+                    "Video Seconds (End)",
+                ),
+            )
+        )
+        import_key = str(_get(row, ("Import Key", "ImportKey")) or "").strip() or None
+        source = str(_get(row, ("Source",)) or "").strip() or None
+
+        out.append(
+            {
+                "player_label": player_label,
+                "jersey_number": jersey_norm,
+                "name_norm": name_norm,
+                "name_norm_no_middle": name_norm_no_middle,
+                "period": period,
+                "game_seconds": game_seconds,
+                "game_seconds_end": game_seconds_end,
+                "video_seconds": video_seconds,
+                "video_seconds_end": video_seconds_end,
+                "import_key": import_key,
+                "source": source,
+            }
+        )
+    return out
+
+
 def _int_or_none(raw: Any) -> Optional[int]:
     if raw is None:
         return None

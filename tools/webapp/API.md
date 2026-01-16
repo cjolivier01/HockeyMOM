@@ -115,7 +115,13 @@ Body highlights (many optional fields exist):
 - `team_side` (`"home"` or `"away"`, optional; used to interpret Goals For/Against)
 - `replace` (bool, optional)
 - `create_missing_players` (bool, optional)
-- CSV payloads (strings): `events_csv`, `player_stats_csv`, plus shift-related CSVs (`game_stats_csv` is optional and only used to fill missing final scores)
+- CSV payloads (strings): `events_csv`, `player_stats_csv`, plus shift-related CSVs:
+  - `shift_rows_csv` (optional): per-player shift intervals (used to derive TOI/Shifts at runtime and optionally render on/off-ice markers)
+  - `game_stats_csv` (optional): only used to fill missing final scores
+- Shift row behavior:
+  - `shift_rows_csv` requires `team_side` and will be stored in `hky_game_shift_rows` (separate from `hky_game_event_rows`).
+  - When `shift_rows_csv` is present, stored TOI/Shifts fields in `PlayerStat` are cleared and are expected to be derived at runtime.
+  - `replace_shift_rows` (bool, optional): if true, existing shift rows for the game+team_side are deleted before importing new ones.
 
 Response:
 - `game_id`, plus import counts and any “unmatched” player names when relevant.

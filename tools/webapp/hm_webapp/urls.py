@@ -26,6 +26,7 @@ urlpatterns = [
     path("league/select", v.league_select, name="league_select"),
     # API
     path("api/user/video_clip_len", v.api_user_video_clip_len, name="api_user_video_clip_len"),
+    path("api/xlsx/table", v.api_export_table_xlsx, name="api_export_table_xlsx"),
     path(
         "api/leagues/<int:league_id>/page_views",
         v.api_league_page_views,

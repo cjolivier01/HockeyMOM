@@ -83,6 +83,19 @@ def _league_show_goalie_stats(league_id: int) -> bool:
         return False
 
 
+def _league_show_shift_data(league_id: int) -> bool:
+    _django_orm, m = _orm_modules()
+    try:
+        v = (
+            m.League.objects.filter(id=int(league_id))
+            .values_list("show_shift_data", flat=True)
+            .first()
+        )
+        return bool(v)
+    except Exception:
+        return False
+
+
 def _safe_file_response(path: Path, *, as_attachment: bool = False) -> FileResponse:
     if not path.exists() or not path.is_file():
         raise Http404
@@ -1017,6 +1030,120 @@ def _load_game_events_for_display(
     return headers, out_rows, meta
 
 
+def _load_game_shift_rows_for_timeline(*, game_id: int) -> list[dict[str, str]]:
+    """
+    Load shift intervals from the DB and convert to lightweight "event rows" for timeline rendering.
+
+    These are intentionally NOT included in the Game Events table; they are a separate data stream
+    that can be toggled on/off at the league level.
+    """
+    _django_orm, m = _orm_modules()
+
+    rows = list(
+        m.HkyGameShiftRow.objects.filter(game_id=int(game_id))
+        .select_related("player")
+        .values(
+            "team_side",
+            "period",
+            "game_seconds",
+            "game_seconds_end",
+            "video_seconds",
+            "video_seconds_end",
+            "player__name",
+            "player__jersey_number",
+        )
+    )
+    if not rows:
+        return []
+
+    out: list[dict[str, str]] = []
+    for r in rows:
+        side = str(r.get("team_side") or "").strip()
+        if side.casefold() not in {"home", "away"}:
+            continue
+        try:
+            period = int(r.get("period") or 0)
+        except Exception:
+            continue
+        if period <= 0:
+            continue
+        gs0 = r.get("game_seconds")
+        gs1 = r.get("game_seconds_end")
+        if gs0 is None or gs1 is None:
+            continue
+        try:
+            start_gs = int(gs0)
+            end_gs = int(gs1)
+        except Exception:
+            continue
+        vs0 = r.get("video_seconds")
+        vs1 = r.get("video_seconds_end")
+        try:
+            start_vs = int(vs0) if vs0 is not None else None
+        except Exception:
+            start_vs = None
+        try:
+            end_vs = int(vs1) if vs1 is not None else None
+        except Exception:
+            end_vs = None
+
+        jersey = logic.normalize_jersey_number(r.get("player__jersey_number"))
+        name = str(r.get("player__name") or "").strip()
+        label = name
+        if jersey and name:
+            label = f"{name} (#{jersey})"
+
+        # Treat stored game_seconds/game_seconds_end as shift start/end in "within-period" seconds.
+        out.append(
+            {
+                "Event Type": "On-Ice",
+                "Event ID": "",
+                "Source": "shifts",
+                "Team Raw": "",
+                "Team Side": side,
+                "For/Against": "",
+                "Team Rel": side,
+                "Period": str(int(period)),
+                "Game Time": "",
+                "Video Time": "",
+                "Game Seconds": str(int(start_gs)),
+                "Game Seconds End": "",
+                "Video Seconds": str(int(start_vs)) if start_vs is not None else "",
+                "Details": label,
+                "Attributed Players": label,
+                "Attributed Jerseys": str(jersey or ""),
+                "On-Ice Players": "",
+                "On-Ice Players (Home)": "",
+                "On-Ice Players (Away)": "",
+            }
+        )
+        out.append(
+            {
+                "Event Type": "Off-Ice",
+                "Event ID": "",
+                "Source": "shifts",
+                "Team Raw": "",
+                "Team Side": side,
+                "For/Against": "",
+                "Team Rel": side,
+                "Period": str(int(period)),
+                "Game Time": "",
+                "Video Time": "",
+                "Game Seconds": str(int(end_gs)),
+                "Game Seconds End": "",
+                "Video Seconds": str(int(end_vs)) if end_vs is not None else "",
+                "Details": label,
+                "Attributed Players": label,
+                "Attributed Jerseys": str(jersey or ""),
+                "On-Ice Players": "",
+                "On-Ice Players (Home)": "",
+                "On-Ice Players (Away)": "",
+            }
+        )
+
+    return out
+
+
 def _overlay_game_player_stats_from_event_rows(
     *, game_id: int, stats_by_pid: dict[int, dict[str, Any]]
 ) -> None:
@@ -1392,6 +1519,202 @@ def _overlay_game_player_stats_from_event_rows(
         )
 
 
+def _overlay_on_ice_goal_stats_from_shift_rows(
+    *,
+    game_id: int,
+    stats_by_pid: dict[int, dict[str, Any]],
+) -> None:
+    """
+    Compute on-ice GF/GA/+/- from goal events + shift intervals (hky_game_shift_rows) and overlay
+    into `stats_by_pid`.
+
+    This intentionally avoids relying on per-goal on-ice lists (which may be missing) and instead
+    uses the canonical shift intervals imported from spreadsheets.
+    """
+    _django_orm, m = _orm_modules()
+
+    game = m.HkyGame.objects.filter(id=int(game_id)).values("team1_id", "team2_id").first()
+    if not game:
+        return
+    team1_id = int(game.get("team1_id") or 0)
+    team2_id = int(game.get("team2_id") or 0)
+    if team1_id <= 0 or team2_id <= 0:
+        return
+
+    suppressed = m.HkyGameEventSuppression.objects.filter(game_id=int(game_id)).values_list(
+        "import_key", flat=True
+    )
+
+    goal_rows = list(
+        m.HkyGameEventRow.objects.filter(game_id=int(game_id), event_type__key="goal")
+        .exclude(import_key__in=suppressed)
+        .values(
+            "source",
+            "period",
+            "game_seconds",
+            "game_time",
+            "team_id",
+            "team_side",
+            "team_rel",
+            "team_raw",
+            "player_id",
+        )
+    )
+    if not goal_rows:
+        return
+
+    # Prefer TimeToScore goals when present to avoid duplicate goal streams.
+    if any("timetoscore" in str(r.get("source") or "").casefold() for r in goal_rows):
+        goal_rows = [r for r in goal_rows if "timetoscore" in str(r.get("source") or "").casefold()]
+        if not goal_rows:
+            return
+
+    team_id_by_player_id: dict[int, int] = {}
+    for p in m.Player.objects.filter(team_id__in=[team1_id, team2_id]).values("id", "team_id"):
+        try:
+            pid = int(p.get("id") or 0)
+            tid = int(p.get("team_id") or 0)
+        except Exception:
+            continue
+        if pid > 0 and tid > 0:
+            team_id_by_player_id[int(pid)] = int(tid)
+
+    def _int_or_none(raw: Any) -> Optional[int]:
+        try:
+            if raw is None:
+                return None
+            s = str(raw).strip()
+            if not s:
+                return None
+            return int(float(s))
+        except Exception:
+            return None
+
+    def _norm_side(raw: Any) -> Optional[str]:
+        v = str(raw or "").strip().casefold()
+        if v in {"home", "team1"}:
+            return "home"
+        if v in {"away", "team2"}:
+            return "away"
+        return None
+
+    def _scoring_side(row: dict[str, Any]) -> Optional[str]:
+        tid = _int_or_none(row.get("team_id"))
+        if tid == team1_id:
+            return "home"
+        if tid == team2_id:
+            return "away"
+        pid = _int_or_none(row.get("player_id"))
+        if pid is not None:
+            ptid = team_id_by_player_id.get(int(pid))
+            if ptid == team1_id:
+                return "home"
+            if ptid == team2_id:
+                return "away"
+        side = (
+            _norm_side(row.get("team_side"))
+            or _norm_side(row.get("team_rel"))
+            or _norm_side(row.get("team_raw"))
+        )
+        if side in {"home", "away"}:
+            return side
+        return None
+
+    def _goal_seconds(row: dict[str, Any]) -> Optional[int]:
+        gs = _int_or_none(row.get("game_seconds"))
+        if gs is not None:
+            return int(gs)
+        return logic.parse_duration_seconds(row.get("game_time"))
+
+    shift_rows = list(
+        m.HkyGameShiftRow.objects.filter(game_id=int(game_id), player_id__isnull=False)
+        .exclude(period__isnull=True)
+        .exclude(game_seconds__isnull=True)
+        .exclude(game_seconds_end__isnull=True)
+        .values("player_id", "team_side", "period", "game_seconds", "game_seconds_end")
+    )
+    if not shift_rows:
+        return
+
+    shifts_by_period: dict[int, dict[str, list[tuple[int, int, int]]]] = {}
+    all_pids: set[int] = set()
+    for r in shift_rows:
+        try:
+            pid = int(r.get("player_id") or 0)
+            per = int(r.get("period") or 0)
+            gs0 = int(r.get("game_seconds") or 0)
+            gs1 = int(r.get("game_seconds_end") or 0)
+        except Exception:
+            continue
+        if pid <= 0 or per <= 0:
+            continue
+        side = _norm_side(r.get("team_side"))
+        if side not in {"home", "away"}:
+            continue
+        all_pids.add(int(pid))
+        shifts_by_period.setdefault(int(per), {}).setdefault(str(side), []).append((pid, gs0, gs1))
+
+    if not shifts_by_period:
+        return
+
+    def _shift_contains(*, t: int, start: int, end: int) -> bool:
+        lo = start if start <= end else end
+        hi = end if start <= end else start
+        if t < lo or t > hi:
+            return False
+        # Match scripts/parse_stats_inputs.py: don't count goals exactly at shift start.
+        return int(t) != int(start)
+
+    gf_by_pid: dict[int, int] = {}
+    ga_by_pid: dict[int, int] = {}
+
+    for gr in goal_rows:
+        try:
+            per = int(gr.get("period") or 0)
+        except Exception:
+            continue
+        if per <= 0:
+            continue
+        t = _goal_seconds(gr)
+        if t is None:
+            continue
+        side = _scoring_side(gr)
+        if side not in {"home", "away"}:
+            continue
+
+        period_shifts = shifts_by_period.get(int(per), {})
+        home_shifts = period_shifts.get("home", [])
+        away_shifts = period_shifts.get("away", [])
+
+        home_on: set[int] = set()
+        for pid, start, end in home_shifts:
+            if _shift_contains(t=int(t), start=int(start), end=int(end)):
+                home_on.add(int(pid))
+        away_on: set[int] = set()
+        for pid, start, end in away_shifts:
+            if _shift_contains(t=int(t), start=int(start), end=int(end)):
+                away_on.add(int(pid))
+
+        if side == "home":
+            for pid in home_on:
+                gf_by_pid[int(pid)] = gf_by_pid.get(int(pid), 0) + 1
+            for pid in away_on:
+                ga_by_pid[int(pid)] = ga_by_pid.get(int(pid), 0) + 1
+        else:
+            for pid in away_on:
+                gf_by_pid[int(pid)] = gf_by_pid.get(int(pid), 0) + 1
+            for pid in home_on:
+                ga_by_pid[int(pid)] = ga_by_pid.get(int(pid), 0) + 1
+
+    for pid in all_pids:
+        gf = int(gf_by_pid.get(int(pid), 0) or 0)
+        ga = int(ga_by_pid.get(int(pid), 0) or 0)
+        stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
+        stats_by_pid[pid]["gf_counted"] = int(gf)
+        stats_by_pid[pid]["ga_counted"] = int(ga)
+        stats_by_pid[pid]["plus_minus"] = int(gf) - int(ga)
+
+
 def _overlay_completed_passes_into_player_stat_rows(
     *,
     game_ids: list[int],
@@ -1457,6 +1780,130 @@ def _overlay_completed_passes_into_player_stat_rows(
             row["completed_passes"] = int(n)
 
     return
+
+
+def _overlay_shift_stats_into_player_stat_rows(
+    *,
+    game_ids: list[int],
+    player_stats_rows: list[dict[str, Any]],
+) -> None:
+    """
+    Best-effort: derive TOI and shift counts from imported shift rows (hky_game_shift_rows)
+    and overlay into the in-memory player stat rows used for aggregation/rendering.
+
+    This keeps shift stats opt-in at the league level and avoids storing derived aggregates.
+    """
+    if not game_ids or not player_stats_rows:
+        return
+    _django_orm, m = _orm_modules()
+    from django.db.models import Count, F, IntegerField, Sum
+    from django.db.models.functions import Abs
+
+    by_key: dict[tuple[int, int], dict[str, Any]] = {}
+    for r in player_stats_rows:
+        try:
+            pid = int(r.get("player_id") or 0)
+            gid = int(r.get("game_id") or 0)
+        except Exception:
+            continue
+        if pid > 0 and gid > 0:
+            by_key[(pid, gid)] = r
+    if not by_key:
+        return
+
+    gids = [int(x) for x in game_ids]
+    pids = sorted({int(pid) for (pid, _gid) in by_key.keys()})
+    if not pids:
+        return
+
+    dur_expr = Abs(F("game_seconds_end") - F("game_seconds"))
+    qs = (
+        m.HkyGameShiftRow.objects.filter(game_id__in=gids, player_id__in=pids)
+        .exclude(game_seconds__isnull=True)
+        .exclude(game_seconds_end__isnull=True)
+        .values("player_id", "game_id")
+        .annotate(toi=Sum(dur_expr, output_field=IntegerField()), shifts=Count("id"))
+    )
+    for r in qs:
+        try:
+            pid = int(r.get("player_id") or 0)
+            gid = int(r.get("game_id") or 0)
+        except Exception:
+            continue
+        row = by_key.get((pid, gid))
+        if not row:
+            continue
+        try:
+            toi = int(r.get("toi") or 0)
+        except Exception:
+            toi = 0
+        try:
+            shifts = int(r.get("shifts") or 0)
+        except Exception:
+            shifts = 0
+        row["toi_seconds"] = int(toi)
+        row["shifts"] = int(shifts)
+
+    return
+
+
+def _mask_shift_stats_in_player_stat_rows(player_stats_rows: list[dict[str, Any]]) -> None:
+    """
+    When a league has shift data hidden, ensure shift-derived stats are not shown even if they
+    exist in PlayerStat from older imports.
+    """
+    if not player_stats_rows:
+        return
+    shift_keys = (
+        "toi_seconds",
+        "shifts",
+        "video_toi_seconds",
+        "sb_avg_shift_seconds",
+        "sb_median_shift_seconds",
+        "sb_longest_shift_seconds",
+        "sb_shortest_shift_seconds",
+    )
+    for r in player_stats_rows:
+        if not isinstance(r, dict):
+            continue
+        for k in shift_keys:
+            if k in r:
+                r[k] = None
+
+
+def _overlay_timetoscore_zero_stats_into_player_stat_rows(
+    *,
+    game_ids: list[int],
+    player_stats_rows: list[dict[str, Any]],
+) -> None:
+    """
+    TimeToScore-linked games have explicit scoring/penalty records. For those games, missing values
+    should be treated as 0 (not "unknown") so per-game denominators are stable for players who had
+    zero goals/assists/PIM.
+    """
+    if not game_ids or not player_stats_rows:
+        return
+    _django_orm, m = _orm_modules()
+    t2s_game_ids = set(
+        m.HkyGame.objects.filter(
+            id__in=[int(x) for x in game_ids], timetoscore_game_id__isnull=False
+        ).values_list("id", flat=True)
+    )
+    if not t2s_game_ids:
+        return
+    keys = ("goals", "assists", "pim")
+    for r in player_stats_rows:
+        if not isinstance(r, dict):
+            continue
+        try:
+            gid = int(r.get("game_id") or 0)
+        except Exception:
+            continue
+        if gid <= 0 or gid not in t2s_game_ids:
+            continue
+        for k in keys:
+            if r.get(k) is None:
+                r[k] = 0
 
 
 def _compute_player_has_events_by_pid_for_game(
@@ -1748,6 +2195,83 @@ def api_user_video_clip_len(request: HttpRequest) -> JsonResponse:
     except Exception as e:  # noqa: BLE001
         return JsonResponse({"ok": False, "error": str(e)}, status=500)
     return JsonResponse({"ok": True, "clip_len_s": int(v)})
+
+
+@csrf_exempt
+def api_export_table_xlsx(request: HttpRequest) -> HttpResponse:
+    """
+    Export a rendered HTML table as an XLSX spreadsheet.
+
+    This is a stateless endpoint: callers POST the table headers/rows and receive a styled XLSX.
+    Shift/TOI columns are always removed from exports (privacy/sensitivity).
+    """
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "method_not_allowed"}, status=405)
+    try:
+        payload = json.loads(request.body or b"{}")
+    except Exception:
+        return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({"ok": False, "error": "invalid_payload"}, status=400)
+
+    title = str(payload.get("title") or payload.get("sheet_name") or "Table").strip() or "Table"
+    sheet_name = str(payload.get("sheet_name") or title).strip() or title
+    filename = str(payload.get("filename") or title).strip() or title
+
+    headers_raw = payload.get("headers") or []
+    if not isinstance(headers_raw, list):
+        return JsonResponse({"ok": False, "error": "invalid_headers"}, status=400)
+    headers = [str(h or "") for h in headers_raw]
+
+    rows_raw = payload.get("rows") or []
+    if not isinstance(rows_raw, list):
+        return JsonResponse({"ok": False, "error": "invalid_rows"}, status=400)
+    rows: list[list[str]] = []
+    for r in rows_raw:
+        if not isinstance(r, list):
+            continue
+        rows.append([str(v or "") for v in r])
+
+    col_keys_raw = payload.get("col_keys")
+    col_keys = None
+    if isinstance(col_keys_raw, list):
+        col_keys = [str(k).strip() if k is not None else None for k in col_keys_raw]
+
+    try:
+        freeze_cols = int(payload.get("freeze_cols") or 0)
+    except Exception:
+        freeze_cols = 0
+    if freeze_cols < 0:
+        freeze_cols = 0
+
+    # Safety guardrails (avoid pathological payload sizes).
+    if len(headers) > 250:
+        return JsonResponse({"ok": False, "error": "too_many_columns"}, status=400)
+    if len(rows) > 50_000:
+        return JsonResponse({"ok": False, "error": "too_many_rows"}, status=400)
+
+    try:
+        from .xlsx_export import export_table_xlsx
+
+        out_name, out_bytes = export_table_xlsx(
+            title=title,
+            headers=headers,
+            rows=rows,
+            col_keys=col_keys,
+            freeze_cols=int(freeze_cols),
+            sheet_name=sheet_name,
+            filename=filename,
+        )
+    except Exception:
+        logger.exception("api_export_table_xlsx failed")
+        return JsonResponse({"ok": False, "error": "xlsx_export_failed"}, status=500)
+
+    resp = HttpResponse(
+        out_bytes,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = f'attachment; filename="{out_name}"'
+    return resp
 
 
 def api_league_page_views(request: HttpRequest, league_id: int) -> JsonResponse:
@@ -3569,6 +4093,13 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             and int(league_owner_user_id) == _session_user_id(request)
         )
 
+    show_shift_data = True
+    if league_id:
+        try:
+            show_shift_data = _league_show_shift_data(int(league_id))
+        except Exception:
+            show_shift_data = False
+
     is_league_admin = False
     if league_id:
         try:
@@ -3728,6 +4259,21 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
             )
         )
+        _overlay_timetoscore_zero_stats_into_player_stat_rows(
+            game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+        )
+        if not show_shift_data:
+            _mask_shift_stats_in_player_stat_rows(ps_rows)
+        if show_shift_data:
+            try:
+                _overlay_shift_stats_into_player_stat_rows(
+                    game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to overlay shift stats into player stat rows for game_ids=%s",
+                    schedule_game_ids,
+                )
         try:
             _overlay_completed_passes_into_player_stat_rows(
                 game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
@@ -3815,6 +4361,21 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
             )
         )
+        _overlay_timetoscore_zero_stats_into_player_stat_rows(
+            game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+        )
+        if not show_shift_data:
+            _mask_shift_stats_in_player_stat_rows(ps_rows)
+        if show_shift_data:
+            try:
+                _overlay_shift_stats_into_player_stat_rows(
+                    game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to overlay shift stats into player stat rows for game_ids=%s",
+                    schedule_game_ids,
+                )
         try:
             _overlay_completed_passes_into_player_stat_rows(
                 game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
@@ -4523,6 +5084,13 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             and int(league_owner_user_id) == _session_user_id(request)
         )
 
+    show_shift_data = True
+    if league_id:
+        try:
+            show_shift_data = _league_show_shift_data(int(league_id))
+        except Exception:
+            show_shift_data = False
+
     _django_orm, m = _orm_modules()
     session_uid = _session_user_id(request)
     owned_row = (
@@ -4720,6 +5288,32 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         )
     )
     stats_rows = list(m.PlayerStat.objects.filter(game_id=int(game_id)).values())
+    player_stats_imported_by_pid: dict[int, dict[str, Optional[int]]] = {}
+    for r0 in stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        if pid_i <= 0:
+            continue
+        player_stats_imported_by_pid[int(pid_i)] = {
+            "toi_seconds": (r0.get("toi_seconds") if r0.get("toi_seconds") is not None else None),
+            "shifts": (r0.get("shifts") if r0.get("shifts") is not None else None),
+            "gf_counted": (r0.get("gf_counted") if r0.get("gf_counted") is not None else None),
+            "ga_counted": (r0.get("ga_counted") if r0.get("ga_counted") is not None else None),
+            "plus_minus": (r0.get("plus_minus") if r0.get("plus_minus") is not None else None),
+        }
+    if not show_shift_data:
+        _mask_shift_stats_in_player_stat_rows(stats_rows)
+    if show_shift_data and stats_rows:
+        try:
+            _overlay_shift_stats_into_player_stat_rows(
+                game_ids=[int(game_id)], player_stats_rows=stats_rows
+            )
+        except Exception:
+            logger.exception(
+                "Failed to overlay shift stats into player stat rows for game_id=%s", game_id
+            )
     team1_skaters, team1_goalies, team1_hc, team1_ac = logic.split_roster(team1_players or [])
     team2_skaters, team2_goalies, team2_hc, team2_ac = logic.split_roster(team2_players or [])
     team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
@@ -4733,6 +5327,14 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         except Exception:
             # Best-effort: event-derived overlays are optional and should not break page rendering.
             pass
+        if show_shift_data:
+            try:
+                _overlay_on_ice_goal_stats_from_shift_rows(
+                    game_id=int(game_id), stats_by_pid=stats_by_pid
+                )
+            except Exception:
+                # Best-effort: shift-derived overlays are optional and should not break page rendering.
+                pass
 
     events_headers, events_rows, events_meta = _load_game_events_for_display(game_id=int(game_id))
 
@@ -4869,7 +5471,51 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
     game_player_stats_columns = logic.build_game_player_stats_display_columns(
         rows=list(team1_player_stats_rows) + list(team2_player_stats_rows)
     )
-    player_stats_cell_conflicts_by_pid: dict[int, dict[str, bool]] = {}
+    player_stats_cell_conflicts_by_pid: dict[int, dict[str, str]] = {}
+    if show_shift_data and player_stats_imported_by_pid:
+        for pid, imported in (player_stats_imported_by_pid or {}).items():
+            try:
+                pid_i = int(pid)
+            except Exception:
+                continue
+            cur = stats_by_pid.get(int(pid_i)) or {}
+
+            def _cmp_int(key: str) -> tuple[Optional[int], Optional[int]]:
+                try:
+                    a0 = imported.get(key)
+                    a = int(a0) if a0 is not None else None
+                except Exception:
+                    a = None
+                try:
+                    b0 = cur.get(key)
+                    b = int(b0) if b0 is not None else None
+                except Exception:
+                    b = None
+                return a, b
+
+            for k in ("toi_seconds", "shifts", "gf_counted", "ga_counted", "plus_minus"):
+                a, b = _cmp_int(k)
+                if a is None or b is None or int(a) == int(b):
+                    continue
+
+                msg = f"Imported {k}={a}, computed from shifts={b}"
+                if k == "plus_minus":
+                    gf = logic._int0(cur.get("gf_counted"))
+                    ga = logic._int0(cur.get("ga_counted"))
+                    msg = (
+                        f"Imported +/-={a:+d}, computed from shifts={b:+d} "
+                        f"(GF={int(gf)}, GA={int(ga)}; goals at shift start excluded)"
+                    )
+                elif k == "gf_counted":
+                    msg = f"Imported GF counted={a}, computed from shifts={b}"
+                elif k == "ga_counted":
+                    msg = f"Imported GA counted={a}, computed from shifts={b}"
+                elif k == "toi_seconds":
+                    msg = f"Imported TOI={a}s, computed from shifts={b}s"
+                elif k == "shifts":
+                    msg = f"Imported shifts={a}, computed from shift rows={b}"
+
+                player_stats_cell_conflicts_by_pid.setdefault(int(pid_i), {})[str(k)] = str(msg)
     player_stats_import_warning: Optional[str] = None
 
     if request.method == "POST" and not edit_mode:
@@ -4967,6 +5613,13 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             ),
         }
 
+    shift_timeline_rows: list[dict[str, str]] = []
+    if show_shift_data:
+        try:
+            shift_timeline_rows = _load_game_shift_rows_for_timeline(game_id=int(game_id))
+        except Exception:
+            shift_timeline_rows = []
+
     return render(
         request,
         "hky_game_detail.html",
@@ -4984,6 +5637,8 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "events_headers": events_headers,
             "events_rows": events_rows,
             "events_meta": events_meta,
+            "shift_timeline_rows": shift_timeline_rows,
+            "show_shift_data": bool(show_shift_data),
             "scoring_by_period_rows": scoring_by_period_rows,
             "game_event_stats_rows": game_event_stats_rows,
             "user_video_clip_len_s": logic.get_user_video_clip_len_s(
@@ -5315,7 +5970,15 @@ def leagues_index(request: HttpRequest) -> HttpResponse:  # pragma: no cover
         m.League.objects.filter(Q(is_shared=True) | Q(owner_user_id=uid) | Q(members__user_id=uid))
         .distinct()
         .order_by("name")
-        .values("id", "name", "is_shared", "is_public", "show_goalie_stats", "owner_user_id")
+        .values(
+            "id",
+            "name",
+            "is_shared",
+            "is_public",
+            "show_goalie_stats",
+            "show_shift_data",
+            "owner_user_id",
+        )
     ):
         lid = int(row["id"])
         is_owner = int(int(row["owner_user_id"]) == uid)
@@ -5327,6 +5990,7 @@ def leagues_index(request: HttpRequest) -> HttpResponse:  # pragma: no cover
                 "is_shared": bool(row["is_shared"]),
                 "is_public": bool(row.get("is_public")),
                 "show_goalie_stats": bool(row.get("show_goalie_stats")),
+                "show_shift_data": bool(row.get("show_shift_data")),
                 "is_owner": is_owner,
                 "is_admin": is_admin,
             }
@@ -5358,6 +6022,7 @@ def leagues_new(request: HttpRequest) -> HttpResponse:  # pragma: no cover
     is_shared = 1 if str(request.POST.get("is_shared") or "") == "1" else 0
     is_public = 1 if str(request.POST.get("is_public") or "") == "1" else 0
     show_goalie_stats = 1 if str(request.POST.get("show_goalie_stats") or "") == "1" else 0
+    show_shift_data = 1 if str(request.POST.get("show_shift_data") or "") == "1" else 0
     if not name:
         messages.error(request, "Name is required")
         return redirect("/leagues")
@@ -5374,6 +6039,7 @@ def leagues_new(request: HttpRequest) -> HttpResponse:  # pragma: no cover
                 is_shared=bool(is_shared),
                 is_public=bool(is_public),
                 show_goalie_stats=bool(show_goalie_stats),
+                show_shift_data=bool(show_shift_data),
                 created_at=now,
                 updated_at=None,
             )
@@ -5403,11 +6069,13 @@ def leagues_update(request: HttpRequest, league_id: int) -> HttpResponse:  # pra
     is_shared = 1 if str(request.POST.get("is_shared") or "") == "1" else 0
     is_public = 1 if str(request.POST.get("is_public") or "") == "1" else 0
     show_goalie_stats = 1 if str(request.POST.get("show_goalie_stats") or "") == "1" else 0
+    show_shift_data = 1 if str(request.POST.get("show_shift_data") or "") == "1" else 0
     _django_orm, m = _orm_modules()
     m.League.objects.filter(id=int(league_id)).update(
         is_shared=bool(is_shared),
         is_public=bool(is_public),
         show_goalie_stats=bool(show_goalie_stats),
+        show_shift_data=bool(show_shift_data),
         updated_at=dt.datetime.now(),
     )
     messages.success(request, "League settings updated")
@@ -5826,6 +6494,12 @@ def public_league_team_detail(
         and int(viewer_user_id) == int(league_owner_user_id)
     )
 
+    show_shift_data = False
+    try:
+        show_shift_data = _league_show_shift_data(int(league_id))
+    except Exception:
+        show_shift_data = False
+
     recent_n_raw = request.GET.get("recent_n")
     try:
         recent_n = max(1, min(10, int(str(recent_n_raw or "5"))))
@@ -5979,6 +6653,21 @@ def public_league_team_detail(
             "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
         )
     )
+    _overlay_timetoscore_zero_stats_into_player_stat_rows(
+        game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+    )
+    if not show_shift_data:
+        _mask_shift_stats_in_player_stat_rows(ps_rows)
+    if show_shift_data:
+        try:
+            _overlay_shift_stats_into_player_stat_rows(
+                game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+            )
+        except Exception:
+            logger.exception(
+                "Failed to overlay shift stats into player stat rows for game_ids=%s",
+                schedule_game_ids,
+            )
     try:
         _overlay_completed_passes_into_player_stat_rows(
             game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
@@ -6453,6 +7142,12 @@ def public_hky_game_detail(
         and int(viewer_user_id) == int(league_owner_user_id)
     )
 
+    show_shift_data = False
+    try:
+        show_shift_data = _league_show_shift_data(int(league_id))
+    except Exception:
+        show_shift_data = False
+
     _django_orm, m = _orm_modules()
     row = (
         m.LeagueGame.objects.filter(league_id=int(league_id), game_id=int(game_id))
@@ -6581,6 +7276,32 @@ def public_hky_game_detail(
         )
     )
     stats_rows = list(m.PlayerStat.objects.filter(game_id=int(game_id)).values())
+    player_stats_imported_by_pid: dict[int, dict[str, Optional[int]]] = {}
+    for r0 in stats_rows:
+        try:
+            pid_i = int(r0.get("player_id") or 0)
+        except Exception:
+            continue
+        if pid_i <= 0:
+            continue
+        player_stats_imported_by_pid[int(pid_i)] = {
+            "toi_seconds": (r0.get("toi_seconds") if r0.get("toi_seconds") is not None else None),
+            "shifts": (r0.get("shifts") if r0.get("shifts") is not None else None),
+            "gf_counted": (r0.get("gf_counted") if r0.get("gf_counted") is not None else None),
+            "ga_counted": (r0.get("ga_counted") if r0.get("ga_counted") is not None else None),
+            "plus_minus": (r0.get("plus_minus") if r0.get("plus_minus") is not None else None),
+        }
+    if not show_shift_data:
+        _mask_shift_stats_in_player_stat_rows(stats_rows)
+    if show_shift_data and stats_rows:
+        try:
+            _overlay_shift_stats_into_player_stat_rows(
+                game_ids=[int(game_id)], player_stats_rows=stats_rows
+            )
+        except Exception:
+            logger.exception(
+                "Failed to overlay shift stats into player stat rows for game_id=%s", game_id
+            )
     team1_skaters, team1_goalies, team1_hc, team1_ac = logic.split_roster(team1_players)
     team2_skaters, team2_goalies, team2_hc, team2_ac = logic.split_roster(team2_players)
     team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
@@ -6591,6 +7312,14 @@ def public_hky_game_detail(
     except Exception:
         # Best-effort: event-derived overlays are optional and should not break page rendering.
         pass
+    if show_shift_data:
+        try:
+            _overlay_on_ice_goal_stats_from_shift_rows(
+                game_id=int(game_id), stats_by_pid=stats_by_pid
+            )
+        except Exception:
+            # Best-effort: shift-derived overlays are optional and should not break page rendering.
+            pass
     tts_linked = logic._extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
 
     events_headers, events_rows, events_meta = _load_game_events_for_display(game_id=int(game_id))
@@ -6727,7 +7456,51 @@ def public_hky_game_detail(
     game_player_stats_columns = logic.build_game_player_stats_display_columns(
         rows=list(team1_player_stats_rows) + list(team2_player_stats_rows)
     )
-    player_stats_cell_conflicts_by_pid: dict[int, dict[str, bool]] = {}
+    player_stats_cell_conflicts_by_pid: dict[int, dict[str, str]] = {}
+    if show_shift_data and player_stats_imported_by_pid:
+        for pid, imported in (player_stats_imported_by_pid or {}).items():
+            try:
+                pid_i = int(pid)
+            except Exception:
+                continue
+            cur = stats_by_pid.get(int(pid_i)) or {}
+
+            def _cmp_int(key: str) -> tuple[Optional[int], Optional[int]]:
+                try:
+                    a0 = imported.get(key)
+                    a = int(a0) if a0 is not None else None
+                except Exception:
+                    a = None
+                try:
+                    b0 = cur.get(key)
+                    b = int(b0) if b0 is not None else None
+                except Exception:
+                    b = None
+                return a, b
+
+            for k in ("toi_seconds", "shifts", "gf_counted", "ga_counted", "plus_minus"):
+                a, b = _cmp_int(k)
+                if a is None or b is None or int(a) == int(b):
+                    continue
+
+                msg = f"Imported {k}={a}, computed from shifts={b}"
+                if k == "plus_minus":
+                    gf = logic._int0(cur.get("gf_counted"))
+                    ga = logic._int0(cur.get("ga_counted"))
+                    msg = (
+                        f"Imported +/-={a:+d}, computed from shifts={b:+d} "
+                        f"(GF={int(gf)}, GA={int(ga)}; goals at shift start excluded)"
+                    )
+                elif k == "gf_counted":
+                    msg = f"Imported GF counted={a}, computed from shifts={b}"
+                elif k == "ga_counted":
+                    msg = f"Imported GA counted={a}, computed from shifts={b}"
+                elif k == "toi_seconds":
+                    msg = f"Imported TOI={a}s, computed from shifts={b}s"
+                elif k == "shifts":
+                    msg = f"Imported shifts={a}, computed from shift rows={b}"
+
+                player_stats_cell_conflicts_by_pid.setdefault(int(pid_i), {})[str(k)] = str(msg)
     player_stats_import_warning: Optional[str] = None
 
     default_back_url = f"/public/leagues/{int(league_id)}/schedule"
@@ -6744,6 +7517,13 @@ def public_hky_game_detail(
                 None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
             ),
         }
+
+    shift_timeline_rows: list[dict[str, str]] = []
+    if show_shift_data:
+        try:
+            shift_timeline_rows = _load_game_shift_rows_for_timeline(game_id=int(game_id))
+        except Exception:
+            shift_timeline_rows = []
 
     return render(
         request,
@@ -6763,6 +7543,8 @@ def public_hky_game_detail(
             "events_headers": events_headers,
             "events_rows": events_rows,
             "events_meta": events_meta,
+            "shift_timeline_rows": shift_timeline_rows,
+            "show_shift_data": bool(show_shift_data),
             "scoring_by_period_rows": scoring_by_period_rows,
             "game_event_stats_rows": game_event_stats_rows,
             "user_video_clip_len_s": (
@@ -7854,6 +8636,21 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
                     )
             if to_create:
                 m2.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
+            # For TimeToScore-linked games, core player stats should be treated as known "0" when absent.
+            # This keeps per-game denominators stable even when a player has 0 PIM/goals/assists.
+            if tts_game_id is not None:
+                for tid, pids in roster_player_ids_by_team.items():
+                    if not pids:
+                        continue
+                    qs = m2.PlayerStat.objects.filter(
+                        game_id=int(gid), team_id=int(tid), player_id__in=list(pids)
+                    )
+                    if replace:
+                        qs.update(goals=0, assists=0, pim=0)
+                    else:
+                        qs.filter(goals__isnull=True).update(goals=0)
+                        qs.filter(assists__isnull=True).update(assists=0)
+                        qs.filter(pim__isnull=True).update(pim=0)
 
         if isinstance(stats_rows, list):
             for srow in stats_rows:
@@ -7864,6 +8661,7 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
                     continue
                 goals = srow.get("goals")
                 assists = srow.get("assists")
+                pim = srow.get("pim")
                 try:
                     gval = int(goals) if goals is not None else 0
                 except Exception:
@@ -7872,6 +8670,10 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
                     aval = int(assists) if assists is not None else 0
                 except Exception:
                     aval = 0
+                try:
+                    pim_val = int(pim) if pim is not None and str(pim).strip() != "" else None
+                except Exception:
+                    pim_val = None
 
                 team_ref = team1_id
                 pid = _player_id_by_name(team1_id, pname)
@@ -7890,15 +8692,21 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
                         "team_id": int(team_ref),
                         "goals": gval,
                         "assists": aval,
+                        "pim": pim_val,
                     },
                 )
                 if replace or force_tts_scoring:
-                    m2.PlayerStat.objects.filter(id=ps.id).update(goals=gval, assists=aval)
+                    updates = {"goals": gval, "assists": aval}
+                    if pim_val is not None:
+                        updates["pim"] = pim_val
+                    m2.PlayerStat.objects.filter(id=ps.id).update(**updates)
                 else:
                     m2.PlayerStat.objects.filter(id=ps.id, goals__isnull=True).update(goals=gval)
                     m2.PlayerStat.objects.filter(id=ps.id, assists__isnull=True).update(
                         assists=aval
                     )
+                    if pim_val is not None:
+                        m2.PlayerStat.objects.filter(id=ps.id, pim__isnull=True).update(pim=pim_val)
 
     return JsonResponse(
         {
@@ -8227,6 +9035,21 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                         )
                 if to_create:
                     m.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
+                # For TimeToScore-linked games, core player stats should be treated as known "0" when absent.
+                # This keeps per-game denominators stable even when a player has 0 PIM/goals/assists.
+                if tts_game_id is not None:
+                    for tid, pids in roster_player_ids_by_team.items():
+                        if not pids:
+                            continue
+                        qs = m.PlayerStat.objects.filter(
+                            game_id=int(gid), team_id=int(tid), player_id__in=list(pids)
+                        )
+                        if game_replace:
+                            qs.update(goals=0, assists=0, pim=0)
+                        else:
+                            qs.filter(goals__isnull=True).update(goals=0)
+                            qs.filter(assists__isnull=True).update(assists=0)
+                            qs.filter(pim__isnull=True).update(pim=0)
 
             if isinstance(stats_rows, list):
                 for srow in stats_rows:
@@ -8694,6 +9517,8 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
     player_stats_csv = payload.get("player_stats_csv")
     game_stats_csv = payload.get("game_stats_csv")
     events_csv = payload.get("events_csv")
+    shift_rows_csv = payload.get("shift_rows_csv")
+    replace_shift_rows_payload = payload.get("replace_shift_rows")
     game_video_url = (
         payload.get("game_video_url") or payload.get("game_video") or payload.get("video_url")
     )
@@ -8749,7 +9574,18 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             )
 
     imported = 0
+    imported_shifts = 0
     unmatched: list[str] = []
+
+    if isinstance(shift_rows_csv, str) and shift_rows_csv.strip():
+        if team_side not in {"home", "away"}:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "shift_rows_csv requires team_side='home' or 'away'",
+                },
+                status=400,
+            )
 
     # Optional roster seed (provided by client, e.g., parse_stats_inputs scraping TimeToScore).
     # This lets the webapp create missing roster players (including goalies) without contacting T2S.
@@ -8842,6 +9678,18 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                     return int(list(set(candidates))[0])
             return None
 
+        def _boolish(raw: Any) -> bool:
+            if isinstance(raw, bool):
+                return bool(raw)
+            s = str(raw or "").strip().casefold()
+            if not s:
+                return False
+            if s in {"1", "true", "yes", "y", "on"}:
+                return True
+            if s in {"0", "false", "no", "n", "off"}:
+                return False
+            return bool(raw)
+
         now = dt.datetime.now()
         with transaction.atomic():
             if isinstance(events_csv, str) and events_csv.strip():
@@ -8912,6 +9760,151 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 except Exception:
                     pass
 
+            if (
+                isinstance(shift_rows_csv, str)
+                and shift_rows_csv.strip()
+                and team_side in {"home", "away"}
+            ):
+                side_norm, side_label = _normalize_team_side(team_side)
+                team_id_for_rows = team1_id if side_norm == "home" else team2_id
+                source_label = (
+                    str(payload.get("source_label") or "shift_package").strip() or "shift_package"
+                )
+
+                replace_shift_rows = (
+                    bool(replace)
+                    if replace_shift_rows_payload is None
+                    else bool(_boolish(replace_shift_rows_payload))
+                )
+
+                parsed_shift_rows = logic.parse_shift_rows_csv(str(shift_rows_csv))
+
+                # Clear legacy stored shift aggregates so TOI/shifts are derived at runtime.
+                try:
+                    m.PlayerStat.objects.filter(
+                        game_id=int(resolved_game_id),
+                        team_id=int(team_id_for_rows),
+                    ).update(
+                        toi_seconds=None,
+                        shifts=None,
+                        video_toi_seconds=None,
+                        sb_avg_shift_seconds=None,
+                        sb_median_shift_seconds=None,
+                        sb_longest_shift_seconds=None,
+                        sb_shortest_shift_seconds=None,
+                    )
+                except Exception:
+                    pass
+
+                if replace_shift_rows and side_label:
+                    m.HkyGameShiftRow.objects.filter(
+                        game_id=int(resolved_game_id),
+                        team_side=str(side_label),
+                    ).delete()
+
+                to_create: list[Any] = []
+                seen_keys: set[str] = set()
+                for r0 in parsed_shift_rows:
+                    period = r0.get("period")
+                    game_s = r0.get("game_seconds")
+                    game_s_end = r0.get("game_seconds_end")
+                    if period is None or game_s is None or game_s_end is None:
+                        continue
+                    try:
+                        per_i = int(period)
+                        gs_i = int(game_s)
+                        ge_i = int(game_s_end)
+                    except Exception:
+                        continue
+                    if per_i <= 0:
+                        continue
+
+                    jersey_norm = r0.get("jersey_number")
+                    name_norm = str(r0.get("name_norm") or "")
+                    name_norm_no_middle = str(r0.get("name_norm_no_middle") or "")
+                    pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
+                    if pid is None:
+                        if create_missing_players and team_side in {"home", "away"}:
+                            disp = str(r0.get("player_label") or "").strip()
+                            match = re.match(r"^\s*\d+\s+(.*)$", disp)
+                            if match:
+                                disp = str(match.group(1) or "").strip()
+                            if disp:
+                                try:
+                                    pid = _ensure_player_for_import(
+                                        owner_user_id,
+                                        int(team_id_for_rows),
+                                        disp,
+                                        str(jersey_norm or "").strip() or None,
+                                        None,
+                                        commit=False,
+                                    )
+                                    _register_player(
+                                        int(pid),
+                                        int(team_id_for_rows),
+                                        name=str(disp),
+                                        jersey_number=jersey_norm,
+                                    )
+                                except Exception:
+                                    pid = None
+                        if pid is None:
+                            unmatched.append(r0.get("player_label") or "")
+                            continue
+
+                    import_key = str(r0.get("import_key") or "").strip()
+                    if not import_key:
+                        base = "|".join(
+                            [
+                                str(side_label or ""),
+                                str(jersey_norm or ""),
+                                str(name_norm or ""),
+                                str(per_i),
+                                str(gs_i),
+                                str(ge_i),
+                                str(r0.get("video_seconds") or ""),
+                                str(r0.get("video_seconds_end") or ""),
+                            ]
+                        )
+                        import_key = hashlib.sha1(base.encode("utf-8")).hexdigest()[:40]
+                    if len(import_key) > 64:
+                        import_key = import_key[:64]
+                    if import_key in seen_keys:
+                        continue
+                    seen_keys.add(import_key)
+
+                    vs0 = r0.get("video_seconds")
+                    vs1 = r0.get("video_seconds_end")
+                    try:
+                        vs_i = int(vs0) if vs0 is not None else None
+                    except Exception:
+                        vs_i = None
+                    try:
+                        ve_i = int(vs1) if vs1 is not None else None
+                    except Exception:
+                        ve_i = None
+
+                    to_create.append(
+                        m.HkyGameShiftRow(
+                            game_id=int(resolved_game_id),
+                            import_key=str(import_key),
+                            source=str(r0.get("source") or source_label),
+                            team_id=int(team_id_for_rows),
+                            player_id=int(pid),
+                            team_side=str(side_label or ""),
+                            period=int(per_i),
+                            game_seconds=int(gs_i),
+                            game_seconds_end=int(ge_i),
+                            video_seconds=vs_i,
+                            video_seconds_end=ve_i,
+                            created_at=now,
+                            updated_at=None,
+                        )
+                    )
+
+                if to_create:
+                    m.HkyGameShiftRow.objects.bulk_create(to_create, ignore_conflicts=True)
+                    imported_shifts += len(to_create)
+
             if isinstance(player_stats_csv, str) and player_stats_csv.strip():
                 parsed_rows = logic.parse_shift_stats_player_stats_csv(player_stats_csv)
                 if replace:
@@ -8924,7 +9917,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         sb_longest_shift_seconds=None,
                         sb_shortest_shift_seconds=None,
                     )
-                    m.PlayerPeriodStat.objects.filter(game_id=int(resolved_game_id)).delete()
                 for row in parsed_rows:
                     jersey_norm = row.get("jersey_number")
                     name_norm = row.get("name_norm") or ""
@@ -8982,13 +9974,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         "plus_minus",
                         "hits",
                         "blocks",
-                        "toi_seconds",
-                        "shifts",
-                        "video_toi_seconds",
-                        "sb_avg_shift_seconds",
-                        "sb_median_shift_seconds",
-                        "sb_longest_shift_seconds",
-                        "sb_shortest_shift_seconds",
                         "faceoff_wins",
                         "faceoff_attempts",
                         "goalie_saves",
@@ -9028,7 +10013,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                             m.PlayerStat.objects.filter(id=ps.id).update(**updates)
                     imported += 1
 
-            if player_stats_csv or game_stats_csv or events_csv:
+            if player_stats_csv or game_stats_csv or events_csv or shift_rows_csv:
                 m.HkyGame.objects.filter(id=int(resolved_game_id)).update(stats_imported_at=now)
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
@@ -9038,6 +10023,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             "ok": True,
             "game_id": int(resolved_game_id),
             "imported_players": int(imported),
+            "imported_shifts": int(imported_shifts),
             "unmatched": [u for u in unmatched if u],
         }
     )

@@ -125,6 +125,74 @@ def should_parse_per_player_layout_and_skip_goalies():
     ]
 
 
+def should_write_shift_rows_csv_for_webapp_upload_even_without_shifts_flag(tmp_path: Path):
+    df = _basic_shift_sheet_df()
+    xls_path = tmp_path / "game.xlsx"
+    df.to_excel(xls_path, index=False, header=False)
+
+    out_root = tmp_path / "player_focus"
+    final_outdir, _rows, _periods, _events, _pair_rows = pss.process_sheet(
+        xls_path=xls_path,
+        sheet_name=None,
+        outdir=out_root,
+        keep_goalies=False,
+        goals=[],
+        roster_map=None,
+        t2s_rosters_by_side=None,
+        t2s_side="home",
+        t2s_game_id=None,
+        allow_remote=False,
+        allow_full_sync=False,
+        long_xls_paths=None,
+        focus_team_override=None,
+        include_shifts_in_stats=False,
+        write_events_summary=True,
+        skip_validation=True,
+        create_scripts=False,
+        write_opponent_stats_from_long_shifts=False,
+        verbose=False,
+    )
+    shift_rows = Path(final_outdir) / "stats" / "shift_rows.csv"
+    assert shift_rows.exists()
+    text = shift_rows.read_text(encoding="utf-8")
+    assert "Jersey #" in text.splitlines()[0]
+    assert "Alice" in text
+
+
+def should_write_shift_rows_csv_for_long_shift_team_when_enabled(tmp_path: Path):
+    df = _basic_shift_sheet_df()
+    xls_path = tmp_path / "game.xlsx"
+    df.to_excel(xls_path, index=False, header=False)
+
+    long_shift_tables_by_team = {
+        "Team X": {
+            "sb_pairs_by_player": {"12_Alice": [(1, "15:00", "14:00")]},
+            "video_pairs_by_player": {"12_Alice": [("0:10", "0:50")]},
+        }
+    }
+    outdir, _rows, _periods, _events, _pair_rows = pss._write_team_stats_from_long_shift_team(
+        game_out_root=tmp_path,
+        format_dir="per_player",
+        team_side="home",
+        team_name="Team X",
+        long_shift_tables_by_team=long_shift_tables_by_team,
+        goals=[],
+        event_log_context=None,
+        focus_team=None,
+        include_shifts_in_stats=False,
+        write_shift_rows_csv=True,
+        xls_path=xls_path,
+        t2s_rosters_by_side=None,
+        create_scripts=False,
+        skip_if_exists=False,
+    )
+    shift_rows = Path(outdir) / "stats" / "shift_rows.csv"
+    assert shift_rows.exists()
+    text = shift_rows.read_text(encoding="utf-8")
+    assert "12" in text
+    assert "15:00" not in text  # stored as seconds, not raw strings
+
+
 def should_parse_per_player_layout_reports_validation_errors():
     header = [
         "Jersey No",
