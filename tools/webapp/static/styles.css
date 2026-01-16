@@ -4,6 +4,7 @@
 	  --panel: #171a21;
 	  --text: #e6e8ec;
 	  --muted: #9aa4b2;
+	  --muted-strong: #b8c1ce;
 	  /* Used when muted text appears on light/white surfaces (e.g., table cells). */
 	  --muted-on-light: #4b5563;
 	  --accent: #ff6a13; /* vibrant orange */
@@ -184,8 +185,9 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 .status-RUNNING, .status-SUBMITTED, .status-PENDING { background: rgba(255,106,19,.15); color: #ffb58a; border: 1px solid rgba(255,106,19,.35); }
 .status-FAILED, .status-CANCELLED, .status-TIMEOUT { background: rgba(220,53,69,.12); color: #ff9aa7; border: 1px solid rgba(220,53,69,.3); }
 
-.muted { color: var(--muted); }
-.spacer { height: 1rem; }
+	.muted { color: var(--muted); }
+	.muted-strong { color: var(--muted-strong); }
+	.spacer { height: 1rem; }
 
 .event-type-cell {
   display: inline-flex;
