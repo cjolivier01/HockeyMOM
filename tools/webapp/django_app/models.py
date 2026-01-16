@@ -15,6 +15,7 @@ class League(models.Model):
     is_shared = models.BooleanField(default=False)
     is_public = models.BooleanField(default=False)
     show_goalie_stats = models.BooleanField(default=False)
+    show_shift_data = models.BooleanField(default=False)
     source = models.CharField(max_length=64, null=True, blank=True)
     external_key = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField()
@@ -314,6 +315,45 @@ class HkyGameEventRow(models.Model):
             models.Index(fields=["game", "event_type"], name="idx_event_game_type"),
             models.Index(fields=["game", "player"], name="idx_event_game_player"),
             models.Index(fields=["game", "period", "game_seconds"], name="idx_event_game_time"),
+        ]
+
+
+class HkyGameShiftRow(models.Model):
+    """
+    Per-player shift intervals imported from spreadsheets (separate from hky_game_event_rows).
+    These are used to derive TOI/shifts at runtime and (optionally) render on/off-ice markers.
+    """
+
+    game = models.ForeignKey(HkyGame, on_delete=models.CASCADE, related_name="shift_rows")
+
+    # Idempotency key for upserting shift rows from repeated imports.
+    import_key = models.CharField(max_length=64)
+
+    source = models.CharField(max_length=255, null=True, blank=True)
+
+    # Optional resolved references for querying/aggregation.
+    team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True)
+    player = models.ForeignKey(Player, on_delete=models.SET_NULL, null=True, blank=True)
+
+    # Interval identity.
+    team_side = models.CharField(max_length=16, null=True, blank=True)
+    period = models.IntegerField(null=True, blank=True)
+    game_seconds = models.IntegerField(null=True, blank=True)
+    game_seconds_end = models.IntegerField(null=True, blank=True)
+    video_seconds = models.IntegerField(null=True, blank=True)
+    video_seconds_end = models.IntegerField(null=True, blank=True)
+
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "hky_game_shift_rows"
+        constraints = [
+            models.UniqueConstraint(fields=["game", "import_key"], name="uniq_shift_game_import"),
+        ]
+        indexes = [
+            models.Index(fields=["game", "player"], name="idx_shift_game_player"),
+            models.Index(fields=["game", "period", "game_seconds"], name="idx_shift_game_time"),
         ]
 
 

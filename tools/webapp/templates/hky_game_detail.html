@@ -433,9 +433,11 @@
         <svg id="game-events-timeline-svg" class="events-timeline-svg" role="img" aria-label="Game events timeline"></svg>
       </div>
       <script type="application/json" id="game-events-timeline-data">{{ events_rows|tojson }}</script>
+      <script type="application/json" id="game-shifts-timeline-data">{{ shift_timeline_rows|tojson }}</script>
       <script>
         (function () {
           var dataEl = document.getElementById("game-events-timeline-data");
+          var shiftEl = document.getElementById("game-shifts-timeline-data");
           var svg = document.getElementById("game-events-timeline-svg");
           var legendEl = document.getElementById("game-events-timeline-legend");
           var clipControlsEl = document.getElementById("timeline-clip-controls");
@@ -443,6 +445,7 @@
           if (!dataEl || !svg || !legendEl) return;
           var userClipLenS = {{ user_video_clip_len_s|tojson }};
           var userIsLoggedIn = {{ user_is_logged_in|tojson }};
+          var showShiftData = {{ show_shift_data|tojson }};
 
             var homeTeamName = {{ game.team1_name|default:"Home"|tojson }};
             var awayTeamName = {{ game.team2_name|default:"Away"|tojson }};
@@ -470,7 +473,19 @@
           } catch (e) {
             eventsRows = [];
           }
-          if (!Array.isArray(eventsRows) || eventsRows.length === 0) return;
+          if (!Array.isArray(eventsRows)) eventsRows = [];
+          if (showShiftData && shiftEl) {
+            var shiftRows = [];
+            try {
+              shiftRows = JSON.parse(shiftEl.textContent || "[]") || [];
+            } catch (e) {
+              shiftRows = [];
+            }
+            if (Array.isArray(shiftRows) && shiftRows.length) {
+              eventsRows = eventsRows.concat(shiftRows);
+            }
+          }
+          if (eventsRows.length === 0) return;
 
           function parseTimeToSeconds(s) {
             s = (s || "").trim();
@@ -542,6 +557,8 @@
             if (sl === "powerplay" || sl === "power play" || sl === "pp") return "Power Play";
             if (sl === "penaltykill" || sl === "penalty kill" || sl === "pk") return "Penalty Kill";
             if (sl === "completedpass" || sl === "completed pass" || sl === "completed passes") return "Completed Pass";
+            if (sl === "on-ice" || sl === "on ice" || sl === "playeronice") return "On-Ice";
+            if (sl === "off-ice" || sl === "off ice" || sl === "playeroffice") return "Off-Ice";
             if (sl.indexOf("rush") >= 0) return "Odd-Man Rushes";
             if (sl === "controlledentry" || sl === "controlled entry") return "Controlled Entry";
             if (sl === "controlledexit" || sl === "controlled exit") return "Controlled Exit";
@@ -566,6 +583,8 @@
             if (sl === "controlled entry") return "controlled_entry";
             if (sl === "controlled exit") return "controlled_exit";
             if (sl === "completed pass" || sl === "completed passes") return "completed_pass";
+            if (sl === "on-ice" || sl === "on ice") return "on_ice";
+            if (sl === "off-ice" || sl === "off ice") return "off_ice";
             if (sl.indexOf("rush") >= 0) return "odd_man_rush";
             if (sl.indexOf("turnovers") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
             if (sl.indexOf("created") >= 0 && sl.indexOf("turnovers") >= 0) return "turnover_created";
@@ -593,6 +612,7 @@
             if (isFinishFamily(iconKey)) return "finish";
             if (iconKey === "controlled_entry" || iconKey === "controlled_exit") return "transition";
             if (iconKey === "completed_pass") return "completed_pass";
+            if (iconKey === "on_ice" || iconKey === "off_ice") return "shift";
             return iconKey;
           }
 
@@ -901,6 +921,12 @@
             } else if (icon === "completed_pass") {
               // Completed pass: bold yellow "C".
               text(12, 12, "C", "#fbbf24", 14, 900);
+            } else if (icon === "on_ice") {
+              // Shift: on-ice marker (green up triangle).
+              path("M12 5l7 10H5z", "#22c55e", "rgba(0,0,0,0.40)", 1.1, "round", "round");
+            } else if (icon === "off_ice") {
+              // Shift: off-ice marker (red down triangle).
+              path("M5 9h14L12 19z", "#ef4444", "rgba(0,0,0,0.40)", 1.1, "round", "round");
             } else if (icon === "odd_man_rush") {
               // 3 arrows rushing vs 2 defenders (dots): "3-on-2".
               path("M4 9h7", "none", "#f59e0b", 2.8, "round", "round");
@@ -1479,6 +1505,7 @@
               "finish",
               "transition",
               "completed_pass",
+              "shift",
               "odd_man_rush",
               "takeaway",
               "giveaway",
@@ -1495,6 +1522,8 @@
               "controlled_entry",
               "controlled_exit",
               "completed_pass",
+              "on_ice",
+              "off_ice",
               "odd_man_rush",
               "takeaway",
               "giveaway",
