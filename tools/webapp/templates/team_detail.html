@@ -659,10 +659,17 @@
     padding: .45rem .65rem;
     font-size: .88rem;
   }
+  #team-player-pairings-body table.team-player-pairings-table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
 
   /* Keep the pairings header visible while scrolling within the modal. */
   #team-player-pairings-body .table-scroll-y {
     max-height: 62vh;
+  }
+  #team-player-pairings-body .table-scroll-y thead th {
+    z-index: 20;
   }
 </style>
 
@@ -1513,6 +1520,10 @@
           try {
             window.requestAnimationFrame(function () {
               applyPairingsFrozenColumns(table);
+              window.requestAnimationFrame(function () {
+                applyPairingsFrozenColumns(table);
+                window.setTimeout(function () { applyPairingsFrozenColumns(table); }, 0);
+              });
             });
           } catch (e) {
             applyPairingsFrozenColumns(table);
